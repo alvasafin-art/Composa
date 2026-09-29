@@ -193,9 +193,27 @@ public sealed partial class EditorSession
     /// <summary>Runs multiple ordinary editor commands as one history entry for automation, scripts and assistants.</summary>
     public void RunTransaction(string name, Action<EditorSession> commands)
     {
+        if (transactionDepth > 0) { commands(this); return; }
         Begin(name);
         transactionDepth++;
         try { commands(this); }
+        catch
+        {
+            transactionDepth--;
+            Cancel();
+            throw;
+        }
+        transactionDepth--;
+        Commit();
+    }
+
+    /// <summary>Runs editor commands and awaited AI work as one history entry.</summary>
+    public async Task RunTransactionAsync(string name, Func<EditorSession, Task> commands)
+    {
+        if (transactionDepth > 0) { await commands(this); return; }
+        Begin(name);
+        transactionDepth++;
+        try { await commands(this); }
         catch
         {
             transactionDepth--;

@@ -18,6 +18,8 @@ public class SettingsTests
         var settings = new Settings
         {
             ShowTransformControls = false, AutoSelect = false, ShowPixelGrid = false,
+            AssistantServerUrl = "http://127.0.0.1:18080", AssistantServerExecutable = "llama-server.exe",
+            AssistantModelPath = "assistant.gguf", AssistantContextSize = 8192, AssistantMaxTokens = 1024, AssistantAutoStart = false,
             View = new ViewOptions
             {
                 ShowRulers = true, ShowGrid = true, Snap = false, SnapToGrid = true, LockGuides = true,
@@ -30,6 +32,9 @@ public class SettingsTests
         var loaded = JsonSerializer.Deserialize<Settings>(json)!;
         Assert.Equal((false, false, false), (loaded.ShowTransformControls, loaded.AutoSelect, loaded.ShowPixelGrid));
         Assert.Equal(settings.View, loaded.View);
+        Assert.Equal((settings.AssistantServerUrl, settings.AssistantServerExecutable, settings.AssistantModelPath),
+            (loaded.AssistantServerUrl, loaded.AssistantServerExecutable, loaded.AssistantModelPath));
+        Assert.Equal((8192, 1024, false), (loaded.AssistantContextSize, loaded.AssistantMaxTokens, loaded.AssistantAutoStart));
         // A settings file from before these were remembered keeps the defaults.
         var old = JsonSerializer.Deserialize<Settings>("""{ "JpegQuality": 80 }""")!;
         Assert.Equal((true, true, true), (old.ShowTransformControls, old.AutoSelect, old.View.Snap));

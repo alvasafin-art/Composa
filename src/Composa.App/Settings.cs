@@ -35,6 +35,13 @@ public sealed class Settings
     public List<AiLoraSetting> AiLoras { get; set; } = [];
     public List<string> CustomLayerTags { get; set; } = [];
 
+    public string AssistantServerUrl { get; set; } = "http://127.0.0.1:8080";
+    public string AssistantServerExecutable { get; set; } = Environment.GetEnvironmentVariable("COMPOSA_LLAMA_SERVER") ?? "";
+    public string AssistantModelPath { get; set; } = Environment.GetEnvironmentVariable("COMPOSA_LLAMA_MODEL") ?? "";
+    public int AssistantContextSize { get; set; } = 16384;
+    public int AssistantMaxTokens { get; set; } = 1536;
+    public bool AssistantAutoStart { get; set; } = true;
+
     /// <summary>Whether the MCP server runs, so an AI agent can drive the editor. Off until someone switches it on.</summary>
     public bool AllowAiControl { get; set; }
 

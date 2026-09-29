@@ -40,6 +40,8 @@
     <InternalsVisibleTo Include="Composa.App.Tests" />
     <!-- The MCP server that lets an AI agent drive the editor. Core only: the ASP.NET hosting package has no place in a desktop app. -->
     <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
+    <!-- Sandboxed JavaScript runtime for saved automation and Assistant-generated scripts. -->
+    <PackageReference Include="Jint" Version="4.9.2" />
     <AvaloniaResource Include="Assets/**" />
     <Content Include="../../ai/**" Link="ai/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!--

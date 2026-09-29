@@ -6,6 +6,8 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Composa.App.AI;
+using Composa.App.Assistant;
+using Composa.App.Automation;
 using Composa.App.Controls;
 using Composa.Editing;
 using Composa.Model;
@@ -35,6 +37,8 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock aiTaskText = new() { Foreground = Palette.Accent };
     private readonly Border aiContextHost = new() { Background = Brushes.Transparent, Padding = new Thickness(8, 0, 0, 0), IsVisible = false };
     private readonly AiTaskService aiTasks;
+    private readonly LlamaServerHost assistantServer;
+    private readonly JavaScriptRuntime scriptRuntime = new();
     private Mcp.McpHost? aiControl;
     private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
     private readonly Border backgroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
@@ -54,6 +58,7 @@ public sealed partial class MainWindow : Window
         };
         aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
         aiTasks.StateChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiUi);
+        assistantServer = new LlamaServerHost(settings);
         Title = "Composa";
         Width = Math.Clamp(settings.WindowWidth, 800, 10000);
         Height = Math.Clamp(settings.WindowHeight, 520, 10000);
@@ -88,7 +93,11 @@ public sealed partial class MainWindow : Window
         // The update notice sits under the menu, where it is visible without covering anything.
         BuildAiContextBar();
         combinedOptions.Children.Add(toolOptionsHost);
-        AddAt(combinedOptions, aiContextHost, 1);
+        var assistantButton = Ui.TextButton("Assistant", ShowAssistant);
+        assistantButton.MinWidth = 0;
+        ToolTip.SetTip(assistantButton, "Open the local editing Assistant");
+        var intelligentTools = Ui.Row(8, aiContextHost, assistantButton);
+        AddAt(combinedOptions, intelligentTools, 1);
         optionsHost.Child = combinedOptions;
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
         root.Children.Add(BuildMenu());
@@ -123,6 +132,7 @@ public sealed partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         DragDrop.SetAllowDrop(this, true);
         Closing += OnClosing;
+        Closed += (_, _) => assistantServer.Dispose();
         if (Settings.Persist)
             Opened += async (_, _) =>
             {

@@ -158,7 +158,7 @@ public sealed partial class MainWindow
                 ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]
                 : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
-            Item("Assistant (stage 3)", () => { }, enabled: () => false, needsDocument: false));
+            Item("Assistant…", ShowAssistant, needsDocument: false));
 
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
         clipItem = Item("Create Clipping Mask", () => session!.ToggleClippingMask(session.ActiveLayer!), Key.G, ctrl | alt, () => session!.ActiveLayer is { } l && session.CanClip(l));

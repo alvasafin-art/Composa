@@ -26,6 +26,13 @@ public interface IAiTaskRunner
     Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default);
 }
 
-public interface IAssistantProvider { string Id { get; } }
+public sealed record AssistantRequest(string UserText, string DocumentContext, string ScriptingReference);
+public sealed record AssistantPlan(string Summary, string Script);
+
+public interface IAssistantProvider
+{
+    string Id { get; }
+    Task<AssistantPlan> PlanAsync(AssistantRequest request, CancellationToken cancellationToken = default);
+}
 public interface IScriptRuntime { string Language { get; } }
 public interface IPluginCommandProvider { IEnumerable<string> CommandIds { get; } }
