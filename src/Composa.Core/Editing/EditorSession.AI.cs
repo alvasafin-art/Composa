@@ -1,0 +1,154 @@
+using Composa.AI;
+using Composa.Model;
+using Composa.Rendering;
+using Composa.Selections;
+using SkiaSharp;
+
+namespace Composa.Editing;
+
+public sealed record AiOutput(string Name, SKBitmap Pixels, SKBitmap? Mask = null, IReadOnlyCollection<string>? Tags = null);
+
+public sealed partial class EditorSession
+{
+    public void ApplyAiSelection(AiTaskKind task, SKBitmap mask)
+    {
+        if (mask.ColorType != SKColorType.Alpha8 || mask.Width != document.Width || mask.Height != document.Height)
+            throw new ArgumentException("An AI selection must be a document-sized Alpha8 bitmap.");
+        SetSelection("AI " + task.DisplayName(), mask);
+    }
+
+    /// <summary>Inserts every part of an AI result as one non-destructive, undoable editor transaction.</summary>
+    public IReadOnlyList<Layer> InsertAiOutput(AiTaskKind task, IReadOnlyList<AiOutput> outputs, bool group = false)
+    {
+        if (outputs.Count == 0) return [];
+        var layers = outputs.Select(output =>
+        {
+            if (output.Pixels.ColorType != SKColorType.Rgba8888) throw new ArgumentException("AI output must be an RGBA8888 bitmap.");
+            if (output.Mask != null && (output.Mask.ColorType != SKColorType.Alpha8 || output.Mask.Width != output.Pixels.Width || output.Mask.Height != output.Pixels.Height))
+                throw new ArgumentException("An AI output mask must be Alpha8 and match its image.");
+            var layer = Layer.Raster(string.IsNullOrWhiteSpace(output.Name) ? "AI " + task.DisplayName() : output.Name, output.Pixels);
+            layer.Mask = output.Mask;
+            layer.Tags.Add("ai-generated");
+            if (output.Tags != null) foreach (var tag in output.Tags) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
+            return layer;
+        }).ToList();
+        Apply("AI " + task.DisplayName(), () =>
+        {
+            if (group)
+            {
+                var folder = Layer.Group("AI " + task.DisplayName());
+                folder.Tags.Add("ai-generated");
+                folder.Children.AddRange(layers);
+                document.InsertAboveActive(folder);
+            }
+            else foreach (var layer in layers) document.InsertAboveActive(layer);
+            document.SelectedLayerIds.Clear();
+            if (!group)
+            {
+                foreach (var layer in layers) document.SelectedLayerIds.Add(layer.Id);
+                document.ActiveLayerId = layers[^1].Id;
+            }
+        });
+        InvalidateAll();
+        LayersChanged?.Invoke();
+        return layers;
+    }
+
+    public IEnumerable<Layer> FindLayersByTag(string tag)
+    {
+        var normalized = LayerTags.Normalize(tag);
+        return normalized == null ? [] : document.AllLayers().Where(layer => layer.Tags.Contains(normalized));
+    }
+
+    public void SetLayerTags(Layer layer, IEnumerable<string> tags)
+    {
+        var chosen = tags.Select(LayerTags.Normalize).Where(tag => tag != null).Cast<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (layer.Tags.SetEquals(chosen)) return;
+        Apply("Edit Layer Tags", () =>
+        {
+            layer.Tags.Clear();
+            layer.Tags.UnionWith(chosen);
+        });
+        LayersChanged?.Invoke();
+    }
+
+    private SKBitmap? selectionBrushShape;
+    private SKBitmap? selectionBrushBase;
+    private SelectionMode selectionBrushOperation;
+    private SKPoint? selectionBrushLast;
+    public double SelectionBrushSize { get; set; } = 64;
+    public double SelectionBrushFeather { get; set; }
+    public SelectionMode SelectionBrushMode { get; set; } = SelectionMode.Add;
+    public bool IsPaintingSelection => selectionBrushShape != null;
+
+    public void BeginSelectionBrush(SKPoint point, SelectionMode? mode = null)
+    {
+        if (selectionBrushShape != null) EndSelectionBrush();
+        Begin("Selection Brush");
+        selectionBrushBase = document.Selection;
+        selectionBrushShape = Pixels.NewMask(document.Width, document.Height);
+        selectionBrushOperation = mode ?? SelectionBrushMode;
+        if (selectionBrushBase == null && selectionBrushOperation == SelectionMode.Add) selectionBrushOperation = SelectionMode.Replace;
+        selectionBrushLast = point;
+        PaintSelectionSegment(point, point);
+    }
+
+    public void ContinueSelectionBrush(SKPoint point)
+    {
+        if (selectionBrushShape == null || selectionBrushLast == null) return;
+        PaintSelectionSegment(selectionBrushLast.Value, point);
+        selectionBrushLast = point;
+    }
+
+    public void EndSelectionBrush()
+    {
+        if (selectionBrushShape == null) return;
+        selectionBrushShape.Dispose();
+        selectionBrushShape = null;
+        selectionBrushBase = null;
+        selectionBrushLast = null;
+        Commit();
+        SelectionChanged?.Invoke();
+    }
+
+    public void CancelSelectionBrush()
+    {
+        if (selectionBrushShape == null) return;
+        var preview = document.Selection;
+        selectionBrushShape.Dispose();
+        selectionBrushShape = null;
+        selectionBrushBase = null;
+        selectionBrushLast = null;
+        Cancel();
+        if (preview != null && !ReferenceEquals(preview, document.Selection)) preview.Dispose();
+        SelectionChanged?.Invoke();
+    }
+
+    private void PaintSelectionSegment(SKPoint from, SKPoint to)
+    {
+        var shape = selectionBrushShape!;
+        using (var canvas = new SKCanvas(shape))
+        using (var paint = new SKPaint
+        {
+            Color = SKColors.Black,
+            StrokeWidth = (float)Math.Clamp(SelectionBrushSize, 1, 2000),
+            StrokeCap = SKStrokeCap.Round,
+            Style = SKPaintStyle.Stroke,
+            IsAntialias = true,
+            ImageFilter = SelectionBrushFeather > 0 ? SKImageFilter.CreateBlur((float)SelectionBrushFeather / 2, (float)SelectionBrushFeather / 2) : null
+        })
+        {
+            canvas.DrawLine(from, to, paint);
+            if (from == to)
+            {
+                paint.Style = SKPaintStyle.Fill;
+                canvas.DrawCircle(to, paint.StrokeWidth / 2, paint);
+            }
+        }
+        Pixels.Invalidate(shape);
+        var previous = document.Selection;
+        document.Selection = SelectionMask.Combine(selectionBrushBase, Pixels.Clone(shape), selectionBrushOperation);
+        if (previous != null && !ReferenceEquals(previous, selectionBrushBase) && !ReferenceEquals(previous, document.Selection)) previous.Dispose();
+        SelectionChanged?.Invoke();
+    }
+}

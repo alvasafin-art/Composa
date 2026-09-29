@@ -1,11 +1,12 @@
 using Composa.Model;
 using Composa.Painting;
 using Composa.Rendering;
+using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.Editing;
 
-public enum Tool { Move, Marquee, Lasso, Wand, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom }
+public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom }
 
 public enum MarqueeKind { Rectangle, Ellipse }
 public enum LassoKind { Freehand, Polygonal }
@@ -24,6 +25,7 @@ public sealed partial class EditorSession
     private string pendingName = "";
     private SKBitmap? composite;
     private SKRectI dirty;
+    private int transactionDepth;
 
     public EditorSession(Document document)
     {
@@ -181,9 +183,26 @@ public sealed partial class EditorSession
     /// <summary>Runs a complete, undoable edit.</summary>
     public void Apply(string name, Action edit)
     {
+        if (transactionDepth > 0) { edit(); return; }
         Begin(name);
         try { edit(); }
         catch { Cancel(); throw; }
+        Commit();
+    }
+
+    /// <summary>Runs multiple ordinary editor commands as one history entry for automation, scripts and assistants.</summary>
+    public void RunTransaction(string name, Action<EditorSession> commands)
+    {
+        Begin(name);
+        transactionDepth++;
+        try { commands(this); }
+        catch
+        {
+            transactionDepth--;
+            Cancel();
+            throw;
+        }
+        transactionDepth--;
         Commit();
     }
 
@@ -384,6 +403,7 @@ public sealed partial class EditorSession
             case Tool.Marquee: MarqueeKind = Next(MarqueeKind); break;
             case Tool.Lasso: LassoKind = Next(LassoKind); break;
             case Tool.Wand: WandMode = Next(WandMode); break;
+            case Tool.SelectionBrush: SelectionBrushMode = SelectionBrushMode == SelectionMode.Add ? SelectionMode.Subtract : SelectionMode.Add; break;
             case Tool.Shape: ShapeKind = Next(ShapeKind); break;
             case Tool.Brush: EraserMode = !EraserMode; break;
             case Tool.Smear: SmearMode = Next(SmearMode); break;

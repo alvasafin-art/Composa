@@ -20,9 +20,9 @@ public static class ProjectFile
     /// The format version new saves write, and the highest one <see cref="Read"/> accepts. 1 was the first release,
     /// 2 added guides, 3 added the Gaussian Blur, Motion Blur and Add Noise adjustment layers and the Inner Glow effect,
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
-    /// (<see cref="TextStyle.FontRuns"/>).
+    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags.
     /// </summary>
-    public const int Version = 5;
+    public const int Version = 6;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -50,6 +50,7 @@ public static class ProjectFile
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = "";
+        public List<string>? Tags { get; set; }
         public LayerKind Kind { get; set; }
         public bool Visible { get; set; } = true;
         public double Opacity { get; set; } = 1;
@@ -95,7 +96,8 @@ public static class ProjectFile
 
         LayerRecord Record(Layer layer) => new()
         {
-            Id = layer.Id, Name = layer.Name, Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, Blend = layer.Blend,
+            Id = layer.Id, Name = layer.Name, Tags = layer.Tags.Count > 0 ? layer.Tags.Order().ToList() : null,
+            Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, Blend = layer.Blend,
             Transform = layer.Pixels != null ? layer.Transform : null,
             ImageFile = layer.Pixels != null ? Store(layer.Pixels, $"{layer.Id}.png") : null,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{layer.Id}.mask.png") : null,
@@ -160,6 +162,8 @@ public static class ProjectFile
                 MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false,
                 Adjustment = record.Adjustment, Shape = record.Shape, Text = record.Text?.Clamped()
             };
+            if (record.Tags != null)
+                foreach (var tag in record.Tags.Take(64)) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
             if (record.ImageFile != null && record.Kind == LayerKind.Raster)
             {
                 layer.Pixels = Fetch(record.ImageFile, mask: false);

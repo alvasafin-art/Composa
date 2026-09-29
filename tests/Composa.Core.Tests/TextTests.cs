@@ -640,7 +640,7 @@ public class TextFaceTests
         stream.Position = 0;
         using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read, leaveOpen: true))
         using (var reader = new StreamReader(zip.GetEntry("manifest.json")!.Open()))
-            Assert.Contains("\"version\": 5", reader.ReadToEnd());              // Letters in their own faces arrived in version 5.
+            Assert.Contains($"\"version\": {ProjectFile.Version}", reader.ReadToEnd()); // Letters in their own faces arrived in version 5.
         stream.Position = 0;
         var loaded = ProjectFile.Read(stream).Find(layer.Id)!.Text!;
         Assert.Equal(layer.Text, loaded);

@@ -300,6 +300,8 @@ public sealed class Layer
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; set; } = "Layer";
+    /// <summary>Optional normalized metadata for templates, automation and assistant layer lookup.</summary>
+    public HashSet<string> Tags { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public LayerKind Kind { get; init; }
     public bool Visible { get; set; } = true;
     public double Opacity { get; set; } = 1;
@@ -356,6 +358,7 @@ public sealed class Layer
             Pixels = Pixels, Transform = Transform, Mask = Mask, MaskEnabled = MaskEnabled, Clipped = Clipped,
             Adjustment = Adjustment, Shape = Shape, Text = Text, Effects = Effects, Collapsed = Collapsed
         };
+        copy.Tags.UnionWith(Tags);
         foreach (var child in Children) copy.Children.Add(child.Clone(newIds));
         return copy;
     }
@@ -372,4 +375,17 @@ public sealed class Layer
     {
         Name = adjustment.DisplayName, Kind = LayerKind.Adjustment, Adjustment = adjustment
     };
+}
+
+public static class LayerTags
+{
+    public static readonly string[] Standard = ["title", "subtitle", "body", "logo", "product", "product-image", "background", "price", "cta", "editable"];
+
+    public static string? Normalize(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag)) return null;
+        var normalized = tag.Trim().ToLowerInvariant().Replace(' ', '-');
+        if (normalized.Length > 64 || normalized.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_' and not '.')) return null;
+        return normalized;
+    }
 }
