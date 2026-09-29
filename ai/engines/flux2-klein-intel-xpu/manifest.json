@@ -1,0 +1,548 @@
+{
+  "id": "flux2-klein-intel-xpu",
+  "displayName": "FLUX.2 Klein · Intel XPU",
+  "manifestVersion": 1,
+  "minimumComfyVersion": "0.37.0",
+  "requiredNodeTypes": [
+    "UNETLoader",
+    "CLIPLoader",
+    "VAELoader",
+    "CLIPTextEncode",
+    "ModelSamplingAuraFlow",
+    "EmptyFlux2LatentImage",
+    "KSampler",
+    "VAEDecode",
+    "VAEEncode",
+    "ReferenceLatent",
+    "LoadImage",
+    "SaveImage",
+    "ImageScale",
+    "ImageToMask",
+    "InpaintCropImproved",
+    "InpaintModelConditioning",
+    "InpaintStitchImproved",
+    "UpscaleModelLoader",
+    "ImageUpscaleWithModel",
+    "LoadBackgroundRemovalModel",
+    "RemoveBackground",
+    "MaskToImage"
+  ],
+  "requiredAssets": [
+    {
+      "kind": "diffusionModel",
+      "name": "flux-2-klein-9b_int8_convrot.safetensors"
+    },
+    {
+      "kind": "textEncoder",
+      "name": "qwen_3_8b_fp8mixed.safetensors"
+    },
+    {
+      "kind": "vae",
+      "name": "flux2-vae.safetensors"
+    },
+    {
+      "kind": "upscaler",
+      "name": "4x-UltraSharpV2.safetensors"
+    },
+    {
+      "kind": "backgroundRemoval",
+      "name": "birefnet.safetensors",
+      "optional": true
+    }
+  ],
+  "workflows": [
+    {
+      "id": "generate",
+      "version": 1,
+      "file": "workflows/generate.json",
+      "outputNodes": [
+        "save"
+      ]
+    },
+    {
+      "id": "edit",
+      "version": 1,
+      "file": "workflows/edit.json",
+      "outputNodes": [
+        "save"
+      ]
+    },
+    {
+      "id": "inpaint",
+      "version": 1,
+      "file": "workflows/inpaint.json",
+      "outputNodes": [
+        "save"
+      ]
+    },
+    {
+      "id": "upscale",
+      "version": 1,
+      "file": "workflows/upscale.json",
+      "outputNodes": [
+        "save"
+      ]
+    },
+    {
+      "id": "selection",
+      "version": 1,
+      "file": "workflows/selection.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "generateImage",
+      "version": 1,
+      "workflow": "generate",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "width": {
+          "nodeId": "latent",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "latent",
+          "input": "height"
+        }
+      }
+    },
+    {
+      "task": "generativeFill",
+      "version": 1,
+      "workflow": "inpaint",
+      "outputMode": "newLayerWithMask",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "selectionMask": {
+          "nodeId": "maskImage",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "crop",
+          "input": "output_target_width"
+        },
+        "height": {
+          "nodeId": "crop",
+          "input": "output_target_height"
+        },
+        "maskGrow": {
+          "nodeId": "crop",
+          "input": "mask_expand_pixels"
+        },
+        "maskBlend": {
+          "nodeId": "crop",
+          "input": "mask_blend_pixels"
+        },
+        "referenceImage1": {
+          "nodeId": "ref1load",
+          "input": "image"
+        },
+        "referenceImage2": {
+          "nodeId": "ref2load",
+          "input": "image"
+        },
+        "referenceImage3": {
+          "nodeId": "ref3load",
+          "input": "image"
+        },
+        "referenceImage4": {
+          "nodeId": "ref4load",
+          "input": "image"
+        },
+        "referenceImage5": {
+          "nodeId": "ref5load",
+          "input": "image"
+        },
+        "referenceImage6": {
+          "nodeId": "ref6load",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "removeObject",
+      "version": 1,
+      "workflow": "inpaint",
+      "preprocess": "remove-object",
+      "outputMode": "newLayerWithMask",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "preprocessedImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "preprocessedMask": {
+          "nodeId": "maskImage",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "crop",
+          "input": "output_target_width"
+        },
+        "height": {
+          "nodeId": "crop",
+          "input": "output_target_height"
+        },
+        "maskGrow": {
+          "nodeId": "crop",
+          "input": "mask_expand_pixels"
+        },
+        "maskBlend": {
+          "nodeId": "crop",
+          "input": "mask_blend_pixels"
+        }
+      }
+    },
+    {
+      "task": "generativeExpand",
+      "version": 1,
+      "workflow": "inpaint",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "preprocessedImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "preprocessedMask": {
+          "nodeId": "maskImage",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "crop",
+          "input": "output_target_width"
+        },
+        "height": {
+          "nodeId": "crop",
+          "input": "output_target_height"
+        },
+        "maskGrow": {
+          "nodeId": "crop",
+          "input": "mask_expand_pixels"
+        },
+        "maskBlend": {
+          "nodeId": "crop",
+          "input": "mask_blend_pixels"
+        }
+      }
+    },
+    {
+      "task": "changeBackground",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "scaleSource",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "scaleSource",
+          "input": "height"
+        },
+        "referenceImage1": {
+          "nodeId": "ref1load",
+          "input": "image"
+        },
+        "referenceImage2": {
+          "nodeId": "ref2load",
+          "input": "image"
+        },
+        "referenceImage3": {
+          "nodeId": "ref3load",
+          "input": "image"
+        },
+        "referenceImage4": {
+          "nodeId": "ref4load",
+          "input": "image"
+        },
+        "referenceImage5": {
+          "nodeId": "ref5load",
+          "input": "image"
+        },
+        "referenceImage6": {
+          "nodeId": "ref6load",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "harmonize",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "scaleSource",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "scaleSource",
+          "input": "height"
+        },
+        "referenceImage1": {
+          "nodeId": "ref1load",
+          "input": "image"
+        },
+        "referenceImage2": {
+          "nodeId": "ref2load",
+          "input": "image"
+        },
+        "referenceImage3": {
+          "nodeId": "ref3load",
+          "input": "image"
+        },
+        "referenceImage4": {
+          "nodeId": "ref4load",
+          "input": "image"
+        },
+        "referenceImage5": {
+          "nodeId": "ref5load",
+          "input": "image"
+        },
+        "referenceImage6": {
+          "nodeId": "ref6load",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "matchToScene",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "scaleSource",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "scaleSource",
+          "input": "height"
+        },
+        "referenceImage1": {
+          "nodeId": "ref1load",
+          "input": "image"
+        },
+        "referenceImage2": {
+          "nodeId": "ref2load",
+          "input": "image"
+        },
+        "referenceImage3": {
+          "nodeId": "ref3load",
+          "input": "image"
+        },
+        "referenceImage4": {
+          "nodeId": "ref4load",
+          "input": "image"
+        },
+        "referenceImage5": {
+          "nodeId": "ref5load",
+          "input": "image"
+        },
+        "referenceImage6": {
+          "nodeId": "ref6load",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "relight",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "scaleSource",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "scaleSource",
+          "input": "height"
+        },
+        "referenceImage1": {
+          "nodeId": "ref1load",
+          "input": "image"
+        },
+        "referenceImage2": {
+          "nodeId": "ref2load",
+          "input": "image"
+        },
+        "referenceImage3": {
+          "nodeId": "ref3load",
+          "input": "image"
+        },
+        "referenceImage4": {
+          "nodeId": "ref4load",
+          "input": "image"
+        },
+        "referenceImage5": {
+          "nodeId": "ref5load",
+          "input": "image"
+        },
+        "referenceImage6": {
+          "nodeId": "ref6load",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "upscale",
+      "version": 1,
+      "workflow": "upscale",
+      "outputMode": "newLayer",
+      "inputs": {
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "selectSubject",
+      "version": 1,
+      "workflow": "selection",
+      "outputMode": "selection",
+      "inputs": {
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        }
+      }
+    }
+  ],
+  "parameters": [
+    {
+      "id": "steps",
+      "name": "Steps",
+      "kind": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 4
+    },
+    {
+      "id": "maskGrow",
+      "name": "Mask grow",
+      "kind": "integer",
+      "minimum": 0,
+      "maximum": 64,
+      "default": 8
+    },
+    {
+      "id": "maskBlend",
+      "name": "Mask blend",
+      "kind": "integer",
+      "minimum": 0,
+      "maximum": 64,
+      "default": 32
+    }
+  ],
+  "lora": {
+    "supported": false,
+    "maximum": 0
+  }
+}

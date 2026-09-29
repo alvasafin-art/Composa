@@ -188,7 +188,8 @@ public sealed class ComfyClient : IDisposable
     private static bool AssetKind(string input, string node, out EngineAssetKind kind)
     {
         var key = input.ToLowerInvariant();
-        if (key.Contains("lora")) kind = EngineAssetKind.Lora;
+        if (key.Contains("bg_removal") || key.Contains("background_removal")) kind = EngineAssetKind.BackgroundRemoval;
+        else if (key.Contains("lora")) kind = EngineAssetKind.Lora;
         else if (key.Contains("vae")) kind = EngineAssetKind.Vae;
         else if (key.Contains("clip") || key.Contains("text_encoder")) kind = EngineAssetKind.TextEncoder;
         else if (key.Contains("ckpt") || key.Contains("checkpoint")) kind = EngineAssetKind.Checkpoint;

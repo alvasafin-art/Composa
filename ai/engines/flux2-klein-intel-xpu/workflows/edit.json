@@ -1,0 +1,574 @@
+{
+  "model": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-9b_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "clip": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    }
+  },
+  "vae": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    }
+  },
+  "prompt": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": [
+        "clip",
+        0
+      ]
+    }
+  },
+  "negative": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, deformed, blurry, watermark",
+      "clip": [
+        "clip",
+        0
+      ]
+    }
+  },
+  "sampling": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "model",
+        0
+      ]
+    }
+  },
+  "source": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    }
+  },
+  "scaleSource": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "source",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled"
+    }
+  },
+  "size": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "scaleSource",
+        0
+      ]
+    }
+  },
+  "sourceEncode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "scaleSource",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    }
+  },
+  "basePos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "prompt",
+        0
+      ],
+      "latent": [
+        "sourceEncode",
+        0
+      ]
+    }
+  },
+  "baseNeg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "negative",
+        0
+      ],
+      "latent": [
+        "sourceEncode",
+        0
+      ]
+    }
+  },
+  "ref1load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    },
+    "_meta": {
+      "optionalInput": "referenceImage1"
+    }
+  },
+  "ref1encode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "ref1load",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage1"
+    }
+  },
+  "ref1pos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "basePos",
+        0
+      ],
+      "latent": [
+        "ref1encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage1",
+      "fallback": [
+        "basePos",
+        0
+      ]
+    }
+  },
+  "ref1neg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "baseNeg",
+        0
+      ],
+      "latent": [
+        "ref1encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage1",
+      "fallback": [
+        "baseNeg",
+        0
+      ]
+    }
+  },
+  "ref2load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    },
+    "_meta": {
+      "optionalInput": "referenceImage2"
+    }
+  },
+  "ref2encode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "ref2load",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage2"
+    }
+  },
+  "ref2pos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref1pos",
+        0
+      ],
+      "latent": [
+        "ref2encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage2",
+      "fallback": [
+        "ref1pos",
+        0
+      ]
+    }
+  },
+  "ref2neg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref1neg",
+        0
+      ],
+      "latent": [
+        "ref2encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage2",
+      "fallback": [
+        "ref1neg",
+        0
+      ]
+    }
+  },
+  "ref3load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    },
+    "_meta": {
+      "optionalInput": "referenceImage3"
+    }
+  },
+  "ref3encode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "ref3load",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage3"
+    }
+  },
+  "ref3pos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref2pos",
+        0
+      ],
+      "latent": [
+        "ref3encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage3",
+      "fallback": [
+        "ref2pos",
+        0
+      ]
+    }
+  },
+  "ref3neg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref2neg",
+        0
+      ],
+      "latent": [
+        "ref3encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage3",
+      "fallback": [
+        "ref2neg",
+        0
+      ]
+    }
+  },
+  "ref4load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    },
+    "_meta": {
+      "optionalInput": "referenceImage4"
+    }
+  },
+  "ref4encode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "ref4load",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage4"
+    }
+  },
+  "ref4pos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref3pos",
+        0
+      ],
+      "latent": [
+        "ref4encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage4",
+      "fallback": [
+        "ref3pos",
+        0
+      ]
+    }
+  },
+  "ref4neg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref3neg",
+        0
+      ],
+      "latent": [
+        "ref4encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage4",
+      "fallback": [
+        "ref3neg",
+        0
+      ]
+    }
+  },
+  "ref5load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    },
+    "_meta": {
+      "optionalInput": "referenceImage5"
+    }
+  },
+  "ref5encode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "ref5load",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage5"
+    }
+  },
+  "ref5pos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref4pos",
+        0
+      ],
+      "latent": [
+        "ref5encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage5",
+      "fallback": [
+        "ref4pos",
+        0
+      ]
+    }
+  },
+  "ref5neg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref4neg",
+        0
+      ],
+      "latent": [
+        "ref5encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage5",
+      "fallback": [
+        "ref4neg",
+        0
+      ]
+    }
+  },
+  "ref6load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    },
+    "_meta": {
+      "optionalInput": "referenceImage6"
+    }
+  },
+  "ref6encode": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "ref6load",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage6"
+    }
+  },
+  "ref6pos": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref5pos",
+        0
+      ],
+      "latent": [
+        "ref6encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage6",
+      "fallback": [
+        "ref5pos",
+        0
+      ]
+    }
+  },
+  "ref6neg": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "ref5neg",
+        0
+      ],
+      "latent": [
+        "ref6encode",
+        0
+      ]
+    },
+    "_meta": {
+      "optionalInput": "referenceImage6",
+      "fallback": [
+        "ref5neg",
+        0
+      ]
+    }
+  },
+  "latent": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": [
+        "size",
+        0
+      ],
+      "height": [
+        "size",
+        1
+      ],
+      "batch_size": 1
+    }
+  },
+  "sampler": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "sampling",
+        0
+      ],
+      "positive": [
+        "ref6pos",
+        0
+      ],
+      "negative": [
+        "ref6neg",
+        0
+      ],
+      "latent_image": [
+        "latent",
+        0
+      ]
+    }
+  },
+  "decode": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "sampler",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Composa/flux2-klein-edit",
+      "images": [
+        "decode",
+        0
+      ]
+    }
+  }
+}

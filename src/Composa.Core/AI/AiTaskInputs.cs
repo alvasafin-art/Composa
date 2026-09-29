@@ -32,8 +32,12 @@ public sealed record AiTaskRequest
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
     public RemoveObjectSettings RemoveObject { get; init; } = new();
-    /// <summary>An optional user-supplied visual reference. Engine packs opt into it through a referenceImage binding.</summary>
+    /// <summary>An optional user-supplied visual reference. Kept for Engine Pack backwards compatibility.</summary>
     public SKBitmap? ReferenceImage { get; init; }
+    /// <summary>User-supplied visual references, in UI order. Engine Packs bind them as referenceImage1…referenceImage6.</summary>
+    public IReadOnlyList<SKBitmap> ReferenceImages { get; init; } = [];
+    /// <summary>Pixel budget for each reference, or null to preserve its original dimensions.</summary>
+    public double? ReferenceMegapixels { get; init; } = 1;
 }
 
 public static class AiDimensions
@@ -41,15 +45,24 @@ public static class AiDimensions
     public static readonly double[] MegapixelOptions = [0.5, 0.75, 1, 1.5, 2, 3, 4];
 
     /// <summary>Fits a pixel budget to an aspect ratio while keeping dimensions friendly to latent-image pipelines.</summary>
-    public static (int Width, int Height) FromMegapixels(double megapixels, int aspectWidth, int aspectHeight, int multiple = 8)
+    public static (int Width, int Height) FromMegapixels(double megapixels, int aspectWidth, int aspectHeight, int multiple = 16)
     {
         if (aspectWidth <= 0 || aspectHeight <= 0) throw new ArgumentOutOfRangeException(nameof(aspectWidth));
         megapixels = Math.Clamp(megapixels, MegapixelOptions[0], MegapixelOptions[^1]);
         multiple = Math.Max(1, multiple);
         var pixels = megapixels * 1_000_000;
         var aspect = (double)aspectWidth / aspectHeight;
-        var width = Round(Math.Sqrt(pixels * aspect), multiple);
-        var height = Round(Math.Sqrt(pixels / aspect), multiple);
+        int width, height;
+        if (aspect >= 1)
+        {
+            height = Round(Math.Sqrt(pixels / aspect), multiple);
+            width = Round(height * aspect, multiple);
+        }
+        else
+        {
+            width = Round(Math.Sqrt(pixels * aspect), multiple);
+            height = Round(width / aspect, multiple);
+        }
         return (Math.Clamp(width, multiple, DocumentLimits.MaxSide), Math.Clamp(height, multiple, DocumentLimits.MaxSide));
     }
 
@@ -69,6 +82,7 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap? PreprocessedImage { get; init; }
     public SKBitmap? PreprocessedMask { get; init; }
     public SKBitmap? ReferenceImage { get; init; }
+    public IReadOnlyList<SKBitmap> ReferenceImages { get; init; } = [];
     public int CanvasWidth { get; init; }
     public int CanvasHeight { get; init; }
     public SKRectI TargetBounds { get; init; }
@@ -90,6 +104,7 @@ public sealed class AiTaskInputs : IDisposable
         if (PreprocessedImage != null) images["preprocessedImage"] = PreprocessedImage;
         if (PreprocessedMask != null) images["preprocessedMask"] = PreprocessedMask;
         if (ReferenceImage != null) images["referenceImage"] = ReferenceImage;
+        for (var index = 0; index < ReferenceImages.Count; index++) images[$"referenceImage{index + 1}"] = ReferenceImages[index];
         return images;
     }
 
@@ -140,9 +155,14 @@ public static class AiTaskInputPreparer
         SKBitmap? preprocessed = null, preprocessedMask = null;
         if (request.Task == AiTaskKind.RemoveObject && selection != null)
             (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, selection, request.RemoveObject);
+        else if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds is { } expansion)
+            (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, expansion);
 
         var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize
             ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
+        var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(6).ToList()
+            : request.ReferenceImage == null ? [] : [request.ReferenceImage];
+        var references = requestedReferences.Select(image => PrepareReference(image, request.ReferenceMegapixels)).ToList();
         return new AiTaskInputs
         {
             SourceImage = source,
@@ -152,7 +172,8 @@ public static class AiTaskInputPreparer
             AlphaMask = alpha,
             PreprocessedImage = preprocessed,
             PreprocessedMask = preprocessedMask,
-            ReferenceImage = request.ReferenceImage == null ? null : Pixels.Clone(request.ReferenceImage),
+            ReferenceImage = references.FirstOrDefault(),
+            ReferenceImages = references,
             CanvasWidth = request.Settings.Width > 0 ? request.Settings.Width : session.Document.Width,
             CanvasHeight = request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
             TargetBounds = target,
@@ -177,6 +198,36 @@ public static class AiTaskInputPreparer
             overrides[layer.Id] = hidden;
         }
         return DocumentRenderer.Flatten(session.Document, new RenderOptions { Overrides = overrides });
+    }
+
+    private static SKBitmap PrepareReference(SKBitmap source, double? megapixels)
+    {
+        if (megapixels == null) return Pixels.Clone(source);
+        var (width, height) = AiDimensions.FromMegapixels(megapixels.Value, source.Width, source.Height);
+        if (width == source.Width && height == source.Height) return Pixels.Clone(source);
+        var target = Pixels.NewColor(width, height);
+        using var canvas = new SKCanvas(target);
+        canvas.DrawImage(Pixels.ImageOf(source), new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell));
+        return target;
+    }
+
+    private static (SKBitmap Image, SKBitmap Mask) PrepareExpansion(SKBitmap source, SKRectI document, SKRectI expansion)
+    {
+        if (expansion.Width <= 0 || expansion.Height <= 0) throw new ArgumentOutOfRangeException(nameof(expansion));
+        var image = Pixels.NewColor(expansion.Width, expansion.Height);
+        image.Erase(SKColors.Transparent);
+        using (var canvas = new SKCanvas(image)) canvas.DrawImage(Pixels.ImageOf(source), -expansion.Left, -expansion.Top);
+        var mask = Pixels.NewMask(expansion.Width, expansion.Height, 255);
+        var keep = SKRectI.Intersect(document, expansion);
+        if (!keep.IsEmpty)
+        {
+            using var canvas = new SKCanvas(mask);
+            using var paint = new SKPaint { Color = SKColors.Transparent, BlendMode = SKBlendMode.Src };
+            canvas.DrawRect(keep.Left - expansion.Left, keep.Top - expansion.Top, keep.Width, keep.Height, paint);
+        }
+        Pixels.Invalidate(image);
+        Pixels.Invalidate(mask);
+        return (image, mask);
     }
 }
 

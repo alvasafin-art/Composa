@@ -78,7 +78,17 @@ public static class AiDialogs
         engine.IsEnabled = service.Engines.Profiles.Count > 0;
         var megapixels = Ui.Combo(AiDimensions.MegapixelOptions, ClosestMegapixels(settings.AiMegapixels), AiDimensions.Label,
             value => settings.AiMegapixels = value, 110);
+        var referenceSizes = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
+        var selectedReferenceSize = settings.AiReferenceMegapixels is { } referenceMp
+            ? AiDimensions.Label(ClosestMegapixels(referenceMp)) : referenceSizes[0];
+        var referenceSize = Ui.Combo(referenceSizes, selectedReferenceSize, value => value, value =>
+        {
+            settings.AiReferenceMegapixels = value == referenceSizes[0] ? null
+                : AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value);
+        }, 130);
         var seed = Ui.Number(settings.AiSeed, -1, long.MaxValue, value => settings.AiSeed = (long)value, 1, "0", 150);
+        var maskGrow = Ui.Number(settings.AiMaskGrow, 0, 64, value => settings.AiMaskGrow = (int)value, 1, "0", 80);
+        var maskBlend = Ui.Number(settings.AiMaskBlend, 0, 64, value => settings.AiMaskBlend = (int)value, 1, "0", 80);
         var lora = new TextBox { Text = string.Join(", ", settings.AiLoras.Select(item => item.Name)), PlaceholderText = "Names from the connected server", Width = 260 };
         var form = CanvasDialogs.Form(
             ("ComfyUI Server URL", url),
@@ -87,6 +97,9 @@ public static class AiDialogs
             ("Status", status),
             ("Model", engine),
             ("Image size", megapixels),
+            ("Reference images", referenceSize),
+            ("Mask grow", Ui.Row(6, maskGrow, Ui.Label("px", Palette.Secondary))),
+            ("Mask blend", Ui.Row(6, maskBlend, Ui.Label("px", Palette.Secondary))),
             ("Seed", Ui.Row(6, seed, Ui.Label("-1 = random", Palette.Secondary))),
             ("LoRA", lora));
         var note = Ui.Label("Engine Packs contain workflows and compatibility metadata, never model weights.", Palette.Secondary);

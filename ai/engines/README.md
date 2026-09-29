@@ -4,7 +4,7 @@ An Engine Pack is a lightweight directory named after its `id`. It contains `man
 
 The manifest declares the complete pipeline rather than a checkpoint filename: required node types and server assets, versioned workflows, supported editor tasks, semantic-to-node input bindings, parameters, output nodes, output mode, and LoRA support. Node references are explicit ComfyUI node ids; Composa never searches display names.
 
-Production Engine Packs are intentionally not included in stage 1. They will be authored and verified against the installed ComfyUI environment in stage 2. Until then the UI reports that no Engine Pack is installed instead of simulating a result.
+The bundled `flux2-klein-intel-xpu` pack is the first production pack. It was validated against ComfyUI 0.37 on Intel Arc with the exact nodes and assets listed in its manifest. Other model families should ship as separate packs rather than changing these verified graphs in place.
 
 Minimal shape:
 

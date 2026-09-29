@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly SideDock dock;
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     private readonly Border optionsHost = new() { Height = 40, Background = Palette.Panel, Padding = new Thickness(12, 0) };
+    private readonly Border toolOptionsHost = new();
+    private readonly Grid combinedOptions = new() { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
     private readonly Dictionary<Tool, ToolButton> toolButtons = [];
     private readonly TextBlock zoomText = new() { Width = 56, Foreground = Palette.Secondary };
     private readonly TextBlock sizeText = new() { Foreground = Palette.Secondary };
@@ -31,7 +33,7 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock hintText = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock aiText = new() { Foreground = Palette.Accent };
     private readonly TextBlock aiTaskText = new() { Foreground = Palette.Accent };
-    private readonly Border aiContextHost = new() { Background = Palette.Panel, Padding = new Thickness(12, 5) };
+    private readonly Border aiContextHost = new() { Background = Brushes.Transparent, Padding = new Thickness(8, 0, 0, 0), IsVisible = false };
     private readonly AiTaskService aiTasks;
     private Mcp.McpHost? aiControl;
     private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
@@ -67,6 +69,8 @@ public sealed partial class MainWindow : Window
 
         welcome = BuildWelcome();
         aiFloatingHost.Child = BuildAiFloatingMenu();
+        DragDrop.SetAllowDrop(aiFloatingHost, true);
+        aiFloatingHost.AddHandler(DragDrop.DropEvent, OnAiReferenceDrop);
         aiFloatingLayer.Children.Add(aiFloatingHost);
         var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer } };
         var center = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto") };
@@ -82,16 +86,19 @@ public sealed partial class MainWindow : Window
         history.GoToRequested += GoToHistory;
 
         // The update notice sits under the menu, where it is visible without covering anything.
-        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
+        BuildAiContextBar();
+        combinedOptions.Children.Add(toolOptionsHost);
+        AddAt(combinedOptions, aiContextHost, 1);
+        optionsHost.Child = combinedOptions;
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
         root.Children.Add(BuildMenu());
         AddRow(root, updateNotice, 1);
         AddRow(root, BuildTabBar(), 2);
         AddRow(root, optionsHost, 3);
-        AddRow(root, BuildAiContextBar(), 4);
-        AddRow(root, Ui.Separator(false), 5);
-        AddRow(root, center, 6);
-        AddRow(root, Ui.Separator(false), 7);
-        AddRow(root, BuildStatusBar(), 8);
+        AddRow(root, Ui.Separator(false), 4);
+        AddRow(root, center, 5);
+        AddRow(root, Ui.Separator(false), 6);
+        AddRow(root, BuildStatusBar(), 7);
         Content = root;
 
         StartUpdateCheck();
@@ -116,6 +123,12 @@ public sealed partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         DragDrop.SetAllowDrop(this, true);
         Closing += OnClosing;
+        if (Settings.Persist)
+            Opened += async (_, _) =>
+            {
+                try { await aiTasks.TestConnectionAsync(); }
+                catch { /* ComfyUI is optional; the menu becomes active when a later connection test succeeds. */ }
+            };
 
         SetSession(null);
         if (settings.AllowAiControl) _ = SetAiControl(true);

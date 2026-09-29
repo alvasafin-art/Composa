@@ -1,0 +1,37 @@
+{
+  "source": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    }
+  },
+  "model": {
+    "class_type": "UpscaleModelLoader",
+    "inputs": {
+      "model_name": "4x-UltraSharpV2.safetensors"
+    }
+  },
+  "upscale": {
+    "class_type": "ImageUpscaleWithModel",
+    "inputs": {
+      "upscale_model": [
+        "model",
+        0
+      ],
+      "image": [
+        "source",
+        0
+      ]
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Composa/upscale",
+      "images": [
+        "upscale",
+        0
+      ]
+    }
+  }
+}

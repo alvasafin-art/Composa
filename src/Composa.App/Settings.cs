@@ -26,6 +26,10 @@ public sealed class Settings
     public string? AiEngineId { get; set; }
     /// <summary>Generation pixel budget; the actual dimensions follow the selection/document aspect ratio.</summary>
     public double AiMegapixels { get; set; } = 1;
+    /// <summary>Pixel budget for each AI reference image; null keeps the original dimensions.</summary>
+    public double? AiReferenceMegapixels { get; set; } = 1;
+    public int AiMaskGrow { get; set; } = 8;
+    public int AiMaskBlend { get; set; } = 32;
     public long AiSeed { get; set; } = -1;
     public List<AiLoraSetting> AiLoras { get; set; } = [];
     public List<string> CustomLayerTags { get; set; } = [];

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.App.AI;
 
@@ -114,14 +115,45 @@ public class AiInfrastructureTests
     public void Ai_settings_round_trip_without_secrets_or_local_paths()
     {
         var settings = new Settings { ComfyServerUrl = "http://192.168.1.50:8188", AiEngineId = "flux", AiMegapixels = 1.5, AiSeed = 123,
+            AiReferenceMegapixels = null, AiMaskGrow = 12, AiMaskBlend = 24,
             AiLoras = [new("style.safetensors", 0.7)], ComfyConnectionTimeoutSeconds = 12 };
         var json = JsonSerializer.Serialize(settings);
         var loaded = JsonSerializer.Deserialize<Settings>(json)!;
         Assert.Equal(settings.ComfyServerUrl, loaded.ComfyServerUrl);
         Assert.Equal("flux", loaded.AiEngineId);
         Assert.Equal(1.5, loaded.AiMegapixels);
+        Assert.Null(loaded.AiReferenceMegapixels);
+        Assert.Equal(12, loaded.AiMaskGrow);
+        Assert.Equal(24, loaded.AiMaskBlend);
         Assert.Equal(12, loaded.ComfyConnectionTimeoutSeconds);
         Assert.Equal("style.safetensors", loaded.AiLoras[0].Name);
+    }
+
+    [Fact]
+    public void Bundled_flux_engine_has_valid_workflows_and_explicit_binding_targets()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "ai", "engines");
+        var catalog = new EngineCatalog(root);
+        var engine = Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
+        Assert.Empty(catalog.Errors);
+
+        foreach (var task in engine.Tasks)
+        {
+            var declaration = engine.Workflow(task.Workflow);
+            var path = Path.Combine(catalog.DirectoryOf(engine), declaration.File);
+            var graph = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            foreach (var target in task.Inputs.Values)
+                Assert.True(graph[target.NodeId]?["inputs"]?[target.Input] != null,
+                    $"{task.Task}: missing {target.NodeId}.{target.Input} in {declaration.File}");
+        }
+
+        var edit = JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine), engine.Workflow("edit").File)))!.AsObject();
+        var bound = WorkflowBinder.Bind(edit, engine.Binding(AiTaskKind.Relight)!, new Dictionary<string, object?>
+        {
+            ["sourceImage"] = "source.png", ["prompt"] = "warm side light", ["width"] = 1024, ["height"] = 768, ["seed"] = 1L
+        });
+        Assert.DoesNotContain(bound, node => node.Key.StartsWith("ref", StringComparison.Ordinal));
+        Assert.Equal("basePos", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
     }
 
     private sealed class JsonHandler(Func<HttpRequestMessage, string> response) : HttpMessageHandler

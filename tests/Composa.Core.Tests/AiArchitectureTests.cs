@@ -90,6 +90,26 @@ public class AiArchitectureTests
     }
 
     [Fact]
+    public void Workflow_binding_prunes_missing_optional_reference_branches_and_rewires_the_chain()
+    {
+        var workflow = JsonNode.Parse("""
+        {
+          "base":{"inputs":{}},
+          "load":{"inputs":{"image":"placeholder.png"},"_meta":{"optionalInput":"referenceImage1"}},
+          "ref":{"inputs":{"conditioning":["base",0],"latent":["load",0]},"_meta":{"optionalInput":"referenceImage1","fallback":["base",0]}},
+          "sampler":{"inputs":{"positive":["ref",0]}}
+        }
+        """)!.AsObject();
+        var binding = Profile().Binding(AiTaskKind.GenerativeFill)!;
+
+        var bound = WorkflowBinder.Bind(workflow, binding, new Dictionary<string, object?>());
+
+        Assert.Null(bound["load"]);
+        Assert.Null(bound["ref"]);
+        Assert.Equal("base", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+    }
+
+    [Fact]
     public void Remove_object_preprocessing_expands_feathers_and_hides_source_pixels()
     {
         using var source = Pixels.NewColor(21, 21);
@@ -137,6 +157,45 @@ public class AiArchitectureTests
         Assert.InRange((long)size.Width * size.Height, 720_000, 780_000);
         Assert.Equal(0, size.Width % 8);
         Assert.Equal(0, size.Height % 8);
+    }
+
+    [Fact]
+    public void Up_to_six_references_keep_order_and_can_preserve_original_size()
+    {
+        var session = EditorSession.NewCanvas(16, 16);
+        var references = Enumerable.Range(1, 7).Select(index =>
+        {
+            var image = Pixels.NewColor(20 + index, 10 + index);
+            image.Erase(new SKColor((byte)index, 0, 0));
+            return image;
+        }).ToList();
+        try
+        {
+            using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest
+            {
+                Task = AiTaskKind.Relight, ReferenceImages = references, ReferenceMegapixels = null
+            });
+            Assert.Equal(6, inputs.ReferenceImages.Count);
+            Assert.Equal(references[0].Width, inputs.ReferenceImages[0].Width);
+            Assert.Equal((byte)6, inputs.ReferenceImages[5].GetPixel(0, 0).Red);
+            Assert.Same(inputs.ReferenceImages[0], inputs.Images()["referenceImage1"]);
+        }
+        finally { references.ForEach(image => image.Dispose()); }
+    }
+
+    [Fact]
+    public void Generative_expand_prepares_exact_canvas_and_outside_mask()
+    {
+        var session = EditorSession.NewCanvas(10, 8, SKColors.Red);
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest
+        {
+            Task = AiTaskKind.GenerativeExpand, ExpansionBounds = new SKRectI(-3, -2, 15, 12)
+        });
+
+        Assert.Equal((18, 14), (inputs.PreprocessedImage!.Width, inputs.PreprocessedImage.Height));
+        Assert.Equal(255, inputs.PreprocessedMask!.GetPixelSpan()[0]);
+        Assert.Equal(0, inputs.PreprocessedMask.GetPixelSpan()[2 * inputs.PreprocessedMask.RowBytes + 3]);
+        Assert.Equal(new SKRectI(-3, -2, 15, 12), inputs.TargetBounds);
     }
 
     [Fact]

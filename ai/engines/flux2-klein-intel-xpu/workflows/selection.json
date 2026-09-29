@@ -1,0 +1,46 @@
+{
+  "model": {
+    "class_type": "LoadBackgroundRemovalModel",
+    "inputs": {
+      "bg_removal_name": "birefnet.safetensors"
+    }
+  },
+  "source": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
+    }
+  },
+  "mask": {
+    "class_type": "RemoveBackground",
+    "inputs": {
+      "bg_removal_model": [
+        "model",
+        0
+      ],
+      "image": [
+        "source",
+        0
+      ]
+    }
+  },
+  "image": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "mask",
+        0
+      ]
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Composa/selection",
+      "images": [
+        "image",
+        0
+      ]
+    }
+  }
+}

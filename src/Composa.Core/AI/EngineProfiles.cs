@@ -44,7 +44,7 @@ public static class AiTasks
 public enum AiOutputMode { NewLayer, NewLayerWithMask, LayerGroup, Selection }
 
 [JsonConverter(typeof(JsonStringEnumConverter<EngineAssetKind>))]
-public enum EngineAssetKind { Checkpoint, DiffusionModel, TextEncoder, Vae, Lora, Upscaler }
+public enum EngineAssetKind { Checkpoint, DiffusionModel, TextEncoder, Vae, Lora, Upscaler, BackgroundRemoval }
 
 [JsonConverter(typeof(JsonStringEnumConverter<EngineParameterKind>))]
 public enum EngineParameterKind { Text, Integer, Number, Choice, Boolean, Resolution, Seed, Lora }

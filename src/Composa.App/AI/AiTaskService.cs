@@ -94,7 +94,7 @@ public sealed class AiTaskService : IAiTaskRunner
             try
             {
                 foreach (var reference in references) images.Add(await client.DownloadAsync(reference, linked.Token));
-                Insert(editor.Session, request.Task, binding.OutputMode, images, inputs.TargetBounds);
+                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds);
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed" };
                 StateChanged?.Invoke();
             }
@@ -122,6 +122,12 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public void Cancel() => running?.Cancel();
 
+    internal void SetConnectedForTests()
+    {
+        ConnectionState = ComfyConnectionState.Connected;
+        StateChanged?.Invoke();
+    }
+
     private ComfyClient Client(string? overrideUrl = null)
     {
         var client = clientFactory(overrideUrl ?? serverUrl());
@@ -129,13 +135,24 @@ public sealed class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    private static void Insert(EditorSession session, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds)
+    private static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds)
     {
+        var session = editor.Session;
         if (mode == AiOutputMode.Selection)
         {
             var mask = ToMask(images[0], session.Document.Width, session.Document.Height);
             foreach (var image in images) image.Dispose();
             session.ApplyAiSelection(task, mask);
+            return;
+        }
+        if (task == AiTaskKind.Upscale)
+        {
+            editor.Transaction("AI Upscale", target =>
+            {
+                target.ResizeImage(images[0].Width, images[0].Height);
+                target.InsertAiOutput(task, images.Select((image, index) =>
+                    new AiOutput(images.Count == 1 ? "AI Upscale" : $"AI Upscale {index + 1}", image)).ToList());
+            });
             return;
         }
         var outputs = images.Select((image, index) =>

@@ -15,7 +15,7 @@ public sealed partial class MainWindow
     private void RebuildOptions()
     {
         refreshOptions = null;
-        if (session == null) { optionsHost.Child = null; return; }
+        if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
@@ -139,7 +139,7 @@ public sealed partial class MainWindow
                 Add(Title(s.Tool == Tool.Hand ? "Hand" : "Zoom"), Flat("Fit", canvas.Fit), Flat("100%", () => canvas.ZoomTo(1)), Flat("200%", () => canvas.ZoomTo(2)));
                 break;
         }
-        optionsHost.Child = row;
+        toolOptionsHost.Child = row;
     }
 
     /// <summary>The Type bar: font, size, style, color, alignment and spacing for the text being typed (or the next text).</summary>

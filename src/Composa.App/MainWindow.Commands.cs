@@ -157,7 +157,6 @@ public sealed partial class MainWindow
             Sub("Presets", (aiTasks.Presets.Count == 0
                 ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]
                 : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
-            Item("Models / Engines…", () => _ = ShowAiSettings(), needsDocument: false),
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
             Item("Assistant (stage 3)", () => { }, enabled: () => false, needsDocument: false));
 
@@ -440,6 +439,12 @@ public sealed partial class MainWindow
     {
         var focused = FocusManager?.GetFocusedElement();
         if (SwallowAlt(e)) return;
+        if (aiFloatingHost.IsVisible && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
+        {
+            e.Handled = true;
+            _ = PasteAiReferenceOrText(focused as TextBox);
+            return;
+        }
         if (focused is TextBox)
         {
             // Text fields keep their own editing keys; Enter or Escape hands the keyboard back to the canvas.
