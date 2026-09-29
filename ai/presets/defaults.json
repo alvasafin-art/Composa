@@ -1,0 +1,32 @@
+[
+  {
+    "id": "recolor",
+    "name": "Recolor",
+    "task": "generativeFill",
+    "prompt": "Recolor the selected area to "
+  },
+  {
+    "id": "change-material",
+    "name": "Change Material",
+    "task": "generativeFill",
+    "prompt": "Change the selected object's material to "
+  },
+  {
+    "id": "add-shadow",
+    "name": "Add Shadow",
+    "task": "generativeFill",
+    "prompt": "Add a natural, scene-consistent shadow in the selected area"
+  },
+  {
+    "id": "product-photo",
+    "name": "Product Photo",
+    "task": "generateImage",
+    "prompt": "A clean professional product photograph of "
+  },
+  {
+    "id": "golden-hour",
+    "name": "Golden Hour",
+    "task": "relight",
+    "prompt": "Warm golden-hour light with natural direction and contrast"
+  }
+]

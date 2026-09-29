@@ -1,0 +1,223 @@
+using System.Net.Http.Json;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Composa.AI;
+using Composa.IO;
+using SkiaSharp;
+
+namespace Composa.App.AI;
+
+/// <summary>HTTP and WebSocket transport for any ComfyUI server URL; it never starts or owns the server process.</summary>
+public sealed class ComfyClient : IDisposable
+{
+    private readonly HttpClient http;
+    private readonly bool ownsHttp;
+    public ComfyServerAddress Address { get; }
+    public TimeSpan ConnectionTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    public ComfyClient(string serverUrl, HttpClient? httpClient = null)
+    {
+        Address = ComfyServerAddress.Parse(serverUrl);
+        http = httpClient ?? new HttpClient();
+        ownsHttp = httpClient == null;
+    }
+
+    public async Task<(ComfyServerInfo Info, ComfyServerCapabilities Capabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ConnectionTimeout);
+        using var stats = await GetJson("system_stats", timeout.Token);
+        using var objects = await GetJson("object_info", timeout.Token);
+        return (ParseInfo(stats.RootElement), ParseCapabilities(objects.RootElement));
+    }
+
+    public async Task<ComfyQueueState> QueueAsync(string? promptId = null, CancellationToken cancellationToken = default)
+    {
+        using var queue = await GetJson("queue", cancellationToken);
+        var root = queue.RootElement;
+        var running = root.TryGetProperty("queue_running", out var r) && r.ValueKind == JsonValueKind.Array ? r.GetArrayLength() : 0;
+        var pending = root.TryGetProperty("queue_pending", out var p) && p.ValueKind == JsonValueKind.Array ? p.GetArrayLength() : 0;
+        int? position = null;
+        if (promptId != null && p.ValueKind == JsonValueKind.Array)
+        {
+            var index = 0;
+            foreach (var item in p.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() > 1 && item[1].GetString() == promptId) { position = index + 1; break; }
+                index++;
+            }
+        }
+        return new ComfyQueueState(running, pending, position);
+    }
+
+    public async Task<string> UploadPngAsync(string semanticName, SKBitmap bitmap, CancellationToken cancellationToken = default)
+    {
+        var filename = $"composa-{semanticName}-{Guid.NewGuid():N}.png";
+        var bytes = ImageFiles.Encode(bitmap, ExportFormat.Png);
+        using var form = new MultipartFormDataContent();
+        using var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new("image/png");
+        form.Add(content, "image", filename);
+        form.Add(new StringContent("input"), "type");
+        using var response = await http.PostAsync(Address.Api("upload/image"), form, cancellationToken);
+        await EnsureSuccess(response, cancellationToken);
+        return filename;
+    }
+
+    public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)
+    {
+        var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = clientId.ToString("N") };
+        using var response = await http.PostAsJsonAsync(Address.Api("prompt"), payload, cancellationToken);
+        await EnsureSuccess(response, cancellationToken);
+        using var result = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
+        if (!result.RootElement.TryGetProperty("prompt_id", out var id) || string.IsNullOrWhiteSpace(id.GetString()))
+            throw new InvalidDataException("ComfyUI accepted the request without returning a prompt id.");
+        return id.GetString()!;
+    }
+
+    public async Task InterruptAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsync(Address.Api("interrupt"), new StringContent("{}", Encoding.UTF8, "application/json"), cancellationToken);
+        await EnsureSuccess(response, cancellationToken);
+    }
+
+    public async Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var clientId = Guid.NewGuid();
+        using var socket = new ClientWebSocket();
+        using var connecting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        connecting.CancelAfter(ConnectionTimeout);
+        await socket.ConnectAsync(Address.Socket(clientId), connecting.Token);
+        var promptId = await SubmitAsync(workflow, clientId, cancellationToken);
+        var queue = await QueueAsync(promptId, cancellationToken);
+        var state = new AiOperationState { Status = AiOperationStatus.Queued, PromptId = promptId, QueuePosition = queue.Position, Stage = queue.Position is { } p ? $"Queued ({p})" : "Queued" };
+        progress?.Report(state);
+        try
+        {
+            var buffer = new byte[64 * 1024];
+            while (state.Status is not (AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled))
+            {
+                using var message = new MemoryStream();
+                WebSocketReceiveResult part;
+                do
+                {
+                    part = await socket.ReceiveAsync(buffer, cancellationToken);
+                    if (part.MessageType == WebSocketMessageType.Close) throw new IOException("ComfyUI closed the progress connection before completion.");
+                    if (part.MessageType == WebSocketMessageType.Text) message.Write(buffer, 0, part.Count);
+                } while (!part.EndOfMessage);
+                if (part.MessageType != WebSocketMessageType.Text) continue;
+                state = ComfyEventParser.Parse(Encoding.UTF8.GetString(message.ToArray()), promptId, state);
+                progress?.Report(state);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            try { await InterruptAsync(CancellationToken.None); } catch { }
+            progress?.Report(state with { Status = AiOperationStatus.Cancelled, Stage = "Cancelled" });
+            throw;
+        }
+        if (state.Status == AiOperationStatus.Failed) throw new InvalidOperationException(state.Error ?? "ComfyUI execution failed.");
+        if (state.Status == AiOperationStatus.Cancelled) throw new OperationCanceledException("ComfyUI execution was cancelled.");
+        var history = await HistoryAsync(promptId, cancellationToken);
+        return new ComfyExecutionResult(promptId, history, FindImages(history.RootElement, promptId));
+    }
+
+    public Task<JsonDocument> HistoryAsync(string promptId, CancellationToken cancellationToken = default) => GetJson("history/" + Uri.EscapeDataString(promptId), cancellationToken);
+
+    public async Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
+    {
+        var query = $"view?filename={Uri.EscapeDataString(image.Filename)}&subfolder={Uri.EscapeDataString(image.Subfolder)}&type={Uri.EscapeDataString(image.Type)}";
+        using var response = await http.GetAsync(Address.Api(query), cancellationToken);
+        await EnsureSuccess(response, cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        return ImageFiles.Load(stream, image.Filename);
+    }
+
+    private async Task<JsonDocument> GetJson(string path, CancellationToken cancellationToken)
+    {
+        using var response = await http.GetAsync(Address.Api(path), cancellationToken);
+        await EnsureSuccess(response, cancellationToken);
+        return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+    }
+
+    private static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new HttpRequestException($"ComfyUI returned {(int)response.StatusCode} {response.ReasonPhrase}: {body}", null, response.StatusCode);
+    }
+
+    internal static ComfyServerInfo ParseInfo(JsonElement root)
+    {
+        var system = root.TryGetProperty("system", out var value) ? value : default;
+        string? Field(string name) => system.ValueKind == JsonValueKind.Object && system.TryGetProperty(name, out var field) ? field.GetString() : null;
+        var devices = new List<string>();
+        if (root.TryGetProperty("devices", out var list) && list.ValueKind == JsonValueKind.Array)
+            foreach (var device in list.EnumerateArray())
+                devices.Add(device.TryGetProperty("name", out var name) ? name.GetString() ?? "Device" : "Device");
+        return new(Field("comfyui_version"), Field("os"), Field("python_version"), devices);
+    }
+
+    internal static ComfyServerCapabilities ParseCapabilities(JsonElement root)
+    {
+        var nodes = new HashSet<string>(StringComparer.Ordinal);
+        var assets = new Dictionary<EngineAssetKind, HashSet<string>>();
+        if (root.ValueKind != JsonValueKind.Object) return new() { NodeTypes = nodes, Assets = assets };
+        foreach (var node in root.EnumerateObject())
+        {
+            nodes.Add(node.Name);
+            if (!node.Value.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object) continue;
+            foreach (var sectionName in new[] { "required", "optional" })
+            {
+                if (!input.TryGetProperty(sectionName, out var section) || section.ValueKind != JsonValueKind.Object) continue;
+                foreach (var entry in section.EnumerateObject())
+                {
+                    if (!AssetKind(entry.Name, node.Name, out var kind) || entry.Value.ValueKind != JsonValueKind.Array || entry.Value.GetArrayLength() == 0) continue;
+                    var choices = entry.Value[0];
+                    if (choices.ValueKind != JsonValueKind.Array) continue;
+                    if (!assets.TryGetValue(kind, out var names)) assets[kind] = names = new(StringComparer.OrdinalIgnoreCase);
+                    foreach (var choice in choices.EnumerateArray()) if (choice.ValueKind == JsonValueKind.String && choice.GetString() is { } name) names.Add(name);
+                }
+            }
+        }
+        return new() { NodeTypes = nodes, Assets = assets };
+    }
+
+    private static bool AssetKind(string input, string node, out EngineAssetKind kind)
+    {
+        var key = input.ToLowerInvariant();
+        if (key.Contains("lora")) kind = EngineAssetKind.Lora;
+        else if (key.Contains("vae")) kind = EngineAssetKind.Vae;
+        else if (key.Contains("clip") || key.Contains("text_encoder")) kind = EngineAssetKind.TextEncoder;
+        else if (key.Contains("ckpt") || key.Contains("checkpoint")) kind = EngineAssetKind.Checkpoint;
+        else if (key.Contains("unet") || key.Contains("diffusion")) kind = EngineAssetKind.DiffusionModel;
+        else if (node.Contains("Upscale", StringComparison.OrdinalIgnoreCase) && key.Contains("model")) kind = EngineAssetKind.Upscaler;
+        else { kind = default; return false; }
+        return true;
+    }
+
+    internal static IReadOnlyList<ComfyImageReference> FindImages(JsonElement root, string promptId)
+    {
+        if (root.TryGetProperty(promptId, out var prompt)) root = prompt;
+        if (!root.TryGetProperty("outputs", out var outputs) || outputs.ValueKind != JsonValueKind.Object) return [];
+        var result = new List<ComfyImageReference>();
+        foreach (var node in outputs.EnumerateObject())
+        {
+            if (!node.Value.TryGetProperty("images", out var images) || images.ValueKind != JsonValueKind.Array) continue;
+            foreach (var image in images.EnumerateArray())
+            {
+                var filename = image.TryGetProperty("filename", out var f) ? f.GetString() : null;
+                if (filename == null) continue;
+                result.Add(new(filename,
+                    image.TryGetProperty("subfolder", out var s) ? s.GetString() ?? "" : "",
+                    image.TryGetProperty("type", out var t) ? t.GetString() ?? "output" : "output",
+                    node.Name));
+            }
+        }
+        return result;
+    }
+
+    public void Dispose() { if (ownsHttp) http.Dispose(); }
+}

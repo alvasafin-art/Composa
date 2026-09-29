@@ -20,6 +20,15 @@ public sealed class Settings
     /// <summary>Rebound shortcuts by command id: a gesture string, or empty for none. Missing entries keep the default.</summary>
     public Dictionary<string, string> Shortcuts { get; set; } = [];
 
+    /// <summary>ComfyUI is always addressed as a server URL, whether it runs on this computer or another one.</summary>
+    public string ComfyServerUrl { get; set; } = "http://127.0.0.1:8188";
+    public int ComfyConnectionTimeoutSeconds { get; set; } = 5;
+    public string? AiEngineId { get; set; }
+    public string AiResolution { get; set; } = "1024 × 1024";
+    public long AiSeed { get; set; } = -1;
+    public List<AiLoraSetting> AiLoras { get; set; } = [];
+    public List<string> CustomLayerTags { get; set; } = [];
+
     /// <summary>Whether the MCP server runs, so an AI agent can drive the editor. Off until someone switches it on.</summary>
     public bool AllowAiControl { get; set; }
 
@@ -64,3 +73,5 @@ public sealed class Settings
 
 /// <summary>How one panel of the side dock was left: shown or not, collapsed to its header or not, and its height when open.</summary>
 public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220);
+
+public sealed record AiLoraSetting(string Name = "", double Strength = 1);
