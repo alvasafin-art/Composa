@@ -4,11 +4,47 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.App.AI;
+using Composa.Editing;
 
 namespace Composa.App.Tests;
 
 public class AiInfrastructureTests
 {
+    [Fact]
+    public async Task Bundled_engine_runs_end_to_end_when_live_Comfy_is_requested()
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_URL");
+        if (string.IsNullOrWhiteSpace(url)) return;
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var compatibility = await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(compatibility);
+        Assert.True(compatibility.IsCompatible, AiTaskService.CompatibilityMessage(service.SelectedEngine!, compatibility));
+        var session = EditorSession.NewCanvas(512, 512);
+
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
+        {
+            Task = AiTaskKind.GenerateImage,
+            Prompt = "a small red cube on a clean white studio background",
+            Settings = new AiGenerationSettings { Width = 512, Height = 512, Seed = 1 }
+        }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+        Assert.Equal(2, session.Document.Layers.Count);
+        Assert.Contains("ai-generated", session.ActiveLayer!.Tags);
+
+        foreach (var model in new[] { "4x-UltraSharpV2.safetensors", "4x_NMKD-Siax_200k.pth" })
+        {
+            var upscaleSession = EditorSession.NewCanvas(64, 64, SkiaSharp.SKColors.CornflowerBlue);
+            await service.RunAsync(new EditorCommandService(upscaleSession), new AiTaskRequest
+            {
+                Task = AiTaskKind.Upscale,
+                Settings = new AiGenerationSettings { Values = new() { ["upscaleModel"] = model } }
+            }, TestContext.Current.CancellationToken);
+            Assert.Equal((256, 256), (upscaleSession.Document.Width, upscaleSession.Document.Height));
+            Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+        }
+    }
+
     [Theory]
     [InlineData("http://127.0.0.1:8188", "http://127.0.0.1:8188", "ws://127.0.0.1:8188/ws")]
     [InlineData("https://render.example:443/", "https://render.example", "wss://render.example/ws")]
@@ -32,7 +68,7 @@ public class AiInfrastructureTests
         using var http = new HttpClient(new JsonHandler(request => request.RequestUri!.AbsolutePath switch
         {
             "/system_stats" => """{"system":{"os":"windows","comfyui_version":"0.9","python_version":"3.12"},"devices":[{"name":"Intel XPU"}]}""",
-            "/object_info" => """{"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["model.safetensors"],{}]}}},"LoraLoader":{"input":{"required":{"lora_name":[["style.safetensors"],{}]}}}}""",
+            "/object_info" => """{"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["model.safetensors"],{}]}}},"LoraLoader":{"input":{"required":{"lora_name":[["style.safetensors"],{}]}}},"UpscaleModelLoader":{"input":{"required":{"model_name":["COMBO",{"options":["4x-UltraSharpV2.safetensors","4x_NMKD-Siax_200k.pth"]}]}}}}""",
             _ => "{}"
         }));
         using var client = new ComfyClient("http://127.0.0.1:8188", http);
@@ -40,10 +76,12 @@ public class AiInfrastructureTests
         var (info, capabilities) = await client.TestConnectionAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("0.9", info.Version);
+        Assert.Equal("0.9", capabilities.Version);
         Assert.Contains("Intel XPU", info.Devices);
         Assert.Contains("CheckpointLoaderSimple", capabilities.NodeTypes);
         Assert.Contains("model.safetensors", capabilities.Assets[EngineAssetKind.Checkpoint]);
         Assert.Contains("style.safetensors", capabilities.Assets[EngineAssetKind.Lora]);
+        Assert.Contains("4x_NMKD-Siax_200k.pth", capabilities.Assets[EngineAssetKind.Upscaler]);
     }
 
     [Fact]
@@ -91,6 +129,9 @@ public class AiInfrastructureTests
         state = ComfyEventParser.Parse("""{"type":"progress","data":{"prompt_id":"p","node":"7","value":3,"max":10}}""", "p", state);
         Assert.Equal(3, state.Value);
         Assert.Equal(10, state.Maximum);
+        state = ComfyEventParser.Parse("""{"type":"executing","data":{"prompt_id":"p","node":null}}""", "p", state);
+        Assert.Equal(AiOperationStatus.Running, state.Status);
+        Assert.Equal("Finalizing result", state.Stage);
         state = ComfyEventParser.Parse("""{"type":"execution_success","data":{"prompt_id":"p"}}""", "p", state);
         Assert.Equal(AiOperationStatus.Completed, state.Status);
 
@@ -126,6 +167,7 @@ public class AiInfrastructureTests
         Assert.Equal(12, loaded.AiMaskGrow);
         Assert.Equal(24, loaded.AiMaskBlend);
         Assert.Equal(12, loaded.ComfyConnectionTimeoutSeconds);
+        Assert.Equal("4x-UltraSharpV2.safetensors", loaded.AiUpscalerModel);
         Assert.Equal("style.safetensors", loaded.AiLoras[0].Name);
     }
 

@@ -49,6 +49,21 @@ public static class AiDialogs
         var status = Ui.Label(ConnectionLabel(service.ConnectionState), Palette.Secondary);
         status.MaxWidth = 430;
         status.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        var upscaler = new ComboBox { Width = 260 };
+        void RefreshUpscalers()
+        {
+            var names = service.ServerCapabilities?.Assets.GetValueOrDefault(EngineAssetKind.Upscaler)?.Order(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+            if (!string.IsNullOrWhiteSpace(settings.AiUpscalerModel) && !names.Contains(settings.AiUpscalerModel, StringComparer.OrdinalIgnoreCase))
+                names.Insert(0, settings.AiUpscalerModel);
+            upscaler.ItemsSource = names;
+            upscaler.SelectedItem = names.FirstOrDefault(name => name.Equals(settings.AiUpscalerModel, StringComparison.OrdinalIgnoreCase)) ?? names.FirstOrDefault();
+            upscaler.IsEnabled = names.Count > 0;
+        }
+        upscaler.SelectionChanged += (_, _) =>
+        {
+            if (upscaler.SelectedItem is string name) settings.AiUpscalerModel = name;
+        };
+        RefreshUpscalers();
         var test = Ui.TextButton("Test Connection", () => { });
         test.Click += async (_, _) =>
         {
@@ -63,6 +78,7 @@ public static class AiDialogs
                     (info?.Devices.Count > 0 ? "\n" + string.Join(", ", info.Devices) : "") +
                     (compatibility == null ? "" : "\n" + AiTaskService.CompatibilityMessage(service.SelectedEngine!, compatibility));
                 status.Foreground = compatibility is { IsCompatible: false } ? Avalonia.Media.Brushes.Orange : Palette.Accent;
+                RefreshUpscalers();
             }
             catch (Exception error)
             {
@@ -98,6 +114,7 @@ public static class AiDialogs
             ("Model", engine),
             ("Image size", megapixels),
             ("Reference images", referenceSize),
+            ("Upscaler", upscaler),
             ("Mask grow", Ui.Row(6, maskGrow, Ui.Label("px", Palette.Secondary))),
             ("Mask blend", Ui.Row(6, maskBlend, Ui.Label("px", Palette.Secondary))),
             ("Seed", Ui.Row(6, seed, Ui.Label("-1 = random", Palette.Secondary))),

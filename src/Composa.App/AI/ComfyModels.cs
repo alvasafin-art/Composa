@@ -51,7 +51,9 @@ internal static class ComfyEventParser
     private static AiOperationState Executing(JsonElement data, AiOperationState current)
     {
         if (!data.TryGetProperty("node", out var node) || node.ValueKind == JsonValueKind.Null)
-            return current with { Status = AiOperationStatus.Completed, Stage = "Completed", NodeId = null };
+            // Current ComfyUI emits executing/node:null just before execution_success. History is not guaranteed to
+            // contain outputs yet, so only the explicit success event may complete the operation.
+            return current with { Status = AiOperationStatus.Running, Stage = "Finalizing result", NodeId = null };
         return current with { Status = AiOperationStatus.Running, NodeId = node.GetString(), Stage = "Running node " + node.GetString(), Value = null, Maximum = null };
     }
 

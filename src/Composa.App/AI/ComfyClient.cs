@@ -30,7 +30,8 @@ public sealed class ComfyClient : IDisposable
         timeout.CancelAfter(ConnectionTimeout);
         using var stats = await GetJson("system_stats", timeout.Token);
         using var objects = await GetJson("object_info", timeout.Token);
-        return (ParseInfo(stats.RootElement), ParseCapabilities(objects.RootElement));
+        var info = ParseInfo(stats.RootElement);
+        return (info, ParseCapabilities(objects.RootElement) with { Version = info.Version });
     }
 
     public async Task<ComfyQueueState> QueueAsync(string? promptId = null, CancellationToken cancellationToken = default)
@@ -120,8 +121,19 @@ public sealed class ComfyClient : IDisposable
         }
         if (state.Status == AiOperationStatus.Failed) throw new InvalidOperationException(state.Error ?? "ComfyUI execution failed.");
         if (state.Status == AiOperationStatus.Cancelled) throw new OperationCanceledException("ComfyUI execution was cancelled.");
-        var history = await HistoryAsync(promptId, cancellationToken);
-        return new ComfyExecutionResult(promptId, history, FindImages(history.RootElement, promptId));
+        // The success WebSocket event can beat persistence of the history record, especially for a fully cached
+        // prompt. Wait briefly for its outputs instead of reporting a false "completed without an image" error.
+        JsonDocument? history = null;
+        var attempts = Math.Max(2, (int)Math.Ceiling(ConnectionTimeout.TotalMilliseconds / 100));
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            history?.Dispose();
+            history = await HistoryAsync(promptId, cancellationToken);
+            var images = FindImages(history.RootElement, promptId);
+            if (images.Count > 0 || attempt == attempts - 1) return new ComfyExecutionResult(promptId, history, images);
+            await Task.Delay(100, cancellationToken);
+        }
+        throw new InvalidOperationException("ComfyUI history polling ended unexpectedly.");
     }
 
     public Task<JsonDocument> HistoryAsync(string promptId, CancellationToken cancellationToken = default) => GetJson("history/" + Uri.EscapeDataString(promptId), cancellationToken);
@@ -176,6 +188,11 @@ public sealed class ComfyClient : IDisposable
                 {
                     if (!AssetKind(entry.Name, node.Name, out var kind) || entry.Value.ValueKind != JsonValueKind.Array || entry.Value.GetArrayLength() == 0) continue;
                     var choices = entry.Value[0];
+                    // ComfyUI historically returned choices directly as the first array item. Current releases
+                    // describe a COMBO there and put its choices in the second item's options array.
+                    if (choices.ValueKind != JsonValueKind.Array && entry.Value.GetArrayLength() > 1
+                        && entry.Value[1].ValueKind == JsonValueKind.Object
+                        && entry.Value[1].TryGetProperty("options", out var options)) choices = options;
                     if (choices.ValueKind != JsonValueKind.Array) continue;
                     if (!assets.TryGetValue(kind, out var names)) assets[kind] = names = new(StringComparer.OrdinalIgnoreCase);
                     foreach (var choice in choices.EnumerateArray()) if (choice.ValueKind == JsonValueKind.String && choice.GetString() is { } name) names.Add(name);

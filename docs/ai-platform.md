@@ -6,9 +6,9 @@ Composa keeps AI optional. The editor starts and all ordinary editing continues 
 
 Open **AI > ComfyUI Settings** and enter one **ComfyUI Server URL**, such as `http://127.0.0.1:8188` or a LAN/VPN address. There is no Local/Remote switch: both are the same HTTP/WebSocket server contract. **Test Connection** reports the server version and device when available, then validates the selected Model (internally an Engine Profile) against required nodes and assets.
 
-The compact AI bar shows the megapixel budget, settings, contextual actions, queue/execution progress, errors, and Cancel. Model/Profile selection lives in the settings dialog because it is not a routine per-operation choice. A selection opens a floating prompt directly below it with an optional reference image, **Generate**, **Remove**, the remaining task menu, Close, and Advanced settings. Output width and height are calculated from the chosen 0.5–4 MP budget while preserving the selection, crop, or document aspect ratio. An empty image layer exposes **Generate Image**. Extending a Crop outside the canvas exposes **Generative Expand**. The permanent **AI** menu contains every stable task plus presets, models, server settings, and the reserved Assistant location.
+The compact AI controls share the normal tool-options row and show contextual actions, queue/execution progress, errors, and Cancel. Model/Profile selection lives in the settings dialog because it is not a routine per-operation choice. After a selection gesture finishes, a floating prompt opens beside the selection with up to six ordered reference images, **Generate**, **Remove**, the remaining task menu, Close, and Advanced settings. References support file picking, drag-and-drop, clipboard paste, previews, and individual removal. Output width and height are calculated from the chosen 0.5–4 MP budget while preserving the selection, crop, or document aspect ratio. An empty image layer exposes **Generate Image**. Extending a Crop outside the canvas exposes **Generative Expand**. The permanent **AI** menu contains every stable task plus presets, server settings, and the reserved Assistant location.
 
-Stage 1 contains the platform and no production Engine Pack. With no pack installed, controls remain visible but correctly explain that an Engine Pack is required. No successful result is simulated.
+The bundled FLUX.2 Klein Engine Pack provides the first production workflows. With no compatible pack installed, controls correctly explain that an Engine Pack is required. No successful result is simulated.
 
 ## Editing behavior
 
@@ -22,7 +22,7 @@ Stage 1 contains the platform and no production Engine Pack. With no pack instal
 
 An Engine Profile describes a complete compatible pipeline: workflows, task bindings, required node types and model assets, supported parameters, LoRA rules, semantic inputs, output nodes, and version compatibility. Weights stay on the ComfyUI server.
 
-Tasks are stable editor concepts; bindings are explicit and versioned. Several tasks may reference one workflow. Semantic inputs such as `prompt`, `sourceImage`, `selectionMask`, `referenceImage`, and `preprocessedImage` map to exact node ids and input keys, so editor code contains no Flux/Qwen-specific node ids and never searches node display names. See [`ai/engines/README.md`](../ai/engines/README.md) for the manifest shape.
+Tasks are stable editor concepts; bindings are explicit and versioned. Several tasks may reference one workflow. Semantic inputs such as `prompt`, `sourceImage`, `selectionMask`, `referenceImage1`…`referenceImage6`, `upscaleModel`, and `preprocessedImage` map to exact node ids and input keys, so editor code contains no Flux/Qwen-specific node ids and never searches node display names. See [`ai/engines/README.md`](../ai/engines/README.md) for the manifest shape.
 
 ## Layer tags and automation foundation
 

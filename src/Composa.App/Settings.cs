@@ -30,6 +30,7 @@ public sealed class Settings
     public double? AiReferenceMegapixels { get; set; } = 1;
     public int AiMaskGrow { get; set; } = 8;
     public int AiMaskBlend { get; set; } = 32;
+    public string AiUpscalerModel { get; set; } = "4x-UltraSharpV2.safetensors";
     public long AiSeed { get; set; } = -1;
     public List<AiLoraSetting> AiLoras { get; set; } = [];
     public List<string> CustomLayerTags { get; set; } = [];

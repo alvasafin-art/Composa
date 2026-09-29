@@ -499,6 +499,10 @@
         "sourceImage": {
           "nodeId": "source",
           "input": "image"
+        },
+        "upscaleModel": {
+          "nodeId": "model",
+          "input": "model_name"
         }
       }
     },

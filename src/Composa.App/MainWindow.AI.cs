@@ -21,6 +21,8 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     internal AiTaskService AiTasks => aiTasks;
+    internal bool AiFloatingVisible => aiFloatingHost.IsVisible;
+    internal int AiReferenceCount => aiReferences.Count;
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly StackPanel aiProgressHost = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
     private readonly Canvas aiFloatingLayer = new();
@@ -31,10 +33,12 @@ public sealed partial class MainWindow
         BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
     };
     private readonly TextBox aiFloatingPrompt = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 54, MaxHeight = 90, PlaceholderText = "Describe what you want to create or edit" };
-    private readonly StackPanel aiReferenceHost = new() { Orientation = Orientation.Horizontal, Spacing = 7, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
     private readonly List<AiReferenceItem> aiReferences = [];
     private bool aiFloatingDismissed;
+    private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingRemove, aiFloatingMore;
+    private readonly TextBlock aiFloatingStatus = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 230 };
 
     private sealed class AiReferenceItem(SKBitmap pixels, Bitmap preview, string name) : IDisposable
     {
@@ -152,8 +156,11 @@ public sealed partial class MainWindow
         actions.Children.Add(aiFloatingMore);
         actions.Children.Add(aiFloatingRemove);
         actions.Children.Add(aiFloatingGenerate);
+        var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        footer.Children.Add(aiFloatingStatus);
+        AddAt(footer, actions, 1);
         RefreshAiReferenceUi();
-        return Ui.Column(9, header, aiFloatingPrompt, aiReferenceHost, actions);
+        return Ui.Column(9, header, aiFloatingPrompt, aiReferenceHost, footer);
     }
 
     private void OpenAiFloatingTaskMenu()
@@ -177,7 +184,8 @@ public sealed partial class MainWindow
 
     private void RefreshAiFloatingUi()
     {
-        var visible = session?.Selection != null && aiTasks.ConnectionState == ComfyConnectionState.Connected && !aiFloatingDismissed;
+        var visible = session?.Selection != null && session.IsPaintingSelection == false
+            && aiTasks.ConnectionState == ComfyConnectionState.Connected && !aiFloatingDismissed;
         aiFloatingHost.IsVisible = visible;
         if (!visible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
@@ -185,6 +193,16 @@ public sealed partial class MainWindow
         if (aiFloatingRemove != null) aiFloatingRemove.IsEnabled = !busy && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, AiTaskKind.RemoveObject, CropExpands).Available;
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy && Enum.GetValues<AiTaskKind>().Any(task =>
             task is not (AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject) && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands).Available);
+        var operation = aiTasks.Operation;
+        aiFloatingStatus.Text = aiLastError ?? (operation?.Status switch
+        {
+            AiOperationStatus.Queued or AiOperationStatus.Running => operation.Stage ?? "Working…",
+            AiOperationStatus.Completed => "Completed",
+            AiOperationStatus.Cancelled => "Cancelled",
+            AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
+            _ => ""
+        });
+        aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
         Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiFloatingPosition);
     }
 
@@ -220,27 +238,30 @@ public sealed partial class MainWindow
     {
         aiReferenceHost.Children.Clear();
         aiReferenceHost.Children.Add(Ui.Label($"References ({aiReferences.Count}/6)", Palette.Secondary));
+        var items = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, VerticalAlignment = VerticalAlignment.Center };
         foreach (var item in aiReferences.ToArray())
         {
             var preview = new Image { Source = item.Preview, Width = 52, Height = 52, Stretch = Stretch.UniformToFill };
-            var remove = Ui.TextButton("×", () =>
+            var remove = new Button
             {
+                Content = "×", MinWidth = 22, Width = 22, Height = 22, Padding = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+                Background = new SolidColorBrush(Color.Parse("#CC292929")), Foreground = Brushes.White
+            };
+            remove.Click += (_, e) =>
+            {
+                e.Handled = true;
                 aiReferences.Remove(item);
                 item.Dispose();
                 RefreshAiReferenceUi();
-            });
-            remove.MinWidth = 20;
-            remove.Width = 20;
-            remove.Height = 20;
-            remove.Padding = new Thickness(0);
-            remove.HorizontalAlignment = HorizontalAlignment.Right;
-            remove.VerticalAlignment = VerticalAlignment.Top;
+            };
+            remove.SetValue(Panel.ZIndexProperty, 1);
             ToolTip.SetTip(remove, "Remove reference");
             var cell = new Grid { Width = 56, Height = 56 };
             cell.Children.Add(new Border { Child = preview, CornerRadius = new CornerRadius(6), ClipToBounds = true, BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")), BorderThickness = new Thickness(1) });
             cell.Children.Add(remove);
             ToolTip.SetTip(cell, item.Name);
-            aiReferenceHost.Children.Add(cell);
+            items.Children.Add(cell);
         }
         if (aiReferences.Count < 6)
         {
@@ -249,8 +270,9 @@ public sealed partial class MainWindow
             add.Height = 56;
             add.FontSize = 22;
             ToolTip.SetTip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
-            aiReferenceHost.Children.Add(add);
+            items.Children.Add(add);
         }
+        aiReferenceHost.Children.Add(items);
     }
 
     private void AddAiReferencePaths(IEnumerable<string> paths)
@@ -275,6 +297,12 @@ public sealed partial class MainWindow
             aiReferences.Add(new AiReferenceItem(pixels, new Bitmap(stream), name));
         }
         catch { pixels.Dispose(); throw; }
+    }
+
+    internal void AddAiReferenceForTests(SKBitmap pixels)
+    {
+        AddAiReference(pixels, "Test reference");
+        RefreshAiReferenceUi();
     }
 
     private async Task<bool> PasteAiReference()
@@ -343,9 +371,11 @@ public sealed partial class MainWindow
 
     private async Task RunAi(AiTaskKind task, string initialPrompt = "", bool useInlinePrompt = false)
     {
+        aiLastError = null;
+        aiFloatingStatus.Text = "Starting…";
         var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
-        if (!availability.Available) { ShowProblem(availability.Reason ?? "This AI task is unavailable."); return; }
-        if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) { ShowProblem("Another AI operation is already running."); return; }
+        if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
+        if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) { AiFailed("Another AI operation is already running."); return; }
         var aspect = AiAspect(task);
         var fallback = AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
@@ -372,13 +402,21 @@ public sealed partial class MainWindow
                 Settings = new AiGenerationSettings
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
-                    Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend }
+                    Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
+                        ["upscaleModel"] = settings.AiUpscalerModel }
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { ShowProblem(error.Message); }
+        catch (Exception error) { AiFailed(error.Message); }
+    }
+
+    private void AiFailed(string message)
+    {
+        aiLastError = message;
+        ShowProblem(message);
+        RefreshAiUi();
     }
 
     private (int Width, int Height) AiAspect(AiTaskKind task)
