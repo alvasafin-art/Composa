@@ -132,7 +132,7 @@ public class AiArchitectureTests
         var session = EditorSession.NewCanvas(20, 16, SKColors.White);
         session.SelectRect(new SKRect(4, 3, 10, 9));
         using var reference = Pixels.NewColor(5, 7);
-        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.RemoveObject, Prompt = "clean background", ReferenceImage = reference, Settings = new() { Seed = 42 } });
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.RemoveObject, ReferenceImage = reference, Settings = new() { Seed = 42 } });
 
         Assert.Equal(20, inputs.CanvasWidth);
         Assert.Equal(16, inputs.CanvasHeight);
@@ -141,11 +141,30 @@ public class AiArchitectureTests
         Assert.NotNull(inputs.AlphaMask);
         Assert.NotNull(inputs.PreprocessedImage);
         Assert.NotNull(inputs.PreprocessedMask);
+        Assert.Equal(SKColors.Black, inputs.PreprocessedImage!.GetPixel(6, 5));
+        Assert.Contains("surrounding visual context", inputs.Prompt);
         Assert.NotNull(inputs.ReferenceImage);
         Assert.NotSame(reference, inputs.ReferenceImage);
         Assert.Contains("referenceImage", inputs.Images());
         Assert.Equal(new SKRectI(4, 3, 10, 9), inputs.TargetBounds);
         Assert.Equal(42, inputs.Seed);
+
+        using var guided = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.RemoveObject, Prompt = "leave the branch intact" });
+        Assert.Contains("Remove the black area", guided.Prompt);
+        Assert.Contains("leave the branch intact", guided.Prompt);
+    }
+
+    [Fact]
+    public void Upscale_with_selection_sends_only_the_selected_patch()
+    {
+        var session = EditorSession.NewCanvas(20, 16, SKColors.CornflowerBlue);
+        session.SelectRect(new SKRect(4, 3, 10, 9));
+
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.Upscale });
+
+        Assert.Equal((6, 6), (inputs.SourceImage.Width, inputs.SourceImage.Height));
+        Assert.Equal((20, 16), (inputs.ContextImage.Width, inputs.ContextImage.Height));
+        Assert.Equal(new SKRectI(4, 3, 10, 9), inputs.TargetBounds);
     }
 
     [Fact]

@@ -105,6 +105,7 @@ public static class AiDialogs
         var seed = Ui.Number(settings.AiSeed, -1, long.MaxValue, value => settings.AiSeed = (long)value, 1, "0", 150);
         var maskGrow = Ui.Number(settings.AiMaskGrow, 0, 64, value => settings.AiMaskGrow = (int)value, 1, "0", 80);
         var maskBlend = Ui.Number(settings.AiMaskBlend, 0, 64, value => settings.AiMaskBlend = (int)value, 1, "0", 80);
+        var maskContext = Ui.Number(settings.AiMaskContext, 1, 8, value => settings.AiMaskContext = value, 0.1, "0.0", 80);
         var lora = new TextBox { Text = string.Join(", ", settings.AiLoras.Select(item => item.Name)), PlaceholderText = "Names from the connected server", Width = 260 };
         var form = CanvasDialogs.Form(
             ("ComfyUI Server URL", url),
@@ -117,6 +118,7 @@ public static class AiDialogs
             ("Upscaler", upscaler),
             ("Mask grow", Ui.Row(6, maskGrow, Ui.Label("px", Palette.Secondary))),
             ("Mask blend", Ui.Row(6, maskBlend, Ui.Label("px", Palette.Secondary))),
+            ("Mask context", Ui.Row(6, maskContext, Ui.Label("× selection bounds", Palette.Secondary))),
             ("Seed", Ui.Row(6, seed, Ui.Label("-1 = random", Palette.Secondary))),
             ("LoRA", lora));
         var note = Ui.Label("Engine Packs contain workflows and compatibility metadata, never model weights.", Palette.Secondary);

@@ -159,6 +159,10 @@
           "nodeId": "crop",
           "input": "mask_blend_pixels"
         },
+        "maskContext": {
+          "nodeId": "crop",
+          "input": "context_from_mask_extend_factor"
+        },
         "referenceImage1": {
           "nodeId": "ref1load",
           "input": "image"
@@ -223,6 +227,10 @@
         "maskBlend": {
           "nodeId": "crop",
           "input": "mask_blend_pixels"
+        },
+        "maskContext": {
+          "nodeId": "crop",
+          "input": "context_from_mask_extend_factor"
         }
       }
     },
@@ -263,6 +271,10 @@
         "maskBlend": {
           "nodeId": "crop",
           "input": "mask_blend_pixels"
+        },
+        "maskContext": {
+          "nodeId": "crop",
+          "input": "context_from_mask_extend_factor"
         }
       }
     },
@@ -543,6 +555,14 @@
       "minimum": 0,
       "maximum": 64,
       "default": 32
+    },
+    {
+      "id": "maskContext",
+      "name": "Mask context",
+      "kind": "number",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 2
     }
   ],
   "lora": {

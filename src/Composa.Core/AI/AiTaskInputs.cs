@@ -12,8 +12,8 @@ public sealed record RemoveObjectSettings
 {
     public int Dilation { get; init; } = 8;
     public float Feather { get; init; } = 4;
-    public RemoveObjectFillMode FillMode { get; init; } = RemoveObjectFillMode.Neutral;
-    public SKColor FillColor { get; init; } = new(127, 127, 127);
+    public RemoveObjectFillMode FillMode { get; init; } = RemoveObjectFillMode.Solid;
+    public SKColor FillColor { get; init; } = SKColors.Black;
 }
 
 public sealed record AiGenerationSettings
@@ -147,10 +147,15 @@ public static class AiTaskInputPreparer
         if (request.Task.RequiresSelection() && session.Selection == null)
             throw new InvalidOperationException($"{request.Task.DisplayName()} requires a selection.");
 
-        var source = session.Flatten();
-        var context = Pixels.Clone(source);
+        var flattened = session.Flatten();
+        var context = Pixels.Clone(flattened);
         var active = RenderActiveLayer(session);
         var selection = session.Selection == null ? null : Pixels.Clone(session.Selection);
+        var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Upscale
+            ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
+        var source = request.Task == AiTaskKind.Upscale && session.Selection != null && !target.IsEmpty
+            ? Crop(flattened, target) : flattened;
+        if (!ReferenceEquals(source, flattened)) flattened.Dispose();
         var alpha = session.ActiveLayer is { Pixels: not null } layer ? SelectionMask.FromLayer(session.Document, layer, fromMask: false) : null;
         SKBitmap? preprocessed = null, preprocessedMask = null;
         if (request.Task == AiTaskKind.RemoveObject && selection != null)
@@ -158,8 +163,6 @@ public static class AiTaskInputPreparer
         else if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds is { } expansion)
             (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, expansion);
 
-        var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize
-            ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
         var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(6).ToList()
             : request.ReferenceImage == null ? [] : [request.ReferenceImage];
         var references = requestedReferences.Select(image => PrepareReference(image, request.ReferenceMegapixels)).ToList();
@@ -178,7 +181,7 @@ public static class AiTaskInputPreparer
             CanvasHeight = request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
             TargetBounds = target,
             ExpansionBounds = request.ExpansionBounds,
-            Prompt = request.Prompt,
+            Prompt = request.Task == AiTaskKind.RemoveObject ? RemovePrompt(request.Prompt) : request.Prompt,
             NegativePrompt = request.NegativePrompt,
             Seed = request.Settings.Seed
         };
@@ -209,6 +212,21 @@ public static class AiTaskInputPreparer
         using var canvas = new SKCanvas(target);
         canvas.DrawImage(Pixels.ImageOf(source), new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell));
         return target;
+    }
+
+    private static SKBitmap Crop(SKBitmap source, SKRectI bounds)
+    {
+        var result = Pixels.NewColor(bounds.Width, bounds.Height);
+        using var canvas = new SKCanvas(result);
+        canvas.DrawImage(Pixels.ImageOf(source), new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom),
+            new SKRect(0, 0, bounds.Width, bounds.Height), new SKSamplingOptions(SKCubicResampler.Mitchell));
+        return result;
+    }
+
+    private static string RemovePrompt(string guidance)
+    {
+        const string instruction = "Remove the black area. Reconstruct and fill it naturally from the surrounding visual context. Do not leave a black or gray patch.";
+        return string.IsNullOrWhiteSpace(guidance) ? instruction : $"{instruction} Additional guidance: {guidance.Trim()}";
     }
 
     private static (SKBitmap Image, SKBitmap Mask) PrepareExpansion(SKBitmap source, SKRectI document, SKRectI expansion)

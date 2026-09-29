@@ -403,6 +403,7 @@ public sealed partial class MainWindow
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
+                        ["maskContext"] = settings.AiMaskContext,
                         ["upscaleModel"] = settings.AiUpscalerModel }
                 }
             };

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.IO;
+using Composa.Rendering;
 using SkiaSharp;
 
 namespace Composa.App.AI;
@@ -56,7 +57,7 @@ public sealed class ComfyClient : IDisposable
     public async Task<string> UploadPngAsync(string semanticName, SKBitmap bitmap, CancellationToken cancellationToken = default)
     {
         var filename = $"composa-{semanticName}-{Guid.NewGuid():N}.png";
-        var bytes = ImageFiles.Encode(bitmap, ExportFormat.Png);
+        var bytes = EncodeUploadPng(bitmap);
         using var form = new MultipartFormDataContent();
         using var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = new("image/png");
@@ -65,6 +66,18 @@ public sealed class ComfyClient : IDisposable
         using var response = await http.PostAsync(Address.Api("upload/image"), form, cancellationToken);
         await EnsureSuccess(response, cancellationToken);
         return filename;
+    }
+
+    /// <summary>Comfy image-mask workflows read RGB channels; Alpha8 must therefore be uploaded as opaque grayscale.</summary>
+    internal static byte[] EncodeUploadPng(SKBitmap bitmap)
+    {
+        if (bitmap.ColorType != SKColorType.Alpha8) return ImageFiles.Encode(bitmap, ExportFormat.Png);
+        using var gray = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Gray8, SKAlphaType.Opaque));
+        var source = bitmap.GetPixelSpan();
+        var target = gray.GetPixelSpan();
+        for (var y = 0; y < bitmap.Height; y++)
+            source.Slice(y * bitmap.RowBytes, bitmap.Width).CopyTo(target.Slice(y * gray.RowBytes, bitmap.Width));
+        return ImageFiles.Encode(gray, ExportFormat.Png);
     }
 
     public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)

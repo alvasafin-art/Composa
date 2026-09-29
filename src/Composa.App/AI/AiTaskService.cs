@@ -135,7 +135,7 @@ public sealed class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    private static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds)
     {
         var session = editor.Session;
         if (mode == AiOutputMode.Selection)
@@ -147,6 +147,20 @@ public sealed class AiTaskService : IAiTaskRunner
         }
         if (task == AiTaskKind.Upscale)
         {
+            if (session.Selection is { } selection && !targetBounds.IsEmpty)
+            {
+                var upscaleOutputs = images.Select((image, index) =>
+                {
+                    var fitted = image.Width == targetBounds.Width && image.Height == targetBounds.Height
+                        ? image : Resize(image, targetBounds.Width, targetBounds.Height);
+                    if (!ReferenceEquals(fitted, image)) image.Dispose();
+                    var mask = MaskForBounds(selection, targetBounds, targetBounds.Width, targetBounds.Height);
+                    return new AiOutput(images.Count == 1 ? "AI Upscale Selection" : $"AI Upscale Selection {index + 1}", fitted, mask,
+                        Bounds: new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom));
+                }).ToList();
+                session.InsertAiOutput(task, upscaleOutputs);
+                return;
+            }
             editor.Transaction("AI Upscale", target =>
             {
                 target.ResizeImage(images[0].Width, images[0].Height);

@@ -5,11 +5,125 @@ using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.App.AI;
 using Composa.Editing;
+using Composa.IO;
+using Composa.Model;
+using Composa.Rendering;
+using Composa.Selections;
+using SkiaSharp;
 
 namespace Composa.App.Tests;
 
 public class AiInfrastructureTests
 {
+    [Theory]
+    [InlineData(AiTaskKind.GenerativeFill, "Replace the selected owl with a realistic black cat while preserving the surrounding forest.")]
+    [InlineData(AiTaskKind.RemoveObject, "")]
+    public async Task Bundled_inpaint_changes_a_real_selected_region_when_live_files_are_requested(AiTaskKind task, string prompt)
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_URL");
+        var sourcePath = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_SOURCE");
+        var maskPath = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_MASK");
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(maskPath)
+            || !File.Exists(sourcePath) || !File.Exists(maskPath)) return;
+
+        var source = ImageFiles.Load(sourcePath);
+        using var encodedMask = ImageFiles.Load(maskPath);
+        var selection = Pixels.NewMask(source.Width, source.Height);
+        for (var y = 0; y < source.Height; y++)
+            for (var x = 0; x < source.Width; x++)
+                selection.GetPixelSpan()[y * selection.RowBytes + x] = encodedMask.GetPixel(x, y).Alpha;
+        var document = new Document(source.Width, source.Height);
+        var background = Layer.Raster("Source", source);
+        document.Layers.Add(background);
+        document.SetActive(background.Id);
+        var session = new EditorSession(document);
+        session.PreviewSelection(selection);
+        using var before = session.Flatten();
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
+        {
+            Task = task, Prompt = prompt,
+            Settings = new AiGenerationSettings
+            {
+                Width = 1024, Height = 1024, Seed = 7,
+                Values = new() { ["maskGrow"] = 8, ["maskBlend"] = 32, ["maskContext"] = 2.0 }
+            }
+        }, TestContext.Current.CancellationToken);
+
+        var result = session.ActiveLayer!.Pixels!;
+        var changed = 0;
+        var reconstructed = 0;
+        var selected = 0;
+        for (var y = 0; y < source.Height; y++)
+            for (var x = 0; x < source.Width; x++)
+            {
+                if (selection.GetPixelSpan()[y * selection.RowBytes + x] < 128) continue;
+                selected++;
+                var a = before.GetPixel(x, y);
+                var b = result.GetPixel(x, y);
+                if (Math.Abs(a.Red - b.Red) + Math.Abs(a.Green - b.Green) + Math.Abs(a.Blue - b.Blue) > 24) changed++;
+                if (b.Red + b.Green + b.Blue > 30) reconstructed++;
+            }
+        Assert.True(changed > selected / 20, $"Only {changed} of {selected} selected pixels changed.");
+        if (task == AiTaskKind.RemoveObject)
+            Assert.True(reconstructed > selected / 20, $"Only {reconstructed} of {selected} selected pixels were reconstructed from black.");
+    }
+
+    [Fact]
+    public void Alpha_masks_are_uploaded_as_opaque_grayscale_for_Comfy_image_nodes()
+    {
+        using var mask = Pixels.NewMask(4, 3);
+        mask.GetPixelSpan()[1 * mask.RowBytes + 2] = 255;
+
+        var bytes = ComfyClient.EncodeUploadPng(mask);
+        using var stream = new MemoryStream(bytes);
+        using var decoded = ImageFiles.Load(stream, "mask.png");
+
+        Assert.Equal(SKColors.Black, decoded.GetPixel(0, 0));
+        Assert.Equal(SKColors.White, decoded.GetPixel(2, 1));
+    }
+
+    [Fact]
+    public void Upscale_selection_keeps_canvas_size_and_inserts_a_fitted_masked_patch()
+    {
+        var session = EditorSession.NewCanvas(20, 16, SKColors.White);
+        session.SelectRect(new SKRect(4, 3, 10, 9));
+        var upscaled = Pixels.NewColor(24, 24);
+        upscaled.Erase(SKColors.CornflowerBlue);
+
+        AiTaskService.Insert(new EditorCommandService(session), AiTaskKind.Upscale, AiOutputMode.NewLayer, [upscaled], new SKRectI(4, 3, 10, 9));
+
+        Assert.Equal((20, 16), (session.Document.Width, session.Document.Height));
+        Assert.Equal((6, 6), (session.ActiveLayer!.Pixels!.Width, session.ActiveLayer.Pixels.Height));
+        Assert.NotNull(session.ActiveLayer.Mask);
+        Assert.Equal((4d, 3d, 6d, 6d), (session.ActiveLayer.Transform.X, session.ActiveLayer.Transform.Y,
+            session.ActiveLayer.Transform.Width, session.ActiveLayer.Transform.Height));
+    }
+
+    [Fact]
+    public async Task Bundled_upscale_keeps_the_live_canvas_size_when_a_selection_exists()
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_URL");
+        if (string.IsNullOrWhiteSpace(url)) return;
+        var session = EditorSession.NewCanvas(64, 64, SKColors.CornflowerBlue);
+        session.SelectRect(new SKRect(12, 10, 52, 50));
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
+        {
+            Task = AiTaskKind.Upscale,
+            Settings = new AiGenerationSettings { Values = new() { ["upscaleModel"] = "4x-UltraSharpV2.safetensors" } }
+        }, TestContext.Current.CancellationToken);
+
+        Assert.Equal((64, 64), (session.Document.Width, session.Document.Height));
+        Assert.Equal((40, 40), (session.ActiveLayer!.Pixels!.Width, session.ActiveLayer.Pixels.Height));
+        Assert.NotNull(session.ActiveLayer.Mask);
+        Assert.Equal((12d, 10d, 40d, 40d), (session.ActiveLayer.Transform.X, session.ActiveLayer.Transform.Y,
+            session.ActiveLayer.Transform.Width, session.ActiveLayer.Transform.Height));
+    }
+
     [Fact]
     public async Task Bundled_engine_runs_end_to_end_when_live_Comfy_is_requested()
     {
@@ -156,7 +270,7 @@ public class AiInfrastructureTests
     public void Ai_settings_round_trip_without_secrets_or_local_paths()
     {
         var settings = new Settings { ComfyServerUrl = "http://192.168.1.50:8188", AiEngineId = "flux", AiMegapixels = 1.5, AiSeed = 123,
-            AiReferenceMegapixels = null, AiMaskGrow = 12, AiMaskBlend = 24,
+            AiReferenceMegapixels = null, AiMaskGrow = 12, AiMaskBlend = 24, AiMaskContext = 2.5,
             AiLoras = [new("style.safetensors", 0.7)], ComfyConnectionTimeoutSeconds = 12 };
         var json = JsonSerializer.Serialize(settings);
         var loaded = JsonSerializer.Deserialize<Settings>(json)!;
@@ -166,6 +280,7 @@ public class AiInfrastructureTests
         Assert.Null(loaded.AiReferenceMegapixels);
         Assert.Equal(12, loaded.AiMaskGrow);
         Assert.Equal(24, loaded.AiMaskBlend);
+        Assert.Equal(2.5, loaded.AiMaskContext);
         Assert.Equal(12, loaded.ComfyConnectionTimeoutSeconds);
         Assert.Equal("4x-UltraSharpV2.safetensors", loaded.AiUpscalerModel);
         Assert.Equal("style.safetensors", loaded.AiLoras[0].Name);
