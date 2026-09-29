@@ -37,7 +37,8 @@ public static class AiTasks
     };
 
     public static bool RequiresSelection(this AiTaskKind task) =>
-        task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject;
+        task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground
+            or AiTaskKind.Harmonize or AiTaskKind.Relight;
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<AiOutputMode>))]

@@ -266,6 +266,7 @@ public sealed class JavaScriptRuntime : IScriptRuntime
         generativeExpand: (prompt, options) => queue('GenerativeExpand', prompt, options),
         changeBackground: (prompt, options) => queue('ChangeBackground', prompt, options),
         harmonize: (prompt, options) => queue('Harmonize', prompt, options),
+        matchToScene: (options) => queue('MatchToScene', '', options),
         relight: (prompt, options) => queue('Relight', prompt, options),
         upscale: (options) => queue('Upscale', '', options),
         selectSubject: (options) => queue('SelectSubject', '', options),

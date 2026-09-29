@@ -124,6 +124,88 @@ public class AiInfrastructureTests
             session.ActiveLayer.Transform.Width, session.ActiveLayer.Transform.Height));
     }
 
+    [Theory]
+    [InlineData(AiTaskKind.SelectSubject)]
+    [InlineData(AiTaskKind.ObjectSelection)]
+    public async Task Bundled_subject_selection_returns_an_editable_mask_when_live_files_are_requested(AiTaskKind task)
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_URL");
+        var sourcePath = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_SOURCE");
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return;
+        var source = ImageFiles.Load(sourcePath);
+        var document = new Document(source.Width, source.Height);
+        var layer = Layer.Raster("Source", source);
+        document.Layers.Add(layer);
+        document.SetActive(layer.Id);
+        var session = new EditorSession(document);
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = task }, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(session.Selection);
+        var selected = 0;
+        foreach (var value in session.Selection!.GetPixelSpan()) if (value >= 128) selected++;
+        Assert.InRange(selected, 1, source.Width * source.Height - 1);
+        Assert.Equal("AI " + task.DisplayName(), session.History.UndoName);
+    }
+
+    [Fact]
+    public void Change_background_result_is_an_editable_background_and_untouched_subject_group()
+    {
+        var session = EditorSession.NewCanvas(20, 16, SKColors.White);
+        session.SelectRect(new SKRect(4, 3, 10, 9));
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.ChangeBackground });
+        var generated = Pixels.NewColor(20, 16);
+        generated.Erase(SKColors.CornflowerBlue);
+
+        AiTaskService.Insert(new EditorCommandService(session), AiTaskKind.ChangeBackground, AiOutputMode.LayerGroup,
+            [generated], session.Document.Bounds, inputs);
+
+        var group = Assert.Single(session.Document.Layers.Where(layer => layer.IsGroup));
+        Assert.Equal(["AI Background", "Original Subject"], group.Children.Select(layer => layer.Name));
+        Assert.Contains("background", group.Children[0].Tags);
+        Assert.Contains("product", group.Children[1].Tags);
+        Assert.Equal((byte)0, group.Children[0].Mask!.GetPixel(6, 5).Alpha);
+        Assert.Equal((byte)255, group.Children[1].Mask!.GetPixel(6, 5).Alpha);
+    }
+
+    [Fact]
+    public async Task Bundled_change_background_uses_the_live_masked_workflow_when_requested()
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_URL");
+        var sourcePath = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_SOURCE");
+        var maskPath = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_MASK");
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(maskPath)
+            || !File.Exists(sourcePath) || !File.Exists(maskPath)) return;
+        var source = ImageFiles.Load(sourcePath);
+        using var encodedMask = ImageFiles.Load(maskPath);
+        var selection = Pixels.NewMask(source.Width, source.Height);
+        for (var y = 0; y < source.Height; y++)
+            for (var x = 0; x < source.Width; x++)
+                selection.GetPixelSpan()[y * selection.RowBytes + x] = encodedMask.GetPixel(x, y).Alpha;
+        var document = new Document(source.Width, source.Height);
+        var layer = Layer.Raster("Source", source);
+        document.Layers.Add(layer);
+        document.SetActive(layer.Id);
+        var session = new EditorSession(document);
+        session.PreviewSelection(selection);
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
+        {
+            Task = AiTaskKind.ChangeBackground, Prompt = "a softly blurred warm sunset beach",
+            Settings = new AiGenerationSettings
+            {
+                Width = 1024, Height = 1024, Seed = 11,
+                Values = new() { ["maskGrow"] = 8, ["maskBlend"] = 32, ["maskContext"] = 2.0 }
+            }
+        }, TestContext.Current.CancellationToken);
+
+        var group = Assert.Single(session.Document.Layers, item => item.IsGroup);
+        Assert.Equal(["AI Background", "Original Subject"], group.Children.Select(item => item.Name));
+        Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+    }
+
     [Fact]
     public async Task Bundled_engine_runs_end_to_end_when_live_Comfy_is_requested()
     {
@@ -304,13 +386,15 @@ public class AiInfrastructureTests
                     $"{task.Task}: missing {target.NodeId}.{target.Input} in {declaration.File}");
         }
 
-        var edit = JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine), engine.Workflow("edit").File)))!.AsObject();
-        var bound = WorkflowBinder.Bind(edit, engine.Binding(AiTaskKind.Relight)!, new Dictionary<string, object?>
+        var relightBinding = engine.Binding(AiTaskKind.Relight)!;
+        var relight = JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine), engine.Workflow(relightBinding.Workflow).File)))!.AsObject();
+        var bound = WorkflowBinder.Bind(relight, relightBinding, new Dictionary<string, object?>
         {
-            ["sourceImage"] = "source.png", ["prompt"] = "warm side light", ["width"] = 1024, ["height"] = 768, ["seed"] = 1L
+            ["sourceImage"] = "source.png", ["selectionMask"] = "mask.png", ["prompt"] = "warm side light",
+            ["width"] = 1024, ["height"] = 768, ["seed"] = 1L
         });
         Assert.DoesNotContain(bound, node => node.Key.StartsWith("ref", StringComparison.Ordinal));
-        Assert.Equal("basePos", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.Equal("condition", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
     }
 
     private sealed class JsonHandler(Func<HttpRequestMessage, string> response) : HttpMessageHandler

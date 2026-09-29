@@ -1,4 +1,5 @@
 using Composa.AI;
+using Composa.Filters;
 using Composa.Model;
 using Composa.Rendering;
 using Composa.Selections;
@@ -10,6 +11,90 @@ public sealed record AiOutput(string Name, SKBitmap Pixels, SKBitmap? Mask = nul
 
 public sealed partial class EditorSession
 {
+    /// <summary>Matches a raster layer to the surrounding scene with ordinary editable adjustment layers.</summary>
+    public IReadOnlyList<Layer> MatchActiveLayerToScene()
+    {
+        var active = ActiveLayer;
+        if (active?.Pixels == null) throw new InvalidOperationException("Select an image layer first.");
+        using var scene = Flatten();
+        var subject = document.Selection == null
+            ? ImageStatistics.Of(active.Pixels, null, active.Pixels.Info.Rect)
+            : ImageStatistics.Of(scene, document.Selection, document.Bounds);
+        var visible = active.VisibleBounds;
+        var subjectBounds = document.Selection != null ? SelectionMask.Bounds(document.Selection) : new SKRectI(
+            (int)Math.Floor(visible.Left), (int)Math.Floor(visible.Top), (int)Math.Ceiling(visible.Right), (int)Math.Ceiling(visible.Bottom));
+        var ringSize = Math.Clamp(Math.Max(subjectBounds.Width, subjectBounds.Height) / 3, 16, 256);
+        var ring = new SKRectI(Math.Max(0, subjectBounds.Left - ringSize), Math.Max(0, subjectBounds.Top - ringSize),
+            Math.Min(document.Width, subjectBounds.Right + ringSize), Math.Min(document.Height, subjectBounds.Bottom + ringSize));
+        var surroundings = ImageStatistics.Of(scene, document.Selection, ring, excludeMask: document.Selection != null,
+            excludedBounds: document.Selection == null ? subjectBounds : null);
+        if (subject.Count == 0 || surroundings.Count == 0)
+            throw new InvalidOperationException("There is not enough visible surrounding image to match this layer to the scene.");
+
+        var exposure = Math.Clamp(Math.Log2(Math.Max(1, surroundings.Luma) / Math.Max(1, subject.Luma)), -2, 2);
+        var balance = new ColorBalanceAdjustment()
+            .WithShift(1, 0, Math.Clamp((surroundings.Red - subject.Red) * 0.55, -45, 45))
+            .WithShift(1, 1, Math.Clamp((surroundings.Green - subject.Green) * 0.55, -45, 45))
+            .WithShift(1, 2, Math.Clamp((surroundings.Blue - subject.Blue) * 0.55, -45, 45));
+        var adjustments = new List<(string Name, Adjustment Adjustment)>
+        {
+            ("Match Exposure", new ExposureAdjustment { Exposure = exposure }),
+            ("Match Color", balance)
+        };
+        if (subject.Detail > surroundings.Detail * 1.2 && surroundings.Detail > 0)
+            adjustments.Add(("Match Focus", new GaussianBlurAdjustment { Radius = Math.Clamp(subject.Detail / surroundings.Detail - 1, 0.3, 3) }));
+        if (surroundings.Detail > subject.Detail * 1.18)
+            adjustments.Add(("Match Grain", new AddNoiseAdjustment
+            {
+                Amount = Math.Clamp((surroundings.Detail - subject.Detail) / 1.4, AddNoiseAdjustment.MinAmount, 18),
+                Gaussian = true, Monochromatic = true, Seed = (uint)(active.Id.GetHashCode() & int.MaxValue)
+            }));
+
+        var layers = adjustments.Select(item =>
+        {
+            var layer = Layer.ForAdjustment(item.Adjustment);
+            layer.Name = item.Name;
+            layer.Clipped = true;
+            layer.Tags.Add("editable");
+            if (document.Selection != null) layer.Mask = Pixels.Clone(document.Selection);
+            return layer;
+        }).ToList();
+        Apply("AI Match to Scene", () =>
+        {
+            document.SetActive(active.Id);
+            foreach (var layer in layers) document.InsertAboveActive(layer);
+        });
+        InvalidateAll();
+        LayersChanged?.Invoke();
+        return layers;
+    }
+
+    private readonly record struct ImageStatistics(long Count, double Red, double Green, double Blue, double Luma, double Detail)
+    {
+        public static ImageStatistics Of(SKBitmap image, SKBitmap? mask, SKRectI area, bool excludeMask = false, SKRectI? excludedBounds = null)
+        {
+            area = SKRectI.Intersect(area, image.Info.Rect);
+            long count = 0;
+            double red = 0, green = 0, blue = 0, luma = 0, detail = 0;
+            for (var y = area.Top; y < area.Bottom; y++)
+                for (var x = area.Left; x < area.Right; x++)
+                {
+                    if (excludedBounds is { } excluded && excluded.Contains(x, y)) continue;
+                    if (mask != null && (mask.GetPixel(x, y).Alpha >= 128) == excludeMask) continue;
+                    var color = image.GetPixel(x, y);
+                    if (color.Alpha < 16) continue;
+                    var brightness = (color.Red * 54 + color.Green * 183 + color.Blue * 19) / 256.0;
+                    count++; red += color.Red; green += color.Green; blue += color.Blue; luma += brightness;
+                    if (x > area.Left)
+                    {
+                        var left = image.GetPixel(x - 1, y);
+                        detail += Math.Abs(brightness - (left.Red * 54 + left.Green * 183 + left.Blue * 19) / 256.0);
+                    }
+                }
+            return count == 0 ? default : new(count, red / count, green / count, blue / count, luma / count, detail / count);
+        }
+    }
+
     public void ApplyAiSelection(AiTaskKind task, SKBitmap mask)
     {
         if (mask.ColorType != SKColorType.Alpha8 || mask.Width != document.Width || mask.Height != document.Height)

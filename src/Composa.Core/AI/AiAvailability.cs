@@ -6,6 +6,12 @@ public sealed record AiTaskAvailability(AiTaskKind Task, bool Available, string?
 {
     public static AiTaskAvailability Resolve(EditorSession? session, EngineProfile? engine, AiTaskKind task, bool cropExpands = false)
     {
+        if (task == AiTaskKind.MatchToScene)
+        {
+            if (session == null) return new(task, false, "Open a document first.");
+            if (session.ActiveLayer?.Pixels == null) return new(task, false, "Select an image layer first.");
+            return new(task, true, null);
+        }
         if (engine == null) return new(task, false, "No Engine Profile is installed or selected.");
         if (engine.Binding(task) == null) return new(task, false, $"{engine.DisplayName} does not provide {task.DisplayName()}.");
         if (session == null && task != AiTaskKind.GenerateImage) return new(task, false, "Open a document first.");

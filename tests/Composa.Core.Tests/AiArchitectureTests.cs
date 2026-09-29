@@ -168,6 +168,65 @@ public class AiArchitectureTests
     }
 
     [Fact]
+    public void Change_background_uses_the_inverse_selection_and_preserves_the_subject_instruction()
+    {
+        var session = EditorSession.NewCanvas(20, 16, SKColors.CornflowerBlue);
+        session.SelectRect(new SKRect(4, 3, 10, 9));
+
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest
+        {
+            Task = AiTaskKind.ChangeBackground, Prompt = "a warm sunset beach"
+        });
+
+        Assert.NotNull(inputs.BackgroundMask);
+        Assert.Equal((byte)0, inputs.BackgroundMask!.GetPixel(6, 5).Alpha);
+        Assert.Equal((byte)255, inputs.BackgroundMask.GetPixel(0, 0).Alpha);
+        Assert.Contains("Preserve the foreground subject exactly", inputs.Prompt);
+    }
+
+    [Fact]
+    public void Remove_postprocessing_matches_local_color_and_texture_without_changing_the_source()
+    {
+        using var context = Pixels.NewColor(24, 24);
+        using var generated = Pixels.NewColor(24, 24);
+        using var mask = SelectionMask.FromRect(24, 24, new SKRect(8, 8, 16, 16));
+        for (var y = 0; y < 24; y++)
+            for (var x = 0; x < 24; x++)
+                context.SetPixel(x, y, (x + y) % 2 == 0 ? new SKColor(90, 110, 130) : new SKColor(130, 150, 170));
+        generated.Erase(new SKColor(25, 30, 35));
+
+        using var matched = AiResultPostprocessor.MatchRemoval(generated, context, mask, 7);
+
+        Assert.True(matched.GetPixel(12, 12).Red > generated.GetPixel(12, 12).Red + 40);
+        Assert.Equal(new SKColor(25, 30, 35), generated.GetPixel(12, 12));
+        Assert.Equal(generated.GetPixel(0, 0), matched.GetPixel(0, 0));
+        Assert.NotEqual(matched.GetPixel(11, 12).Red, matched.GetPixel(12, 12).Red);
+    }
+
+    [Fact]
+    public void Match_to_scene_adds_editable_clipped_adjustments_as_one_undo_step()
+    {
+        var session = EditorSession.NewCanvas(40, 30, new SKColor(170, 150, 120));
+        var subject = Pixels.NewColor(12, 10);
+        subject.Erase(new SKColor(45, 70, 120));
+        session.AddImageLayer("Subject", subject, new SKPoint(20, 15), fit: false);
+        var before = session.Document.Layers.Count;
+
+        var added = session.MatchActiveLayerToScene();
+
+        Assert.True(added.Count >= 2);
+        Assert.All(added, layer =>
+        {
+            Assert.True(layer.IsAdjustment);
+            Assert.True(layer.Clipped);
+            Assert.Contains("editable", layer.Tags);
+        });
+        Assert.Equal("AI Match to Scene", session.History.UndoName);
+        session.Undo();
+        Assert.Equal(before, session.Document.Layers.Count);
+    }
+
+    [Fact]
     public void Megapixel_size_preserves_the_target_aspect_ratio()
     {
         var size = AiDimensions.FromMegapixels(0.75, 400, 200);
@@ -182,6 +241,7 @@ public class AiArchitectureTests
     public void Up_to_six_references_keep_order_and_can_preserve_original_size()
     {
         var session = EditorSession.NewCanvas(16, 16);
+        session.SelectRect(new SKRect(2, 2, 14, 14));
         var references = Enumerable.Range(1, 7).Select(index =>
         {
             var image = Pixels.NewColor(20 + index, 10 + index);

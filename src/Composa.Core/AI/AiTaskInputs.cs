@@ -78,6 +78,8 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap ContextImage { get; init; } = null!;
     public SKBitmap? ActiveLayerImage { get; init; }
     public SKBitmap? SelectionMask { get; init; }
+    /// <summary>The inverse selection, used when a task changes the background while preserving the subject.</summary>
+    public SKBitmap? BackgroundMask { get; init; }
     public SKBitmap? AlphaMask { get; init; }
     public SKBitmap? PreprocessedImage { get; init; }
     public SKBitmap? PreprocessedMask { get; init; }
@@ -100,6 +102,7 @@ public sealed class AiTaskInputs : IDisposable
         };
         if (ActiveLayerImage != null) images["activeLayerImage"] = ActiveLayerImage;
         if (SelectionMask != null) images["selectionMask"] = SelectionMask;
+        if (BackgroundMask != null) images["backgroundMask"] = BackgroundMask;
         if (AlphaMask != null) images["alphaMask"] = AlphaMask;
         if (PreprocessedImage != null) images["preprocessedImage"] = PreprocessedImage;
         if (PreprocessedMask != null) images["preprocessedMask"] = PreprocessedMask;
@@ -151,7 +154,8 @@ public static class AiTaskInputPreparer
         var context = Pixels.Clone(flattened);
         var active = RenderActiveLayer(session);
         var selection = session.Selection == null ? null : Pixels.Clone(session.Selection);
-        var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Upscale
+        var background = request.Task == AiTaskKind.ChangeBackground && selection != null ? Invert(selection) : null;
+        var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.Upscale
             ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
         var source = request.Task == AiTaskKind.Upscale && session.Selection != null && !target.IsEmpty
             ? Crop(flattened, target) : flattened;
@@ -172,6 +176,7 @@ public static class AiTaskInputPreparer
             ContextImage = context,
             ActiveLayerImage = active,
             SelectionMask = selection,
+            BackgroundMask = background,
             AlphaMask = alpha,
             PreprocessedImage = preprocessed,
             PreprocessedMask = preprocessedMask,
@@ -181,8 +186,8 @@ public static class AiTaskInputPreparer
             CanvasHeight = request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
             TargetBounds = target,
             ExpansionBounds = request.ExpansionBounds,
-            Prompt = request.Task == AiTaskKind.RemoveObject ? RemovePrompt(request.Prompt) : request.Prompt,
-            NegativePrompt = request.NegativePrompt,
+            Prompt = TaskPrompt(request.Task, request.Prompt),
+            NegativePrompt = TaskNegativePrompt(request.Task, request.NegativePrompt),
             Seed = request.Settings.Seed
         };
     }
@@ -225,8 +230,45 @@ public static class AiTaskInputPreparer
 
     private static string RemovePrompt(string guidance)
     {
-        const string instruction = "Remove the black area. Reconstruct and fill it naturally from the surrounding visual context. Do not leave a black or gray patch.";
+        const string instruction = "Remove the black area and reconstruct it naturally from the surrounding visual context. Match the surrounding exposure, white balance, color, focus, sharpness, texture, grain and noise. Continue lines and patterns across the removed area. Do not leave a black, gray, smooth, blurry or visibly patched region.";
         return string.IsNullOrWhiteSpace(guidance) ? instruction : $"{instruction} Additional guidance: {guidance.Trim()}";
+    }
+
+    private static string TaskPrompt(AiTaskKind task, string prompt)
+    {
+        var guidance = prompt.Trim();
+        return task switch
+        {
+            AiTaskKind.RemoveObject => RemovePrompt(guidance),
+            AiTaskKind.GenerativeFill => $"Create the requested content only inside the masked area. Keep the entire requested object fully visible inside the mask with a clear margin; do not crop or cut off any part of it. Blend lighting, perspective, focus, texture and grain with the surrounding image. Request: {guidance}",
+            AiTaskKind.ChangeBackground => $"Replace only the masked background. Preserve the foreground subject exactly, including identity, shape, pose, texture and fine edges. Match perspective, depth of field and lighting around the subject. New background: {guidance}",
+            AiTaskKind.Harmonize => $"Harmonize only the masked object with its surrounding scene while preserving its identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
+            AiTaskKind.Relight => $"Relight only the masked subject. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill while keeping the whole subject inside the mask. Lighting request: {guidance}",
+            AiTaskKind.GenerativeExpand => $"Extend the image naturally into the masked empty canvas. Continue perspective, structures, lighting, focus, texture and grain without a visible seam. Request: {guidance}",
+            _ => guidance
+        };
+    }
+
+    private static string TaskNegativePrompt(AiTaskKind task, string negative)
+    {
+        var required = task == AiTaskKind.GenerativeFill
+            ? "cropped object, cut off object, object outside mask, incomplete subject, visible seam"
+            : task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand
+                ? "visible seam, color mismatch, smooth patch, blurry patch, mismatched grain, mismatched noise"
+                : "";
+        return string.Join(", ", new[] { negative.Trim(), required }.Where(value => value.Length > 0));
+    }
+
+    private static SKBitmap Invert(SKBitmap mask)
+    {
+        var result = Pixels.NewMask(mask.Width, mask.Height);
+        var source = mask.GetPixelSpan();
+        var target = result.GetPixelSpan();
+        for (var y = 0; y < mask.Height; y++)
+            for (var x = 0; x < mask.Width; x++)
+                target[y * result.RowBytes + x] = (byte)(255 - source[y * mask.RowBytes + x]);
+        Pixels.Invalidate(result);
+        return result;
     }
 
     private static (SKBitmap Image, SKBitmap Mask) PrepareExpansion(SKBitmap source, SKRectI document, SKRectI expansion)

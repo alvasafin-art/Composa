@@ -131,6 +131,10 @@
           "nodeId": "prompt",
           "input": "text"
         },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
         "seed": {
           "nodeId": "sampler",
           "input": "seed"
@@ -200,6 +204,10 @@
           "nodeId": "prompt",
           "input": "text"
         },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
         "seed": {
           "nodeId": "sampler",
           "input": "seed"
@@ -244,6 +252,10 @@
           "nodeId": "prompt",
           "input": "text"
         },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
         "seed": {
           "nodeId": "sampler",
           "input": "seed"
@@ -281,8 +293,8 @@
     {
       "task": "changeBackground",
       "version": 1,
-      "workflow": "edit",
-      "outputMode": "newLayer",
+      "workflow": "inpaint",
+      "outputMode": "layerGroup",
       "inputs": {
         "prompt": {
           "nodeId": "prompt",
@@ -300,13 +312,29 @@
           "nodeId": "source",
           "input": "image"
         },
+        "backgroundMask": {
+          "nodeId": "maskImage",
+          "input": "image"
+        },
         "width": {
-          "nodeId": "scaleSource",
-          "input": "width"
+          "nodeId": "crop",
+          "input": "output_target_width"
         },
         "height": {
-          "nodeId": "scaleSource",
-          "input": "height"
+          "nodeId": "crop",
+          "input": "output_target_height"
+        },
+        "maskGrow": {
+          "nodeId": "crop",
+          "input": "mask_expand_pixels"
+        },
+        "maskBlend": {
+          "nodeId": "crop",
+          "input": "mask_blend_pixels"
+        },
+        "maskContext": {
+          "nodeId": "crop",
+          "input": "context_from_mask_extend_factor"
         },
         "referenceImage1": {
           "nodeId": "ref1load",
@@ -337,8 +365,8 @@
     {
       "task": "harmonize",
       "version": 1,
-      "workflow": "edit",
-      "outputMode": "newLayer",
+      "workflow": "inpaint",
+      "outputMode": "newLayerWithMask",
       "inputs": {
         "prompt": {
           "nodeId": "prompt",
@@ -356,13 +384,29 @@
           "nodeId": "source",
           "input": "image"
         },
+        "selectionMask": {
+          "nodeId": "maskImage",
+          "input": "image"
+        },
         "width": {
-          "nodeId": "scaleSource",
-          "input": "width"
+          "nodeId": "crop",
+          "input": "output_target_width"
         },
         "height": {
-          "nodeId": "scaleSource",
-          "input": "height"
+          "nodeId": "crop",
+          "input": "output_target_height"
+        },
+        "maskGrow": {
+          "nodeId": "crop",
+          "input": "mask_expand_pixels"
+        },
+        "maskBlend": {
+          "nodeId": "crop",
+          "input": "mask_blend_pixels"
+        },
+        "maskContext": {
+          "nodeId": "crop",
+          "input": "context_from_mask_extend_factor"
         },
         "referenceImage1": {
           "nodeId": "ref1load",
@@ -449,8 +493,8 @@
     {
       "task": "relight",
       "version": 1,
-      "workflow": "edit",
-      "outputMode": "newLayer",
+      "workflow": "inpaint",
+      "outputMode": "newLayerWithMask",
       "inputs": {
         "prompt": {
           "nodeId": "prompt",
@@ -468,13 +512,29 @@
           "nodeId": "source",
           "input": "image"
         },
+        "selectionMask": {
+          "nodeId": "maskImage",
+          "input": "image"
+        },
         "width": {
-          "nodeId": "scaleSource",
-          "input": "width"
+          "nodeId": "crop",
+          "input": "output_target_width"
         },
         "height": {
-          "nodeId": "scaleSource",
-          "input": "height"
+          "nodeId": "crop",
+          "input": "output_target_height"
+        },
+        "maskGrow": {
+          "nodeId": "crop",
+          "input": "mask_expand_pixels"
+        },
+        "maskBlend": {
+          "nodeId": "crop",
+          "input": "mask_blend_pixels"
+        },
+        "maskContext": {
+          "nodeId": "crop",
+          "input": "context_from_mask_extend_factor"
         },
         "referenceImage1": {
           "nodeId": "ref1load",
@@ -520,6 +580,18 @@
     },
     {
       "task": "selectSubject",
+      "version": 1,
+      "workflow": "selection",
+      "outputMode": "selection",
+      "inputs": {
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        }
+      }
+    },
+    {
+      "task": "objectSelection",
       "version": 1,
       "workflow": "selection",
       "outputMode": "selection",

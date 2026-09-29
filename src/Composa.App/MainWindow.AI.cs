@@ -379,7 +379,7 @@ public sealed partial class MainWindow
         var aspect = AiAspect(task);
         var fallback = AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
-        if (useInlinePrompt || task is AiTaskKind.RemoveObject or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale)
+        if (useInlinePrompt || task is AiTaskKind.RemoveObject or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene)
             options = new(initialPrompt, fallback.Width, fallback.Height, settings.AiSeed);
         else options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt);
         if (options == null) return;
@@ -424,7 +424,7 @@ public sealed partial class MainWindow
     {
         if (task == AiTaskKind.GenerativeExpand && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
             return (Math.Max(1, (int)Math.Round(crop.Width)), Math.Max(1, (int)Math.Round(crop.Height)));
-        if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize
+        if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight
             && session?.Selection is { } selection && SelectionMask.Bounds(selection) is { IsEmpty: false } bounds)
             return (bounds.Width, bounds.Height);
         return (session?.Document.Width ?? 1, session?.Document.Height ?? 1);

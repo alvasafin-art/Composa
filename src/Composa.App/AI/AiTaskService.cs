@@ -56,6 +56,24 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.Task == AiTaskKind.MatchToScene)
+        {
+            Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
+            StateChanged?.Invoke();
+            try
+            {
+                editor.Session.MatchActiveLayerToScene();
+                Operation = Operation with { Status = AiOperationStatus.Completed, Stage = "Completed" };
+                StateChanged?.Invoke();
+                return;
+            }
+            catch (Exception error)
+            {
+                Operation = Operation with { Status = AiOperationStatus.Failed, Stage = "Failed", Error = error.Message };
+                StateChanged?.Invoke();
+                throw;
+            }
+        }
         if (SelectedEngine is not { } engine) throw new InvalidOperationException("Install and select an Engine Pack first.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
         if (ServerCapabilities is { } capabilities && !EngineCompatibility.Check(engine, capabilities).IsCompatible)
@@ -85,6 +103,7 @@ public sealed class AiTaskService : IAiTaskRunner
             }
             var values = inputs.Values(uploaded);
             foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
+            if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
             var bound = WorkflowBinder.Bind(graph, binding, values);
             var progress = new Progress<AiOperationState>(state => { Operation = state; StateChanged?.Invoke(); });
             var result = await client.ExecuteAsync(bound, progress, linked.Token);
@@ -94,7 +113,14 @@ public sealed class AiTaskService : IAiTaskRunner
             try
             {
                 foreach (var reference in references) images.Add(await client.DownloadAsync(reference, linked.Token));
-                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds);
+                if (request.Task == AiTaskKind.RemoveObject && inputs.SelectionMask != null)
+                    for (var index = 0; index < images.Count; index++)
+                    {
+                        var matched = AiResultPostprocessor.MatchRemoval(images[index], inputs.ContextImage, inputs.SelectionMask, inputs.Seed);
+                        images[index].Dispose();
+                        images[index] = matched;
+                    }
+                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs);
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed" };
                 StateChanged?.Invoke();
             }
@@ -135,7 +161,7 @@ public sealed class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null)
     {
         var session = editor.Session;
         if (mode == AiOutputMode.Selection)
@@ -167,6 +193,20 @@ public sealed class AiTaskService : IAiTaskRunner
                 target.InsertAiOutput(task, images.Select((image, index) =>
                     new AiOutput(images.Count == 1 ? "AI Upscale" : $"AI Upscale {index + 1}", image)).ToList());
             });
+            return;
+        }
+        if (task == AiTaskKind.ChangeBackground && inputs?.SelectionMask != null && inputs.BackgroundMask != null)
+        {
+            var backgroundOutputs = new List<AiOutput>();
+            foreach (var image in images)
+            {
+                var fitted = image.Width == session.Document.Width && image.Height == session.Document.Height
+                    ? image : Resize(image, session.Document.Width, session.Document.Height);
+                if (!ReferenceEquals(fitted, image)) image.Dispose();
+                backgroundOutputs.Add(new AiOutput("AI Background", fitted, Pixels.Clone(inputs.BackgroundMask), ["background"]));
+            }
+            backgroundOutputs.Add(new AiOutput("Original Subject", Pixels.Clone(inputs.ContextImage), Pixels.Clone(inputs.SelectionMask), ["product", "editable"]));
+            session.InsertAiOutput(task, backgroundOutputs, group: true);
             return;
         }
         var outputs = images.Select((image, index) =>
