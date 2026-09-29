@@ -94,7 +94,7 @@ public sealed class AiTaskService : IAiTaskRunner
             try
             {
                 foreach (var reference in references) images.Add(await client.DownloadAsync(reference, linked.Token));
-                Insert(editor.Session, request.Task, binding.OutputMode, images);
+                Insert(editor.Session, request.Task, binding.OutputMode, images, inputs.TargetBounds);
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed" };
                 StateChanged?.Invoke();
             }
@@ -129,7 +129,7 @@ public sealed class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    private static void Insert(EditorSession session, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images)
+    private static void Insert(EditorSession session, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds)
     {
         if (mode == AiOutputMode.Selection)
         {
@@ -141,11 +141,32 @@ public sealed class AiTaskService : IAiTaskRunner
         var outputs = images.Select((image, index) =>
         {
             SKBitmap? mask = null;
-            if (mode == AiOutputMode.NewLayerWithMask && session.Selection is { } selection && selection.Width == image.Width && selection.Height == image.Height)
-                mask = Pixels.Clone(selection);
-            return new AiOutput(images.Count == 1 ? "AI " + task.DisplayName() : $"AI {task.DisplayName()} {index + 1}", image, mask);
+            var documentSized = image.Width == session.Document.Width && image.Height == session.Document.Height;
+            if (mode == AiOutputMode.NewLayerWithMask && session.Selection is { } selection)
+                mask = documentSized ? Pixels.Clone(selection) : MaskForBounds(selection, targetBounds, image.Width, image.Height);
+            SKRect? placement = documentSized ? null : new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom);
+            return new AiOutput(images.Count == 1 ? "AI " + task.DisplayName() : $"AI {task.DisplayName()} {index + 1}", image, mask, Bounds: placement);
         }).ToList();
         session.InsertAiOutput(task, outputs, group: mode == AiOutputMode.LayerGroup);
+    }
+
+    private static SKBitmap MaskForBounds(SKBitmap documentMask, SKRectI bounds, int width, int height)
+    {
+        var result = Pixels.NewMask(width, height);
+        var source = documentMask.GetPixelSpan();
+        var target = result.GetPixelSpan();
+        for (var y = 0; y < height; y++)
+        {
+            var sy = bounds.Top + Math.Min(bounds.Height - 1, (int)((long)y * bounds.Height / height));
+            for (var x = 0; x < width; x++)
+            {
+                var sx = bounds.Left + Math.Min(bounds.Width - 1, (int)((long)x * bounds.Width / width));
+                if (sx >= 0 && sy >= 0 && sx < documentMask.Width && sy < documentMask.Height)
+                    target[y * result.RowBytes + x] = source[sy * documentMask.RowBytes + sx];
+            }
+        }
+        Pixels.Invalidate(result);
+        return result;
     }
 
     private static SKBitmap ToMask(SKBitmap image, int width, int height)

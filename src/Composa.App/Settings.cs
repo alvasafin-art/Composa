@@ -24,7 +24,8 @@ public sealed class Settings
     public string ComfyServerUrl { get; set; } = "http://127.0.0.1:8188";
     public int ComfyConnectionTimeoutSeconds { get; set; } = 5;
     public string? AiEngineId { get; set; }
-    public string AiResolution { get; set; } = "1024 × 1024";
+    /// <summary>Generation pixel budget; the actual dimensions follow the selection/document aspect ratio.</summary>
+    public double AiMegapixels { get; set; } = 1;
     public long AiSeed { get; set; } = -1;
     public List<AiLoraSetting> AiLoras { get; set; } = [];
     public List<string> CustomLayerTags { get; set; } = [];

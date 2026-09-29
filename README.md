@@ -215,6 +215,8 @@ Run it straight from the checkout while developing:
 dotnet run --project src/Composa.App
 ```
 
+On Windows, double-click `run-composa.bat` in the repository root to build and start Composa with the available .NET 10 SDK.
+
 Open files from the command line:
 
 ```bash

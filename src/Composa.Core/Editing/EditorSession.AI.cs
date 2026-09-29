@@ -6,7 +6,7 @@ using SkiaSharp;
 
 namespace Composa.Editing;
 
-public sealed record AiOutput(string Name, SKBitmap Pixels, SKBitmap? Mask = null, IReadOnlyCollection<string>? Tags = null);
+public sealed record AiOutput(string Name, SKBitmap Pixels, SKBitmap? Mask = null, IReadOnlyCollection<string>? Tags = null, SKRect? Bounds = null);
 
 public sealed partial class EditorSession
 {
@@ -28,6 +28,8 @@ public sealed partial class EditorSession
                 throw new ArgumentException("An AI output mask must be Alpha8 and match its image.");
             var layer = Layer.Raster(string.IsNullOrWhiteSpace(output.Name) ? "AI " + task.DisplayName() : output.Name, output.Pixels);
             layer.Mask = output.Mask;
+            if (output.Bounds is { Width: > 0, Height: > 0 } bounds)
+                layer.Transform = new LayerTransform { X = bounds.Left, Y = bounds.Top, Width = bounds.Width, Height = bounds.Height };
             layer.Tags.Add("ai-generated");
             if (output.Tags != null) foreach (var tag in output.Tags) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
             return layer;

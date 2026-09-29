@@ -32,6 +32,30 @@ public sealed record AiTaskRequest
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
     public RemoveObjectSettings RemoveObject { get; init; } = new();
+    /// <summary>An optional user-supplied visual reference. Engine packs opt into it through a referenceImage binding.</summary>
+    public SKBitmap? ReferenceImage { get; init; }
+}
+
+public static class AiDimensions
+{
+    public static readonly double[] MegapixelOptions = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+
+    /// <summary>Fits a pixel budget to an aspect ratio while keeping dimensions friendly to latent-image pipelines.</summary>
+    public static (int Width, int Height) FromMegapixels(double megapixels, int aspectWidth, int aspectHeight, int multiple = 8)
+    {
+        if (aspectWidth <= 0 || aspectHeight <= 0) throw new ArgumentOutOfRangeException(nameof(aspectWidth));
+        megapixels = Math.Clamp(megapixels, MegapixelOptions[0], MegapixelOptions[^1]);
+        multiple = Math.Max(1, multiple);
+        var pixels = megapixels * 1_000_000;
+        var aspect = (double)aspectWidth / aspectHeight;
+        var width = Round(Math.Sqrt(pixels * aspect), multiple);
+        var height = Round(Math.Sqrt(pixels / aspect), multiple);
+        return (Math.Clamp(width, multiple, DocumentLimits.MaxSide), Math.Clamp(height, multiple, DocumentLimits.MaxSide));
+    }
+
+    public static string Label(double megapixels) => $"{megapixels:0.##} MP";
+
+    private static int Round(double value, int multiple) => Math.Max(multiple, (int)Math.Round(value / multiple) * multiple);
 }
 
 /// <summary>Canonical editor assets from which an engine binding selects the inputs it needs.</summary>
@@ -44,8 +68,10 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap? AlphaMask { get; init; }
     public SKBitmap? PreprocessedImage { get; init; }
     public SKBitmap? PreprocessedMask { get; init; }
+    public SKBitmap? ReferenceImage { get; init; }
     public int CanvasWidth { get; init; }
     public int CanvasHeight { get; init; }
+    public SKRectI TargetBounds { get; init; }
     public SKRectI? ExpansionBounds { get; init; }
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
@@ -63,6 +89,7 @@ public sealed class AiTaskInputs : IDisposable
         if (AlphaMask != null) images["alphaMask"] = AlphaMask;
         if (PreprocessedImage != null) images["preprocessedImage"] = PreprocessedImage;
         if (PreprocessedMask != null) images["preprocessedMask"] = PreprocessedMask;
+        if (ReferenceImage != null) images["referenceImage"] = ReferenceImage;
         return images;
     }
 
@@ -84,6 +111,10 @@ public sealed class AiTaskInputs : IDisposable
             values["expansionWidth"] = bounds.Width;
             values["expansionHeight"] = bounds.Height;
         }
+        values["targetX"] = TargetBounds.Left;
+        values["targetY"] = TargetBounds.Top;
+        values["targetWidth"] = TargetBounds.Width;
+        values["targetHeight"] = TargetBounds.Height;
         return values;
     }
 
@@ -110,6 +141,8 @@ public static class AiTaskInputPreparer
         if (request.Task == AiTaskKind.RemoveObject && selection != null)
             (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, selection, request.RemoveObject);
 
+        var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize
+            ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
         return new AiTaskInputs
         {
             SourceImage = source,
@@ -119,8 +152,10 @@ public static class AiTaskInputPreparer
             AlphaMask = alpha,
             PreprocessedImage = preprocessed,
             PreprocessedMask = preprocessedMask,
+            ReferenceImage = request.ReferenceImage == null ? null : Pixels.Clone(request.ReferenceImage),
             CanvasWidth = request.Settings.Width > 0 ? request.Settings.Width : session.Document.Width,
             CanvasHeight = request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
+            TargetBounds = target,
             ExpansionBounds = request.ExpansionBounds,
             Prompt = request.Prompt,
             NegativePrompt = request.NegativePrompt,

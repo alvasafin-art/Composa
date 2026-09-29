@@ -29,7 +29,8 @@ Minimal shape:
       "inputs": {
         "prompt": { "nodeId": "6", "input": "text" },
         "sourceImage": { "nodeId": "1", "input": "image" },
-        "selectionMask": { "nodeId": "2", "input": "image" }
+        "selectionMask": { "nodeId": "2", "input": "image" },
+        "referenceImage": { "nodeId": "3", "input": "image" }
       }
     }
   ],

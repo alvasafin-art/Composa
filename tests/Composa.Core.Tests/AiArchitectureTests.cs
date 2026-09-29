@@ -111,7 +111,8 @@ public class AiArchitectureTests
     {
         var session = EditorSession.NewCanvas(20, 16, SKColors.White);
         session.SelectRect(new SKRect(4, 3, 10, 9));
-        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.RemoveObject, Prompt = "clean background", Settings = new() { Seed = 42 } });
+        using var reference = Pixels.NewColor(5, 7);
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.RemoveObject, Prompt = "clean background", ReferenceImage = reference, Settings = new() { Seed = 42 } });
 
         Assert.Equal(20, inputs.CanvasWidth);
         Assert.Equal(16, inputs.CanvasHeight);
@@ -120,7 +121,22 @@ public class AiArchitectureTests
         Assert.NotNull(inputs.AlphaMask);
         Assert.NotNull(inputs.PreprocessedImage);
         Assert.NotNull(inputs.PreprocessedMask);
+        Assert.NotNull(inputs.ReferenceImage);
+        Assert.NotSame(reference, inputs.ReferenceImage);
+        Assert.Contains("referenceImage", inputs.Images());
+        Assert.Equal(new SKRectI(4, 3, 10, 9), inputs.TargetBounds);
         Assert.Equal(42, inputs.Seed);
+    }
+
+    [Fact]
+    public void Megapixel_size_preserves_the_target_aspect_ratio()
+    {
+        var size = AiDimensions.FromMegapixels(0.75, 400, 200);
+
+        Assert.InRange((double)size.Width / size.Height, 1.98, 2.02);
+        Assert.InRange((long)size.Width * size.Height, 720_000, 780_000);
+        Assert.Equal(0, size.Width % 8);
+        Assert.Equal(0, size.Height % 8);
     }
 
     [Fact]
@@ -143,6 +159,21 @@ public class AiArchitectureTests
         Assert.Single(session.Document.Layers);
         session.Redo();
         Assert.Equal(2, session.Document.Layers.Count);
+    }
+
+    [Fact]
+    public void Ai_patch_output_is_positioned_over_its_target_bounds()
+    {
+        var session = EditorSession.NewCanvas(20, 16, SKColors.White);
+        var pixels = Pixels.NewColor(100, 50);
+
+        var layer = Assert.Single(session.InsertAiOutput(AiTaskKind.GenerativeFill,
+            [new AiOutput("AI patch", pixels, Bounds: new SKRect(4, 3, 16, 9))]));
+
+        Assert.Equal(4, layer.Transform.X);
+        Assert.Equal(3, layer.Transform.Y);
+        Assert.Equal(12, layer.Transform.Width);
+        Assert.Equal(6, layer.Transform.Height);
     }
 
     [Fact]

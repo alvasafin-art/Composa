@@ -66,7 +66,9 @@ public sealed partial class MainWindow : Window
         Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://composa/Assets/icon.png")));
 
         welcome = BuildWelcome();
-        var canvasHost = new Panel { Children = { canvas, welcome } };
+        aiFloatingHost.Child = BuildAiFloatingMenu();
+        aiFloatingLayer.Children.Add(aiFloatingHost);
+        var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer } };
         var center = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto") };
         center.Children.Add(BuildToolRail());
         AddAt(center, Ui.Separator(), 1).Margin = new Thickness(0);
@@ -94,7 +96,7 @@ public sealed partial class MainWindow : Window
 
         StartUpdateCheck();
 
-        canvas.ViewChanged += UpdateStatus;
+        canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
         canvas.PointerAt += point => positionText.Text = point is { } p ? $"{p.X}, {p.Y}" : "";
         canvas.Problem += message => { problem = message; UpdateStatus(); };
         canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); };
@@ -190,7 +192,7 @@ public sealed partial class MainWindow : Window
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
-        added.SelectionChanged += () => { if (added == session) { refreshOptions?.Invoke(); RefreshAiUi(); } };
+        added.SelectionChanged += () => { if (added == session) { aiFloatingDismissed = false; refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
     }
 
@@ -205,6 +207,7 @@ public sealed partial class MainWindow : Window
         }
         var tool = session?.Tool ?? Tool.Move;
         session = next;
+        aiFloatingDismissed = false;
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;
         layers.Session = session;

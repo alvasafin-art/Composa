@@ -76,8 +76,8 @@ public static class AiDialogs
         var selectedName = service.SelectedEngine?.DisplayName ?? engineNames[0];
         var engine = Ui.Combo(engineNames, selectedName, name => name, name => service.SelectedEngine = service.Engines.Profiles.FirstOrDefault(p => p.DisplayName == name), 260);
         engine.IsEnabled = service.Engines.Profiles.Count > 0;
-        var resolution = Ui.Combo(new[] { "512 × 512", "768 × 768", "1024 × 1024", "1024 × 1536", "1536 × 1024" }, settings.AiResolution,
-            value => value, value => settings.AiResolution = value, 150);
+        var megapixels = Ui.Combo(AiDimensions.MegapixelOptions, ClosestMegapixels(settings.AiMegapixels), AiDimensions.Label,
+            value => settings.AiMegapixels = value, 110);
         var seed = Ui.Number(settings.AiSeed, -1, long.MaxValue, value => settings.AiSeed = (long)value, 1, "0", 150);
         var lora = new TextBox { Text = string.Join(", ", settings.AiLoras.Select(item => item.Name)), PlaceholderText = "Names from the connected server", Width = 260 };
         var form = CanvasDialogs.Form(
@@ -86,7 +86,7 @@ public static class AiDialogs
             ("", test),
             ("Status", status),
             ("Model", engine),
-            ("Resolution", resolution),
+            ("Image size", megapixels),
             ("Seed", Ui.Row(6, seed, Ui.Label("-1 = random", Palette.Secondary))),
             ("LoRA", lora));
         var note = Ui.Label("Engine Packs contain workflows and compatibility metadata, never model weights.", Palette.Secondary);
@@ -107,13 +107,19 @@ public static class AiDialogs
     {
         var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100,
             PlaceholderText = task == AiTaskKind.RemoveObject ? "Optional guidance; the selected object is removed by its mask" : "Describe the result" };
-        var (width, height) = ParseResolution(settings.AiResolution, documentWidth, documentHeight);
-        var resolution = Ui.Combo(new[] { "Document size", "512 × 512", "768 × 768", "1024 × 1024", "1024 × 1536", "1536 × 1024" },
-            settings.AiResolution, value => value, value => { settings.AiResolution = value; (width, height) = ParseResolution(value, documentWidth, documentHeight); }, 170);
+        var selectedMegapixels = ClosestMegapixels(settings.AiMegapixels);
+        var (width, height) = AiDimensions.FromMegapixels(selectedMegapixels, documentWidth, documentHeight);
+        var dimensions = Ui.Label($"{width} × {height} px", Palette.Secondary);
+        var megapixels = Ui.Combo(AiDimensions.MegapixelOptions, selectedMegapixels, AiDimensions.Label, value =>
+        {
+            settings.AiMegapixels = value;
+            (width, height) = AiDimensions.FromMegapixels(value, documentWidth, documentHeight);
+            dimensions.Text = $"{width} × {height} px";
+        }, 110);
         var seed = settings.AiSeed;
         var seedBox = Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 160);
         var body = Ui.Column(10, Ui.Label(task.DisplayName(), weight: Avalonia.Media.FontWeight.SemiBold), prompt,
-            CanvasDialogs.Form(("Resolution", resolution), ("Seed", Ui.Row(6, seedBox, Ui.Label("-1 = random", Palette.Secondary)))));
+            CanvasDialogs.Form(("Image size", Ui.Row(8, megapixels, dimensions)), ("Seed", Ui.Row(6, seedBox, Ui.Label("-1 = random", Palette.Secondary)))));
         var dialog = new DialogWindow(task.DisplayName(), body, "Run");
         dialog.Opened += (_, _) => prompt.Focus();
         if (!await dialog.Ask(owner)) return null;
@@ -122,14 +128,7 @@ public static class AiDialogs
         return new(prompt.Text ?? "", width, height, seed);
     }
 
-    private static (int Width, int Height) ParseResolution(string value, int fallbackWidth, int fallbackHeight)
-    {
-        if (value == "Document size") return (fallbackWidth, fallbackHeight);
-        var parts = value.Replace('×', 'x').Split('x', StringSplitOptions.TrimEntries);
-        return parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height)
-            ? (Math.Clamp(width, 1, DocumentLimits.MaxSide), Math.Clamp(height, 1, DocumentLimits.MaxSide))
-            : (fallbackWidth, fallbackHeight);
-    }
+    private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));
 
     private static string ConnectionLabel(ComfyConnectionState state) => state switch
     {

@@ -113,12 +113,13 @@ public class AiInfrastructureTests
     [Fact]
     public void Ai_settings_round_trip_without_secrets_or_local_paths()
     {
-        var settings = new Settings { ComfyServerUrl = "http://192.168.1.50:8188", AiEngineId = "flux", AiResolution = "1024 × 1536", AiSeed = 123,
+        var settings = new Settings { ComfyServerUrl = "http://192.168.1.50:8188", AiEngineId = "flux", AiMegapixels = 1.5, AiSeed = 123,
             AiLoras = [new("style.safetensors", 0.7)], ComfyConnectionTimeoutSeconds = 12 };
         var json = JsonSerializer.Serialize(settings);
         var loaded = JsonSerializer.Deserialize<Settings>(json)!;
         Assert.Equal(settings.ComfyServerUrl, loaded.ComfyServerUrl);
         Assert.Equal("flux", loaded.AiEngineId);
+        Assert.Equal(1.5, loaded.AiMegapixels);
         Assert.Equal(12, loaded.ComfyConnectionTimeoutSeconds);
         Assert.Equal("style.safetensors", loaded.AiLoras[0].Name);
     }
