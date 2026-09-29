@@ -1,21 +1,32 @@
-# Local Assistant
+# Assistant chat
 
-Composa includes a local editing Assistant. Open it with the compact **Assistant** button in the tool-options row or **AI > Assistant**.
+Open **Assistant** in the tool-options row or **AI > Assistant**. Type a question or describe an edit and press **Send** (Enter; Shift+Enter adds a line). The conversation survives closing/reopening the window during the same application session. **New chat** clears it; conversations are not written to disk.
 
-Type a task, choose **Plan**, and review both the explanation and generated JavaScript before choosing **Apply**. Nothing is applied while the plan is being generated. **Apply** runs the reviewed script and any queued AI tasks as one Undo step. **Save as Script** keeps useful automation as a normal `.js` file.
+The assistant can answer without changing the document. Requested edits are applied as one Undo step by default. Disable **Apply requested edits** to review the generated script and choose **Apply edit** yourself. Editing responses expose an expandable script, **Save script** and **Copy**. **Stop** cancels generation/execution; failed document changes roll back.
 
-The first provider uses `llama-server` from llama.cpp and a local GGUF model. It sends the document title, dimensions, selection state, layer paths, names, types, tags, text and transforms, together with the current scripting contract. Context is bounded to 160 layers and 500 characters per text layer, and reports when it was truncated. It does not send model weights or API keys. The bundled Windows launcher discovers the supplied llama.cpp and Qwen model through paths relative to the project; use **Settings** in the Assistant window to choose different files, URL, context size, or reply limit. Automatic process startup is limited to loopback server URLs.
+## Attachments and context
 
-Layer tags make automation deterministic: the Assistant looks for a relevant tag such as `title` before falling back to layer name and type. The plan remains editable, so an ambiguous result can be corrected without asking the model again.
+Use **Attach** or drag files into the chat. Up to six files can accompany a message; × removes unwanted attachments. Supported files include `.js`, `.ts`, `.txt`, `.md`, `.json`, `.csv`, `.yaml`, `.yml`, `.svg`, PNG, JPEG, WebP and BMP. Text files are limited to 256 KB. A script is sent as data, not executed simply because it was attached: explicitly ask to explain, adapt or run it.
 
-The provider contract is separate from the UI and script runtime. Other OpenAI-compatible or hosted providers can be added later without changing document commands. The local provider currently supplies text/document structure rather than a rendered visual preview; tasks that genuinely need visual interpretation should use the available ComfyUI AI tasks.
+`doc.addAttachedImage(index)` imports an explicitly attached image. The index is zero-based across all attachments in the current message. No arbitrary filesystem-reading API is exposed.
 
-## Safety and limits
+Each request includes current document geometry, layer hierarchy, names, types, tags, text and transforms, plus the current scripting contract. Document context is bounded to 160 layers and 500 characters per text layer. Chat context includes up to 20 recent messages within 24,000 characters; individual messages are bounded to 8,000 and attachment text to 12,000 characters. Local requests reduce these limits to fit the configured context, reserving space for output and prioritizing current files over older messages. Truncation is marked. Text attachment context remains in subsequent turns; reattach images to import them in a later turn.
 
-- Scripts run in a constrained JavaScript engine with no CLR or arbitrary filesystem API. Execution has time, memory, statement and cancellation limits.
-- Export is the only exposed file-writing operation, and the Assistant is instructed to emit it only when explicitly requested.
-- The script is always shown before Apply.
-- ComfyUI must be connected and have a compatible Engine Pack for `ai.*` calls.
-- Local editor changes and all queued `ai.*` calls roll back together on failure and commit as one history entry on success.
+Enable **Send document preview and attached images** only for a model that supports vision. Images sent to the model have a maximum side of 1024 pixels; importing uses the original file. Without vision the assistant can import images but cannot inspect their pixels.
 
-See [Scripting](scripting.md) for the API and examples.
+## Providers
+
+The ⚙ menu selects the provider:
+
+- **Local llama.cpp** uses a GGUF model and the configured `llama-server`. Automatic startup is limited to loopback URLs. The Windows launcher discovers the supplied executable and model relative to the project; paths, context size and reply limit are configurable.
+- **API (chat completions)** accepts an HTTP/HTTPS base URL or complete `/chat/completions` endpoint, a model ID and optional Bearer key. A root URL gets `/v1/chat/completions`; custom base paths are preserved. No local health/startup contract is required. This supports chat-completions-compatible APIs, not every vendor's distinct protocol.
+
+An entered key remains only for the current application session and is never serialized. For a persistent credential, name an environment variable (default `COMPOSA_ASSISTANT_API_KEY`). JSON response format is opt-in for remote providers; ordinary text replies and fenced JavaScript fallbacks are also accepted.
+
+Remote providers receive document context, chat and attachment text. Images are sent only when vision is enabled. Model weights are never uploaded.
+
+## Execution safety
+
+Scripts use existing editor commands in a constrained JavaScript engine without CLR, arbitrary file reads, processes or network access. Execution has memory, statement, time and cancellation limits. Explicit export is the exposed file-writing operation. AI calls require compatible connected ComfyUI and an Engine Pack. Local edits and queued AI tasks commit together as one history entry. A script generated for another document tab is not applied to the current tab.
+
+See [Scripting](scripting.md) for API examples.

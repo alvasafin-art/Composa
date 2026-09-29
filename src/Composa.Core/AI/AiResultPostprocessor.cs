@@ -17,7 +17,9 @@ public static class AiResultPostprocessor
         var ring = new SKRectI(Math.Max(0, bounds.Left - radius), Math.Max(0, bounds.Top - radius),
             Math.Min(context.Width, bounds.Right + radius), Math.Min(context.Height, bounds.Bottom + radius));
         var outside = StatsOf(context, mask, ring, selected: false);
-        var inside = StatsOf(generated, mask, bounds, selected: true);
+        // Compare the SAME surrounding pixels, not the reconstructed patch with an unrelated
+        // scene average. A stitched result already matches there; shifting it creates a seam.
+        var inside = StatsOf(generated, mask, ring, selected: false);
         if (outside.Count == 0 || inside.Count == 0) return Pixels.Clone(generated);
 
         var result = Pixels.Clone(generated);
@@ -38,8 +40,10 @@ public static class AiResultPostprocessor
                     var offset = x * 4;
                     for (var channel = 0; channel < 3; channel++)
                     {
-                        var contrast = Math.Clamp(outside.Deviation(channel) / Math.Max(inside.Deviation(channel), 1), 0.72, 1.38);
-                        var matched = outside.Mean(channel) + (sourceRow[offset + channel] - inside.Mean(channel)) * contrast;
+                        var contrast = outside.Deviation(channel) < 1 && inside.Deviation(channel) < 1 ? 1
+                            : Math.Clamp(outside.Deviation(channel) / Math.Max(inside.Deviation(channel), 1), 0.72, 1.38);
+                        var shift = Math.Clamp(outside.Mean(channel) - inside.Mean(channel), -18, 18);
+                        var matched = inside.Mean(channel) + shift + (sourceRow[offset + channel] - inside.Mean(channel)) * contrast;
                         var noise = Math.Max(0, outside.Detail - inside.Detail) * HashNoise(x, y, seed) * 0.45;
                         var adjusted = Math.Clamp((int)Math.Round(matched + noise), 0, 255);
                         destinationRow[offset + channel] = Blend(sourceRow[offset + channel], (byte)adjusted, amount);

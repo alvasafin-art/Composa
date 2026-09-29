@@ -12,9 +12,10 @@ The bundled FLUX.2 Klein Engine Pack provides the first production workflows. Wi
 
 ## Editing behavior
 
-- AI results arrive as new layers. Fill/removal results retain the selection as a layer mask.
+- AI results arrive as new layers. Fill retains the original selection mask; removal retains an expanded blend mask so the stitch transition is not clipped away.
 - Inserting all parts of one result is one undo history step; original pixels are not changed.
 - **Remove Object** is a separate task. Composa expands and feathers the selection, replaces the target with black, and asks the model to reconstruct it from the surrounding visual context. It does not require an object-specific prompt.
+- **Change Background** treats the selection as the protected subject. Without a selection it first selects the subject automatically. A separate workflow generates the complete background scene without redrawing the subject. Results are an editable group with the generated background and untouched original subject on top; automatic selection and replacement undo together.
 - **Mask context** controls how far the inpaint crop extends beyond the selection (2× by default), so the model sees enough of the surrounding image to rebuild edges and background. Mask Grow and Mask Blend remain independently configurable.
 - **Upscale** enlarges the document only when there is no selection. With a selection it sends only that patch to ComfyUI, fits the enhanced result back into the original bounds, and inserts it as a masked layer without changing the canvas size.
 - Segmentation output becomes the normal document selection, not a parallel AI selection type.

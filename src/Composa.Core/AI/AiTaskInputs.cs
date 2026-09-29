@@ -83,6 +83,7 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap? AlphaMask { get; init; }
     public SKBitmap? PreprocessedImage { get; init; }
     public SKBitmap? PreprocessedMask { get; init; }
+    public SKBitmap? OutputMask { get; init; }
     public SKBitmap? ReferenceImage { get; init; }
     public IReadOnlyList<SKBitmap> ReferenceImages { get; init; } = [];
     public int CanvasWidth { get; init; }
@@ -140,6 +141,7 @@ public sealed class AiTaskInputs : IDisposable
     {
         var disposed = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
         foreach (var image in Images().Values) if (disposed.Add(image)) image.Dispose();
+        if (OutputMask != null && disposed.Add(OutputMask)) OutputMask.Dispose();
     }
 }
 
@@ -164,6 +166,9 @@ public static class AiTaskInputPreparer
         SKBitmap? preprocessed = null, preprocessedMask = null;
         if (request.Task == AiTaskKind.RemoveObject && selection != null)
             (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, selection, request.RemoveObject);
+        else if (request.Task == AiTaskKind.ChangeBackground && background != null)
+            (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, background,
+                new RemoveObjectSettings { Dilation = 0, Feather = 0 });
         else if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds is { } expansion)
             (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, expansion);
 
@@ -180,6 +185,8 @@ public static class AiTaskInputPreparer
             AlphaMask = alpha,
             PreprocessedImage = preprocessed,
             PreprocessedMask = preprocessedMask,
+            OutputMask = request.Task == AiTaskKind.RemoveObject && preprocessedMask != null
+                ? RemovalOutputMask(preprocessedMask, request.Settings) : null,
             ReferenceImage = references.FirstOrDefault(),
             ReferenceImages = references,
             CanvasWidth = request.Settings.Width > 0 ? request.Settings.Width : session.Document.Width,
@@ -228,9 +235,19 @@ public static class AiTaskInputPreparer
         return result;
     }
 
+    private static SKBitmap RemovalOutputMask(SKBitmap mask, AiGenerationSettings settings)
+    {
+        var grow = settings.Values.TryGetValue("maskGrow", out var g) ? Math.Clamp(Convert.ToInt32(g), 0, 512) : 8;
+        var blend = settings.Values.TryGetValue("maskBlend", out var b) ? Math.Clamp(Convert.ToInt32(b), 0, 512) : 32;
+        // Keep the stitcher's transition outside the original selection; clipping it back to
+        // that selection restores object fringes and creates a hard, visible boundary.
+        using var expanded = SelectionMask.Expand(mask, grow + blend);
+        return blend > 0 ? SelectionMask.Feather(expanded, blend) : Pixels.Clone(expanded);
+    }
+
     private static string RemovePrompt(string guidance)
     {
-        const string instruction = "Remove the black area and reconstruct it naturally from the surrounding visual context. Match the surrounding exposure, white balance, color, focus, sharpness, texture, grain and noise. Continue lines and patterns across the removed area. Do not leave a black, gray, smooth, blurry or visibly patched region.";
+        const string instruction = "Remove the black patch from this image. Fill the black area completely with the missing background inferred from the surrounding content. There is no object in this area: continue the background, lines and patterns naturally. Match exposure, white balance, color, focus, sharpness, texture, grain and noise. Leave no black or gray patch and no new object.";
         return string.IsNullOrWhiteSpace(guidance) ? instruction : $"{instruction} Additional guidance: {guidance.Trim()}";
     }
 
@@ -241,7 +258,7 @@ public static class AiTaskInputPreparer
         {
             AiTaskKind.RemoveObject => RemovePrompt(guidance),
             AiTaskKind.GenerativeFill => $"Create the requested content only inside the masked area. Keep the entire requested object fully visible inside the mask with a clear margin; do not crop or cut off any part of it. Blend lighting, perspective, focus, texture and grain with the surrounding image. Request: {guidance}",
-            AiTaskKind.ChangeBackground => $"Replace only the masked background. Preserve the foreground subject exactly, including identity, shape, pose, texture and fine edges. Match perspective, depth of field and lighting around the subject. New background: {guidance}",
+            AiTaskKind.ChangeBackground => $"Generate a photographic background scene for a composite. Render only the requested environment, without a foreground subject: the original subject will be composited separately. Do not add a person, animal, duplicate subject, cutout, black patch or silhouette unless explicitly requested. Background scene: {guidance}",
             AiTaskKind.Harmonize => $"Harmonize only the masked object with its surrounding scene while preserving its identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
             AiTaskKind.Relight => $"Relight only the masked subject. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill while keeping the whole subject inside the mask. Lighting request: {guidance}",
             AiTaskKind.GenerativeExpand => $"Extend the image naturally into the masked empty canvas. Continue perspective, structures, lighting, focus, texture and grain without a visible seam. Request: {guidance}",
@@ -301,10 +318,10 @@ public static class RemoveObjectPreprocessor
         var feather = Math.Clamp(settings.Feather, 0, 256);
         var expanded = dilation > 0 ? SelectionMask.Expand(rawMask, dilation) : Pixels.Clone(rawMask);
         var mask = feather > 0 ? SelectionMask.Feather(expanded, feather) : Pixels.Clone(expanded);
-        expanded.Dispose();
         var image = Pixels.Clone(source);
-        Fill(image, mask, settings.FillMode == RemoveObjectFillMode.Neutral ? new SKColor(127, 127, 127) : settings.FillColor,
+        Fill(image, expanded, settings.FillMode == RemoveObjectFillMode.Neutral ? new SKColor(127, 127, 127) : settings.FillColor,
             settings.FillMode == RemoveObjectFillMode.Transparent);
+        expanded.Dispose();
         return (image, mask);
     }
 
@@ -318,7 +335,7 @@ public static class RemoveObjectPreprocessor
             var selected = coverage + (long)y * mask.RowBytes;
             for (var x = 0; x < image.Width; x++)
             {
-                var amount = selected[x];
+                var amount = selected[x] > 0 ? (byte)255 : (byte)0;
                 if (amount == 0) continue;
                 var offset = x * 4;
                 byte r = transparent ? (byte)0 : color.Red, g = transparent ? (byte)0 : color.Green,

@@ -26,7 +26,14 @@ public interface IAiTaskRunner
     Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default);
 }
 
-public sealed record AssistantRequest(string UserText, string DocumentContext, string ScriptingReference);
+public sealed record AssistantMessage(string Role, string Text);
+public sealed record AssistantAttachment(string Name, string? Text = null, string? ImageDataUrl = null);
+public sealed record AssistantRequest(string UserText, string DocumentContext, string ScriptingReference)
+{
+    public IReadOnlyList<AssistantMessage> History { get; init; } = [];
+    public IReadOnlyList<AssistantAttachment> Attachments { get; init; } = [];
+    public string? PreviewDataUrl { get; init; }
+}
 public sealed record AssistantPlan(string Summary, string Script);
 
 public interface IAssistantProvider

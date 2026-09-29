@@ -50,104 +50,6 @@
       ]
     }
   },
-  "source": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "placeholder.png"
-    }
-  },
-  "maskImage": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "placeholder-mask.png"
-    }
-  },
-  "mask": {
-    "class_type": "ImageToMask",
-    "inputs": {
-      "image": [
-        "maskImage",
-        0
-      ],
-      "channel": "red"
-    }
-  },
-  "crop": {
-    "class_type": "InpaintCropImproved",
-    "inputs": {
-      "image": [
-        "source",
-        0
-      ],
-      "mask": [
-        "mask",
-        0
-      ],
-      "downscale_algorithm": "bilinear",
-      "upscale_algorithm": "bicubic",
-      "preresize": false,
-      "preresize_mode": "ensure minimum resolution",
-      "preresize_min_width": 1024,
-      "preresize_min_height": 1024,
-      "preresize_max_width": 16384,
-      "preresize_max_height": 16384,
-      "mask_fill_holes": false,
-      "mask_expand_pixels": 8,
-      "mask_invert": false,
-      "mask_blend_pixels": 32,
-      "mask_hipass_filter": 0.1,
-      "extend_for_outpainting": false,
-      "extend_up_factor": 1,
-      "extend_down_factor": 1,
-      "extend_left_factor": 1,
-      "extend_right_factor": 1,
-      "context_from_mask_extend_factor": 1.5,
-      "output_resize_to_target_size": true,
-      "output_target_width": 1024,
-      "output_target_height": 1024,
-      "output_padding": "32",
-      "device_mode": "gpu (much faster)"
-    }
-  },
-  "sourceEncode": {
-    "class_type": "VAEEncode",
-    "inputs": {
-      "pixels": [
-        "crop",
-        1
-      ],
-      "vae": [
-        "vae",
-        0
-      ]
-    }
-  },
-  "basePos": {
-    "class_type": "ReferenceLatent",
-    "inputs": {
-      "conditioning": [
-        "prompt",
-        0
-      ],
-      "latent": [
-        "sourceEncode",
-        0
-      ]
-    }
-  },
-  "baseNeg": {
-    "class_type": "ReferenceLatent",
-    "inputs": {
-      "conditioning": [
-        "negative",
-        0
-      ],
-      "latent": [
-        "sourceEncode",
-        0
-      ]
-    }
-  },
   "ref1load": {
     "class_type": "LoadImage",
     "inputs": {
@@ -177,7 +79,7 @@
     "class_type": "ReferenceLatent",
     "inputs": {
       "conditioning": [
-        "basePos",
+        "prompt",
         0
       ],
       "latent": [
@@ -188,7 +90,7 @@
     "_meta": {
       "optionalInput": "referenceImage1",
       "fallback": [
-        "basePos",
+        "prompt",
         0
       ]
     }
@@ -197,7 +99,7 @@
     "class_type": "ReferenceLatent",
     "inputs": {
       "conditioning": [
-        "baseNeg",
+        "negative",
         0
       ],
       "latent": [
@@ -208,7 +110,7 @@
     "_meta": {
       "optionalInput": "referenceImage1",
       "fallback": [
-        "baseNeg",
+        "negative",
         0
       ]
     }
@@ -538,17 +440,11 @@
       ]
     }
   },
-  "size": {
-    "class_type": "GetImageSize",
-    "inputs": {
-      "image": ["crop", 1]
-    }
-  },
   "latent": {
     "class_type": "EmptyFlux2LatentImage",
     "inputs": {
-      "width": ["size", 0],
-      "height": ["size", 1],
+      "width": 1024,
+      "height": 1024,
       "batch_size": 1
     }
   },
@@ -592,25 +488,12 @@
       ]
     }
   },
-  "stitch": {
-    "class_type": "InpaintStitchImproved",
-    "inputs": {
-      "stitcher": [
-        "crop",
-        0
-      ],
-      "inpainted_image": [
-        "decode",
-        0
-      ]
-    }
-  },
   "save": {
     "class_type": "SaveImage",
     "inputs": {
-      "filename_prefix": "Composa/flux2-klein-inpaint",
+      "filename_prefix": "Composa/flux2-klein-background",
       "images": [
-        "stitch",
+        "decode",
         0
       ]
     }

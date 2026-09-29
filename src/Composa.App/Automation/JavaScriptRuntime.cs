@@ -23,6 +23,7 @@ public sealed class JavaScriptRuntime : IScriptRuntime
     doc.findLayersByTag("title");     // Layer[]; prefer this over guessing names
     doc.findLayersByName("Heading"); // Layer[]
     doc.addLayer("Name");            // Layer
+    doc.addAttachedImage(index);     // place an explicitly attached chat image as a new layer
     doc.selectRect(x, y, width, height); doc.deselect();
     doc.export("C:/output/image.webp", 90); // only when the user explicitly requests export
 
@@ -51,13 +52,13 @@ public sealed class JavaScriptRuntime : IScriptRuntime
     }
 
     public async Task<ScriptResult> ExecuteAsync(EditorSession session, string script, IAiTaskRunner aiRunner, Settings settings,
-        string transactionName = "Run Script", CancellationToken cancellationToken = default)
+        string transactionName = "Run Script", CancellationToken cancellationToken = default, IReadOnlyList<string?>? attachedImages = null)
     {
         var calls = new List<QueuedAiTask>();
         ScriptResult result = new();
         await session.RunTransactionAsync(transactionName, async editor =>
         {
-            result = ExecuteScript(editor, script, calls, allowAi: true, cancellationToken);
+            result = ExecuteScript(editor, script, calls, allowAi: true, cancellationToken, attachedImages);
             foreach (var call in calls)
                 await aiRunner.RunAsync(new EditorCommandService(editor), Request(editor, call, settings), cancellationToken);
         });
@@ -65,7 +66,8 @@ public sealed class JavaScriptRuntime : IScriptRuntime
         return result;
     }
 
-    private static ScriptResult ExecuteScript(EditorSession editor, string script, List<QueuedAiTask> calls, bool allowAi, CancellationToken cancellationToken)
+    private static ScriptResult ExecuteScript(EditorSession editor, string script, List<QueuedAiTask> calls, bool allowAi, CancellationToken cancellationToken,
+        IReadOnlyList<string?>? attachedImages = null)
     {
         if (string.IsNullOrWhiteSpace(script)) throw new ArgumentException("The script is empty.", nameof(script));
         string? exportPath = null;
@@ -84,6 +86,13 @@ public sealed class JavaScriptRuntime : IScriptRuntime
         engine.SetValue("__findNameJson", (Func<string, string>)(name => JsonSerializer.Serialize(editor.Document.AllLayers().Where(layer => layer.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Select(LayerData))));
         engine.SetValue("__selectLayer", (Action<string>)(id => editor.SelectLayer(Find(editor, id).Id)));
         engine.SetValue("__addLayer", (Func<string, string>)(name => { var layer = editor.AddBlankLayer(); editor.Rename(layer, name); return LayerJson(layer); }));
+        engine.SetValue("__addAttachedImage", (Func<int, string>)(index =>
+        {
+            if (attachedImages == null || index < 0 || index >= attachedImages.Count || attachedImages[index] is not { } path)
+                throw new InvalidOperationException("Choose an image explicitly attached to this chat message.");
+            var image = ImageFiles.Load(path);
+            return LayerJson(editor.AddImageLayer(Path.GetFileNameWithoutExtension(path), image));
+        }));
         engine.SetValue("__deleteLayer", (Action<string>)(id => { editor.SelectLayer(Find(editor, id).Id); editor.DeleteSelectedLayers(); }));
         engine.SetValue("__rename", (Action<string, string>)((id, name) => editor.Rename(Find(editor, id), name)));
         engine.SetValue("__visible", (Action<string, bool>)((id, visible) => editor.SetVisible(Find(editor, id), visible)));
@@ -138,7 +147,8 @@ public sealed class JavaScriptRuntime : IScriptRuntime
     private static AiTaskRequest Request(EditorSession session, QueuedAiTask call, Settings settings)
     {
         SKRectI? selection = session.Selection == null ? null : SelectionMask.Bounds(session.Selection);
-        var aspect = selection is { IsEmpty: false } bounds ? (bounds.Width, bounds.Height) : (session.Document.Width, session.Document.Height);
+        var aspect = call.Task != AiTaskKind.ChangeBackground && selection is { IsEmpty: false } bounds
+            ? (bounds.Width, bounds.Height) : (session.Document.Width, session.Document.Height);
         var dimensions = AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Item1, aspect.Item2);
         var width = Math.Clamp(call.Options.Width ?? dimensions.Width, 16, DocumentLimits.MaxSide);
         var height = Math.Clamp(call.Options.Height ?? dimensions.Height, 16, DocumentLimits.MaxSide);
@@ -253,6 +263,7 @@ public sealed class JavaScriptRuntime : IScriptRuntime
         findLayersByTag(tag) { return parse(__findTagJson(String(tag))).map(wrap); },
         findLayersByName(name) { return parse(__findNameJson(String(name))).map(wrap); },
         addLayer(name = 'Layer') { return wrap(parse(__addLayer(String(name)))); },
+        addAttachedImage(index) { return wrap(parse(__addAttachedImage(Number(index)))); },
         selectRect(x, y, width, height) { __selectRect(x, y, width, height); },
         deselect() { __deselect(); },
         export(path, quality = 90) { __export(String(path), Number(quality)); }

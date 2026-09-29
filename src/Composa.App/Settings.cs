@@ -42,6 +42,15 @@ public sealed class Settings
     public int AssistantContextSize { get; set; } = 16384;
     public int AssistantMaxTokens { get; set; } = 1536;
     public bool AssistantAutoStart { get; set; } = true;
+    public string AssistantProvider { get; set; } = "local";
+    public string AssistantApiUrl { get; set; } = "";
+    public string AssistantApiModel { get; set; } = "";
+    public string AssistantApiKeyEnvironment { get; set; } = "COMPOSA_ASSISTANT_API_KEY";
+    public bool AssistantVision { get; set; }
+    public bool AssistantJsonResponse { get; set; }
+    public bool AssistantApplyEdits { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AssistantApiKey { get; set; } = "";
 
     /// <summary>Whether the MCP server runs, so an AI agent can drive the editor. Off until someone switches it on.</summary>
     public bool AllowAiControl { get; set; }

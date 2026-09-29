@@ -69,6 +69,9 @@ public class AiInfrastructureTests
         Assert.True(changed > selected / 20, $"Only {changed} of {selected} selected pixels changed.");
         if (task == AiTaskKind.RemoveObject)
             Assert.True(reconstructed > selected / 20, $"Only {reconstructed} of {selected} selected pixels were reconstructed from black.");
+        Directory.CreateDirectory(Screenshots.Folder);
+        using var displayed = session.Flatten();
+        ImageFiles.Save(displayed, Path.Combine(Screenshots.Folder, "live-" + task + ".png"), ExportFormat.Png);
     }
 
     [Fact]
@@ -165,12 +168,31 @@ public class AiInfrastructureTests
         Assert.Equal(["AI Background", "Original Subject"], group.Children.Select(layer => layer.Name));
         Assert.Contains("background", group.Children[0].Tags);
         Assert.Contains("product", group.Children[1].Tags);
-        Assert.Equal((byte)0, group.Children[0].Mask!.GetPixel(6, 5).Alpha);
+        Assert.Null(group.Children[0].Mask);
         Assert.Equal((byte)255, group.Children[1].Mask!.GetPixel(6, 5).Alpha);
     }
 
     [Fact]
-    public async Task Bundled_change_background_uses_the_live_masked_workflow_when_requested()
+    public void Background_workflow_does_not_condition_on_or_redraw_the_original_subject()
+    {
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var engine = Assert.Single(catalog.Profiles);
+        var binding = engine.Binding(AiTaskKind.ChangeBackground)!;
+        Assert.Equal("background", binding.Workflow);
+        Assert.DoesNotContain("sourceImage", binding.Inputs.Keys);
+        Assert.DoesNotContain("preprocessedImage", binding.Inputs.Keys);
+        var graph = JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine), engine.Workflow(binding.Workflow).File)))!.AsObject();
+        var bound = WorkflowBinder.Bind(graph, binding, new Dictionary<string, object?>
+        { ["prompt"] = "empty beach", ["negativePrompt"] = "", ["seed"] = 7L, ["width"] = 1024, ["height"] = 768 });
+        Assert.Equal("prompt", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.False(bound.ContainsKey("source"));
+        Assert.False(bound.ContainsKey("crop"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Bundled_change_background_uses_the_live_masked_workflow_when_requested(bool manualSelection)
     {
         var url = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_URL");
         var sourcePath = Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY_SOURCE");
@@ -188,7 +210,7 @@ public class AiInfrastructureTests
         document.Layers.Add(layer);
         document.SetActive(layer.Id);
         var session = new EditorSession(document);
-        session.PreviewSelection(selection);
+        if (manualSelection) session.PreviewSelection(selection);
         var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
 
         await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
@@ -204,6 +226,36 @@ public class AiInfrastructureTests
         var group = Assert.Single(session.Document.Layers, item => item.IsGroup);
         Assert.Equal(["AI Background", "Original Subject"], group.Children.Select(item => item.Name));
         Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+        var appliedMask = group.Children[1].Mask!;
+        if (!manualSelection)
+        {
+            Assert.Null(session.Selection);
+            Assert.Equal("AI Change Background", session.History.UndoName);
+        }
+        using var displayed = session.Flatten();
+        var changedBackground = 0;
+        var backgroundPixels = 0;
+        for (var y = 0; y < source.Height; y++)
+            for (var x = 0; x < source.Width; x++)
+            {
+                var original = source.GetPixel(x, y);
+                var output = displayed.GetPixel(x, y);
+                var alpha = appliedMask.GetPixel(x, y).Alpha;
+                if (alpha == 255) Assert.Equal(original, output);
+                if (alpha != 0) continue;
+                backgroundPixels++;
+                if (Math.Abs(original.Red - output.Red) + Math.Abs(original.Green - output.Green) + Math.Abs(original.Blue - output.Blue) > 40)
+                    changedBackground++;
+            }
+        Assert.True(changedBackground > backgroundPixels / 4, "The background did not visibly change.");
+        Directory.CreateDirectory(Screenshots.Folder);
+        ImageFiles.Save(displayed, Path.Combine(Screenshots.Folder, manualSelection ? "live-ChangeBackground.png" : "live-ChangeBackground-auto.png"), ExportFormat.Png);
+        if (!manualSelection)
+        {
+            session.Undo();
+            Assert.Single(session.Document.Layers);
+            Assert.Null(session.Selection);
+        }
     }
 
     [Fact]
@@ -394,7 +446,10 @@ public class AiInfrastructureTests
             ["width"] = 1024, ["height"] = 768, ["seed"] = 1L
         });
         Assert.DoesNotContain(bound, node => node.Key.StartsWith("ref", StringComparison.Ordinal));
-        Assert.Equal("condition", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.Equal("basePos", bound["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.Equal("EmptyFlux2LatentImage", bound["latent"]!["class_type"]!.GetValue<string>());
+        Assert.False(bound["crop"]!["inputs"]!["mask_fill_holes"]!.GetValue<bool>());
+        Assert.DoesNotContain(bound, node => node.Value?["class_type"]?.GetValue<string>() == "InpaintModelConditioning");
     }
 
     private sealed class JsonHandler(Func<HttpRequestMessage, string> response) : HttpMessageHandler

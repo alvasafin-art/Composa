@@ -424,7 +424,7 @@ public sealed partial class MainWindow
     {
         if (task == AiTaskKind.GenerativeExpand && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
             return (Math.Max(1, (int)Math.Round(crop.Width)), Math.Max(1, (int)Math.Round(crop.Height)));
-        if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight
+        if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight
             && session?.Selection is { } selection && SelectionMask.Bounds(selection) is { IsEmpty: false } bounds)
             return (bounds.Width, bounds.Height);
         return (session?.Document.Width ?? 1, session?.Document.Height ?? 1);

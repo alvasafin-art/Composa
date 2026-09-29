@@ -37,7 +37,7 @@ public static class AiTasks
     };
 
     public static bool RequiresSelection(this AiTaskKind task) =>
-        task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground
+        task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject
             or AiTaskKind.Harmonize or AiTaskKind.Relight;
 }
 

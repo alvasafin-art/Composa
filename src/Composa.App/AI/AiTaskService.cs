@@ -3,6 +3,7 @@ using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Rendering;
+using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.App.AI;
@@ -56,6 +57,18 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.Task == AiTaskKind.ChangeBackground && editor.Session.Selection == null)
+        {
+            await editor.Session.RunTransactionAsync("AI Change Background", async _ =>
+            {
+                await RunAsync(editor, new AiTaskRequest { Task = AiTaskKind.SelectSubject }, cancellationToken);
+                if (editor.Session.Selection == null || SelectionMask.Bounds(editor.Session.Selection).IsEmpty)
+                    throw new InvalidOperationException("No subject was found. Select the subject manually and retry Change Background.");
+                await RunAsync(editor, request, cancellationToken);
+                editor.Session.Deselect();
+            });
+            return;
+        }
         if (request.Task == AiTaskKind.MatchToScene)
         {
             Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
@@ -203,7 +216,7 @@ public sealed class AiTaskService : IAiTaskRunner
                 var fitted = image.Width == session.Document.Width && image.Height == session.Document.Height
                     ? image : Resize(image, session.Document.Width, session.Document.Height);
                 if (!ReferenceEquals(fitted, image)) image.Dispose();
-                backgroundOutputs.Add(new AiOutput("AI Background", fitted, Pixels.Clone(inputs.BackgroundMask), ["background"]));
+                backgroundOutputs.Add(new AiOutput("AI Background", fitted, Tags: ["background"]));
             }
             backgroundOutputs.Add(new AiOutput("Original Subject", Pixels.Clone(inputs.ContextImage), Pixels.Clone(inputs.SelectionMask), ["product", "editable"]));
             session.InsertAiOutput(task, backgroundOutputs, group: true);
@@ -213,7 +226,8 @@ public sealed class AiTaskService : IAiTaskRunner
         {
             SKBitmap? mask = null;
             var documentSized = image.Width == session.Document.Width && image.Height == session.Document.Height;
-            if (mode == AiOutputMode.NewLayerWithMask && session.Selection is { } selection)
+            var selection = inputs?.OutputMask ?? inputs?.SelectionMask ?? session.Selection;
+            if (mode == AiOutputMode.NewLayerWithMask && selection != null)
                 mask = documentSized ? Pixels.Clone(selection) : MaskForBounds(selection, targetBounds, image.Width, image.Height);
             SKRect? placement = documentSized ? null : new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom);
             return new AiOutput(images.Count == 1 ? "AI " + task.DisplayName() : $"AI {task.DisplayName()} {index + 1}", image, mask, Bounds: placement);

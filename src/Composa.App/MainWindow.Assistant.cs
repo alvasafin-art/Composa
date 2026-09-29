@@ -5,6 +5,7 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     private AssistantWindow? assistantWindow;
+    private readonly AssistantConversation assistantConversation = new();
 
     private void ShowAssistant()
     {
@@ -13,7 +14,7 @@ public sealed partial class MainWindow
             assistantWindow.Activate();
             return;
         }
-        assistantWindow = new AssistantWindow(this, () => session, settings, assistantServer, scriptRuntime, aiTasks);
+        assistantWindow = new AssistantWindow(this, () => session, settings, assistantServer, scriptRuntime, aiTasks, assistantConversation);
         assistantWindow.Closed += (_, _) => assistantWindow = null;
         assistantWindow.Show(this);
     }

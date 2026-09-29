@@ -7,12 +7,198 @@ using Composa.App.Assistant;
 using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
+using Composa.IO;
+using Composa.Rendering;
 using SkiaSharp;
+using System.Net;
+using System.Text.Json;
 
 namespace Composa.App.Tests;
 
 public class AssistantTests
 {
+    [Fact]
+    public async Task API_provider_sends_history_and_attached_script_without_local_server_contract()
+    {
+        JsonElement payload = default;
+        string? bearer = null;
+        Uri? address = null;
+        using var client = new HttpClient(new ApiHandler(async request =>
+        {
+            address = request.RequestUri;
+            bearer = request.Headers.Authorization?.Parameter;
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            payload = json.RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"{\\\"summary\\\":\\\"Done\\\",\\\"script\\\":\\\"\\\"}\"}}]}")
+            };
+        }));
+        var settings = new Settings { AssistantProvider = "api", AssistantApiUrl = "https://example.test/custom/v1",
+            AssistantApiModel = "any-model", AssistantApiKey = "test-session-key" };
+        var provider = new ChatCompletionAssistantProvider(settings, transport: client);
+
+        var reply = await provider.PlanAsync(new AssistantRequest("Explain this script", "{}", JavaScriptRuntime.Reference)
+        {
+            History = [new AssistantMessage("user", "Rename a layer"), new AssistantMessage("assistant", "Which layer?")],
+            Attachments = [new AssistantAttachment("edit.js", "app.activeDocument.activeLayer.name = 'Test';")]
+        }, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Done", reply.Summary);
+        Assert.Equal("https://example.test/custom/v1/chat/completions", address!.ToString());
+        Assert.Equal("test-session-key", bearer);
+        Assert.Equal("any-model", payload.GetProperty("model").GetString());
+        Assert.Equal(4, payload.GetProperty("messages").GetArrayLength());
+        Assert.Contains("edit.js", payload.GetProperty("messages")[3].GetProperty("content").GetString());
+        Assert.False(payload.TryGetProperty("chat_template_kwargs", out _));
+        Assert.DoesNotContain("test-session-key", JsonSerializer.Serialize(settings));
+    }
+
+    [Theory]
+    [InlineData("https://example.test", "https://example.test/v1/chat/completions")]
+    [InlineData("https://example.test/api/v3/", "https://example.test/api/v3/chat/completions")]
+    [InlineData("https://example.test/v1/chat/completions", "https://example.test/v1/chat/completions")]
+    public void Assistant_supports_custom_API_paths(string input, string expected) =>
+        Assert.Equal(expected, ChatCompletionAssistantProvider.Endpoint(input).ToString());
+
+    [Fact]
+    public async Task Local_chat_bounds_combined_history_and_files_to_the_configured_context()
+    {
+        JsonElement payload = default;
+        using var client = new HttpClient(new ApiHandler(async request =>
+        {
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()); payload = json.RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"{\\\"summary\\\":\\\"OK\\\",\\\"script\\\":\\\"\\\"}\"}}]}") };
+        }));
+        var provider = new ChatCompletionAssistantProvider(new Settings { AssistantContextSize = 8192, AssistantMaxTokens = 8192 }, local: true, transport: client);
+        await provider.PlanAsync(new AssistantRequest("Explain the files", "{}", JavaScriptRuntime.Reference)
+        {
+            History = Enumerable.Range(0, 20).Select(_ => new AssistantMessage("user", new string('x', 8000))).ToArray(),
+            Attachments = Enumerable.Range(0, 6).Select(index => new AssistantAttachment(index + ".js", new string('y', 20000))).ToArray()
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(2048, payload.GetProperty("max_tokens").GetInt32());
+        var messages = payload.GetProperty("messages").EnumerateArray().Select(message => message.GetProperty("content").GetString()!).ToArray();
+        Assert.True(messages.Sum(text => text.Length) < 13000);
+        Assert.Contains("truncated", messages[^1]);
+    }
+
+    [Fact]
+    public async Task API_errors_do_not_expose_session_keys_in_chat()
+    {
+        using var client = new HttpClient(new ApiHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        { Content = new StringContent("Rejected placeholder-secret-key") })));
+        var provider = new ChatCompletionAssistantProvider(new Settings { AssistantApiUrl = "https://example.test/v1",
+            AssistantApiModel = "test", AssistantApiKey = "placeholder-secret-key" }, transport: client);
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => provider.PlanAsync(new AssistantRequest("Hi", "{}", ""), TestContext.Current.CancellationToken));
+        Assert.DoesNotContain("placeholder-secret-key", error.Message);
+        Assert.Contains("[redacted]", error.Message);
+    }
+
+    [Fact]
+    public void Assistant_can_answer_a_conversation_without_a_script()
+    {
+        var reply = LlamaAssistantProvider.ParsePlan("What would you like to change in the background?");
+        Assert.Contains("background", reply.Summary);
+        Assert.Empty(reply.Script);
+    }
+
+    [Theory]
+    [InlineData("{\"script\":\"doSomething()\"}")]
+    [InlineData("{\"summary\":\"Done\",\"script\":null}")]
+    public void Incomplete_plans_are_never_automatically_executed(string content)
+    {
+        Assert.Empty(LlamaAssistantProvider.ParsePlan(content).Script);
+    }
+
+    [AvaloniaFact]
+    public async Task Chat_reads_attached_scripts_as_data_and_keeps_their_context_for_followups()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "composa-chat-" + Guid.NewGuid() + ".js");
+        await File.WriteAllTextAsync(path, "// Attached script\napp.activeDocument.activeLayer.name = 'Do not run';");
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(80, 60)); owner.Show();
+        using var host = new LlamaServerHost(owner.Settings);
+        var provider = new RecordingAssistant();
+        var chat = new AssistantWindow(owner, () => owner.Session, owner.Settings, host, new JavaScriptRuntime(), owner.AiTasks)
+        { ProviderFactory = () => provider };
+        chat.Show(owner);
+        try
+        {
+            await chat.AddFilesAsync([path]);
+            Assert.Equal(1, chat.AttachmentCount);
+            await chat.SendAsync("Use the attached script as reference to rename the layer to Chat edit");
+            Assert.Contains("Do not run", Assert.Single(provider.Requests[0].Attachments).Text);
+            Assert.Equal(0, chat.AttachmentCount);
+            Assert.Equal("Chat edit", owner.Session!.ActiveLayer!.Name);
+            await chat.SendAsync("Explain the script I attached earlier");
+            Assert.Contains("Do not run", provider.Requests[1].History[0].Text);
+        }
+        finally { chat.Close(); owner.Close(); File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task JavaScript_imports_only_explicitly_attached_images_and_undoes_the_import()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "composa-chat-" + Guid.NewGuid() + ".png");
+        using var bitmap = Pixels.NewColor(12, 10); bitmap.Erase(SKColors.CornflowerBlue);
+        ImageFiles.Save(bitmap, path, ExportFormat.Png);
+        try
+        {
+            var session = EditorSession.NewCanvas(80, 60);
+            var runtime = new JavaScriptRuntime();
+            await runtime.ExecuteAsync(session, "app.activeDocument.addAttachedImage(0);", new RecordingAiRunner(), new Settings(),
+                "Assistant import", TestContext.Current.CancellationToken, [path]);
+            Assert.Equal(2, session.Document.Layers.Count);
+            session.Undo(); Assert.Single(session.Document.Layers);
+            await Assert.ThrowsAnyAsync<Exception>(() => runtime.ExecuteAsync(session, "app.activeDocument.addAttachedImage(1);",
+                new RecordingAiRunner(), new Settings(), "Invalid import", TestContext.Current.CancellationToken, [path]));
+            Assert.Single(session.Document.Layers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [AvaloniaFact]
+    public async Task Chat_remembers_previous_messages_and_applies_edits_as_one_undo_step()
+    {
+        var owner = new MainWindow();
+        owner.AddSession(EditorSession.NewCanvas(80, 60, SKColors.White)); owner.Show();
+        using var host = new LlamaServerHost(owner.Settings);
+        var provider = new RecordingAssistant();
+        var conversation = new AssistantConversation();
+        var chat = new AssistantWindow(owner, () => owner.Session, owner.Settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation)
+        { ProviderFactory = () => provider };
+        chat.Show(owner);
+        await chat.SendAsync("Rename the current layer");
+        Assert.Equal("Chat edit", owner.Session!.ActiveLayer!.Name);
+        Assert.Equal("Assistant edit", owner.Session.History.UndoName);
+        await chat.SendAsync("Why did you choose that name?");
+        Assert.Equal(2, provider.Requests[1].History.Count);
+        Assert.Equal(4, chat.MessageCount);
+        Assert.True(Screenshots.Save(chat, "assistant-chat-conversation"));
+        chat.Width = 390; chat.Height = 500;
+        Assert.True(Screenshots.Save(chat, "assistant-chat-narrow"));
+        owner.Session.Undo();
+        Assert.Equal("Background", owner.Session.ActiveLayer!.Name);
+        chat.Close(); owner.Close();
+    }
+
+    private sealed class RecordingAssistant : IAssistantProvider
+    {
+        public string Id => "test";
+        public List<AssistantRequest> Requests { get; } = [];
+        public Task<AssistantPlan> PlanAsync(AssistantRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(Requests.Count == 1 ? new AssistantPlan("Renamed the active layer.", "app.activeDocument.activeLayer.name = 'Chat edit';")
+                : new AssistantPlan("That name reflects your requested edit.", ""));
+        }
+    }
+
+    private sealed class ApiHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> response) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => response(request);
+    }
+
     [Theory]
     [InlineData("{\"summary\":\"Done\",\"script\":\"\"}")]
     [InlineData("The requested edit is safe.\n{\"summary\":\"Done\",\"script\":\"const value = { nested: true };\"}\n")]

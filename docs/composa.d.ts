@@ -24,6 +24,7 @@ interface Document {
   findLayersByTag(tag: string): Layer[];
   findLayersByName(name: string): Layer[];
   addLayer(name?: string): Layer;
+  addAttachedImage(index: number): Layer;
   selectRect(x: number, y: number, width: number, height: number): void;
   deselect(): void;
   export(path: string, quality?: number): void;
@@ -74,6 +75,7 @@ interface ComposaAI {
   generativeExpand(prompt: string, options?: AIOptions): void;
   changeBackground(prompt: string, options?: AIOptions): void;
   harmonize(prompt: string, options?: AIOptions): void;
+  matchToScene(options?: AIOptions): void;
   relight(prompt: string, options?: AIOptions): void;
   upscale(options?: AIOptions): void;
   selectSubject(options?: AIOptions): void;

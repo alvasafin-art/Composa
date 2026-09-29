@@ -19,7 +19,7 @@
     "ImageScale",
     "ImageToMask",
     "InpaintCropImproved",
-    "InpaintModelConditioning",
+    "GetImageSize",
     "InpaintStitchImproved",
     "UpscaleModelLoader",
     "ImageUpscaleWithModel",
@@ -51,6 +51,12 @@
     }
   ],
   "workflows": [
+    {
+      "id": "background",
+      "version": 1,
+      "file": "workflows/background.json",
+      "outputNodes": ["save"]
+    },
     {
       "id": "generate",
       "version": 1,
@@ -293,7 +299,7 @@
     {
       "task": "changeBackground",
       "version": 1,
-      "workflow": "inpaint",
+      "workflow": "background",
       "outputMode": "layerGroup",
       "inputs": {
         "prompt": {
@@ -308,33 +314,13 @@
           "nodeId": "sampler",
           "input": "seed"
         },
-        "sourceImage": {
-          "nodeId": "source",
-          "input": "image"
-        },
-        "backgroundMask": {
-          "nodeId": "maskImage",
-          "input": "image"
-        },
         "width": {
-          "nodeId": "crop",
-          "input": "output_target_width"
+          "nodeId": "latent",
+          "input": "width"
         },
         "height": {
-          "nodeId": "crop",
-          "input": "output_target_height"
-        },
-        "maskGrow": {
-          "nodeId": "crop",
-          "input": "mask_expand_pixels"
-        },
-        "maskBlend": {
-          "nodeId": "crop",
-          "input": "mask_blend_pixels"
-        },
-        "maskContext": {
-          "nodeId": "crop",
-          "input": "context_from_mask_extend_factor"
+          "nodeId": "latent",
+          "input": "height"
         },
         "referenceImage1": {
           "nodeId": "ref1load",

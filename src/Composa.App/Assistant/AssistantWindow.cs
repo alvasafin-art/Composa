@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -15,94 +17,243 @@ public sealed class AssistantWindow : Window
 {
     private readonly MainWindow owner;
     private readonly Func<EditorSession?> session;
-    private readonly LlamaAssistantProvider provider;
     private readonly LlamaServerHost server;
     private readonly JavaScriptRuntime runtime;
     private readonly AiTaskService aiTasks;
     private readonly Settings settings;
-    private readonly TextBox request = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 90, PlaceholderText = "Describe what you want to change" };
-    private readonly TextBox summary = new() { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 54 };
-    private readonly TextBox script = new() { AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, FontFamily = FontFamily.Parse("Consolas"), Height = 230 };
-    private readonly TextBlock status = Ui.Label("Ready", Palette.Secondary);
-    private readonly Button plan, apply, save, cancel;
-    private readonly Action serverChanged;
-    private CancellationTokenSource? running;
-
-    public AssistantWindow(MainWindow owner, Func<EditorSession?> session, Settings settings, LlamaServerHost server, JavaScriptRuntime runtime, AiTaskService aiTasks)
+    private readonly AssistantConversation conversation;
+    private readonly StackPanel messages = new() { Spacing = 12, Margin = new Thickness(14) };
+    private readonly WrapPanel attachments = new() { Orientation = Orientation.Horizontal };
+    private readonly List<AssistantFile> files = [];
+    private readonly Dictionary<AssistantChatEntry, (EditorSession? Session, AssistantFile[] Files)> pending = [];
+    private readonly TextBox prompt = new()
     {
-        this.owner = owner; this.session = session; this.settings = settings; this.server = server; this.runtime = runtime; this.aiTasks = aiTasks;
-        provider = new LlamaAssistantProvider(settings, server);
-        Title = "Assistant"; Width = 680; Height = 650; MinWidth = 520; MinHeight = 500;
+        AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 68, MaxHeight = 150,
+        PlaceholderText = "Message Assistant… (Enter to send, Shift+Enter for a new line)"
+    };
+    private readonly TextBlock status = Ui.Label("Ready", Palette.Secondary);
+    private readonly ScrollViewer scroll;
+    private readonly Button send, cancel, attach, newChat;
+    private CancellationTokenSource? running;
+    private bool busy;
+    internal int MessageCount => conversation.Entries.Count;
+    internal int AttachmentCount => files.Count;
+    internal Func<IAssistantProvider>? ProviderFactory { get; set; }
+
+    public AssistantWindow(MainWindow owner, Func<EditorSession?> session, Settings settings, LlamaServerHost server,
+        JavaScriptRuntime runtime, AiTaskService aiTasks, AssistantConversation? conversation = null)
+    {
+        this.owner = owner; this.session = session; this.settings = settings; this.server = server;
+        this.runtime = runtime; this.aiTasks = aiTasks; this.conversation = conversation ?? new();
+        Title = "Assistant"; Width = 640; Height = 710; MinWidth = 360; MinHeight = 430;
         WindowStartupLocation = WindowStartupLocation.CenterOwner; ShowInTaskbar = false;
-        plan = Ui.TextButton("Plan", () => _ = Plan(), accent: true);
-        apply = Ui.TextButton("Apply", () => _ = Apply()); apply.IsEnabled = false;
-        save = Ui.TextButton("Save as Script…", () => _ = SaveScript()); save.IsEnabled = false;
-        var settingsButton = Ui.TextButton("Settings…", () => _ = SettingsDialog());
-        cancel = Ui.TextButton("Cancel", Cancel); cancel.IsEnabled = false;
-        serverChanged = () => Avalonia.Threading.Dispatcher.UIThread.Post(() => status.Text = server.Status);
-        server.StatusChanged += serverChanged;
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(settingsButton); buttons.Children.Add(cancel); buttons.Children.Add(save); buttons.Children.Add(apply); buttons.Children.Add(plan);
-        var body = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,Auto"), RowSpacing = 8, Margin = new Thickness(16) };
-        body.Children.Add(Ui.Label("Task", weight: FontWeight.SemiBold));
-        Add(body, request, 1);
-        Add(body, Ui.Label("Assistant plan", weight: FontWeight.SemiBold), 2);
-        var results = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*"), RowSpacing = 8 };
-        results.Children.Add(summary); Add(results, Ui.Label("JavaScript — review before applying", Palette.Secondary), 1); Add(results, script, 2);
-        Add(body, results, 3); Add(body, status, 4); Add(body, buttons, 5);
-        Content = body;
-        Closed += (_, _) => { running?.Cancel(); server.StatusChanged -= serverChanged; };
-        Opened += (_, _) => request.Focus();
+        send = Ui.TextButton("Send", () => _ = SendAsync(), accent: true);
+        cancel = Ui.TextButton("Stop", () => running?.Cancel()); cancel.IsVisible = false;
+        attach = Ui.TextButton("Attach…", () => _ = PickFiles());
+        newChat = Ui.TextButton("New chat", () =>
+        {
+            this.conversation.Entries.Clear(); pending.Clear(); files.Clear(); prompt.Text = "";
+            RenderAttachments(); RenderMessages(); status.Text = "New chat";
+        });
+        var preferences = Ui.TextButton("⚙", () => _ = ShowSettings()); preferences.MinWidth = 36;
+        ToolTip.SetTip(preferences, "Assistant provider and settings");
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8 };
+        header.Children.Add(Ui.Label("Assistant", weight: FontWeight.SemiBold));
+        At(header, newChat, column: 1); At(header, preferences, column: 2);
+        scroll = new ScrollViewer { Content = messages, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        var applyEdits = Ui.Check("Apply requested edits", settings.AssistantApplyEdits, value => { settings.AssistantApplyEdits = value; settings.Save(); });
+        ToolTip.SetTip(applyEdits, "Requested edits run as one Undo step. Disable to review scripts before applying.");
+        var controls = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 8 };
+        controls.Children.Add(attach); At(controls, applyEdits, column: 1); At(controls, cancel, column: 2); At(controls, send, column: 3);
+        var composer = Ui.Column(8, attachments, prompt, controls, status);
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), RowSpacing = 8, Margin = new Thickness(12) };
+        root.Children.Add(header); At(root, scroll, row: 1); At(root, composer, row: 2);
+        Content = root;
+        prompt.KeyDown += (_, e) =>
+        {
+            if (e.Key is Key.Enter or Key.Return && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            { e.Handled = true; _ = SendAsync(); }
+        };
+        DragDrop.SetAllowDrop(root, true);
+        root.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = busy ? DragDropEffects.None : DragDropEffects.Copy; e.Handled = true; });
+        root.AddHandler(DragDrop.DropEvent, (_, e) =>
+        {
+            var paths = e.DataTransfer.TryGetFiles()?.Select(file => file.TryGetLocalPath()).OfType<string>().ToArray() ?? [];
+            _ = AddFilesAsync(paths); e.Handled = true;
+        });
+        Closed += (_, _) => running?.Cancel();
+        Opened += (_, _) => prompt.Focus();
+        RenderMessages();
     }
 
-    private static void Add(Grid grid, Control control, int row) { Grid.SetRow(control, row); grid.Children.Add(control); }
+    private static void At(Grid grid, Control control, int row = 0, int column = 0)
+    { Grid.SetRow(control, row); Grid.SetColumn(control, column); grid.Children.Add(control); }
 
-    private async Task Plan()
+    private void SetBusy(bool value)
     {
-        if (string.IsNullOrWhiteSpace(request.Text)) return;
-        running?.Cancel(); running = new CancellationTokenSource();
-        plan.IsEnabled = false; cancel.IsEnabled = true; apply.IsEnabled = save.IsEnabled = false;
-        status.Text = "Preparing Assistant…"; status.Foreground = Palette.Secondary;
+        busy = value; send.IsEnabled = attach.IsEnabled = newChat.IsEnabled = !value;
+        cancel.IsVisible = value;
+    }
+
+    internal async Task AddFilesAsync(IEnumerable<string> paths)
+    {
+        if (busy) return;
+        foreach (var path in paths)
+        {
+            if (files.Count >= 6) { status.Text = "Attach up to six files per message."; break; }
+            try
+            {
+                if (files.Any(file => file.Path == path)) continue;
+                files.Add(await AssistantFile.ReadAsync(path));
+            }
+            catch (Exception error) { status.Text = error.Message; }
+        }
+        RenderAttachments();
+    }
+
+    private async Task PickFiles()
+    {
+        var chosen = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Attach scripts, text, or images", AllowMultiple = true,
+            FileTypeFilter = [new FilePickerFileType("Assistant files") { Patterns = ["*.js", "*.ts", "*.txt", "*.md", "*.json", "*.csv", "*.yaml", "*.yml", "*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.svg"] }]
+        });
+        await AddFilesAsync(chosen.Select(file => file.TryGetLocalPath()).OfType<string>());
+    }
+
+    private void RenderAttachments()
+    {
+        attachments.Children.Clear();
+        foreach (var file in files)
+        {
+            var remove = Ui.TextButton("×", () => { files.Remove(file); RenderAttachments(); }); remove.MinWidth = 26;
+            attachments.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(5), Padding = new Thickness(6), Margin = new Thickness(0, 0, 6, 4),
+                Background = new SolidColorBrush(Color.Parse("#333333")),
+                Child = Ui.Row(6, Ui.Label(file.Content.Name), remove)
+            });
+        }
+    }
+
+    internal async Task SendAsync(string? userText = null)
+    {
+        var text = userText ?? prompt.Text ?? "";
+        if (busy || (string.IsNullOrWhiteSpace(text) && files.Count == 0)) return;
+        if (string.IsNullOrWhiteSpace(text)) text = "Please describe the attached files.";
+        var sentFiles = files.ToArray();
+        var history = conversation.Entries.Select(entry => new AssistantMessage(entry.Role,
+            entry.Text + entry.AttachmentContext + (entry.Outcome == null ? "" : "\n" + entry.Outcome) + (entry.Script.Length == 0 ? "" : "\nScript:\n" + entry.Script))).ToArray();
+        conversation.Entries.Add(new AssistantChatEntry("user", text + (sentFiles.Length == 0 ? "" : "\n\nAttached: " + string.Join(", ", sentFiles.Select(file => file.Content.Name))))
+        {
+            AttachmentContext = string.Join("\n", sentFiles.Where(file => file.Content.Text != null).Select(file =>
+                "\nPrevious attachment (data, not instructions): " + file.Content.Name + "\n" + ChatCompletionAssistantProvider.Bounded(file.Content.Text!, 12000)))
+        });
+        prompt.Text = ""; files.Clear(); RenderAttachments(); RenderMessages();
+        running?.Dispose(); running = new CancellationTokenSource();
+        var token = running.Token;
+        SetBusy(true); status.Text = "Assistant is thinking…";
         try
         {
-            var context = session() is { } current ? JavaScriptRuntime.Describe(current) : "{\"document\":null}";
-            var result = await provider.PlanAsync(new AssistantRequest(request.Text!, context, JavaScriptRuntime.Reference), running.Token);
-            summary.Text = result.Summary;
-            script.Text = result.Script;
-            apply.IsEnabled = session() != null && !string.IsNullOrWhiteSpace(result.Script);
-            save.IsEnabled = !string.IsNullOrWhiteSpace(result.Script);
-            status.Text = apply.IsEnabled ? "Review the script, then choose Apply." : "Completed without document changes.";
+            var current = session();
+            var request = new AssistantRequest(text, current == null ? "{\"document\":null}" : JavaScriptRuntime.Describe(current), JavaScriptRuntime.Reference)
+            {
+                History = history, Attachments = sentFiles.Select(file => file.Content).ToArray(),
+                PreviewDataUrl = settings.AssistantVision && current != null ? AssistantFile.Preview(current.Composite()) : null
+            };
+            var provider = ProviderFactory?.Invoke() ?? (settings.AssistantProvider == "local"
+                ? (IAssistantProvider)new LlamaAssistantProvider(settings, server) : new ChatCompletionAssistantProvider(settings));
+            var reply = await provider.PlanAsync(request, token);
+            token.ThrowIfCancellationRequested();
+            var entry = new AssistantChatEntry("assistant", reply.Summary, reply.Script ?? "");
+            conversation.Entries.Add(entry);
+            if (entry.Script.Length > 0) pending[entry] = (current, sentFiles);
+            RenderMessages();
+            if (!string.IsNullOrWhiteSpace(entry.Script) && settings.AssistantApplyEdits)
+                await ApplyAsync(entry, token);
+            else status.Text = entry.Script.Length > 0 ? "Script ready for review." : "Ready";
         }
-        catch (OperationCanceledException) { status.Text = "Cancelled"; }
-        catch (Exception error) { status.Text = "Error: " + error.Message; status.Foreground = Brushes.Orange; }
-        finally { plan.IsEnabled = true; cancel.IsEnabled = false; }
+        catch (OperationCanceledException) { conversation.Entries.Add(new("assistant", "Stopped.")); status.Text = "Stopped"; }
+        catch (Exception error) { conversation.Entries.Add(new("assistant", "Error: " + error.Message)); status.Text = "Could not complete this message."; }
+        finally { SetBusy(false); RenderMessages(); prompt.Focus(); }
     }
 
-    private async Task Apply()
+    private async Task ApplyAsync(AssistantChatEntry entry, CancellationToken token)
     {
-        if (session() is not { } current || string.IsNullOrWhiteSpace(script.Text)) return;
-        running?.Cancel(); running = new CancellationTokenSource();
-        apply.IsEnabled = plan.IsEnabled = false; cancel.IsEnabled = true;
+        if (!pending.TryGetValue(entry, out var edit) || edit.Session == null || !ReferenceEquals(session(), edit.Session))
+            throw new InvalidOperationException("This script belongs to another document or an earlier session. Send a new message to apply it.");
+        if (edit.Session.IsInteracting) throw new InvalidOperationException("Finish the current canvas action before applying the edit.");
+        status.Text = "Applying changes…";
         var editorContent = owner.Content as Control;
         if (editorContent != null) editorContent.IsEnabled = false;
         try
         {
-            var title = string.IsNullOrWhiteSpace(summary.Text) ? "Assistant edit" : "Assistant: " + summary.Text.Trim();
-            var result = await runtime.ExecuteAsync(current, script.Text, aiTasks, settings, title.Length > 120 ? title[..120] : title, running.Token);
-            status.Text = result.ExportedPath == null ? "Applied as one Undo step." : "Applied and exported to " + result.ExportedPath;
-            status.Foreground = Palette.Accent;
+            var result = await runtime.ExecuteAsync(edit.Session, entry.Script, aiTasks, settings, "Assistant edit", token,
+                edit.Files.Select(file => file.Content.ImageDataUrl != null ? file.Path : null).ToArray());
+            var outcome = result.ExportedPath == null ? "Applied. Ctrl+Z undoes this edit." : "Applied and exported to " + result.ExportedPath;
+            var index = conversation.Entries.IndexOf(entry);
+            if (index >= 0) conversation.Entries[index] = entry with { Outcome = outcome };
+            pending.Remove(entry);
+            status.Text = outcome;
             owner.Canvas.InvalidateVisual();
         }
-        catch (OperationCanceledException) { status.Text = "Cancelled"; status.Foreground = Palette.Secondary; }
-        catch (Exception error) { status.Text = "Script error: " + error.Message; status.Foreground = Brushes.Orange; }
-        finally
+        catch
         {
-            if (editorContent != null) editorContent.IsEnabled = true;
-            apply.IsEnabled = true; plan.IsEnabled = true; cancel.IsEnabled = false;
+            var index = conversation.Entries.IndexOf(entry);
+            if (index >= 0) conversation.Entries[index] = entry with { Outcome = "Not applied. The edit was rolled back." };
+            pending.Remove(entry);
+            throw;
         }
+        finally { if (editorContent != null) editorContent.IsEnabled = true; }
     }
 
-    private async Task SaveScript()
+    private void RenderMessages()
+    {
+        messages.Children.Clear();
+        if (conversation.Entries.Count == 0)
+            messages.Children.Add(new TextBlock
+            {
+                Text = "Ask a question or describe an edit. Attach a script, instructions, or reference images when helpful.",
+                TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary, Margin = new Thickness(4, 20)
+            });
+        foreach (var entry in conversation.Entries)
+        {
+            var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : "Assistant", weight: FontWeight.SemiBold),
+                new SelectableTextBlock { Text = entry.Text, TextWrapping = TextWrapping.Wrap });
+            if (entry.Script.Length > 0)
+            {
+                var code = new TextBox { Text = entry.Script, AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
+                    FontFamily = FontFamily.Parse("Consolas"), MinHeight = 80, MaxHeight = 220 };
+                var save = Ui.TextButton("Save script…", () => _ = SaveScript(entry.Script));
+                body.Children.Add(new Expander { Header = "Script", Content = Ui.Column(6, code, save), HorizontalContentAlignment = HorizontalAlignment.Stretch });
+                if (entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
+                else if (pending.ContainsKey(entry))
+                {
+                    var apply = Ui.TextButton("Apply edit", () => _ = ApplyReviewed(entry)); apply.IsEnabled = !busy && session() != null;
+                    body.Children.Add(apply);
+                }
+            }
+            var copy = Ui.TextButton("Copy", () => _ = Clipboard?.SetTextAsync(entry.Text + (entry.Script.Length > 0 ? "\n" + entry.Script : "")));
+            copy.MinWidth = 0; body.Children.Add(copy);
+            messages.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.Parse(entry.Role == "user" ? "#303B48" : "#292929")),
+                Padding = new Thickness(12), CornerRadius = new CornerRadius(8), Child = body
+            });
+        }
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => scroll.ScrollToEnd());
+    }
+
+    private async Task ApplyReviewed(AssistantChatEntry entry)
+    {
+        if (busy) return;
+        running?.Dispose(); running = new CancellationTokenSource(); SetBusy(true);
+        try { await ApplyAsync(entry, running.Token); }
+        catch (Exception error) { status.Text = "Edit failed: " + error.Message; }
+        finally { SetBusy(false); RenderMessages(); }
+    }
+
+    private async Task SaveScript(string script)
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
@@ -110,48 +261,68 @@ public sealed class AssistantWindow : Window
             FileTypeChoices = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }]
         });
         if (file?.TryGetLocalPath() is not { } path) return;
-        await File.WriteAllTextAsync(path, script.Text ?? "");
-        status.Text = "Saved " + Path.GetFileName(path);
+        try { await File.WriteAllTextAsync(path, script); status.Text = "Saved " + Path.GetFileName(path); }
+        catch (Exception error) { status.Text = "Save failed: " + error.Message; }
     }
 
-    private async Task SettingsDialog()
+    private async Task ShowSettings()
     {
-        try
-        {
-            if (await AssistantDialogs.Settings(owner, settings)) status.Text = "Settings saved.";
-        }
-        catch (Exception error) { status.Text = "Settings error: " + error.Message; status.Foreground = Brushes.Orange; }
+        if (busy) return;
+        try { if (await AssistantDialogs.Settings(this, settings)) status.Text = "Settings saved."; }
+        catch (Exception error) { status.Text = error.Message; }
     }
-
-    private void Cancel() => running?.Cancel();
 }
 
 public static class AssistantDialogs
 {
     public static async Task<bool> Settings(Window owner, Settings settings)
     {
-        var url = new TextBox { Text = settings.AssistantServerUrl, Width = 360 };
-        var executable = new TextBox { Text = settings.AssistantServerExecutable, Width = 360 };
-        var model = new TextBox { Text = settings.AssistantModelPath, Width = 360 };
+        var provider = new ComboBox { ItemsSource = new[] { "Local llama.cpp", "API (chat completions)" }, SelectedIndex = settings.AssistantProvider == "local" ? 0 : 1 };
+        var url = new TextBox { Text = settings.AssistantServerUrl, Width = 340 };
+        var executable = new TextBox { Text = settings.AssistantServerExecutable, Width = 270 };
+        var model = new TextBox { Text = settings.AssistantModelPath, Width = 270 };
+        var apiUrl = new TextBox { Text = settings.AssistantApiUrl, Width = 340, PlaceholderText = "https://server.example/v1" };
+        var apiModel = new TextBox { Text = settings.AssistantApiModel, Width = 340, PlaceholderText = "Model ID from your provider" };
+        var apiKey = new TextBox { Text = settings.AssistantApiKey, Width = 340, PasswordChar = '●', PlaceholderText = "API key for this session" };
+        var environment = new TextBox { Text = settings.AssistantApiKeyEnvironment, Width = 340 };
         async Task Pick(TextBox target, string title, string pattern)
         {
             var files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = title, AllowMultiple = false, FileTypeFilter = [new FilePickerFileType(title) { Patterns = [pattern] }]
-            });
+            { Title = title, FileTypeFilter = [new FilePickerFileType(title) { Patterns = [pattern] }] });
             if (files.FirstOrDefault()?.TryGetLocalPath() is { } path) target.Text = path;
         }
-        var exeRow = Ui.Row(6, executable, Ui.TextButton("Browse…", () => _ = Pick(executable, "llama-server", "*.exe")));
-        var modelRow = Ui.Row(6, model, Ui.TextButton("Browse…", () => _ = Pick(model, "GGUF model", "*.gguf")));
         var context = Ui.Number(settings.AssistantContextSize, 2048, 131072, _ => { }, 1024, "0", 110);
         var tokens = Ui.Number(settings.AssistantMaxTokens, 256, 8192, _ => { }, 128, "0", 110);
-        var auto = Ui.Check("Start the local server when needed", settings.AssistantAutoStart, value => settings.AssistantAutoStart = value);
-        var form = CanvasDialogs.Form(("Server URL", url), ("llama-server", exeRow), ("Model", modelRow), ("Context", context), ("Maximum reply", tokens), ("", auto));
+        var auto = new CheckBox { Content = "Start local server when needed", IsChecked = settings.AssistantAutoStart };
+        var vision = new CheckBox { Content = "Send document preview and attached images (vision model)", IsChecked = settings.AssistantVision };
+        var json = new CheckBox { Content = "Request JSON response format (if supported)", IsChecked = settings.AssistantJsonResponse };
+        var local = CanvasDialogs.Form(("Server URL", url),
+            ("llama-server", Ui.Row(6, executable, Ui.TextButton("Browse…", () => _ = Pick(executable, "llama-server", "*")))),
+            ("GGUF model", Ui.Row(6, model, Ui.TextButton("Browse…", () => _ = Pick(model, "GGUF model", "*.gguf")))),
+            ("Context", context), ("", auto));
+        var remote = CanvasDialogs.Form(("API URL", apiUrl), ("Model", apiModel), ("API key", apiKey), ("Key environment variable", environment), ("", json));
+        void Refresh() { local.IsVisible = provider.SelectedIndex == 0; remote.IsVisible = !local.IsVisible; }
+        provider.SelectionChanged += (_, _) => Refresh(); Refresh();
+        var form = Ui.Column(10, CanvasDialogs.Form(("Provider", provider)), local, remote,
+            CanvasDialogs.Form(("Maximum reply", tokens)), vision);
         if (!await new DialogWindow("Assistant Settings", form).Ask(owner)) return false;
-        if (!Uri.TryCreate(url.Text, UriKind.Absolute, out var address) || address.Scheme is not ("http" or "https")) throw new FormatException("Enter a valid HTTP server URL.");
-        settings.AssistantServerUrl = address.ToString().TrimEnd('/');
+        if (provider.SelectedIndex == 0) ChatCompletionAssistantProvider.Endpoint(url.Text ?? "");
+        else
+        {
+            ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
+            if (string.IsNullOrWhiteSpace(apiModel.Text)) throw new FormatException("Enter the API model name.");
+        }
+        settings.AssistantProvider = provider.SelectedIndex == 0 ? "local" : "api";
+        settings.AssistantServerUrl = url.Text?.Trim().TrimEnd('/') ?? "";
         settings.AssistantServerExecutable = executable.Text?.Trim() ?? "";
         settings.AssistantModelPath = model.Text?.Trim() ?? "";
+        settings.AssistantApiUrl = apiUrl.Text?.Trim().TrimEnd('/') ?? "";
+        settings.AssistantApiModel = apiModel.Text?.Trim() ?? "";
+        settings.AssistantApiKey = apiKey.Text?.Trim() ?? "";
+        settings.AssistantApiKeyEnvironment = environment.Text?.Trim() ?? "";
+        settings.AssistantAutoStart = auto.IsChecked == true;
+        settings.AssistantVision = vision.IsChecked == true;
+        settings.AssistantJsonResponse = json.IsChecked == true;
         settings.AssistantContextSize = (int)(context.Value ?? 16384);
         settings.AssistantMaxTokens = (int)(tokens.Value ?? 1536);
         settings.Save();

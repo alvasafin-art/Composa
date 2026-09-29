@@ -142,7 +142,7 @@ public class AiArchitectureTests
         Assert.NotNull(inputs.PreprocessedImage);
         Assert.NotNull(inputs.PreprocessedMask);
         Assert.Equal(SKColors.Black, inputs.PreprocessedImage!.GetPixel(6, 5));
-        Assert.Contains("surrounding visual context", inputs.Prompt);
+        Assert.Contains("surrounding content", inputs.Prompt);
         Assert.NotNull(inputs.ReferenceImage);
         Assert.NotSame(reference, inputs.ReferenceImage);
         Assert.Contains("referenceImage", inputs.Images());
@@ -150,7 +150,7 @@ public class AiArchitectureTests
         Assert.Equal(42, inputs.Seed);
 
         using var guided = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.RemoveObject, Prompt = "leave the branch intact" });
-        Assert.Contains("Remove the black area", guided.Prompt);
+        Assert.Contains("Remove the black patch", guided.Prompt);
         Assert.Contains("leave the branch intact", guided.Prompt);
     }
 
@@ -181,7 +181,26 @@ public class AiArchitectureTests
         Assert.NotNull(inputs.BackgroundMask);
         Assert.Equal((byte)0, inputs.BackgroundMask!.GetPixel(6, 5).Alpha);
         Assert.Equal((byte)255, inputs.BackgroundMask.GetPixel(0, 0).Alpha);
-        Assert.Contains("Preserve the foreground subject exactly", inputs.Prompt);
+        Assert.Contains("original subject will be composited separately", inputs.Prompt);
+        Assert.Equal(SKColors.Black, inputs.PreprocessedImage!.GetPixel(0, 0));
+        Assert.Equal(SKColors.CornflowerBlue, inputs.PreprocessedImage.GetPixel(6, 5));
+    }
+
+    [Fact]
+    public void Remove_hides_even_soft_selected_pixels_with_opaque_black_before_feathering_the_blend()
+    {
+        using var source = Pixels.NewColor(24, 24);
+        source.Erase(SKColors.Red);
+        using var mask = Pixels.NewMask(24, 24);
+        mask.GetPixelSpan()[12 * mask.RowBytes + 12] = 96;
+        var (prepared, blend) = RemoveObjectPreprocessor.Prepare(source, mask, new RemoveObjectSettings { Dilation = 0, Feather = 4 });
+        using (prepared)
+        using (blend)
+        {
+            Assert.Equal(SKColors.Black, prepared.GetPixel(12, 12));
+            Assert.Equal(SKColors.Red, source.GetPixel(12, 12));
+            Assert.Equal(SKColors.Red, prepared.GetPixel(0, 0));
+        }
     }
 
     [Fact]
@@ -197,10 +216,24 @@ public class AiArchitectureTests
 
         using var matched = AiResultPostprocessor.MatchRemoval(generated, context, mask, 7);
 
-        Assert.True(matched.GetPixel(12, 12).Red > generated.GetPixel(12, 12).Red + 40);
+        Assert.True(matched.GetPixel(12, 12).Red > generated.GetPixel(12, 12).Red);
+        Assert.InRange(matched.GetPixel(12, 12).Red, 25, 70);
         Assert.Equal(new SKColor(25, 30, 35), generated.GetPixel(12, 12));
         Assert.Equal(generated.GetPixel(0, 0), matched.GetPixel(0, 0));
         Assert.NotEqual(matched.GetPixel(11, 12).Red, matched.GetPixel(12, 12).Red);
+    }
+
+    [Fact]
+    public void Remove_does_not_recolor_a_stitched_patch_to_the_unrelated_scene_average()
+    {
+        using var context = Pixels.NewColor(40, 40);
+        context.Erase(SKColors.DarkGreen);
+        using var generated = Pixels.Clone(context);
+        using (var canvas = new SKCanvas(generated)) canvas.Clear(SKColors.DarkGreen);
+        generated.SetPixel(20, 20, SKColors.Brown);
+        using var mask = SelectionMask.FromRect(40, 40, new SKRect(10, 10, 30, 30));
+        using var matched = AiResultPostprocessor.MatchRemoval(generated, context, mask, 7);
+        Assert.Equal(SKColors.Brown, matched.GetPixel(20, 20));
     }
 
     [Fact]
