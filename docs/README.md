@@ -17,6 +17,7 @@ This guide describes what Composa can do and how to do it. It is written for peo
 - [Image and canvas](image-and-canvas.md): canvas size, image size, trim, crop, rotating and flipping.
 - [View, rulers and guides](view-and-guides.md): zooming, rulers, guides, the grid, snapping and the pixel grid.
 - [AI control](ai-control.md): letting an AI agent work in Composa, connecting a client and what an agent can do.
+- [AI platform](ai-platform.md): ComfyUI connection, Engine Packs, contextual AI tasks, progress, Selection Brush and layer tags.
 - [AI tool reference](ai-tools-reference.md): every tool an agent gets, with its parameters.
 - [Keyboard shortcuts](shortcuts.md): the full list, and how to change them.
 - [Settings and updates](settings-and-updates.md): what Composa remembers, where it keeps its files, and how updates work.

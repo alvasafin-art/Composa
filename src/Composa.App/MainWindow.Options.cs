@@ -3,6 +3,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Composa.Editing;
 using Composa.Model;
+using Composa.Selections;
 using SkiaSharp;
 using TextAlignment = Composa.Model.TextAlignment;
 
@@ -88,6 +89,14 @@ public sealed partial class MainWindow
                     Modify("Feather", () => s.SelectionFeatherAmount, v => s.SelectionFeatherAmount = v, 250, () => s.FeatherSelection(s.SelectionFeatherAmount)));
                 Add(Ui.Separator(), Flat("Select All", s.SelectAll), Flat("Deselect", s.Deselect), Flat("Inverse", s.InvertSelection));
                 refreshOptions?.Invoke();
+                break;
+            case Tool.SelectionBrush:
+                Add(Title("Selection Brush"),
+                    Ui.SliderField("Size", s.SelectionBrushSize, 1, 1000, value => s.SelectionBrushSize = value),
+                    Ui.SliderField("Feather", s.SelectionBrushFeather, 0, 250, value => s.SelectionBrushFeather = value),
+                    Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
+                        value => value.ToString(), value => s.SelectionBrushMode = value, 100));
+                Add(Ui.Label("Shift adds · Alt subtracts", Palette.Secondary), Ui.Separator(), Flat("Deselect", s.Deselect));
                 break;
             case Tool.Gradient:
                 Add(Title("Gradient"),

@@ -12,6 +12,7 @@ using Composa.IO;
 using Composa.IO.Psd;
 using Composa.Model;
 using Composa.Rendering;
+using Composa.AI;
 using SkiaSharp;
 
 namespace Composa.App;
@@ -139,6 +140,26 @@ public sealed partial class MainWindow
             Item("Flip Canvas Vertical", () => session!.FlipCanvas(false)));
 
         Top("F_ilter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels)).ToArray());
+
+        Top("_AI",
+            Item("Generate Image…", () => _ = RunAi(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
+            Item("Generative Fill…", () => _ = RunAi(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
+            Item("Remove Object", () => _ = RunAi(AiTaskKind.RemoveObject), enabled: () => CanRunAi(AiTaskKind.RemoveObject)),
+            Item("Generative Expand…", () => _ = RunAi(AiTaskKind.GenerativeExpand), enabled: () => CanRunAi(AiTaskKind.GenerativeExpand)),
+            Item("Change Background…", () => _ = RunAi(AiTaskKind.ChangeBackground), enabled: () => CanRunAi(AiTaskKind.ChangeBackground)),
+            Item("Harmonize…", () => _ = RunAi(AiTaskKind.Harmonize), enabled: () => CanRunAi(AiTaskKind.Harmonize)),
+            Item("Match to Scene", () => _ = RunAi(AiTaskKind.MatchToScene), enabled: () => CanRunAi(AiTaskKind.MatchToScene)),
+            Item("Relight…", () => _ = RunAi(AiTaskKind.Relight), enabled: () => CanRunAi(AiTaskKind.Relight)),
+            Item("Upscale…", () => _ = RunAi(AiTaskKind.Upscale), enabled: () => CanRunAi(AiTaskKind.Upscale)),
+            Item("Select Subject", () => _ = RunAi(AiTaskKind.SelectSubject), enabled: () => CanRunAi(AiTaskKind.SelectSubject)),
+            Item("Object Selection", () => _ = RunAi(AiTaskKind.ObjectSelection), enabled: () => CanRunAi(AiTaskKind.ObjectSelection)),
+            Line(),
+            Sub("Presets", (aiTasks.Presets.Count == 0
+                ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]
+                : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
+            Item("Models / Engines…", () => _ = ShowAiSettings(), needsDocument: false),
+            Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
+            Item("Assistant (stage 3)", () => { }, enabled: () => false, needsDocument: false));
 
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
         clipItem = Item("Create Clipping Mask", () => session!.ToggleClippingMask(session.ActiveLayer!), Key.G, ctrl | alt, () => session!.ActiveLayer is { } l && session.CanClip(l));
@@ -284,6 +305,7 @@ public sealed partial class MainWindow
             SelectTool(Tool.Lasso);
         });
         Key(MagicKey, Avalonia.Input.Key.W, () => SelectTool(Tool.Wand));
+        Key("Selection Brush", Avalonia.Input.Key.Q, () => SelectTool(Tool.SelectionBrush));
         Key("Crop tool", Avalonia.Input.Key.C, () => SelectTool(Tool.Crop));
         Key(BrushKey, Avalonia.Input.Key.B, () => { session!.EraserMode = false; SelectTool(Tool.Brush); });
         Key(EraserKey, Avalonia.Input.Key.E, () => { session!.EraserMode = true; SelectTool(Tool.Brush); });
@@ -405,6 +427,7 @@ public sealed partial class MainWindow
 
     private void OnSessionLayersChanged()
     {
+        RefreshAiUi();
         if (session?.Tool != Tool.Move) return;
         if (session.ActiveLayerIdOrNull() != optionsLayer) RebuildOptions();
         else refreshOptions?.Invoke();

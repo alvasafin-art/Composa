@@ -48,6 +48,7 @@ public sealed class LayersPanel : UserControl
     public event Action<Layer, LayerEffectKind>? EditEffectRequested;
     /// <summary>The footer's effects menu: add an effect to the active layer.</summary>
     public event Action<LayerEffectKind>? NewEffectRequested;
+    public event Action<Layer>? EditTagsRequested;
 
     /// <summary>The blend mode at each index of the blend menu; null for the lines between groups.</summary>
     private readonly List<BlendMode?> blendAt = [];
@@ -487,6 +488,7 @@ public sealed class LayersPanel : UserControl
         Add(several ? "Duplicate Layers" : "Duplicate Layer", () => current.DuplicateSelectedLayers());
         Add("Rename…", () => { renaming = layer.Id; Rebuild(); }, !several);
         Add(targetsMask ? "Delete Mask" : several ? "Delete Selected Layers" : "Delete Layer", () => { if (targetsMask) current.DeleteMask(layer); else current.DeleteSelectedLayers(); });
+        Add("Tags…", () => EditTagsRequested?.Invoke(layer), !several);
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
         if (layer.IsLive) Add("Rasterize Layer", () => current.RasterizeShape(layer));

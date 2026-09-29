@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide }
 
     private Drag drag;
     private MouseButton dragButton;
@@ -63,7 +63,7 @@ public sealed partial class CanvasView
     public bool HasCrop => cropRect != null;
     public SKRect? CropRect => cropRect;
 
-    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear;
+    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush;
 
     public void ToolChanged()
     {
@@ -106,6 +106,7 @@ public sealed partial class CanvasView
         switch (drag)
         {
             case Drag.Stroke: session.CancelStroke(); break;
+            case Drag.SelectionBrush: session.CancelSelectionBrush(); break;
             case Drag.Transform: session.CancelTransform(); break;
             case Drag.MovePixels: session.EndMovePixels(keep: false); break;
             case Drag.Gradient: gradientPending = true; SettleGradient(keep: false); break;
@@ -132,7 +133,7 @@ public sealed partial class CanvasView
                 Tool.Hand => StandardCursorType.Hand,
                 Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper => StandardCursorType.Cross,
                 Tool.Text => StandardCursorType.Ibeam,
-                Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear => StandardCursorType.None,
+                Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
                 _ => StandardCursorType.Arrow
             };
@@ -237,6 +238,11 @@ public sealed partial class CanvasView
                 if (session.WandMode == WandMode.Object) session.SelectObject((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 else session.SelectWand((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 break;
+            case Tool.SelectionBrush:
+                var selectionMode = alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : session.SelectionBrushMode;
+                session.BeginSelectionBrush(pressDocument, selectionMode);
+                drag = Drag.SelectionBrush;
+                break;
             case Tool.Crop:
                 handle = cropRect is { } crop ? HitFrame(Corners(crop), point.Position, allowRotate: false) : TransformHandle.None;
                 if (handle == TransformHandle.None) { cropRect = null; handle = TransformHandle.BottomRight; cropStart = SKRect.Create(Snap(pressDocument.X), Snap(pressDocument.Y), 0, 0); }
@@ -314,6 +320,9 @@ public sealed partial class CanvasView
                 foreach (var p in e.GetIntermediatePoints(this))
                     session.ContinueStroke(ToDocument(p.Position), e.Pointer.Type == PointerType.Pen ? p.Properties.Pressure : 1);
                 break;
+            case Drag.SelectionBrush:
+                foreach (var p in e.GetIntermediatePoints(this)) session.ContinueSelectionBrush(ToDocument(p.Position));
+                break;
             case Drag.Lasso when session.LassoKind == LassoKind.Freehand:
                 if (polygon.Count == 0 || Distance(ToScreen(polygon[^1]), position) >= 2) polygon.Add(currentDocument);
                 break;
@@ -374,6 +383,7 @@ public sealed partial class CanvasView
         {
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
+            case Drag.SelectionBrush: session.EndSelectionBrush(); break;
             case Drag.Marquee:
                 guides.Clear();
                 if (!moved) { if (dragMode == SelectionMode.Replace) session.Deselect(); break; }
@@ -901,7 +911,8 @@ public sealed partial class CanvasView
                 return true;
             case Key.OemOpenBrackets or Key.OemCloseBrackets when IsBrushTool:
                 var grow = e.Key == Key.OemCloseBrackets;
-                if (shift) session.Brush = session.Brush with { Hardness = Math.Clamp(session.Brush.Hardness + (grow ? 0.25 : -0.25), 0, 1) };
+                if (session.Tool == Tool.SelectionBrush) session.SelectionBrushSize = NextBrushSize(session.SelectionBrushSize, grow);
+                else if (shift) session.Brush = session.Brush with { Hardness = Math.Clamp(session.Brush.Hardness + (grow ? 0.25 : -0.25), 0, 1) };
                 else session.Brush = session.Brush with { Size = NextBrushSize(session.Brush.Size, grow) };
                 ToolStateChanged?.Invoke();
                 InvalidateVisual();
@@ -917,7 +928,7 @@ public sealed partial class CanvasView
         if (e.Key is >= Key.D0 and <= Key.D9 && !shift)
         {
             var value = e.Key == Key.D0 ? 1.0 : (e.Key - Key.D0) / 10.0;
-            if (IsBrushTool) session.Brush = session.Brush with { Opacity = value };
+            if (IsBrushTool && session.Tool != Tool.SelectionBrush) session.Brush = session.Brush with { Opacity = value };
             else if (session.Tool == Tool.Gradient) session.GradientOpacity = value;
             else if (session.Tool == Tool.Move && session.ActiveLayer is { } layer)
             {

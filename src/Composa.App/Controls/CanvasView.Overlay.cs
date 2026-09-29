@@ -151,8 +151,9 @@ public sealed partial class CanvasView
         if (IsBrushTool && cursorInside && !spaceDown && !controlHover && !temporaryMove && drag is Drag.None or Drag.Stroke)
         {
             var center = view.MapPoint(currentDocument);
-            var radius = (float)(session.Brush.Size / 2 * UnitsPerPixel);
-            var inner = radius * (float)session.Brush.Hardness;
+            var selectionBrush = session.Tool == Tool.SelectionBrush;
+            var radius = (float)((selectionBrush ? session.SelectionBrushSize : session.Brush.Size) / 2 * UnitsPerPixel);
+            var inner = selectionBrush ? Math.Max(0, radius - (float)(session.SelectionBrushFeather * UnitsPerPixel)) : radius * (float)session.Brush.Hardness;
             steps.Add(canvas =>
             {
                 using var dark = new SKPaint { Color = new SKColor(0, 0, 0, 200), StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };

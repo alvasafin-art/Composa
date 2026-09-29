@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Composa.App.AI;
 using Composa.App.Controls;
 using Composa.Editing;
 using Composa.Model;
@@ -29,6 +30,9 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock positionText = new() { Foreground = Palette.Secondary, Width = 96 };
     private readonly TextBlock hintText = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock aiText = new() { Foreground = Palette.Accent };
+    private readonly TextBlock aiTaskText = new() { Foreground = Palette.Accent };
+    private readonly Border aiContextHost = new() { Background = Palette.Panel, Padding = new Thickness(12, 5) };
+    private readonly AiTaskService aiTasks;
     private Mcp.McpHost? aiControl;
     private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
     private readonly Border backgroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
@@ -42,6 +46,12 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"))
+        {
+            ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds
+        };
+        aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
+        aiTasks.StateChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiUi);
         Title = "Composa";
         Width = Math.Clamp(settings.WindowWidth, 800, 10000);
         Height = Math.Clamp(settings.WindowHeight, 520, 10000);
@@ -70,15 +80,16 @@ public sealed partial class MainWindow : Window
         history.GoToRequested += GoToHistory;
 
         // The update notice sits under the menu, where it is visible without covering anything.
-        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
         root.Children.Add(BuildMenu());
         AddRow(root, updateNotice, 1);
         AddRow(root, BuildTabBar(), 2);
         AddRow(root, optionsHost, 3);
-        AddRow(root, Ui.Separator(false), 4);
-        AddRow(root, center, 5);
-        AddRow(root, Ui.Separator(false), 6);
-        AddRow(root, BuildStatusBar(), 7);
+        AddRow(root, BuildAiContextBar(), 4);
+        AddRow(root, Ui.Separator(false), 5);
+        AddRow(root, center, 6);
+        AddRow(root, Ui.Separator(false), 7);
+        AddRow(root, BuildStatusBar(), 8);
         Content = root;
 
         StartUpdateCheck();
@@ -86,7 +97,7 @@ public sealed partial class MainWindow : Window
         canvas.ViewChanged += UpdateStatus;
         canvas.PointerAt += point => positionText.Text = point is { } p ? $"{p.X}, {p.Y}" : "";
         canvas.Problem += message => { problem = message; UpdateStatus(); };
-        canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); };
+        canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); };
         // Opening text from the canvas with another tool switches to the Type tool, so the toolbar has to follow.
         canvas.TextEditingChanged += () => { if (session != null) ShowTool(session.Tool); RebuildOptions(); UpdateStatus(); };
         layers.EditTextRequested += BeginTextEdit;
@@ -94,6 +105,7 @@ public sealed partial class MainWindow : Window
         layers.NewAdjustmentRequested += kind => _ = NewAdjustmentLayer(kind);
         layers.EditEffectRequested += (layer, kind) => _ = EditEffect(layer, kind);
         layers.NewEffectRequested += kind => _ = NewEffect(kind);
+        layers.EditTagsRequested += layer => _ = EditLayerTags(layer);
 
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -178,7 +190,7 @@ public sealed partial class MainWindow : Window
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
-        added.SelectionChanged += () => { if (added == session) refreshOptions?.Invoke(); };
+        added.SelectionChanged += () => { if (added == session) { refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
     }
 
@@ -202,6 +214,7 @@ public sealed partial class MainWindow : Window
         RebuildOptions();
         UpdateColors();
         UpdateStatus();
+        RefreshAiUi();
         if (session != null) canvas.Focus();
     }
 
@@ -220,6 +233,7 @@ public sealed partial class MainWindow : Window
             target.ShapeLineWidth = from.ShapeLineWidth; target.WandMode = from.WandMode; target.ObjectEdgeOffset = from.ObjectEdgeOffset; target.View = from.View;
             target.SelectionExpandAmount = from.SelectionExpandAmount; target.SelectionContractAmount = from.SelectionContractAmount; target.SelectionFeatherAmount = from.SelectionFeatherAmount;
             target.CropRatio = from.CropRatio;
+            target.SelectionBrushSize = from.SelectionBrushSize; target.SelectionBrushFeather = from.SelectionBrushFeather; target.SelectionBrushMode = from.SelectionBrushMode;
             target.Tool = tool;
         }
         lastToolSource = target;
@@ -415,7 +429,8 @@ public sealed partial class MainWindow : Window
     private static readonly (Tool Tool, Icons.Icon Icon, string Tip)[] ToolList =
     [
         (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"), (Tool.Lasso, Icons.Lasso, "Lasso (L)"),
-        (Tool.Wand, Icons.Wand, "Magic (W)"), (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B) · Eraser (E)"),
+        (Tool.Wand, Icons.Wand, "Magic (W)"), (Tool.SelectionBrush, Icons.Brush, "Selection Brush (Q) · Shift adds · Alt subtracts"),
+        (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B) · Eraser (E)"),
         (Tool.SpotHealing, Icons.Heal, "Spot Healing Brush (J)"), (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
@@ -497,7 +512,7 @@ public sealed partial class MainWindow : Window
 
     private Control BuildStatusBar()
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto"), Height = 28, Background = Palette.Panel };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto,Auto"), Height = 28, Background = Palette.Panel };
         zoomText.Margin = new Thickness(14, 0, 8, 0);
         sizeText.Margin = new Thickness(0, 0, 24, 0);
         hintText.HorizontalAlignment = HorizontalAlignment.Right;
@@ -506,10 +521,12 @@ public sealed partial class MainWindow : Window
         AddAt(grid, sizeText, 1);
         AddAt(grid, positionText, 2);
         AddAt(grid, hintText, 3);
-        aiText.Margin = new Thickness(0, 0, 14, 0);
+        aiTaskText.Margin = aiText.Margin = new Thickness(0, 0, 14, 0);
+        aiTaskText.IsVisible = false;
         aiText.IsVisible = false;
-        AddAt(grid, aiText, 4);
-        foreach (var text in new[] { zoomText, sizeText, positionText, hintText, aiText }) text.FontSize = 11.5;
+        AddAt(grid, aiTaskText, 4);
+        AddAt(grid, aiText, 5);
+        foreach (var text in new[] { zoomText, sizeText, positionText, hintText, aiTaskText, aiText }) text.FontSize = 11.5;
         return grid;
     }
 
@@ -624,6 +641,7 @@ public sealed partial class MainWindow : Window
         Tool.Marquee => "Drag to select · Shift add · Alt subtract · Shift+Alt intersect · Drag inside to move · Delete clears · Ctrl+D deselect",
         Tool.Lasso => s.LassoKind == LassoKind.Freehand ? "Drag to select · Shift add · Alt subtract · Drag inside to move" : "Click corners · Click the start, double-click or Enter to close · Backspace removes a corner · Escape cancels",
         Tool.Wand => s.WandMode == WandMode.Object ? "Click an object to select its outline · Tab for Wand · Shift add · Alt subtract" : "Click to select similar colors · Tab for Object · Shift add · Alt subtract",
+        Tool.SelectionBrush => "Paint the selection mask · Shift adds · Alt subtracts · [ ] changes size · Ctrl+D deselects",
         Tool.Crop => "Drag to crop · Shift keeps proportions · Alt symmetric · Enter applies · Escape cancels",
         Tool.Brush => (s.EraserMode ? "Drag to erase" : "Drag to paint · Alt-click picks a color") + " · Shift-click draws a line · [ ] size · { } hardness · 1–0 opacity",
         Tool.SpotHealing => "Drag over blemishes to heal · [ ] size",
