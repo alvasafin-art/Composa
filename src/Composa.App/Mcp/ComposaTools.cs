@@ -9,6 +9,7 @@ using Composa.Model;
 using Composa.Rendering;
 using Composa.Selections;
 using Composa.Text;
+using Composa.App.Automation;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -70,7 +71,9 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
             var b = SelectionMask.Bounds(doc.Selection);
             text.Append(", selection at ").Append(b.Left).Append(',').Append(b.Top).Append(" size ").Append(b.Width).Append('×').Append(b.Height);
         }
-        text.AppendLine().AppendLine("Layers, top first:");
+        text.AppendLine().Append("Real guides (not layers), ").Append(s.View.LockGuides ? "locked" : "unlocked").AppendLine(":");
+        foreach (var guide in s.Guides) text.Append(guide.Id).Append(' ').Append(guide.Axis).Append(' ').Append(guide.Position).AppendLine(" px");
+        text.AppendLine("Layers, top first:");
         Describe(text, doc, doc.Layers, 0);
         return text.ToString().TrimEnd();
     });
@@ -179,7 +182,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     });
 
     [McpServerTool(Name = "add_text")]
-    [Description("Adds a text layer above the active layer. x and y are the top-left corner of the text in canvas pixels.")]
+    [Description("Adds LIVE editable text. x/y are its origin in canvas pixels. By default actual layout wraps/reduces font to keep the entire text inside the canvas. Optional boxWidth/boxHeight define a paragraph; fitToCanvas=false explicitly permits overflow.")]
     public Task<string> AddText(
         [Description("The text; a newline starts a new line")] string text,
         [Description("Left edge in canvas pixels")] double x,
@@ -189,19 +192,21 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         [Description("Font family; leave it out for the default")] string? font = null,
         bool bold = false,
         bool italic = false,
-        int? document = null) => OnUi(() =>
+        int? document = null, double? boxWidth = null, double? boxHeight = null, bool fitToCanvas = true) => OnUi(() =>
     {
         var s = Editable(document);
         if (string.IsNullOrEmpty(text)) throw new McpException("The text is empty.");
+        if (text.Length > TextStyle.MaxLength) throw new McpException($"Text is limited to {TextStyle.MaxLength} characters.");
         var style = s.TextDefaults with
         {
             Text = text, Size = size, Color = (uint)ParseColor(color), Bold = bold, Italic = italic,
-            FontFamily = string.IsNullOrWhiteSpace(font) ? s.TextDefaults.FontFamily : font.Trim()
+            FontFamily = string.IsNullOrWhiteSpace(font) ? s.TextDefaults.FontFamily : font.Trim(), BoxWidth = boxWidth, BoxHeight = boxHeight
         };
+        var prepared = AutomationText.Prepare(s, x, y, style, fitToCanvas); style = prepared.Style;
         var layout = new TextLayout(style);
         CheckRasterAllocation(s,layout.Width,layout.Height);
-        var layer = s.AddText(new SKPoint((float)x, (float)y), style);
-        return $"Added text layer \"{layer.Name}\" at {x:0},{y:0}, now active.";
+        var layer = s.AddText(prepared.Origin, style);
+        return $"Added live text [{Id(layer)}], font {style.Size:0.##}, bounds {layer.Bounds}, now active.";
     });
 
     [McpServerTool(Name = "undo")]

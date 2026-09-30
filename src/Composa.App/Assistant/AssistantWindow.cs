@@ -173,7 +173,7 @@ public sealed class AssistantWindow : Window
                 {
                     var tools = new AssistantEditorTools(owner, current, runtime, aiTasks, settings,
                         sentFiles.Select(file => file.Content.ImageDataUrl != null ? file.Path : null).ToArray(),
-                        System.Text.RegularExpressions.Regex.IsMatch(text, "export|экспорт|сохран", System.Text.RegularExpressions.RegexOptions.IgnoreCase), request.Attachments);
+                        System.Text.RegularExpressions.Regex.IsMatch(text, "export|экспорт|сохран", System.Text.RegularExpressions.RegexOptions.IgnoreCase), request.Attachments, new ScriptDialogs(this));
                     var outcome = await AssistantAgent.RunAsync(provider, request, current, tools, value => status.Text = value, token);
                     var applied = outcome.Changed ? $"Applied · {outcome.ToolCount} tool calls. Ctrl+Z undoes this request." : "No document changes were made.";
                     conversation.Entries.Add(new("assistant", outcome.Changed ? outcome.Summary : "Документ не изменён.\n" + outcome.Summary,
@@ -233,7 +233,7 @@ public sealed class AssistantWindow : Window
         try
         {
             var result = await runtime.ExecuteAsync(edit.Session, entry.Script, aiTasks, settings, "Assistant edit", token,
-                edit.Files.Select(file => file.Content.ImageDataUrl != null ? file.Path : null).ToArray());
+                edit.Files.Select(file => file.Content.ImageDataUrl != null ? file.Path : null).ToArray(), dialogs: new ScriptDialogs(this));
             var outcome = result.ExportedPath == null ? "Applied. Ctrl+Z undoes this edit." : "Applied and exported to " + result.ExportedPath;
             var index = conversation.Entries.IndexOf(entry);
             if (index >= 0) conversation.Entries[index] = entry with { Outcome = outcome };

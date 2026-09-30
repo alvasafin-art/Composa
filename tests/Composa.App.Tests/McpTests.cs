@@ -64,8 +64,8 @@ public class McpTests
         Assert.Equal(
             ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "export_image", "fill_layer", "filter_add_noise",
-             "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "group_layers", "layer_mask", "list_documents",
-             "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "rasterize_layer", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
+             "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "group_layers", "guides", "layer_mask", "list_documents",
+             "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "rasterize_layer", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
              "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_text", "trace_edges", "transform_layer", "undo"],
             tools.Select(t => t.Name).Order());
 
@@ -91,6 +91,11 @@ public class McpTests
         Assert.Equal(SKColors.Red, session.Document.Layers[0].Pixels!.GetPixel(5, 5));
         Assert.Equal("Fill", session.History.UndoName);
 
+        Assert.Null((await Pumped(client.CallToolAsync("measure_text", new Dictionary<string, object?> { ["text"] = "Hello", ["size"] = 48 }))).IsError);
+        Assert.Null((await Pumped(client.CallToolAsync("guides", new Dictionary<string, object?> { ["action"] = "add", ["axis"] = "vertical", ["position"] = 50 }))).IsError);
+        Assert.Single(window.Session!.Guides);
+        Assert.Null((await Pumped(client.CallToolAsync("guides", new Dictionary<string, object?> { ["action"] = "clear" }))).IsError);
+        Assert.Empty(window.Session.Guides);
         var added = await Pumped(client.CallToolAsync("add_text", new Dictionary<string, object?> { ["text"] = "Hello", ["x"] = 20, ["y"] = 30, ["size"] = 48, ["color"] = "#0000FF" }));
         Assert.NotEqual(true, added.IsError);
         Assert.Equal(2, session.Document.Layers.Count);

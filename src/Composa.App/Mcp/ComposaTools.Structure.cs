@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Text;
+using Composa.App.Automation;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
@@ -12,7 +13,7 @@ public sealed partial class ComposaTools
     [McpServerTool(Name = "set_text")]
     [Description("Edits an existing LIVE text layer without flattening it. Omitted fields keep their values. The layer can be addressed by name or id.")]
     public Task<string> SetText(string layer, string? text = null, double? size = null, string? color = null,
-        string? font = null, bool? bold = null, bool? italic = null, int? document = null) => OnUi(() =>
+        string? font = null, bool? bold = null, bool? italic = null, int? document = null, double? boxWidth = null, double? boxHeight = null, bool fitToCanvas = true) => OnUi(() =>
     {
         var s = Editable(document); var target = Find(s, layer);
         var style = target.Text ?? throw new McpException("This is not a live text layer.");
@@ -26,10 +27,12 @@ public sealed partial class ComposaTools
         if (font != null || bold != null || italic != null)
             style = style.WithFace(face => face with { FontFamily = font ?? face.FontFamily, Bold = bold ?? face.Bold, Italic = italic ?? face.Italic }, 0, style.Text.Length);
         if (color != null) style = style.WithColor((uint)ParseColor(color), 0, style.Text.Length);
+        style = style with { BoxWidth = boxWidth ?? style.BoxWidth, BoxHeight = boxHeight ?? style.BoxHeight };
+        style = AutomationText.PrepareUpdate(s, target, style, fitToCanvas);
         var layout = new TextLayout(style);
         CheckRasterAllocation(s,layout.Width,layout.Height,(long)target.Pixels!.Width*target.Pixels.Height);
-        s.Apply("Edit Text", () => s.SetText(target, style));
-        return $"Updated live text [{Id(target)}]: {target.Text!.Text}";
+        s.RunTransaction("Edit Text", _ => { s.SetText(target, style); if (fitToCanvas) AutomationText.KeepInside(s, target); });
+        return $"Updated live text [{Id(target)}], font {style.Size:0.##}, bounds {target.Bounds}: {target.Text!.Text}";
     });
 
     [McpServerTool(Name = "group_layers")]

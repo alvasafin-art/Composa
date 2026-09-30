@@ -12,8 +12,26 @@ public sealed partial class JavaScriptRuntime
 {
     private static readonly JsonSerializerOptions ScriptJson = new() { PropertyNameCaseInsensitive = true };
 
-    private static void AddEditorApi(Engine engine, EditorSession editor)
+    private static void AddEditorApi(ScriptEngine engine, EditorSession editor)
     {
+        engine.SetValue("__addGuide", (Action<string, double>)((axis, position) =>
+        {
+            if (!Enum.TryParse<GuideAxis>(axis, true, out var parsed) || !Enum.IsDefined(parsed)) throw new ArgumentException("Guide axis is vertical (X) or horizontal (Y).");
+            if (!double.IsFinite(position) || Math.Abs(position) > DocumentLimits.MaxSide) throw new ArgumentException($"Guide position must be within ±{DocumentLimits.MaxSide}px.");
+            if (!editor.CanEditGuides) throw new InvalidOperationException("Guides are locked; unlock them before adding guides.");
+            if (!editor.Guides.Any(guide => guide.Axis == parsed && guide.Position == position) && editor.AddGuide(parsed, position) == null)
+                throw new InvalidOperationException("The guide could not be added.");
+            editor.View = editor.View with { ShowGuides = true, ShowRulers = true };
+        }));
+        engine.SetValue("__changeGuide", (Action<string, string, double>)((action, id, position) =>
+        {
+            if (action == "clear") { editor.ClearGuides(); return; }
+            if (!editor.CanEditGuides) throw new InvalidOperationException("Guides are locked.");
+            if (!Guid.TryParse(id, out var parsed) || !editor.Guides.Any(guide => guide.Id == parsed)) throw new ArgumentException("Use an existing guide id.");
+            if (action == "remove") editor.RemoveGuide(parsed);
+            else if (double.IsFinite(position) && Math.Abs(position) <= DocumentLimits.MaxSide) editor.MoveGuide(parsed, position);
+            else throw new ArgumentException("Invalid guide position.");
+        }));
         engine.SetValue("__shape", (Func<string, string>)(json =>
         {
             var options = JsonSerializer.Deserialize<ShapeOptions>(json, ScriptJson) ?? throw new ArgumentException("Shape options are required.");
@@ -42,9 +60,11 @@ public sealed partial class JavaScriptRuntime
             if (text.Length > TextStyle.MaxLength) throw new ArgumentException($"Text must be at most {TextStyle.MaxLength} characters.");
             var style = new TextStyle
             { Text = text, Size = Math.Clamp(options.Size, 1, 5000), Color = (uint)Color(options.Color),
-                FontFamily = options.FontFamily, Bold = options.Bold, Italic = options.Italic };
+                FontFamily = options.FontFamily, Bold = options.Bold, Italic = options.Italic, BoxWidth = options.BoxWidth, BoxHeight = options.BoxHeight };
+            var prepared = AutomationText.Prepare(editor, x, y, style, options.FitToCanvas);
+            style = prepared.Style;
             CheckText(editor, style);
-            var layer = editor.AddText(new SKPoint((float)x, (float)y), style);
+            var layer = editor.AddText(prepared.Origin, style);
             if (options.Name != null) editor.Rename(layer, options.Name);
             return LayerJson(layer);
         }));
@@ -137,7 +157,8 @@ public sealed partial class JavaScriptRuntime
 
     private sealed record ShapeOptions(string Kind = "rectangle", double X = 0, double Y = 0, double Width = 100,
         double Height = 100, string Color = "#000000", double CornerRadius = 24, string? Name = null);
-    private sealed record TextOptions(double Size = 48, string Color = "#000000", string FontFamily = "Inter", bool Bold = false, bool Italic = false, string? Name = null);
+    private sealed record TextOptions(double Size = 48, string Color = "#000000", string FontFamily = "Inter", bool Bold = false, bool Italic = false, string? Name = null,
+        double? BoxWidth = null, double? BoxHeight = null, bool FitToCanvas = true);
     private sealed record PaintOptions(string Color = "#000000", double Size = 20, double Hardness = 1, double Opacity = 1);
     private sealed record StrokePoint(double X, double Y);
 
@@ -145,6 +166,11 @@ public sealed partial class JavaScriptRuntime
     (() => {
       const doc = app.activeDocument;
       const wrap = json => __composaWrap(JSON.parse(json));
+      Object.defineProperty(doc,'guides',{get:()=>doc.info.guides});
+      doc.addGuide = (axis,position) => __addGuide(String(axis),Number(position));
+      doc.moveGuide = (id,position) => __changeGuide('move',String(id),Number(position));
+      doc.removeGuide = id => __changeGuide('remove',String(id),0);
+      doc.clearGuides = () => __changeGuide('clear','',0);
       doc.addShape = options => wrap(__shape(JSON.stringify(options)));
       doc.addRectangle = (x,y,width,height,color='#000000',name) => doc.addShape({kind:'rectangle',x,y,width,height,color,name});
       doc.addEllipse = (x,y,width,height,color='#000000',name) => doc.addShape({kind:'ellipse',x,y,width,height,color,name});

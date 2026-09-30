@@ -14,6 +14,8 @@ Disable **Apply requested edits** for the legacy script-review flow: **Apply edi
 
 ## Attachments and context
 
+The built-in operation guide distinguishes document metadata (real ruler guides), rendered lines, live text, selections and layer masks. `guides` and `measure_text` are direct native tools; current document context includes guide ids/axes/positions and lock/visibility state. Text commands fit the actual full layout inside the canvas by default, with an explicit overflow opt-out. Script input uses awaited native `ui.form`/`prompt`, not an invented browser window. This improves grounding but cannot guarantee that every model interprets every ambiguous request correctly; the Operations log and Undo remain available.
+
 Use **Attach** or drag files into the chat. Up to six files can accompany a message; × removes unwanted attachments. Supported files include `.js`, `.ts`, `.txt`, `.md`, `.json`, `.csv`, `.yaml`, `.yml`, `.svg`, PNG, JPEG, WebP and BMP. Text files are limited to 256 KB. A script is sent as data, not executed simply because it was attached: explicitly ask to explain, adapt or run it.
 
 `import_attachment` / `doc.addAttachedImage(index)` imports an explicitly attached image. `read_attachment` pages through text/script attachments when the initial prompt had to truncate them. Indices are zero-based across all attachments in the current message. No arbitrary filesystem-reading API is exposed.

@@ -56,7 +56,7 @@ public sealed partial class MainWindow
         try
         {
             var execution = RunAutomationScriptAsync(AutomationCatalog.ReadScript(command.File), command.Title, allowExport: command.AllowExport);
-            if (!execution.IsCompleted)
+            if (!execution.IsCompleted && !OwnedWindows.OfType<DialogWindow>().Any(window => window.IsVisible))
             {
                 progress = new Window { Title = command.Title, Width = 440, Height = 140, MinWidth = 300, MinHeight = 140,
                     WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
@@ -73,7 +73,7 @@ public sealed partial class MainWindow
         finally { progress?.Close(); UpdateStatus(); }
     }
 
-    internal async Task<ScriptResult> RunAutomationScriptAsync(string script, string title, CancellationToken token = default, bool allowExport = true)
+    internal async Task<ScriptResult> RunAutomationScriptAsync(string script, string title, CancellationToken token = default, bool allowExport = true, Window? dialogOwner = null)
     {
         if (session is not { } target) throw new InvalidOperationException("Open a document before running a script.");
         if (automationRunning || target.IsInteracting || canvas.IsDragging) throw new InvalidOperationException("Finish the current edit before running a script.");
@@ -81,7 +81,7 @@ public sealed partial class MainWindow
         automationCancellation = cancellation; automationRunning = true;
         var content = Content as Control;
         if (content != null) content.IsEnabled = false;
-        try { return await scriptRuntime.ExecuteAsync(target, script, aiTasks, settings, title, cancellation.Token, allowExport: allowExport); }
+        try { return await scriptRuntime.ExecuteAsync(target, script, aiTasks, settings, title, cancellation.Token, allowExport: allowExport, dialogs: new ScriptDialogs(dialogOwner ?? this)); }
         finally
         {
             automationRunning = false; automationCancellation = null;
@@ -92,8 +92,9 @@ public sealed partial class MainWindow
 
     internal void ShowScriptEditor(string? script = null, string name = "Script", string? libraryPath = null)
     {
-        var editor = new ScriptEditorWindow(automation, script ?? "app.activeDocument.addRectangle(40, 40, 240, 120, '#87CEEB', 'Blue Rectangle');", name, libraryPath,
-            (text, token) => RunAutomationScriptAsync(text, "Script: " + name, token), ReloadAutomation);
+        ScriptEditorWindow? editor = null;
+        editor = new ScriptEditorWindow(automation, script ?? "app.activeDocument.addRectangle(40, 40, 240, 120, '#87CEEB', 'Blue Rectangle');", name, libraryPath,
+            (text, token) => RunAutomationScriptAsync(text, "Script: " + name, token, dialogOwner: editor), ReloadAutomation);
         editor.Show(this);
     }
 

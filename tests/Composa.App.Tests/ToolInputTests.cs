@@ -45,6 +45,28 @@ public class ToolInputTests
     }
 
     [AvaloniaFact]
+    public void Selection_brush_diameter_is_drawn_during_a_stroke_at_the_current_zoom()
+    {
+        window.SelectTool(Tool.SelectionBrush);
+        session.SelectionBrushSize = 80; session.SelectionBrushFeather = 10;
+        window.Canvas.ZoomTo(.5); Dispatcher.UIThread.RunJobs();
+        window.MouseMove(At(200,150));
+        window.MouseDown(At(200,150),MouseButton.Left);
+        window.MouseMove(At(250,150),RawInputModifiers.LeftMouseButton);
+        Assert.True(window.Canvas.IsDragging);
+        // Inspect the captured overlay, independently of the document/ants underneath it.
+        var capture=typeof(CanvasView).GetMethod("CaptureOverlay",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!;
+        var draw=(Action<SKCanvas>)capture.Invoke(window.Canvas,[SKMatrix.Identity])!;
+        using var bitmap=Rendering.Pixels.NewColor(600,400); using var canvas=new SKCanvas(bitmap); draw(canvas);
+        // At 50% zoom: radius 20 screen points, plus a dark contrast ring at 21.
+        Assert.True(bitmap.GetPixel(271,150).Alpha>40);
+        Assert.True(bitmap.GetPixel(250,171).Alpha>40);
+        Assert.Equal(0,bitmap.GetPixel(280,150).Alpha);
+        Screenshots.Save(window,"selection-brush-diameter-during-stroke");
+        window.MouseUp(At(250,150),MouseButton.Left); Assert.False(window.Canvas.IsDragging);
+    }
+
+    [AvaloniaFact]
     public void Marquee_selects_adds_subtracts_and_moves()
     {
         window.SelectTool(Tool.Marquee);

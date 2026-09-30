@@ -44,10 +44,25 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     doc.addShape({ kind: "rounded", x: 40, y: 40, width: 240, height: 120, color: "#87CEEB", cornerRadius: 20, name: "Card" });
     doc.addLine(0, 0, 200, 200, "#000000", 4);
     doc.addText("Hello", 40, 80, { size: 48, color: "#000000", fontFamily: "Inter", bold: true, name: "Title" });
+    // Text defaults to fitToCanvas:true: actual layout, wrapping then font reduction, no truncation.
+    // Optional boxWidth/boxHeight define a paragraph. fitToCanvas:false explicitly allows outside/clipped text.
     doc.paintStroke([{x:10,y:10},{x:80,y:90}], { color: "#000000", size: 20, hardness: 1, opacity: 1 });
     doc.fill("#FFFFFF"); doc.selectEllipse(x, y, width, height); doc.selectAll(); doc.invertSelection();
     doc.resizeImage(width, height); doc.resizeCanvas(width, height, "Center");
     doc.groupLayers([layer.id, otherLayer.id], "Group");
+    doc.guides;                       // REAL non-rendered guides: [{id,axis,position}]
+    doc.addGuide('vertical', 50); doc.addGuide('horizontal', doc.height - 50);
+    doc.moveGuide(guide.id, 80); doc.removeGuide(guide.id); doc.clearGuides();
+    // Never substitute addLine for ruler/snap guides. Lines are rendered image content.
+
+    // Native input dialogs: MUST await; top-level await is supported in the app script runner.
+    const values = await ui.form({ title: 'Layout', fields: [
+      { name: 'margin', label: 'Margin (px)', type: 'number', value: 50, min: 0, max: 1000 },
+      { name: 'title', label: 'Title', type: 'text', value: 'Hello' },
+      { name: 'enabled', label: 'Enabled', type: 'boolean', value: true }
+    ] });
+    // Cancel/Stop rolls back the entire script. At most 8 awaited dialogs, 16 fields each.
+    // await prompt('Title', 'Hello') is a one-field text dialog. No window, document, DOM, alert or CLR API.
 
     // AI calls are queued after local edits and use the selected Engine Pack. Do local edits FIRST.
     ai.generativeFill("replace with flowers"); ai.removeObject(); ai.upscale();
@@ -60,18 +75,18 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         var calls = new List<QueuedAiTask>();
         ScriptResult result = new();
         session.RunTransaction(transactionName, editor =>
-        { result = ExecuteScript(editor, script, calls, allowAi: false, cancellationToken); SaveExport(session, result); });
+        { result = ExecuteScriptAsync(editor, script, calls, allowAi: false, cancellationToken, asynchronous: false).GetAwaiter().GetResult(); SaveExport(session, result); });
         return result;
     }
 
     public async Task<ScriptResult> ExecuteAsync(EditorSession session, string script, IAiTaskRunner aiRunner, Settings settings,
-        string transactionName = "Run Script", CancellationToken cancellationToken = default, IReadOnlyList<string?>? attachedImages = null, bool allowExport = true)
+        string transactionName = "Run Script", CancellationToken cancellationToken = default, IReadOnlyList<string?>? attachedImages = null, bool allowExport = true, IScriptDialogs? dialogs = null)
     {
         var calls = new List<QueuedAiTask>();
         ScriptResult result = new();
         await session.RunTransactionAsync(transactionName, async editor =>
         {
-            result = ExecuteScript(editor, script, calls, allowAi: true, cancellationToken, attachedImages, allowExport);
+            result = await ExecuteScriptAsync(editor, script, calls, allowAi: true, cancellationToken, attachedImages, allowExport, dialogs: dialogs);
             foreach (var call in calls)
                 await aiRunner.RunAsync(new EditorCommandService(editor), Request(editor, call, settings), cancellationToken);
             SaveExport(session, result);
@@ -79,19 +94,43 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         return result;
     }
 
-    private static ScriptResult ExecuteScript(EditorSession editor, string script, List<QueuedAiTask> calls, bool allowAi, CancellationToken cancellationToken,
-        IReadOnlyList<string?>? attachedImages = null, bool allowExport = true)
+    private static async Task<ScriptResult> ExecuteScriptAsync(EditorSession editor, string script, List<QueuedAiTask> calls, bool allowAi, CancellationToken cancellationToken,
+        IReadOnlyList<string?>? attachedImages = null, bool allowExport = true, bool asynchronous = true, IScriptDialogs? dialogs = null)
     {
         if (string.IsNullOrWhiteSpace(script)) throw new ArgumentException("The script is empty.", nameof(script));
         string? exportPath = null;
         var output = new System.Text.StringBuilder();
         var exportQuality = 90;
-        var engine = new Engine(options => options
-                .Strict()
+        using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var raw = new Engine(options =>
+        {
+            options.ExperimentalFeatures = ExperimentalFeature.TaskInterop;
+            options.Constraints.PromiseTimeout = TimeSpan.FromMinutes(20);
+            options.Strict()
                 .TimeoutInterval(TimeSpan.FromSeconds(8))
                 .LimitMemory(24_000_000)
                 .MaxStatements(100_000)
-                .CancellationToken(cancellationToken));
+                .CancellationToken(inputCancellation.Token);
+        });
+        var engine = new ScriptEngine(raw);
+        var pendingInputs = 0;
+        var inputCount = 0;
+        engine.SetValue("__form", (Func<string, Task<string>>)(async json =>
+        {
+            if (!asynchronous || dialogs == null) throw new InvalidOperationException("Input dialogs require the app's asynchronous script runner. Use await ui.form(...).");
+            if (++inputCount > 8 || pendingInputs != 0) throw new InvalidOperationException("Use at most 8 dialogs, awaiting one at a time.");
+            var form = ScriptForm.Parse(json);
+            pendingInputs++;
+            try
+            {
+                var answer = await dialogs.ShowAsync(form, inputCancellation.Token);
+                inputCancellation.Token.ThrowIfCancellationRequested();
+                // Waiting for the person is not script CPU time. Resume with fresh execution limits.
+                raw.Constraints.Reset();
+                return JsonSerializer.Serialize(answer);
+            }
+            finally { pendingInputs--; }
+        }));
         engine.SetValue("__log", (Action<string>)(text =>
         {
             var remaining = 4096 - output.Length;
@@ -128,7 +167,8 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             if (layer.Text == null) throw new InvalidOperationException($"Layer \"{layer.Name}\" is not editable text.");
             if (text.Length > TextStyle.MaxLength) throw new ArgumentException($"Text must be at most {TextStyle.MaxLength} characters.");
             var style = layer.Text.WithReplacedCharacters(0, layer.Text.Text.Length, text.Length) with { Text = text };
-            CheckText(editor, style); editor.SetText(layer, style);
+            style = AutomationText.PrepareUpdate(editor, layer, style, true);
+            CheckText(editor, style); editor.SetText(layer, style); AutomationText.KeepInside(editor, layer);
         }));
         engine.SetValue("__transform", (Action<string, double, double, double, double, double>)((id, x, y, width, height, rotation) =>
         {
@@ -160,8 +200,16 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             var options = JsonSerializer.Deserialize<ScriptAiOptions>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             calls.Add(new QueuedAiTask(kind, prompt, options));
         }));
-        engine.Execute(Bootstrap).Execute(EditorBootstrap).Execute(script);
-        return new ScriptResult(exportPath, exportQuality, output.ToString());
+        try
+        {
+            raw.Execute(Bootstrap).Execute(EditorBootstrap);
+            if (asynchronous) await raw.EvaluateAsync("(async () => {\n" + script + "\n})()", cancellationToken: inputCancellation.Token);
+            else raw.Execute(script);
+            if (pendingInputs != 0) throw new InvalidOperationException("A script returned before its input dialog. Use await ui.form(...) or await prompt(...).");
+            cancellationToken.ThrowIfCancellationRequested();
+            return new ScriptResult(exportPath, exportQuality, output.ToString());
+        }
+        finally { inputCancellation.Cancel(); }
     }
 
     private static void SaveExport(EditorSession session, ScriptResult result)
@@ -222,6 +270,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             hasSelection = session.Selection != null, selection = SelectionData(session), activeLayerId = session.ActiveLayer?.Id.ToString(),
             resolution = session.Document.Resolution, selectedLayerIds = session.Document.SelectedLayerIds,
             layerOrder = "bottom-to-top; children follow their parent; use ids for duplicate names",
+            guides = GuideData(session), showGuides = session.View.ShowGuides, showRulers = session.View.ShowRulers, guidesLocked = session.View.LockGuides,
             layerCount = all.Count, offset, truncated = all.Count > offset + maximumLayers,
             layers = ContextLayers(session.Document.Layers, "", maximumText).Skip(offset).Take(maximumLayers)
         });
@@ -234,9 +283,11 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     {
         title = session.Title, width = session.Document.Width, height = session.Document.Height,
         hasSelection = session.Selection != null, selection = SelectionData(session), activeLayerId = session.ActiveLayer?.Id.ToString(),
+        guides = GuideData(session),
         layers = session.Document.AllLayers().Select(LayerData)
     });
     private static string LayersJson(EditorSession session) => JsonSerializer.Serialize(session.Document.AllLayers().Select(LayerData));
+    private static object GuideData(EditorSession session) => session.Guides.Select(guide => new { id = guide.Id.ToString(), axis = guide.Axis.ToString().ToLowerInvariant(), position = guide.Position });
     private static string LayerJson(Layer layer) => JsonSerializer.Serialize(LayerData(layer));
     private static object LayerData(Layer layer) => new
     {
@@ -286,6 +337,8 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         catch { return String(value); }
       }).join(' ').slice(0, 4096));
       globalThis.console = Object.freeze({ log, info: log, warn: log, error: log });
+      globalThis.ui = Object.freeze({ form: async options => JSON.parse(await __form(JSON.stringify(options))) });
+      globalThis.prompt = async (message, value = '') => (await ui.form({title:String(message),fields:[{name:'value',label:String(message),type:'text',value:String(value)}]})).value;
       const parse = value => JSON.parse(value);
       const wrap = data => {
         const id = data.id;

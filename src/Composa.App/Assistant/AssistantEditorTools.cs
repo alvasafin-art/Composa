@@ -12,7 +12,7 @@ namespace Composa.App.Assistant;
 
 /// <summary>The chat uses the same native operations as external MCP clients, not simulated UI actions.</summary>
 internal sealed class AssistantEditorTools(MainWindow owner, EditorSession session, JavaScriptRuntime runtime,
-    IAiTaskRunner ai, Settings settings, IReadOnlyList<string?> attachments, bool allowExport, IReadOnlyList<AssistantAttachment>? attachmentContents = null)
+    IAiTaskRunner ai, Settings settings, IReadOnlyList<string?> attachments, bool allowExport, IReadOnlyList<AssistantAttachment>? attachmentContents = null, IScriptDialogs? dialogs = null)
 {
     private readonly ComposaTools native = new(owner, session);
     private readonly Dictionary<string, MethodInfo> operations = typeof(ComposaTools).GetMethods()
@@ -33,7 +33,7 @@ internal sealed class AssistantEditorTools(MainWindow owner, EditorSession sessi
     // Frequent edits have direct typed tools. The discovery bridge keeps the long tail of
     // filters/adjustments out of the prompt without forcing every simple edit through indirection.
     public IReadOnlyList<AssistantToolDefinition> Definitions => MetaDefinitions.Concat(new[]
-        { "add_shape", "add_text", "set_text", "set_layer", "transform_layer", "group_layers", "layer_mask" }.Select(name =>
+        { "add_shape", "add_text", "set_text", "measure_text", "set_layer", "transform_layer", "group_layers", "layer_mask", "guides" }.Select(name =>
         {
             var tool = McpServerTool.Create(Operation(name), native).ProtocolTool;
             return new AssistantToolDefinition(name, ChatCompletionAssistantProvider.Bounded(tool.Description ?? name, 220), tool.InputSchema);
@@ -55,7 +55,7 @@ internal sealed class AssistantEditorTools(MainWindow owner, EditorSession sessi
                 args.TryGetProperty("count", out var count) ? Math.Clamp(count.GetInt32(),1,20) : 6, 160);
             case "list_operations":
                 if (!args.TryGetProperty("name", out var requested)) return string.Join(", ", operations.Keys.Order()) +
-                    ". Read an operation schema before using it. Document/layers/selection/paint/adjustments/filters are available. For other batch edits use execute_script.";
+                    ". Read the exact schema before use. REAL guides: guides; live text: add_text/set_text/measure_text; selection: select_*/modify_selection; persistent masks: layer_mask; layers: group_layers/reorder_layer/set_layer/transform_layer; pixels: paint_*/fill_layer; corrections: adjust_*; filters: filter_*. For batches use execute_script; generative edits use ai_task.";
                 var method = Operation(requested.GetString()!);
                 return JsonSerializer.Serialize(McpServerTool.Create(method, native).ProtocolTool);
             case "read_attachment":
@@ -70,7 +70,7 @@ internal sealed class AssistantEditorTools(MainWindow owner, EditorSession sessi
             case "editor_operation":
                 return await InvokeAsync(Text(args, "name"), args.GetProperty("arguments"));
             case "execute_script":
-                var result = await runtime.ExecuteAsync(session, Text(args, "code"), ai, settings, "Assistant edit", token, attachments, allowExport);
+                var result = await runtime.ExecuteAsync(session, Text(args, "code"), ai, settings, "Assistant edit", token, attachments, allowExport, dialogs);
                 return (result.ExportedPath == null ? "Script executed. Inspect get_document / sample_color to verify changes." : "Exported: " + result.ExportedPath)
                     + (result.Output.Length == 0 ? "" : "\nScript output (not proof of an edit):\n" + result.Output);
             case "import_attachment":
@@ -118,6 +118,7 @@ internal sealed class AssistantEditorTools(MainWindow owner, EditorSession sessi
     public static string Fingerprint(EditorSession session) => JsonSerializer.Serialize(new
     {
         session.Document.Width, session.Document.Height, session.Document.Resolution,
+        guides = session.Guides, session.View.ShowGuides, session.View.ShowRulers, session.View.LockGuides,
         session.Document.ActiveLayerId, selected = session.Document.SelectedLayerIds.Order(),
         selection = session.Selection == null ? 0 : RuntimeHelpers.GetHashCode(session.Selection),
         layers = session.Document.AllLayers().Select(layer => new { layer.Id, layer.Name, layer.Kind, layer.Transform,

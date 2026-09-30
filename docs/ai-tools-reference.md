@@ -24,6 +24,10 @@ Most tools take a `document` parameter: the tab number as `list_documents` repor
 
 ## Layers
 
+**guides**: real non-exported ruler/snap guides, not line layers. Parameters: `action` (`list`, `add`, `move`, `remove`, `clear`, `show`, `hide`, `lock`, `unlock`); `axis` (`vertical` = X, `horizontal` = Y), `position`, full guide `id`, `document`. Add/move/remove respect the guide lock. `list` returns ids and visibility/lock state.
+
+**measure_text**: actual font-layout width/height, line count and overflow without a new layer. Parameters: `text`, `size`, `font`, `bold`, `italic`, optional paragraph `boxWidth`/`boxHeight`, `document`. `add_text` and `set_text` also accept box dimensions and `fitToCanvas` (true by default), preserving complete editable text inside the canvas through wrapping and font reduction.
+
 **new_layer**: adds an empty, transparent layer the size of the canvas above the active layer and makes it active. Parameters: `name`, left out for the next free "Layer n".
 
 **place_image**: places an image file as a layer above the active one. PNG, JPEG, WebP, BMP, GIF, SVG, and HEIC, AVIF or TIFF when ImageMagick is available. Parameters: `path`; `x` and `y` for the center of the image, left out to center it on the canvas; `fit`, true by default, scales the image down to fit the canvas but never up; `scale` multiplies the placed size, so 0.5 places it at half the size it would otherwise get.

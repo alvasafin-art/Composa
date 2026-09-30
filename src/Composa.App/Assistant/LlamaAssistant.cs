@@ -165,6 +165,7 @@ public sealed class ChatCompletionAssistantProvider(Settings settings, bool loca
             If an attached text/script file is truncated, read its remaining portions using read_attachment. Never assume that the missing text is empty.
             Do not export files unless the person explicitly requests an export. Work only in the current document.
             """ + "\nSCRIPTING API:\n" + request.ScriptingReference + "\nCURRENT DOCUMENT:\n" + Bounded(request.DocumentContext, Math.Min(16000, inputBudget / 3));
+        system += "\n\n" + AssistantOperationGuide.Instructions;
         var userText = Bounded(request.UserText, Math.Min(8000, Math.Max(1000, inputBudget / 4)));
         var toolBudget = request.ToolMessages.Sum(message => message.Text.Length + (message.Calls?.Sum(call => call.Arguments.GetRawText().Length) ?? 0))
             + (request.Tools.Count == 0 ? 0 : JsonSerializer.Serialize(request.Tools).Length);

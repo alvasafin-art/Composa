@@ -41,7 +41,7 @@ public sealed class ScriptEditorWindow : Window
             if (running != null) return;
             running = new CancellationTokenSource(); run.IsEnabled = save.IsEnabled = export.IsEnabled = code.IsEnabled = false; stop.IsVisible = true;
             status.Text = "Running…";
-            try { await execute(code.Text ?? "", running.Token); status.Text = "Completed. Ctrl+Z undoes the whole script."; }
+            try { var result = await execute(code.Text ?? "", running.Token); status.Text = "Completed. Ctrl+Z undoes the whole script." + (result.Output.Length == 0 ? "" : "\n" + result.Output); }
             catch (OperationCanceledException) { status.Text = "Stopped. Document changes were rolled back."; }
             catch (Exception error) { status.Text = "Not applied: " + error.Message; }
             finally { running.Dispose(); running = null; run.IsEnabled = save.IsEnabled = export.IsEnabled = code.IsEnabled = true; stop.IsVisible = false; }

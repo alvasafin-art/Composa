@@ -148,7 +148,7 @@ public sealed partial class CanvasView
         }
 
         // With Ctrl held the pointer is about to move a layer, so the brush outline gives way to the move cursor.
-        if (IsBrushTool && cursorInside && !spaceDown && !controlHover && !temporaryMove && drag is Drag.None or Drag.Stroke)
+        if (IsBrushTool && cursorInside && !spaceDown && !controlHover && !temporaryMove && drag is Drag.None or Drag.Stroke or Drag.SelectionBrush)
         {
             var center = view.MapPoint(currentDocument);
             var selectionBrush = session.Tool == Tool.SelectionBrush;

@@ -159,7 +159,7 @@ public class AutomationTests
     {
         var session = EditorSession.NewCanvas(320,240); var before = session.History.Count;
         Assert.ThrowsAny<Exception>(() => new JavaScriptRuntime().Execute(session,
-            "app.activeDocument.addLayer('Temporary'); app.activeDocument.addText(('X'.repeat(500)+'\\n').repeat(50),0,0,{size:2000});"));
+            "app.activeDocument.addLayer('Temporary'); app.activeDocument.addText(('X'.repeat(500)+'\\n').repeat(50),0,0,{size:2000,fitToCanvas:false});"));
         Assert.Single(session.Document.Layers); Assert.Equal(before, session.History.Count);
     }
 

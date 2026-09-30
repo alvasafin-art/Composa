@@ -40,10 +40,11 @@ Selects a freehand or a polygonal outline; press L again or Tab to switch. Freeh
 
 ## Magic (W)
 
-Two modes, Magic Wand and Object Selection, picked from the button's group or switched with Tab.
+Magic Wand, Object Selection and Selection Brush share the Magic button's group. Selection Brush has its own Q shortcut and a dashed brush icon.
 
 - **Magic Wand** selects the connected area of similar color under the click. Tolerance (0 to 255, 32 by default) says how different a color may be; Contiguous limits the selection to the connected area.
 - **Object Selection** traces the object under the click: the connected piece of everything that is not the plain backdrop touching the picture's edges. The Edge setting, from -10 to 10, tightens or loosens the outline.
+- **Selection Brush (Q)** paints the selection rather than image pixels. Size/Feather control its footprint; the diameter outline remains visible during the stroke and follows canvas zoom. Shift adds, Alt subtracts.
 
 Sample all layers reads the merged picture instead of the active layer alone. Shift adds and Alt subtracts, as with the marquee. Object Selection and Select > Subject work from the plain backdrop connected to the picture's edges, so a busy background defeats them.
 

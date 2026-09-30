@@ -1,5 +1,13 @@
 declare const app: ComposaApplication;
 declare const ai: ComposaAI;
+declare const ui: { form(options: ScriptForm): Promise<Record<string, string | number | boolean>> };
+declare function prompt(message: string, defaultValue?: string): Promise<string>;
+
+interface ScriptForm {
+  title: string;
+  fields: { name: string; label: string; type: "number" | "text" | "boolean"; value: string | number | boolean; min?: number; max?: number }[];
+}
+interface Guide { readonly id: string; readonly axis: "horizontal" | "vertical"; readonly position: number; }
 
 interface ComposaApplication {
   readonly activeDocument: Document;
@@ -13,6 +21,7 @@ interface DocumentInfo {
   hasSelection: boolean;
   selection: SelectionBounds | null;
   activeLayerId: string | null;
+  guides: readonly Guide[];
   layers: readonly LayerInfo[];
 }
 
@@ -23,6 +32,11 @@ interface Document {
   readonly layers: Layer[];
   readonly activeLayer: Layer | null;
   readonly selection: SelectionBounds | null;
+  readonly guides: readonly Guide[];
+  addGuide(axis: "vertical" | "horizontal", position: number): void;
+  moveGuide(id: string, position: number): void;
+  removeGuide(id: string): void;
+  clearGuides(): void;
   findLayersByTag(tag: string): Layer[];
   findLayersByName(name: string): Layer[];
   addLayer(name?: string): Layer;
@@ -85,6 +99,9 @@ interface ShapeOptions {
 interface SelectionBounds { readonly x: number; readonly y: number; readonly width: number; readonly height: number; }
 
 interface TextOptions {
+  fitToCanvas?: boolean; // default true: wraps/shrinks full text without truncation
+  boxWidth?: number;
+  boxHeight?: number;
   size?: number;
   color?: string;
   fontFamily?: string;

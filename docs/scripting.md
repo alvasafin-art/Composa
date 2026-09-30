@@ -14,6 +14,25 @@ Long asynchronous commands started from a menu open a small progress window with
 
 ## Drawing and layers
 
+`doc.guides`, `addGuide('vertical'|'horizontal', position)`, `moveGuide(id, position)`, `removeGuide(id)` and `clearGuides()` operate on real ruler/snap guides. Vertical positions are X, horizontal positions are Y in canvas pixels. Guides are not layers and are never exported. Locked guides reject add/move/remove. Adding an existing guide at the same position is harmless. `addLine` draws image content and is not a guide.
+
+Text creation and `layer.text` changes use the actual font layout to keep all text inside the canvas: wrap first, reduce font size if necessary, never truncate. Optional `boxWidth`/`boxHeight` define a paragraph; `addText(...,{fitToCanvas:false})` explicitly permits overflow. The normal manual Type tool remains unchanged.
+
+## Native input windows
+
+The app's script runner supports top-level `await`:
+
+```javascript
+const doc = app.activeDocument;
+const input = await ui.form({title:'Guides', fields:[
+  {name:'margin',label:'Margin (px)',type:'number',value:50,min:0,max:Math.min(doc.width,doc.height)/2}
+]});
+doc.addGuide('vertical', input.margin);
+doc.addGuide('vertical', doc.width-input.margin);
+```
+
+Use `await prompt('Title', 'Hello')` for one text field. Forms support number/text/boolean values, up to 16 fields and 8 sequential dialogs. **Always await the result.** Browser DOM/window/alert and arbitrary native UI are not available. Cancelling input or pressing Stop rolls back the entire script. Human input waiting is excluded from the execution timeout; editing callbacks resume on the UI thread. See the ready example `examples/scripts/guides-with-input.js`.
+
 ```javascript
 const doc = app.activeDocument;
 const card = doc.addRectangle(40, 40, 240, 120, "#87CEEB", "Blue Rectangle");

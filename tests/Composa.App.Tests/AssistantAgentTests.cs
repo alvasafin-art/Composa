@@ -14,6 +14,42 @@ namespace Composa.App.Tests;
 public class AssistantAgentTests
 {
     [AvaloniaFact]
+    public async Task Local_agent_uses_real_guides_and_returns_a_working_input_script_when_live_test_is_requested()
+    {
+        var executable=Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
+        var model=Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
+        if(string.IsNullOrWhiteSpace(executable)||string.IsNullOrWhiteSpace(model)) return;
+        var owner=new MainWindow(); var session=EditorSession.NewCanvas(600,400,SKColors.White); owner.AddSession(session); owner.Show();
+        var settings=new Settings { AssistantServerExecutable=executable,AssistantModelPath=model,AssistantServerUrl="http://127.0.0.1:18080",
+            AssistantContextSize=16384,AssistantMaxTokens=2048,AssistantApplyEdits=true };
+        using var host=new LlamaServerHost(settings); var runtime=new JavaScriptRuntime(); var conversation=new AssistantConversation();
+        var chat=new AssistantWindow(owner,()=>session,settings,host,runtime,owner.AiTasks,conversation); chat.Show(owner);
+        try
+        {
+            var history=session.History.Count;
+            await chat.SendAsync("Добавь четыре настоящие направляющие от линеек с отступом 50px от всех краёв холста. Это направляющие для привязки, не линии, не слои. Содержимое изображения не меняй.");
+            Assert.DoesNotContain(conversation.Entries,e=>e.Text.StartsWith("Error:"));
+            Assert.Single(session.Document.Layers); Assert.Equal(4,session.Guides.Count);
+            Assert.Equal(new[]{50.0,550.0},session.Guides.Where(g=>g.Axis==Composa.Model.GuideAxis.Vertical).Select(g=>g.Position).Order());
+            Assert.Equal(new[]{50.0,350.0},session.Guides.Where(g=>g.Axis==Composa.Model.GuideAxis.Horizontal).Select(g=>g.Position).Order());
+            Assert.Equal(history+1,session.History.Count); session.Undo(); Assert.Empty(session.Guides);
+            await chat.SendAsync("Теперь создай и пришли повторно используемый скрипт: он должен открыть окно ввода одного числового отступа от края холста, затем создать четыре настоящие направляющие от линеек с этим отступом. Значение по умолчанию 50, считай размеры из документа. Не выполняй, нужен код для сохранения.");
+            var draft=conversation.Entries.Last(e=>e.Role=="assistant"); Assert.True(draft.IsScriptArtifact,draft.Text); Assert.NotEmpty(draft.Script);
+            var scratch=EditorSession.NewCanvas(600,400,SKColors.White);
+            await runtime.ExecuteAsync(scratch,draft.Script,owner.AiTasks,settings,dialogs:new AnsweredDialog());
+            Assert.Single(scratch.Document.Layers); Assert.Equal(4,scratch.Guides.Count); Assert.Contains(scratch.Guides,g=>g.Position==40);
+            Assert.Empty(session.Guides); Assert.True(Screenshots.Save(chat,"assistant-live-native-guides-script"));
+        }
+        finally { chat.Close(); owner.Close(); }
+    }
+
+    private sealed class AnsweredDialog:IScriptDialogs
+    {
+        public Task<IReadOnlyDictionary<string,object?>> ShowAsync(ScriptForm form,CancellationToken token)=>Task.FromResult<IReadOnlyDictionary<string,object?>>(
+            form.Fields.ToDictionary(f=>f.Name,f=>f.Type=="number"?(object?)40:f.Type=="boolean"?false:"40"));
+    }
+
+    [AvaloniaFact]
     public async Task Local_agent_returns_reusable_script_without_applying_it_when_live_test_is_requested()
     {
         var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");

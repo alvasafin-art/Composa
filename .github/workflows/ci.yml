@@ -157,10 +157,10 @@ jobs:
           test -n "$(find dist -name '*-win-x64-setup.exe')" || { echo "no installer"; exit 1; }
 
       # Composa is developed on Linux, so this is how a change reaches a Windows machine before it
-      # is released. Kept for a week.
+      # is released. Only finished zip/installer downloads, no bin/obj/model caches.
       - uses: actions/upload-artifact@v4
         with:
           name: composa-win-x64
           path: dist/*
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: error

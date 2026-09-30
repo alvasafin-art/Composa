@@ -203,7 +203,7 @@ public sealed partial class MainWindow : Window
     public Settings Settings => settings;
     public CanvasView Canvas => canvas;
     /// <summary>The tool rail's button for a tool.</summary>
-    public ToolButton RailButton(Tool tool) => toolButtons[tool == Tool.SelectionBrush ? Tool.Lasso : tool];
+    public ToolButton RailButton(Tool tool) => toolButtons[tool == Tool.SelectionBrush ? Tool.Wand : tool];
 
     // ---- Sessions and tabs --------------------------------------------------------------------------------------
 
@@ -474,7 +474,7 @@ public sealed partial class MainWindow : Window
     /// The tools a rail button holds, which it offers beside itself when held down, as Photoshop groups its tools. Empty for a
     /// tool on its own. The keys are looked up when the group opens, so a rebound key shows as it is now.
     /// </summary>
-    private bool lassoShowsSelectionBrush;
+    private bool magicShowsSelectionBrush;
     private IReadOnlyList<ToolChoice> ToolGroup(Tool tool)
     {
         ToolChoice Choice(string name, Icons.Icon icon, string key, Func<EditorSession, bool> isCurrent, Action<EditorSession> apply) => new(
@@ -494,13 +494,16 @@ public sealed partial class MainWindow : Window
                 (MarqueeKind.Rectangle, "Rectangle Marquee", Icons.Marquee), (MarqueeKind.Ellipse, "Ellipse Marquee", Icons.MarqueeEllipse)),
             Tool.Lasso =>
             [
-                Choice("Freehand Lasso", Icons.Lasso, LassoKey, s => !lassoShowsSelectionBrush && s.LassoKind == LassoKind.Freehand, s => s.LassoKind = LassoKind.Freehand),
-                Choice("Polygonal Lasso", Icons.PolygonLasso, LassoKey, s => !lassoShowsSelectionBrush && s.LassoKind == LassoKind.Polygonal, s => s.LassoKind = LassoKind.Polygonal),
-                new ToolChoice("Selection Brush", Icons.SelectionBrush, () => toolKeys.FirstOrDefault(k => k.Id == "Selection Brush")?.Gesture,
-                    () => lassoShowsSelectionBrush, () => { SelectTool(Tool.SelectionBrush); canvas.Focus(); })
+                Choice("Freehand Lasso", Icons.Lasso, LassoKey, s => s.LassoKind == LassoKind.Freehand, s => s.LassoKind = LassoKind.Freehand),
+                Choice("Polygonal Lasso", Icons.PolygonLasso, LassoKey, s => s.LassoKind == LassoKind.Polygonal, s => s.LassoKind = LassoKind.Polygonal)
             ],
-            Tool.Wand => Kinds(MagicKey, s => s.WandMode, (s, v) => s.WandMode = v,
-                (WandMode.Wand, "Magic Wand", Icons.Wand), (WandMode.Object, "Object Selection", Icons.ObjectSelect)),
+            Tool.Wand =>
+            [
+                Choice("Magic Wand", Icons.Wand, MagicKey, s => !magicShowsSelectionBrush && s.WandMode == WandMode.Wand, s => s.WandMode = WandMode.Wand),
+                Choice("Object Selection", Icons.ObjectSelect, MagicKey, s => !magicShowsSelectionBrush && s.WandMode == WandMode.Object, s => s.WandMode = WandMode.Object),
+                new ToolChoice("Selection Brush", Icons.SelectionBrush, () => toolKeys.FirstOrDefault(k => k.Id == "Selection Brush")?.Gesture,
+                    () => magicShowsSelectionBrush, () => { SelectTool(Tool.SelectionBrush); canvas.Focus(); })
+            ],
             Tool.Brush =>
             [
                 Choice("Brush", Icons.Brush, BrushKey, s => !s.EraserMode, s => s.EraserMode = false),
@@ -523,7 +526,7 @@ public sealed partial class MainWindow : Window
         foreach (var (tool, icon, tip) in ToolList)
         {
             var button = new ToolButton(icon, tip, ToolGroup(tool));
-            button.Click += (_, _) => SelectTool(tool == Tool.Lasso && lassoShowsSelectionBrush ? Tool.SelectionBrush : tool);
+            button.Click += (_, _) => SelectTool(tool == Tool.Wand && magicShowsSelectionBrush ? Tool.SelectionBrush : tool);
             toolButtons[tool] = button;
             rail.Children.Add(button);
         }
@@ -650,10 +653,10 @@ public sealed partial class MainWindow : Window
     private void ShowTool(Tool tool)
     {
         if (session == null) return;
-        if (tool is Tool.Lasso or Tool.SelectionBrush) lassoShowsSelectionBrush = tool == Tool.SelectionBrush;
+        if (tool is Tool.Wand or Tool.SelectionBrush) magicShowsSelectionBrush = tool == Tool.SelectionBrush;
         foreach (var (key, button) in toolButtons)
         {
-            button.IsChecked = key == tool || key == Tool.Lasso && tool == Tool.SelectionBrush;
+            button.IsChecked = key == tool || key == Tool.Wand && tool == Tool.SelectionBrush;
             button.Refresh();
         }
     }

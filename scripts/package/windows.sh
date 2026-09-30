@@ -34,6 +34,7 @@ echo "Building Composa $VERSION for $RID"
 dotnet publish "$ROOT/src/Composa.App" -c Release -r "$RID" --self-contained true \
   -p:DebugType=none -p:UpdateChannel=github -o "$TREE"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$TREE/"
+cp "$ROOT/run-composa.bat" "$TREE/"
 
 # Bundling ImageMagick redistributes LGPL libraries, and the notices are what makes that allowed.
 # The project file adds them; this makes sure no change there can ship a build without them.
