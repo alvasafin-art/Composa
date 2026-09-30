@@ -1,5 +1,11 @@
 # Composa
 
+## Готовая версия AI-форка для Windows
+
+Скачайте программу из [Releases этого форка](https://github.com/alvasafin-art/Composa/releases), а не **Source code**. Для обычного компьютера с Windows выберите файл `-win-x64.zip` (переносная версия) или `-win-x64-setup.exe` (установщик). Распакуйте ZIP целиком и запустите `run-composa.bat` или `composa.exe`. **SDK и отдельная установка .NET не нужны.** Windows on ARM использует файлы `win-arm64`.
+
+Это предварительная AI-версия. ComfyUI, локальный сервер ассистента и модели в пакет не входят: на другом компьютере настройте подключение к своим AI-сервисам отдельно. Сам редактор запускается без них.
+
 A layer-based image editor for compositing and retouching, with Photoshop-style tools and shortcuts. It is a from-scratch implementation of [Compositor](https://github.com/robbietilton/Compositor), Robbie Tilton's free and open-source macOS app.
 
 https://github.com/user-attachments/assets/e215c376-2bb3-44d2-af26-3117d2c70348

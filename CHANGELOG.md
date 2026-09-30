@@ -4,10 +4,18 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.1] - 2026-09-30
+
+First downloadable AI preview of the alvasafin-art fork. Self-contained Windows packages include the ready executable and launch batch file; neither the .NET SDK nor a separately installed .NET runtime is required. AI services and model weights are configured separately and are not bundled.
+
 Catches up with Compositor 1.3.3 to 1.4: Select > Color Range, fonts per letter and the smaller items.
 
 ### Added
 
+- ComfyUI integration with task-specific workflows, contextual selection actions, reference images and megapixel sizing, mask context/blend/grow controls, non-destructive generated layers and model-based upscaling.
+- Built-in conversational Assistant with native editor tools, actual document/layer context, undoable transactions, error recovery and duplicate-command protection. Script requests return reusable code instead of applying edits automatically.
+- JavaScript script editor, reusable script library and installable script plugins. Native awaited input forms, real ruler guides and renderer-based text fitting are available to scripts and the Assistant.
+- Windows launch batch file in the portable package. Ready packages omit build caches, native debug symbols, AI model weights and credentials.
 - Select > Color Range: click a color in the image to select it everywhere, then adjust Fuzziness and add or remove colors with the eyedroppers, or with Shift and Alt. Invert selects everything else, such as the subject in front of a green screen. The panel sits beside the canvas rather than over it, shows the selection in black and white, and the marching ants follow on the canvas as you go; OK keeps the selection as one undo step. An agent gets it as the select_color_range tool.
 - The font, Bold and Italic can differ from letter to letter: select some of the text while typing and choose a family or tick Bold or Italic, and only those letters take it, as a color already does. The menu says (Multiple) for a selection in several families, and choosing one from it puts them all in that family. Project files that use this are format version 5.
 - A History panel under the Layers panel lists every step, oldest first, and goes back or forward any number of them in one click, as Photoshop's does. Press on the list and drag to scrub through the steps with the canvas following. Steps Redo would bring back are dimmed until the next change drops them, the step in the saved file carries a disk, and each step has an icon for what it did. Click its header to collapse it, drag the line above it to size it, and use the new Window menu to hide or show it; the layout is remembered between launches.
@@ -23,6 +31,7 @@ Catches up with Compositor 1.3.3 to 1.4: Select > Color Range, fonts per letter 
 
 ### Changed
 
+- Selection Brush shares the Magic Wand tool group and keeps its diameter outline visible during selection painting.
 - Undoing back to the state that was saved counts as saved again: the tab's dot goes, and closing asks nothing. Before, any undo marked the document as changed.
 - A right-click on a tab opens its menu instead of switching to it.
 - Hue/Saturation raises saturation as Photoshop does: +50 doubles it and +100 saturates any color fully. Before, +100 tripled it, so imported Photoshop layers came out too strong at small amounts and too weak near the top.

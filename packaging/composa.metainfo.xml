@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.1" date="2026-09-30">
+      <description>
+        <p>The AI fork preview adds ComfyUI editing workflows, a native document-editing Assistant, reusable JavaScript scripts and plugins, input dialogs, real ruler guides and canvas-aware text fitting. Windows downloads include a self-contained executable and launch batch file without an SDK requirement. AI model weights are not bundled.</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-09-27">
       <description>
         <p>An AI agent can drive the editor through a Model Context Protocol server, a Painterly filter turns a photo into a painting that is still that photo, letters of a text layer can have their own colors, saving writes in the background, sliders show their colors and can be reset, and Motion Blur's angle has a full-circle dial.</p>
