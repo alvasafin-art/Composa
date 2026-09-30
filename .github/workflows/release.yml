@@ -146,6 +146,17 @@ jobs:
           mkdir -p upload
           find artifacts -type f -exec mv {} upload/ \;
           cd upload
+          # GitHub sanitizes '~' in uploaded asset names to '.'. Debian keeps '~' in its
+          # internal version; only the download filename changes, before checksumming it.
+          for release_asset in *; do
+            case "$release_asset" in
+              *'~'*)
+                release_name="${release_asset//\~/.}"
+                test ! -e "$release_name" || { echo "duplicate release asset: $release_name" >&2; exit 1; }
+                mv -- "$release_asset" "$release_name"
+                ;;
+            esac
+          done
           sha256sum * > sha256sums.txt
           cat sha256sums.txt
 

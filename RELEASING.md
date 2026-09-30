@@ -12,6 +12,8 @@ Cutting a release is drafting it on GitHub. The version is derived from the tag 
 
 Publishing first and letting the workflow fill the release in afterwards also works, and is one step shorter. The reason the draft comes first is the few minutes in between: a published release with no downloads on it is worse than no release, because the update check points people at whatever the latest release is.
 
+GitHub replaces `~` in asset filenames with `.`. The release workflow normalizes download filenames before calculating checksums, so Debian packages retain the correct `~` version internally while `sha256sums.txt` names the actual downloadable files. Verify checksum filenames against the draft's asset list, not just the build directory.
+
 ### Why the draft needs its tag passed in
 
 GitHub does not create a git tag until a release is published, so while it is still a draft there is no tag for MinVer to read and the artifacts would come out as `0.0.0-alpha.0.N`. Passing `draft_tag` sets MinVer's own version override for that build, so the artifacts carry the version the release is about to have. Publishing the draft then creates that same tag on the same commit, and the two agree.
