@@ -24,6 +24,24 @@ public sealed class Settings
     /// <summary>ComfyUI is always addressed as a server URL, whether it runs on this computer or another one.</summary>
     public string ComfyServerUrl { get; set; } = "http://127.0.0.1:8188";
     public int ComfyConnectionTimeoutSeconds { get; set; } = 5;
+    /// <summary>Server-side loader identifiers per normalized endpoint; never filesystem paths on the client.</summary>
+    public Dictionary<string, Dictionary<string, string>> ComfyModelSelections { get; set; } = [];
+
+    public IReadOnlyDictionary<string, string> ComfyModelsFor(string serverUrl) =>
+        ComfyModelSelections.TryGetValue(AI.ComfyServerAddress.Parse(serverUrl).ToString(), out var choices)
+            ? choices : new Dictionary<string, string>();
+
+    public void SetComfyModels(string serverUrl, IReadOnlyDictionary<string, string> choices) =>
+        ComfyModelSelections[AI.ComfyServerAddress.Parse(serverUrl).ToString()] = new(choices, StringComparer.Ordinal);
+
+    public void MigrateComfyUpscaler(string serverUrl, IEnumerable<AI.WorkflowModelSlot> slots)
+    {
+        var address = AI.ComfyServerAddress.Parse(serverUrl).ToString();
+        if (ComfyModelSelections.ContainsKey(address) || string.IsNullOrWhiteSpace(AiUpscalerModel) || AiUpscalerModel == DefaultUpscalerModel) return;
+        var choices = slots.Where(slot => slot.Kind == Composa.AI.EngineAssetKind.Upscaler && slot.Default != AiUpscalerModel)
+            .ToDictionary(slot => slot.Key, _ => AiUpscalerModel, StringComparer.Ordinal);
+        if (choices.Count > 0) SetComfyModels(address, choices);
+    }
     public string? AiEngineId { get; set; }
     /// <summary>Generation pixel budget; the actual dimensions follow the selection/document aspect ratio.</summary>
     public double AiMegapixels { get; set; } = 1;
@@ -32,7 +50,8 @@ public sealed class Settings
     public int AiMaskGrow { get; set; } = 8;
     public int AiMaskBlend { get; set; } = 32;
     public double AiMaskContext { get; set; } = 2;
-    public string AiUpscalerModel { get; set; } = "4x-UltraSharpV2.safetensors";
+    private const string DefaultUpscalerModel = "4x-UltraSharpV2.safetensors";
+    public string AiUpscalerModel { get; set; } = DefaultUpscalerModel;
     public long AiSeed { get; set; } = -1;
     public List<AiLoraSetting> AiLoras { get; set; } = [];
     public List<string> CustomLayerTags { get; set; } = [];

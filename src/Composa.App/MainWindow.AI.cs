@@ -448,8 +448,7 @@ public sealed partial class MainWindow
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
-                        ["maskContext"] = settings.AiMaskContext,
-                        ["upscaleModel"] = settings.AiUpscalerModel }
+                        ["maskContext"] = settings.AiMaskContext }
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);

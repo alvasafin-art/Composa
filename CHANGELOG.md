@@ -4,6 +4,16 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.2] - 2026-09-30
+
+### Added
+
+- ComfyUI Settings lists model choices from the connected server per workflow loader (diffusion, text encoder, VAE, upscale and subject selection), preserving selections separately for each endpoint. Shared folders and LAN servers require no local model files in Composa.
+
+### Fixed
+
+- Workflow model identifiers resolve unique matching filenames in server subfolders. Missing/ambiguous models and nodes are checked before uploading source images; failed refreshes discard stale server lists, and explicit script parameters can still override saved choices.
+
 ## [1.2.1-preview.1] - 2026-09-30
 
 First downloadable AI preview of the alvasafin-art fork. Self-contained Windows packages include the ready executable and launch batch file; neither the .NET SDK nor a separately installed .NET runtime is required. AI services and model weights are configured separately and are not bundled.

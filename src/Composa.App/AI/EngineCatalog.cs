@@ -1,4 +1,5 @@
 using Composa.AI;
+using System.Text.Json.Nodes;
 
 namespace Composa.App.AI;
 
@@ -27,6 +28,20 @@ public sealed class EngineCatalog
 
     public EngineProfile? Find(string? id) => Profiles.FirstOrDefault(profile => profile.Id == id) ?? Profiles.FirstOrDefault();
     public string DirectoryOf(EngineProfile profile) => Path.Combine(Root, profile.Id);
+
+    public JsonObject ReadWorkflow(EngineProfile engine, EngineWorkflow workflow)
+    {
+        var path = Path.GetFullPath(Path.Combine(DirectoryOf(engine), workflow.File));
+        var directory = Path.GetFullPath(DirectoryOf(engine)) + Path.DirectorySeparatorChar;
+        if (!path.StartsWith(directory, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+            || !File.Exists(path)) throw new FileNotFoundException($"Workflow \"{workflow.Id}\" is missing from Engine Pack \"{engine.DisplayName}\".", path);
+        return JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+            ?? throw new InvalidDataException($"Workflow \"{workflow.Id}\" is not a JSON object.");
+    }
+
+    public IReadOnlyList<WorkflowModelSlot> ModelSlots(EngineProfile engine) => engine.Workflows
+        .SelectMany(workflow => WorkflowModels.Slots(ReadWorkflow(engine, workflow), engine.Id))
+        .DistinctBy(slot => slot.Key).OrderBy(slot => slot.Kind).ThenBy(slot => slot.NodeId, StringComparer.Ordinal).ToArray();
 }
 
 public static class AppPromptPresets

@@ -219,7 +219,7 @@ public sealed class ComfyClient : IDisposable
         return new() { NodeTypes = nodes, Assets = assets, ModelChoices = modelChoices };
     }
 
-    private static bool AssetKind(string input, string node, out EngineAssetKind kind)
+    internal static bool AssetKind(string input, string node, out EngineAssetKind kind)
     {
         var key = input.ToLowerInvariant();
         if (key.Contains("bg_removal") || key.Contains("background_removal")) kind = EngineAssetKind.BackgroundRemoval;

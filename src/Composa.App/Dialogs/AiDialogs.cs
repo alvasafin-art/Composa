@@ -49,22 +49,28 @@ public static class AiDialogs
         var status = Ui.Label(ConnectionLabel(service.ConnectionState), Palette.Secondary);
         status.MaxWidth = 430;
         status.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var upscaler = new ComboBox { Width = 260 };
-        void RefreshUpscalers()
+        var models = new ComfyModelPicker(settings, service, () => url.Text ?? "");
+        void RefreshStatus()
         {
-            var names = service.ServerCapabilities?.Assets.GetValueOrDefault(EngineAssetKind.Upscaler)?.Order(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
-            if (!string.IsNullOrWhiteSpace(settings.AiUpscalerModel) && !names.Contains(settings.AiUpscalerModel, StringComparer.OrdinalIgnoreCase))
-                names.Insert(0, settings.AiUpscalerModel);
-            upscaler.ItemsSource = names;
-            upscaler.SelectedItem = names.FirstOrDefault(name => name.Equals(settings.AiUpscalerModel, StringComparison.OrdinalIgnoreCase)) ?? names.FirstOrDefault();
-            upscaler.IsEnabled = names.Count > 0;
+            string address;
+            try { address = ComfyServerAddress.Parse(url.Text ?? "").ToString(); }
+            catch (FormatException) { status.Text = "Enter a complete ComfyUI URL."; return; }
+            if (service.ConnectedServerUrl != address || service.ConnectionState != ComfyConnectionState.Connected)
+            {
+                status.Text = "Refresh models to connect to this server.";
+                status.Foreground = Palette.Secondary;
+                return;
+            }
+            var compatibility = service.SelectedEngine == null ? null : service.Compatibility(service.SelectedEngine, models.Choices(address));
+            var info = service.ServerInfo;
+            status.Text = $"Connected{(info?.Version == null ? "" : " · ComfyUI " + info.Version)}" +
+                (info?.Devices.Count > 0 ? "\n" + string.Join(", ", info.Devices) : "") +
+                (compatibility == null ? "" : "\n" + AiTaskService.CompatibilityMessage(service.SelectedEngine!, compatibility));
+            status.Foreground = compatibility is { IsCompatible: false } ? Avalonia.Media.Brushes.Orange : Palette.Accent;
         }
-        upscaler.SelectionChanged += (_, _) =>
-        {
-            if (upscaler.SelectedItem is string name) settings.AiUpscalerModel = name;
-        };
-        RefreshUpscalers();
-        var test = Ui.TextButton("Test Connection", () => { });
+        models.ChoicesChanged += RefreshStatus;
+        url.TextChanged += (_, _) => { models.Refresh(); RefreshStatus(); };
+        var test = Ui.TextButton("Refresh Models / Test Connection", () => { });
         test.Click += async (_, _) =>
         {
             test.IsEnabled = false;
@@ -72,25 +78,27 @@ public static class AiDialogs
             try
             {
                 service.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
-                var compatibility = await service.TestConnectionAsync(overrideUrl: url.Text);
-                var info = service.ServerInfo;
-                status.Text = $"Connected{(info?.Version == null ? "" : " · ComfyUI " + info.Version)}" +
-                    (info?.Devices.Count > 0 ? "\n" + string.Join(", ", info.Devices) : "") +
-                    (compatibility == null ? "" : "\n" + AiTaskService.CompatibilityMessage(service.SelectedEngine!, compatibility));
-                status.Foreground = compatibility is { IsCompatible: false } ? Avalonia.Media.Brushes.Orange : Palette.Accent;
-                RefreshUpscalers();
+                await service.TestConnectionAsync(overrideUrl: url.Text);
+                models.Refresh();
+                RefreshStatus();
             }
             catch (Exception error)
             {
                 status.Text = "Error: " + error.Message;
                 status.Foreground = Avalonia.Media.Brushes.Orange;
+                models.Refresh();
             }
             finally { test.IsEnabled = true; }
         };
 
         var engineNames = service.Engines.Profiles.Count == 0 ? ["No Engine Packs installed"] : service.Engines.Profiles.Select(p => p.DisplayName).ToArray();
         var selectedName = service.SelectedEngine?.DisplayName ?? engineNames[0];
-        var engine = Ui.Combo(engineNames, selectedName, name => name, name => service.SelectedEngine = service.Engines.Profiles.FirstOrDefault(p => p.DisplayName == name), 260);
+        var engine = Ui.Combo(engineNames, selectedName, name => name, name =>
+        {
+            service.SelectedEngine = service.Engines.Profiles.FirstOrDefault(p => p.DisplayName == name);
+            models.Refresh();
+            RefreshStatus();
+        }, 260);
         engine.IsEnabled = service.Engines.Profiles.Count > 0;
         var megapixels = Ui.Combo(AiDimensions.MegapixelOptions, ClosestMegapixels(settings.AiMegapixels), AiDimensions.Label,
             value => settings.AiMegapixels = value, 110);
@@ -107,15 +115,15 @@ public static class AiDialogs
         var maskBlend = Ui.Number(settings.AiMaskBlend, 0, 64, value => settings.AiMaskBlend = (int)value, 1, "0", 80);
         var maskContext = Ui.Number(settings.AiMaskContext, 1, 8, value => settings.AiMaskContext = value, 0.1, "0.0", 80);
         var lora = new TextBox { Text = string.Join(", ", settings.AiLoras.Select(item => item.Name)), PlaceholderText = "Names from the connected server", Width = 260 };
-        var form = CanvasDialogs.Form(
+        var connection = CanvasDialogs.Form(
             ("ComfyUI Server URL", url),
             ("Connection timeout", Ui.Row(6, timeout, Ui.Label("seconds", Palette.Secondary))),
             ("", test),
             ("Status", status),
-            ("Model", engine),
+            ("Workflow pack", engine));
+        var form = CanvasDialogs.Form(
             ("Image size", megapixels),
             ("Reference images", referenceSize),
-            ("Upscaler", upscaler),
             ("Mask grow", Ui.Row(6, maskGrow, Ui.Label("px", Palette.Secondary))),
             ("Mask blend", Ui.Row(6, maskBlend, Ui.Label("px", Palette.Secondary))),
             ("Mask context", Ui.Row(6, maskContext, Ui.Label("× selection bounds", Palette.Secondary))),
@@ -124,11 +132,15 @@ public static class AiDialogs
         var note = Ui.Label("Engine Packs contain workflows and compatibility metadata, never model weights.", Palette.Secondary);
         note.MaxWidth = 430;
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        if (!await new DialogWindow("AI Settings", Ui.Column(12, form, note)).Ask(owner)) return false;
+        RefreshStatus();
+        var body = new ScrollViewer { Content = Ui.Column(12, connection, models, form, note), MaxHeight = Math.Clamp(owner.Bounds.Height - 140, 300, 620),
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        if (!await new DialogWindow("ComfyUI Settings", body).Ask(owner)) return false;
         _ = ComfyServerAddress.Parse(url.Text ?? "");
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
         settings.AiEngineId = service.SelectedEngine?.Id;
+        models.Save();
         settings.AiLoras = (lora.Text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase).Select(name => new AiLoraSetting(name, 1)).ToList();
         settings.Save();

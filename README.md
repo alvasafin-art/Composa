@@ -6,6 +6,8 @@
 
 Это предварительная AI-версия. ComfyUI, локальный сервер ассистента и модели в пакет не входят: на другом компьютере настройте подключение к своим AI-сервисам отдельно. Сам редактор запускается без них.
 
+В **AI → ComfyUI Settings** укажите адрес запущенного ComfyUI, нажмите **Refresh Models / Test Connection** и выберите модели из серверных списков. Выбор сохраняется отдельно для каждого адреса. Если сервер на другом компьютере, используйте его адрес в локальной сети вместо `127.0.0.1`; доступ к его диску из Composa не нужен. Дополнительные папки (`shared` и другие) должны быть подключены в самом ComfyUI. Выбирайте веса, подходящие архитектуре workflow: список загрузчика не гарантирует совместимость произвольной модели с FLUX.2. [Подробности подключения](docs/ai-models.md).
+
 A layer-based image editor for compositing and retouching, with Photoshop-style tools and shortcuts. It is a from-scratch implementation of [Compositor](https://github.com/robbietilton/Compositor), Robbie Tilton's free and open-source macOS app.
 
 https://github.com/user-attachments/assets/e215c376-2bb3-44d2-af26-3117d2c70348
@@ -83,7 +85,7 @@ A user guide covering every tool, menu and the AI control is in [docs/](docs/REA
 
 ### AI control
 
-Composa also has an optional ComfyUI generation platform: a single server URL, data-driven Engine Profiles and task bindings, contextual generation actions, progress/cancel, non-destructive AI layers, Selection Brush, and layer tags for reliable automation. Stage 1 intentionally ships without production workflows; see [the AI platform guide](docs/ai-platform.md). Production Engine Packs are prepared separately against a real ComfyUI installation.
+Composa also has an optional ComfyUI generation platform: a single server URL, data-driven Engine Profiles and task bindings, contextual generation actions, progress/cancel, non-destructive AI layers, Selection Brush, and layer tags for reliable automation. This fork bundles FLUX.2 Klein workflows with server-side model selection; see [model setup](docs/ai-models.md) and [the AI platform guide](docs/ai-platform.md). Model weights and required ComfyUI custom nodes are installed separately on the inference server.
 
 Composa can be driven by an AI agent through the [Model Context Protocol](https://modelcontextprotocol.io). Tick **Help > Allow AI Control** (off by default, remembered between launches) and the running application answers on a private, per-user pipe; the status bar says "AI connected" while an agent is attached. Every tool goes through the same editing commands the window uses, so an agent's change shows up as it happens and Ctrl+Z takes it back like any other step.
 

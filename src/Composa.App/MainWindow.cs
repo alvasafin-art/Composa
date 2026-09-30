@@ -55,9 +55,15 @@ public sealed partial class MainWindow : Window
         automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"))
         {
-            ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds
+            ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
+            ModelSelections = settings.ComfyModelsFor
         };
         aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
+        if (aiTasks.SelectedEngine is { } engine)
+        {
+            try { settings.MigrateComfyUpscaler(settings.ComfyServerUrl, aiTasks.Engines.ModelSlots(engine)); }
+            catch (Exception error) when (error is FormatException or IOException or System.Text.Json.JsonException) { /* Settings can still repair a broken URL/pack. */ }
+        }
         aiTasks.StateChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiUi);
         assistantServer = new LlamaServerHost(settings);
         Title = "Composa";

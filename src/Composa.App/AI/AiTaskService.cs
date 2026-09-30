@@ -19,10 +19,13 @@ public sealed class AiTaskService : IAiTaskRunner
     public ComfyConnectionState ConnectionState { get; private set; }
     public ComfyServerInfo? ServerInfo { get; private set; }
     public ComfyServerCapabilities? ServerCapabilities { get; private set; }
+    public string? ConnectedServerUrl { get; private set; }
+    public Func<string, IReadOnlyDictionary<string, string>> ModelSelections { get; set; } = _ => new Dictionary<string, string>();
     public event Action? StateChanged;
     public int ConnectionTimeoutSeconds { get; set; } = 5;
 
     private CancellationTokenSource? running;
+    private long connectionRevision;
 
     public AiTaskService(Func<string> serverUrl, string engineRoot) : this(serverUrl, engineRoot, url => new ComfyClient(url)) { }
 
@@ -37,22 +40,68 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task<EngineCompatibility?> TestConnectionAsync(CancellationToken cancellationToken = default, string? overrideUrl = null)
     {
+        var revision = Interlocked.Increment(ref connectionRevision);
         ConnectionState = ComfyConnectionState.Connecting;
+        ServerInfo = null;
+        ServerCapabilities = null;
+        ConnectedServerUrl = null;
         StateChanged?.Invoke();
         try
         {
             using var client = Client(overrideUrl);
-            (ServerInfo, ServerCapabilities) = await client.TestConnectionAsync(cancellationToken);
+            var (info, capabilities) = await client.TestConnectionAsync(cancellationToken);
+            if (revision != Volatile.Read(ref connectionRevision)) return null;
+            (ServerInfo, ServerCapabilities) = (info, capabilities);
+            ConnectedServerUrl = client.Address.ToString();
             ConnectionState = ComfyConnectionState.Connected;
             StateChanged?.Invoke();
-            return SelectedEngine == null ? null : EngineCompatibility.Check(SelectedEngine, ServerCapabilities);
+            return SelectedEngine == null ? null : Compatibility(SelectedEngine, ModelSelections(ConnectedServerUrl));
+        }
+        catch (Exception error) when ((error is HttpRequestException or OperationCanceledException) && !cancellationToken.IsCancellationRequested)
+        {
+            if (revision == Volatile.Read(ref connectionRevision))
+            {
+                ConnectionState = ComfyConnectionState.Error;
+                StateChanged?.Invoke();
+            }
+            throw new InvalidOperationException($"Cannot reach ComfyUI at {overrideUrl ?? serverUrl()}. Start the server or check its address. " +
+                "For another computer, use its LAN address instead of 127.0.0.1 and allow the port on that server. " + error.Message, error);
         }
         catch
         {
-            ConnectionState = ComfyConnectionState.Error;
-            StateChanged?.Invoke();
+            if (revision == Volatile.Read(ref connectionRevision))
+            {
+                ConnectionState = ComfyConnectionState.Error;
+                StateChanged?.Invoke();
+            }
             throw;
         }
+    }
+
+    public EngineCompatibility Compatibility(EngineProfile engine, IReadOnlyDictionary<string, string> choices)
+    {
+        if (ServerCapabilities is not { } capabilities) return new(false, ["Connect to ComfyUI to read its models."]);
+        // Requirements describe the original pack. Selected replacement files are checked against their actual loaders.
+        var missing = EngineCompatibility.Check(engine with { RequiredAssets = [] }, capabilities).Missing.ToHashSet(StringComparer.Ordinal);
+        var allSlots = Engines.ModelSlots(engine);
+        foreach (var asset in engine.RequiredAssets.Where(asset => !asset.Optional
+            && !allSlots.Any(slot => slot.Kind == asset.Kind && slot.Default == asset.Name) && !capabilities.Has(asset)))
+            missing.Add($"{asset.Kind} {asset.Name}");
+        foreach (var workflow in engine.Workflows)
+        {
+            var graph = Engines.ReadWorkflow(engine, workflow);
+            var slots = WorkflowModels.Slots(graph, engine.Id);
+            WorkflowModels.ApplyChoices(graph, engine.Id, choices);
+            WorkflowModels.ResolvePaths(graph, capabilities);
+            foreach (var slot in slots)
+            {
+                if (engine.RequiredAssets.Any(asset => asset.Optional && asset.Kind == slot.Kind && asset.Name == slot.Default)) continue;
+                var name = graph[slot.NodeId]!["inputs"]![slot.Input]!.GetValue<string>();
+                if (capabilities.ModelChoices.TryGetValue(slot.LoaderKey, out var available) && !available.Contains(name))
+                    missing.Add($"model {name} ({slot.LoaderKey}); choose a file in ComfyUI Settings");
+            }
+        }
+        return new(missing.Count == 0, missing.Order().ToArray());
     }
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
@@ -90,12 +139,7 @@ public sealed class AiTaskService : IAiTaskRunner
         if (SelectedEngine is not { } engine) throw new InvalidOperationException("Install and select an Engine Pack first.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
         var workflow = engine.Workflow(binding.Workflow);
-        var path = Path.GetFullPath(Path.Combine(Engines.DirectoryOf(engine), workflow.File));
-        var engineDirectory = Path.GetFullPath(Engines.DirectoryOf(engine)) + Path.DirectorySeparatorChar;
-        if (!path.StartsWith(engineDirectory, StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
-            throw new FileNotFoundException($"Workflow \"{workflow.Id}\" is missing from Engine Pack \"{engine.DisplayName}\".", path);
-        var graph = JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken)) as JsonObject
-            ?? throw new InvalidDataException($"Workflow \"{workflow.Id}\" is not a JSON object.");
+        var graph = Engines.ReadWorkflow(engine, workflow);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         running?.Cancel();
@@ -110,18 +154,33 @@ public sealed class AiTaskService : IAiTaskRunner
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
             using var client = Client();
+            if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null || ConnectionState != ComfyConnectionState.Connected)
+                await TestConnectionAsync(linked.Token, client.Address.ToString());
+            if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities is not { } capabilities)
+                throw new InvalidOperationException("The ComfyUI connection changed during this request. Retry after connecting to the desired server.");
+            WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
+            JsonObject Bind(IReadOnlyDictionary<string, string> files)
+            {
+                var values = inputs.Values(files);
+                foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
+                if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
+                var boundGraph = WorkflowBinder.Bind(graph, binding, values);
+                WorkflowModels.ResolvePaths(boundGraph, capabilities);
+                var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
+                if (!compatibility.IsCompatible) throw new InvalidOperationException(CompatibilityMessage(engine, compatibility)
+                    + "\nChoose the missing models or refresh the server list in AI → ComfyUI Settings.");
+                return boundGraph;
+            }
+            // Validate before sending source/reference pictures or submitting a generation.
+            _ = Bind(inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key))
+                .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (semantic, bitmap) in inputs.Images())
             {
                 if (!binding.Inputs.ContainsKey(semantic)) continue;
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
             }
-            var values = inputs.Values(uploaded);
-            foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
-            if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
-            var bound = WorkflowBinder.Bind(graph, binding, values);
-            if (ServerCapabilities is { } capabilities && EngineCompatibility.CheckWorkflow(bound, capabilities) is { IsCompatible: false } compatibility)
-                throw new InvalidOperationException(CompatibilityMessage(engine, compatibility));
+            var bound = Bind(uploaded);
             var progress = new Progress<AiOperationState>(state => { Operation = state; StateChanged?.Invoke(); });
             var result = await client.ExecuteAsync(bound, progress, linked.Token);
             var references = workflow.OutputNodes.Count == 0 ? result.Images : result.Images.Where(image => image.NodeId != null && workflow.OutputNodes.Contains(image.NodeId)).ToList();

@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.2" date="2026-09-30">
+      <description>
+        <p>ComfyUI model dropdowns are populated by the connected server and saved per endpoint. Workflows resolve model files in server subfolders and validate missing models and nodes before uploading images. LAN and shared model storage need no client-side model paths. Windows packages remain self-contained and include the setup guide.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.1" date="2026-09-30">
       <description>
         <p>The AI fork preview adds ComfyUI editing workflows, a native document-editing Assistant, reusable JavaScript scripts and plugins, input dialogs, real ruler guides and canvas-aware text fitting. Windows downloads include a self-contained executable and launch batch file without an SDK requirement. AI model weights are not bundled.</p>
