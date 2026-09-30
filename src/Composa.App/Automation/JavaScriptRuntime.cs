@@ -9,7 +9,7 @@ using SkiaSharp;
 
 namespace Composa.App.Automation;
 
-public sealed record ScriptResult(string? ExportedPath = null, int ExportQuality = 90);
+public sealed record ScriptResult(string? ExportedPath = null, int ExportQuality = 90, string Output = "");
 
 /// <summary>A constrained JavaScript host. Scripts only receive explicit editor delegates; CLR access is not enabled.</summary>
 public sealed partial class JavaScriptRuntime : IScriptRuntime
@@ -17,6 +17,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     public string Language => "JavaScript";
     public const string Reference = """
     const doc = app.activeDocument;
+    console.log("Done");             // bounded output only; info/warn/error also supported
     doc.info;                         // { title, width, height, hasSelection, selection, activeLayerId, layers }
     doc.layers;                       // ordered Layer[]
     doc.activeLayer;                  // Layer | null
@@ -83,6 +84,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     {
         if (string.IsNullOrWhiteSpace(script)) throw new ArgumentException("The script is empty.", nameof(script));
         string? exportPath = null;
+        var output = new System.Text.StringBuilder();
         var exportQuality = 90;
         var engine = new Engine(options => options
                 .Strict()
@@ -90,6 +92,11 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
                 .LimitMemory(24_000_000)
                 .MaxStatements(100_000)
                 .CancellationToken(cancellationToken));
+        engine.SetValue("__log", (Action<string>)(text =>
+        {
+            var remaining = 4096 - output.Length;
+            if (remaining > 0) output.Append(text.AsSpan(0, Math.Min(text.Length, remaining - 1))).Append('\n');
+        }));
         engine.SetValue("__documentJson", (Func<string>)(() => DocumentJson(editor)));
         AddEditorApi(engine, editor);
         engine.SetValue("__layersJson", (Func<string>)(() => LayersJson(editor)));
@@ -154,7 +161,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             calls.Add(new QueuedAiTask(kind, prompt, options));
         }));
         engine.Execute(Bootstrap).Execute(EditorBootstrap).Execute(script);
-        return new ScriptResult(exportPath, exportQuality);
+        return new ScriptResult(exportPath, exportQuality, output.ToString());
     }
 
     private static void SaveExport(EditorSession session, ScriptResult result)
@@ -274,6 +281,11 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
 
     private const string Bootstrap = """
     (() => {
+      const log = (...args) => __log(args.map(value => {
+        try { return typeof value === 'string' ? value : JSON.stringify(value) ?? String(value); }
+        catch { return String(value); }
+      }).join(' ').slice(0, 4096));
+      globalThis.console = Object.freeze({ log, info: log, warn: log, error: log });
       const parse = value => JSON.parse(value);
       const wrap = data => {
         const id = data.id;

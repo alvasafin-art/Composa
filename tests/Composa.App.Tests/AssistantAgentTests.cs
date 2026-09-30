@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Avalonia.Headless.XUnit;
+using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Composa.AI;
 using Composa.App.Assistant;
 using Composa.App.Automation;
@@ -11,6 +13,40 @@ namespace Composa.App.Tests;
 
 public class AssistantAgentTests
 {
+    [AvaloniaFact]
+    public async Task Local_agent_returns_reusable_script_without_applying_it_when_live_test_is_requested()
+    {
+        var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
+        var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(300, 200, SKColors.White)); owner.Show();
+        var settings = new Settings { AssistantServerExecutable = executable, AssistantModelPath = model, AssistantServerUrl = "http://127.0.0.1:18080",
+            AssistantContextSize = 16384, AssistantMaxTokens = 2048, AssistantApplyEdits = true };
+        using var host = new LlamaServerHost(settings); var conversation = new AssistantConversation();
+        var runtime = new JavaScriptRuntime();
+        var chat = new AssistantWindow(owner, () => owner.Session, settings, host, runtime, owner.AiTasks, conversation); chat.Show(owner);
+        try
+        {
+            var history = owner.Session!.History.Count;
+            await chat.SendAsync("Создай скрипт Composa: три квадрата в отдельных слоях. Синий #0000FF x=10 y=10 размер 20, зеленый #00FF00 x=50 y=10 размер 40, красный #FF0000 x=110 y=10 размер 80. Пришли код, чтобы сохранить и использовать повторно, не выполняй его.");
+            await chat.SendAsync("Пришли именно скрипт для этих трех квадратов, чтобы я мог его сохранить и использовать повторно.");
+            var drafts = conversation.Entries.Where(entry => entry.Role == "assistant").ToArray();
+            Assert.Equal(2, drafts.Length);
+            Assert.All(drafts, draft => { Assert.False(string.IsNullOrWhiteSpace(draft.Script), draft.Text); Assert.True(draft.IsScriptArtifact); Assert.Null(draft.Outcome); });
+            Assert.Single(owner.Session.Document.Layers); Assert.Equal(history, owner.Session.History.Count);
+            // Validate the delivered code on a separate document, never on the chat's document.
+            var scratch = EditorSession.NewCanvas(300, 200, SKColors.White);
+            runtime.Execute(scratch, drafts[1].Script);
+            Assert.Equal(4, scratch.Document.Layers.Count);
+            using var image = scratch.Flatten();
+            Assert.Equal(SKColors.Blue, image.GetPixel(15,15));
+            Assert.Equal(SKColors.Lime, image.GetPixel(55,15));
+            Assert.Equal(SKColors.Red, image.GetPixel(115,15));
+            Assert.True(Screenshots.Save(chat, "assistant-live-script-artifact"));
+        }
+        finally { chat.Close(); owner.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task Oversized_native_shape_is_refused_before_allocating_pixels()
     {
@@ -93,6 +129,7 @@ public class AssistantAgentTests
     private sealed class Provider(params AssistantPlan[] replies) : IAssistantProvider
     {
         public string Id => "native-test";
+        public bool SupportsTools => true;
         public List<AssistantRequest> Requests { get; } = [];
         public Task<AssistantPlan> PlanAsync(AssistantRequest request, CancellationToken cancellationToken = default)
         { Requests.Add(request with { ToolMessages = request.ToolMessages.ToArray() }); return Task.FromResult(replies[Math.Min(Requests.Count - 1, replies.Length - 1)]); }
@@ -100,6 +137,93 @@ public class AssistantAgentTests
     private static Task<AssistantAgentResult> Run(MainWindow owner, Provider provider, string text = "Измени документ") =>
         AssistantAgent.RunAsync(provider, new(text, "{}", JavaScriptRuntime.Reference), owner.Session!,
             new AssistantEditorTools(owner, owner.Session!, new JavaScriptRuntime(), owner.AiTasks, owner.Settings, [], false), _ => { }, TestContext.Current.CancellationToken);
+
+    [AvaloniaFact]
+    public async Task Script_requests_return_savable_code_without_execution_even_when_auto_apply_is_enabled()
+    {
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(100, 80)); owner.Show();
+        owner.Settings.AssistantApplyEdits = true;
+        using var host = new LlamaServerHost(owner.Settings);
+        const string code = "app.activeDocument.addRectangle(10,10,20,20,'#0088FF','Box');";
+        var provider = new Provider(Actions(Call("execute_script", new { code })));
+        var conversation = new AssistantConversation();
+        var chat = new AssistantWindow(owner, () => owner.Session, owner.Settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation) { ProviderFactory = () => provider };
+        chat.Show(owner);
+        try
+        {
+            var history = owner.Session!.History.Count;
+            await chat.SendAsync("Создай скрипт, который нарисует квадрат");
+            await chat.SendAsync("Я просил создать скрипт. Пришли именно скрипт, чтобы я мог его сохранить и использовать повторно");
+            Assert.Equal(2, provider.Requests.Count);
+            Assert.All(provider.Requests, request => { Assert.True(request.ScriptOnly); Assert.Empty(request.Tools); });
+            var drafts = conversation.Entries.Where(entry => entry.Role == "assistant").ToArray();
+            Assert.Equal(2, drafts.Length);
+            Assert.All(drafts, draft => { Assert.Equal(code, draft.Script); Assert.True(draft.IsScriptArtifact); Assert.Null(draft.Outcome); });
+            Assert.Single(owner.Session.Document.Layers); Assert.Equal(history, owner.Session.History.Count);
+            Assert.True(Screenshots.Save(chat, "assistant-script-artifact-not-applied"));
+            Assert.All(chat.GetVisualDescendants().OfType<Expander>().Where(expander => expander.Header?.ToString() == "Script"), expander => Assert.True(expander.IsExpanded));
+            Assert.Contains(chat.GetVisualDescendants().OfType<Button>(), button => button.Content?.ToString() == "Copy script");
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Run(owner, provider, "Пришли скрипт"));
+        }
+        finally { chat.Close(); owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Repeated_creation_is_not_executed_twice_even_through_native_wrapper()
+    {
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(100, 80)); owner.Show();
+        try
+        {
+            var args = new { kind = "rectangle", x = 10, y = 10, width = 20, height = 20, name = "Box", color = "#0088FF" };
+            var provider = new Provider(Actions(Call("add_shape", args)),
+                Actions(Call("execute_script", new { code = "app.activeDocument.addRectangle(40,10,20,20,'#FF0000','Other');" })),
+                Actions(Call("editor_operation", new { name = "add_shape", arguments = new { color = "#0088FF", name = "Box", height = 20.0, width = 20.0, y = 10, x = 10, kind = "rectangle" } })),
+                new("Done", ""));
+            var result = await Run(owner, provider);
+            Assert.True(result.Changed); Assert.Equal(3, owner.Session!.Document.Layers.Count);
+            Assert.Single(owner.Session.Document.Layers, layer => layer.Name == "Box");
+            Assert.Contains("ALREADY APPLIED", result.Log);
+            owner.Session.Undo(); Assert.Single(owner.Session.Document.Layers);
+        }
+        finally { owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Identical_failed_script_stops_early_and_restores_the_document()
+    {
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(100, 80)); owner.Show();
+        try
+        {
+            var provider = new Provider(Actions(Call("execute_script", new { code = "app.activeDocument.addLayer('Temporary'); unsupportedFunction();" })));
+            var history = owner.Session!.History.Count;
+            var error = await Assert.ThrowsAsync<AssistantAgentException>(() => Run(owner, provider));
+            Assert.Equal(3, provider.Requests.Count);
+            Assert.Contains("same failing command", error.Message);
+            Assert.Contains("unsupportedFunction", error.ActionLog);
+            Assert.Single(owner.Session.Document.Layers); Assert.Equal(history, owner.Session.History.Count);
+            Assert.False(owner.Session.HasPendingEdit);
+        }
+        finally { owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Distinct_requested_objects_and_changed_state_are_not_mistaken_for_replays()
+    {
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(100, 80)); owner.Show();
+        try
+        {
+            var provider = new Provider(Actions(Call("add_shape", new { kind = "rectangle", x = 10, y = 10, width = 20, height = 20, name = "First" })),
+                Actions(Call("add_shape", new { kind = "rectangle", x = 10, y = 10, width = 20, height = 20, name = "Second" })),
+                Actions(Call("set_layer", new { layer = "First", opacity = 0.5 })),
+                Actions(Call("set_layer", new { layer = "First", opacity = 1.0 })),
+                Actions(Call("set_layer", new { layer = "First", opacity = 0.5 })), new("Done", ""));
+            var result = await Run(owner, provider);
+            Assert.True(result.Changed); Assert.Equal(3, owner.Session!.Document.Layers.Count);
+            Assert.Equal(0.5, owner.Session.Document.Layers.Single(layer => layer.Name == "First").Opacity);
+            Assert.DoesNotContain("ALREADY APPLIED", result.Log);
+        }
+        finally { owner.Close(); }
+    }
 
     [AvaloniaFact]
     public async Task Native_commands_edit_text_groups_masks_and_canvas_with_one_undo()

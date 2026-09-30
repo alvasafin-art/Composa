@@ -159,11 +159,12 @@ public sealed class AssistantWindow : Window
             var request = new AssistantRequest(text, current == null ? "{\"document\":null}" : JavaScriptRuntime.Describe(current), JavaScriptRuntime.Reference)
             {
                 History = history, Attachments = sentFiles.Select(file => file.Content).ToArray(),
+                ScriptOnly = AssistantIntent.RequestsScript(text),
                 PreviewDataUrl = settings.AssistantVision && current != null ? AssistantFile.Preview(current.Composite()) : null
             };
             var provider = ProviderFactory?.Invoke() ?? (settings.AssistantProvider == "local"
                 ? (IAssistantProvider)new LlamaAssistantProvider(settings, server) : new ChatCompletionAssistantProvider(settings));
-            if (provider.SupportsTools && settings.AssistantApplyEdits && current != null)
+            if (provider.SupportsTools && settings.AssistantApplyEdits && current != null && !request.ScriptOnly)
             {
                 if (current.IsInteracting) throw new InvalidOperationException("Finish the current edit before running the Assistant.");
                 var content = owner.Content as Control;
@@ -184,11 +185,12 @@ public sealed class AssistantWindow : Window
             }
             var reply = await provider.PlanAsync(request, token);
             token.ThrowIfCancellationRequested();
-            var entry = new AssistantChatEntry("assistant", reply.Summary, reply.Script ?? "");
+            if (request.ScriptOnly) reply = AssistantIntent.AsScriptDraft(reply);
+            var entry = new AssistantChatEntry("assistant", reply.Summary, reply.Script ?? "") { IsScriptArtifact = request.ScriptOnly };
             conversation.Entries.Add(entry);
             if (entry.Script.Length > 0) pending[entry] = (current, sentFiles);
             RenderMessages();
-            if (!string.IsNullOrWhiteSpace(entry.Script) && settings.AssistantApplyEdits)
+            if (!string.IsNullOrWhiteSpace(entry.Script) && settings.AssistantApplyEdits && !request.ScriptOnly)
             {
                 try { await ApplyAsync(entry, token); }
                 catch (Exception error) when (error is not OperationCanceledException && current != null && ReferenceEquals(session(), current))
@@ -209,7 +211,7 @@ public sealed class AssistantWindow : Window
                     else status.Text = "No corrected edit was provided.";
                 }
             }
-            else status.Text = entry.Script.Length > 0 ? "Script ready for review." : "Ready";
+            else status.Text = entry.Script.Length > 0 ? "Script ready. Not executed; save it or choose Apply edit." : "Ready";
         }
         catch (OperationCanceledException) { conversation.Entries.Add(new("assistant", "Stopped.")); status.Text = "Stopped"; }
         catch (Exception error)
@@ -261,16 +263,19 @@ public sealed class AssistantWindow : Window
             });
         foreach (var entry in conversation.Entries)
         {
-            var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : entry.Script.Length > 0 && entry.Outcome == null ? "Assistant · proposed edit" : "Assistant", weight: FontWeight.SemiBold),
+            var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : entry.IsScriptArtifact ? "Assistant · script" : entry.Script.Length > 0 && entry.Outcome == null ? "Assistant · proposed edit" : "Assistant", weight: FontWeight.SemiBold),
                 new SelectableTextBlock { Text = entry.Text, TextWrapping = TextWrapping.Wrap });
             if (entry.ActionLog.Length > 0) body.Children.Add(new Expander { Header = "Operations", HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Content = new TextBox { Text = entry.ActionLog, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 260 } });
             if (entry.Script.Length == 0 && entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
             if (entry.Script.Length > 0)
             {
+                if (entry.IsScriptArtifact && entry.Outcome == null)
+                    body.Children.Add(new TextBlock { Text = "Script only · not executed. Save it for reuse, or choose Apply edit explicitly.", Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
                 var code = new TextBox { Text = entry.Script, AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
                     FontFamily = FontFamily.Parse("Consolas"), MinHeight = 80, MaxHeight = 220 };
                 var save = Ui.TextButton("Save script…", () => _ = SaveScript(entry.Script));
+                var copyScript = Ui.TextButton("Copy script", () => _ = Clipboard?.SetTextAsync(entry.Script));
                 var library = Ui.TextButton("Save to Library", () =>
                 {
                     try { owner.Automation.SaveScript("Assistant script", entry.Script); owner.ReloadAutomation(); status.Text = "Saved in the Scripts menu."; }
@@ -278,8 +283,9 @@ public sealed class AssistantWindow : Window
                 });
                 var edit = Ui.TextButton("Edit Script…", () => owner.ShowScriptEditor(entry.Script, "Assistant script"));
                 var scriptButtons = new WrapPanel { Orientation = Orientation.Horizontal };
-                foreach (var button in new[] { save, library, edit }) { button.Margin = new Thickness(0, 0, 6, 4); scriptButtons.Children.Add(button); }
-                body.Children.Add(new Expander { Header = "Script", Content = Ui.Column(6, code, scriptButtons), HorizontalContentAlignment = HorizontalAlignment.Stretch });
+                foreach (var button in new[] { save, copyScript, library, edit }) { button.Margin = new Thickness(0, 0, 6, 4); scriptButtons.Children.Add(button); }
+                body.Children.Add(new Expander { Header = "Script", Content = Ui.Column(6, code, scriptButtons), HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    IsExpanded = entry.IsScriptArtifact && entry.Outcome == null });
                 if (entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
                 else if (pending.ContainsKey(entry))
                 {

@@ -1,5 +1,7 @@
 # Scripting
 
+`console.log`, `console.info`, `console.warn` and `console.error` are available for diagnostics. They write at most 4096 characters to the script result, without filesystem, process or network access. Printing a success message does not count as evidence that a document edit was applied.
+
 Composa scripts are standard JavaScript. They use live editor objects exposed through `app` and queue generative work through `ai`. The complete TypeScript-style declaration is in [`composa.d.ts`](composa.d.ts).
 
 ## Run and reuse

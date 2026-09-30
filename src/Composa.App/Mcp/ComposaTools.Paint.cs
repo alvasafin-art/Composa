@@ -103,7 +103,8 @@ public sealed partial class ComposaTools
         double height,
         [Description("Fill color as #rrggbb or #aarrggbb")] string color = "#000000",
         [Description("Corner radius in pixels, for a rounded rectangle")] double cornerRadius = 24,
-        int? document = null) => OnUi(() =>
+        int? document = null,
+        [Description("Optional layer name; use distinct names for intentionally separate shapes")] string? name = null) => OnUi(() =>
     {
         var s = Editable(document);
         var shapeKind = kind.Trim().ToLowerInvariant() switch
@@ -114,9 +115,14 @@ public sealed partial class ComposaTools
         };
         if (width < 1 || height < 1) throw new McpException("The width and height must be at least 1 px.");
         CheckRasterAllocation(s,width,height);
-        var layer = s.AddShape(new ShapeStyle(shapeKind, (uint)ParseColor(color), Math.Max(0, cornerRadius)), SKRect.Create((float)x, (float)y, (float)width, (float)height))
-                    ?? throw new McpException($"That shape is too large: a shape covers at most {DocumentLimits.MaxSurfaceMegapixels} megapixels.");
-        return $"Added {ShapeStyle.DisplayName(shapeKind).ToLowerInvariant()} \"{layer.Name}\" at {x:0},{y:0} size {width:0}×{height:0}, now active.";
+        Layer? layer = null;
+        s.RunTransaction(shapeKind == ShapeKind.Ellipse ? "Ellipse" : "Rectangle", _ =>
+        {
+            layer = s.AddShape(new ShapeStyle(shapeKind, (uint)ParseColor(color), Math.Max(0, cornerRadius)), SKRect.Create((float)x, (float)y, (float)width, (float)height))
+                ?? throw new McpException($"That shape is too large: a shape covers at most {DocumentLimits.MaxSurfaceMegapixels} megapixels.");
+            if (name != null) s.Rename(layer, name);
+        });
+        return $"Added {ShapeStyle.DisplayName(shapeKind).ToLowerInvariant()} \"{layer!.Name}\" at {x:0},{y:0} size {width:0}×{height:0}, now active.";
     });
 
     [McpServerTool(Name = "add_line")]

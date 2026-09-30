@@ -17,6 +17,49 @@ namespace Composa.App.Tests;
 
 public class AssistantTests
 {
+    [Theory]
+    [InlineData("Создай скрипт, который нарисует три квадрата", true)]
+    [InlineData("Я просил создать скрипт. Пришли именно скрипт, чтобы я мог его сохранить и использовать повторно", true)]
+    [InlineData("Напиши мне скрипт для создания нового слоя", true)]
+    [InlineData("Исправь этот скрипт, не выполняй его", true)]
+    [InlineData("Send a reusable script that creates three squares", true)]
+    [InlineData("Write JavaScript code to add a layer", true)]
+    [InlineData("Мне нужен скрипт, который создаёт квадраты", true)]
+    [InlineData("Вышли скрипт", true)]
+    [InlineData("Я просил скрипт, а не выполнение", true)]
+    [InlineData("I want a reusable script", true)]
+    [InlineData("Создай скрипт и выполни его", false)]
+    [InlineData("Write a script and run it", false)]
+    [InlineData("Запусти прикрепленный скрипт", false)]
+    [InlineData("Объясни этот скрипт", false)]
+    [InlineData("Создай новый слой используя приложенный скрипт", false)]
+    [InlineData("Use the attached script as reference to rename the layer", false)]
+    public void Script_artifact_intent_is_separate_from_execution(string text, bool expected) =>
+        Assert.Equal(expected, AssistantIntent.RequestsScript(text));
+
+    [Fact]
+    public async Task Script_only_transport_never_exposes_editing_tools_or_old_tool_calls()
+    {
+        JsonElement payload = default;
+        using var client = new HttpClient(new ApiHandler(async request =>
+        {
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()); payload = json.RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"choices":[{"message":{"content":"{\"summary\":\"Script ready\",\"script\":\"console.log('ready');\"}"}}]}""") };
+        }));
+        var schema = JsonSerializer.SerializeToElement(new { type = "object", properties = new { } });
+        var provider = new ChatCompletionAssistantProvider(new Settings { AssistantApiUrl = "https://example.test", AssistantApiModel = "any" }, transport: client);
+        var reply = await provider.PlanAsync(new AssistantRequest("Пришли скрипт", "{}", JavaScriptRuntime.Reference)
+        {
+            ScriptOnly = true, Tools = [new("execute_script", "Edit", schema)],
+            ToolMessages = [new("assistant", "", Calls: [new("old", "execute_script", schema)]), new("tool", "Executed", "old")]
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal("console.log('ready');", reply.Script);
+        Assert.False(payload.TryGetProperty("tools", out _));
+        var messages = payload.GetProperty("messages");
+        Assert.Equal(2, messages.GetArrayLength());
+        Assert.Contains("not an edit to execute", messages[0].GetProperty("content").GetString());
+    }
+
     [Fact]
     public async Task API_tools_use_standard_tool_calls_and_preserve_results_in_the_next_request()
     {

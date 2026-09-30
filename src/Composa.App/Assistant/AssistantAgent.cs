@@ -16,7 +16,10 @@ internal static class AssistantAgent
     public static async Task<AssistantAgentResult> RunAsync(IAssistantProvider provider, AssistantRequest request, EditorSession session,
         AssistantEditorTools tools, Action<string> progress, CancellationToken token)
     {
+        if (request.ScriptOnly || AssistantIntent.RequestsScript(request.UserText))
+            throw new InvalidOperationException("A script-only request must return code for review, not execute editor operations.");
         AssistantAgentResult? result = null;
+        var guard = new AssistantCommandGuard();
         var messages = new List<AssistantToolMessage>();
         var log = new System.Text.StringBuilder(); string? verified = null;
         var before = AssistantEditorTools.Fingerprint(session); var calls = 0; var failures = 0; var nudged = false;
@@ -58,12 +61,19 @@ internal static class AssistantAgent
                     {
                         token.ThrowIfCancellationRequested(); calls++; progress("Assistant · " + call.Name);
                         string outcome;
+                        var state = AssistantEditorTools.Fingerprint(session);
+                        try { guard.CheckFailures(call, state); }
+                        catch (Exception error) { log.AppendLine("STOP: " + error.Message); throw; }
+                        bool replay;
+                        try { replay = guard.AlreadyApplied(call, state); }
+                        catch (Exception error) { log.AppendLine("STOP: " + error.Message); throw; }
                         try
                         {
-                            var state = AssistantEditorTools.Fingerprint(session);
-                            outcome = await session.RunSavepointAsync(() => tools.ExecuteAsync(call, token));
+                            outcome = replay ? "ALREADY APPLIED: this identical operation succeeded earlier in this request. It was NOT executed again. Do not repeat it for verification. For intentionally distinct objects use distinct names/arguments or a single explicit loop in a script. Continue with the next requested action or finish.\n" + JavaScriptRuntimeContext(session)
+                                : await session.RunSavepointAsync(() => tools.ExecuteAsync(call, token));
                             if (state != AssistantEditorTools.Fingerprint(session))
                             {
+                                guard.AppliedCommand(call, AssistantEditorTools.Fingerprint(session));
                                 // Send the real resulting structure with the command result. Asking a
                                 // small local model to re-plan an already completed edit for verification
                                 // can make it recreate the same objects a second time.
@@ -73,7 +83,7 @@ internal static class AssistantAgent
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception error)
-                        { failures++; outcome = "ERROR: " + error.Message + ". This command was rolled back. Correct its arguments/schema before continuing."; }
+                        { failures++; guard.Failed(call, state); outcome = "ERROR: " + error.Message + ". This command was rolled back. Correct its arguments/schema before continuing. Never resend the same unchanged failing command."; }
                         if (call.Name == "get_document") verified = AssistantEditorTools.Fingerprint(session);
                         log.AppendLine(call.Name + " " + call.Arguments.GetRawText()).AppendLine(ChatCompletionAssistantProvider.Bounded(outcome, 1200));
                         messages.Add(new("tool", ChatCompletionAssistantProvider.Bounded(outcome, 4500), call.Id));

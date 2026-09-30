@@ -34,6 +34,8 @@ public sealed record AssistantRequest(string UserText, string DocumentContext, s
     public IReadOnlyList<AssistantMessage> History { get; init; } = [];
     public IReadOnlyList<AssistantAttachment> Attachments { get; init; } = [];
     public string? PreviewDataUrl { get; init; }
+    /// <summary>Return reusable code for review; never automatically execute tools or the returned script.</summary>
+    public bool ScriptOnly { get; init; }
     public IReadOnlyList<AssistantToolDefinition> Tools { get; init; } = [];
     public IReadOnlyList<AssistantToolMessage> ToolMessages { get; init; } = [];
 }

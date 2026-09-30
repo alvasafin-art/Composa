@@ -15,6 +15,7 @@ public sealed record AssistantChatEntry(string Role, string Text, string Script 
     public Guid Id { get; init; } = Guid.NewGuid();
     public string AttachmentContext { get; init; } = "";
     public string ActionLog { get; init; } = "";
+    public bool IsScriptArtifact { get; init; }
 }
 
 /// <summary>Only files explicitly attached in the chat become available to the assistant.</summary>

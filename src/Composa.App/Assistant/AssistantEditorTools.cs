@@ -71,7 +71,8 @@ internal sealed class AssistantEditorTools(MainWindow owner, EditorSession sessi
                 return await InvokeAsync(Text(args, "name"), args.GetProperty("arguments"));
             case "execute_script":
                 var result = await runtime.ExecuteAsync(session, Text(args, "code"), ai, settings, "Assistant edit", token, attachments, allowExport);
-                return result.ExportedPath == null ? "Script executed. Inspect get_document / sample_color to verify changes." : "Exported: " + result.ExportedPath;
+                return (result.ExportedPath == null ? "Script executed. Inspect get_document / sample_color to verify changes." : "Exported: " + result.ExportedPath)
+                    + (result.Output.Length == 0 ? "" : "\nScript output (not proof of an edit):\n" + result.Output);
             case "import_attachment":
                 await runtime.ExecuteAsync(session, "app.activeDocument.addAttachedImage(" + args.GetProperty("index").GetInt32() + ");", ai, settings,
                     "Assistant import", token, attachments, allowExport);

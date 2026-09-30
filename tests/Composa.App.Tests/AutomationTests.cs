@@ -15,6 +15,33 @@ namespace Composa.App.Tests;
 public class AutomationTests
 {
     [Fact]
+    public void Reusable_square_script_supports_console_output_without_rolling_back_edits()
+    {
+        var session = EditorSession.NewCanvas(1200, 600, SKColors.White);
+        var history = session.History.Count;
+        var result = new JavaScriptRuntime().Execute(session, """
+            const doc = app.activeDocument;
+            const colors = ['#0000FF', '#00FF00', '#FF0000'];
+            let x = 100;
+            for (let i = 0; i < 3; i++) {
+              const size = 100 * Math.pow(2, i);
+              doc.addShape({kind:'rectangle', x, y:100, width:size, height:size, color:colors[i], name:`Square ${i+1}`});
+              x += size + 120;
+            }
+            console.log('Created', 3, 'squares');
+            console.info({complete:true}); console.warn('Warning'); console.error('Diagnostic');
+            for (let i=0;i<100;i++) console.log('x'.repeat(100));
+            """);
+        Assert.Equal(4, session.Document.Layers.Count);
+        Assert.Equal(new[] { 100.0, 200.0, 400.0 }, session.Document.Layers.Skip(1).Select(layer => layer.Transform.Width));
+        Assert.StartsWith("Created 3 squares", result.Output);
+        Assert.Contains("{\"complete\":true}", result.Output);
+        Assert.InRange(result.Output.Length, 1, 4096);
+        Assert.Equal(history + 1, session.History.Count);
+        session.Undo(); Assert.Single(session.Document.Layers);
+    }
+
+    [Fact]
     public void Rectangle_script_creates_real_blue_pixels_and_one_undo_step()
     {
         var session = EditorSession.NewCanvas(320, 240, SKColors.White); var before = session.History.Count;
