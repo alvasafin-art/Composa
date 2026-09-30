@@ -140,6 +140,7 @@ public sealed partial class EditorSession
     /// <summary>Starts an edit that may be previewed live and later committed or cancelled.</summary>
     public void Begin(string name)
     {
+        if (transactionDepth > 0) return; // Scripted strokes/text belong to the enclosing transaction.
         FinishInteraction();
         pendingBefore = document.Clone();
         pendingName = name;
@@ -166,6 +167,7 @@ public sealed partial class EditorSession
 
     public void Commit()
     {
+        if (transactionDepth > 0) return;
         if (pendingBefore == null) return;
         History.Push(pendingName, pendingBefore);
         pendingBefore = null;
@@ -175,6 +177,7 @@ public sealed partial class EditorSession
 
     public void Cancel()
     {
+        if (transactionDepth > 0) return; // A no-op inner stroke must not discard the outer edit.
         if (pendingBefore == null) return;
         Restore(pendingBefore);
         pendingBefore = null;

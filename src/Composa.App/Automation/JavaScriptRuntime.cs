@@ -12,14 +12,15 @@ namespace Composa.App.Automation;
 public sealed record ScriptResult(string? ExportedPath = null, int ExportQuality = 90);
 
 /// <summary>A constrained JavaScript host. Scripts only receive explicit editor delegates; CLR access is not enabled.</summary>
-public sealed class JavaScriptRuntime : IScriptRuntime
+public sealed partial class JavaScriptRuntime : IScriptRuntime
 {
     public string Language => "JavaScript";
     public const string Reference = """
     const doc = app.activeDocument;
-    doc.info;                         // { title, width, height, hasSelection, activeLayerId, layers }
+    doc.info;                         // { title, width, height, hasSelection, selection, activeLayerId, layers }
     doc.layers;                       // ordered Layer[]
     doc.activeLayer;                  // Layer | null
+    doc.selection;                    // { x, y, width, height } | null, read-only selection bounds
     doc.findLayersByTag("title");     // Layer[]; prefer this over guessing names
     doc.findLayersByName("Heading"); // Layer[]
     doc.addLayer("Name");            // Layer
@@ -27,16 +28,27 @@ public sealed class JavaScriptRuntime : IScriptRuntime
     doc.selectRect(x, y, width, height); doc.deselect();
     doc.export("C:/output/image.webp", 90); // only when the user explicitly requests export
 
-    // Layer properties are live and assignable:
-    layer.name; layer.kind; layer.tags; layer.text; layer.visible; layer.opacity; layer.transform;
+    // READ-ONLY: layer.id, layer.kind. Never assign kind, pixels or arbitrary properties.
+    // Assignable layer properties:
+    layer.name; layer.tags; layer.text; layer.visible; layer.opacity; layer.transform;
     layer.name = "New name";
     layer.text = "Winter Sale";       // editable text layers only
     layer.tags = ["title", "editable"];
     layer.opacity = 0.8; layer.visible = true;
     layer.transform = { x: 10, y: 20, width: 400, height: 300, rotation: 0 };
     layer.select(); layer.remove();
+    layer.fill("#87CEEB"); layer.duplicate(); layer.moveBy(20, 20); layer.blendMode = "Multiply";
+    doc.addRectangle(40, 40, 240, 120, "#87CEEB", "Blue Rectangle"); // creates a new live shape layer
+    doc.addEllipse(40, 40, 120, 120, "#FF0000", "Circle");
+    doc.addShape({ kind: "rounded", x: 40, y: 40, width: 240, height: 120, color: "#87CEEB", cornerRadius: 20, name: "Card" });
+    doc.addLine(0, 0, 200, 200, "#000000", 4);
+    doc.addText("Hello", 40, 80, { size: 48, color: "#000000", fontFamily: "Inter", bold: true, name: "Title" });
+    doc.paintStroke([{x:10,y:10},{x:80,y:90}], { color: "#000000", size: 20, hardness: 1, opacity: 1 });
+    doc.fill("#FFFFFF"); doc.selectEllipse(x, y, width, height); doc.selectAll(); doc.invertSelection();
+    doc.resizeImage(width, height); doc.resizeCanvas(width, height, "Center");
+    doc.groupLayers([layer.id, otherLayer.id], "Group");
 
-    // AI calls are queued after local edits and use the selected Engine Pack:
+    // AI calls are queued after local edits and use the selected Engine Pack. Do local edits FIRST.
     ai.generativeFill("replace with flowers"); ai.removeObject(); ai.upscale();
     ai.changeBackground("sunset studio"); ai.harmonize("match the scene lighting");
     // Optional settings: { width, height, seed, x, y } (x/y are expansion origin).
@@ -46,28 +58,28 @@ public sealed class JavaScriptRuntime : IScriptRuntime
     {
         var calls = new List<QueuedAiTask>();
         ScriptResult result = new();
-        session.RunTransaction(transactionName, editor => result = ExecuteScript(editor, script, calls, allowAi: false, cancellationToken));
-        SaveExport(session, result);
+        session.RunTransaction(transactionName, editor =>
+        { result = ExecuteScript(editor, script, calls, allowAi: false, cancellationToken); SaveExport(session, result); });
         return result;
     }
 
     public async Task<ScriptResult> ExecuteAsync(EditorSession session, string script, IAiTaskRunner aiRunner, Settings settings,
-        string transactionName = "Run Script", CancellationToken cancellationToken = default, IReadOnlyList<string?>? attachedImages = null)
+        string transactionName = "Run Script", CancellationToken cancellationToken = default, IReadOnlyList<string?>? attachedImages = null, bool allowExport = true)
     {
         var calls = new List<QueuedAiTask>();
         ScriptResult result = new();
         await session.RunTransactionAsync(transactionName, async editor =>
         {
-            result = ExecuteScript(editor, script, calls, allowAi: true, cancellationToken, attachedImages);
+            result = ExecuteScript(editor, script, calls, allowAi: true, cancellationToken, attachedImages, allowExport);
             foreach (var call in calls)
                 await aiRunner.RunAsync(new EditorCommandService(editor), Request(editor, call, settings), cancellationToken);
+            SaveExport(session, result);
         });
-        SaveExport(session, result);
         return result;
     }
 
     private static ScriptResult ExecuteScript(EditorSession editor, string script, List<QueuedAiTask> calls, bool allowAi, CancellationToken cancellationToken,
-        IReadOnlyList<string?>? attachedImages = null)
+        IReadOnlyList<string?>? attachedImages = null, bool allowExport = true)
     {
         if (string.IsNullOrWhiteSpace(script)) throw new ArgumentException("The script is empty.", nameof(script));
         string? exportPath = null;
@@ -79,6 +91,7 @@ public sealed class JavaScriptRuntime : IScriptRuntime
                 .MaxStatements(100_000)
                 .CancellationToken(cancellationToken));
         engine.SetValue("__documentJson", (Func<string>)(() => DocumentJson(editor)));
+        AddEditorApi(engine, editor);
         engine.SetValue("__layersJson", (Func<string>)(() => LayersJson(editor)));
         engine.SetValue("__layerJson", (Func<string, string>)(id => LayerJson(Find(editor, id))));
         engine.SetValue("__activeLayerJson", (Func<string>)(() => editor.ActiveLayer == null ? "null" : LayerJson(editor.ActiveLayer)));
@@ -102,11 +115,16 @@ public sealed class JavaScriptRuntime : IScriptRuntime
         {
             var layer = Find(editor, id);
             if (layer.Text == null) throw new InvalidOperationException($"Layer \"{layer.Name}\" is not editable text.");
-            editor.SetText(layer, layer.Text with { Text = text });
+            if (text.Length > TextStyle.MaxLength) throw new ArgumentException($"Text must be at most {TextStyle.MaxLength} characters.");
+            var style = layer.Text.WithReplacedCharacters(0, layer.Text.Text.Length, text.Length) with { Text = text };
+            CheckText(editor, style); editor.SetText(layer, style);
         }));
         engine.SetValue("__transform", (Action<string, double, double, double, double, double>)((id, x, y, width, height, rotation) =>
         {
             var layer = Find(editor, id);
+            if (layer.Pixels == null) throw new InvalidOperationException("Transform fields require a raster, shape or text layer. Use layer.moveBy(dx,dy) to move a group.");
+            Frame(x, y, Math.Max(1, Finite(width, layer.Transform.Width)), Math.Max(1, Finite(height, layer.Transform.Height)));
+            if (layer.IsLive) CheckRaster(editor, width, height);
             editor.SetTransform(layer, layer.Transform with
             {
                 X = Finite(x, layer.Transform.X), Y = Finite(y, layer.Transform.Y),
@@ -115,10 +133,11 @@ public sealed class JavaScriptRuntime : IScriptRuntime
             });
         }));
         engine.SetValue("__selectRect", (Action<double, double, double, double>)((x, y, width, height) =>
-            editor.SelectRect(new SKRect((float)x, (float)y, (float)(x + width), (float)(y + height)))));
+            editor.SelectRect(Frame(x, y, width, height))));
         engine.SetValue("__deselect", (Action)editor.Deselect);
         engine.SetValue("__export", (Action<string, int>)((path, quality) =>
         {
+            if (!allowExport) throw new InvalidOperationException("This plugin has no export permission.");
             if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("Export needs a file path.");
             exportPath = Path.GetFullPath(path);
             exportQuality = Math.Clamp(quality, 1, 100);
@@ -130,7 +149,7 @@ public sealed class JavaScriptRuntime : IScriptRuntime
             var options = JsonSerializer.Deserialize<ScriptAiOptions>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             calls.Add(new QueuedAiTask(kind, prompt, options));
         }));
-        engine.Execute(Bootstrap).Execute(script);
+        engine.Execute(Bootstrap).Execute(EditorBootstrap).Execute(script);
         return new ScriptResult(exportPath, exportQuality);
     }
 
@@ -190,7 +209,7 @@ public sealed class JavaScriptRuntime : IScriptRuntime
         return JsonSerializer.Serialize(new
         {
             title = session.Title, width = session.Document.Width, height = session.Document.Height,
-            hasSelection = session.Selection != null, activeLayerId = session.ActiveLayer?.Id.ToString(),
+            hasSelection = session.Selection != null, selection = SelectionData(session), activeLayerId = session.ActiveLayer?.Id.ToString(),
             layerCount = all.Count, truncated = all.Count > maximumLayers,
             layers = ContextLayers(session.Document.Layers, "").Take(maximumLayers)
         });
@@ -202,17 +221,27 @@ public sealed class JavaScriptRuntime : IScriptRuntime
     private static string DocumentJson(EditorSession session) => JsonSerializer.Serialize(new
     {
         title = session.Title, width = session.Document.Width, height = session.Document.Height,
-        hasSelection = session.Selection != null, activeLayerId = session.ActiveLayer?.Id.ToString(),
+        hasSelection = session.Selection != null, selection = SelectionData(session), activeLayerId = session.ActiveLayer?.Id.ToString(),
         layers = session.Document.AllLayers().Select(LayerData)
     });
     private static string LayersJson(EditorSession session) => JsonSerializer.Serialize(session.Document.AllLayers().Select(LayerData));
     private static string LayerJson(Layer layer) => JsonSerializer.Serialize(LayerData(layer));
     private static object LayerData(Layer layer) => new
     {
-        id = layer.Id.ToString(), name = layer.Name, kind = layer.Text != null ? "text" : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : "raster",
-        tags = layer.Tags.Order(StringComparer.OrdinalIgnoreCase), text = layer.Text?.Text, visible = layer.Visible, opacity = layer.Opacity,
+        id = layer.Id.ToString(), name = layer.Name, kind = LayerKind(layer),
+        tags = layer.Tags.Order(StringComparer.OrdinalIgnoreCase), text = layer.Text?.Text, visible = layer.Visible, opacity = layer.Opacity, blendMode = layer.Blend.ToString(),
         transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
     };
+
+    private static string LayerKind(Layer layer) => layer.Text != null ? "text" : layer.Shape != null ? "shape"
+        : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : "raster";
+
+    private static object? SelectionData(EditorSession session)
+    {
+        if (session.Selection == null) return null;
+        var bounds = SelectionMask.Bounds(session.Selection);
+        return new { x = bounds.Left, y = bounds.Top, width = bounds.Width, height = bounds.Height };
+    }
 
     private static IEnumerable<object> ContextLayers(IEnumerable<Layer> layers, string parent)
     {
@@ -222,9 +251,10 @@ public sealed class JavaScriptRuntime : IScriptRuntime
             yield return new
             {
                 id = layer.Id.ToString(), name = layer.Name, path,
-                kind = layer.Text != null ? "text" : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : "raster",
+                kind = LayerKind(layer),
                 tags = layer.Tags.Order(StringComparer.OrdinalIgnoreCase),
                 text = layer.Text?.Text is { Length: > 500 } longText ? longText[..500] + "…" : layer.Text?.Text,
+                fontSize = layer.Text?.Size, fontFamily = layer.Text?.FontFamily,
                 visible = layer.Visible, opacity = layer.Opacity,
                 transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
             };
@@ -238,26 +268,40 @@ public sealed class JavaScriptRuntime : IScriptRuntime
       const wrap = data => {
         const id = data.id;
         const current = () => parse(__layerJson(id));
-        return {
-          id,
+        return Object.preventExtensions({
+          get id() { return id; },
           get name() { return current().name; }, set name(value) { __rename(id, String(value)); },
           get kind() { return current().kind; },
+          get blendMode() { return current().blendMode; }, set blendMode(value) { __blend(id, String(value)); },
           get tags() { return current().tags; }, set tags(value) { __tags(id, JSON.stringify(Array.from(value))); },
           get text() { return current().text; }, set text(value) { __text(id, String(value)); },
           get visible() { return current().visible; }, set visible(value) { __visible(id, Boolean(value)); },
           get opacity() { return current().opacity; }, set opacity(value) { __opacity(id, Number(value)); },
-          get transform() { return current().transform; },
+          get transform() {
+            const value = {};
+            for (const key of ['x','y','width','height','rotation'])
+              Object.defineProperty(value,key,{enumerable:true,get:()=>current().transform[key],set:next=>{
+                const old=current().transform; old[key]=Number(next);
+                __transform(id,old.x,old.y,old.width,old.height,old.rotation);
+              }});
+            return value;
+          },
           set transform(value) {
             const old = current().transform; value = value || {};
             __transform(id, value.x ?? old.x, value.y ?? old.y, value.width ?? old.width, value.height ?? old.height, value.rotation ?? old.rotation);
           },
           select() { __selectLayer(id); },
+          fill(color) { __fillLayer(id, String(color)); },
+          duplicate() { return wrap(parse(__duplicateLayer(id))); },
+          moveBy(dx,dy) { __moveLayer(id,Number(dx),Number(dy)); },
           remove() { __deleteLayer(id); }
-        };
+        });
       };
+      globalThis.__composaWrap = wrap;
       const doc = {
         get info() { return parse(__documentJson()); },
         get width() { return this.info.width; }, get height() { return this.info.height; },
+        get selection() { return this.info.selection; },
         get layers() { return parse(__layersJson()).map(wrap); },
         get activeLayer() { const value = parse(__activeLayerJson()); return value ? wrap(value) : null; },
         findLayersByTag(tag) { return parse(__findTagJson(String(tag))).map(wrap); },

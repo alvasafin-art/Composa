@@ -124,6 +124,8 @@ public sealed class ChatCompletionAssistantProvider(Settings settings, bool loca
         Discuss, ask a short clarification only when necessary, and perform requested edits using JavaScript.
         Return JSON {"summary":"your answer", "script":"JavaScript or empty string"}; no Markdown wrapping.
         For a question or discussion leave script empty. For an editing request supply a complete script.
+        For edits describe what the script will do, not an action already completed. The application executes it afterward.
+        Layer id/kind are read-only; create shapes with doc.addRectangle/addEllipse/addShape, never assign layer.kind or pixels.
         Consider the conversation and the current document, which may have changed since previous messages.
         Use only the supplied Composa scripting API. Never invent methods, access the filesystem except through doc.export when explicitly requested,
         or wrap the script in Markdown fences. Prefer tags, then layer names/types.

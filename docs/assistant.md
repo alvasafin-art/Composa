@@ -2,7 +2,9 @@
 
 Open **Assistant** in the tool-options row or **AI > Assistant**. Type a question or describe an edit and press **Send** (Enter; Shift+Enter adds a line). The conversation survives closing/reopening the window during the same application session. **New chat** clears it; conversations are not written to disk.
 
-The assistant can answer without changing the document. Requested edits are applied as one Undo step by default. Disable **Apply requested edits** to review the generated script and choose **Apply edit** yourself. Editing responses expose an expandable script, **Save script** and **Copy**. **Stop** cancels generation/execution; failed document changes roll back.
+The assistant can answer without changing the document. Requested edits are applied as one Undo step by default. Disable **Apply requested edits** to review the generated script and choose **Apply edit** yourself. Editing responses expose an expandable script, **Save script**, **Save to Library**, **Edit Script** and **Copy**. Library scripts appear in the Scripts menu and can receive shortcuts. **Stop** cancels generation/execution; failed document changes roll back.
+
+**Applied** is shown only after actual editor execution succeeds. On automatic application failure, the failed response is replaced with the actual rollback/error, and the assistant gets one repair attempt using that error and the current scripting contract. A second failure stops; no endless retries or false success messages. Manual review/application does not silently send another model request.
 
 ## Attachments and context
 

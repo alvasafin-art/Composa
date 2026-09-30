@@ -210,6 +210,7 @@ public sealed partial class CanvasView : Control
         origin += delta;
         ClampOrigin();
         InvalidateVisual();
+        ViewChanged?.Invoke();
     }
 
     private void ClampOrigin()
@@ -228,6 +229,7 @@ public sealed partial class CanvasView : Control
         {
             origin += new Vector((e.NewSize.Width - e.PreviousSize.Width) / 2, (e.NewSize.Height - e.PreviousSize.Height) / 2);
             ClampOrigin();
+            ViewChanged?.Invoke();
         }
     }
 

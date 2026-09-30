@@ -19,6 +19,7 @@ public sealed class Settings
     public Dictionary<string, DockPanelState> Dock { get; set; } = [];
     /// <summary>Rebound shortcuts by command id: a gesture string, or empty for none. Missing entries keep the default.</summary>
     public Dictionary<string, string> Shortcuts { get; set; } = [];
+    public List<string> DisabledScriptPlugins { get; set; } = [];
 
     /// <summary>ComfyUI is always addressed as a server URL, whether it runs on this computer or another one.</summary>
     public string ComfyServerUrl { get; set; } = "http://127.0.0.1:8188";

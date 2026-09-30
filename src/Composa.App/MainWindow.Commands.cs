@@ -266,6 +266,7 @@ public sealed partial class MainWindow
             panelToggles.Add((item, title));
             return item;
         }
+        scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
         Top("_Window", PanelToggle("History"));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
@@ -364,7 +365,9 @@ public sealed partial class MainWindow
     private async Task ShowShortcuts()
     {
         if (await ShortcutsDialog.Edit(this, AllShortcuts) is not { } chosen) return;
+        var inactive = settings.Shortcuts.Where(pair => !AllShortcuts.Any(shortcut => shortcut.Id == pair.Key)).ToArray();
         settings.Shortcuts.Clear();
+        foreach (var (id, gesture) in inactive) settings.Shortcuts[id] = gesture;
         foreach (var shortcut in AllShortcuts)
         {
             if (!chosen.TryGetValue(shortcut.Id, out var gesture)) continue;
@@ -400,6 +403,7 @@ public sealed partial class MainWindow
 
     private void Execute(Shortcut command)
     {
+        if (Content is Control { IsEnabled: false }) return;
         if (command.Enabled?.Invoke() == false || canvas.IsDragging) return;
         problem = note = null;
         try { command.Run(); }
@@ -437,6 +441,8 @@ public sealed partial class MainWindow
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (Content is Control { IsEnabled: false })
+        { if (e.Key == Key.Escape) automationCancellation?.Cancel(); e.Handled = true; return; }
         var focused = FocusManager?.GetFocusedElement();
         if (SwallowAlt(e)) return;
         if (aiFloatingHost.IsVisible && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)

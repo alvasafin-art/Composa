@@ -1,0 +1,11 @@
+{
+  "id": "basic-editing",
+  "name": "Basic Editing",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "permissions": [],
+  "commands": [
+    { "id": "blue-card", "title": "Blue Card", "script": "blue-card.js" },
+    { "id": "duplicate-offset", "title": "Duplicate and Offset", "script": "duplicate-offset.js" }
+  ]
+}

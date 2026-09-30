@@ -23,6 +23,10 @@ public sealed partial class MainWindow
     internal AiTaskService AiTasks => aiTasks;
     internal bool AiFloatingVisible => aiFloatingHost.IsVisible;
     internal int AiReferenceCount => aiReferences.Count;
+    internal Border AiFloatingPanel => aiFloatingHost;
+    private Vector aiFloatingOffset;
+    private Point? aiFloatingDragStart;
+    private Vector aiFloatingDragOffset;
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly StackPanel aiProgressHost = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
     private readonly Canvas aiFloatingLayer = new();
@@ -139,6 +143,22 @@ public sealed partial class MainWindow
     {
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
         header.Children.Add(Ui.Label("Generative AI", weight: FontWeight.SemiBold));
+        ToolTip.SetTip(header.Children[0], "Drag to move the panel");
+        header.Children[0].PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(aiFloatingLayer).Properties.IsLeftButtonPressed) return;
+            aiFloatingDragStart = e.GetPosition(aiFloatingLayer); aiFloatingDragOffset = aiFloatingOffset;
+            e.Pointer.Capture((Control)header.Children[0]); e.Handled = true;
+        };
+        header.Children[0].PointerMoved += (_, e) =>
+        {
+            if (aiFloatingDragStart is not { } start) return;
+            aiFloatingOffset = aiFloatingDragOffset + (e.GetPosition(aiFloatingLayer) - start);
+            RefreshAiFloatingPosition(); e.Handled = true;
+        };
+        header.Children[0].PointerReleased += (_, e) =>
+        { aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
+        header.Children[0].PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
         var advanced = Ui.TextButton("Advanced…", () => _ = ShowAiSettings());
         advanced.MinWidth = 0;
         AddAt(header, advanced, 1).Margin = new Thickness(0, 0, 5, 0);
@@ -219,7 +239,10 @@ public sealed partial class MainWindow
         var maxLeft = Math.Max(8, canvas.Bounds.Width - width - 8);
         var left = Math.Clamp((topLeft.X + bottomRight.X - width) / 2, 8, maxLeft);
         var below = bottomRight.Y + 10;
-        var top = below + height <= canvas.Bounds.Height - 8 ? below : topLeft.Y - height - 10;
+        // Always anchor below, never jump to an unrelated side of the selection. Only
+        // constrain to the viewport at its edges, and retain the user's drag offset.
+        left = Math.Clamp(left + aiFloatingOffset.X, 8, maxLeft);
+        var top = below + aiFloatingOffset.Y;
         top = Math.Clamp(top, 8, Math.Max(8, canvas.Bounds.Height - height - 8));
         Avalonia.Controls.Canvas.SetLeft(aiFloatingHost, left);
         Avalonia.Controls.Canvas.SetTop(aiFloatingHost, top);
@@ -258,7 +281,11 @@ public sealed partial class MainWindow
             remove.SetValue(Panel.ZIndexProperty, 1);
             ToolTip.SetTip(remove, "Remove reference");
             var cell = new Grid { Width = 56, Height = 56 };
-            cell.Children.Add(new Border { Child = preview, CornerRadius = new CornerRadius(6), ClipToBounds = true, BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")), BorderThickness = new Thickness(1) });
+            var show = new Button { Content = preview, Padding = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+            show.Click += (_, _) => _ = ShowAiReferencePreview(item);
+            ToolTip.SetTip(show, "Preview reference: " + item.Name);
+            cell.Children.Add(show);
             cell.Children.Add(remove);
             ToolTip.SetTip(cell, item.Name);
             items.Children.Add(cell);
@@ -268,11 +295,29 @@ public sealed partial class MainWindow
             var add = Ui.TextButton("＋", () => _ = PickAiReferences());
             add.Width = 56;
             add.Height = 56;
+            add.MinWidth = 0;
+            add.Padding = new Thickness(0);
+            add.VerticalContentAlignment = VerticalAlignment.Center;
             add.FontSize = 22;
             ToolTip.SetTip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
             items.Children.Add(add);
         }
         aiReferenceHost.Children.Add(items);
+    }
+
+    private async Task ShowAiReferencePreview(AiReferenceItem item)
+    {
+        // Hold a separate image while the preview is open: removing a reference must not
+        // dispose pixels still being rendered by another window.
+        using var stream = new MemoryStream(); item.Preview.Save(stream); stream.Position = 0;
+        using var preview = new Bitmap(stream);
+        var dialog = new Window { Title = item.Name, Width = 760, Height = 600, MinWidth = 300, MinHeight = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
+        var root = new DockPanel { Margin = new Thickness(12) };
+        var close = Ui.TextButton("Close", dialog.Close); DockPanel.SetDock(close, Dock.Bottom); root.Children.Add(close);
+        var label = Ui.Label($"{item.Name} · {item.Pixels.Width} × {item.Pixels.Height}"); DockPanel.SetDock(label, Dock.Top); root.Children.Add(label);
+        root.Children.Add(new Image { Source = preview, Stretch = Stretch.Uniform }); dialog.Content = root;
+        await dialog.ShowDialog(this);
     }
 
     private void AddAiReferencePaths(IEnumerable<string> paths)

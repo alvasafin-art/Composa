@@ -50,8 +50,9 @@ public sealed partial class MainWindow : Window
     // The status bar shows a problem in orange, or a note in the hint's color, in place of the tool hint until the next command.
     private string? problem, note;
 
-    public MainWindow()
+    public MainWindow(string? automationDirectory = null)
     {
+        automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"))
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds
@@ -132,7 +133,7 @@ public sealed partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         DragDrop.SetAllowDrop(this, true);
         Closing += OnClosing;
-        Closed += (_, _) => assistantServer.Dispose();
+        Closed += (_, _) => { automationCancellation?.Cancel(); assistantServer.Dispose(); };
         if (Settings.Persist)
             Opened += async (_, _) =>
             {
@@ -215,7 +216,7 @@ public sealed partial class MainWindow : Window
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
-        added.SelectionChanged += () => { if (added == session) { aiFloatingDismissed = false; refreshOptions?.Invoke(); RefreshAiUi(); } };
+        added.SelectionChanged += () => { if (added == session) { aiFloatingDismissed = false; aiFloatingOffset = default; refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
     }
 
@@ -231,6 +232,7 @@ public sealed partial class MainWindow : Window
         var tool = session?.Tool ?? Tool.Move;
         session = next;
         aiFloatingDismissed = false;
+        aiFloatingOffset = default;
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;
         layers.Session = session;
@@ -422,6 +424,11 @@ public sealed partial class MainWindow : Window
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        if (Content is Control { IsEnabled: false })
+        {
+            e.Cancel = true; automationCancellation?.Cancel();
+            ShowProblem("Stop the running script before closing the editor."); return;
+        }
         RememberWindow();
         aiControl?.Dispose();
         if (session?.IsEditingText == true) session.FinishText();

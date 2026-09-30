@@ -182,6 +182,73 @@ public class AssistantTests
         chat.Close(); owner.Close();
     }
 
+    [AvaloniaFact]
+    public async Task Chat_repairs_one_invalid_script_after_rollback_and_reports_the_actual_outcome()
+    {
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(320, 240, SKColors.White)); owner.Show();
+        using var host = new LlamaServerHost(owner.Settings);
+        var provider = new RepairingAssistant(); var conversation = new AssistantConversation();
+        var chat = new AssistantWindow(owner, () => owner.Session, owner.Settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation)
+        { ProviderFactory = () => provider };
+        chat.Show(owner);
+        try
+        {
+            var before = owner.Session!.History.Count;
+            await chat.SendAsync("создай новый слой и на нем нарисуй голубой прямоугольник");
+            Assert.Equal(2, provider.Requests.Count); Assert.Contains("read only", provider.Requests[1].UserText);
+            Assert.Equal(2, owner.Session.Document.Layers.Count); Assert.Equal(before + 1, owner.Session.History.Count);
+            var failed = conversation.Entries[1]; Assert.Contains("not applied", failed.Text); Assert.DoesNotContain("Created", failed.Text);
+            Assert.StartsWith("Applied.", conversation.Entries[2].Outcome);
+            using var output = owner.Session.Flatten(); Assert.Equal(new SKColor(135,206,235), output.GetPixel(70,70));
+            Assert.True(Screenshots.Save(chat, "assistant-repaired-edit"));
+            owner.Session.Undo(); Assert.Single(owner.Session.Document.Layers);
+        }
+        finally { chat.Close(); owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Local_assistant_draws_the_requested_blue_rectangle_when_live_test_is_requested()
+    {
+        var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
+        var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(640, 420, SKColors.White)); owner.Show();
+        var settings = new Settings { AssistantServerExecutable = executable, AssistantModelPath = model,
+            AssistantServerUrl = "http://127.0.0.1:18080", AssistantContextSize = 8192, AssistantMaxTokens = 1024, AssistantAutoStart = true, AssistantApplyEdits = true };
+        using var host = new LlamaServerHost(settings); var conversation = new AssistantConversation();
+        var chat = new AssistantWindow(owner, () => owner.Session, settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation);
+        chat.Show(owner);
+        try
+        {
+            var before = owner.Session!.History.Count;
+            await chat.SendAsync("создай новый слой и на нем нарисуй голубой прямоугольник");
+            Assert.Contains(conversation.Entries, entry => entry.Outcome?.StartsWith("Applied.") == true);
+            Assert.Equal(before + 1, owner.Session.History.Count);
+            var rectangle = Assert.Single(owner.Session.Document.AllLayers(), layer => layer.Shape != null);
+            var color = new SKColor(rectangle.Shape!.Fill); Assert.True(color.Blue > color.Red && color.Green > color.Red);
+            using var output = owner.Session.Flatten();
+            var bounds = rectangle.Transform; var pixel = output.GetPixel((int)(bounds.X + bounds.Width / 2), (int)(bounds.Y + bounds.Height / 2));
+            Assert.Equal(color, pixel);
+            Assert.True(Screenshots.Save(owner, "assistant-live-blue-rectangle"));
+            Assert.True(Screenshots.Save(chat, "assistant-live-blue-rectangle-chat"));
+            owner.Session.Undo(); Assert.Single(owner.Session.Document.Layers);
+        }
+        finally { chat.Close(); owner.Close(); }
+    }
+
+    private sealed class RepairingAssistant : IAssistantProvider
+    {
+        public string Id => "repair-test";
+        public List<AssistantRequest> Requests { get; } = [];
+        public Task<AssistantPlan> PlanAsync(AssistantRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(Requests.Count == 1
+                ? new AssistantPlan("Created Blue Rectangle", "const layer = app.activeDocument.addLayer('Temporary'); layer.kind = 'shape';")
+                : new AssistantPlan("Draw a blue rectangle", "app.activeDocument.addRectangle(40,40,160,90,'#87CEEB','Blue Rectangle');"));
+        }
+    }
+
     private sealed class RecordingAssistant : IAssistantProvider
     {
         public string Id => "test";

@@ -170,7 +170,26 @@ public sealed class AssistantWindow : Window
             if (entry.Script.Length > 0) pending[entry] = (current, sentFiles);
             RenderMessages();
             if (!string.IsNullOrWhiteSpace(entry.Script) && settings.AssistantApplyEdits)
-                await ApplyAsync(entry, token);
+            {
+                try { await ApplyAsync(entry, token); }
+                catch (Exception error) when (error is not OperationCanceledException && current != null && ReferenceEquals(session(), current))
+                {
+                    status.Text = "Correcting the script after a rolled-back edit…"; RenderMessages();
+                    // One bounded repair attempt. The first transaction has already restored
+                    // the document; the model gets the actual error and the same API contract.
+                    var repaired = await provider.PlanAsync(request with
+                    {
+                        UserText = text + "\nThe previous edit was NOT applied and was rolled back. Correct it using only the supplied API. Error: " + error.Message + "\nFailed script:\n" + entry.Script,
+                        DocumentContext = JavaScriptRuntime.Describe(current)
+                    }, token);
+                    token.ThrowIfCancellationRequested();
+                    var retry = new AssistantChatEntry("assistant", repaired.Summary, repaired.Script ?? "");
+                    conversation.Entries.Add(retry); RenderMessages();
+                    if (!string.IsNullOrWhiteSpace(retry.Script))
+                    { pending[retry] = (current, sentFiles); await ApplyAsync(retry, token); }
+                    else status.Text = "No corrected edit was provided.";
+                }
+            }
             else status.Text = entry.Script.Length > 0 ? "Script ready for review." : "Ready";
         }
         catch (OperationCanceledException) { conversation.Entries.Add(new("assistant", "Stopped.")); status.Text = "Stopped"; }
@@ -197,10 +216,11 @@ public sealed class AssistantWindow : Window
             status.Text = outcome;
             owner.Canvas.InvalidateVisual();
         }
-        catch
+        catch (Exception error)
         {
             var index = conversation.Entries.IndexOf(entry);
-            if (index >= 0) conversation.Entries[index] = entry with { Outcome = "Not applied. The edit was rolled back." };
+            if (index >= 0) conversation.Entries[index] = entry with
+            { Text = "The edit was not applied; the document was restored.\n" + error.Message, Outcome = "Not applied. The edit was rolled back." };
             pending.Remove(entry);
             throw;
         }
@@ -218,14 +238,22 @@ public sealed class AssistantWindow : Window
             });
         foreach (var entry in conversation.Entries)
         {
-            var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : "Assistant", weight: FontWeight.SemiBold),
+            var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : entry.Script.Length > 0 && entry.Outcome == null ? "Assistant · proposed edit" : "Assistant", weight: FontWeight.SemiBold),
                 new SelectableTextBlock { Text = entry.Text, TextWrapping = TextWrapping.Wrap });
             if (entry.Script.Length > 0)
             {
                 var code = new TextBox { Text = entry.Script, AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
                     FontFamily = FontFamily.Parse("Consolas"), MinHeight = 80, MaxHeight = 220 };
                 var save = Ui.TextButton("Save script…", () => _ = SaveScript(entry.Script));
-                body.Children.Add(new Expander { Header = "Script", Content = Ui.Column(6, code, save), HorizontalContentAlignment = HorizontalAlignment.Stretch });
+                var library = Ui.TextButton("Save to Library", () =>
+                {
+                    try { owner.Automation.SaveScript("Assistant script", entry.Script); owner.ReloadAutomation(); status.Text = "Saved in the Scripts menu."; }
+                    catch (Exception error) { status.Text = error.Message; }
+                });
+                var edit = Ui.TextButton("Edit Script…", () => owner.ShowScriptEditor(entry.Script, "Assistant script"));
+                var scriptButtons = new WrapPanel { Orientation = Orientation.Horizontal };
+                foreach (var button in new[] { save, library, edit }) { button.Margin = new Thickness(0, 0, 6, 4); scriptButtons.Children.Add(button); }
+                body.Children.Add(new Expander { Header = "Script", Content = Ui.Column(6, code, scriptButtons), HorizontalContentAlignment = HorizontalAlignment.Stretch });
                 if (entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
                 else if (pending.ContainsKey(entry))
                 {
