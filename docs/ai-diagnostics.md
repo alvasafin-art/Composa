@@ -1,0 +1,24 @@
+# AI correctness checks
+
+## Causes addressed
+
+- **Double compositing:** InpaintStitchImproved already applies a soft blend. Applying the soft editor selection again weakens the patch edge and changes its brightness. Composited outputs now use changed-pixel coverage, retaining the baked transition. The user's selection itself is not modified.
+- **Black context at the removal seam:** Stitching against a blackened input can mix black into the reconstructed background. The separate removal graph conditions the model with a black crop but stitches against the original source. Client preprocessing no longer grows/feathers the mask before the workflow repeats those passes.
+- **Hidden mask enlargement:** editor feather, preprocessing dilation/feather and workflow grow/blend are different operations. The bundled workflow now owns grow/blend once. Generative Fill still forces grow to zero; its prompt requires the whole new object to fit within the mask.
+- **Resizing and placement:** stitched masked results must have the original canvas size. Incorrectly cropped/rounded outputs are refused instead of being stretched over the selection. A real 79×61 crop/stitch test verifies odd dimensions. Selection upscale sends surrounding context, then crops back to the exact target rectangle; no canvas expansion or selection shift occurs.
+- **Alpha/color representation:** Comfy IMAGE inputs can lose alpha. Transparent black and unchanged straight colors are not treated as opaque background edits outside the selected area. Local raw-removal finishing converts premultiplied channels to straight color and back, preserving alpha; it is not applied to already-stitched outputs.
+- **Unrelated upscaler dependencies:** execution previously checked all nodes/assets of the pack. It now validates the particular bound graph and the actual selected model filename. Both DAT (UltraSharpV2) and RRDBNet (NMKD-Siax) were exercised on Intel XPU with no diffusion/segmentation nodes, including a 57×43 source.
+
+## What still depends on the model
+
+Correct masking and compositing cannot guarantee identical texture, grain, sharpness, perspective or reconstructed content. FLUX image editing may redraw the conditioning crop, and too little scene context or a very large edit can remain visible even with a mathematically correct blend. Do not globally recolor a stitched patch based on its surrounding pixels: those pixels already came from the original, so that statistic can falsely suggest a correction or alter a legitimate new object.
+
+For a remaining seam, retain the original document, the selection and operation/settings, and compare the downloaded Comfy result with the rendered inserted layer. If they differ, inspect placement/mask/alpha. If both show the same seam, inspect conditioning, mask context, generated texture and the workflow's stitch blend. Increasing feather alone is not a universal repair. Selection feather remains part of the user's selection; Mask Grow/Blend/Context are inference controls, not a second independent selection.
+
+A live FLUX.2 Klein removal test also exposed a semantic failure: an incomplete ellipse left recognizable subject fragments, and the model returned a ghost silhouette. A complete enclosing selection plus the explicit empty-background instruction removed the object in the follow-up test at about 1 MP. Include the whole unwanted subject and its edges; do not interpret successful server execution as proof of correct visual removal. Differences in generated branch detail/color remained model-dependent, so the resulting photo was inspected separately from the geometry tests.
+
+## Agent checks
+
+The chat uses native editor tools plus constrained JavaScript, not textual promises. Real local Qwen tests cover a new blue shape, existing grouped text/color/size/movement, layer-mask creation and one-step Undo. Deterministic tests additionally exercise schema discovery, groups/canvas resizing, repair after a partially failed command, duplicate-name/full-id addressing, tab isolation, and completion without changes. Logs are exposed through Operations, including failures. This does not imply that a language model will correctly interpret every ambiguous or arbitrarily complex request; bounded failure rolls back rather than pretending success.
+
+Implementation references: [llama.cpp tool calling](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md), [ComfyUI model upscaling](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_upscale_model.py). Crop/stitch behavior was checked against the installed ComfyUI-Inpaint-CropAndStitch implementation, particularly its expanded/blurred blend mask and original `canvas_image`.

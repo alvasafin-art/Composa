@@ -227,6 +227,15 @@ public sealed partial class EditorSession
         Commit();
     }
 
+    /// <summary>A failed automation command restores its own changes without losing the enclosing transaction.</summary>
+    public async Task<T> RunSavepointAsync<T>(Func<Task<T>> command)
+    {
+        if (transactionDepth == 0) throw new InvalidOperationException("A savepoint requires an enclosing transaction.");
+        var before = document.Clone();
+        try { return await command(); }
+        catch { FinishInteraction(); Restore(before); throw; }
+    }
+
     public bool CanUndo => History.CanUndo && pendingBefore == null;
     public bool CanRedo => History.CanRedo && pendingBefore == null;
 
@@ -249,6 +258,8 @@ public sealed partial class EditorSession
     /// <summary>Folds the step just committed into the one before it, and says so, since the list of steps changed after the commit announced it.</summary>
     private void FoldLastStep(string name)
     {
+        // Inner commands have not committed a step; folding here would merge the user's older history.
+        if (transactionDepth > 0) return;
         History.MergeLast(name);
         HistoryChanged?.Invoke();
     }

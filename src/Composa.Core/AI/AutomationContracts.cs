@@ -1,5 +1,6 @@
 using Composa.Editing;
 using Composa.Model;
+using System.Text.Json;
 
 namespace Composa.AI;
 
@@ -33,12 +34,21 @@ public sealed record AssistantRequest(string UserText, string DocumentContext, s
     public IReadOnlyList<AssistantMessage> History { get; init; } = [];
     public IReadOnlyList<AssistantAttachment> Attachments { get; init; } = [];
     public string? PreviewDataUrl { get; init; }
+    public IReadOnlyList<AssistantToolDefinition> Tools { get; init; } = [];
+    public IReadOnlyList<AssistantToolMessage> ToolMessages { get; init; } = [];
 }
-public sealed record AssistantPlan(string Summary, string Script);
+public sealed record AssistantToolDefinition(string Name, string Description, JsonElement Parameters);
+public sealed record AssistantToolCall(string Id, string Name, JsonElement Arguments);
+public sealed record AssistantToolMessage(string Role, string Text, string? CallId = null, IReadOnlyList<AssistantToolCall>? Calls = null);
+public sealed record AssistantPlan(string Summary, string Script)
+{
+    public IReadOnlyList<AssistantToolCall> Calls { get; init; } = [];
+}
 
 public interface IAssistantProvider
 {
     string Id { get; }
+    bool SupportsTools => false;
     Task<AssistantPlan> PlanAsync(AssistantRequest request, CancellationToken cancellationToken = default);
 }
 public interface IScriptRuntime { string Language { get; } }

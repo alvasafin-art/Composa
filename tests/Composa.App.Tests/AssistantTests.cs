@@ -18,6 +18,27 @@ namespace Composa.App.Tests;
 public class AssistantTests
 {
     [Fact]
+    public async Task API_tools_use_standard_tool_calls_and_preserve_results_in_the_next_request()
+    {
+        JsonElement payload=default;
+        using var client=new HttpClient(new ApiHandler(async request=>
+        {
+            using var sent=JsonDocument.Parse(await request.Content!.ReadAsStringAsync()); payload=sent.RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content=new StringContent("""{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call2","type":"function","function":{"name":"get_document","arguments":"{}"}}]}}]}""") };
+        }));
+        var provider=new ChatCompletionAssistantProvider(new Settings { AssistantProvider="api",AssistantApiUrl="https://example.test/v1",AssistantApiModel="any-model",AssistantJsonResponse=true },transport:client);
+        var parameters=JsonSerializer.SerializeToElement(new { type="object",properties=new { } });
+        var plan=await provider.PlanAsync(new AssistantRequest("Edit", "{}", "") {
+            Tools=[new AssistantToolDefinition("get_document","Read the document",parameters)],
+            ToolMessages=[new("assistant","",Calls:[new("call1","get_document",parameters)]),new("tool","Actual document","call1")]
+        },TestContext.Current.CancellationToken);
+        Assert.Equal("get_document",Assert.Single(plan.Calls).Name);
+        Assert.Equal("function",payload.GetProperty("tools")[0].GetProperty("type").GetString());
+        Assert.False(payload.TryGetProperty("response_format",out _)); Assert.False(payload.GetProperty("parallel_tool_calls").GetBoolean());
+        var messages=payload.GetProperty("messages"); Assert.Equal("tool",messages[messages.GetArrayLength()-1].GetProperty("role").GetString());
+        Assert.Equal("call1",messages[messages.GetArrayLength()-1].GetProperty("tool_call_id").GetString());
+    }
+    [Fact]
     public async Task API_provider_sends_history_and_attached_script_without_local_server_contract()
     {
         JsonElement payload = default;
@@ -222,7 +243,7 @@ public class AssistantTests
         {
             var before = owner.Session!.History.Count;
             await chat.SendAsync("создай новый слой и на нем нарисуй голубой прямоугольник");
-            Assert.Contains(conversation.Entries, entry => entry.Outcome?.StartsWith("Applied.") == true);
+            Assert.Contains(conversation.Entries, entry => entry.Outcome?.StartsWith("Applied") == true);
             Assert.Equal(before + 1, owner.Session.History.Count);
             var rectangle = Assert.Single(owner.Session.Document.AllLayers(), layer => layer.Shape != null);
             var color = new SKColor(rectangle.Shape!.Fill); Assert.True(color.Blue > color.Red && color.Green > color.Red);

@@ -84,11 +84,15 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap? PreprocessedImage { get; init; }
     public SKBitmap? PreprocessedMask { get; init; }
     public SKBitmap? OutputMask { get; init; }
+    /// <summary>Conservative support for a workflow's grow and blur; not an additional feather pass.</summary>
+    public int TransitionMargin { get; init; }
     public SKBitmap? ReferenceImage { get; init; }
     public IReadOnlyList<SKBitmap> ReferenceImages { get; init; } = [];
     public int CanvasWidth { get; init; }
     public int CanvasHeight { get; init; }
     public SKRectI TargetBounds { get; init; }
+    /// <summary>Upscale sees a halo around the selection; only TargetBounds is placed back.</summary>
+    public SKRectI? UpscaleSourceBounds { get; init; }
     public SKRectI? ExpansionBounds { get; init; }
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
@@ -159,8 +163,11 @@ public static class AiTaskInputPreparer
         var background = request.Task == AiTaskKind.ChangeBackground && selection != null ? Invert(selection) : null;
         var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.Upscale
             ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
-        var source = request.Task == AiTaskKind.Upscale && session.Selection != null && !target.IsEmpty
-            ? Crop(flattened, target) : flattened;
+        SKRectI? upscaleBounds = request.Task == AiTaskKind.Upscale && session.Selection != null && !target.IsEmpty
+            ? SKRectI.Intersect(session.Document.Bounds,new SKRectI(target.Left-32,target.Top-32,target.Right+32,target.Bottom+32)) : null;
+        // Convolution/attention upscalers need surrounding pixels at the patch edge,
+        // just as ComfyUI's tiled upscale uses overlap. Do not expose artificial crop borders.
+        var source = upscaleBounds is { } area ? Crop(flattened, area) : flattened;
         if (!ReferenceEquals(source, flattened)) flattened.Dispose();
         var alpha = session.ActiveLayer is { Pixels: not null } layer ? SelectionMask.FromLayer(session.Document, layer, fromMask: false) : null;
         SKBitmap? preprocessed = null, preprocessedMask = null;
@@ -187,11 +194,14 @@ public static class AiTaskInputPreparer
             PreprocessedMask = preprocessedMask,
             OutputMask = request.Task == AiTaskKind.RemoveObject && preprocessedMask != null
                 ? RemovalOutputMask(preprocessedMask, request.Settings) : null,
+            TransitionMargin = (request.Task == AiTaskKind.GenerativeFill ? 0 : request.Settings.Values.TryGetValue("maskGrow", out var grow) ? Math.Clamp(Convert.ToInt32(grow), 0, 512) : 8)
+                + 4 * (request.Settings.Values.TryGetValue("maskBlend", out var blend) ? Math.Clamp(Convert.ToInt32(blend), 0, 512) : 32),
             ReferenceImage = references.FirstOrDefault(),
             ReferenceImages = references,
             CanvasWidth = request.Settings.Width > 0 ? request.Settings.Width : session.Document.Width,
             CanvasHeight = request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
             TargetBounds = target,
+            UpscaleSourceBounds = upscaleBounds,
             ExpansionBounds = request.ExpansionBounds,
             Prompt = TaskPrompt(request.Task, request.Prompt),
             NegativePrompt = TaskNegativePrompt(request.Task, request.NegativePrompt),
@@ -247,7 +257,7 @@ public static class AiTaskInputPreparer
 
     private static string RemovePrompt(string guidance)
     {
-        const string instruction = "Remove the black patch from this image. Fill the black area completely with the missing background inferred from the surrounding content. There is no object in this area: continue the background, lines and patterns naturally. Match exposure, white balance, color, focus, sharpness, texture, grain and noise. Leave no black or gray patch and no new object.";
+        const string instruction = "Remove the black patch from this image and reconstruct ONLY the empty background behind it, using the surrounding content as context. The black area is missing background, NOT an object to preserve or redraw. Erase the original foreground subject and its silhouette completely. Do not retain, recreate or introduce a person, animal, object, dark shape, ghost or outline in this area. Continue the surrounding background, lines and patterns through the missing region naturally. Match exposure, white balance, color, focus, sharpness, texture, grain and noise. Leave no black or gray patch and no new foreground subject.";
         return string.IsNullOrWhiteSpace(guidance) ? instruction : $"{instruction} Additional guidance: {guidance.Trim()}";
     }
 

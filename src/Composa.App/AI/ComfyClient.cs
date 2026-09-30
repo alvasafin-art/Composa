@@ -189,6 +189,7 @@ public sealed class ComfyClient : IDisposable
     {
         var nodes = new HashSet<string>(StringComparer.Ordinal);
         var assets = new Dictionary<EngineAssetKind, HashSet<string>>();
+        var modelChoices = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         if (root.ValueKind != JsonValueKind.Object) return new() { NodeTypes = nodes, Assets = assets };
         foreach (var node in root.EnumerateObject())
         {
@@ -208,11 +209,14 @@ public sealed class ComfyClient : IDisposable
                         && entry.Value[1].TryGetProperty("options", out var options)) choices = options;
                     if (choices.ValueKind != JsonValueKind.Array) continue;
                     if (!assets.TryGetValue(kind, out var names)) assets[kind] = names = new(StringComparer.OrdinalIgnoreCase);
-                    foreach (var choice in choices.EnumerateArray()) if (choice.ValueKind == JsonValueKind.String && choice.GetString() is { } name) names.Add(name);
+                    var loaderNames = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var choice in choices.EnumerateArray()) if (choice.ValueKind == JsonValueKind.String && choice.GetString() is { } name)
+                    { names.Add(name); loaderNames.Add(name); }
+                    modelChoices[node.Name + "." + entry.Name] = loaderNames;
                 }
             }
         }
-        return new() { NodeTypes = nodes, Assets = assets };
+        return new() { NodeTypes = nodes, Assets = assets, ModelChoices = modelChoices };
     }
 
     private static bool AssetKind(string input, string node, out EngineAssetKind kind)

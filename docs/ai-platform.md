@@ -12,20 +12,22 @@ The bundled FLUX.2 Klein Engine Pack provides the first production workflows. Wi
 
 ## Editing behavior
 
-- AI results arrive as new layers. Fill retains the original selection mask; removal retains an expanded blend mask so the stitch transition is not clipped away.
+- AI results arrive as new layers. The ordinary document selection is unchanged. For already-stitched workflows, the layer's coverage mask reveals changed pixels without applying the soft selection a second time; the smooth transition is already in the returned pixels. Raw-patch workflows continue using the selection/output mask.
 - Inserting all parts of one result is one undo history step; original pixels are not changed.
-- **Remove Object** is a separate task. Composa expands and feathers the selection, replaces the target with black, and asks the model to reconstruct it from the surrounding visual context. It does not require an object-specific prompt.
+- **Remove Object** is a separate task. The bundled workflow creates a black patch for model conditioning and asks the model to reconstruct the background from surrounding content. Grow/blend are performed once in the workflow. Its stitcher blends against the untouched original context, not against the blackened conditioning image. It does not require an object-specific prompt.
 - **Change Background** treats the selection as the protected subject. Without a selection it first selects the subject automatically. A separate workflow generates the complete background scene without redrawing the subject. Results are an editable group with the generated background and untouched original subject on top; automatic selection and replacement undo together.
 - **Mask context** controls how far the inpaint crop extends beyond the selection (2× by default), so the model sees enough of the surrounding image to rebuild edges and background. Mask Grow and Mask Blend remain independently configurable.
-- **Upscale** enlarges the document only when there is no selection. With a selection it sends only that patch to ComfyUI, fits the enhanced result back into the original bounds, and inserts it as a masked layer without changing the canvas size.
+- **Upscale** enlarges the document only when there is no selection. With a selection it sends that patch plus a 32-pixel context halo to avoid artificial model boundaries. The enhanced context is fitted back, cropped to the exact original selection bounds and inserted with the original mask; the canvas stays unchanged.
 - Segmentation output becomes the normal document selection, not a parallel AI selection type.
-- The **Selection Brush** paints that same selection mask. Shift adds and Alt subtracts.
+- The **Selection Brush** paints that same selection mask. Shift adds and Alt subtracts. It shares the Lasso group, has a dashed selection-contour icon and retains its Q shortcut.
 
 ## Engine Packs and task bindings
 
 An Engine Profile describes a complete compatible pipeline: workflows, task bindings, required node types and model assets, supported parameters, LoRA rules, semantic inputs, output nodes, and version compatibility. Weights stay on the ComfyUI server.
 
 Tasks are stable editor concepts; bindings are explicit and versioned. Several tasks may reference one workflow. Semantic inputs such as `prompt`, `sourceImage`, `selectionMask`, `referenceImage1`…`referenceImage6`, `upscaleModel`, and `preprocessedImage` map to exact node ids and input keys, so editor code contains no Flux/Qwen-specific node ids and never searches node display names. See [`ai/engines/README.md`](../ai/engines/README.md) for the manifest shape.
+
+Execution validates the actual bound workflow and its selected loader/model choices. An upscaler does not require unrelated segmentation or diffusion models from the same pack. See [AI diagnostics](ai-diagnostics.md) for the mask, alignment and finishing issues addressed and the remaining model-quality limits.
 
 ## Layer tags and automation foundation
 

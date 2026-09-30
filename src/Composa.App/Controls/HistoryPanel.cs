@@ -181,6 +181,8 @@ public sealed class HistoryPanel : UserControl
         "Elliptical Marquee" => Icons.MarqueeEllipse,
         "Lasso" => Icons.Lasso,
         "Magic Wand" => Icons.Wand,
+        "Selection Brush" => Icons.SelectionBrush,
+        "Assistant edit" or "Run Script" => Icons.Effects,
         "Object Selection" or "Select Subject" => Icons.ObjectSelect,
         "Move Selection Pixels" or "Duplicate Selection" => Icons.Move,
         "Deselect" or "Color Range" => Icons.Marquee,

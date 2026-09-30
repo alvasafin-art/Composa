@@ -113,6 +113,7 @@ public sealed partial class ComposaTools
             _ => throw new McpException("kind is rectangle, rounded or ellipse; a line is added with add_line.")
         };
         if (width < 1 || height < 1) throw new McpException("The width and height must be at least 1 px.");
+        CheckRasterAllocation(s,width,height);
         var layer = s.AddShape(new ShapeStyle(shapeKind, (uint)ParseColor(color), Math.Max(0, cornerRadius)), SKRect.Create((float)x, (float)y, (float)width, (float)height))
                     ?? throw new McpException($"That shape is too large: a shape covers at most {DocumentLimits.MaxSurfaceMegapixels} megapixels.");
         return $"Added {ShapeStyle.DisplayName(shapeKind).ToLowerInvariant()} \"{layer.Name}\" at {x:0},{y:0} size {width:0}×{height:0}, now active.";
@@ -128,6 +129,7 @@ public sealed partial class ComposaTools
     {
         var s = Editable(document);
         if (width < 1) throw new McpException("The width must be at least 1 px.");
+        CheckRasterAllocation(s,Math.Abs(x2-x1)+width,Math.Abs(y2-y1)+width);
         var layer = s.AddLine(new SKPoint((float)x1, (float)y1), new SKPoint((float)x2, (float)y2), ParseColor(color), width)
                     ?? throw new McpException("The two ends are the same point, or too far apart for one layer.");
         return $"Added line \"{layer.Name}\" from {x1:0},{y1:0} to {x2:0},{y2:0}, now active.";

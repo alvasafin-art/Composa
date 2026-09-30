@@ -19,6 +19,8 @@ public static class Icons
     public static readonly Icon Wand = new("M4 20 L13.5 10.5", "M17 2 L18.3 5.7 L22 7 L18.3 8.3 L17 12 L15.7 8.3 L12 7 L15.7 5.7 Z M7 3 L7.7 5.3 L10 6 L7.7 6.7 L7 9 L6.3 6.7 L4 6 L6.3 5.3 Z");
     public static readonly Icon Crop = new("M6.5 2 V17.5 H22 M2 6.5 H17.5 V22");
     public static readonly Icon Brush = new(null, "M20.5 2.5 C21.5 3.5 21.5 4.5 20.5 5.5 L11.5 15.5 L8.5 12.5 L18.5 3.5 C19.2 2.2 19.8 1.8 20.5 2.5 Z M7.5 13.8 L10.2 16.5 C10.5 20 7 21.5 2.5 21 C4.5 19.5 4 17.5 4.8 15.8 C5.4 14.5 6.4 13.9 7.5 13.8 Z");
+    // A dashed selection contour around the brush tip, not the painting brush silhouette alone.
+    public static readonly Icon SelectionBrush = new("M8 10 A6 6 0 1 1 8 22 A6 6 0 1 1 8 10 Z", "M20 2 L22 4 L12 15 L9 12 Z M8 13 L11 16 C10 19 7 19 5 19 C7 17 6 15 8 13 Z", true);
     public static readonly Icon Eraser = new("M9 20 L3.5 14.5 L13.5 4.5 L20.5 11.5 L12 20 Z M9 20 H21 M8 10 L15 17");
     public static readonly Icon Heal = new("M3.8 14.2 L14.2 3.8 A4.2 4.2 0 0 1 20.2 9.8 L9.8 20.2 A4.2 4.2 0 0 1 3.8 14.2 Z M8.5 9.5 L14.5 15.5 M9.5 8.5 L15.5 14.5", "M11.2 12 A0.8 0.8 0 1 1 12.8 12 A0.8 0.8 0 1 1 11.2 12 Z");
     public static readonly Icon Stamp = new(null, "M9.5 2.5 H14.5 C15.5 5 14 7.5 14 10.5 H19 C20 10.5 20.5 11 20.5 12 V15.5 H3.5 V12 C3.5 11 4 10.5 5 10.5 H10 C10 7.5 8.5 5 9.5 2.5 Z M4 17.5 H20 V21 H4 Z");

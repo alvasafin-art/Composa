@@ -2,19 +2,21 @@
 
 Open **Assistant** in the tool-options row or **AI > Assistant**. Type a question or describe an edit and press **Send** (Enter; Shift+Enter adds a line). The conversation survives closing/reopening the window during the same application session. **New chat** clears it; conversations are not written to disk.
 
-The assistant can answer without changing the document. Requested edits are applied as one Undo step by default. Disable **Apply requested edits** to review the generated script and choose **Apply edit** yourself. Editing responses expose an expandable script, **Save script**, **Save to Library**, **Edit Script** and **Copy**. Library scripts appear in the Scripts menu and can receive shortcuts. **Stop** cancels generation/execution; failed document changes roll back.
+The assistant can answer without changing the document. With **Apply requested edits** enabled, the chat is a native tool-using agent: it reads document structure, performs real editing commands, receives the actual resulting state and continues with the next requested action. Shapes, existing text, layer transforms, groups and masks have direct typed tools. The remaining painting, selection, adjustment and filter commands are discovered from the same schemas as Composa's MCP server. Complex batches can use the constrained scripting API, and AI operations use the configured ComfyUI service.
 
-**Applied** is shown only after actual editor execution succeeds. On automatic application failure, the failed response is replaced with the actual rollback/error, and the assistant gets one repair attempt using that error and the current scripting contract. A second failure stops; no endless retries or false success messages. Manual review/application does not silently send another model request.
+Each requested edit is one Undo step, even when it uses several native commands and scripts. Failed commands restore their own savepoint; the agent receives the real error and can correct it. **Stop**, provider failure, or exceeding 18 model steps / 48 commands rolls back the whole pending edit. **Applied** requires an actual document change, not just an assistant's claim. Expand **Operations** to inspect calls, results and errors. The agent is scoped to the document where the request started, and full layer ids distinguish duplicate names inside folders.
+
+Disable **Apply requested edits** for the legacy script-review flow: **Apply edit**, **Save script**, **Save to Library**, **Edit Script** and **Copy**. Library scripts appear in the Scripts menu and can receive shortcuts. This flow retains one automatic script-repair attempt; manually applying a script does not silently request another model response.
 
 ## Attachments and context
 
 Use **Attach** or drag files into the chat. Up to six files can accompany a message; × removes unwanted attachments. Supported files include `.js`, `.ts`, `.txt`, `.md`, `.json`, `.csv`, `.yaml`, `.yml`, `.svg`, PNG, JPEG, WebP and BMP. Text files are limited to 256 KB. A script is sent as data, not executed simply because it was attached: explicitly ask to explain, adapt or run it.
 
-`doc.addAttachedImage(index)` imports an explicitly attached image. The index is zero-based across all attachments in the current message. No arbitrary filesystem-reading API is exposed.
+`import_attachment` / `doc.addAttachedImage(index)` imports an explicitly attached image. `read_attachment` pages through text/script attachments when the initial prompt had to truncate them. Indices are zero-based across all attachments in the current message. No arbitrary filesystem-reading API is exposed.
 
 Each request includes current document geometry, layer hierarchy, names, types, tags, text and transforms, plus the current scripting contract. Document context is bounded to 160 layers and 500 characters per text layer. Chat context includes up to 20 recent messages within 24,000 characters; individual messages are bounded to 8,000 and attachment text to 12,000 characters. Local requests reduce these limits to fit the configured context, reserving space for output and prioritizing current files over older messages. Truncation is marked. Text attachment context remains in subsequent turns; reattach images to import them in a later turn.
 
-Enable **Send document preview and attached images** only for a model that supports vision. Images sent to the model have a maximum side of 1024 pixels; importing uses the original file. Without vision the assistant can import images but cannot inspect their pixels.
+Enable **Send document preview and attached images** only for a server/model configured for vision. Images sent to the model have a maximum side of 1024 pixels; importing uses the original file. The preview is refreshed after edits. Without vision the agent can inspect numerical pixel colors and traced edges via native tools, but cannot visually recognize image contents.
 
 ## Providers
 
@@ -25,7 +27,7 @@ The ⚙ menu selects the provider:
 
 An entered key remains only for the current application session and is never serialized. For a persistent credential, name an environment variable (default `COMPOSA_ASSISTANT_API_KEY`). JSON response format is opt-in for remote providers; ordinary text replies and fenced JavaScript fallbacks are also accepted.
 
-Remote providers receive document context, chat and attachment text. Images are sent only when vision is enabled. Model weights are never uploaded.
+Automatic native editing requires a provider supporting standard chat-completions `tools` / `tool_calls`. Its actual operation results are returned as `tool` messages. Local llama.cpp uses its Jinja tool template; remote APIs do not need a local health/startup contract. Remote providers receive document context, chat and attachment text. Images are sent only when vision is enabled. Model weights are never uploaded.
 
 ## Execution safety
 

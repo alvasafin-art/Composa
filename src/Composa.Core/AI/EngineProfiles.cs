@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Composa.AI;
@@ -72,6 +73,8 @@ public sealed record EngineTaskBinding
     /// <summary>Named deterministic preprocessing pipeline, for example <c>remove-object</c>.</summary>
     public string? Preprocess { get; init; }
     public AiOutputMode OutputMode { get; init; } = AiOutputMode.NewLayer;
+    /// <summary>The workflow already stitched/blended its result against the input canvas. Do not apply the selection's alpha a second time.</summary>
+    public bool OutputIsComposited { get; init; }
     /// <summary>Semantic input name to an explicit ComfyUI node id and input key.</summary>
     public Dictionary<string, WorkflowTarget> Inputs { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -172,6 +175,8 @@ public sealed record ComfyServerCapabilities
     public string? Version { get; init; }
     public HashSet<string> NodeTypes { get; init; } = new(StringComparer.Ordinal);
     public Dictionary<EngineAssetKind, HashSet<string>> Assets { get; init; } = [];
+    /// <summary>Exact choice lists for each model loader input, as reported by object_info.</summary>
+    public Dictionary<string, HashSet<string>> ModelChoices { get; init; } = new(StringComparer.Ordinal);
 
     public bool Has(EngineAssetRequirement requirement) =>
         Assets.TryGetValue(requirement.Kind, out var names) && names.Contains(requirement.Name);
@@ -179,6 +184,22 @@ public sealed record ComfyServerCapabilities
 
 public sealed record EngineCompatibility(bool IsCompatible, IReadOnlyList<string> Missing)
 {
+    public static EngineCompatibility CheckWorkflow(JsonObject graph, ComfyServerCapabilities server)
+    {
+        var missing = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (_, value) in graph)
+        {
+            if (value is not JsonObject node || node["class_type"]?.GetValue<string>() is not { } type) continue;
+            if (!server.NodeTypes.Contains(type)) missing.Add("node " + type);
+            if (node["inputs"] is not JsonObject inputs) continue;
+            foreach (var (name, input) in inputs)
+                if (server.ModelChoices.TryGetValue(type + "." + name, out var choices)
+                    && input is JsonValue scalar && scalar.TryGetValue<string>(out var selected) && !choices.Contains(selected))
+                    missing.Add($"model {selected} ({type}.{name})");
+        }
+        return new(missing.Count == 0, missing.Order().ToArray());
+    }
+
     public static EngineCompatibility Check(EngineProfile profile, ComfyServerCapabilities server)
     {
         var missing = new List<string>();

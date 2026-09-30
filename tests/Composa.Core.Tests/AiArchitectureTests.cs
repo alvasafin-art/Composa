@@ -12,6 +12,43 @@ namespace Composa.Core.Tests;
 
 public class AiArchitectureTests
 {
+    [Fact]
+    public void Stitched_result_does_not_fill_transparent_pixels_outside_transition_support()
+    {
+        using var context=Pixels.NewColor(20,16); using var generated=Pixels.NewColor(20,16); generated.Erase(SKColors.White);
+        using var support=SelectionMask.FromRect(20,16,new SKRect(6,5,12,11));
+        using var mask=AiResultPostprocessor.CompositedMask(generated,context,support);
+        Assert.Equal(0,mask.GetPixel(0,0).Alpha); Assert.Equal(255,mask.GetPixel(8,8).Alpha);
+    }
+
+    [Fact]
+    public void Comfy_alpha_loss_is_not_mistaken_for_a_background_edit()
+    {
+        using var context=Pixels.NewColor(20,16);
+        context.SetPixel(0,0,new SKColor(100,80,60,128)); Pixels.Invalidate(context);
+        using var result=Pixels.NewColor(20,16); result.Erase(SKColors.Black);
+        result.SetPixel(0,0,new SKColor(100,80,60)); Pixels.Invalidate(result);
+        using var support=Pixels.NewMask(20,16,255);
+        using var selection=SelectionMask.FromRect(20,16,new SKRect(6,5,12,11));
+        using var mask=AiResultPostprocessor.CompositedMask(result,context,support,selection);
+        Assert.Equal(0,mask.GetPixel(0,0).Alpha); Assert.Equal(0,mask.GetPixel(19,15).Alpha);
+        Assert.Equal(255,mask.GetPixel(8,8).Alpha);
+    }
+
+    [Fact]
+    public void Removal_color_matching_preserves_premultiplied_alpha()
+    {
+        using var context=Pixels.NewColor(20,16); context.Erase(new SKColor(230,200,180,80));
+        using var generated=Pixels.NewColor(20,16); generated.Erase(new SKColor(190,180,160,80));
+        using var mask=SelectionMask.FromRect(20,16,new SKRect(6,5,12,11));
+        using var matched=AiResultPostprocessor.MatchRemoval(generated,context,mask,1);
+        var bytes=matched.GetPixelSpan();
+        for (var y=0;y<matched.Height;y++) for (var x=0;x<matched.Width;x++)
+        {
+            var offset=y*matched.RowBytes+x*4;
+            Assert.Equal(80,bytes[offset+3]); Assert.True(bytes[offset]<=80 && bytes[offset+1]<=80 && bytes[offset+2]<=80);
+        }
+    }
     private const string Manifest = """
     {
       "id": "test-engine",
@@ -155,14 +192,15 @@ public class AiArchitectureTests
     }
 
     [Fact]
-    public void Upscale_with_selection_sends_only_the_selected_patch()
+    public void Upscale_with_selection_sends_context_but_retains_exact_insertion_bounds()
     {
         var session = EditorSession.NewCanvas(20, 16, SKColors.CornflowerBlue);
         session.SelectRect(new SKRect(4, 3, 10, 9));
 
         using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.Upscale });
 
-        Assert.Equal((6, 6), (inputs.SourceImage.Width, inputs.SourceImage.Height));
+        Assert.Equal((20, 16), (inputs.SourceImage.Width, inputs.SourceImage.Height));
+        Assert.Equal(session.Document.Bounds,inputs.UpscaleSourceBounds);
         Assert.Equal((20, 16), (inputs.ContextImage.Width, inputs.ContextImage.Height));
         Assert.Equal(new SKRectI(4, 3, 10, 9), inputs.TargetBounds);
     }
@@ -402,5 +440,29 @@ public class AiArchitectureTests
         Assert.Equal("Assistant edit", session.History.UndoName);
         session.Undo();
         Assert.Single(session.Document.Layers);
+    }
+
+    [Fact]
+    public void Automation_transform_does_not_fold_previous_user_history()
+    {
+        var session = EditorSession.NewCanvas(8, 8);
+        var original = session.ActiveLayer!;
+        session.SetTransform(original, original.Transform with { X = 1 });
+        session.AddBlankLayer(); // Inspector's last edit is now one revision behind.
+        var entries = session.History.Count;
+
+        session.RunTransaction("Assistant edit", editor =>
+            editor.SetTransform(original, original.Transform with { X = 3 }));
+
+        Assert.Equal(entries + 1, session.History.Count);
+        Assert.Equal("Assistant edit", session.History.UndoName);
+        session.Undo();
+        Assert.Equal(2, session.Document.Layers.Count);
+        Assert.Equal(1, session.Document.Layers[0].Transform.X);
+        session.Undo();
+        Assert.Single(session.Document.Layers);
+        Assert.Equal(1, session.ActiveLayer!.Transform.X);
+        session.Undo();
+        Assert.Equal(0, session.ActiveLayer!.Transform.X);
     }
 }

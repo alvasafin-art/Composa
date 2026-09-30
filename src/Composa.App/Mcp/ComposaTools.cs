@@ -8,6 +8,7 @@ using Composa.IO.Psd;
 using Composa.Model;
 using Composa.Rendering;
 using Composa.Selections;
+using Composa.Text;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -20,7 +21,7 @@ namespace Composa.App.Mcp;
 /// agent does is one undoable step, refreshes the window through the session's events and can be taken back with
 /// Ctrl+Z like anything else. Documents are addressed by their tab number, the way <c>list_documents</c> reports them.
 /// </summary>
-public sealed partial class ComposaTools(MainWindow window)
+public sealed partial class ComposaTools(MainWindow window, EditorSession? automationSession = null)
 {
     public McpServerPrimitiveCollection<McpServerTool> Collection()
     {
@@ -158,6 +159,7 @@ public sealed partial class ComposaTools(MainWindow window)
         int? document = null) => OnUi(() =>
     {
         var s = Editable(document);
+        CheckRasterAllocation(s,s.Document.Width,s.Document.Height);
         var layer = s.AddBlankLayer();
         if (!string.IsNullOrWhiteSpace(name)) s.Rename(layer, name.Trim());
         return $"Added layer \"{layer.Name}\", now active.";
@@ -196,6 +198,8 @@ public sealed partial class ComposaTools(MainWindow window)
             Text = text, Size = size, Color = (uint)ParseColor(color), Bold = bold, Italic = italic,
             FontFamily = string.IsNullOrWhiteSpace(font) ? s.TextDefaults.FontFamily : font.Trim()
         };
+        var layout = new TextLayout(style);
+        CheckRasterAllocation(s,layout.Width,layout.Height);
         var layer = s.AddText(new SKPoint((float)x, (float)y), style);
         return $"Added text layer \"{layer.Name}\" at {x:0},{y:0}, now active.";
     });
@@ -307,9 +311,11 @@ public sealed partial class ComposaTools(MainWindow window)
         if (document is { } number)
         {
             if (number < 1 || number > sessions.Count) throw new McpException($"There is no document {number}; list_documents shows {sessions.Count}.");
-            return sessions[number - 1];
+            var requested = sessions[number - 1];
+            if (automationSession != null && requested != automationSession) throw new McpException("This Assistant run is scoped to its original document.");
+            return requested;
         }
-        return window.Session ?? sessions[0];
+        return automationSession ?? window.Session ?? sessions[0];
     }
 
     /// <summary>A session ready for an edit: not mid-drag, and with any text being typed committed first, as a menu command would.</summary>
@@ -318,10 +324,18 @@ public sealed partial class ComposaTools(MainWindow window)
         if (window.IsDragging) throw new McpException("The person is dragging on the canvas; try again in a moment.");
         var s = Session(document);
         if (s.IsEditingText) s.FinishText();
-        if (s.IsInteracting) throw new McpException("An edit is still open in the window; try again in a moment.");
+        if (s.IsInteracting && !ReferenceEquals(automationSession, s)) throw new McpException("An edit is still open in the window; try again in a moment.");
         return s;
     }
 
     private static SKColor ParseColor(string color) =>
         SKColor.TryParse(color, out var parsed) ? parsed : throw new McpException($"\"{color}\" is not a color; use #rrggbb or #aarrggbb.");
+
+    private static void CheckRasterAllocation(EditorSession s, double width, double height, long replacedPixels = 0)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || !DocumentLimits.FitsSurface((long)Math.Ceiling(width),(long)Math.Ceiling(height)))
+            throw new McpException($"A surface is limited to {DocumentLimits.MaxSide}px / {DocumentLimits.MaxSurfaceMegapixels} MP.");
+        if (s.Document.RasterPixels()-replacedPixels+(long)Math.Ceiling(width)*(long)Math.Ceiling(height)>DocumentLimits.DocumentPixelBudget)
+            throw new McpException($"The document raster budget is {DocumentLimits.DocumentBudgetMegapixels} MP. Reduce the edit size.");
+    }
 }

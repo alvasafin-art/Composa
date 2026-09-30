@@ -89,8 +89,6 @@ public sealed class AiTaskService : IAiTaskRunner
         }
         if (SelectedEngine is not { } engine) throw new InvalidOperationException("Install and select an Engine Pack first.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
-        if (ServerCapabilities is { } capabilities && !EngineCompatibility.Check(engine, capabilities).IsCompatible)
-            throw new InvalidOperationException(CompatibilityMessage(engine, EngineCompatibility.Check(engine, capabilities)));
         var workflow = engine.Workflow(binding.Workflow);
         var path = Path.GetFullPath(Path.Combine(Engines.DirectoryOf(engine), workflow.File));
         var engineDirectory = Path.GetFullPath(Engines.DirectoryOf(engine)) + Path.DirectorySeparatorChar;
@@ -106,7 +104,11 @@ public sealed class AiTaskService : IAiTaskRunner
         StateChanged?.Invoke();
         try
         {
-            using var inputs = AiTaskInputPreparer.Prepare(editor.Session, request);
+            // The bundled stitched removal workflow handles mask growth and its black patch itself.
+            // Feeding an already grown/feathered mask into it would grow and blur the selection twice.
+            var preparedRequest = request.Task == AiTaskKind.RemoveObject && binding.Preprocess == "remove-object-in-workflow"
+                ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
+            using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
             using var client = Client();
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (semantic, bitmap) in inputs.Images())
@@ -118,6 +120,8 @@ public sealed class AiTaskService : IAiTaskRunner
             foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
             if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
             var bound = WorkflowBinder.Bind(graph, binding, values);
+            if (ServerCapabilities is { } capabilities && EngineCompatibility.CheckWorkflow(bound, capabilities) is { IsCompatible: false } compatibility)
+                throw new InvalidOperationException(CompatibilityMessage(engine, compatibility));
             var progress = new Progress<AiOperationState>(state => { Operation = state; StateChanged?.Invoke(); });
             var result = await client.ExecuteAsync(bound, progress, linked.Token);
             var references = workflow.OutputNodes.Count == 0 ? result.Images : result.Images.Where(image => image.NodeId != null && workflow.OutputNodes.Contains(image.NodeId)).ToList();
@@ -126,14 +130,14 @@ public sealed class AiTaskService : IAiTaskRunner
             try
             {
                 foreach (var reference in references) images.Add(await client.DownloadAsync(reference, linked.Token));
-                if (request.Task == AiTaskKind.RemoveObject && inputs.SelectionMask != null)
+                if (!binding.OutputIsComposited && request.Task == AiTaskKind.RemoveObject && inputs.SelectionMask != null)
                     for (var index = 0; index < images.Count; index++)
                     {
                         var matched = AiResultPostprocessor.MatchRemoval(images[index], inputs.ContextImage, inputs.SelectionMask, inputs.Seed);
                         images[index].Dispose();
                         images[index] = matched;
                     }
-                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs);
+                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited);
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed" };
                 StateChanged?.Invoke();
             }
@@ -174,7 +178,7 @@ public sealed class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false)
     {
         var session = editor.Session;
         if (mode == AiOutputMode.Selection)
@@ -190,9 +194,16 @@ public sealed class AiTaskService : IAiTaskRunner
             {
                 var upscaleOutputs = images.Select((image, index) =>
                 {
-                    var fitted = image.Width == targetBounds.Width && image.Height == targetBounds.Height
-                        ? image : Resize(image, targetBounds.Width, targetBounds.Height);
+                    var sourceBounds = inputs?.UpscaleSourceBounds ?? targetBounds;
+                    var fitted = image.Width == sourceBounds.Width && image.Height == sourceBounds.Height
+                        ? image : Resize(image, sourceBounds.Width, sourceBounds.Height);
                     if (!ReferenceEquals(fitted, image)) image.Dispose();
+                    if (sourceBounds != targetBounds)
+                    {
+                        var patch = Pixels.NewColor(targetBounds.Width,targetBounds.Height);
+                        using (var canvas = new SKCanvas(patch)) canvas.DrawImage(Pixels.ImageOf(fitted),sourceBounds.Left-targetBounds.Left,sourceBounds.Top-targetBounds.Top);
+                        fitted.Dispose(); fitted=patch;
+                    }
                     var mask = MaskForBounds(selection, targetBounds, targetBounds.Width, targetBounds.Height);
                     return new AiOutput(images.Count == 1 ? "AI Upscale Selection" : $"AI Upscale Selection {index + 1}", fitted, mask,
                         Bounds: new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom));
@@ -228,7 +239,15 @@ public sealed class AiTaskService : IAiTaskRunner
             var documentSized = image.Width == session.Document.Width && image.Height == session.Document.Height;
             var selection = inputs?.OutputMask ?? inputs?.SelectionMask ?? session.Selection;
             if (mode == AiOutputMode.NewLayerWithMask && selection != null)
-                mask = documentSized ? Pixels.Clone(selection) : MaskForBounds(selection, targetBounds, image.Width, image.Height);
+            {
+                if (outputIsComposited)
+                {
+                    if (!documentSized || inputs == null) throw new InvalidDataException("A stitched workflow must return the original canvas dimensions. Refusing to stretch a cropped result over the selection.");
+                    using var support = SelectionMask.Expand(inputs.PreprocessedMask ?? inputs.SelectionMask!, inputs.TransitionMargin);
+                    mask = AiResultPostprocessor.CompositedMask(image, inputs.ContextImage, support, inputs.SelectionMask);
+                }
+                else mask = documentSized ? Pixels.Clone(selection) : MaskForBounds(selection, targetBounds, image.Width, image.Height);
+            }
             SKRect? placement = documentSized ? null : new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom);
             return new AiOutput(images.Count == 1 ? "AI " + task.DisplayName() : $"AI {task.DisplayName()} {index + 1}", image, mask, Bounds: placement);
         }).ToList();

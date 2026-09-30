@@ -15,6 +15,123 @@ namespace Composa.App.Tests;
 
 public class AiInfrastructureTests
 {
+    [Fact]
+    public async Task Removal_on_a_real_photo_preserves_canvas_and_unselected_pixels_when_requested()
+    {
+        var url=Environment.GetEnvironmentVariable("COMPOSA_REMOVAL_PHOTO_URL");
+        var path=Environment.GetEnvironmentVariable("COMPOSA_REMOVAL_PHOTO_SOURCE");
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(path)) return;
+        var source=ImageFiles.Load(path); var document=new Document(source.Width,source.Height);
+        var layer=Layer.Raster("Source",source); document.Layers.Add(layer); document.SetActive(layer.Id);
+        var session=new EditorSession(document);
+        // Cover the complete subject, including its ears and silhouette. An ellipse that
+        // misses an ear leaves recognizable subject fragments in the model's context.
+        session.SelectRect(SKRect.Create(source.Width*0.21f,source.Height*0.01f,source.Width*0.69f,source.Height*0.91f));
+        var service=new AiTaskService(()=>url,Path.Combine(AppContext.BaseDirectory,"ai","engines"));
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+        await service.RunAsync(new EditorCommandService(session),new AiTaskRequest { Task=AiTaskKind.RemoveObject,
+            Settings=new AiGenerationSettings { Width=1024,Height=1024,Seed=9,Values=new() { ["maskGrow"]=8,["maskBlend"]=32,["maskContext"]=2.0 } } },TestContext.Current.CancellationToken);
+        using var output=session.Flatten();
+        Assert.Equal((source.Width,source.Height),(output.Width,output.Height)); Assert.Equal(source.GetPixel(0,0),output.GetPixel(0,0));
+        var middle=output.GetPixel(output.Width/2,output.Height/2); Assert.True(middle.Red+middle.Green+middle.Blue>30,"The black patch was not reconstructed.");
+        Directory.CreateDirectory(Screenshots.Folder); ImageFiles.Save(output,Path.Combine(Screenshots.Folder,"current-removal-photo.png"),ExportFormat.Png);
+    }
+    [Fact]
+    public async Task Removal_crop_and_stitch_keep_original_context_and_odd_canvas_when_requested()
+    {
+        var url=Environment.GetEnvironmentVariable("COMPOSA_CROP_TEST_URL");
+        if (string.IsNullOrWhiteSpace(url)) return;
+        var session=EditorSession.NewCanvas(79,61,new SKColor(180,170,160));
+        session.SelectRect(new SKRect(28,22,49,41));
+        using var inputs=AiTaskInputPreparer.Prepare(session,new AiTaskRequest { Task=AiTaskKind.RemoveObject,
+            RemoveObject=new RemoveObjectSettings { Dilation=0,Feather=0 }, Settings=new AiGenerationSettings { Width=128,Height=128 } });
+        var catalog=new EngineCatalog(Path.Combine(AppContext.BaseDirectory,"ai","engines")); var engine=Assert.Single(catalog.Profiles);
+        var binding=engine.Binding(AiTaskKind.RemoveObject)!;
+        var graph=JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine),engine.Workflow(binding.Workflow).File)))!.AsObject();
+        using var client=new ComfyClient(url);
+        var uploads=new Dictionary<string,string>();
+        foreach (var (name,image) in inputs.Images()) if (binding.Inputs.ContainsKey(name)) uploads[name]=await client.UploadPngAsync(name,image,TestContext.Current.CancellationToken);
+        var values=inputs.Values(uploads); values["maskGrow"]=0; values["maskBlend"]=4; values["maskContext"]=2.0;
+        graph=WorkflowBinder.Bind(graph,binding,values);
+        Assert.Equal(uploads["contextImage"],graph["originalSource"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal("originalSource",graph["crop"]!["inputs"]!["image"]![0]!.GetValue<string>());
+        Assert.Equal("blackPatch",graph["sourceEncode"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
+        // Exercise the actual crop/black preconditioning/stitch geometry without model inference.
+        graph["stitch"]!["inputs"]!["inpainted_image"] = new JsonArray("blackPatch",0);
+        var reachable=new HashSet<string>();
+        void Visit(string id)
+        {
+            if (!reachable.Add(id)) return;
+            foreach (var (_,value) in graph[id]!["inputs"]!.AsObject())
+                if (value is JsonArray link && link.Count==2 && link[0] is JsonValue node && node.TryGetValue<string>(out var next) && graph.ContainsKey(next)) Visit(next);
+        }
+        Visit("save"); foreach (var key in graph.Select(node=>node.Key).Where(key=>!reachable.Contains(key)).ToArray()) graph.Remove(key);
+        var execution=await client.ExecuteAsync(graph,cancellationToken:TestContext.Current.CancellationToken);
+        using (execution.History)
+        using (var result=await client.DownloadAsync(Assert.Single(execution.Images),TestContext.Current.CancellationToken))
+        {
+            Assert.Equal((79,61),(result.Width,result.Height));
+            Assert.Equal(inputs.ContextImage.GetPixel(0,0),result.GetPixel(0,0));
+            Assert.True(result.GetPixel(38,31).Red<60,"The model conditioning area must contain a black patch.");
+            using var support=SelectionMask.Expand(inputs.SelectionMask!,24);
+            using var layerMask=AiResultPostprocessor.CompositedMask(result,inputs.ContextImage,support);
+            Assert.Equal(0,layerMask.GetPixel(0,0).Alpha); Assert.Equal(255,layerMask.GetPixel(38,31).Alpha);
+        }
+    }
+
+    [Theory]
+    [InlineData("4x-UltraSharpV2.safetensors")]
+    [InlineData("4x_NMKD-Siax_200k.pth")]
+    public async Task Upscaler_runs_on_a_server_without_any_diffusion_or_segmentation_nodes_when_requested(string model)
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_UPSCALE_TEST_URL");
+        if (string.IsNullOrWhiteSpace(url)) return;
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+        var session = EditorSession.NewCanvas(57,43, SKColors.CornflowerBlue);
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = AiTaskKind.Upscale,
+            Settings = new AiGenerationSettings { Values = new() { ["upscaleModel"] = model } } }, TestContext.Current.CancellationToken);
+        Assert.Equal((228,172), (session.Document.Width, session.Document.Height));
+        Assert.Equal(AiOperationStatus.Completed, service.Operation!.Status);
+        session.Undo(); Assert.Equal((57,43), (session.Document.Width,session.Document.Height));
+        session.SelectRect(new SKRect(10,8,20,16));
+        await service.RunAsync(new EditorCommandService(session),new AiTaskRequest { Task=AiTaskKind.Upscale,
+            Settings=new AiGenerationSettings { Values=new() { ["upscaleModel"]=model } } },TestContext.Current.CancellationToken);
+        Assert.Equal((57,43),(session.Document.Width,session.Document.Height));
+        Assert.Equal((10,8),(session.ActiveLayer!.Pixels!.Width,session.ActiveLayer.Pixels.Height));
+        Assert.Equal((10d,8d),(session.ActiveLayer.Transform.X,session.ActiveLayer.Transform.Y)); Assert.NotNull(session.ActiveLayer.Mask);
+    }
+
+    [Fact]
+    public void Stitched_transition_is_not_multiplied_by_the_soft_selection_again()
+    {
+        var session = EditorSession.NewCanvas(40,30, new SKColor(100,100,100));
+        var selection = Pixels.NewMask(40,30);
+        selection.GetPixelSpan()[15 * selection.RowBytes + 20] = 128;
+        Pixels.Invalidate(selection); session.PreviewSelection(selection);
+        using var inputs = AiTaskInputPreparer.Prepare(session, new AiTaskRequest { Task = AiTaskKind.GenerativeFill });
+        var stitched = Pixels.Clone(inputs.ContextImage); stitched.SetPixel(20,15,new SKColor(150,150,150)); Pixels.Invalidate(stitched);
+        AiTaskService.Insert(new EditorCommandService(session), AiTaskKind.GenerativeFill, AiOutputMode.NewLayerWithMask,
+            [stitched], new SKRectI(20,15,21,16), inputs, outputIsComposited: true);
+        using var output = session.Flatten(); Assert.Equal(new SKColor(150,150,150),output.GetPixel(20,15));
+        Assert.Equal(255,session.ActiveLayer!.Mask!.GetPixel(20,15).Alpha);
+        Assert.Equal(0,session.ActiveLayer.Mask.GetPixel(0,0).Alpha);
+        Assert.Equal(128,session.Selection!.GetPixel(20,15).Alpha);
+        session.Undo(); Assert.Single(session.Document.Layers);
+    }
+
+    [Fact]
+    public void Compatibility_checks_only_the_bound_workflow_and_the_selected_upscaler()
+    {
+        using var json = JsonDocument.Parse("""{"UpscaleModelLoader":{"input":{"required":{"model_name":[["alternative.pth"]]}}},"ImageUpscaleWithModel":{},"LoadImage":{},"SaveImage":{}}""");
+        var capabilities = ComfyClient.ParseCapabilities(json.RootElement);
+        var graph = JsonNode.Parse("""{"model":{"class_type":"UpscaleModelLoader","inputs":{"model_name":"alternative.pth"}},"upscale":{"class_type":"ImageUpscaleWithModel","inputs":{}}}""")!.AsObject();
+        Assert.True(EngineCompatibility.CheckWorkflow(graph,capabilities).IsCompatible);
+        graph["model"]!["inputs"]!["model_name"] = "missing.pth";
+        var missing = EngineCompatibility.CheckWorkflow(graph,capabilities);
+        Assert.False(missing.IsCompatible); Assert.Contains(missing.Missing, value => value.Contains("missing.pth"));
+    }
+
     [Theory]
     [InlineData(AiTaskKind.GenerativeFill, "Replace the selected owl with a realistic black cat while preserving the surrounding forest.")]
     [InlineData(AiTaskKind.RemoveObject, "")]
@@ -103,6 +220,22 @@ public class AiInfrastructureTests
         Assert.NotNull(session.ActiveLayer.Mask);
         Assert.Equal((4d, 3d, 6d, 6d), (session.ActiveLayer.Transform.X, session.ActiveLayer.Transform.Y,
             session.ActiveLayer.Transform.Width, session.ActiveLayer.Transform.Height));
+    }
+
+    [Fact]
+    public void Upscale_context_is_cropped_back_without_shifting_or_resizing_the_selection()
+    {
+        var session=EditorSession.NewCanvas(100,80,SKColors.White); session.SelectRect(new SKRect(40,30,46,36));
+        using var inputs=AiTaskInputPreparer.Prepare(session,new AiTaskRequest { Task=AiTaskKind.Upscale });
+        var bounds=inputs.UpscaleSourceBounds!.Value;
+        var image=Pixels.NewColor(bounds.Width,bounds.Height); image.Erase(SKColors.Red);
+        using (var canvas=new SKCanvas(image)) using (var paint=new SKPaint { Color=SKColors.Blue })
+            canvas.DrawRect(40-bounds.Left,30-bounds.Top,6,6,paint);
+        Pixels.Invalidate(image);
+        AiTaskService.Insert(new EditorCommandService(session),AiTaskKind.Upscale,AiOutputMode.NewLayer,[image],inputs.TargetBounds,inputs);
+        Assert.Equal((100,80),(session.Document.Width,session.Document.Height));
+        Assert.Equal((6,6),(session.ActiveLayer!.Pixels!.Width,session.ActiveLayer.Pixels.Height));
+        using var output=session.Flatten(); Assert.Equal(SKColors.Blue,output.GetPixel(42,32)); Assert.Equal(SKColors.White,output.GetPixel(39,32));
     }
 
     [Fact]

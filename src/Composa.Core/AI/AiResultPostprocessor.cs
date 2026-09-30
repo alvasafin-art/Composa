@@ -6,6 +6,42 @@ namespace Composa.AI;
 /// <summary>Small deterministic finishing passes that make generated pixels agree with their immediate surroundings.</summary>
 public static class AiResultPostprocessor
 {
+    /// <summary>
+    /// A stitched image already contains the soft transition. Reveal its changed pixels at full coverage,
+    /// and leave identical pixels to the original layer. Multiplying by the soft selection again darkens
+    /// or weakens the transition. The editable layer mask represents coverage, not a second blend.
+    /// </summary>
+    public static SKBitmap CompositedMask(SKBitmap generated, SKBitmap context, SKBitmap? support = null, SKBitmap? alphaEditRegion = null)
+    {
+        if (generated.Width != context.Width || generated.Height != context.Height)
+            throw new ArgumentException("A composited result must match the original canvas dimensions.");
+        if (support != null && (support.Width != context.Width || support.Height != context.Height)) throw new ArgumentException("Mask support must match the canvas.");
+        if (alphaEditRegion != null && (alphaEditRegion.Width != context.Width || alphaEditRegion.Height != context.Height)) throw new ArgumentException("Alpha edit region must match the canvas.");
+        var mask = Pixels.NewMask(context.Width, context.Height);
+        unsafe
+        {
+            var result = (byte*)mask.GetPixels(); var original = (byte*)context.GetPixels(); var output = (byte*)generated.GetPixels();
+            var coverage = support == null ? null : (byte*)support.GetPixels();
+            var alphaRegion = alphaEditRegion == null ? null : (byte*)alphaEditRegion.GetPixels();
+            for (var y = 0; y < context.Height; y++)
+                for (var x = 0; x < context.Width; x++)
+                {
+                    if (coverage != null && coverage[(long)y * support!.RowBytes+x] == 0) continue;
+                    var a = original+(long)y*context.RowBytes+x*4; var b = output+(long)y*generated.RowBytes+x*4;
+                    var alphaEditable = alphaRegion == null || alphaRegion[(long)y*alphaEditRegion!.RowBytes+x] != 0;
+                    // Comfy IMAGE nodes discard alpha. An unchanged transparent black pixel
+                    // or unchanged straight color must not become opaque outside the edit.
+                    var sameColor = a[3] == b[3] ? (*(uint*)a & 0xFFFFFF) == (*(uint*)b & 0xFFFFFF)
+                        : a[3] == 0 ? (*(uint*)b & 0xFFFFFF) == 0 : b[3] == 0 ? (*(uint*)a & 0xFFFFFF) == 0
+                        : Math.Abs(a[0]*b[3]-b[0]*a[3]) <= Math.Max(a[3],b[3])
+                            && Math.Abs(a[1]*b[3]-b[1]*a[3]) <= Math.Max(a[3],b[3])
+                            && Math.Abs(a[2]*b[3]-b[2]*a[3]) <= Math.Max(a[3],b[3]);
+                    result[(long)y*mask.RowBytes+x] = !sameColor || alphaEditable && a[3] != b[3] ? (byte)255 : (byte)0;
+                }
+        }
+        Pixels.Invalidate(mask); return mask;
+    }
+
     public static SKBitmap MatchRemoval(SKBitmap generated, SKBitmap context, SKBitmap mask, long seed)
     {
         if (generated.Width != context.Width || generated.Height != context.Height || mask.Width != context.Width || mask.Height != context.Height)
@@ -38,15 +74,18 @@ public static class AiResultPostprocessor
                     var amount = maskRow[x];
                     if (amount == 0) continue;
                     var offset = x * 4;
+                    var alpha = sourceRow[offset + 3];
+                    if (alpha == 0) continue;
                     for (var channel = 0; channel < 3; channel++)
                     {
                         var contrast = outside.Deviation(channel) < 1 && inside.Deviation(channel) < 1 ? 1
                             : Math.Clamp(outside.Deviation(channel) / Math.Max(inside.Deviation(channel), 1), 0.72, 1.38);
                         var shift = Math.Clamp(outside.Mean(channel) - inside.Mean(channel), -18, 18);
-                        var matched = inside.Mean(channel) + shift + (sourceRow[offset + channel] - inside.Mean(channel)) * contrast;
+                        var straight = sourceRow[offset + channel] * 255.0 / alpha;
+                        var matched = inside.Mean(channel) + shift + (straight - inside.Mean(channel)) * contrast;
                         var noise = Math.Max(0, outside.Detail - inside.Detail) * HashNoise(x, y, seed) * 0.45;
                         var adjusted = Math.Clamp((int)Math.Round(matched + noise), 0, 255);
-                        destinationRow[offset + channel] = Blend(sourceRow[offset + channel], (byte)adjusted, amount);
+                        destinationRow[offset + channel] = Blend(sourceRow[offset + channel], (byte)((adjusted * alpha + 127) / 255), amount);
                     }
                 }
             }

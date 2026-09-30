@@ -70,6 +70,7 @@ public sealed partial class ComposaTools
         var next = t with { X = x ?? t.X, Y = y ?? t.Y, Width = width ?? t.Width, Height = height ?? t.Height, Rotation = rotation ?? t.Rotation };
         if (next.Width < 1 || next.Height < 1 || next.Width > DocumentLimits.MaxSide || next.Height > DocumentLimits.MaxSide)
             throw new McpException($"The width and height must be between 1 and {DocumentLimits.MaxSide} px.");
+        if (target.IsLive) CheckRasterAllocation(s,next.Width,next.Height,(long)target.Pixels.Width*target.Pixels.Height);
         s.SetTransform(target, next);
         var b = target.Bounds;
         return $"\"{target.Name}\" is now at {b.Left:0},{b.Top:0} size {b.Width:0}×{b.Height:0}" + (next.Rotation != 0 ? $", rotated {next.Rotation:0.#}°" : "") + ".";
@@ -130,6 +131,9 @@ public sealed partial class ComposaTools
     private static Layer Find(EditorSession s, string layer)
     {
         layer = layer.Trim();
+        // The in-app document resource uses full UUIDs; the external MCP description uses
+        // short ids. Both identify the same real layer, including duplicate names in folders.
+        if (Guid.TryParse(layer, out var fullId) && s.Document.Find(fullId) is { } byFullId) return byFullId;
         var all = s.Document.AllLayers().ToList();
         if (all.Where(l => Id(l) == layer).ToList() is [var byId]) return byId;
         var byName = all.Where(l => string.Equals(l.Name, layer, StringComparison.OrdinalIgnoreCase)).ToList();

@@ -163,6 +163,25 @@ public sealed class AssistantWindow : Window
             };
             var provider = ProviderFactory?.Invoke() ?? (settings.AssistantProvider == "local"
                 ? (IAssistantProvider)new LlamaAssistantProvider(settings, server) : new ChatCompletionAssistantProvider(settings));
+            if (provider.SupportsTools && settings.AssistantApplyEdits && current != null)
+            {
+                if (current.IsInteracting) throw new InvalidOperationException("Finish the current edit before running the Assistant.");
+                var content = owner.Content as Control;
+                if (content != null) content.IsEnabled = false;
+                try
+                {
+                    var tools = new AssistantEditorTools(owner, current, runtime, aiTasks, settings,
+                        sentFiles.Select(file => file.Content.ImageDataUrl != null ? file.Path : null).ToArray(),
+                        System.Text.RegularExpressions.Regex.IsMatch(text, "export|экспорт|сохран", System.Text.RegularExpressions.RegexOptions.IgnoreCase), request.Attachments);
+                    var outcome = await AssistantAgent.RunAsync(provider, request, current, tools, value => status.Text = value, token);
+                    var applied = outcome.Changed ? $"Applied · {outcome.ToolCount} tool calls. Ctrl+Z undoes this request." : "No document changes were made.";
+                    conversation.Entries.Add(new("assistant", outcome.Changed ? outcome.Summary : "Документ не изменён.\n" + outcome.Summary,
+                        Outcome: applied) { ActionLog = outcome.Log });
+                    status.Text = applied; owner.Canvas.InvalidateVisual();
+                }
+                finally { if (content != null) content.IsEnabled = true; }
+                return;
+            }
             var reply = await provider.PlanAsync(request, token);
             token.ThrowIfCancellationRequested();
             var entry = new AssistantChatEntry("assistant", reply.Summary, reply.Script ?? "");
@@ -193,7 +212,11 @@ public sealed class AssistantWindow : Window
             else status.Text = entry.Script.Length > 0 ? "Script ready for review." : "Ready";
         }
         catch (OperationCanceledException) { conversation.Entries.Add(new("assistant", "Stopped.")); status.Text = "Stopped"; }
-        catch (Exception error) { conversation.Entries.Add(new("assistant", "Error: " + error.Message)); status.Text = "Could not complete this message."; }
+        catch (Exception error)
+        {
+            conversation.Entries.Add(new("assistant", "Error: " + error.Message) { ActionLog = error is AssistantAgentException agent ? agent.ActionLog : "" });
+            status.Text = "Could not complete this message.";
+        }
         finally { SetBusy(false); RenderMessages(); prompt.Focus(); }
     }
 
@@ -240,6 +263,9 @@ public sealed class AssistantWindow : Window
         {
             var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : entry.Script.Length > 0 && entry.Outcome == null ? "Assistant · proposed edit" : "Assistant", weight: FontWeight.SemiBold),
                 new SelectableTextBlock { Text = entry.Text, TextWrapping = TextWrapping.Wrap });
+            if (entry.ActionLog.Length > 0) body.Children.Add(new Expander { Header = "Operations", HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content = new TextBox { Text = entry.ActionLog, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 260 } });
+            if (entry.Script.Length == 0 && entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
             if (entry.Script.Length > 0)
             {
                 var code = new TextBox { Text = entry.Script, AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,

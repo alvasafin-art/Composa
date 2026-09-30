@@ -98,7 +98,11 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         engine.SetValue("__findTagJson", (Func<string, string>)(tag => JsonSerializer.Serialize(editor.FindLayersByTag(tag).Select(LayerData))));
         engine.SetValue("__findNameJson", (Func<string, string>)(name => JsonSerializer.Serialize(editor.Document.AllLayers().Where(layer => layer.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Select(LayerData))));
         engine.SetValue("__selectLayer", (Action<string>)(id => editor.SelectLayer(Find(editor, id).Id)));
-        engine.SetValue("__addLayer", (Func<string, string>)(name => { var layer = editor.AddBlankLayer(); editor.Rename(layer, name); return LayerJson(layer); }));
+        engine.SetValue("__addLayer", (Func<string, string>)(name =>
+        {
+            CheckRaster(editor,editor.Document.Width,editor.Document.Height);
+            var layer = editor.AddBlankLayer(); editor.Rename(layer, name); return LayerJson(layer);
+        }));
         engine.SetValue("__addAttachedImage", (Func<int, string>)(index =>
         {
             if (attachedImages == null || index < 0 || index >= attachedImages.Count || attachedImages[index] is not { } path)
@@ -202,16 +206,17 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         public int? Y { get; init; }
     }
 
-    public static string Describe(EditorSession session)
+    public static string Describe(EditorSession session, int offset = 0, int maximumLayers = 160, int maximumText = 500)
     {
-        const int maximumLayers = 160;
         var all = session.Document.AllLayers().ToList();
         return JsonSerializer.Serialize(new
         {
             title = session.Title, width = session.Document.Width, height = session.Document.Height,
             hasSelection = session.Selection != null, selection = SelectionData(session), activeLayerId = session.ActiveLayer?.Id.ToString(),
-            layerCount = all.Count, truncated = all.Count > maximumLayers,
-            layers = ContextLayers(session.Document.Layers, "").Take(maximumLayers)
+            resolution = session.Document.Resolution, selectedLayerIds = session.Document.SelectedLayerIds,
+            layerOrder = "bottom-to-top; children follow their parent; use ids for duplicate names",
+            layerCount = all.Count, offset, truncated = all.Count > offset + maximumLayers,
+            layers = ContextLayers(session.Document.Layers, "", maximumText).Skip(offset).Take(maximumLayers)
         });
     }
 
@@ -243,7 +248,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         return new { x = bounds.Left, y = bounds.Top, width = bounds.Width, height = bounds.Height };
     }
 
-    private static IEnumerable<object> ContextLayers(IEnumerable<Layer> layers, string parent)
+    private static IEnumerable<object> ContextLayers(IEnumerable<Layer> layers, string parent, int maximumText = 500)
     {
         foreach (var layer in layers)
         {
@@ -253,12 +258,17 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
                 id = layer.Id.ToString(), name = layer.Name, path,
                 kind = LayerKind(layer),
                 tags = layer.Tags.Order(StringComparer.OrdinalIgnoreCase),
-                text = layer.Text?.Text is { Length: > 500 } longText ? longText[..500] + "…" : layer.Text?.Text,
+                text = layer.Text?.Text is { } text && text.Length > maximumText ? text[..maximumText] + "…" : layer.Text?.Text,
                 fontSize = layer.Text?.Size, fontFamily = layer.Text?.FontFamily,
-                visible = layer.Visible, opacity = layer.Opacity,
+                textColor = layer.Text == null ? null : new SKColor(layer.Text.Color).ToString(),
+                bold = layer.Text?.Bold, italic = layer.Text?.Italic, alignment = layer.Text?.Alignment.ToString(),
+                visible = layer.Visible, opacity = layer.Opacity, blendMode = layer.Blend.ToString(),
+                hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, clipped = layer.Clipped,
+                pixelWidth = layer.Pixels?.Width, pixelHeight = layer.Pixels?.Height,
+                shape = layer.Shape, adjustment = layer.Adjustment?.DisplayName, effects = layer.Effects,
                 transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
             };
-            foreach (var child in ContextLayers(layer.Children, path)) yield return child;
+            foreach (var child in ContextLayers(layer.Children, path, maximumText)) yield return child;
         }
     }
 
