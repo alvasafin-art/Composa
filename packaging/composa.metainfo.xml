@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.4" date="2026-10-01">
+      <description>
+        <p>Images dropped onto the tab strip open separate documents. Masked Klein edits use source-latent conditioning and automatic Pixaroma crop/stitch support with smooth seam blending. Remove no longer synthesizes grain. An editable appearance-preservation prompt and separate conditioning blur and color-match settings are available.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.3" date="2026-10-01">
       <description>
         <p>One or three AI variants with sequential List or native Batch execution, separate Advanced options, and exact x2/x4 upscaling. Lightweight soft brushes improve edge quality. Embedded smart objects open layered contents in a tab and support shared instances, independent copies, undo and project saving. Projects use format version 7.</p>

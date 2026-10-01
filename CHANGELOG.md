@@ -4,10 +4,18 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.4] - 2026-10-01
+
+### Added
+
+- Drop images onto document tabs or the empty tab strip to open separate documents in file order. Dropping onto the canvas still places image layers; a drop is never applied twice.
+
 ### Fixed
 
 - Remove finishing no longer synthesizes random grain from edge-detail statistics. A toggleable, editable image-preservation prompt is available in ComfyUI Settings.
 - Bundled masked Klein edits sample an encoded source latent with a real noise mask, rather than regenerating the complete context crop. Installed Pixaroma crop/stitch nodes are used automatically with aspect-preserving sizing, outward-only seam feathering and optional context-based color matching; conditioning blur and color match are separate Advanced settings. Final stitched outputs are not masked a second time.
+
+Masked Remove was verified against a live ComfyUI GPU server in both single-image List and three-image Batch modes. Projects continue to use format version 7.
 
 ## [1.2.1-preview.3] - 2026-10-01
 

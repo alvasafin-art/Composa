@@ -469,6 +469,15 @@ public sealed partial class MainWindow : Window
         grid.Children.Add(newButton);
         AddAt(grid, scroll, 1).Margin = new Thickness(6, 0);
         AddAt(grid, zoomControls, 2);
+        grid.Name = "DocumentTabBar";
+        DragDrop.SetAllowDrop(grid, true);
+        grid.AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        {
+            if (e.DataTransfer.TryGetFiles()?.Any(f => f.TryGetLocalPath() != null) != true) return;
+            e.DragEffects &= DragDropEffects.Copy;
+            e.Handled = true;
+        });
+        grid.AddHandler(DragDrop.DropEvent, OnTabDrop);
         return grid;
     }
 

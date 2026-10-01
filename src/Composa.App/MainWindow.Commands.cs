@@ -639,19 +639,30 @@ public sealed partial class MainWindow
         return null;
     }
 
+    private static List<string> DroppedPaths(DragEventArgs e) =>
+        e.DataTransfer.TryGetFiles()?.Select(f => f.TryGetLocalPath()).OfType<string>().ToList() ?? [];
+
+    private void OnTabDrop(object? sender, DragEventArgs e)
+    {
+        var paths = DroppedPaths(e);
+        if (paths.Count == 0) return;
+        e.Handled = true; // Do not also place the files in the active document as this event bubbles.
+        _ = OpenPaths(paths);
+    }
+
     private void OnDrop(object? sender, DragEventArgs e)
     {
-        var paths = e.DataTransfer.TryGetFiles()?.Select(f => f.TryGetLocalPath()).OfType<string>().ToList() ?? [];
+        if (e.Handled) return;
+        var paths = DroppedPaths(e);
         if (paths.Count == 0) return;
-        var projects = paths.Where(p => Path.GetExtension(p).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase)).ToList();
-        var images = paths.Except(projects).ToList();
-        _ = OpenPaths(projects);
-        if (session == null || projects.Count > 0) _ = OpenPaths(images);
+        e.Handled = true;
+        if (session == null || paths.Any(p => Path.GetExtension(p).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase)))
+            _ = OpenPaths(paths);
         else
         {
             var position = e.GetPosition(canvas);
             var inside = position.X >= 0 && position.Y >= 0 && position.X <= canvas.Bounds.Width && position.Y <= canvas.Bounds.Height;
-            _ = PlacePaths(images, inside ? canvas.ToDocument(position) : null);
+            _ = PlacePaths(paths, inside ? canvas.ToDocument(position) : null);
         }
     }
 
