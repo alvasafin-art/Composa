@@ -83,8 +83,9 @@ public static class AiResultPostprocessor
                         var shift = Math.Clamp(outside.Mean(channel) - inside.Mean(channel), -18, 18);
                         var straight = sourceRow[offset + channel] * 255.0 / alpha;
                         var matched = inside.Mean(channel) + shift + (straight - inside.Mean(channel)) * contrast;
-                        var noise = Math.Max(0, outside.Detail - inside.Detail) * HashNoise(x, y, seed) * 0.45;
-                        var adjusted = Math.Clamp((int)Math.Round(matched + noise), 0, 255);
+                        // Local edge detail is not a noise estimate: lines and texture would
+                        // become artificial grain across an otherwise clean reconstructed patch.
+                        var adjusted = Math.Clamp((int)Math.Round(matched), 0, 255);
                         destinationRow[offset + channel] = Blend(sourceRow[offset + channel], (byte)((adjusted * alpha + 127) / 255), amount);
                     }
                 }
@@ -95,7 +96,7 @@ public static class AiResultPostprocessor
     }
 
     private readonly record struct Statistics(long Count, double Red, double Green, double Blue,
-        double RedSquared, double GreenSquared, double BlueSquared, double Detail)
+        double RedSquared, double GreenSquared, double BlueSquared)
     {
         public double Mean(int channel) => channel switch { 0 => Red / Count, 1 => Green / Count, _ => Blue / Count };
         public double Deviation(int channel)
@@ -109,7 +110,7 @@ public static class AiResultPostprocessor
     private static Statistics StatsOf(SKBitmap image, SKBitmap mask, SKRectI area, bool selected)
     {
         long count = 0;
-        double r = 0, g = 0, b = 0, rr = 0, gg = 0, bb = 0, detail = 0;
+        double r = 0, g = 0, b = 0, rr = 0, gg = 0, bb = 0;
         for (var y = area.Top; y < area.Bottom; y++)
             for (var x = area.Left; x < area.Right; x++)
             {
@@ -119,13 +120,8 @@ public static class AiResultPostprocessor
                 if (color.Alpha == 0) continue;
                 count++; r += color.Red; g += color.Green; b += color.Blue;
                 rr += color.Red * color.Red; gg += color.Green * color.Green; bb += color.Blue * color.Blue;
-                if (x > area.Left)
-                {
-                    var left = image.GetPixel(x - 1, y);
-                    detail += Math.Abs(Luma(color) - Luma(left));
-                }
             }
-        return new(count, r, g, b, rr, gg, bb, count == 0 ? 0 : detail / count);
+        return new(count, r, g, b, rr, gg, bb);
     }
 
     private static SKRectI SelectionBounds(SKBitmap mask)
@@ -139,18 +135,6 @@ public static class AiResultPostprocessor
                     right = Math.Max(right, x + 1); bottom = Math.Max(bottom, y + 1);
                 }
         return left >= right || top >= bottom ? SKRectI.Empty : new SKRectI(left, top, right, bottom);
-    }
-
-    private static double Luma(SKColor color) => (color.Red * 54 + color.Green * 183 + color.Blue * 19) / 256.0;
-
-    private static double HashNoise(int x, int y, long seed)
-    {
-        unchecked
-        {
-            var value = (uint)x * 0x85EBCA6Bu ^ (uint)y * 0xC2B2AE35u ^ (uint)seed;
-            value ^= value >> 15; value *= 0x2C1B3C6Du; value ^= value >> 12;
-            return (value & 0xFFFF) / 32767.5 - 1;
-        }
     }
 
     private static byte Blend(byte from, byte to, byte amount) => (byte)((from * (255 - amount) + to * amount + 127) / 255);

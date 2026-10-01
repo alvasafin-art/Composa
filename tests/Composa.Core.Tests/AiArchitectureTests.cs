@@ -242,7 +242,7 @@ public class AiArchitectureTests
     }
 
     [Fact]
-    public void Remove_postprocessing_matches_local_color_and_texture_without_changing_the_source()
+    public void Remove_postprocessing_matches_color_without_synthesizing_texture_or_changing_the_source()
     {
         using var context = Pixels.NewColor(24, 24);
         using var generated = Pixels.NewColor(24, 24);
@@ -258,7 +258,9 @@ public class AiArchitectureTests
         Assert.InRange(matched.GetPixel(12, 12).Red, 25, 70);
         Assert.Equal(new SKColor(25, 30, 35), generated.GetPixel(12, 12));
         Assert.Equal(generated.GetPixel(0, 0), matched.GetPixel(0, 0));
-        Assert.NotEqual(matched.GetPixel(11, 12).Red, matched.GetPixel(12, 12).Red);
+        Assert.Equal(matched.GetPixel(11, 12), matched.GetPixel(12, 12));
+        using var anotherSeed = AiResultPostprocessor.MatchRemoval(generated, context, mask, 999);
+        Assert.Equal(matched.GetPixelSpan().ToArray(), anotherSeed.GetPixelSpan().ToArray());
     }
 
     [Fact]

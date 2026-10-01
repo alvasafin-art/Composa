@@ -56,7 +56,8 @@ public sealed partial class MainWindow : Window
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"))
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
-            ModelSelections = settings.ComfyModelsFor
+            ModelSelections = settings.ComfyModelsFor,
+            AdditionalPrompt = () => settings.ComfyAdditionalPromptEnabled ? settings.ComfyAdditionalPrompt : ""
         };
         aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
         if (aiTasks.SelectedEngine is { } engine)

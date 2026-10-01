@@ -32,7 +32,7 @@ public class AiVariantsTests
         Assert.Single(session.AiVariantGroup.Children, layer => layer.Visible);
         Assert.Equal(history + 1, session.History.Count);
         if (mode == AiVariantMode.List) Assert.Equal(new long[] { 17, 18, 19 }, fake.Graphs.Select(graph => graph["sampler"]!["inputs"]!["seed"]!.GetValue<long>()));
-        else Assert.Equal(3, fake.Graphs[0]["latent"]!["inputs"]!["batch_size"]!.GetValue<int>());
+        else Assert.Equal(3, fake.Graphs[0]["latent"]!["inputs"]!["amount"]!.GetValue<int>());
         session.SelectAiVariant(session.AiVariantGroup, 2);
         Assert.True(session.AiVariantGroup!.Children[2].Visible); session.Undo(); Assert.True(session.AiVariantGroup!.Children[0].Visible);
         session.Undo(); Assert.Single(session.Document.Layers);
@@ -128,7 +128,7 @@ public class AiVariantsTests
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-            var nodes = catalog.Profiles.Single().RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch" }).ToHashSet();
+            var nodes = catalog.Profiles.Single().RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "RepeatLatentBatch", "GrowMask", "ThresholdMask" }).ToHashSet();
             return Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), new ComfyServerCapabilities { Version = "1.0", NodeTypes = nodes }));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
@@ -141,7 +141,7 @@ public class AiVariantsTests
                 if (Cancel) throw new OperationCanceledException();
                 throw new InvalidOperationException("Mock failure");
             }
-            var count = workflow["latent"]?["inputs"]?["batch_size"]?.GetValue<int>() ?? 1;
+            var count = workflow["latent"]?["inputs"]?["batch_size"]?.GetValue<int>() ?? workflow["latent"]?["inputs"]?["amount"]?.GetValue<int>() ?? 1;
             return Task.FromResult(new ComfyExecutionResult("job", JsonDocument.Parse("{}"),
                 Enumerable.Range(0, count).Select(index => new ComfyImageReference(index + ".png", "", "output", "save")).ToArray()));
         }

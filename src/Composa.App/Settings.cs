@@ -49,6 +49,10 @@ public sealed class Settings
     public double? AiReferenceMegapixels { get; set; } = 1;
     public int AiMaskGrow { get; set; } = 8;
     public int AiMaskBlend { get; set; } = 32;
+    public int AiMaskBlur { get; set; } = 4;
+    public string AiColorMatch { get; set; } = "subtle";
+    public bool ComfyAdditionalPromptEnabled { get; set; } = true;
+    public string ComfyAdditionalPrompt { get; set; } = Composa.AI.AiPromptDefaults.PreserveAppearance;
     public double AiMaskContext { get; set; } = 2;
     private const string DefaultUpscalerModel = "4x-UltraSharpV2.safetensors";
     public string AiUpscalerModel { get; set; } = DefaultUpscalerModel;

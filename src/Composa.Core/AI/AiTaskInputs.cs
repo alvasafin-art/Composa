@@ -34,6 +34,7 @@ public sealed record AiTaskRequest
     public AiTaskKind Task { get; init; }
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
+    public string AdditionalPrompt { get; init; } = "";
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
     public RemoveObjectSettings RemoveObject { get; init; } = new();
@@ -43,6 +44,11 @@ public sealed record AiTaskRequest
     public IReadOnlyList<SKBitmap> ReferenceImages { get; init; } = [];
     /// <summary>Pixel budget for each reference, or null to preserve its original dimensions.</summary>
     public double? ReferenceMegapixels { get; init; } = 1;
+}
+
+public static class AiPromptDefaults
+{
+    public const string PreserveAppearance = "Preserve the source image's exposure, white balance, color grading, contrast, sharpness, focus and existing texture. Match the surrounding image naturally. Do not add film grain, digital noise, sharpening halos or extra texture. Keep unedited content unchanged.";
 }
 
 public static class AiDimensions
@@ -208,7 +214,9 @@ public static class AiTaskInputPreparer
             TargetBounds = target,
             UpscaleSourceBounds = upscaleBounds,
             ExpansionBounds = request.ExpansionBounds,
-            Prompt = TaskPrompt(request.Task, request.Prompt),
+            Prompt = string.Join("\n\n", new[] { TaskPrompt(request.Task, request.Prompt),
+                request.Task is AiTaskKind.Upscale or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection
+                    || request.Task == AiTaskKind.GenerateImage && requestedReferences.Count == 0 ? "" : request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0)),
             NegativePrompt = TaskNegativePrompt(request.Task, request.NegativePrompt),
             Seed = request.Settings.Seed
         };

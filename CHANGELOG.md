@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove finishing no longer synthesizes random grain from edge-detail statistics. A toggleable, editable image-preservation prompt is available in ComfyUI Settings.
+- Bundled masked Klein edits sample an encoded source latent with a real noise mask, rather than regenerating the complete context crop. Installed Pixaroma crop/stitch nodes are used automatically with aspect-preserving sizing, outward-only seam feathering and optional context-based color matching; conditioning blur and color match are separate Advanced settings. Final stitched outputs are not masked a second time.
+
 ## [1.2.1-preview.3] - 2026-10-01
 
 ### Added

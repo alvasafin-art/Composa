@@ -251,7 +251,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
                 Values = new Dictionary<string, object?>
                 {
                     ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
-                    ["maskContext"] = settings.AiMaskContext
+                    ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch
                 }
             }
         };

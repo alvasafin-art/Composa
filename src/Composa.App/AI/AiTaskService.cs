@@ -21,6 +21,7 @@ public sealed class AiTaskService : IAiTaskRunner
     public ComfyServerCapabilities? ServerCapabilities { get; private set; }
     public string? ConnectedServerUrl { get; private set; }
     public Func<string, IReadOnlyDictionary<string, string>> ModelSelections { get; set; } = _ => new Dictionary<string, string>();
+    public Func<string> AdditionalPrompt { get; set; } = () => AiPromptDefaults.PreserveAppearance;
     public event Action? StateChanged;
     public int ConnectionTimeoutSeconds { get; set; } = 5;
 
@@ -156,6 +157,7 @@ public sealed class AiTaskService : IAiTaskRunner
             // Feeding an already grown/feathered mask into it would grow and blur the selection twice.
             var preparedRequest = request.Task == AiTaskKind.RemoveObject && binding.Preprocess == "remove-object-in-workflow"
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
+            preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPrompt() };
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
             var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;
             using var client = Client();
@@ -171,6 +173,8 @@ public sealed class AiTaskService : IAiTaskRunner
                 values["seed"] = (seed + index) & long.MaxValue;
                 if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
                 var boundGraph = WorkflowBinder.Bind(graph, binding, values);
+                if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
+                    WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
                 if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
                 if (request.Task == AiTaskKind.Upscale)
                     WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);

@@ -474,7 +474,7 @@ public sealed partial class MainWindow
                     Variants = settings.AiVariants == 3 ? 3 : 1, VariantMode = settings.AiVariantMode,
                     UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
-                        ["maskContext"] = settings.AiMaskContext }
+                        ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch }
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);
