@@ -103,7 +103,7 @@ public sealed partial class EditorSession
     }
 
     /// <summary>Inserts every part of an AI result as one non-destructive, undoable editor transaction.</summary>
-    public IReadOnlyList<Layer> InsertAiOutput(AiTaskKind task, IReadOnlyList<AiOutput> outputs, bool group = false)
+    public IReadOnlyList<Layer> InsertAiOutput(AiTaskKind task, IReadOnlyList<AiOutput> outputs, bool group = false, bool variants = false)
     {
         if (outputs.Count == 0) return [];
         var layers = outputs.Select(output =>
@@ -119,19 +119,28 @@ public sealed partial class EditorSession
             if (output.Tags != null) foreach (var tag in output.Tags) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
             return layer;
         }).ToList();
+        var incoming = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        foreach (var layer in layers) { incoming.Add(layer.Pixels!); if (layer.Mask != null) incoming.Add(layer.Mask); }
+        if (document.RasterPixels() + incoming.Sum(bitmap => (long)bitmap.Width * bitmap.Height) > DocumentLimits.DocumentPixelBudget)
+            throw new InvalidOperationException($"These AI layers exceed the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
         Apply("AI " + task.DisplayName(), () =>
         {
-            if (group)
+            if (group || variants)
             {
                 var folder = Layer.Group("AI " + task.DisplayName());
                 folder.Tags.Add("ai-generated");
+                if (variants)
+                {
+                    folder.Tags.Add("ai-variants");
+                    for (var i = 0; i < layers.Count; i++) layers[i].Visible = i == 0;
+                }
                 folder.Children.AddRange(layers);
                 document.InsertAboveActive(folder);
             }
             else foreach (var layer in layers) document.InsertAboveActive(layer);
-            document.SelectedLayerIds.Clear();
-            if (!group)
+            if (!group && !variants)
             {
+                document.SelectedLayerIds.Clear();
                 foreach (var layer in layers) document.SelectedLayerIds.Add(layer.Id);
                 document.ActiveLayerId = layers[^1].Id;
             }
@@ -139,6 +148,23 @@ public sealed partial class EditorSession
         InvalidateAll();
         LayersChanged?.Invoke();
         return layers;
+    }
+
+    public Layer? AiVariantGroup => ActiveLayer is { } active
+        ? active.Tags.Contains("ai-variants") ? active : document.ParentOf(active.Id) is { } parent && parent.Tags.Contains("ai-variants") ? parent : null
+        : null;
+
+    public void SelectAiVariant(Layer group, int index)
+    {
+        if (document.Find(group.Id) != group || !group.Tags.Contains("ai-variants") || index < 0 || index >= group.Children.Count)
+            throw new ArgumentException("Select a valid AI variant group.");
+        if (group.Children.Select((layer, i) => layer.Visible == (i == index)).All(value => value)) return;
+        Apply("Choose AI Variant", () =>
+        {
+            for (var i = 0; i < group.Children.Count; i++) group.Children[i].Visible = i == index;
+            document.SetActive(group.Id);
+        });
+        InvalidateAll(); LayersChanged?.Invoke();
     }
 
     public IEnumerable<Layer> FindLayersByTag(string tag)

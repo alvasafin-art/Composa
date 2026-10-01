@@ -485,6 +485,7 @@ public sealed partial class EditorSession
     public void ApplyMask(Layer layer)
     {
         if (layer.Mask == null || layer.Pixels == null) return;
+        if (layer.IsSmartObject) throw new InvalidOperationException("Rasterize the smart object before applying its mask. Keep the mask editable otherwise.");
         Apply("Apply Layer Mask", () =>
         {
             var pixels = Pixels.Clone(layer.Pixels);

@@ -42,6 +42,7 @@ public sealed partial class MainWindow
     private bool aiFloatingDismissed;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingRemove, aiFloatingMore;
+    private ComboBox? aiVariantsCombo;
     private readonly TextBlock aiFloatingStatus = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 230 };
 
     private sealed class AiReferenceItem(SKBitmap pixels, Bitmap preview, string name) : IDisposable
@@ -86,6 +87,17 @@ public sealed partial class MainWindow
             aiActionHost.Children.Add(button);
         }
         if (session != null) aiActionHost.Children.Add(BuildAiTaskMenu());
+        if (session?.AiVariantGroup is { } variants)
+        {
+            aiActionHost.Children.Add(Ui.Label("Variants", Palette.Secondary));
+            for (var i = 0; i < variants.Children.Count; i++)
+            {
+                var index = i;
+                var button = Ui.TextButton((i + 1).ToString(), () => session?.SelectAiVariant(variants, index), accent: variants.Children[i].Visible);
+                button.MinWidth = 28; button.IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
+                aiActionHost.Children.Add(button);
+            }
+        }
 
         aiProgressHost.Children.Clear();
         var operation = aiTasks.Operation;
@@ -110,7 +122,8 @@ public sealed partial class MainWindow
         }
         aiTaskText.IsVisible = active;
         aiTaskText.Text = active ? "AI: " + (operation?.Stage ?? "Working") : "";
-        aiContextHost.IsVisible = session != null && (contextual.Count > 0 || active) && aiTasks.ConnectionState == ComfyConnectionState.Connected;
+        aiContextHost.IsVisible = session != null && (session.AiVariantGroup != null ||
+            (contextual.Count > 0 || active) && aiTasks.ConnectionState == ComfyConnectionState.Connected);
         RefreshAiFloatingUi();
     }
 
@@ -159,7 +172,7 @@ public sealed partial class MainWindow
         header.Children[0].PointerReleased += (_, e) =>
         { aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
         header.Children[0].PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
-        var advanced = Ui.TextButton("Advanced…", () => _ = ShowAiSettings());
+        var advanced = Ui.TextButton("Advanced…", () => _ = ShowAiAdvanced());
         advanced.MinWidth = 0;
         AddAt(header, advanced, 1).Margin = new Thickness(0, 0, 5, 0);
         var close = Ui.TextButton("×", () => { aiFloatingDismissed = true; RefreshAiFloatingUi(); });
@@ -180,7 +193,10 @@ public sealed partial class MainWindow
         footer.Children.Add(aiFloatingStatus);
         AddAt(footer, actions, 1);
         RefreshAiReferenceUi();
-        return Ui.Column(9, header, aiFloatingPrompt, aiReferenceHost, footer);
+        aiVariantsCombo = Ui.Combo(new[] { 1, 3 }, settings.AiVariants == 3 ? 3 : 1,
+            value => value.ToString(), value => { settings.AiVariants = value; settings.Save(); }, 75);
+        return Ui.Column(9, header, aiFloatingPrompt, aiReferenceHost,
+            Ui.Row(8, Ui.Label("Variants", Palette.Secondary), aiVariantsCombo), footer);
     }
 
     private void OpenAiFloatingTaskMenu()
@@ -209,6 +225,7 @@ public sealed partial class MainWindow
         aiFloatingHost.IsVisible = visible;
         if (!visible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
+        if (aiVariantsCombo != null) { aiVariantsCombo.SelectedIndex = settings.AiVariants == 3 ? 1 : 0; aiVariantsCombo.IsEnabled = !busy; }
         if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, AiTaskKind.GenerativeFill, CropExpands).Available;
         if (aiFloatingRemove != null) aiFloatingRemove.IsEnabled = !busy && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, AiTaskKind.RemoveObject, CropExpands).Available;
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy && Enum.GetValues<AiTaskKind>().Any(task =>
@@ -408,6 +425,8 @@ public sealed partial class MainWindow
         catch (Exception error) { ShowProblem(error.Message); }
     }
 
+    private async Task ShowAiAdvanced() { await AiDialogs.Advanced(this, settings); RefreshAiUi(); }
+
     private async Task EditLayerTags(Composa.Model.Layer layer)
     {
         if (session == null) return;
@@ -421,6 +440,11 @@ public sealed partial class MainWindow
         var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
         if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
         if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) { AiFailed("Another AI operation is already running."); return; }
+        if (task == AiTaskKind.Upscale && session is { } upscaleSession)
+        {
+            var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
+            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null)) return;
+        }
         var aspect = AiAspect(task);
         var fallback = AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
@@ -447,6 +471,8 @@ public sealed partial class MainWindow
                 Settings = new AiGenerationSettings
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
+                    Variants = settings.AiVariants == 3 ? 3 : 1, VariantMode = settings.AiVariantMode,
+                    UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
                         ["maskContext"] = settings.AiMaskContext }
                 }

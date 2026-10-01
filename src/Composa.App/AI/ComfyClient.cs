@@ -11,7 +11,7 @@ using SkiaSharp;
 namespace Composa.App.AI;
 
 /// <summary>HTTP and WebSocket transport for any ComfyUI server URL; it never starts or owns the server process.</summary>
-public sealed class ComfyClient : IDisposable
+public sealed class ComfyClient : IComfyConnection
 {
     private readonly HttpClient http;
     private readonly bool ownsHttp;

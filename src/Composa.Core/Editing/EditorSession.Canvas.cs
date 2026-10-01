@@ -87,7 +87,25 @@ public sealed partial class EditorSession
                 if (layer.Pixels is { } pixels)
                 {
                     var t = layer.Transform;
-                    if (t.IsPureTranslation(pixels.Width, pixels.Height))
+                    if (layer.IsSmartObject)
+                    {
+                        // Keep original content pixels intact even when the outer canvas is resized.
+                        var scaled = t with { X = t.X * sx, Y = t.Y * sy, Width = t.Width * sx, Height = t.Height * sy,
+                            Distort = t.Distort?.Select((v, i) => (float)(v * (i % 2 == 0 ? sx : sy))).ToArray() };
+                        if (Math.Abs(sx - sy) > 1e-6 && t.Rotation != 0)
+                        {
+                            var corners = t.Corners(pixels.Width, pixels.Height);
+                            var offsets = new float[8];
+                            for (var i = 0; i < 4; i++)
+                            {
+                                offsets[i * 2] = (float)(corners[i].X * sx - scaled.X - (i is 1 or 2 ? scaled.Width : 0));
+                                offsets[i * 2 + 1] = (float)(corners[i].Y * sy - scaled.Y - (i >= 2 ? scaled.Height : 0));
+                            }
+                            scaled = scaled with { Rotation = 0, FlipHorizontal = false, FlipVertical = false, Distort = offsets };
+                        }
+                        layer.Transform = scaled;
+                    }
+                    else if (t.IsPureTranslation(pixels.Width, pixels.Height))
                     {
                         // Unscaled layers are resampled so they stay paintable at full resolution.
                         int w = Math.Max(1, (int)Math.Round(pixels.Width * sx)), h = Math.Max(1, (int)Math.Round(pixels.Height * sy));

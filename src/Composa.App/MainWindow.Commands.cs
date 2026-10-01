@@ -158,6 +158,7 @@ public sealed partial class MainWindow
                 ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]
                 : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
+            Item("AI Advanced…", () => _ = ShowAiAdvanced(), needsDocument: false),
             Item("Assistant…", ShowAssistant, needsDocument: false));
 
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
@@ -190,6 +191,9 @@ public sealed partial class MainWindow
                 .Append(Line()).Append(Item("Delete Effect", () => session!.RemoveSelectedEffect(), enabled: () => session!.SelectedEffect != null)).ToArray()),
             Item("Edit Text…", () => BeginTextEdit(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.Text != null),
             Item("Rasterize Layer", () => session!.RasterizeShape(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsLive == true),
+            Item("Convert to Smart Object", () => session!.ConvertToSmartObject(), enabled: () => session!.SelectedRoots().Count > 0),
+            Item("Edit Smart Object Contents…", () => OpenSmartObject(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("New Smart Object via Copy", () => session!.DuplicateSmartObjectIndependent(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
             Item("Rotate Layer 90° Clockwise", () => session!.RotateLayers(90)),
             Item("Rotate Layer 90° Counterclockwise", () => session!.RotateLayers(-90)),
             Item("Rotate Layer 180°", () => session!.RotateLayers(180)),
@@ -653,6 +657,11 @@ public sealed partial class MainWindow
 
     private async Task<bool> Save(EditorSession target, bool saveAs)
     {
+        if (!saveAs && embeddedTabs.ContainsKey(target))
+        {
+            try { return SaveSmartObjectContents(target); }
+            catch (Exception updateError) { await Prompts.Alert(this, "Couldn't update smart object", updateError.Message); return false; }
+        }
         var path = target.FilePath;
         if (saveAs || path == null)
         {
@@ -704,7 +713,7 @@ public sealed partial class MainWindow
         var state = target.History.CurrentId;
         try { await Task.Run(() => ProjectFile.Save(snapshot, path)); }
         catch (Exception error) { return error; }
-        target.MarkSaved(path, state);
+        if (!embeddedTabs.ContainsKey(target)) target.MarkSaved(path, state);
         recovery?.Forget(target);
         settings.AddRecent(Path.GetFullPath(path));
         return null;

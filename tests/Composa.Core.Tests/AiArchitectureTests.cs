@@ -399,7 +399,7 @@ public class AiArchitectureTests
         Assert.Contains("title", loaded.ActiveLayer!.Tags);
         Assert.Contains("hero-image", loaded.ActiveLayer.Tags);
         Assert.DoesNotContain("bad/tag", loaded.ActiveLayer.Tags);
-        Assert.Equal(ProjectFile.Version, 6);
+        Assert.Equal(7, ProjectFile.Version);
     }
 
     [Fact]

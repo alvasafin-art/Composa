@@ -20,9 +20,9 @@ public static class ProjectFile
     /// The format version new saves write, and the highest one <see cref="Read"/> accepts. 1 was the first release,
     /// 2 added guides, 3 added the Gaussian Blur, Motion Blur and Add Noise adjustment layers and the Inner Glow effect,
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
-    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags.
+    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents.
     /// </summary>
-    public const int Version = 6;
+    public const int Version = 7;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -44,6 +44,13 @@ public static class ProjectFile
         public List<LayerRecord> Layers { get; set; } = [];
         /// <summary>Alignment guides; absent on version 1 files.</summary>
         public List<Guide>? Guides { get; set; }
+        public Dictionary<string, SmartRecord>? SmartObjects { get; set; }
+    }
+
+    private sealed class SmartRecord
+    {
+        public Guid Id { get; set; }
+        public Manifest Content { get; set; } = new();
     }
 
     private sealed class LayerRecord
@@ -66,6 +73,7 @@ public static class ProjectFile
         public TextStyle? Text { get; set; }
         public LayerEffects? Effects { get; set; }
         public List<LayerRecord>? Children { get; set; }
+        public string? SmartObject { get; set; }
     }
 
     public static void Save(Document document, string path)
@@ -83,6 +91,18 @@ public static class ProjectFile
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
         var written = new Dictionary<SKBitmap, string>(ReferenceEqualityComparer.Instance);
+        var sources = new Dictionary<SmartObjectSource, string>(ReferenceEqualityComparer.Instance);
+        var objects = new Dictionary<string, SmartRecord>();
+
+        string StoreSource(SmartObjectSource source)
+        {
+            if (sources.TryGetValue(source, out var existing)) return existing;
+            var key = "object-" + sources.Count;
+            sources.Add(source, key);
+            var record = new SmartRecord { Id = source.Id }; objects.Add(key, record);
+            record.Content = RecordDocument(source.OpenDocument());
+            return key;
+        }
 
         string Store(SKBitmap bitmap, string name)
         {
@@ -99,21 +119,24 @@ public static class ProjectFile
             Id = layer.Id, Name = layer.Name, Tags = layer.Tags.Count > 0 ? layer.Tags.Order().ToList() : null,
             Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, Blend = layer.Blend,
             Transform = layer.Pixels != null ? layer.Transform : null,
-            ImageFile = layer.Pixels != null ? Store(layer.Pixels, $"{layer.Id}.png") : null,
-            MaskFile = layer.Mask != null ? Store(layer.Mask, $"{layer.Id}.mask.png") : null,
+            ImageFile = layer.Pixels != null && !layer.IsSmartObject ? Store(layer.Pixels, $"{written.Count}.png") : null,
+            MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
             MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null,
             Clipped = layer.Clipped ? true : null,
             Collapsed = layer.Collapsed ? true : null,
             Adjustment = layer.Adjustment, Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
-            Children = layer.IsGroup ? layer.Children.Select(Record).ToList() : null
+            Children = layer.IsGroup ? layer.Children.Select(Record).ToList() : null,
+            SmartObject = layer.SmartObject is { } source ? StoreSource(source) : null
         };
 
-        var manifest = new Manifest
+        Manifest RecordDocument(Document value) => new()
         {
-            Width = document.Width, Height = document.Height, Resolution = document.Resolution,
-            ActiveLayerId = document.ActiveLayerId, Layers = document.Layers.Select(Record).ToList(),
-            Guides = document.Guides.Count > 0 ? document.Guides.ToList() : null
+            Width = value.Width, Height = value.Height, Resolution = value.Resolution,
+            ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
+            Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null
         };
+        var manifest = RecordDocument(document);
+        manifest.SmartObjects = objects.Count > 0 ? objects : null;
         using var manifestStream = zip.CreateEntry("manifest.json").Open();
         JsonSerializer.Serialize(manifestStream, manifest, Json);
     }
@@ -137,8 +160,10 @@ public static class ProjectFile
         if (manifest.Width < 1 || manifest.Height < 1 || manifest.Width > Document.MaxSide || manifest.Height > Document.MaxSide)
             throw new InvalidDataException("The project's canvas size is invalid.");
 
-        var document = new Document(manifest.Width, manifest.Height) { Resolution = Math.Clamp(manifest.Resolution, 1, 9600) };
         var cache = new Dictionary<string, SKBitmap>();
+        var sources = new Dictionary<string, SmartObjectSource>();
+        var visiting = new HashSet<string>();
+        long allocatedPixels = 0;
         var count = 0;
 
         SKBitmap Fetch(string name, bool mask)
@@ -149,7 +174,26 @@ public static class ProjectFile
             using var buffer = new MemoryStream();
             using (var input = image.Open()) input.CopyTo(buffer);
             buffer.Position = 0;
-            return cache[name] = mask ? DecodeMask(buffer) : ImageFiles.Load(buffer, name);
+            var bitmap = mask ? DecodeMask(buffer) : ImageFiles.Load(buffer, name);
+            allocatedPixels += (long)bitmap.Width * bitmap.Height;
+            cache[name] = bitmap;
+            if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
+            return bitmap;
+        }
+
+        SmartObjectSource Source(string key)
+        {
+            if (sources.TryGetValue(key, out var cached)) return cached;
+            if (!visiting.Add(key) || visiting.Count > SmartObjectSource.MaxDepth)
+                throw new InvalidDataException("The project contains cyclic or overly nested smart objects.");
+            if (manifest.SmartObjects == null || !manifest.SmartObjects.TryGetValue(key, out var record))
+                throw new InvalidDataException("Embedded smart object content is missing.");
+            var value = BuildDocument(record.Content);
+            var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id);
+            sources.Add(key, source); visiting.Remove(key);
+            allocatedPixels += (long)source.Width * source.Height;
+            if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
+            return source;
         }
 
         Layer Build(LayerRecord record, int depth)
@@ -164,7 +208,15 @@ public static class ProjectFile
             };
             if (record.Tags != null)
                 foreach (var tag in record.Tags.Take(64)) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
-            if (record.ImageFile != null && record.Kind == LayerKind.Raster)
+            if (record.SmartObject != null)
+            {
+                if (record.Kind != LayerKind.Raster || record.Text != null || record.Shape != null)
+                    throw new InvalidDataException("A smart object cannot also be a group, adjustment, text or shape layer.");
+                layer.SmartObject = Source(record.SmartObject); layer.Pixels = layer.SmartObject.Preview;
+                layer.Transform = IsUsable(record.Transform) ? record.Transform! : LayerTransform.Identity(layer.Pixels.Width, layer.Pixels.Height);
+                if (record.Effects is { } effects && !effects.IsEmpty) layer.Effects = effects.Clamped();
+            }
+            else if (record.ImageFile != null && record.Kind == LayerKind.Raster)
             {
                 layer.Pixels = Fetch(record.ImageFile, mask: false);
                 layer.Transform = IsUsable(record.Transform) ? record.Transform! : LayerTransform.Identity(layer.Pixels.Width, layer.Pixels.Height);
@@ -178,13 +230,25 @@ public static class ProjectFile
             return layer;
         }
 
-        foreach (var record in manifest.Layers) document.Layers.Add(Build(record, 0));
-        if (manifest.Guides != null)
-            foreach (var guide in manifest.Guides.Where(g => g.IsValid).Take(1000))
-                document.Guides.Add(guide.Id == Guid.Empty ? guide with { Id = Guid.NewGuid() } : guide);
-        var active = manifest.ActiveLayerId is { } id && document.Find(id) != null ? id : document.Layers.LastOrDefault()?.Id;
-        document.SetActive(active);
-        return document;
+        Document BuildDocument(Manifest value)
+        {
+            if (!DocumentLimits.FitsSurface(value.Width, value.Height) || value.Format != Format || value.Version > Version)
+                throw new InvalidDataException("Invalid embedded document size or format.");
+            var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72 };
+            foreach (var record in value.Layers) result.Layers.Add(Build(record, 0));
+            if (value.Guides != null)
+                foreach (var guide in value.Guides.Where(g => g.IsValid).Take(1000))
+                    result.Guides.Add(guide.Id == Guid.Empty ? guide with { Id = Guid.NewGuid() } : guide);
+            var active = value.ActiveLayerId is { } id && result.Find(id) != null ? id : result.Layers.LastOrDefault()?.Id;
+            result.SetActive(active); return result;
+        }
+        try { return BuildDocument(manifest); }
+        catch
+        {
+            var allocated = cache.Values.Concat(sources.Values.Select(source => source.Preview)).Distinct();
+            foreach (var bitmap in allocated) bitmap.Dispose();
+            throw;
+        }
     }
 
     /// <summary>A damaged file must not feed non-finite or degenerate placements into rendering.</summary>
@@ -204,6 +268,7 @@ public static class ProjectFile
     private static SKBitmap DecodeMask(Stream stream)
     {
         using var codec = SKCodec.Create(stream) ?? throw new InvalidDataException("A mask inside the project is damaged.");
+        if (!DocumentLimits.FitsSurface(codec.Info.Width, codec.Info.Height)) throw new InvalidDataException("The project mask is too large.");
         using var gray = new SKBitmap(new SKImageInfo(codec.Info.Width, codec.Info.Height, SKColorType.Gray8, SKAlphaType.Opaque));
         if (codec.GetPixels(gray.Info, gray.GetPixels()) != SKCodecResult.Success) throw new InvalidDataException("A mask inside the project is damaged.");
         var mask = Pixels.NewMask(gray.Width, gray.Height);

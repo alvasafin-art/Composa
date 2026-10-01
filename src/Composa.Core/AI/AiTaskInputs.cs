@@ -18,11 +18,16 @@ public sealed record RemoveObjectSettings
 
 public sealed record AiGenerationSettings
 {
+    public int Variants { get; init; } = 1;
+    public AiVariantMode VariantMode { get; init; } = AiVariantMode.List;
+    public int UpscaleFactor { get; init; } = 4;
     public int Width { get; init; }
     public int Height { get; init; }
     public long Seed { get; init; } = -1;
     public Dictionary<string, object?> Values { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
+
+public enum AiVariantMode { List, Batch }
 
 public sealed record AiTaskRequest
 {

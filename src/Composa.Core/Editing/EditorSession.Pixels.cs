@@ -534,7 +534,7 @@ public sealed partial class EditorSession
     public void RasterizeShape(Layer layer)
     {
         if (!layer.IsLive) return;
-        Apply("Rasterize Layer", () => { layer.Shape = null; layer.Text = null; });
+        Apply("Rasterize Layer", () => { layer.Shape = null; layer.Text = null; layer.SmartObject = null; });
         LayersChanged?.Invoke();
     }
 

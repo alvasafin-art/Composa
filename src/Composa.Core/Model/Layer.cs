@@ -317,10 +317,13 @@ public sealed class Layer
     public Adjustment? Adjustment { get; set; }
     public ShapeStyle? Shape { get; set; }
     public TextStyle? Text { get; set; }
+    /// <summary>Embedded editable content; Pixels is its shared immutable render cache.</summary>
+    public SmartObjectSource? SmartObject { get; set; }
+    public bool IsSmartObject => SmartObject != null;
     /// <summary>Stroke, shadows and overlay drawn around the pixels; null when the layer has none.</summary>
     public LayerEffects? Effects { get; set; }
     /// <summary>Live layers (shapes and text) are regenerated from their settings; they take pixel edits only once rasterized.</summary>
-    public bool IsLive => Shape != null || Text != null;
+    public bool IsLive => Shape != null || Text != null || SmartObject != null;
     /// <summary>Bottom-to-top children of a group.</summary>
     public List<Layer> Children { get; init; } = [];
     public bool Collapsed { get; set; }
@@ -356,7 +359,7 @@ public sealed class Layer
         {
             Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, Blend = Blend,
             Pixels = Pixels, Transform = Transform, Mask = Mask, MaskEnabled = MaskEnabled, Clipped = Clipped,
-            Adjustment = Adjustment, Shape = Shape, Text = Text, Effects = Effects, Collapsed = Collapsed
+            Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed
         };
         copy.Tags.UnionWith(Tags);
         foreach (var child in Children) copy.Children.Add(child.Clone(newIds));

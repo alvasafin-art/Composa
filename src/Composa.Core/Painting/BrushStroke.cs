@@ -50,6 +50,11 @@ public sealed unsafe class BrushStroke : IDisposable
     private SKPoint? last;
     private SKPoint? lastDab;
     private float residual;
+    // One small radial table per stroke, not a diameter-sized stamp per pressure change.
+    // Squared-radius lookup removes sqrt/cos from the soft brush's hot inner loop.
+    private const int FalloffSteps = 2048;
+    private readonly float[] falloff = new float[FalloffSteps + 1];
+    private readonly float hardness;
 
     /// <summary>The bitmap being painted; becomes the layer's new pixels when the stroke commits.</summary>
     public SKBitmap Working { get; }
@@ -76,6 +81,13 @@ public sealed unsafe class BrushStroke : IDisposable
         height = target.Height;
         coverage = new byte[(long)width * height];
         radius = fullRadius = (float)Math.Max(0.5, settings.Size / 2 / Math.Max(1e-6, scale));
+        hardness = (float)Math.Clamp(settings.Hardness, 0, 1);
+        for (var i = 0; i <= FalloffSteps; i++)
+        {
+            var distance = MathF.Sqrt(i / (float)FalloffSteps);
+            var t = Math.Clamp((distance - hardness) / Math.Max(1e-3f, 1 - hardness), 0, 1);
+            falloff[i] = 0.5f * (1 + MathF.Cos(MathF.PI * t));
+        }
         var alpha = color.Alpha / 255f;
         premulColor[0] = color.Red * alpha; premulColor[1] = color.Green * alpha; premulColor[2] = color.Blue * alpha; premulColor[3] = color.Alpha;
         maskValue = (byte)((color.Red * 54 + color.Green * 183 + color.Blue * 19) >> 8);
@@ -128,13 +140,32 @@ public sealed unsafe class BrushStroke : IDisposable
 
     private float Falloff(float distance)
     {
-        var hardness = (float)Math.Clamp(settings.Hardness, 0, 1);
         var edge = Math.Clamp(radius - distance + 0.5f, 0, 1);
         if (hardness >= 0.995f) return edge;
         var inner = radius * hardness;
         if (distance <= inner) return edge;
         var t = Math.Clamp((distance - inner) / Math.Max(1e-3f, radius - inner), 0, 1);
         return 0.5f * (1 + MathF.Cos(MathF.PI * t)) * edge;
+    }
+
+    private float CoverageAt(float dx, float dy)
+    {
+        var squared = dx * dx + dy * dy;
+        var outer = radius + 0.5f;
+        if (squared >= outer * outer) return 0;
+        // Subpixel integration only for small stamps or a nearly hard rim. Broad soft
+        // brushes keep a single cheap lookup per pixel and allocate no extra images.
+        if (radius <= 2 || (radius * (1 - hardness) < 1 && squared > (radius - 1) * (radius - 1)))
+            return (Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy - 0.25f) * (dy - 0.25f)))
+                + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy - 0.25f) * (dy - 0.25f)))
+                + Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy + 0.25f) * (dy + 0.25f)))
+                + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy + 0.25f) * (dy + 0.25f)))) * 0.25f;
+        if (hardness >= 0.995f) return Math.Clamp(radius - MathF.Sqrt(squared) + 0.5f, 0, 1);
+        var position = Math.Min(FalloffSteps, squared / (radius * radius) * FalloffSteps);
+        var index = Math.Min(FalloffSteps - 1, (int)position);
+        var value = falloff[index] + (falloff[index + 1] - falloff[index]) * (position - index);
+        if (squared > (radius - 0.5f) * (radius - 0.5f)) value *= Math.Clamp(radius - MathF.Sqrt(squared) + 0.5f, 0, 1);
+        return value;
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
@@ -154,7 +185,7 @@ public sealed unsafe class BrushStroke : IDisposable
             for (var x = rect.Left; x < rect.Right; x++)
             {
                 float dx = x + 0.5f - center.X, dy = y + 0.5f - center.Y;
-                var c = (byte)(Falloff(MathF.Sqrt(dx * dx + dy * dy)) * 255 + 0.5f);
+                var c = (byte)(CoverageAt(dx, dy) * 255 + 0.5f);
                 if (c <= coverage[row + x]) continue;
                 coverage[row + x] = c;
                 changed = true;

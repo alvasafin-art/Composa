@@ -11,7 +11,7 @@ namespace Composa.App.AI;
 public sealed class AiTaskService : IAiTaskRunner
 {
     private readonly Func<string> serverUrl;
-    private readonly Func<string, ComfyClient> clientFactory;
+    private readonly Func<string, IComfyConnection> clientFactory;
     public EngineCatalog Engines { get; }
     public IReadOnlyList<PromptPreset> Presets { get; }
     public EngineProfile? SelectedEngine { get; set; }
@@ -29,7 +29,7 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public AiTaskService(Func<string> serverUrl, string engineRoot) : this(serverUrl, engineRoot, url => new ComfyClient(url)) { }
 
-    internal AiTaskService(Func<string> serverUrl, string engineRoot, Func<string, ComfyClient> clientFactory)
+    internal AiTaskService(Func<string> serverUrl, string engineRoot, Func<string, IComfyConnection> clientFactory)
     {
         this.serverUrl = serverUrl;
         this.clientFactory = clientFactory;
@@ -140,6 +140,10 @@ public sealed class AiTaskService : IAiTaskRunner
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
         var workflow = engine.Workflow(binding.Workflow);
         var graph = Engines.ReadWorkflow(engine, workflow);
+        var variants = binding.OutputMode == AiOutputMode.Selection || request.Task == AiTaskKind.Upscale ? 1 : request.Settings.Variants;
+        if (variants is not (1 or 3)) throw new ArgumentException("Choose one or three variants.");
+        var initialState = editor.Session.History.CurrentId;
+        var initialLayer = editor.Session.Document.ActiveLayerId;
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         running?.Cancel();
@@ -153,18 +157,23 @@ public sealed class AiTaskService : IAiTaskRunner
             var preparedRequest = request.Task == AiTaskKind.RemoveObject && binding.Preprocess == "remove-object-in-workflow"
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
+            var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;
             using var client = Client();
             if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null || ConnectionState != ComfyConnectionState.Connected)
                 await TestConnectionAsync(linked.Token, client.Address.ToString());
             if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities is not { } capabilities)
                 throw new InvalidOperationException("The ComfyUI connection changed during this request. Retry after connecting to the desired server.");
             WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
-            JsonObject Bind(IReadOnlyDictionary<string, string> files)
+            JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
                 var values = inputs.Values(files);
                 foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
+                values["seed"] = (seed + index) & long.MaxValue;
                 if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
                 var boundGraph = WorkflowBinder.Bind(graph, binding, values);
+                if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
+                if (request.Task == AiTaskKind.Upscale)
+                    WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);
                 WorkflowModels.ResolvePaths(boundGraph, capabilities);
                 var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
                 if (!compatibility.IsCompatible) throw new InvalidOperationException(CompatibilityMessage(engine, compatibility)
@@ -180,15 +189,44 @@ public sealed class AiTaskService : IAiTaskRunner
                 if (!binding.Inputs.ContainsKey(semantic)) continue;
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
             }
-            var bound = Bind(uploaded);
-            var progress = new Progress<AiOperationState>(state => { Operation = state; StateChanged?.Invoke(); });
-            var result = await client.ExecuteAsync(bound, progress, linked.Token);
-            var references = workflow.OutputNodes.Count == 0 ? result.Images : result.Images.Where(image => image.NodeId != null && workflow.OutputNodes.Contains(image.NodeId)).ToList();
-            if (references.Count == 0) throw new InvalidDataException("ComfyUI completed without returning an image from the configured output nodes.");
             var images = new List<SKBitmap>();
+            var applied = false;
             try
             {
-                foreach (var reference in references) images.Add(await client.DownloadAsync(reference, linked.Token));
+                var runs = request.Settings.VariantMode == AiVariantMode.List ? variants : 1;
+                for (var index = 0; index < runs; index++)
+                {
+                    var number = index;
+                    var progress = new Progress<AiOperationState>(state =>
+                    {
+                        if (!ReferenceEquals(running, linked) || linked.IsCancellationRequested) return;
+                        Operation = state with { Status = state.Status == AiOperationStatus.Completed ? AiOperationStatus.Running : state.Status,
+                            Stage = variants == 1 ? state.Stage : $"{(runs == 1 ? "Batch · 3 variants" : $"Variant {number + 1}/{variants}")} · {state.Stage}" };
+                        StateChanged?.Invoke();
+                    });
+                    var result = await client.ExecuteAsync(Bind(uploaded, index), progress, linked.Token);
+                    using (result.History)
+                    {
+                        var references = workflow.OutputNodes.Count == 0 ? result.Images : result.Images.Where(image => image.NodeId != null && workflow.OutputNodes.Contains(image.NodeId)).ToList();
+                        var expected = runs == 1 ? variants : 1;
+                        if (references.Count == 0 || variants > 1 && references.Count != expected)
+                            throw new InvalidDataException($"ComfyUI returned {references.Count} images; expected {expected}. No result was applied. Try List mode if this workflow does not support Batch.");
+                        foreach (var reference in references)
+                        {
+                            var image = await client.DownloadAsync(reference, linked.Token);
+                            images.Add(image);
+                            var pixels = images.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
+                            if (binding.OutputMode == AiOutputMode.NewLayerWithMask && inputs.SelectionMask != null) pixels *= 2;
+                            if (request.Task == AiTaskKind.ChangeBackground)
+                                pixels = (long)editor.Session.Document.Width * editor.Session.Document.Height * variants * 3; // backgrounds + subject copies + masks
+                            if (editor.Session.Document.RasterPixels() + pixels > DocumentLimits.DocumentPixelBudget)
+                                throw new InvalidOperationException($"These variants exceed the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget. Use fewer variants or a smaller image size.");
+                        }
+                    }
+                }
+                linked.Token.ThrowIfCancellationRequested();
+                if (editor.Session.History.CurrentId != initialState || editor.Session.Document.ActiveLayerId != initialLayer)
+                    throw new InvalidOperationException("The document changed during generation. Results were not applied to a different document state; retry after finishing edits.");
                 if (!binding.OutputIsComposited && request.Task == AiTaskKind.RemoveObject && inputs.SelectionMask != null)
                     for (var index = 0; index < images.Count; index++)
                     {
@@ -196,16 +234,16 @@ public sealed class AiTaskService : IAiTaskRunner
                         images[index].Dispose();
                         images[index] = matched;
                     }
-                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited);
+                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited, variants: variants > 1);
+                applied = true;
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed" };
                 StateChanged?.Invoke();
             }
             catch
             {
-                foreach (var image in images) image.Dispose();
+                if (!applied) foreach (var image in images) image.Dispose();
                 throw;
             }
-            finally { result.History.Dispose(); }
         }
         catch (OperationCanceledException)
         {
@@ -230,14 +268,14 @@ public sealed class AiTaskService : IAiTaskRunner
         StateChanged?.Invoke();
     }
 
-    private ComfyClient Client(string? overrideUrl = null)
+    private IComfyConnection Client(string? overrideUrl = null)
     {
         var client = clientFactory(overrideUrl ?? serverUrl());
         client.ConnectionTimeout = TimeSpan.FromSeconds(Math.Clamp(ConnectionTimeoutSeconds, 1, 120));
         return client;
     }
 
-    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false)
     {
         var session = editor.Session;
         if (mode == AiOutputMode.Selection)
@@ -280,6 +318,22 @@ public sealed class AiTaskService : IAiTaskRunner
         }
         if (task == AiTaskKind.ChangeBackground && inputs?.SelectionMask != null && inputs.BackgroundMask != null)
         {
+            if (variants && images.Count > 1)
+            {
+                editor.Transaction("AI Background Variants", target =>
+                {
+                    var folder = Layer.Group("AI Background Variants"); folder.Tags.Add("ai-variants");
+                    target.Document.InsertAboveActive(folder);
+                    for (var i = 0; i < images.Count; i++)
+                    {
+                        var variant = Layer.Group($"Background {i + 1}"); variant.Visible = i == 0;
+                        folder.Children.Add(variant); target.Document.SetActive(variant.Id);
+                        Insert(editor, task, mode, [images[i]], targetBounds, inputs, outputIsComposited);
+                    }
+                    target.Document.SetActive(folder.Id);
+                });
+                return;
+            }
             var backgroundOutputs = new List<AiOutput>();
             foreach (var image in images)
             {
@@ -310,7 +364,7 @@ public sealed class AiTaskService : IAiTaskRunner
             SKRect? placement = documentSized ? null : new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom);
             return new AiOutput(images.Count == 1 ? "AI " + task.DisplayName() : $"AI {task.DisplayName()} {index + 1}", image, mask, Bounds: placement);
         }).ToList();
-        session.InsertAiOutput(task, outputs, group: mode == AiOutputMode.LayerGroup);
+        session.InsertAiOutput(task, outputs, group: mode == AiOutputMode.LayerGroup, variants: variants);
     }
 
     private static SKBitmap MaskForBounds(SKBitmap documentMask, SKRectI bounds, int width, int height)

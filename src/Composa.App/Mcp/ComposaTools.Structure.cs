@@ -10,6 +10,25 @@ namespace Composa.App.Mcp;
 
 public sealed partial class ComposaTools
 {
+    [McpServerTool(Name = "smart_object")]
+    [Description("Embedded smart objects: convert the named layer(s) preserving editable contents; copy makes an independent smart source. Ordinary duplicate_layer shares the source. Edit contents in its tab and Ctrl+S to update all parent instances. action: convert or copy.")]
+    public Task<string> SmartObject(string action, string[] layers, int? document = null) => OnUi(() =>
+    {
+        var s = Editable(document);
+        if (layers.Length == 0) throw new McpException("Give at least one layer.");
+        var targets = layers.Select(layer => Find(s, layer)).Distinct().ToArray();
+        Layer result;
+        if (action == "convert")
+        {
+            s.SelectLayer(targets[0].Id);
+            foreach (var target in targets.Skip(1)) s.SelectLayer(target.Id, extend: true);
+            result = s.ConvertToSmartObject();
+        }
+        else if (action == "copy" && targets.Length == 1) result = s.DuplicateSmartObjectIndependent(targets[0]);
+        else throw new McpException("Use convert with layer names/ids, or copy with one smart object.");
+        return $"Smart object \"{result.Name}\" [{Id(result)}], content {result.SmartObject!.Width}×{result.SmartObject.Height} px, source {result.SmartObject.Id}.";
+    });
+
     [McpServerTool(Name = "set_text")]
     [Description("Edits an existing LIVE text layer without flattening it. Omitted fields keep their values. The layer can be addressed by name or id.")]
     public Task<string> SetText(string layer, string? text = null, double? size = null, string? color = null,
@@ -80,11 +99,11 @@ public sealed partial class ComposaTools
     });
 
     [McpServerTool(Name = "rasterize_layer")]
-    [Description("Converts live text/shape to pixels for painting; preserves appearance and frame. Undo restores editable text/shape.")]
+    [Description("Converts live text/shape/smart object to pixels for painting; preserves appearance and frame. Undo restores editable content.")]
     public Task<string> RasterizeLayer(string layer, int? document = null) => OnUi(() =>
     {
         var s = Editable(document); var target = Find(s, layer);
-        if (!target.IsLive) throw new McpException("Rasterize requires live text or shape.");
+        if (!target.IsLive) throw new McpException("Rasterize requires live text, shape or smart object.");
         s.RasterizeShape(target); return $"Rasterized \"{target.Name}\".";
     });
 

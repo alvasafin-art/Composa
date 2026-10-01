@@ -14,6 +14,17 @@ public sealed partial class JavaScriptRuntime
 
     private static void AddEditorApi(ScriptEngine engine, EditorSession editor)
     {
+        engine.SetValue("__smartObject", (Func<string, string, string>)((id, action) =>
+        {
+            var layer = Find(editor, id);
+            switch (action)
+            {
+                case "convert": editor.SelectLayer(layer.Id); return LayerJson(editor.ConvertToSmartObject());
+                case "copy": return LayerJson(editor.DuplicateSmartObjectIndependent(layer));
+                case "rasterize": editor.RasterizeShape(layer); return LayerJson(layer);
+                default: throw new ArgumentException("Unknown smart object action.");
+            }
+        }));
         engine.SetValue("__addGuide", (Action<string, double>)((axis, position) =>
         {
             if (!Enum.TryParse<GuideAxis>(axis, true, out var parsed) || !Enum.IsDefined(parsed)) throw new ArgumentException("Guide axis is vertical (X) or horizontal (Y).");

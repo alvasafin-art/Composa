@@ -103,7 +103,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     }
 
     private static string Kind(Layer layer) =>
-        layer.IsGroup ? "group" : layer.IsAdjustment ? $"{layer.Adjustment?.DisplayName ?? "adjustment"} adjustment" :
+        layer.IsSmartObject ? "smart object" : layer.IsGroup ? "group" : layer.IsAdjustment ? $"{layer.Adjustment?.DisplayName ?? "adjustment"} adjustment" :
         layer.Text != null ? "text" : layer.Shape != null ? $"{ShapeStyle.DisplayName(layer.Shape.Kind).ToLowerInvariant()} shape" : "pixels";
 
     [McpServerTool(Name = "new_document")]

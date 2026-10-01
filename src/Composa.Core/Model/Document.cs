@@ -28,7 +28,12 @@ public sealed class Document
     public SKRectI Bounds => new(0, 0, Width, Height);
 
     /// <summary>The raster the document holds: every layer's pixels and mask, counted against <see cref="DocumentLimits.DocumentPixelBudget"/> when more is imported.</summary>
-    public long RasterPixels() => AllLayers().Sum(l => (long)(l.Pixels?.Width ?? 0) * (l.Pixels?.Height ?? 0) + (long)(l.Mask?.Width ?? 0) * (l.Mask?.Height ?? 0));
+    public long RasterPixels()
+    {
+        var bitmaps = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        CollectBitmaps(bitmaps, new(), includeSelection: false);
+        return bitmaps.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
+    }
     public Layer? ActiveLayer => ActiveLayerId is { } id ? Find(id) : null;
 
     public Document Clone()
@@ -106,12 +111,16 @@ public sealed class Document
 
     /// <summary>Approximate bytes held by distinct bitmaps, for budgeting history.</summary>
     public void CollectBitmaps(HashSet<SKBitmap> into)
+        => CollectBitmaps(into, new(), includeSelection: true);
+
+    internal void CollectBitmaps(HashSet<SKBitmap> into, HashSet<SmartObjectSource> visited, bool includeSelection)
     {
         foreach (var layer in AllLayers())
         {
             if (layer.Pixels != null) into.Add(layer.Pixels);
             if (layer.Mask != null) into.Add(layer.Mask);
+            layer.SmartObject?.CollectBitmaps(into, visited);
         }
-        if (Selection != null) into.Add(Selection);
+        if (includeSelection && Selection != null) into.Add(Selection);
     }
 }

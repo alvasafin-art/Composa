@@ -53,6 +53,9 @@ public sealed class Settings
     private const string DefaultUpscalerModel = "4x-UltraSharpV2.safetensors";
     public string AiUpscalerModel { get; set; } = DefaultUpscalerModel;
     public long AiSeed { get; set; } = -1;
+    public int AiVariants { get; set; } = 1;
+    public Composa.AI.AiVariantMode AiVariantMode { get; set; } = Composa.AI.AiVariantMode.List;
+    public int AiUpscaleFactor { get; set; } = 2;
     public List<AiLoraSetting> AiLoras { get; set; } = [];
     public List<string> CustomLayerTags { get; set; } = [];
 

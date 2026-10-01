@@ -20,6 +20,11 @@ public sealed partial class MainWindow
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
+        if (embeddedTabs.TryGetValue(s, out var embedded))
+        {
+            Add(Ui.TextButton("Save contents ↗", () => _ = Save(s, false), accent: true),
+                Ui.TextButton("Back to parent", () => SetSession(embedded.Parent)));
+        }
         // A tool that comes in a group is picked from its rail button, so the bar only names the one in use.
         string Chosen() => toolButtons[s.Tool].Current!.Name;
 

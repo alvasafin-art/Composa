@@ -66,7 +66,7 @@ public class McpTests
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "export_image", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "group_layers", "guides", "layer_mask", "list_documents",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "rasterize_layer", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
-             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_text", "trace_edges", "transform_layer", "undo"],
+             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_text", "smart_object", "trace_edges", "transform_layer", "undo"],
             tools.Select(t => t.Name).Order());
 
         var resources = await client.ListResourcesAsync();
@@ -101,6 +101,11 @@ public class McpTests
         Assert.Equal(2, session.Document.Layers.Count);
         Assert.Equal("Hello", session.ActiveLayer!.Text!.Text);
         Assert.Equal(0xFF0000FFu, session.ActiveLayer.Text.Color);
+        var smart = await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "convert", ["layers"] = new[] { "Hello" } }));
+        Assert.Null(smart.IsError); Assert.True(session.ActiveLayer.IsSmartObject);
+        Assert.Equal("Hello", session.ActiveLayer.SmartObject!.OpenDocument().ActiveLayer!.Text!.Text);
+        await Pumped(client.CallToolAsync("undo"));
+        Assert.NotNull(session.ActiveLayer!.Text);
 
         var described = Text(await Pumped(client.CallToolAsync("describe_document")));
         Assert.Contains("400×300 px", described);

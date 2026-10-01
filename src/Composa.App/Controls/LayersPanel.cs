@@ -43,6 +43,7 @@ public sealed class LayersPanel : UserControl
 
     public event Action<Layer>? EditAdjustmentRequested;
     public event Action<Layer>? EditTextRequested;
+    public event Action<Layer>? EditSmartObjectRequested;
     public event Action<AdjustmentKind>? NewAdjustmentRequested;
     /// <summary>Double-click on an effect row: open its settings.</summary>
     public event Action<Layer, LayerEffectKind>? EditEffectRequested;
@@ -280,6 +281,12 @@ public sealed class LayersPanel : UserControl
             // The row's own press handler (which bubbles next) selects the layer and then applies this target.
             pixelThumb.PointerPressed += (_, _) => thumbnailTarget = false;
             content.Children.Add(pixelThumb);
+            if (layer.IsSmartObject)
+            {
+                var badge = Ui.Label("◇", Palette.Accent);
+                ToolTip.SetTip(badge, "Smart object · double-click the thumbnail to edit contents");
+                content.Children.Add(badge);
+            }
         }
         if (layer.Mask != null)
         {
@@ -492,6 +499,12 @@ public sealed class LayersPanel : UserControl
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
         if (layer.IsLive) Add("Rasterize Layer", () => current.RasterizeShape(layer));
+        if (!layer.IsSmartObject) Add("Convert to Smart Object", () => current.ConvertToSmartObject());
+        else
+        {
+            Add("Edit Smart Object Contents…", () => EditSmartObjectRequested?.Invoke(layer));
+            Add("New Smart Object via Copy", () => current.DuplicateSmartObjectIndependent(layer));
+        }
         menu.Items.Add(new Separator());
 
         Add(layer.Clipped ? "Release Clipping Mask" : "Create Clipping Mask", () => current.ToggleClippingMask(layer), current.CanClip(layer));
@@ -507,7 +520,7 @@ public sealed class LayersPanel : UserControl
         menu.Items.Add(addMask);
         Add(layer.Mask is { } && !layer.MaskEnabled ? "Enable Mask" : "Disable Mask", () => current.SetMaskEnabled(layer, !layer.MaskEnabled), layer.Mask != null);
         Add("Delete Mask", () => current.DeleteMask(layer), layer.Mask != null);
-        Add("Apply Mask", () => current.ApplyMask(layer), layer.Mask != null && layer.Pixels != null);
+        Add("Apply Mask", () => current.ApplyMask(layer), layer.Mask != null && layer.Pixels != null && !layer.IsSmartObject);
         Add("Select Mask", () => current.SelectLayerMask(layer), layer.Mask != null);
         if (layer.Pixels != null) Add("Select Pixels", () => current.SelectLayerPixels(layer));
         menu.Items.Add(new Separator());
@@ -532,6 +545,7 @@ public sealed class LayersPanel : UserControl
         {
             // Selecting on the first click rebuilt the rows, so the control's own double-tap never sees both clicks.
             if (layer.IsAdjustment) EditAdjustmentRequested?.Invoke(layer);
+            else if (layer.IsSmartObject && e.Source is Image) EditSmartObjectRequested?.Invoke(layer);
             else if (layer.Text != null && e.Source is Image) EditTextRequested?.Invoke(layer); // Double-click the thumbnail to edit, the name to rename.
             else { renaming = layer.Id; Rebuild(); }
             e.Handled = true;

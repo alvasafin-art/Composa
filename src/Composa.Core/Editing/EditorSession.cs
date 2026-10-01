@@ -312,6 +312,13 @@ public sealed partial class EditorSession
 
     public void MarkSaved(string path) => MarkSaved(path, History.CurrentId);
 
+    /// <summary>Records contents applied to their parent, without inventing a filesystem path.</summary>
+    public void MarkEmbeddedSaved()
+    {
+        savedState = History.CurrentId;
+        HistoryChanged?.Invoke();
+    }
+
     /// <summary>
     /// Records that the document in history state <paramref name="state"/> (<see cref="History.CurrentId"/> when the
     /// snapshot was taken) is on disk at <paramref name="path"/>. A save writes a snapshot off the UI thread, so an

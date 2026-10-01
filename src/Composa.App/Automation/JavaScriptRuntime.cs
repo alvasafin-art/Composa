@@ -39,6 +39,10 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     layer.transform = { x: 10, y: 20, width: 400, height: 300, rotation: 0 };
     layer.select(); layer.remove();
     layer.fill("#87CEEB"); layer.duplicate(); layer.moveBy(20, 20); layer.blendMode = "Multiply";
+    layer.toSmartObject();           // embeds editable content; ordinary duplicate() shares it
+    layer.duplicateIndependent();    // smart object with an independent source
+    layer.rasterize();               // disconnect embedded content; keep visible pixels
+    // To edit smart object contents, open its thumbnail in a new tab, edit and Ctrl+S to update the parent.
     doc.addRectangle(40, 40, 240, 120, "#87CEEB", "Blue Rectangle"); // creates a new live shape layer
     doc.addEllipse(40, 40, 120, 120, "#FF0000", "Circle");
     doc.addShape({ kind: "rounded", x: 40, y: 40, width: 240, height: 120, color: "#87CEEB", cornerRadius: 20, name: "Card" });
@@ -241,6 +245,9 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             Settings = new AiGenerationSettings
             {
                 Width = width, Height = height, Seed = seed,
+                Variants = call.Options.Variants ?? 1,
+                VariantMode = call.Options.Batch ? AiVariantMode.Batch : AiVariantMode.List,
+                UpscaleFactor = call.Options.Factor ?? settings.AiUpscaleFactor,
                 Values = new Dictionary<string, object?>
                 {
                     ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
@@ -258,6 +265,9 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         public long? Seed { get; init; }
         public int? X { get; init; }
         public int? Y { get; init; }
+        public int? Variants { get; init; }
+        public bool Batch { get; init; }
+        public int? Factor { get; init; }
     }
 
     public static string Describe(EditorSession session, int offset = 0, int maximumLayers = 160, int maximumText = 500)
@@ -295,7 +305,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
     };
 
-    private static string LayerKind(Layer layer) => layer.Text != null ? "text" : layer.Shape != null ? "shape"
+    private static string LayerKind(Layer layer) => layer.IsSmartObject ? "smartObject" : layer.Text != null ? "text" : layer.Shape != null ? "shape"
         : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : "raster";
 
     private static object? SelectionData(EditorSession session)
@@ -322,6 +332,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
                 visible = layer.Visible, opacity = layer.Opacity, blendMode = layer.Blend.ToString(),
                 hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, clipped = layer.Clipped,
                 pixelWidth = layer.Pixels?.Width, pixelHeight = layer.Pixels?.Height,
+                smartObjectId = layer.SmartObject?.Id, contentWidth = layer.SmartObject?.Width, contentHeight = layer.SmartObject?.Height,
                 shape = layer.Shape, adjustment = layer.Adjustment?.DisplayName, effects = layer.Effects,
                 transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
             };
@@ -367,6 +378,9 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
           select() { __selectLayer(id); },
           fill(color) { __fillLayer(id, String(color)); },
           duplicate() { return wrap(parse(__duplicateLayer(id))); },
+          toSmartObject() { return wrap(parse(__smartObject(id, 'convert'))); },
+          duplicateIndependent() { return wrap(parse(__smartObject(id, 'copy'))); },
+          rasterize() { __smartObject(id, 'rasterize'); },
           moveBy(dx,dy) { __moveLayer(id,Number(dx),Number(dy)); },
           remove() { __deleteLayer(id); }
         });

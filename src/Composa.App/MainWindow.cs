@@ -131,6 +131,7 @@ public sealed partial class MainWindow : Window
         layers.EditEffectRequested += (layer, kind) => _ = EditEffect(layer, kind);
         layers.NewEffectRequested += kind => _ = NewEffect(kind);
         layers.EditTagsRequested += layer => _ = EditLayerTags(layer);
+        layers.EditSmartObjectRequested += layer => OpenSmartObject(layer);
 
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -353,6 +354,10 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> CloseSession(EditorSession item)
     {
+        if (!sessions.Contains(item)) return true;
+        // Contents must be resolved before the parent's save prompt, including nested tabs.
+        foreach (var child in embeddedTabs.Where(pair => pair.Value.Parent == item).Select(pair => pair.Key).ToArray())
+            if (!await CloseSession(child)) return false;
         // A save still writing finishes first, so its file is never cut short and the prompt knows whether it is needed.
         while (saving.TryGetValue(item, out var writing)) await writing.Task;
         // Text still being typed is an open edit: commit it so it counts as a change and is in what gets saved.
@@ -366,6 +371,7 @@ public sealed partial class MainWindow : Window
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        embeddedTabs.Remove(item);
         recovery?.Forget(item);
         item.HistoryChanged -= RebuildTabs;
         if (lastToolSource == item) lastToolSource = null;
