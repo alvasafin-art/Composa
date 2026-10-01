@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.App.AI;
+using Composa.Editing;
+using SkiaSharp;
 
 namespace Composa.App.Tests;
 
@@ -37,5 +39,29 @@ public class LoraWorkflowTests
         Assert.Throws<ArgumentException>(() => WorkflowExecution.Loras(Graph(), Engine(), [new("b.safetensors", double.NaN)], Server()));
         Assert.Throws<ArgumentException>(() => WorkflowExecution.Loras(Graph(), Engine(), Enumerable.Repeat(new AiLora("b.safetensors"), 4).ToArray(), Server()));
         Assert.Throws<InvalidOperationException>(() => WorkflowExecution.Loras(Graph(), Engine() with { Lora = new() }, [new("b.safetensors")], Server()));
+    }
+
+    [Theory]
+    [InlineData(AiTaskKind.GenerativeFill, false)]
+    [InlineData(AiTaskKind.GenerativeFill, true)]
+    [InlineData(AiTaskKind.RemoveObject, false)]
+    [InlineData(AiTaskKind.RemoveObject, true)]
+    public void Masked_edit_keeps_all_loras_when_removing_the_old_sampling_override(AiTaskKind task, bool pixaroma)
+    {
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var engine = catalog.Find("flux2-klein-intel-xpu")!; var binding = engine.Binding(task)!;
+        var session = EditorSession.NewCanvas(79, 61, SKColors.White); session.SelectRect(new SKRect(28, 22, 49, 41));
+        var request = new AiTaskRequest { Task = task, Settings = new AiGenerationSettings { Width = 128, Height = 128 } };
+        using var inputs = AiTaskInputPreparer.Prepare(session, request);
+        var graph = JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine), engine.Workflow(binding.Workflow).File)))!.AsObject();
+        graph = WorkflowBinder.Bind(graph, binding, inputs.Values(inputs.Images().ToDictionary(pair => pair.Key, _ => "source.png")));
+        var server = Server();
+        if (pixaroma) { server.NodeTypes.Add("PixaromaInpaintCrop"); server.NodeTypes.Add("PixaromaInpaintStitch"); }
+        // Use the same preparation order as AiTaskService.
+        WorkflowExecution.Loras(graph, engine, [new("a.safetensors"), new("b.safetensors"), new("c.safetensors")], server);
+        WorkflowExecution.MaskedEdit(graph, inputs, request, server);
+        Assert.False(graph.ContainsKey("sampling"));
+        Assert.Equal("composa_lora_2", graph["sampler"]!["inputs"]!["model"]![0]!.GetValue<string>());
+        Assert.Equal(3, graph.Count(pair => pair.Value?["class_type"]?.GetValue<string>() == "LoraLoaderModelOnly"));
     }
 }

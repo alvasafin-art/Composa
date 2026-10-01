@@ -87,7 +87,8 @@ internal static class WorkflowExecution
         { ["samples"] = new JsonArray("composa_condition", 2), ["amount"] = 1 } };
         sampler["positive"] = new JsonArray("composa_condition", 0);
         sampler["negative"] = new JsonArray("composa_condition", 1);
-        sampler["model"] = new JsonArray("model", 0);
+        // Drop only the AuraFlow schedule, not the upstream LoRA model chain.
+        sampler["model"] = graph["sampling"]?["inputs"]?["model"]?.DeepClone() ?? new JsonArray("model", 0);
         sampler["sampler_name"] = "euler";
         // The installed Flux.2 Klein model already has its native sampling schedule. The old
         // AuraFlow shift override was unrelated to the user's working four-step Klein pipeline.
