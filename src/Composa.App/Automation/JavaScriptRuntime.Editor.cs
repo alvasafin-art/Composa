@@ -14,6 +14,7 @@ public sealed partial class JavaScriptRuntime
 
     private static void AddEditorApi(ScriptEngine engine, EditorSession editor)
     {
+        engine.SetValue("__shapeColor", (Action<string, string>)((id, color) => editor.SetShapeColor(Find(editor, id), Color(color))));
         engine.SetValue("__smartObject", (Func<string, string, string>)((id, action) =>
         {
             var layer = Find(editor, id);
@@ -81,7 +82,8 @@ public sealed partial class JavaScriptRuntime
         }));
         engine.SetValue("__fill", (Action<string>)(color => { RequirePaintable(editor); editor.Fill(Color(color)); }));
         engine.SetValue("__fillLayer", (Action<string, string>)((id, color) =>
-        { editor.SelectLayer(Find(editor, id).Id); RequirePaintable(editor); editor.Fill(Color(color)); }));
+        { var layer = Find(editor, id); if (layer.Shape != null) editor.SetShapeColor(layer, Color(color));
+          else { editor.SelectLayer(layer.Id); RequirePaintable(editor); editor.Fill(Color(color)); } }));
         engine.SetValue("__duplicateLayer", (Func<string, string>)(id =>
         {
             editor.SelectLayer(Find(editor, id).Id); editor.DuplicateSelectedLayers();

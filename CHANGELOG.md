@@ -4,6 +4,22 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.7] - 2026-10-01
+
+### Added
+
+- Native `set_shape` and scripting `setShapeColor` recolor editable shapes directly. The Assistant receives bounded, valid paged JSON instead of truncated layer records, sees actual shape styles, and has explicit guidance for alternating-layer edits and one-shot batch scripts; prose-only editing claims are reported as failures. A live Qwen 9B test covers alternating-square recoloring and one-step Undo.
+- Object Selection AI in the Magic Wand group draws a rectangle and processes only its region. Existing selections also constrain segmentation; masks return to canvas coordinates. Duplicate AI Select Subject menu entries are removed (script compatibility remains).
+- Remove Object tool below Brush paints a selection and removes it on release without a floating panel. Paint Bucket joins the Gradient group and fills connected pixels with selection, transform and undo support. New tools have distinct vector icons.
+
+### Fixed
+
+- GPT masked fill sends a visible black editing patch and crop-relative region instructions in addition to mask guidance; local compositing still preserves untouched pixels. Relight/Harmonize do not erase their source subject.
+- Expand has a fixed English instruction, no prompt field and no stale Gen Fill prompt. With selection it uses masked fill and hides mode choice; without selection or from Crop, Empty area only is the default and whole-image regeneration remains optional. A bounded overlap and inward blend soften the expansion seam.
+- Crop starts with an immediately adjustable image-filling frame in the chosen aspect ratio. The floating AI panel can be dragged from the whole blank header area while its buttons remain clickable.
+
+Paid GPT inference still needs visual testing on a funded account; input, mask-confinement, placement and UI tests do not spend credits.
+
 ## [1.2.1-preview.6] - 2026-10-01
 
 ### Fixed

@@ -181,6 +181,7 @@ public class LayersPanelTests
         session.SetVisible(hidden, false);
         session.SelectLayer(curves.Id);
         window.SelectTool(Tool.Crop);
+        window.Canvas.CancelCrop(); // custom drawn frame, rather than the default full-image crop
         Dispatcher.UIThread.RunJobs();
         var view = window.Canvas;
         var from = view.TranslatePoint(view.ToScreen(new SKPoint(100, 80)), window)!.Value;

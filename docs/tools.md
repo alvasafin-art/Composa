@@ -92,4 +92,8 @@ The Hand tool pans; Space does the same with any tool. The Zoom tool zooms in on
 
 ## Colors
 
+**Paint Bucket** shares the Gradient button (hold or right-click). Click connected pixels to fill them with the foreground color; Tolerance controls color matching. The fill respects selections and the layer/mask transform and is undoable. It operates on raster pixels or layer masks, not live shape geometry.
+
+Crop begins with a ready image-filling frame in the chosen aspect ratio; drag its interior to move it or its handles to resize. A selection starts the frame at its bounds.
+
 The color picker has a spectrum with saturation and brightness in the square and hue on the strip, as Photoshop lays it out, a palette, color model fields and a hex field, and a swatch comparing the color before and after. Edit > Fill with Foreground Color (Alt+Backspace) and Fill with Background Color (Ctrl+Backspace) fill the layer, or the selection, with a color; on a text layer they recolor the text and keep it editable.

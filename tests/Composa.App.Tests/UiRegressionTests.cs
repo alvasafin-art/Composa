@@ -136,6 +136,7 @@ public class UiRegressionTests
     {
         var window = Open(out _);
         window.SelectTool(Tool.Crop);
+        window.Canvas.CancelCrop(); // explicitly discard the ready frame before testing drawing a custom one
         Dispatcher.UIThread.RunJobs();
         window.MouseDown(At(window, 200, 200), MouseButton.Left);
         window.MouseMove(At(window, 600, 400), RawInputModifiers.LeftMouseButton);

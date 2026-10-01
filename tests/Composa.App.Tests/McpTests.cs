@@ -66,7 +66,7 @@ public class McpTests
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "export_image", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "group_layers", "guides", "layer_mask", "list_documents",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "rasterize_layer", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
-             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_text", "smart_object", "trace_edges", "transform_layer", "undo"],
+             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_shape", "set_text", "smart_object", "trace_edges", "transform_layer", "undo"],
             tools.Select(t => t.Name).Order());
 
         var resources = await client.ListResourcesAsync();
@@ -235,6 +235,10 @@ public class McpTests
         var shape = await Pumped(client.CallToolAsync("add_shape", new Dictionary<string, object?> { ["kind"] = "ellipse", ["x"] = 10, ["y"] = 10, ["width"] = 100, ["height"] = 50, ["color"] = "#FF00FF" }));
         Assert.Matches("Added ellipse \"Ellipse( \\d+)?\" at 10,10 size 100×50, now active\\.", Text(shape));
         Assert.Equal(ShapeKind.Ellipse, session.ActiveLayer!.Shape!.Kind);
+        var recolor = await Pumped(client.CallToolAsync("set_shape", new Dictionary<string, object?> { ["layer"] = session.ActiveLayer.Name, ["color"] = "#FFFF00" }));
+        Assert.Null(recolor.IsError);
+        Assert.Equal((uint)SKColors.Yellow, session.ActiveLayer.Shape.Fill);
+        Assert.Equal(ShapeKind.Ellipse, session.ActiveLayer.Shape.Kind);
         var line = await Pumped(client.CallToolAsync("add_line", new Dictionary<string, object?> { ["x1"] = 0, ["y1"] = 0, ["x2"] = 100, ["y2"] = 100, ["width"] = 6 }));
         Assert.Matches("Added line \"Line( \\d+)?\" from 0,0 to 100,100, now active\\.", Text(line));
         Assert.Equal(6, session.ActiveLayer!.Shape!.LineWidth);

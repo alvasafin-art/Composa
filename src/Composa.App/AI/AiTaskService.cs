@@ -113,6 +113,10 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
+        // An explicit selection is an edit, not a transparent-canvas expansion. Crop bounds take precedence.
+        if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds == null && editor.Session.Selection != null)
+            request = request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
+                Settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = false } } };
         if (request.Task == AiTaskKind.MatchToScene)
         {
             Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
@@ -131,7 +135,10 @@ public sealed class AiTaskService : IAiTaskRunner
                 throw;
             }
         }
-        if (SelectedEngine is not { } engine) throw new InvalidOperationException("Install and select an Engine Pack first.");
+        var engine = SelectedEngine ?? throw new InvalidOperationException("Install and select an Engine Pack first.");
+        if (request.Task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && engine.Binding(request.Task) == null)
+            engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(request.Task) != null)
+                ?? throw new InvalidOperationException("Install a local Object Selection workflow pack.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
         var fullEdit = request.Task == AiTaskKind.ImageEdit || editor.Session.Selection == null && request.Task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground
             || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage;
@@ -264,7 +271,7 @@ public sealed class AiTaskService : IAiTaskRunner
                                 if (request.ExpansionMode == AiExpansionMode.MaskedRegion)
                                 {
                                     using var context = inputs.ExpandedContext();
-                                    using var finalMask = AiResultPostprocessor.ExpansionEditMask(inputs.PreprocessedMask!, context, Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
+                                    using var finalMask = AiResultPostprocessor.ExpansionEditMask(inputs.OutputMask ?? inputs.PreprocessedMask!, context, Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
                                     var constrained = AiResultPostprocessor.Constrain(image, context, finalMask); image.Dispose(); image = constrained;
                                 }
                             }
@@ -346,7 +353,21 @@ public sealed class AiTaskService : IAiTaskRunner
         }
         if (mode == AiOutputMode.Selection)
         {
-            var mask = ToMask(images[0], session.Document.Width, session.Document.Height);
+            SKBitmap mask;
+            if (inputs?.SegmentationSourceBounds is { } roi)
+            {
+                using var patch = ToMask(images[0], roi.Width, roi.Height);
+                mask = Pixels.NewMask(session.Document.Width, session.Document.Height);
+                using (var canvas = new SKCanvas(mask)) canvas.DrawImage(Pixels.ImageOf(patch), roi.Left, roi.Top);
+                if (inputs.SelectionMask != null)
+                {
+                    var coverage = mask.GetPixelSpan(); var limit = inputs.SelectionMask.GetPixelSpan();
+                    for (var y = 0; y < mask.Height; y++) for (var x = 0; x < mask.Width; x++)
+                        coverage[y * mask.RowBytes + x] = (byte)(coverage[y * mask.RowBytes + x] * limit[y * inputs.SelectionMask.RowBytes + x] / 255);
+                    Pixels.Invalidate(mask);
+                }
+            }
+            else mask = ToMask(images[0], session.Document.Width, session.Document.Height);
             foreach (var image in images) image.Dispose();
             session.ApplyAiSelection(task, mask);
             return;

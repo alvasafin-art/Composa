@@ -10,7 +10,9 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle }
+    public Func<bool>? AiToolsAvailable { get; set; }
+    public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
 
     private Drag drag;
     private MouseButton dragButton;
@@ -31,6 +33,7 @@ public sealed partial class CanvasView
     private bool controlHover;
     private readonly List<SKPoint> polygon = [];
     private SKRect? cropRect;
+    private bool cropFramePristine;
     private SKRect cropStart;
     private TransformHandle handle;
     private int distortCorner = -1;
@@ -63,15 +66,17 @@ public sealed partial class CanvasView
     public bool HasCrop => cropRect != null;
     public SKRect? CropRect => cropRect;
 
-    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush;
+    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject;
 
     public void ToolChanged()
     {
         CancelInteraction();
-        if (session?.Tool != Tool.Crop) cropRect = null;
+        if (session?.Tool != Tool.Crop) { cropRect = null; cropFramePristine = false; }
         // With a selection, the crop starts at its bounds, as Photoshop's does: C, then Enter, crops to it.
         else if (cropRect == null && session.Selection is { } selection && SelectionMask.Bounds(selection) is { IsEmpty: false } bounds)
             cropRect = ConstrainCrop(new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom));
+        else if (cropRect == null && session != null)
+        { cropRect = ConstrainCrop(SKRect.Create(0, 0, session.Document.Width, session.Document.Height)); cropFramePristine = true; }
         UpdateCursor();
         InvalidateVisual();
     }
@@ -79,7 +84,8 @@ public sealed partial class CanvasView
     /// <summary>The crop bar's ratio changed: the box, when there is one, is reshaped around its center to match.</summary>
     public void ChangeCropRatio()
     {
-        if (cropRect is { } crop) cropRect = ConstrainCrop(crop);
+        if (cropRect is { } crop) cropRect = ConstrainCrop(cropFramePristine && session != null
+            ? SKRect.Create(0, 0, session.Document.Width, session.Document.Height) : crop);
         InvalidateVisual();
         ToolStateChanged?.Invoke();
     }
@@ -131,9 +137,9 @@ public sealed partial class CanvasView
             else type = session.Tool switch
             {
                 Tool.Hand => StandardCursorType.Hand,
-                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper => StandardCursorType.Cross,
+                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.ObjectSelectionAi or Tool.Bucket => StandardCursorType.Cross,
                 Tool.Text => StandardCursorType.Ibeam,
-                Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush => StandardCursorType.None,
+                Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
                 _ => StandardCursorType.Arrow
             };
@@ -162,6 +168,8 @@ public sealed partial class CanvasView
         base.OnPointerPressed(e);
         Focus();
         if (session == null || drag != Drag.None && !(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) return;
+        if (session.Tool is Tool.ObjectSelectionAi or Tool.RemoveObject && AiToolsAvailable?.Invoke() != true)
+        { Problem?.Invoke("Connect to ComfyUI and wait for the current AI operation to finish."); return; }
         var point = e.GetCurrentPoint(this);
         pressScreen = cursorScreen = point.Position;
         pressDocument = currentDocument = ToDocument(point.Position);
@@ -238,12 +246,21 @@ public sealed partial class CanvasView
                 if (session.WandMode == WandMode.Object) session.SelectObject((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 else session.SelectWand((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 break;
-            case Tool.SelectionBrush:
-                var selectionMode = alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : session.SelectionBrushMode;
+            case Tool.ObjectSelectionAi:
+                drag = Drag.AiRectangle;
+                snapFrom = snapTo = pressDocument;
+                ToolStateChanged?.Invoke();
+                break;
+            case Tool.Bucket:
+                session.BucketFill(pressDocument);
+                break;
+            case Tool.SelectionBrush or Tool.RemoveObject:
+                var selectionMode = session.Tool == Tool.RemoveObject ? SelectionMode.Replace : alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : session.SelectionBrushMode;
                 session.BeginSelectionBrush(pressDocument, selectionMode);
                 drag = Drag.SelectionBrush;
                 break;
             case Tool.Crop:
+                cropFramePristine = false;
                 handle = cropRect is { } crop ? HitFrame(Corners(crop), point.Position, allowRotate: false) : TransformHandle.None;
                 if (handle == TransformHandle.None) { cropRect = null; handle = TransformHandle.BottomRight; cropStart = SKRect.Create(Snap(pressDocument.X), Snap(pressDocument.Y), 0, 0); }
                 else cropStart = cropRect!.Value;
@@ -313,7 +330,7 @@ public sealed partial class CanvasView
         switch (drag)
         {
             case Drag.Pan: PanBy(delta); break;
-            case Drag.Marquee or Drag.Shape: snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
+            case Drag.Marquee or Drag.Shape or Drag.AiRectangle: snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.MoveSelection: selectionOffset = SnappedSelectionOffset(shift, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Stroke:
                 session.ViewZoom = UnitsPerPixel;
@@ -383,7 +400,17 @@ public sealed partial class CanvasView
         {
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
-            case Drag.SelectionBrush: session.EndSelectionBrush(); break;
+            case Drag.SelectionBrush:
+                session.EndSelectionBrush();
+                if (session.Tool == Tool.RemoveObject && session.Selection != null) AiSelectionCompleted?.Invoke(Composa.AI.AiTaskKind.RemoveObject);
+                break;
+            case Drag.AiRectangle:
+                if (moved)
+                {
+                    session.SelectRect(MarqueeRect(false, false), SelectionMode.Replace);
+                    if (session.Selection != null) AiSelectionCompleted?.Invoke(Composa.AI.AiTaskKind.ObjectSelection);
+                }
+                break;
             case Drag.Marquee:
                 guides.Clear();
                 if (!moved) { if (dragMode == SelectionMode.Replace) session.Deselect(); break; }
@@ -911,7 +938,7 @@ public sealed partial class CanvasView
                 return true;
             case Key.OemOpenBrackets or Key.OemCloseBrackets when IsBrushTool:
                 var grow = e.Key == Key.OemCloseBrackets;
-                if (session.Tool == Tool.SelectionBrush) session.SelectionBrushSize = NextBrushSize(session.SelectionBrushSize, grow);
+                if (session.Tool is Tool.SelectionBrush or Tool.RemoveObject) session.SelectionBrushSize = NextBrushSize(session.SelectionBrushSize, grow);
                 else if (shift) session.Brush = session.Brush with { Hardness = Math.Clamp(session.Brush.Hardness + (grow ? 0.25 : -0.25), 0, 1) };
                 else session.Brush = session.Brush with { Size = NextBrushSize(session.Brush.Size, grow) };
                 ToolStateChanged?.Invoke();
@@ -928,7 +955,7 @@ public sealed partial class CanvasView
         if (e.Key is >= Key.D0 and <= Key.D9 && !shift)
         {
             var value = e.Key == Key.D0 ? 1.0 : (e.Key - Key.D0) / 10.0;
-            if (IsBrushTool && session.Tool != Tool.SelectionBrush) session.Brush = session.Brush with { Opacity = value };
+            if (IsBrushTool && session.Tool is not (Tool.SelectionBrush or Tool.RemoveObject)) session.Brush = session.Brush with { Opacity = value };
             else if (session.Tool == Tool.Gradient) session.GradientOpacity = value;
             else if (session.Tool == Tool.Move && session.ActiveLayer is { } layer)
             {

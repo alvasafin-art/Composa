@@ -18,6 +18,9 @@ public static class Icons
     public static readonly Icon PolygonLasso = new("M4 6 L14 3 L21 10 L15 16 L6 14 Z M6 14 C5 17 8 18 7 22");
     public static readonly Icon Wand = new("M4 20 L13.5 10.5", "M17 2 L18.3 5.7 L22 7 L18.3 8.3 L17 12 L15.7 8.3 L12 7 L15.7 5.7 Z M7 3 L7.7 5.3 L10 6 L7.7 6.7 L7 9 L6.3 6.7 L4 6 L6.3 5.3 Z");
     public static readonly Icon Crop = new("M6.5 2 V17.5 H22 M2 6.5 H17.5 V22");
+    public static readonly Icon ObjectSelectAi = new("M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15", "M12 7 L13.4 10.6 L17 12 L13.4 13.4 L12 17 L10.6 13.4 L7 12 L10.6 10.6 Z");
+    public static readonly Icon RemoveObject = new("M8 20 H19 M4 15 L10 9 L16 15 L11 20 H9 Z", "M18 2 L19 5 L22 6 L19 7 L18 10 L17 7 L14 6 L17 5 Z");
+    public static readonly Icon Bucket = new("M3 12 L11 4 L19 12 L11 20 Z M6 9 H16 M7 8 V3 H11 V6 M3 12 H19", "M20 14 C20 14 17 18 17 20 A3 3 0 0 0 23 20 C23 18 20 14 20 14 Z");
     public static readonly Icon Brush = new(null, "M20.5 2.5 C21.5 3.5 21.5 4.5 20.5 5.5 L11.5 15.5 L8.5 12.5 L18.5 3.5 C19.2 2.2 19.8 1.8 20.5 2.5 Z M7.5 13.8 L10.2 16.5 C10.5 20 7 21.5 2.5 21 C4.5 19.5 4 17.5 4.8 15.8 C5.4 14.5 6.4 13.9 7.5 13.8 Z");
     // A dashed selection contour around the brush tip, not the painting brush silhouette alone.
     public static readonly Icon SelectionBrush = new("M8 10 A6 6 0 1 1 8 22 A6 6 0 1 1 8 10 Z", "M20 2 L22 4 L12 15 L9 12 Z M8 13 L11 16 C10 19 7 19 5 19 C7 17 6 15 8 13 Z", true);

@@ -39,6 +39,8 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     layer.transform = { x: 10, y: 20, width: 400, height: 300, rotation: 0 };
     layer.select(); layer.remove();
     layer.fill("#87CEEB"); layer.duplicate(); layer.moveBy(20, 20); layer.blendMode = "Multiply";
+    layer.shape;                      // read-only style: {kind:'Rectangle'|'Ellipse'|'RoundedRectangle'|'Line',color,cornerRadius}
+    layer.setShapeColor("#FFFF00");   // recolors an editable shape without rasterization; fill also supports shapes
     layer.toSmartObject();           // embeds editable content; ordinary duplicate() shares it
     layer.duplicateIndependent();    // smart object with an independent source
     layer.rasterize();               // disconnect embedded content; keep visible pixels
@@ -270,6 +272,34 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         public int? Factor { get; init; }
     }
 
+    /// <summary>Valid bounded JSON for tool feedback; don't cut a large verbose document halfway through a layer.</summary>
+    public static string DescribeCompact(EditorSession session, int offset = 0, int maximumLayers = 24)
+    {
+        var all = session.Document.AllLayers().ToList();
+        var page = all.Skip(offset).Take(maximumLayers).Select((layer, i) => new
+        {
+            id = layer.Id.ToString(), name = layer.Name.Length > 100 ? layer.Name[..100] : layer.Name,
+            kind = LayerKind(layer), panelIndex = all.Count - 1 - offset - i, parentId = session.Document.ParentOf(layer.Id)?.Id,
+            shape = ShapeData(layer), text = layer.Text?.Text is { } text ? text[..Math.Min(160, text.Length)] : null,
+            fontSize = layer.Text?.Size, fontFamily = layer.Text?.FontFamily, textColor = layer.Text?.Color,
+            tags = layer.Tags.Take(8), visible = layer.Visible, opacity = layer.Opacity, blend = layer.Blend.ToString(),
+            hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled,
+            transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
+        }).ToList();
+        string Encode() => JsonSerializer.Serialize(new
+        {
+            width = session.Document.Width, height = session.Document.Height, activeLayerId = session.ActiveLayer?.Id.ToString(),
+            hasSelection = session.Selection != null, selection = SelectionData(session),
+            layerOrder = "bottom-to-top; panelIndex 0 is the top layer; inspect nextOffset when truncated",
+            guides = session.Guides.Take(24).Select(g => new { id = g.Id.ToString(), axis = g.Axis.ToString().ToLowerInvariant(), position = g.Position }),
+            guideCount = session.Guides.Count, showGuides = session.View.ShowGuides, guidesLocked = session.View.LockGuides,
+            layerCount = all.Count, offset, nextOffset = offset + page.Count, truncated = all.Count > offset + page.Count, layers = page
+        });
+        var json = Encode();
+        while (json.Length > 4200 && page.Count > 1) { page.RemoveAt(page.Count - 1); json = Encode(); }
+        return json;
+    }
+
     public static string Describe(EditorSession session, int offset = 0, int maximumLayers = 160, int maximumText = 500)
     {
         var all = session.Document.AllLayers().ToList();
@@ -301,12 +331,15 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     private static object LayerData(Layer layer) => new
     {
         id = layer.Id.ToString(), name = layer.Name, kind = LayerKind(layer),
+        shape = ShapeData(layer),
         tags = layer.Tags.Order(StringComparer.OrdinalIgnoreCase), text = layer.Text?.Text, visible = layer.Visible, opacity = layer.Opacity, blendMode = layer.Blend.ToString(),
         transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
     };
 
     private static string LayerKind(Layer layer) => layer.IsSmartObject ? "smartObject" : layer.Text != null ? "text" : layer.Shape != null ? "shape"
         : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : "raster";
+    private static object? ShapeData(Layer layer) => layer.Shape is { } shape
+        ? new { kind = shape.Kind.ToString(), color = $"#{shape.Fill & 0xFFFFFF:X6}", alpha = (shape.Fill >> 24) / 255.0, cornerRadius = shape.CornerRadius, lineWidth = shape.LineWidth } : null;
 
     private static object? SelectionData(EditorSession session)
     {
@@ -333,7 +366,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
                 hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, clipped = layer.Clipped,
                 pixelWidth = layer.Pixels?.Width, pixelHeight = layer.Pixels?.Height,
                 smartObjectId = layer.SmartObject?.Id, contentWidth = layer.SmartObject?.Width, contentHeight = layer.SmartObject?.Height,
-                shape = layer.Shape, adjustment = layer.Adjustment?.DisplayName, effects = layer.Effects,
+                shape = ShapeData(layer), adjustment = layer.Adjustment?.DisplayName, effects = layer.Effects,
                 transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation }
             };
             foreach (var child in ContextLayers(layer.Children, path, maximumText)) yield return child;
@@ -357,6 +390,8 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
           get id() { return id; },
           get name() { return current().name; }, set name(value) { __rename(id, String(value)); },
           get kind() { return current().kind; },
+          get shape() { return current().shape; },
+          setShapeColor(color) { __shapeColor(id, String(color)); },
           get blendMode() { return current().blendMode; }, set blendMode(value) { __blend(id, String(value)); },
           get tags() { return current().tags; }, set tags(value) { __tags(id, JSON.stringify(Array.from(value))); },
           get text() { return current().text; }, set text(value) { __text(id, String(value)); },
@@ -404,6 +439,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
       const queue = (task, prompt = '', options = {}) => __queueAi(task, String(prompt ?? ''), JSON.stringify(options ?? {}));
       globalThis.ai = Object.freeze({
         generateImage: (prompt, options) => queue('GenerateImage', prompt, options),
+        imageEdit: (prompt, options) => queue('ImageEdit', prompt, options),
         generativeFill: (prompt, options) => queue('GenerativeFill', prompt, options),
         removeObject: (options) => queue('RemoveObject', '', options),
         generativeExpand: (prompt, options) => queue('GenerativeExpand', prompt, options),

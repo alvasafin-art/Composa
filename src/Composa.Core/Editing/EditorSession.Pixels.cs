@@ -159,6 +159,39 @@ public sealed partial class EditorSession
 
     // ---- Fill and clear -----------------------------------------------------------------------------------------
 
+    /// <summary>Connected foreground fill in target coordinates, intersected with the document selection.</summary>
+    public void BucketFill(SKPoint point)
+    {
+        if (EditableLayer is not { } layer) { Problem?.Invoke("Select a raster layer or a layer mask to use Paint Bucket."); return; }
+        Apply("Paint Bucket", () =>
+        {
+            GrowToCanvas(layer);
+            if (!TargetMatrix(layer).TryInvert(out var inverse)) return;
+            var local = inverse.MapPoint(point);
+            var original = Target(layer);
+            using var sample = Pixels.NewColor(original.Width, original.Height);
+            using (var canvas = new SKCanvas(sample)) canvas.DrawImage(Pixels.ImageOf(original), 0, 0);
+            using var region = MagicWand.Select(sample, (int)Math.Floor(local.X), (int)Math.Floor(local.Y), WandTolerance, true, smooth: false);
+            var selection = SelectionInTargetSpace(layer);
+            try
+            {
+                if (selection != null)
+                {
+                    var r = region.GetPixelSpan(); var s = selection.GetPixelSpan();
+                    for (var y = 0; y < region.Height; y++) for (var x = 0; x < region.Width; x++)
+                        r[y * region.RowBytes + x] = (byte)(r[y * region.RowBytes + x] * (x < selection.Width && y < selection.Height ? s[y * selection.RowBytes + x] : 0) / 255);
+                    Pixels.Invalidate(region);
+                }
+                var filled = Pixels.Clone(original);
+                if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((Foreground.Red * 54 + Foreground.Green * 183 + Foreground.Blue * 19) >> 8));
+                else filled.Erase(Foreground);
+                SetTarget(layer, MixBySelection(original, filled, region));
+            }
+            finally { if (selection != document.Selection) selection?.Dispose(); }
+        });
+        Invalidate(AffectedArea(layer)); LayersChanged?.Invoke();
+    }
+
     public void Fill(SKColor color, string name = "Fill")
     {
         if (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && RecolorText(text, color)) return;
@@ -531,6 +564,17 @@ public sealed partial class EditorSession
     }
 
     /// <summary>Turns a live shape into ordinary pixels so it can be painted on.</summary>
+    public void SetShapeColor(Layer layer, SKColor color)
+    {
+        if (layer.Shape is not { } style || layer.Pixels is not { } pixels)
+            throw new InvalidOperationException("Choose a live shape layer to change its fill color.");
+        if (style.Fill == (uint)color) return;
+        var next = style with { Fill = (uint)color };
+        Apply("Shape Color", () => { layer.Pixels = RenderShape(next, pixels.Width, pixels.Height); layer.Shape = next; });
+        Invalidate(AffectedArea(layer));
+        LayersChanged?.Invoke();
+    }
+
     public void RasterizeShape(Layer layer)
     {
         if (!layer.IsLive) return;

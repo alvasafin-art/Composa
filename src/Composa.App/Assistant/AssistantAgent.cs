@@ -49,7 +49,8 @@ internal static class AssistantAgent
                         {
                             nudged = true; messages.Add(new("user", "No editing operation has been executed and the document is unchanged. This is an editing request. Call the actual editing tools now; do not merely claim completion.")); continue;
                         }
-                        if (failures > 0 && !changed) throw new InvalidOperationException("The agent could not apply the requested edit. No changes were committed. " + reply.Summary);
+                        if (!changed && IsEditRequest(request.UserText)) throw new InvalidOperationException("The agent did not execute the requested edit. The document is unchanged. Inspect Operations or try a more capable model.");
+                        if (failures > 0 && !changed) throw new InvalidOperationException("The agent could not apply the requested edit. No changes were committed.");
                         var summary = failures == 0 ? reply.Summary : reply.Summary + $"\nDuring this run {failures} command(s) failed and were rolled back. See Operations for details.";
                         result = new(summary, changed, calls, log.ToString());
                         if (!changed) throw new ReadOnlyCompletion();
@@ -77,7 +78,7 @@ internal static class AssistantAgent
                                 // Send the real resulting structure with the command result. Asking a
                                 // small local model to re-plan an already completed edit for verification
                                 // can make it recreate the same objects a second time.
-                                outcome += "\nACTUAL DOCUMENT AFTER THIS COMMAND:\n" + Composa.App.Automation.JavaScriptRuntime.Describe(session, 0, 6, 160);
+                                outcome += "\nACTUAL DOCUMENT AFTER THIS COMMAND:\n" + Composa.App.Automation.JavaScriptRuntime.DescribeCompact(session);
                                 verified = AssistantEditorTools.Fingerprint(session);
                             }
                         }
@@ -100,8 +101,8 @@ internal static class AssistantAgent
         catch (Exception error) { throw new AssistantAgentException(error.Message, log.ToString(), error); }
         return result!;
     }
-    private static string JavaScriptRuntimeContext(EditorSession session) => Composa.App.Automation.JavaScriptRuntime.Describe(session);
+    private static string JavaScriptRuntimeContext(EditorSession session) => Composa.App.Automation.JavaScriptRuntime.DescribeCompact(session);
     private static bool IsEditRequest(string text) => !Regex.IsMatch(text, @"^\s*(как|почему|что|расскажи|объясни|how|why|what|explain)\b", RegexOptions.IgnoreCase)
-        && Regex.IsMatch(text, @"созда|нарис|замен|измен|удал|добав|сдела|переме|умень|увели|выдел|примен|выпол|редакт|create|draw|replace|edit|remove|add|move|apply|resize|generate", RegexOptions.IgnoreCase);
+        && Regex.IsMatch(text, @"созда|нарис|замен|измен|удал|добав|сдела|переме|умень|увели|выдел|примен|выпол|редакт|перекрас|покрас|create|draw|replace|edit|remove|add|move|apply|resize|generate|recolor|recolour|paint", RegexOptions.IgnoreCase);
     private sealed class ReadOnlyCompletion : Exception;
 }

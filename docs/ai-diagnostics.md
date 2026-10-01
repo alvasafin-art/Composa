@@ -11,6 +11,10 @@
 
 ## What still depends on the model
 
+GPT's mask is prompt-based guidance, not guaranteed hard geometry ([official image guide](https://developers.openai.com/api/docs/guides/image-generation)). Masked fill now sends a visible black missing-content patch and explicit crop-relative edit coordinates, plus the native single-image mask or the final grayscale mask guide with references. Harmonize/Relight retain the original subject. The final result is still constrained locally to the selected area, so model changes to context cannot replace the untouched background. Paid-model visual quality must be checked with a funded account.
+
+Expand now uses a narrow generated overlap into existing pixels and one inward fade across that overlap, filling requested transparent pixels completely. The overlap is capped relative to the image size (and at 64 pixels), so a small canvas does not become a full-image regeneration accidentally. Selection Expand uses the ordinary masked-fill workflow with a black target and the fixed expansion instruction; crop expansion retains its distinct canvas placement and optional whole-image mode.
+
 Correct masking and compositing cannot guarantee identical texture, grain, sharpness, perspective or reconstructed content. FLUX image editing may redraw the conditioning crop, and too little scene context or a very large edit can remain visible even with a mathematically correct blend. Do not globally recolor a stitched patch based on its surrounding pixels: those pixels already came from the original, so that statistic can falsely suggest a correction or alter a legitimate new object.
 
 For a remaining seam, retain the original document, the selection and operation/settings, and compare the downloaded Comfy result with the rendered inserted layer. If they differ, inspect placement/mask/alpha. If both show the same seam, inspect conditioning, mask context, generated texture and the workflow's stitch blend. Increasing feather alone is not a universal repair. Selection feather remains part of the user's selection; Mask Grow/Blend/Context are inference controls, not a second independent selection.

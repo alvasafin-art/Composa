@@ -52,13 +52,16 @@ public static class AiResultPostprocessor
 
     public static SKBitmap ExpansionEditMask(SKBitmap emptyMask, SKBitmap context, int blend)
     {
-        var mask = EditMask(emptyMask, 0, blend);
+        // Empty pixels fill fully. A narrow overlap fades into the real source,
+        // rather than abruptly stopping the feather at the transparent boundary.
+        var overlap = Math.Clamp(blend, 0, Math.Max(1, Math.Min(64, Math.Min(emptyMask.Width, emptyMask.Height) / 16)));
+        var mask = EditMask(emptyMask, overlap, overlap);
         var coverage = mask.GetPixelSpan(); var empty = emptyMask.GetPixelSpan(); var pixels = context.GetPixelSpan();
         // Empty canvas has no underlying color to feather into. Do not leave translucent holes
         // or a black matte there; conditioning stays soft, but fully requested empty pixels fill fully.
         for (var y = 0; y < mask.Height; y++) for (var x = 0; x < mask.Width; x++)
-            if (pixels[y * context.RowBytes + x * 4 + 3] == 0 && empty[y * emptyMask.RowBytes + x] == 255)
-                coverage[y * mask.RowBytes + x] = 255;
+            if (pixels[y * context.RowBytes + x * 4 + 3] == 0)
+                coverage[y * mask.RowBytes + x] = empty[y * emptyMask.RowBytes + x];
         Pixels.Invalidate(mask); return mask;
     }
 

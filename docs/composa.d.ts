@@ -63,6 +63,7 @@ interface LayerInfo {
   readonly id: string;
   name: string;
   readonly kind: "text" | "shape" | "group" | "adjustment" | "raster";
+  readonly shape: { kind: "Rectangle" | "RoundedRectangle" | "Ellipse" | "Line"; color: string; alpha: number; cornerRadius: number; lineWidth: number } | null;
   tags: string[];
   text: string | null;
   visible: boolean;
@@ -81,6 +82,7 @@ interface Layer extends LayerInfo {
   select(): void;
   fill(color: string): void;
   duplicate(): Layer;
+  setShapeColor(color: string): void;
   moveBy(dx: number, dy: number): void;
   remove(): void;
 }
@@ -137,6 +139,7 @@ interface AIOptions {
 
 interface ComposaAI {
   generateImage(prompt: string, options?: AIOptions): void;
+  imageEdit(prompt: string, options?: AIOptions): void;
   generativeFill(prompt: string, options?: AIOptions): void;
   removeObject(options?: AIOptions): void;
   generativeExpand(prompt: string, options?: AIOptions): void;

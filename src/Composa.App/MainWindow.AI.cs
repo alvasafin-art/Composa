@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using Composa.AI;
 using Composa.App.AI;
 using Composa.App.Dialogs;
@@ -71,10 +72,19 @@ public sealed partial class MainWindow
         (crop.Left < 0 || crop.Top < 0 || crop.Right > session.Document.Width || crop.Bottom > session.Document.Height);
 
     private bool CanRunAi(AiTaskKind task) =>
-        AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands).Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
+        AiAvailability(task).Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
+
+    private AiTaskAvailability AiAvailability(AiTaskKind task)
+    {
+        var engine = aiTasks.SelectedEngine;
+        if (task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && engine?.Binding(task) == null)
+            engine = aiTasks.Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
+        return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
+    }
 
     private void RefreshAiUi()
     {
+        if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;
         if (aiContextHost.Child == null) return;
         aiActionHost.Children.Clear();
         var contextual = new List<AiTaskKind>();
@@ -139,7 +149,8 @@ public sealed partial class MainWindow
             var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
             foreach (var task in Enum.GetValues<AiTaskKind>())
             {
-                var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
+                if (task == AiTaskKind.SelectSubject) continue;
+                var availability = AiAvailability(task);
                 var item = new MenuItem
                 {
                     Header = task.DisplayName(),
@@ -158,24 +169,26 @@ public sealed partial class MainWindow
 
     private Control BuildAiFloatingMenu()
     {
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), Background = Brushes.Transparent, MinHeight = 30 };
         header.Children.Add(Ui.Label("Generative AI", weight: FontWeight.SemiBold));
-        ToolTip.SetTip(header.Children[0], "Drag to move the panel");
-        header.Children[0].PointerPressed += (_, e) =>
+        ToolTip.SetTip(header, "Drag the header to move the panel");
+        header.PointerPressed += (_, e) =>
         {
+            if (e.Source is Avalonia.Visual visual && visual.GetVisualAncestors().OfType<Button>().Any()) return;
+            if (e.Source is Button) return;
             if (!e.GetCurrentPoint(aiFloatingLayer).Properties.IsLeftButtonPressed) return;
             aiFloatingDragStart = e.GetPosition(aiFloatingLayer); aiFloatingDragOffset = aiFloatingOffset;
-            e.Pointer.Capture((Control)header.Children[0]); e.Handled = true;
+            e.Pointer.Capture(header); e.Handled = true;
         };
-        header.Children[0].PointerMoved += (_, e) =>
+        header.PointerMoved += (_, e) =>
         {
             if (aiFloatingDragStart is not { } start) return;
             aiFloatingOffset = aiFloatingDragOffset + (e.GetPosition(aiFloatingLayer) - start);
             RefreshAiFloatingPosition(); e.Handled = true;
         };
-        header.Children[0].PointerReleased += (_, e) =>
-        { aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
-        header.Children[0].PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
+        header.PointerReleased += (_, e) =>
+        { if (aiFloatingDragStart == null) return; aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
+        header.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
         var advanced = Ui.TextButton("Advanced…", () => _ = ShowAiAdvanced());
         advanced.MinWidth = 0;
         AddAt(header, advanced, 1).Margin = new Thickness(0, 0, 5, 0);
@@ -224,10 +237,10 @@ public sealed partial class MainWindow
     {
         if (aiFloatingMore == null) return;
         var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject)))
+        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.SelectSubject)))
         {
             if (task == AiTaskKind.ImageEdit && session?.Selection != null) continue;
-            var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
+            var availability = AiAvailability(task);
             var item = new MenuItem
             {
                 Header = task.DisplayName(),
@@ -243,6 +256,7 @@ public sealed partial class MainWindow
     private void RefreshAiFloatingUi()
     {
         var visible = session?.Selection != null && session.IsPaintingSelection == false
+            && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
             && aiTasks.ConnectionState == ComfyConnectionState.Connected && !aiFloatingDismissed;
         aiFloatingHost.IsVisible = visible;
         if (!visible) return;
@@ -482,9 +496,10 @@ public sealed partial class MainWindow
 
     private async Task RunAi(AiTaskKind task, string initialPrompt = "", bool useInlinePrompt = false)
     {
+        if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
         aiFloatingStatus.Text = "Starting…";
-        var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
+        var availability = AiAvailability(task);
         if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
         if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) { AiFailed("Another AI operation is already running."); return; }
         if (task == AiTaskKind.Upscale && session is { } upscaleSession)
@@ -497,7 +512,8 @@ public sealed partial class MainWindow
         AiPromptResult? options;
         if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene))
             options = new(initialPrompt, fallback.Width, fallback.Height, settings.AiSeed);
-        else options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count, session?.Selection != null);
+        else options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
+            session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop));
         RefreshAiUi();
         if (options == null) return;
         if (session == null)
@@ -511,12 +527,12 @@ public sealed partial class MainWindow
             var request = new AiTaskRequest
             {
                 Task = task,
-                Prompt = options.Prompt,
+                Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : options.Prompt,
                 ExpansionMode = settings.AiExpansionMode,
                 ExpansionMinimumSide = settings.AiExpansionMode == AiExpansionMode.WholeImage ? settings.AiWholeExpansionMinimumSide : settings.AiExpansionMinimumSide,
                 ReferenceImages = aiReferences.Select(item => item.Pixels).ToList(),
                 ReferenceMegapixels = settings.AiReferenceMegapixels,
-                ExpansionBounds = task == AiTaskKind.GenerativeExpand && CropExpands && canvas.CropRect is { } crop
+                ExpansionBounds = task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop && canvas.CropRect is { } crop
                     ? new SKRectI((int)Math.Floor(crop.Left), (int)Math.Floor(crop.Top), (int)Math.Ceiling(crop.Right), (int)Math.Ceiling(crop.Bottom)) : null,
                 Settings = new AiGenerationSettings
                 {
@@ -545,9 +561,9 @@ public sealed partial class MainWindow
 
     private (int Width, int Height) AiAspect(AiTaskKind task)
     {
-        if (task == AiTaskKind.GenerativeExpand && CropExpands && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
+        if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
             return (Math.Max(1, (int)Math.Round(crop.Width)), Math.Max(1, (int)Math.Round(crop.Height)));
-        if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight
+        if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand
             && session?.Selection is { } selection && SelectionMask.Bounds(selection) is { IsEmpty: false } bounds)
             return (bounds.Width, bounds.Height);
         return session == null ? AiDimensions.FromMegapixels(settings.AiMegapixels, 1, 1) : (session.Document.Width, session.Document.Height);

@@ -37,6 +37,8 @@ Automatic native editing requires a provider supporting standard chat-completion
 
 ## Execution safety
 
+Live shape colors are edited with the native `set_shape(layer,color)` operation or `layer.setShapeColor(color)` / `layer.fill(color)` in scripts, without rasterization. Shape context contains actual kind, fill color and geometry. For every-other-layer edits use panel order (the reverse of the bottom-to-top document list), actual layer ids, and preserve unrelated layers. An editing request with no real changes is reported as a failure after one corrective retry, not as a successful prose-only action.
+
 Scripts use existing editor commands in a constrained JavaScript engine without CLR, arbitrary file reads, processes or network access. Execution has memory, statement, time and cancellation limits. Explicit export is the exposed file-writing operation. AI calls require compatible connected ComfyUI and an Engine Pack. Local edits and queued AI tasks commit together as one history entry. A script generated for another document tab is not applied to the current tab.
 
 See [Scripting](scripting.md) for API examples.

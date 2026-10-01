@@ -150,7 +150,7 @@ public class AiEditingRegressionTests
         var values = inputs.PreprocessedMask!.GetPixelSpan(); Assert.Contains((byte)255, values.ToArray());
         for (var y = 0; y < 90; y++) for (var x = 0; x < 120; x++)
         {
-            if (inputs.SourceImage.GetPixel(x, y).Alpha == 255 || x >= 60) Assert.Equal((byte)0, inputs.PreprocessedMask.GetPixel(x, y).Alpha);
+            if (inputs.SourceImage.GetPixel(x, y).Alpha == 255 || x >= 60) Assert.Equal((byte)0, inputs.OutputMask!.GetPixel(x, y).Alpha);
             if (inputs.SourceImage.GetPixel(x, y).Alpha == 0)
             {
                 Assert.Equal(SKColors.Black, inputs.PreprocessedImage!.GetPixel(x, y));

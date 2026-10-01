@@ -346,7 +346,8 @@ public class AiArchitectureTests
 
         Assert.Equal((18, 14), (inputs.PreprocessedImage!.Width, inputs.PreprocessedImage.Height));
         Assert.Equal(255, inputs.PreprocessedMask!.GetPixelSpan()[0]);
-        Assert.Equal(0, inputs.PreprocessedMask.GetPixelSpan()[2 * inputs.PreprocessedMask.RowBytes + 3]);
+        Assert.Equal(0, inputs.OutputMask!.GetPixelSpan()[2 * inputs.OutputMask.RowBytes + 3]);
+        Assert.Equal(255, inputs.PreprocessedMask.GetPixelSpan()[2 * inputs.PreprocessedMask.RowBytes + 3]); // narrow seam overlap
         Assert.Equal(new SKRectI(-3, -2, 15, 12), inputs.TargetBounds);
     }
 

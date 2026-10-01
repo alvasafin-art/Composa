@@ -39,6 +39,7 @@ public sealed record AiTaskRequest
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
     public string AdditionalPrompt { get; init; } = "";
+    public bool BlackEditRegion { get; init; }
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
     public AiExpansionMode ExpansionMode { get; init; } = AiExpansionMode.MaskedRegion;
@@ -56,6 +57,7 @@ public sealed record AiTaskRequest
 public static class AiPromptDefaults
 {
     public const string PreserveAppearance = "Preserve the source image's exposure, white balance, color grading, contrast, sharpness, focus and existing texture. Match the surrounding image naturally. Keep unedited content unchanged.";
+    public const string Expand = "Remove the black patches and fill the missing space based on the surrounding image context. Continue the background, perspective, structures, lighting and texture naturally without a visible seam. Black patches are missing image content, not objects. Do not leave black patches or invent unrelated foreground objects.";
 }
 
 public static class AiDimensions
@@ -123,6 +125,7 @@ public sealed class AiTaskInputs : IDisposable
     public SKRectI TargetBounds { get; init; }
     /// <summary>Upscale sees a halo around the selection; only TargetBounds is placed back.</summary>
     public SKRectI? UpscaleSourceBounds { get; init; }
+    public SKRectI? SegmentationSourceBounds { get; init; }
     public SKRectI? ExpansionBounds { get; init; }
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
@@ -210,8 +213,15 @@ public static class AiTaskInputPreparer
             ? SKRectI.Intersect(session.Document.Bounds,new SKRectI(target.Left-32,target.Top-32,target.Right+32,target.Bottom+32)) : null;
         // Convolution/attention upscalers need surrounding pixels at the patch edge,
         // just as ComfyUI's tiled upscale uses overlap. Do not expose artificial crop borders.
-        var source = upscaleBounds is { } area ? Crop(flattened, area) : flattened;
+        SKRectI? segmentationBounds = request.Task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && selection != null
+            ? SelectionMask.Bounds(selection, 1) : null;
+        var source = (upscaleBounds ?? segmentationBounds) is { } area ? Crop(flattened, area) : flattened;
         if (!ReferenceEquals(source, flattened)) flattened.Dispose();
+        if (request.BlackEditRegion && selection != null)
+        {
+            var marked = RemoveObjectPreprocessor.Prepare(source, selection, new RemoveObjectSettings { Dilation = 0, Feather = 0 });
+            source.Dispose(); source = marked.Image; marked.Mask.Dispose();
+        }
         var alpha = session.ActiveLayer is { Pixels: not null } layer ? SelectionMask.FromLayer(session.Document, layer, fromMask: false) : null;
         SKBitmap? preprocessed = null, preprocessedMask = null;
         if (request.Task == AiTaskKind.RemoveObject && selection != null)
@@ -223,6 +233,14 @@ public static class AiTaskInputPreparer
             (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, request.ExpansionBounds ?? session.Document.Bounds,
                 request.ExpansionBounds == null ? selection : null);
 
+        SKBitmap? expansionEmpty = null;
+        if (request.Task == AiTaskKind.GenerativeExpand && preprocessedMask != null && request.ExpansionMode == AiExpansionMode.MaskedRegion)
+        {
+            expansionEmpty = preprocessedMask;
+            var overlap = Math.Clamp(Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32), 0,
+                Math.Max(1, Math.Min(64, Math.Min(expansionEmpty.Width, expansionEmpty.Height) / 16)));
+            preprocessedMask = SelectionMask.Expand(expansionEmpty, overlap);
+        }
         var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(6).ToList()
             : request.ReferenceImage == null ? [] : [request.ReferenceImage];
         var references = requestedReferences.Select(image => PrepareReference(image, request.ReferenceMegapixels)).ToList();
@@ -237,7 +255,7 @@ public static class AiTaskInputPreparer
             PreprocessedImage = preprocessed,
             PreprocessedMask = preprocessedMask,
             OutputMask = request.Task == AiTaskKind.RemoveObject && preprocessedMask != null
-                ? RemovalOutputMask(preprocessedMask, request.Settings) : null,
+                ? RemovalOutputMask(preprocessedMask, request.Settings) : expansionEmpty,
             TransitionMargin = (request.Task == AiTaskKind.GenerativeFill ? 0 : request.Settings.Values.TryGetValue("maskGrow", out var grow) ? Math.Clamp(Convert.ToInt32(grow), 0, 512) : 8)
                 + 4 * (request.Settings.Values.TryGetValue("maskBlend", out var blend) ? Math.Clamp(Convert.ToInt32(blend), 0, 512) : 32),
             ReferenceImage = references.FirstOrDefault(),
@@ -248,6 +266,7 @@ public static class AiTaskInputPreparer
                 : request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
             TargetBounds = target,
             UpscaleSourceBounds = upscaleBounds,
+            SegmentationSourceBounds = segmentationBounds,
             ExpansionBounds = request.ExpansionBounds,
             Prompt = string.Join("\n\n", new[] { TaskPrompt(request.Task, request.Prompt, selection != null, request.ExpansionMode),
                 request.Task is AiTaskKind.Upscale or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection
@@ -320,9 +339,9 @@ public static class AiTaskInputPreparer
                 : $"Replace the background of image 1 while keeping its foreground subject's identity, shape and details. Background request: {guidance}",
             AiTaskKind.Harmonize => $"Harmonize {(selected ? "only the masked object" : "the image")} with its surrounding scene while preserving identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
             AiTaskKind.Relight => $"Relight {(selected ? "only the masked subject" : "the image")}. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill. Lighting request: {guidance}",
-            AiTaskKind.GenerativeExpand => expansionMode == AiExpansionMode.WholeImage
-                ? $"Regenerate the entire expanded image coherently, using image 1 as the composition reference. Fill black empty canvas with a natural continuation. Request: {guidance}"
-                : $"Fill ONLY the masked empty canvas; black empty space is missing image, not a black object. Preserve existing image content. Continue perspective, structures, lighting, focus and texture without a visible seam. Request: {guidance}",
+            AiTaskKind.GenerativeExpand => AiPromptDefaults.Expand + (expansionMode == AiExpansionMode.WholeImage
+                ? " Regenerate the entire expanded image coherently, using image 1 as the composition reference."
+                : " Fill only the masked region and leave all unrelated existing image content unchanged."),
             _ => guidance
         };
     }

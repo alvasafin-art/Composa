@@ -14,6 +14,33 @@ namespace Composa.App.Tests;
 public class AssistantAgentTests
 {
     [AvaloniaFact]
+    public async Task Local_agent_recolors_alternating_live_squares_when_live_test_is_requested()
+    {
+        var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
+        var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        var owner = new MainWindow(); var session = EditorSession.NewCanvas(600, 400); owner.AddSession(session); owner.Show();
+        for (var i = 0; i < 5; i++) session.AddShape(new Composa.Model.ShapeStyle(Composa.Model.ShapeKind.Rectangle, (uint)SKColors.Blue, 0), SKRect.Create(20 + i * 60, 20, 40, 40));
+        var settings = new Settings { AssistantServerExecutable = executable, AssistantModelPath = model, AssistantServerUrl = "http://127.0.0.1:18080",
+            AssistantContextSize = 16384, AssistantMaxTokens = 2048, AssistantApplyEdits = true };
+        using var host = new LlamaServerHost(settings); var conversation = new AssistantConversation();
+        var chat = new AssistantWindow(owner, () => session, settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation); chat.Show(owner);
+        try
+        {
+            var history = session.History.Count;
+            await chat.SendAsync("Перекрась квадраты в желтый цвет, но не на всех слоях с квадратами, а через один, начиная с верхнего слоя. Не создавай новые слои, не растрируй фигуры.");
+            TestContext.Current.TestOutputHelper?.WriteLine(string.Join("\n", conversation.Entries.Select(e => e.Text + "\n" + e.ActionLog)));
+            Screenshots.Save(chat, "assistant-live-alternating-shape-colors");
+            Assert.DoesNotContain(conversation.Entries, e => e.Text.StartsWith("Error:"));
+            var squares = session.Document.Layers.Where(l => l.Shape != null).Reverse().ToArray(); Assert.Equal(5, squares.Length);
+            for (var i = 0; i < 5; i++) Assert.Equal((uint)(i % 2 == 0 ? SKColors.Yellow : SKColors.Blue), squares[i].Shape!.Fill);
+            Assert.Equal(history + 1, session.History.Count); Screenshots.Save(chat, "assistant-live-alternating-shape-colors");
+            session.Undo(); Assert.All(session.Document.Layers.Where(l => l.Shape != null), l => Assert.Equal((uint)SKColors.Blue, l.Shape!.Fill));
+        }
+        finally { chat.Close(); owner.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Local_agent_uses_real_guides_and_returns_a_working_input_script_when_live_test_is_requested()
     {
         var executable=Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
@@ -318,8 +345,8 @@ public class AssistantAgentTests
         {
             var before = owner.Session!.History.Count;
             var provider = new Provider(new AssistantPlan("I created a blue rectangle", ""));
-            var result = await Run(owner, provider, "Нарисуй голубой прямоугольник");
-            Assert.False(result.Changed); Assert.Equal(0, result.ToolCount);
+            var error = await Assert.ThrowsAsync<AssistantAgentException>(() => Run(owner, provider, "Нарисуй голубой прямоугольник"));
+            Assert.Contains("document is unchanged", error.Message);
             Assert.Equal(before, owner.Session.History.Count); Assert.Equal(2, provider.Requests.Count);
         }
         finally { owner.Close(); }

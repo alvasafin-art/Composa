@@ -95,13 +95,21 @@ public sealed partial class MainWindow
                 Add(Ui.Separator(), Flat("Select All", s.SelectAll), Flat("Deselect", s.Deselect), Flat("Inverse", s.InvertSelection));
                 refreshOptions?.Invoke();
                 break;
-            case Tool.SelectionBrush:
-                Add(Title("Selection Brush"),
+            case Tool.SelectionBrush or Tool.RemoveObject:
+                Add(Title(s.Tool == Tool.RemoveObject ? "Remove Object AI" : "Selection Brush"),
                     Ui.SliderField("Size", s.SelectionBrushSize, 1, 1000, value => s.SelectionBrushSize = value),
                     Ui.SliderField("Feather", s.SelectionBrushFeather, 0, 250, value => s.SelectionBrushFeather = value),
-                    Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
-                        value => value.ToString(), value => s.SelectionBrushMode = value, 100));
-                Add(Ui.Label("Shift adds · Alt subtracts", Palette.Secondary), Ui.Separator(), Flat("Deselect", s.Deselect));
+                    Ui.Label(s.Tool == Tool.RemoveObject ? "Release to remove with AI" : "Shift adds · Alt subtracts", Palette.Secondary));
+                if (s.Tool == Tool.SelectionBrush) Add(Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
+                    value => value.ToString(), value => s.SelectionBrushMode = value, 100));
+                Add(Ui.Separator(), Flat("Deselect", s.Deselect));
+                break;
+            case Tool.ObjectSelectionAi:
+                Add(Title("Object Selection AI"), Ui.Label("Draw a rectangle around the object · release to select", Palette.Secondary));
+                break;
+            case Tool.Bucket:
+                Add(Title("Paint Bucket"), Ui.SliderField("Tolerance", s.WandTolerance, 0, 255, value => s.WandTolerance = (int)value),
+                    Ui.Label("Fills connected pixels with the foreground color", Palette.Secondary));
                 break;
             case Tool.Gradient:
                 Add(Title("Gradient"),

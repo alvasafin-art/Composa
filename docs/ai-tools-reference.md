@@ -36,6 +36,8 @@ Most tools take a `document` parameter: the tab number as `list_documents` repor
 
 **set_layer**: changes a layer's `name`, `visible`, `opacity` from 0 to 1, or `blend` mode named as the Layers panel names it. Give only what should change.
 
+**set_shape**: changes an existing live shape's fill color, preserving geometry, placement and masks. Parameters: `layer`, `color` (for example `#FFFF00`), optional `document`. Never rasterize merely to recolor a square or ellipse.
+
 **transform_layer**: moves, resizes or rotates a layer by setting its frame. Parameters: `x` and `y` for the left and top edge, `width`, `height`, and `rotation` in degrees, positive clockwise. Give only what should change. Text and shapes are redrawn sharp, and consecutive calls on one layer fold into one undo step.
 
 **duplicate_layer**: copies a layer, or a folder with everything in it, right above the original; the copy becomes active.

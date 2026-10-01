@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.7" date="2026-10-01">
+      <description>
+        <p>Direct editable-shape recoloring for the Assistant, region-aware AI object selection, new removal-brush and bucket tools, ready crop frames, full-header panel dragging, clearer GPT mask targets and bounded seamless expansion with a fixed prompt.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.6" date="2026-10-01">
       <description>
         <p>GPT masked edits preserve untouched background, use inward final feathering and explicit aspect-preserving dimensions. Expand supports empty-area-only or whole-image modes, workflow selection and minimum-side sizing. Image Edit and other full-image operations no longer require selections. Workflow prompts are independent; generation controls are consistent, costs show credits and USD, LoRA strength allows numeric 0–3 input, and healing no longer skips remapped repair pixels.</p>

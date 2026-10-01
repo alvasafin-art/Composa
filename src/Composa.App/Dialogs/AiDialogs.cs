@@ -244,7 +244,7 @@ public static class AiDialogs
         var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
         var originalSize = settings.AiOriginalSize; var mp = ClosestMegapixels(settings.AiMegapixels);
         var variants = Math.Clamp(settings.AiVariants, 1, 3); var quality = settings.AiApiQuality;
-        var expansionMode = settings.AiExpansionMode;
+        var expansionMode = AiExpansionMode.MaskedRegion;
         var regionSide = settings.AiExpansionMinimumSide; var wholeSide = settings.AiWholeExpansionMinimumSide;
         var width = documentWidth; var height = documentHeight;
         var dimensions = Ui.Label("", Palette.Secondary); dimensions.MaxWidth = 430; dimensions.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
@@ -300,7 +300,7 @@ public static class AiDialogs
         }
         else modelHost.Children.Add(advanced);
         var resolution = task == AiTaskKind.GenerativeExpand
-            ? CanvasDialogs.Form(("Expand mode", mode), ("Generation size", expandSize))
+            ? hasSelection ? CanvasDialogs.Form(("Generation size", expandSize)) : CanvasDialogs.Form(("Expand mode", mode), ("Generation size", expandSize))
             : CanvasDialogs.Form(("Image size", size));
         void Refresh()
         {
@@ -321,19 +321,22 @@ public static class AiDialogs
             var count = sourceCount + referenceCount + (masked && referenceCount > 0 ? 1 : 0);
             cost.Text = paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
             note.Text = paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
-                : task == AiTaskKind.GenerativeExpand ? "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
+                : task == AiTaskKind.GenerativeExpand ? hasSelection
+                    ? "Fill only the selection with surrounding context. Existing canvas size is preserved; the expansion instruction is automatic."
+                    : "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
                 : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
             ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
         }
+        prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
         var body = Ui.Column(10, prompt, resolution, dimensions, qualityHost, note, cost, modelHost);
         dialog = new DialogWindow(task.DisplayName(), body, "Generate"); dialog.UseGenerationVariants(variantsCombo);
-        RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => prompt.Focus();
+        RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => { if (prompt.IsVisible) prompt.Focus(); };
         if (!await dialog.Ask(owner)) { if (service != null) service.SelectedEngine = previousEngine; return null; }
         settings.AiOriginalSize = originalSize; settings.AiMegapixels = mp; settings.AiVariants = variants; settings.AiApiQuality = quality;
         settings.AiExpansionMode = expansionMode; settings.AiExpansionMinimumSide = regionSide; settings.AiWholeExpansionMinimumSide = wholeSide;
         if (service != null) settings.AiEngineId = service.SelectedEngine?.Id;
         settings.Save();
-        return new(prompt.Text ?? "", width, height, settings.AiSeed);
+        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, settings.AiSeed);
     }
 
     private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));

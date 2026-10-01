@@ -52,6 +52,17 @@ public sealed partial class ComposaTools
         return $"\"{target.Name}\": {string.Join(", ", changes)}.";
     });
 
+    [McpServerTool(Name = "set_shape")]
+    [Description("Changes a live shape's fill color, preserving editable geometry, transform and mask. Use to recolor squares, rectangles, ellipses or lines; do not rasterize or use hue/saturation.")]
+    public Task<string> SetShape(string layer, [Description("Fill color, e.g. #FFFF00")] string color, int? document = null) => OnUi(() =>
+    {
+        var s = Editable(document);
+        var target = Find(s, layer);
+        if (!SkiaSharp.SKColor.TryParse(color, out var parsed)) throw new McpException("Use a color such as #FFFF00.");
+        s.SetShapeColor(target, parsed);
+        return $"\"{target.Name}\" fill is {color}; the shape remains editable.";
+    });
+
     [McpServerTool(Name = "transform_layer")]
     [Description("Moves, resizes or rotates a layer by setting its frame in canvas pixels. Give only what should change. Text is laid out again at the new size and a shape is redrawn, so both stay sharp. Consecutive calls on one layer fold into one undo step, as the transform bar's fields do.")]
     public Task<string> TransformLayer(

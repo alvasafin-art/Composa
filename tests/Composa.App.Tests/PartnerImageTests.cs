@@ -116,6 +116,35 @@ public class PartnerImageTests
     }
 
     [Fact]
+    public void Fill_sends_visible_black_target_and_explicit_coordinates_without_blanking_relight()
+    {
+        var s = EditorSession.NewCanvas(500, 400, SKColors.White); s.SelectRect(new SKRect(240, 180, 260, 200));
+        foreach (var task in new[] { AiTaskKind.GenerativeFill, AiTaskKind.Relight })
+        {
+            var request = new AiTaskRequest { Task = task, Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 0, ["maskBlur"] = 0, ["maskContext"] = 2 } } };
+            using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
+            Assert.Equal(task == AiTaskKind.GenerativeFill ? SKColors.Black : SKColors.White, api.Images["apiSource"].GetPixel(20, 20));
+            var graph = api.Bind(Catalog().ReadWorkflow(Pack(), Pack().Workflows[0]), Pack(), api.Images.ToDictionary(p => p.Key, p => p.Key + ".png"), 0);
+            Assert.Contains("x=10..30, y=10..30", graph["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
+            Assert.Equal(SKColors.White, inputs.ContextImage.GetPixel(250, 190));
+        }
+    }
+
+    [Fact]
+    public async Task Expand_with_selection_uses_fill_without_expanding_canvas_or_reusing_prompt()
+    {
+        var s = EditorSession.NewCanvas(300, 200, SKColors.White); s.SelectRect(new SKRect(100, 60, 160, 120));
+        var connection = new Connection(); var service = Service(connection); var history = s.History.Count;
+        await service.RunAsync(new EditorCommandService(s), new AiTaskRequest { Task = AiTaskKind.GenerativeExpand, Prompt = "stale prompt from Gen Fill", ExpansionMode = AiExpansionMode.WholeImage,
+            Settings = new() { Width = 1024, Height = 1024, Values = new() { ["maskBlend"] = 4, ["maskBlur"] = 0, ["maskGrow"] = 0 } } }, TestContext.Current.CancellationToken);
+        var prompt = connection.Graphs[0]["gpt"]!["inputs"]!["prompt"]!.GetValue<string>();
+        Assert.Contains(AiPromptDefaults.Expand, prompt); Assert.DoesNotContain("stale prompt", prompt);
+        Assert.Equal((300, 200), (s.Document.Width, s.Document.Height));
+        using var image = s.Flatten(); Assert.Equal(SKColors.White, image.GetPixel(20, 20)); Assert.Equal(SKColors.CornflowerBlue, image.GetPixel(130, 90));
+        Assert.Equal(history + 1, s.History.Count); s.Undo(); Assert.Single(s.Document.Layers);
+    }
+
+    [Fact]
     public void Expansion_keeps_odd_geometry_and_background_replacement_keeps_original_subject_separate()
     {
         var session = EditorSession.NewCanvas(79, 61, SKColors.White);

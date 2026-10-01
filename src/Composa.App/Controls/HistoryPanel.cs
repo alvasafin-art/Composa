@@ -164,6 +164,8 @@ public sealed class HistoryPanel : UserControl
     public static Icons.Icon IconFor(string name) => name switch
     {
         "Brush" or "Brush Strokes" => Icons.Brush,
+        "Paint Bucket" => Icons.Bucket,
+        "Shape Color" => Icons.Shape,
         "Eraser" => Icons.Eraser,
         "Clone Stamp" => Icons.Stamp,
         "Spot Healing Brush" or "Content-Aware Fill" => Icons.Heal,

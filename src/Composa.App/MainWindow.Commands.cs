@@ -152,7 +152,6 @@ public sealed partial class MainWindow
             Item("Match to Scene", () => _ = RunAi(AiTaskKind.MatchToScene), enabled: () => CanRunAi(AiTaskKind.MatchToScene)),
             Item("Relight…", () => _ = RunAi(AiTaskKind.Relight), enabled: () => CanRunAi(AiTaskKind.Relight)),
             Item("Upscale…", () => _ = RunAi(AiTaskKind.Upscale), enabled: () => CanRunAi(AiTaskKind.Upscale)),
-            Item("Select Subject", () => _ = RunAi(AiTaskKind.SelectSubject), enabled: () => CanRunAi(AiTaskKind.SelectSubject)),
             Item("Object Selection", () => _ = RunAi(AiTaskKind.ObjectSelection), enabled: () => CanRunAi(AiTaskKind.ObjectSelection)),
             Line(),
             Sub("Presets", (aiTasks.Presets.Count == 0

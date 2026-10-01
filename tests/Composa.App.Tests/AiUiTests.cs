@@ -53,7 +53,8 @@ public class AiUiTests
         window.Canvas.ZoomTo(0.5); Dispatcher.UIThread.RunJobs();
         Assert.Equal(window.Canvas.ToScreen(new SKPoint(280, 130)).Y + 10, Canvas.GetTop(panel), 1);
         var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Generative AI");
-        var at = heading.TranslatePoint(new Point(20, 8), window)!.Value;
+        var header = Assert.IsType<Grid>(heading.Parent);
+        var at = header.TranslatePoint(new Point(header.Bounds.Width - 175, 8), window)!.Value; // blank header, not the title text
         var original = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
         window.MouseDown(at, MouseButton.Left); window.MouseMove(at + new Vector(30, -25), RawInputModifiers.LeftMouseButton); window.MouseUp(at + new Vector(30, -25), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();

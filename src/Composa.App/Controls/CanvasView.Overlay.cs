@@ -33,12 +33,12 @@ public sealed partial class CanvasView
             });
         }
         // Shapes being dragged out.
-        else if (drag is Drag.Marquee or Drag.Shape)
+        else if (drag is Drag.Marquee or Drag.Shape or Drag.AiRectangle)
         {
             var shift = dragModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift);
             var alt = dragModifiers.HasFlag(Avalonia.Input.KeyModifiers.Alt);
             var rect = drag == Drag.Shape ? MarqueeRect(shift, alt) : MarqueeRect(ConstrainsMarquee(dragModifiers), false);
-            var ellipse = drag == Drag.Marquee ? session.MarqueeKind == MarqueeKind.Ellipse : session.ShapeKind == Model.ShapeKind.Ellipse;
+            var ellipse = drag == Drag.Marquee ? session.MarqueeKind == MarqueeKind.Ellipse : drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.Ellipse;
             var radius = drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.RoundedRectangle ? (float)session.ShapeCornerRadius : 0;
             var fill = drag == Drag.Shape ? session.Foreground : (SKColor?)null;
             steps.Add(canvas =>
@@ -151,7 +151,7 @@ public sealed partial class CanvasView
         if (IsBrushTool && cursorInside && !spaceDown && !controlHover && !temporaryMove && drag is Drag.None or Drag.Stroke or Drag.SelectionBrush)
         {
             var center = view.MapPoint(currentDocument);
-            var selectionBrush = session.Tool == Tool.SelectionBrush;
+            var selectionBrush = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
             var radius = (float)((selectionBrush ? session.SelectionBrushSize : session.Brush.Size) / 2 * UnitsPerPixel);
             var inner = selectionBrush ? Math.Max(0, radius - (float)(session.SelectionBrushFeather * UnitsPerPixel)) : radius * (float)session.Brush.Hardness;
             steps.Add(canvas =>

@@ -15,7 +15,7 @@ namespace Composa.App.Controls;
 /// One tool of a rail button's group: its name and icon, the key that picks it, whether it is the one the button stands for, and
 /// what picking it does.
 /// </summary>
-public sealed record ToolChoice(string Name, Icons.Icon Icon, Func<KeyGesture?> Key, Func<bool> IsCurrent, Action Choose);
+public sealed record ToolChoice(string Name, Icons.Icon Icon, Func<KeyGesture?> Key, Func<bool> IsCurrent, Action Choose, Func<bool>? Enabled = null);
 
 /// <summary>
 /// A button in the tool rail. One that holds a group of tools (the marquees, the lassos) shows the group's current tool with a
@@ -100,7 +100,7 @@ public sealed class ToolButton : ToggleButton
             var item = new MenuItem
             {
                 Header = choice.Name, Icon = Icons.Create(choice.Icon, 16), InputGesture = choice.Key(), Tag = choice,
-                ToggleType = MenuItemToggleType.Radio, IsChecked = choice.IsCurrent()
+                ToggleType = MenuItemToggleType.Radio, IsChecked = choice.IsCurrent(), IsEnabled = choice.Enabled?.Invoke() ?? true
             };
             item.Click += (_, _) => choice.Choose();
             flyout.Items.Add(item);

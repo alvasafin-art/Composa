@@ -15,6 +15,7 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly AiTaskRequest request;
     private readonly SKRectI crop;
     private readonly SKBitmap? blendMask;
+    private readonly SKRectI? editBounds;
     private readonly (int Width, int Height) generationSize;
     public bool MaskAsReference { get; }
 
@@ -41,6 +42,13 @@ internal sealed class PartnerImageInputs : IDisposable
                 var removal = RemoveObjectPreprocessor.Prepare(inputs.SourceImage, mask, new RemoveObjectSettings { Dilation = grow, Feather = 0 });
                 source = Own(removal.Image); removal.Mask.Dispose();
             }
+            else if (request.Task == AiTaskKind.GenerativeFill)
+            {
+                // Supplement GPT's prompt-guidance mask with a visible missing-content
+                // patch. Keep the original subject for harmonize/relight, not for fill.
+                var marked = RemoveObjectPreprocessor.Prepare(source, mask, new RemoveObjectSettings { Dilation = 0, Feather = 0 });
+                source = Own(marked.Image); marked.Mask.Dispose();
+            }
             if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand)
             {
                 var bounds = SelectionMask.Bounds(mask, 1);
@@ -49,6 +57,9 @@ internal sealed class PartnerImageInputs : IDisposable
                 crop = SKRectI.Intersect(crop, new SKRectI(bounds.Left - margin, bounds.Top - margin, bounds.Right + margin, bounds.Bottom + margin));
             }
             Images["apiMask"] = Own(Crop(conditioning, crop));
+            var boundsInSource = SelectionMask.Bounds(mask, 1);
+            boundsInSource.Offset(-crop.Left, -crop.Top);
+            editBounds = boundsInSource;
         }
         if (request.Task != AiTaskKind.GenerateImage) Images["apiSource"] = Own(Crop(source, crop));
         for (var i = 0; i < inputs.ReferenceImages.Count; i++) Images[$"referenceImage{i + 1}"] = inputs.ReferenceImages[i];
@@ -82,6 +93,10 @@ internal sealed class PartnerImageInputs : IDisposable
         var prompt = original.Prompt;
         if (files.TryGetValue("apiMask", out var mask))
         {
+            if (editBounds is { } region)
+                prompt += $"\nThe edit region in source image 1 ({crop.Width} x {crop.Height} pixels) is inside x={region.Left}..{region.Right}, y={region.Top}..{region.Bottom}; coordinates start at the top-left. The mask's white area specifies its exact shape, black means preserve context. Keep the requested content fully within this region.";
+            if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand)
+                prompt += "\nImage 1 is the cropped source with surrounding context. The black missing-content patch marks the requested edit region: replace it according to the request, do not draw a black object. Keep framing unchanged. Context outside the edit region must retain its original content; it is not another generation target.";
             result["composa_api_mask"] = Load(mask);
             if (MaskAsReference)
             {
@@ -112,7 +127,7 @@ internal sealed class PartnerImageInputs : IDisposable
             {
                 if (request.ExpansionMode == AiExpansionMode.WholeImage) return Pixels.Clone(fitted);
                 var expanded = original.ExpandedContext();
-                using var coverage = AiResultPostprocessor.ExpansionEditMask(original.PreprocessedMask!, expanded,
+                using var coverage = AiResultPostprocessor.ExpansionEditMask(original.OutputMask ?? original.PreprocessedMask!, expanded,
                     Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
                 Blend(expanded, fitted, coverage, crop); return expanded;
             }
