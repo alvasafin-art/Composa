@@ -4,6 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.8] - 2026-10-01
+
+### Fixed
+
+- GPT selection edits send only a rectangular source crop with independent context padding and ordered user references, without native masks, extra mask-guide images or crop-coordinate prompts. Ordinary Fill retains its original image; Remove and Expand keep their black repair areas and dedicated instructions. Working FLUX generation is unchanged.
+- GPT Advanced offers context padding in source pixels (32 px per side by default), separate from local Mask blend and FLUX context/conditioning blur. Cost estimates count only images actually sent. Results return to the exact saved crop size and position, preserve pixels outside the local mask and apply feathering once; identical-size results avoid unnecessary resampling.
+
+Paid GPT visual quality still requires a funded-account test. Automated tests cover crops, references, boundaries, soft masks, placement, variants and Undo without spending credits.
+
 ## [1.2.1-preview.7] - 2026-10-01
 
 ### Added

@@ -15,9 +15,9 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly AiTaskRequest request;
     private readonly SKRectI crop;
     private readonly SKBitmap? blendMask;
-    private readonly SKRectI? editBounds;
     private readonly (int Width, int Height) generationSize;
-    public bool MaskAsReference { get; }
+    internal const int DefaultContextPadding = 32;
+    internal const int MaximumContextPadding = 1024;
 
     public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request)
     {
@@ -33,37 +33,26 @@ internal sealed class PartnerImageInputs : IDisposable
         {
             int Setting(string name, int fallback) => request.Settings.Values.TryGetValue(name, out var value) ? Math.Clamp(Convert.ToInt32(value), 0, 64) : fallback;
             var grow = request.Task is AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand ? 0 : Setting("maskGrow", 8);
-            var blend = Setting("maskBlend", 32); var blur = Setting("maskBlur", 4);
-            using var expanded = SelectionMask.Expand(mask, grow);
-            var conditioning = Own(blur == 0 ? Pixels.Clone(expanded) : SelectionMask.Feather(expanded, blur));
+            var blend = Setting("maskBlend", 32);
             blendMask = Own(AiResultPostprocessor.EditMask(mask, grow, blend));
             if (request.Task == AiTaskKind.RemoveObject)
             {
                 var removal = RemoveObjectPreprocessor.Prepare(inputs.SourceImage, mask, new RemoveObjectSettings { Dilation = grow, Feather = 0 });
                 source = Own(removal.Image); removal.Mask.Dispose();
             }
-            else if (request.Task == AiTaskKind.GenerativeFill)
-            {
-                // Supplement GPT's prompt-guidance mask with a visible missing-content
-                // patch. Keep the original subject for harmonize/relight, not for fill.
-                var marked = RemoveObjectPreprocessor.Prepare(source, mask, new RemoveObjectSettings { Dilation = 0, Feather = 0 });
-                source = Own(marked.Image); marked.Mask.Dispose();
-            }
             if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand)
             {
+                // The local insertion support, not the conditioning blur or seam width,
+                // determines the crop. Padding is genuine surrounding context only.
                 var bounds = SelectionMask.Bounds(mask, 1);
-                var factor = request.Settings.Values.TryGetValue("maskContext", out var context) ? Math.Clamp(Convert.ToDouble(context), 1, 8) : 2;
-                var margin = Math.Max(grow + 4 * blend + 3 * blur, (int)Math.Ceiling(Math.Max(bounds.Width, bounds.Height) * (factor - 1) / 2));
+                bounds.Inflate(grow, grow);
+                var margin = request.Settings.Values.TryGetValue("gptContextPadding", out var context)
+                    ? Math.Clamp(Convert.ToInt32(context), 0, MaximumContextPadding) : DefaultContextPadding;
                 crop = SKRectI.Intersect(crop, new SKRectI(bounds.Left - margin, bounds.Top - margin, bounds.Right + margin, bounds.Bottom + margin));
             }
-            Images["apiMask"] = Own(Crop(conditioning, crop));
-            var boundsInSource = SelectionMask.Bounds(mask, 1);
-            boundsInSource.Offset(-crop.Left, -crop.Top);
-            editBounds = boundsInSource;
         }
         if (request.Task != AiTaskKind.GenerateImage) Images["apiSource"] = Own(Crop(source, crop));
         for (var i = 0; i < inputs.ReferenceImages.Count; i++) Images[$"referenceImage{i + 1}"] = inputs.ReferenceImages[i];
-        MaskAsReference = Images.ContainsKey("apiMask") && inputs.ReferenceImages.Count > 0;
         var desired = (Width: crop.Width, Height: crop.Height);
         if (request.Task == AiTaskKind.GenerateImage) desired = (inputs.CanvasWidth, inputs.CanvasHeight);
         else if (request.Task == AiTaskKind.GenerativeExpand) desired = AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, crop.Width, crop.Height);
@@ -84,34 +73,39 @@ internal sealed class PartnerImageInputs : IDisposable
         node["model.size"] = "Custom";
         node["model.custom_width"] = generationSize.Width;
         node["model.custom_height"] = generationSize.Height;
+        // Masks stay local. Do not let template image ports or upload enumeration order
+        // change source/reference numbering, or accidentally add a mask as a reference.
+        foreach (var key in node.Select(pair => pair.Key).Where(key => key == "model.mask" || key.StartsWith("model.images.image_", StringComparison.Ordinal)).ToArray())
+            node.Remove(key);
+        var semantics = Images.ContainsKey("apiSource") ? new List<string> { "apiSource" } : [];
+        semantics.AddRange(Enumerable.Range(1, original.ReferenceImages.Count).Select(index => $"referenceImage{index}"));
         var number = 0;
-        foreach (var (semantic, filename) in files.Where(pair => pair.Key != "apiMask"))
+        foreach (var semantic in semantics)
         {
+            var filename = files[semantic];
             var id = "composa_api_image_" + ++number;
             result[id] = Load(filename); node[$"model.images.image_{number}"] = new JsonArray(id, 0);
         }
-        var prompt = original.Prompt;
-        if (files.TryGetValue("apiMask", out var mask))
-        {
-            if (editBounds is { } region)
-                prompt += $"\nThe edit region in source image 1 ({crop.Width} x {crop.Height} pixels) is inside x={region.Left}..{region.Right}, y={region.Top}..{region.Bottom}; coordinates start at the top-left. The mask's white area specifies its exact shape, black means preserve context. Keep the requested content fully within this region.";
-            if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand)
-                prompt += "\nImage 1 is the cropped source with surrounding context. The black missing-content patch marks the requested edit region: replace it according to the request, do not draw a black object. Keep framing unchanged. Context outside the edit region must retain its original content; it is not another generation target.";
-            result["composa_api_mask"] = Load(mask);
-            if (MaskAsReference)
-            {
-                node[$"model.images.image_{++number}"] = new JsonArray("composa_api_mask", 0);
-                prompt += $"\nImage 1 is the source to edit. Images 2 through {number - 1} are visual references, in order. Image {number} is ONLY a grayscale editing mask for image 1: change the white area, preserve the black area. Do not reproduce this mask as an output image. Keep image 1's framing and dimensions.";
-            }
-            else
-            {
-                result["composa_api_mask_convert"] = new JsonObject { ["class_type"] = "ImageToMask", ["inputs"] = new JsonObject
-                    { ["image"] = new JsonArray("composa_api_mask", 0), ["channel"] = "red" } };
-                node["model.mask"] = new JsonArray("composa_api_mask_convert", 0);
-            }
-        }
-        node["prompt"] = prompt;
+        node["prompt"] = Prompt();
         return result;
+    }
+
+    private string Prompt()
+    {
+        // GPT edits a rectangular image, not an externally described mask. Keep
+        // operation instructions, but never refer to a mask it has not received.
+        var guidance = request.Prompt.Trim();
+        var instruction = request.Task switch
+        {
+            AiTaskKind.GenerativeFill when request.BlackEditRegion => AiPromptDefaults.Expand,
+            AiTaskKind.GenerativeFill => guidance,
+            AiTaskKind.Harmonize when blendMask != null => $"Harmonize the object in image 1 with its surrounding scene while preserving identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
+            AiTaskKind.Relight when blendMask != null => $"Relight image 1. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill. Lighting request: {guidance}",
+            AiTaskKind.GenerativeExpand when request.ExpansionMode == AiExpansionMode.MaskedRegion => AiPromptDefaults.Expand,
+            _ => null
+        };
+        return instruction == null ? original.Prompt
+            : string.Join("\n\n", new[] { instruction, request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0));
     }
 
     public SKBitmap Finish(SKBitmap generated)
@@ -147,6 +141,7 @@ internal sealed class PartnerImageInputs : IDisposable
     }
     private static SKBitmap Resize(SKBitmap source, int width, int height)
     {
+        if (source.Width == width && source.Height == height) return Pixels.Clone(source);
         var mismatch = Math.Abs((double)source.Width / source.Height / ((double)width / height) - 1);
         if (mismatch > 0.025) throw new InvalidDataException($"GPT returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
         var result = Pixels.NewColor(width, height); using var canvas = new SKCanvas(result);

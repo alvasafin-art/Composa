@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.8" date="2026-10-01">
+      <description>
+        <p>GPT edits cropped source images with independent context padding and ordered references. Masks stay local, results return to their saved coordinates with one soft blend, and FLUX workflows remain unchanged.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.7" date="2026-10-01">
       <description>
         <p>Direct editable-shape recoloring for the Assistant, region-aware AI object selection, new removal-brush and bucket tools, ready crop frames, full-header panel dragging, clearer GPT mask targets and bounded seamless expansion with a fixed prompt.</p>

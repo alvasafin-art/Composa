@@ -49,6 +49,7 @@ public class PartnerImageTests
         var catalog = Catalog(); Assert.Equal(2, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
         var engine = Pack(); Assert.True(engine.PaidApi); Assert.Equal("gpt-image-2.5-sunburst", engine.ApiModel);
         Assert.Empty(engine.RequiredAssets); Assert.Empty(catalog.ModelSlots(engine)); Assert.False(engine.Lora.Supported);
+        Assert.DoesNotContain("ImageToMask", engine.RequiredNodeTypes);
         Assert.True(EngineCompatibility.Check(engine, Capabilities()).IsCompatible);
         var graph = catalog.ReadWorkflow(engine, engine.Workflows[0]);
         Assert.Single(graph.Where(pair => pair.Value?["class_type"]?.GetValue<string>() == "OpenAIGPTImageNodeV2"));
@@ -78,23 +79,27 @@ public class PartnerImageTests
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(6)]
-    public void Masked_edits_respect_the_nodes_single_image_mask_limit_and_restore_odd_canvas(int references)
+    public void Masked_edits_send_only_source_and_ordered_references_and_restore_odd_canvas(int references)
     {
         var session = EditorSession.NewCanvas(79, 61, SKColors.White); session.SelectRect(new SKRect(25, 20, 45, 40));
         using var reference = Pixels.NewColor(17, 13);
         var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, ReferenceImages = Enumerable.Repeat(reference, references).ToArray(), ReferenceMegapixels = null,
-            Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 4, ["maskBlur"] = 0, ["maskContext"] = 2 } } };
+            Prompt = "replace the object with a blue cup", AdditionalPrompt = "Preserve the framing.",
+            Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 4, ["gptContextPadding"] = 10 } } };
         using var inputs = AiTaskInputPreparer.Prepare(session, request); using var api = new PartnerImageInputs(inputs, request);
-        var graph = api.Bind(Catalog().ReadWorkflow(Pack(), Pack().Workflows[0]), Pack(), api.Images.ToDictionary(pair => pair.Key, pair => pair.Key + ".png"), 42);
+        // Reverse uploads to prove image 1 cannot accidentally become a reference.
+        var template = Catalog().ReadWorkflow(Pack(), Pack().Workflows[0]);
+        template["gpt"]!["inputs"]!["model.mask"] = new JsonArray("stale_mask", 0);
+        template["gpt"]!["inputs"]!["model.images.image_9"] = new JsonArray("stale_image", 0);
+        var graph = api.Bind(template, Pack(), api.Images.Reverse().ToDictionary(pair => pair.Key, pair => pair.Key + ".png"), 42);
         var node = graph["gpt"]!["inputs"]!.AsObject();
-        Assert.Equal(references == 0, node.ContainsKey("model.mask"));
-        Assert.Equal(references > 0, api.MaskAsReference);
+        Assert.False(node.ContainsKey("model.mask"));
+        Assert.DoesNotContain("apiMask", api.Images.Keys);
+        Assert.DoesNotContain(graph, pair => pair.Value?["class_type"]?.GetValue<string>() == "ImageToMask");
+        Assert.Equal(references + 1, node.Count(pair => pair.Key.StartsWith("model.images.image_")));
         Assert.Equal("apiSource.png", graph["composa_api_image_1"]!["inputs"]!["image"]!.GetValue<string>());
-        if (references > 0)
-        {
-            Assert.Contains($"Image {references + 2} is ONLY a grayscale editing mask", node["prompt"]!.GetValue<string>());
-            Assert.Equal(references + 2, node.Count(pair => pair.Key.StartsWith("model.images.image_")));
-        }
+        for (var i = 1; i <= references; i++) Assert.Equal($"referenceImage{i}.png", graph[$"composa_api_image_{i + 1}"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal(request.Prompt + "\n\n" + request.AdditionalPrompt, node["prompt"]!.GetValue<string>());
         var generated = Pixels.NewColor(api.Images["apiSource"].Width * 2, api.Images["apiSource"].Height * 2); generated.Erase(SKColors.CornflowerBlue);
         var result = api.Finish(generated); Assert.Equal((79, 61), (result.Width, result.Height));
         Assert.Equal(SKColors.White, result.GetPixel(0, 0)); Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(35, 30));
@@ -107,7 +112,7 @@ public class PartnerImageTests
     public void Remove_sends_black_patch_with_local_context_and_does_not_modify_source()
     {
         var session = EditorSession.NewCanvas(500, 400, SKColors.White); session.SelectRect(new SKRect(240, 180, 260, 200));
-        var request = new AiTaskRequest { Task = AiTaskKind.RemoveObject, Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 0, ["maskBlur"] = 0, ["maskContext"] = 2 } } };
+        var request = new AiTaskRequest { Task = AiTaskKind.RemoveObject, Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 0, ["gptContextPadding"] = 10 } } };
         using var inputs = AiTaskInputPreparer.Prepare(session, request); using var api = new PartnerImageInputs(inputs, request);
         Assert.Equal((40, 40), (api.Images["apiSource"].Width, api.Images["apiSource"].Height));
         Assert.Equal(SKColors.Black, api.Images["apiSource"].GetPixel(20, 20));
@@ -116,18 +121,53 @@ public class PartnerImageTests
     }
 
     [Fact]
-    public void Fill_sends_visible_black_target_and_explicit_coordinates_without_blanking_relight()
+    public void Fill_harmonize_and_relight_keep_original_crop_and_do_not_describe_an_absent_mask()
     {
         var s = EditorSession.NewCanvas(500, 400, SKColors.White); s.SelectRect(new SKRect(240, 180, 260, 200));
-        foreach (var task in new[] { AiTaskKind.GenerativeFill, AiTaskKind.Relight })
+        foreach (var task in new[] { AiTaskKind.GenerativeFill, AiTaskKind.Harmonize, AiTaskKind.Relight })
         {
-            var request = new AiTaskRequest { Task = task, Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 0, ["maskBlur"] = 0, ["maskContext"] = 2 } } };
+            var request = new AiTaskRequest { Task = task, Prompt = "make it blue", Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 0, ["gptContextPadding"] = 10 } } };
             using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
-            Assert.Equal(task == AiTaskKind.GenerativeFill ? SKColors.Black : SKColors.White, api.Images["apiSource"].GetPixel(20, 20));
+            Assert.Equal(SKColors.White, api.Images["apiSource"].GetPixel(20, 20));
             var graph = api.Bind(Catalog().ReadWorkflow(Pack(), Pack().Workflows[0]), Pack(), api.Images.ToDictionary(p => p.Key, p => p.Key + ".png"), 0);
-            Assert.Contains("x=10..30, y=10..30", graph["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
+            var prompt = graph["gpt"]!["inputs"]!["prompt"]!.GetValue<string>();
+            Assert.Contains("make it blue", prompt); Assert.DoesNotContain("mask", prompt); Assert.DoesNotContain("x=", prompt);
             Assert.Equal(SKColors.White, inputs.ContextImage.GetPixel(250, 190));
         }
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(0, 64)]
+    [InlineData(32, 0)]
+    [InlineData(32, 64)]
+    public void Gpt_padding_is_independent_of_flux_context_blur_and_local_blend(int padding, int blend)
+    {
+        var s = EditorSession.NewCanvas(500, 400, SKColors.White); s.SelectRect(new SKRect(240, 180, 260, 200));
+        var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Settings = new() { Values = new()
+            { ["gptContextPadding"] = padding, ["maskBlend"] = blend, ["maskGrow"] = 64, ["maskBlur"] = 64, ["maskContext"] = 8 } } };
+        using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
+        Assert.Equal((20 + padding * 2, 20 + padding * 2), (api.Images["apiSource"].Width, api.Images["apiSource"].Height));
+        Assert.Single(api.Images);
+    }
+
+    [Fact]
+    public void Default_crop_restores_coordinates_at_canvas_edge_and_blends_soft_selection_once()
+    {
+        var s = EditorSession.NewCanvas(211, 173, SKColors.White); s.SelectRect(new SKRect(1, 50, 21, 70));
+        var selection = Pixels.Clone(s.Selection!); selection.SetPixel(5, 60, new SKColor(0, 0, 0, 128)); Pixels.Invalidate(selection);
+        s.ApplyAiSelection(AiTaskKind.ObjectSelection, selection);
+        var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Settings = new() { Values = new() { ["maskBlend"] = 0 } } };
+        using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
+        var source = api.Images["apiSource"]; Assert.Equal((53, 84), (source.Width, source.Height));
+        var generated = Pixels.NewColor(source.Width, source.Height); generated.Erase(SKColors.CornflowerBlue);
+        generated.SetPixel(10, 42, SKColors.Red); Pixels.Invalidate(generated); // crop starts at (0,18)
+        var result = api.Finish(generated);
+        Assert.Equal(SKColors.Red, result.GetPixel(10, 60)); Assert.Equal(SKColors.White, result.GetPixel(10, 17));
+        var edge = result.GetPixel(5, 60); Assert.InRange(edge.Red, 175, 178); // 128/255, not feathered twice
+        AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [result], inputs.TargetBounds, inputs, true);
+        using var displayed = s.Flatten(); Assert.Equal(edge, displayed.GetPixel(5, 60)); Assert.Equal(SKColors.Red, displayed.GetPixel(10, 60));
+        s.Undo(); Assert.Single(s.Document.Layers); s.Redo(); using var redone = s.Flatten(); Assert.Equal(edge, redone.GetPixel(5, 60));
     }
 
     [Fact]
@@ -184,10 +224,25 @@ public class PartnerImageTests
         await service.RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = AiTaskKind.GenerativeFill,
             Settings = new() { Variants = count, VariantMode = mode } }, TestContext.Current.CancellationToken);
         Assert.Equal(mode == AiVariantMode.List ? count : 1, connection.Graphs.Count);
-        Assert.Equal(2, connection.Uploads.Count); Assert.Equal(connection.Uploads.Distinct(), connection.Uploads);
+        Assert.Equal(new[] { "apiSource" }, connection.Uploads); Assert.Equal(connection.Uploads.Distinct(), connection.Uploads);
         Assert.Equal(history + 1, session.History.Count); Assert.Equal(count * 2, service.Operation!.CreditsUsed);
         if (count > 1) { Assert.Equal(count, session.AiVariantGroup!.Children.Count); Assert.Single(session.AiVariantGroup.Children, layer => layer.Visible); }
         session.Undo(); Assert.Single(session.Document.Layers);
+    }
+
+    [Theory]
+    [InlineData(AiTaskKind.GenerativeFill)]
+    [InlineData(AiTaskKind.Harmonize)]
+    [InlineData(AiTaskKind.Relight)]
+    public async Task Cropped_edits_use_the_current_packs_additional_prompt_not_an_unprepared_request(AiTaskKind task)
+    {
+        var s = EditorSession.NewCanvas(200, 150, SKColors.White); s.SelectRect(new SKRect(50, 40, 90, 80));
+        var connection = new Connection(); var service = Service(connection);
+        service.AdditionalPromptForPack = id => id == Pack().Id ? "MY PACK INSTRUCTION" : "WRONG PACK";
+        await service.RunAsync(new EditorCommandService(s), new() { Task = task, Prompt = "make it blue", AdditionalPrompt = "STALE INSTRUCTION" }, TestContext.Current.CancellationToken);
+        var prompt = connection.Graphs[0]["gpt"]!["inputs"]!["prompt"]!.GetValue<string>();
+        Assert.Contains("MY PACK INSTRUCTION", prompt); Assert.DoesNotContain("STALE INSTRUCTION", prompt);
+        Assert.DoesNotContain("masked", prompt); Assert.Equal(new[] { "apiSource" }, connection.Uploads);
     }
 
     [Fact]

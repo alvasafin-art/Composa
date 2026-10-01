@@ -163,7 +163,7 @@ public sealed class AiTaskService : IAiTaskRunner
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
-            using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, request) : null;
+            using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, preparedRequest) : null;
             if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(inputs.PreprocessedMask!))
                 throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;

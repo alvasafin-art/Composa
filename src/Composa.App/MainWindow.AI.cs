@@ -285,10 +285,10 @@ public sealed partial class MainWindow
         aiApiCost.IsVisible = aiTasks.SelectedEngine?.PaidApi == true;
         if (aiApiCost.IsVisible)
         {
-            var count = 1 + aiReferences.Count + (aiReferences.Count > 0 ? 1 : 0); // source, references, mask guide when needed
+            var count = 1 + aiReferences.Count; // cropped source and genuine user references only
             var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, aiTasks.SelectedEngine!.ApiModel!, settings.AiApiQuality, "Custom", count, Math.Clamp(settings.AiVariants, 1, 3));
             aiApiCost.Text = operation?.CreditsUsed is { } credits ? PartnerPricing.Reported(credits) : estimate?.Label ?? "Paid API · estimate unavailable";
-            ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and includes all variants. Actual charges may differ. Local ComfyUI does not expose the account balance. With multiple images the last input is a mask guide, not an API mask.");
+            ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and includes the cropped source, user references and all variants. Actual charges may differ. Local ComfyUI does not expose the account balance. The edit mask stays in Composa and is not a billed input.");
         }
         ToolTip.SetTip(aiFloatingStatus, aiFloatingStatus.Text);
         Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiFloatingPosition);
@@ -543,6 +543,7 @@ public sealed partial class MainWindow
                     UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
                         ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch,
+                        ["gptContextPadding"] = settings.AiGptContextPadding,
                         ["apiQuality"] = settings.AiApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = settings.AiOriginalSize }
                 }
             };

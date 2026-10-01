@@ -161,6 +161,7 @@ public static class AiDialogs
         var blur = settings.AiMaskBlur; var colorMatch = settings.AiColorMatch;
         var seed = settings.AiSeed; var mode = settings.AiVariantMode;
         var paid = service?.SelectedEngine?.PaidApi == true;
+        var gptContext = Math.Clamp(settings.AiGptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
         var quality = settings.AiApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, "quality");
@@ -180,10 +181,13 @@ public static class AiDialogs
             ("Mask conditioning blur", Ui.Row(6, Ui.SliderField("", blur, 0, 64, value => blur = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
             ("Color match", Ui.Combo(new[] { "off", "subtle", "strong" }, colorMatch, value => value, value => colorMatch = value, 150)),
             ("Mask context", Ui.Row(6, Ui.SliderField("", context, 1, 8, value => context = value, 0.1, "0.0", 150, reset: 1), Ui.Label("× selection bounds"))),
+            ("GPT context padding", Ui.Row(6, Ui.SliderField("", gptContext, 0, PartnerImageInputs.MaximumContextPadding, value => gptContext = (int)value, 1, "0", 150, reset: PartnerImageInputs.DefaultContextPadding), Ui.Label("px · each side"))),
             ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label("-1 = random")))];
-        var form = CanvasDialogs.Form(fields.Where(field => !paid || field.Item1 is not ("Color match" or "Seed")).ToArray());
+        var form = CanvasDialogs.Form(fields.Where(field => paid
+            ? field.Item1 is not ("Color match" or "Seed" or "Mask conditioning blur" or "Mask context")
+            : field.Item1 != "GPT context padding").ToArray());
         var note = Ui.Label(paid
-            ? "Paid API · each variant is billed. No local VRAM is used by GPT. One source accepts a native API mask; with references a separate mask-guide image is supplied and Composa blends the result locally. This is guidance, not a strict API mask. Balance is available in ComfyUI Credits, not its local API. Ctrl+Z undoes document edits, not charges."
+            ? "GPT receives an image crop plus context padding and your references, not a mask image. Composa places the result back and applies the soft edit mask once. Padding controls what GPT sees; Mask blend controls the local edge, independently. Mask grow is ignored for Fill. Remove/Expand keep their black repair areas. Each variant is billed; Ctrl+Z undoes edits, not charges."
             : "List runs one variant at a time; Batch needs more VRAM. Mask blend controls the final seam, conditioning blur the sampling mask. Pixaroma nodes are used automatically when installed. Color match uses unchanged surroundings; turn it off for intentional color changes. Use LoRAs compatible with the selected model. Ctrl+Z undoes the generation.", Palette.Secondary);
         note.MaxWidth = 470; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var extra = new StackPanel { Spacing = 9 };
@@ -218,6 +222,7 @@ public static class AiDialogs
         settings.AiMegapixels = mp; settings.AiOriginalSize = originalSize; settings.AiReferenceMegapixels = reference;
         settings.AiMaskGrow = grow; settings.AiMaskBlend = blend; settings.AiMaskContext = context;
         settings.AiMaskBlur = blur; settings.AiColorMatch = colorMatch;
+        if (paid) settings.AiGptContextPadding = gptContext;
         settings.AiSeed = seed; settings.AiVariantMode = mode;
         settings.AiApiQuality = quality;
         if (!paid && service?.SelectedEngine?.Lora.Supported == true) { settings.AiLorasEnabled = lorasEnabled; settings.AiLoras = loras.Where(lora => lora.Name.Length > 0).ToList(); }
@@ -316,9 +321,7 @@ public static class AiDialogs
             }
             catch (Exception error) { dimensions.Text = error.Message; if (dialog != null) dialog.CanAccept = false; }
             var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
-            var masked = task == AiTaskKind.GenerativeFill || task == AiTaskKind.GenerativeExpand && expansionMode == AiExpansionMode.MaskedRegion
-                || hasSelection && task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
-            var count = sourceCount + referenceCount + (masked && referenceCount > 0 ? 1 : 0);
+            var count = sourceCount + referenceCount;
             cost.Text = paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
             note.Text = paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
                 : task == AiTaskKind.GenerativeExpand ? hasSelection

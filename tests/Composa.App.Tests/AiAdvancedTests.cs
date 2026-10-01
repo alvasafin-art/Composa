@@ -24,11 +24,14 @@ public class AiAdvancedTests
         var pending = AiDialogs.Advanced(window, settings, window.AiTasks); Dispatcher.UIThread.RunJobs();
         var local = Assert.Single(window.OwnedWindows);
         Assert.Equal(3, local.GetVisualDescendants().OfType<ComboBox>().Count(combo => combo.Items.Cast<string>().Contains("portrait.safetensors")));
+        var localText = local.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToArray();
+        Assert.Contains("Mask context", localText); Assert.Contains("Mask conditioning blur", localText); Assert.DoesNotContain("GPT context padding", localText);
         Assert.True(Screenshots.Save(local, "ai-advanced-loras")); local.Close(); Assert.False(await pending);
         window.AiTasks.SelectedEngine = window.AiTasks.Engines.Find("chatgpt-image-2.5");
         pending = AiDialogs.Advanced(window, settings, window.AiTasks); Dispatcher.UIThread.RunJobs();
         var paid = Assert.Single(window.OwnedWindows); var text = paid.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToArray();
         Assert.Contains("GPT quality", text); Assert.DoesNotContain("Seed", text); Assert.DoesNotContain("Color match", text);
+        Assert.Contains("GPT context padding", text); Assert.DoesNotContain("Mask context", text); Assert.DoesNotContain("Mask conditioning blur", text);
         Assert.DoesNotContain(paid.GetVisualDescendants().OfType<CheckBox>(), check => check.Content as string == "Enable LoRAs");
         Assert.True(Screenshots.Save(paid, "ai-advanced-gpt")); paid.Close(); Assert.False(await pending);
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
