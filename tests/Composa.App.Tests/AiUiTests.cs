@@ -28,6 +28,10 @@ public class AiUiTests
         var joined = Assert.IsType<StackPanel>(split.Child);
         Assert.Equal(0, joined.Spacing);
         Assert.Equal(generate.Height, variants.Height);
+        var remove = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "Remove");
+        var more = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "••• ▾");
+        Assert.Equal(remove.Height, split.Height);
+        Assert.Equal(more.Height, split.Height);
         Assert.Equal(new Avalonia.CornerRadius(6, 0, 0, 6), generate.CornerRadius);
         Assert.Equal(new Avalonia.CornerRadius(0, 6, 6, 0), variants.CornerRadius);
         var engines = Assert.Single(combos, combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));

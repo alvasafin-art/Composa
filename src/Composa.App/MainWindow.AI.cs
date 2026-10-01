@@ -198,8 +198,13 @@ public sealed partial class MainWindow
         aiVariantsCombo.MinWidth = 0; aiVariantsCombo.Padding = new Thickness(9, 5);
         ToolTip.SetTip(aiVariantsCombo, "Number of variants · 1, 2 or 3");
         // A split action: one silhouette, a straight seam, independent keyboard-accessible controls.
-        aiFloatingGenerate.Height = aiVariantsCombo.Height = 32;
+        aiFloatingGenerate.Height = aiVariantsCombo.Height = 24; // 26 including the shared 1px outline
         aiFloatingGenerate.MinHeight = aiVariantsCombo.MinHeight = 0;
+        aiFloatingRemove.Height = aiFloatingMore.Height = 26;
+        aiFloatingRemove.MinHeight = aiFloatingMore.MinHeight = 0;
+        aiFloatingRemove.Padding = aiFloatingMore.Padding = new Thickness(8, 0);
+        aiFloatingRemove.VerticalContentAlignment = aiFloatingMore.VerticalContentAlignment = VerticalAlignment.Center;
+        aiVariantsCombo.Padding = new Thickness(9, 0);
         aiFloatingGenerate.Padding = new Thickness(14, 0);
         aiFloatingGenerate.VerticalContentAlignment = VerticalAlignment.Center;
         aiFloatingGenerate.CornerRadius = new CornerRadius(6, 0, 0, 6);
@@ -208,7 +213,7 @@ public sealed partial class MainWindow
         aiVariantsCombo.Background = new SolidColorBrush(Color.Parse("#151515"));
         actions.Children.Add(new Border
         {
-            Name = "AiGenerateSplit", CornerRadius = new CornerRadius(6), ClipToBounds = true,
+            Name = "AiGenerateSplit", Height = 26, CornerRadius = new CornerRadius(6), ClipToBounds = true,
             BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")), BorderThickness = new Thickness(1),
             Child = Ui.Row(0, aiFloatingGenerate, aiVariantsCombo)
         });
