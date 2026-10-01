@@ -23,6 +23,13 @@ public class AiUiTests
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
         var variants = Assert.Single(combos, combo => combo.Items.Cast<string>().SequenceEqual(new[] { "1", "2", "3" }));
         Assert.Equal(60, variants.Width); variants.SelectedIndex = 1;
+        var generate = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "Generate");
+        var split = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Border>(), border => border.Name == "AiGenerateSplit");
+        var joined = Assert.IsType<StackPanel>(split.Child);
+        Assert.Equal(0, joined.Spacing);
+        Assert.Equal(generate.Height, variants.Height);
+        Assert.Equal(new Avalonia.CornerRadius(6, 0, 0, 6), generate.CornerRadius);
+        Assert.Equal(new Avalonia.CornerRadius(0, 6, 6, 0), variants.CornerRadius);
         var engines = Assert.Single(combos, combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
         engines.SelectedIndex = 1; Assert.True(window.AiTasks.SelectedEngine!.PaidApi);
         Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));

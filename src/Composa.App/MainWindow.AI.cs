@@ -193,12 +193,25 @@ public sealed partial class MainWindow
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, HorizontalAlignment = HorizontalAlignment.Right };
         actions.Children.Add(aiFloatingMore);
         actions.Children.Add(aiFloatingRemove);
-        actions.Children.Add(aiFloatingGenerate);
         aiVariantsCombo = Ui.Combo(new[] { 1, 2, 3 }, Math.Clamp(settings.AiVariants, 1, 3),
             value => value.ToString(), value => { settings.AiVariants = value; settings.Save(); RefreshAiFloatingUi(); }, 60);
         aiVariantsCombo.MinWidth = 0; aiVariantsCombo.Padding = new Thickness(9, 5);
         ToolTip.SetTip(aiVariantsCombo, "Number of variants · 1, 2 or 3");
-        actions.Children.Add(aiVariantsCombo);
+        // A split action: one silhouette, a straight seam, independent keyboard-accessible controls.
+        aiFloatingGenerate.Height = aiVariantsCombo.Height = 32;
+        aiFloatingGenerate.MinHeight = aiVariantsCombo.MinHeight = 0;
+        aiFloatingGenerate.Padding = new Thickness(14, 0);
+        aiFloatingGenerate.VerticalContentAlignment = VerticalAlignment.Center;
+        aiFloatingGenerate.CornerRadius = new CornerRadius(6, 0, 0, 6);
+        aiVariantsCombo.CornerRadius = new CornerRadius(0, 6, 6, 0);
+        aiFloatingGenerate.BorderThickness = aiVariantsCombo.BorderThickness = new Thickness(0);
+        aiVariantsCombo.Background = new SolidColorBrush(Color.Parse("#151515"));
+        actions.Children.Add(new Border
+        {
+            Name = "AiGenerateSplit", CornerRadius = new CornerRadius(6), ClipToBounds = true,
+            BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")), BorderThickness = new Thickness(1),
+            Child = Ui.Row(0, aiFloatingGenerate, aiVariantsCombo)
+        });
         aiEngineCombo = Ui.Combo(aiTasks.Engines.Profiles, aiTasks.SelectedEngine!, value => value.DisplayName, value =>
         {
             aiTasks.SelectedEngine = value; settings.AiEngineId = value.Id; settings.Save(); RefreshAiUi();
