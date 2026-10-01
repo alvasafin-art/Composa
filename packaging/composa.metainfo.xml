@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.6" date="2026-10-01">
+      <description>
+        <p>GPT masked edits preserve untouched background, use inward final feathering and explicit aspect-preserving dimensions. Expand supports empty-area-only or whole-image modes, workflow selection and minimum-side sizing. Image Edit and other full-image operations no longer require selections. Workflow prompts are independent; generation controls are consistent, costs show credits and USD, LoRA strength allows numeric 0–3 input, and healing no longer skips remapped repair pixels.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.5" date="2026-10-01">
       <description>
         <p>Official GPT Image 2.5 Comfy.org Partner Node pack with ordered references, context-aware masked editing, runtime API-key authentication and server-derived cost estimates. The floating panel has a workflow selector, compact one/two/three variants and centered reference image icons. FLUX supports three model-only LoRAs with independent strengths. Native content-aware fill and healing use bounded coherent exemplar synthesis.</p>

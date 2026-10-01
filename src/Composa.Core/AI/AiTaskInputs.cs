@@ -31,6 +31,7 @@ public sealed record AiGenerationSettings
 public sealed record AiLora(string Name, double Strength = 1, bool Enabled = true);
 
 public enum AiVariantMode { List, Batch }
+public enum AiExpansionMode { MaskedRegion, WholeImage }
 
 public sealed record AiTaskRequest
 {
@@ -40,6 +41,9 @@ public sealed record AiTaskRequest
     public string AdditionalPrompt { get; init; } = "";
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
+    public AiExpansionMode ExpansionMode { get; init; } = AiExpansionMode.MaskedRegion;
+    /// <summary>Zero preserves the expanded canvas dimensions; otherwise the generation's minimum side.</summary>
+    public int ExpansionMinimumSide { get; init; } = 1024;
     public RemoveObjectSettings RemoveObject { get; init; } = new();
     /// <summary>An optional user-supplied visual reference. Kept for Engine Pack backwards compatibility.</summary>
     public SKBitmap? ReferenceImage { get; init; }
@@ -51,12 +55,24 @@ public sealed record AiTaskRequest
 
 public static class AiPromptDefaults
 {
-    public const string PreserveAppearance = "Preserve the source image's exposure, white balance, color grading, contrast, sharpness, focus and existing texture. Match the surrounding image naturally. Do not add film grain, digital noise, sharpening halos or extra texture. Keep unedited content unchanged.";
+    public const string PreserveAppearance = "Preserve the source image's exposure, white balance, color grading, contrast, sharpness, focus and existing texture. Match the surrounding image naturally. Keep unedited content unchanged.";
 }
 
 public static class AiDimensions
 {
     public static readonly double[] MegapixelOptions = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+    public static readonly int[] ExpansionSides = [768, 1024, 1280, 1536, 1792, 2048];
+
+    public static (int Width, int Height) FromMinimumSide(int minimum, int width, int height, int multiple = 16)
+    {
+        if (minimum < 0 || width <= 0 || height <= 0 || multiple <= 0) throw new ArgumentOutOfRangeException(nameof(minimum));
+        if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("Canvas exceeds document limits.");
+        if (minimum == 0) return (width, height);
+        var scale = (double)minimum / Math.Min(width, height);
+        var w = Round(width * scale, multiple); var h = Round(height * scale, multiple);
+        if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException($"Generation exceeds the {DocumentLimits.MaxSide} px / {DocumentLimits.MaxSurfaceMegapixels} MP limit.");
+        return (w, h);
+    }
 
     /// <summary>Fits a pixel budget to an aspect ratio while keeping dimensions friendly to latent-image pipelines.</summary>
     public static (int Width, int Height) FromMegapixels(double megapixels, int aspectWidth, int aspectHeight, int multiple = 16)
@@ -111,6 +127,16 @@ public sealed class AiTaskInputs : IDisposable
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
     public long Seed { get; init; }
+
+    /// <summary>The real expanded document, not the opaque black conditioning image. Caller owns the copy.</summary>
+    public SKBitmap ExpandedContext()
+    {
+        if (PreprocessedImage == null) throw new InvalidOperationException("No expanded image was prepared.");
+        var image = Pixels.NewColor(PreprocessedImage.Width, PreprocessedImage.Height);
+        using var canvas = new SKCanvas(image);
+        canvas.DrawImage(Pixels.ImageOf(ContextImage), -(ExpansionBounds?.Left ?? 0), -(ExpansionBounds?.Top ?? 0));
+        return image;
+    }
 
     public IReadOnlyDictionary<string, SKBitmap> Images()
     {
@@ -169,11 +195,14 @@ public static class AiTaskInputPreparer
     {
         if (request.Task.RequiresSelection() && session.Selection == null)
             throw new InvalidOperationException($"{request.Task.DisplayName()} requires a selection.");
+        var expansionSize = request.Task == AiTaskKind.GenerativeExpand
+            ? AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, (request.ExpansionBounds ?? session.Document.Bounds).Width, (request.ExpansionBounds ?? session.Document.Bounds).Height)
+            : (Width: 0, Height: 0);
 
         var flattened = session.Flatten();
         var context = Pixels.Clone(flattened);
         var active = RenderActiveLayer(session);
-        var selection = session.Selection == null ? null : Pixels.Clone(session.Selection);
+        var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null : Pixels.Clone(session.Selection);
         var background = request.Task == AiTaskKind.ChangeBackground && selection != null ? Invert(selection) : null;
         var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.Upscale
             ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
@@ -190,8 +219,9 @@ public static class AiTaskInputPreparer
         else if (request.Task == AiTaskKind.ChangeBackground && background != null)
             (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, background,
                 new RemoveObjectSettings { Dilation = 0, Feather = 0 });
-        else if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds is { } expansion)
-            (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, expansion);
+        else if (request.Task == AiTaskKind.GenerativeExpand)
+            (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, request.ExpansionBounds ?? session.Document.Bounds,
+                request.ExpansionBounds == null ? selection : null);
 
         var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(6).ToList()
             : request.ReferenceImage == null ? [] : [request.ReferenceImage];
@@ -212,14 +242,16 @@ public static class AiTaskInputPreparer
                 + 4 * (request.Settings.Values.TryGetValue("maskBlend", out var blend) ? Math.Clamp(Convert.ToInt32(blend), 0, 512) : 32),
             ReferenceImage = references.FirstOrDefault(),
             ReferenceImages = references,
-            CanvasWidth = request.Settings.Width > 0 ? request.Settings.Width : session.Document.Width,
-            CanvasHeight = request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
+            CanvasWidth = request.Task == AiTaskKind.GenerativeExpand ? expansionSize.Width
+                : request.Settings.Width > 0 ? request.Settings.Width : session.Document.Width,
+            CanvasHeight = request.Task == AiTaskKind.GenerativeExpand ? expansionSize.Height
+                : request.Settings.Height > 0 ? request.Settings.Height : session.Document.Height,
             TargetBounds = target,
             UpscaleSourceBounds = upscaleBounds,
             ExpansionBounds = request.ExpansionBounds,
-            Prompt = string.Join("\n\n", new[] { TaskPrompt(request.Task, request.Prompt),
+            Prompt = string.Join("\n\n", new[] { TaskPrompt(request.Task, request.Prompt, selection != null, request.ExpansionMode),
                 request.Task is AiTaskKind.Upscale or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection
-                    || request.Task == AiTaskKind.GenerateImage && requestedReferences.Count == 0 ? "" : request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0)),
+                    ? "" : request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0)),
             NegativePrompt = TaskNegativePrompt(request.Task, request.NegativePrompt),
             Seed = request.Settings.Seed
         };
@@ -277,17 +309,20 @@ public static class AiTaskInputPreparer
         return string.IsNullOrWhiteSpace(guidance) ? instruction : $"{instruction} Additional guidance: {guidance.Trim()}";
     }
 
-    private static string TaskPrompt(AiTaskKind task, string prompt)
+    private static string TaskPrompt(AiTaskKind task, string prompt, bool selected, AiExpansionMode expansionMode)
     {
         var guidance = prompt.Trim();
         return task switch
         {
-            AiTaskKind.RemoveObject => RemovePrompt(guidance),
+            AiTaskKind.RemoveObject => selected ? RemovePrompt(guidance) : $"Remove the requested object and reconstruct its background naturally, preserving unrelated content. Request: {guidance}",
             AiTaskKind.GenerativeFill => $"Create the requested content only inside the masked area. Keep the entire requested object fully visible inside the mask with a clear margin; do not crop or cut off any part of it. Blend lighting, perspective, focus, texture and grain with the surrounding image. Request: {guidance}",
-            AiTaskKind.ChangeBackground => $"Generate a photographic background scene for a composite. Render only the requested environment, without a foreground subject: the original subject will be composited separately. Do not add a person, animal, duplicate subject, cutout, black patch or silhouette unless explicitly requested. Background scene: {guidance}",
-            AiTaskKind.Harmonize => $"Harmonize only the masked object with its surrounding scene while preserving its identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
-            AiTaskKind.Relight => $"Relight only the masked subject. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill while keeping the whole subject inside the mask. Lighting request: {guidance}",
-            AiTaskKind.GenerativeExpand => $"Extend the image naturally into the masked empty canvas. Continue perspective, structures, lighting, focus, texture and grain without a visible seam. Request: {guidance}",
+            AiTaskKind.ChangeBackground => selected ? $"Generate a photographic background scene for a composite. Render only the requested environment, without a foreground subject: the original subject will be composited separately. Do not add a person, animal, duplicate subject, cutout, black patch or silhouette unless explicitly requested. Background scene: {guidance}"
+                : $"Replace the background of image 1 while keeping its foreground subject's identity, shape and details. Background request: {guidance}",
+            AiTaskKind.Harmonize => $"Harmonize {(selected ? "only the masked object" : "the image")} with its surrounding scene while preserving identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
+            AiTaskKind.Relight => $"Relight {(selected ? "only the masked subject" : "the image")}. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill. Lighting request: {guidance}",
+            AiTaskKind.GenerativeExpand => expansionMode == AiExpansionMode.WholeImage
+                ? $"Regenerate the entire expanded image coherently, using image 1 as the composition reference. Fill black empty canvas with a natural continuation. Request: {guidance}"
+                : $"Fill ONLY the masked empty canvas; black empty space is missing image, not a black object. Preserve existing image content. Continue perspective, structures, lighting, focus and texture without a visible seam. Request: {guidance}",
             _ => guidance
         };
     }
@@ -314,19 +349,22 @@ public static class AiTaskInputPreparer
         return result;
     }
 
-    private static (SKBitmap Image, SKBitmap Mask) PrepareExpansion(SKBitmap source, SKRectI document, SKRectI expansion)
+    private static (SKBitmap Image, SKBitmap Mask) PrepareExpansion(SKBitmap source, SKRectI document, SKRectI expansion, SKBitmap? selection)
     {
         if (expansion.Width <= 0 || expansion.Height <= 0) throw new ArgumentOutOfRangeException(nameof(expansion));
+        if (!DocumentLimits.FitsSurface(expansion.Width, expansion.Height)) throw new InvalidOperationException("Expanded canvas exceeds document limits.");
         var image = Pixels.NewColor(expansion.Width, expansion.Height);
-        image.Erase(SKColors.Transparent);
+        image.Erase(SKColors.Black);
         using (var canvas = new SKCanvas(image)) canvas.DrawImage(Pixels.ImageOf(source), -expansion.Left, -expansion.Top);
         var mask = Pixels.NewMask(expansion.Width, expansion.Height, 255);
-        var keep = SKRectI.Intersect(document, expansion);
-        if (!keep.IsEmpty)
+        var values = mask.GetPixelSpan();
+        for (var y = 0; y < mask.Height; y++)
+        for (var x = 0; x < mask.Width; x++)
         {
-            using var canvas = new SKCanvas(mask);
-            using var paint = new SKPaint { Color = SKColors.Transparent, BlendMode = SKBlendMode.Src };
-            canvas.DrawRect(keep.Left - expansion.Left, keep.Top - expansion.Top, keep.Width, keep.Height, paint);
+            var sx = x + expansion.Left; var sy = y + expansion.Top;
+            var empty = document.Contains(sx, sy) ? 255 - source.GetPixel(sx, sy).Alpha : 255;
+            if (selection != null) empty = empty * selection.GetPixel(sx, sy).Alpha / 255;
+            values[y * mask.RowBytes + x] = (byte)empty;
         }
         Pixels.Invalidate(image);
         Pixels.Invalidate(mask);

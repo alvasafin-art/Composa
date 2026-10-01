@@ -10,6 +10,7 @@ namespace Composa.AI;
 public enum AiTaskKind
 {
     GenerateImage,
+    ImageEdit,
     GenerativeFill,
     RemoveObject,
     GenerativeExpand,
@@ -27,6 +28,7 @@ public static class AiTasks
     public static string DisplayName(this AiTaskKind task) => task switch
     {
         AiTaskKind.GenerateImage => "Generate Image",
+        AiTaskKind.ImageEdit => "Image Edit",
         AiTaskKind.GenerativeFill => "Generative Fill",
         AiTaskKind.RemoveObject => "Remove Object",
         AiTaskKind.GenerativeExpand => "Generative Expand",
@@ -38,8 +40,7 @@ public static class AiTasks
     };
 
     public static bool RequiresSelection(this AiTaskKind task) =>
-        task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject
-            or AiTaskKind.Harmonize or AiTaskKind.Relight;
+        task is AiTaskKind.GenerativeFill;
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<AiOutputMode>))]
@@ -101,8 +102,8 @@ public sealed record EngineLoraSupport
 {
     public bool Supported { get; init; }
     public int Maximum { get; init; }
-    public double MinimumStrength { get; init; } = -2;
-    public double MaximumStrength { get; init; } = 2;
+    public double MinimumStrength { get; init; } = 0;
+    public double MaximumStrength { get; init; } = 3;
 }
 
 /// <summary>A lightweight, versioned description of a complete compatible inference pipeline. It contains no weights.</summary>

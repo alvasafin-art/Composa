@@ -53,9 +53,19 @@ public static class AiDialogs
         var clear = Ui.TextButton("Clear session key", () => { sessionKey.Text = ""; clearKey = true; });
         var keyNote = Ui.Label("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Paste it here for this session, or set the named environment variable. No secret is saved in settings. Browser login is separate. Use HTTPS for servers outside a trusted LAN.", Palette.Secondary);
         keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var additionalEnabled = new CheckBox { Content = "Append to image-editing prompts", IsChecked = settings.ComfyAdditionalPromptEnabled };
-        var additionalPrompt = new TextBox { Text = settings.ComfyAdditionalPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Width = 430, Height = 115, IsEnabled = settings.ComfyAdditionalPromptEnabled };
+        var promptDrafts = new Dictionary<string, AiPromptSetting>(settings.AiPackPrompts);
+        var promptPack = service.SelectedEngine?.Id ?? "";
+        var currentPrompt = settings.PromptFor(promptPack);
+        var additionalEnabled = new CheckBox { Content = "Append for this workflow pack", IsChecked = currentPrompt.Enabled };
+        var additionalPrompt = new TextBox { Text = currentPrompt.Text, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Width = 430, Height = 115, IsEnabled = currentPrompt.Enabled };
+        void SavePromptDraft() { if (promptPack.Length > 0) promptDrafts[promptPack] = new(additionalEnabled.IsChecked == true, additionalPrompt.Text ?? ""); }
+        void LoadPromptDraft()
+        {
+            promptPack = service.SelectedEngine?.Id ?? "";
+            var value = promptDrafts.GetValueOrDefault(promptPack) ?? settings.PromptFor(promptPack);
+            additionalPrompt.Text = value.Text; additionalEnabled.IsChecked = value.Enabled; additionalPrompt.IsEnabled = value.Enabled;
+        }
         additionalEnabled.IsCheckedChanged += (_, _) => additionalPrompt.IsEnabled = additionalEnabled.IsChecked == true;
         var resetPrompt = Ui.TextButton("Restore default prompt", () => additionalPrompt.Text = AiPromptDefaults.PreserveAppearance);
         var status = Ui.Label(ConnectionLabel(service.ConnectionState), Palette.Secondary);
@@ -107,7 +117,9 @@ public static class AiDialogs
         var selectedName = service.SelectedEngine?.DisplayName ?? engineNames[0];
         var engine = Ui.Combo(engineNames, selectedName, name => name, name =>
         {
+            SavePromptDraft();
             service.SelectedEngine = service.Engines.Profiles.FirstOrDefault(p => p.DisplayName == name);
+            LoadPromptDraft();
             models.Refresh();
             RefreshStatus();
         }, 260);
@@ -134,8 +146,7 @@ public static class AiDialogs
         if (!string.IsNullOrWhiteSpace(sessionKey.Text)) service.SessionApiKey = sessionKey.Text.Trim();
         else if (clearKey) service.SessionApiKey = null;
         settings.AiEngineId = service.SelectedEngine?.Id;
-        settings.ComfyAdditionalPromptEnabled = additionalEnabled.IsChecked == true;
-        settings.ComfyAdditionalPrompt = additionalPrompt.Text ?? "";
+        SavePromptDraft(); settings.AiPackPrompts = promptDrafts;
         models.Save();
         settings.Save();
         return true;
@@ -144,23 +155,21 @@ public static class AiDialogs
     public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null)
     {
         var mp = ClosestMegapixels(settings.AiMegapixels);
+        var originalSize = settings.AiOriginalSize;
         var reference = settings.AiReferenceMegapixels;
         var grow = settings.AiMaskGrow; var blend = settings.AiMaskBlend; var context = settings.AiMaskContext;
         var blur = settings.AiMaskBlur; var colorMatch = settings.AiColorMatch;
         var seed = settings.AiSeed; var mode = settings.AiVariantMode;
         var paid = service?.SelectedEngine?.PaidApi == true;
-        var quality = settings.AiApiQuality; var apiSize = settings.AiApiSize;
+        var quality = settings.AiApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, "quality");
         if (qualities.Count == 0) qualities = ["low", "medium", "high", "xhigh", "max"];
-        var apiSizes = PartnerPricing.Choices(service?.ServerCapabilities, model, "size").Where(value => value != "Custom").ToArray();
-        if (apiSizes.Length == 0) apiSizes = ["auto", "1024x1024", "1024x1536", "1536x1024", "2048x2048", "2048x1152", "1152x2048"];
         if (!qualities.Contains(quality)) quality = qualities[0];
-        if (!apiSizes.Contains(apiSize)) apiSize = apiSizes[0];
         var sizes = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
         (string, Control)[] fields = [
-            ("Image size", paid ? Ui.Combo(apiSizes, apiSizes.Contains(apiSize) ? apiSize : "auto", value => value == "auto" ? "Auto · source proportions" : value.Replace("x", " × "), value => apiSize = value, 245)
-                : Ui.Combo(AiDimensions.MegapixelOptions, mp, AiDimensions.Label, value => mp = value, 120)),
+            ("Image size", Ui.Combo(sizes, originalSize ? sizes[0] : AiDimensions.Label(mp), value => value,
+                value => { originalSize = value == sizes[0]; if (!originalSize) mp = AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value); }, 150)),
             ("Reference images", Ui.Combo(sizes, reference is { } r ? AiDimensions.Label(ClosestMegapixels(r)) : sizes[0], value => value,
                 value => reference = value == sizes[0] ? null : AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value), 150)),
             ("Execution", Ui.Combo(new[] { AiVariantMode.List, AiVariantMode.Batch }, mode,
@@ -195,20 +204,22 @@ public static class AiDialogs
                     value => loras[index] = loras[index] with { Name = value == "None" ? "" : value }, 255);
                 combo.IsEnabled = service.ConnectionState == ComfyConnectionState.Connected && names.Count > 0;
                 var toggle = Ui.Check("", draft.Enabled, value => loras[index] = loras[index] with { Enabled = value }); ToolTip.SetTip(toggle, "Enable this LoRA");
-                var strength = Ui.SliderField("", draft.Strength, -2, 2, value => loras[index] = loras[index] with { Strength = value }, 0.05, "0.00", 100, reset: 1);
-                ToolTip.SetTip(strength, "LoRA strength · compatible models only");
-                rows.Children.Add(Ui.Column(3, Ui.Label($"LoRA {i + 1}", Palette.Secondary), Ui.Row(7, toggle, combo, strength)));
+                var strength = Ui.SliderField("", Math.Clamp(draft.Strength, 0, 3), 0, 3, value => loras[index] = loras[index] with { Strength = value }, 0.01, "0.00", 100, reset: 1);
+                loras[index] = loras[index] with { Strength = Math.Clamp(draft.Strength, 0, 3) };
+                var type = Ui.TextButton("123", strength.BeginEdit); type.MinWidth = 0; type.Padding = new Thickness(5, 0); type.Height = 26;
+                ToolTip.SetTip(type, "Type an exact LoRA strength · 0 to 3");
+                rows.Children.Add(Ui.Column(3, Ui.Label($"LoRA {i + 1}", Palette.Secondary), Ui.Row(7, toggle, combo, strength, type)));
             }
             extra.Children.Add(rows);
             if (names.Count == 0) extra.Children.Add(Ui.Label("Connect / refresh models to read the server's LoRA list.", Palette.Secondary));
         }
         var body = new ScrollViewer { Content = Ui.Column(12, form, extra, note), MaxHeight = Math.Clamp(owner.Bounds.Height - 160, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         if (!await new DialogWindow("AI · Advanced", body).Ask(owner)) return false;
-        settings.AiMegapixels = mp; settings.AiReferenceMegapixels = reference;
+        settings.AiMegapixels = mp; settings.AiOriginalSize = originalSize; settings.AiReferenceMegapixels = reference;
         settings.AiMaskGrow = grow; settings.AiMaskBlend = blend; settings.AiMaskContext = context;
         settings.AiMaskBlur = blur; settings.AiColorMatch = colorMatch;
         settings.AiSeed = seed; settings.AiVariantMode = mode;
-        settings.AiApiQuality = quality; settings.AiApiSize = apiSize;
+        settings.AiApiQuality = quality;
         if (!paid && service?.SelectedEngine?.Lora.Supported == true) { settings.AiLorasEnabled = lorasEnabled; settings.AiLoras = loras.Where(lora => lora.Name.Length > 0).ToList(); }
         settings.Save();
         return true;
@@ -227,44 +238,102 @@ public static class AiDialogs
         settings.AiUpscaleFactor = factor; settings.Save(); return true;
     }
 
-    public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null)
+    public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false)
     {
-        var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100,
-            PlaceholderText = task == AiTaskKind.RemoveObject ? "Optional guidance; the selected object is removed by its mask" : "Describe the result" };
-        var selectedMegapixels = ClosestMegapixels(settings.AiMegapixels);
-        var (width, height) = AiDimensions.FromMegapixels(selectedMegapixels, documentWidth, documentHeight);
-        var dimensions = Ui.Label($"{width} × {height} px", Palette.Secondary);
-        var megapixels = Ui.Combo(AiDimensions.MegapixelOptions, selectedMegapixels, AiDimensions.Label, value =>
-        {
-            selectedMegapixels = value;
-            (width, height) = AiDimensions.FromMegapixels(value, documentWidth, documentHeight);
-            dimensions.Text = $"{width} × {height} px";
-        }, 110);
-        var seed = settings.AiSeed;
-        var seedBox = Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 160);
-        var variants = Math.Clamp(settings.AiVariants, 1, 3);
-        var variantsCombo = Ui.Combo(new[] { 1, 2, 3 }, variants, value => value.ToString(), value => variants = value, 60);
+        var previousEngine = service?.SelectedEngine;
+        var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
+        var originalSize = settings.AiOriginalSize; var mp = ClosestMegapixels(settings.AiMegapixels);
+        var variants = Math.Clamp(settings.AiVariants, 1, 3); var quality = settings.AiApiQuality;
+        var expansionMode = settings.AiExpansionMode;
+        var regionSide = settings.AiExpansionMinimumSide; var wholeSide = settings.AiWholeExpansionMinimumSide;
+        var width = documentWidth; var height = documentHeight;
+        var dimensions = Ui.Label("", Palette.Secondary); dimensions.MaxWidth = 430; dimensions.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        var note = Ui.Label("", Palette.Secondary); note.MaxWidth = 430; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        var cost = Ui.Label("", Palette.Secondary);
+        var sizeOptions = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
         DialogWindow? dialog = null;
+        var qualityHost = new StackPanel();
+        var qualityOptions = new[] { "low", "medium", "high", "xhigh", "max" };
+        var qualityCombo = Ui.Combo(qualityOptions, qualityOptions.Contains(quality) ? quality : "low", value => value,
+            value => { quality = value; Refresh(); }, 150);
+        qualityHost.Children.Add(CanvasDialogs.Form(("GPT quality", qualityCombo)));
+        var size = Ui.Combo(sizeOptions, originalSize ? sizeOptions[0] : AiDimensions.Label(mp), value => value, value =>
+        {
+            originalSize = value == sizeOptions[0];
+            if (!originalSize) mp = AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value);
+            Refresh();
+        }, 150);
+        var expandSize = new ComboBox { Width = 245 };
+        void RefreshExpandChoices()
+        {
+            var choices = expansionMode == AiExpansionMode.WholeImage ? new[] { 0 }.Concat(AiDimensions.ExpansionSides).ToArray() : AiDimensions.ExpansionSides;
+            expandSize.ItemsSource = choices.Select(value => value == 0 ? "Original expanded size" : value + " px · minimum side").ToArray();
+            var selected = expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide;
+            expandSize.SelectedIndex = Array.IndexOf(choices, selected);
+            if (expandSize.SelectedIndex < 0) expandSize.SelectedIndex = Array.IndexOf(choices, 1024);
+        }
+        expandSize.SelectionChanged += (_, _) =>
+        {
+            var choices = expansionMode == AiExpansionMode.WholeImage ? new[] { 0 }.Concat(AiDimensions.ExpansionSides).ToArray() : AiDimensions.ExpansionSides;
+            if (expandSize.SelectedIndex < 0 || expandSize.SelectedIndex >= choices.Length) return;
+            if (expansionMode == AiExpansionMode.WholeImage) wholeSide = choices[expandSize.SelectedIndex]; else regionSide = choices[expandSize.SelectedIndex];
+            Refresh();
+        };
+        var mode = Ui.Combo(new[] { AiExpansionMode.MaskedRegion, AiExpansionMode.WholeImage }, expansionMode,
+            value => value == AiExpansionMode.MaskedRegion ? "Empty area only · preserve image" : "Regenerate whole expanded image",
+            value => { expansionMode = value; RefreshExpandChoices(); Refresh(); }, 300);
+        var variantsCombo = Ui.Combo(new[] { 1, 2, 3 }, variants, value => value.ToString(), value => { variants = value; Refresh(); }, 60);
         var advanced = Ui.TextButton("Advanced…", () => { });
         advanced.Click += async (_, _) =>
         {
             if (!await Advanced(dialog!, settings, service)) return;
-            megapixels.SelectedIndex = AiDimensions.MegapixelOptions.ToList().IndexOf(ClosestMegapixels(settings.AiMegapixels));
-            seedBox.Value = settings.AiSeed;
+            quality = settings.AiApiQuality; qualityCombo.SelectedIndex = Array.IndexOf(qualityOptions, quality);
+            originalSize = settings.AiOriginalSize; mp = ClosestMegapixels(settings.AiMegapixels);
+            size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);
+            Refresh();
         };
-        var paid = service?.SelectedEngine?.PaidApi == true;
-        var generationOptions = paid ? Ui.Label("Paid GPT API · image size and quality are in Advanced. Each variant is billed.", Palette.Secondary)
-            : (Control)CanvasDialogs.Form(("Image size", Ui.Row(8, megapixels, dimensions)), ("Seed", Ui.Row(6, seedBox, Ui.Label("-1 = random", Palette.Secondary))));
-        var body = Ui.Column(10, Ui.Label(task.DisplayName(), weight: Avalonia.Media.FontWeight.SemiBold), prompt,
-            Ui.Row(8, Ui.Label("Variants"), variantsCombo, advanced), generationOptions);
-        dialog = new DialogWindow(task.DisplayName(), body, "Run");
-        dialog.Opened += (_, _) => prompt.Focus();
-        if (!await dialog.Ask(owner)) return null;
-        settings.AiSeed = seed;
-        settings.AiMegapixels = selectedMegapixels;
-        settings.AiVariants = variants;
+        var modelHost = new StackPanel();
+        if (service != null && service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray() is { Length: > 0 } packs)
+        {
+            var picker = Ui.Combo(packs, service.SelectedEngine ?? packs[0], pack => pack.DisplayName, pack => { service.SelectedEngine = pack; Refresh(); }, 210);
+            modelHost.Children.Add(Ui.Row(12, picker, advanced));
+        }
+        else modelHost.Children.Add(advanced);
+        var resolution = task == AiTaskKind.GenerativeExpand
+            ? CanvasDialogs.Form(("Expand mode", mode), ("Generation size", expandSize))
+            : CanvasDialogs.Form(("Image size", size));
+        void Refresh()
+        {
+            var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid;
+            try
+            {
+                (width, height) = task == AiTaskKind.GenerativeExpand
+                    ? AiDimensions.FromMinimumSide(expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide, documentWidth, documentHeight)
+                    : originalSize ? (documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
+                var api = paid ? PartnerImageSize.Plan(width, height) : (width, height);
+                dimensions.Text = $"{width} × {height} px · proportions preserved" + (paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
+                if (dialog != null) dialog.CanAccept = true;
+            }
+            catch (Exception error) { dimensions.Text = error.Message; if (dialog != null) dialog.CanAccept = false; }
+            var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
+            var masked = task == AiTaskKind.GenerativeFill || task == AiTaskKind.GenerativeExpand && expansionMode == AiExpansionMode.MaskedRegion
+                || hasSelection && task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+            var count = sourceCount + referenceCount + (masked && referenceCount > 0 ? 1 : 0);
+            cost.Text = paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
+            note.Text = paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
+                : task == AiTaskKind.GenerativeExpand ? "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
+                : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
+            ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
+        }
+        var body = Ui.Column(10, prompt, resolution, dimensions, qualityHost, note, cost, modelHost);
+        dialog = new DialogWindow(task.DisplayName(), body, "Generate"); dialog.UseGenerationVariants(variantsCombo);
+        RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => prompt.Focus();
+        if (!await dialog.Ask(owner)) { if (service != null) service.SelectedEngine = previousEngine; return null; }
+        settings.AiOriginalSize = originalSize; settings.AiMegapixels = mp; settings.AiVariants = variants; settings.AiApiQuality = quality;
+        settings.AiExpansionMode = expansionMode; settings.AiExpansionMinimumSide = regionSide; settings.AiWholeExpansionMinimumSide = wholeSide;
+        if (service != null) settings.AiEngineId = service.SelectedEngine?.Id;
         settings.Save();
-        return new(prompt.Text ?? "", width, height, seed);
+        return new(prompt.Text ?? "", width, height, settings.AiSeed);
     }
 
     private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));

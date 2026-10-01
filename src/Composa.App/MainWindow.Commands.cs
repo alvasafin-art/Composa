@@ -144,6 +144,7 @@ public sealed partial class MainWindow
         Top("_AI",
             Item("Generate Image…", () => _ = RunAi(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
             Item("Generative Fill…", () => _ = RunAi(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
+            Item("Image Edit…", () => _ = RunAi(AiTaskKind.ImageEdit), enabled: () => session?.Selection == null && CanRunAi(AiTaskKind.ImageEdit)),
             Item("Remove Object", () => _ = RunAi(AiTaskKind.RemoveObject), enabled: () => CanRunAi(AiTaskKind.RemoveObject)),
             Item("Generative Expand…", () => _ = RunAi(AiTaskKind.GenerativeExpand), enabled: () => CanRunAi(AiTaskKind.GenerativeExpand)),
             Item("Change Background…", () => _ = RunAi(AiTaskKind.ChangeBackground), enabled: () => CanRunAi(AiTaskKind.ChangeBackground)),

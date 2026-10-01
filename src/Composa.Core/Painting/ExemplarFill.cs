@@ -187,6 +187,8 @@ internal static unsafe class ExemplarFill
             for (var dx = -Radius - 1; dx <= Radius + 1; dx++) Enqueue(tx + dx, ty + dy);
         }
 
+        // Disconnected/downsampled cells must not leave remnants of the removed object.
+        if (selected.Where((value, i) => value && known[i] == 0).Any()) PushPull.Fill(current, known, w, h, 4);
         var result = Pixels.Clone(source); var dst = (byte*)result.GetPixels();
         double scaleX = (double)bounds.Width / w, scaleY = (double)bounds.Height / h;
         for (var y = hole.Top; y < hole.Bottom; y++)
@@ -196,16 +198,16 @@ internal static unsafe class ExemplarFill
             if (amount == 0) continue;
             int gx = (int)((long)(x - bounds.Left) * w / bounds.Width), gy = (int)((long)(y - bounds.Top) * h / bounds.Height);
             var donor = matches[gy * w + gx];
-            if (donor < 0) continue;
-            int sx = Math.Clamp(x + (int)Math.Round((donor % w - gx) * scaleX), bounds.Left, bounds.Right - 1),
-                sy = Math.Clamp(y + (int)Math.Round((donor / w - gy) * scaleY), bounds.Top, bounds.Bottom - 1);
-            if (coverage[(long)sy * mask.RowBytes + sx] != 0
-                || avoidance != null && avoidance[(long)sy * donorExclusion!.RowBytes + sx] != 0) continue;
+            int sx = donor < 0 ? x : Math.Clamp(x + (int)Math.Round((donor % w - gx) * scaleX), bounds.Left, bounds.Right - 1),
+                sy = donor < 0 ? y : Math.Clamp(y + (int)Math.Round((donor / w - gy) * scaleY), bounds.Top, bounds.Bottom - 1);
+            var clean = donor >= 0 && coverage[(long)sy * mask.RowBytes + sx] == 0
+                && (avoidance == null || avoidance[(long)sy * donorExclusion!.RowBytes + sx] == 0);
             var a = src + (long)y * source.RowBytes + x * 4; var b = src + (long)sy * source.RowBytes + sx * 4;
             var p = dst + (long)y * result.RowBytes + x * 4;
             for (var c = 0; c < 4; c++)
             {
-                var value = c == 3 ? b[c] : (int)Math.Round(Math.Clamp(b[c] + shifts[(gy * w + gx) * 3 + c], 0, b[3]));
+                var value = clean ? c == 3 ? b[c] : (int)Math.Round(Math.Clamp(b[c] + shifts[(gy * w + gx) * 3 + c], 0, b[3]))
+                    : (int)Math.Round(Math.Clamp(current[(gy * w + gx) * 4 + c], 0, c == 3 ? 255 : current[(gy * w + gx) * 4 + 3]));
                 p[c] = (byte)((a[c] * (255 - amount) + value * amount + 127) / 255);
             }
         }

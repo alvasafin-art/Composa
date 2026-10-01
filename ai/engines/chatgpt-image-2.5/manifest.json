@@ -132,6 +132,22 @@
           "input": "seed"
         }
       }
+    },
+    {
+      "task": "ImageEdit",
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
     }
   ],
   "lora": {

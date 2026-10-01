@@ -15,6 +15,7 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly AiTaskRequest request;
     private readonly SKRectI crop;
     private readonly SKBitmap? blendMask;
+    private readonly (int Width, int Height) generationSize;
     public bool MaskAsReference { get; }
 
     public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request)
@@ -24,23 +25,23 @@ internal sealed class PartnerImageInputs : IDisposable
             ? inputs.PreprocessedImage ?? inputs.SourceImage : inputs.SourceImage;
         var mask = request.Task == AiTaskKind.ChangeBackground ? inputs.BackgroundMask
             : request.Task == AiTaskKind.GenerativeExpand ? inputs.PreprocessedMask : inputs.SelectionMask;
-        if (request.Task == AiTaskKind.GenerateImage) mask = null;
+        if (request.Task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage) mask = null;
+        if (mask != null && SelectionMask.IsEmpty(mask)) throw new InvalidOperationException("The edit mask is empty. For Expand, expose empty canvas or choose Whole image.");
         crop = new SKRectI(0, 0, source.Width, source.Height);
         if (mask != null)
         {
             int Setting(string name, int fallback) => request.Settings.Values.TryGetValue(name, out var value) ? Math.Clamp(Convert.ToInt32(value), 0, 64) : fallback;
-            var grow = request.Task == AiTaskKind.GenerativeFill ? 0 : Setting("maskGrow", 8);
+            var grow = request.Task is AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand ? 0 : Setting("maskGrow", 8);
             var blend = Setting("maskBlend", 32); var blur = Setting("maskBlur", 4);
             using var expanded = SelectionMask.Expand(mask, grow);
             var conditioning = Own(blur == 0 ? Pixels.Clone(expanded) : SelectionMask.Feather(expanded, blur));
-            using var support = SelectionMask.Expand(mask, grow + blend);
-            blendMask = Own(blend == 0 ? Pixels.Clone(support) : SelectionMask.Feather(support, blend));
+            blendMask = Own(AiResultPostprocessor.EditMask(mask, grow, blend));
             if (request.Task == AiTaskKind.RemoveObject)
             {
                 var removal = RemoveObjectPreprocessor.Prepare(inputs.SourceImage, mask, new RemoveObjectSettings { Dilation = grow, Feather = 0 });
                 source = Own(removal.Image); removal.Mask.Dispose();
             }
-            if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight)
+            if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand)
             {
                 var bounds = SelectionMask.Bounds(mask, 1);
                 var factor = request.Settings.Values.TryGetValue("maskContext", out var context) ? Math.Clamp(Convert.ToDouble(context), 1, 8) : 2;
@@ -52,6 +53,16 @@ internal sealed class PartnerImageInputs : IDisposable
         if (request.Task != AiTaskKind.GenerateImage) Images["apiSource"] = Own(Crop(source, crop));
         for (var i = 0; i < inputs.ReferenceImages.Count; i++) Images[$"referenceImage{i + 1}"] = inputs.ReferenceImages[i];
         MaskAsReference = Images.ContainsKey("apiMask") && inputs.ReferenceImages.Count > 0;
+        var desired = (Width: crop.Width, Height: crop.Height);
+        if (request.Task == AiTaskKind.GenerateImage) desired = (inputs.CanvasWidth, inputs.CanvasHeight);
+        else if (request.Task == AiTaskKind.GenerativeExpand) desired = AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, crop.Width, crop.Height);
+        else if (!Convert.ToBoolean(request.Settings.Values.GetValueOrDefault("imageOriginalSize") ?? false) && request.Settings.Width > 0 && request.Settings.Height > 0)
+        {
+            var scale = Math.Sqrt((double)request.Settings.Width * request.Settings.Height / crop.Width / crop.Height);
+            desired = ((int)Math.Round(crop.Width * scale), (int)Math.Round(crop.Height * scale));
+        }
+        try { generationSize = PartnerImageSize.Plan(desired.Width, desired.Height); }
+        catch { Dispose(); throw; }
     }
 
     public JsonObject Bind(JsonObject graph, EngineProfile engine, IReadOnlyDictionary<string, string> files, long seed)
@@ -59,7 +70,9 @@ internal sealed class PartnerImageInputs : IDisposable
         var result = (JsonObject)graph.DeepClone(); var node = result["gpt"]!["inputs"]!.AsObject();
         node["model"] = engine.ApiModel; node["seed"] = seed % int.MaxValue;
         node["model.quality"] = request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low";
-        node["model.size"] = request.Settings.Values.GetValueOrDefault("apiSize")?.ToString() ?? "auto";
+        node["model.size"] = "Custom";
+        node["model.custom_width"] = generationSize.Width;
+        node["model.custom_height"] = generationSize.Height;
         var number = 0;
         foreach (var (semantic, filename) in files.Where(pair => pair.Key != "apiMask"))
         {
@@ -88,14 +101,20 @@ internal sealed class PartnerImageInputs : IDisposable
 
     public SKBitmap Finish(SKBitmap generated)
     {
-        if (request.Task == AiTaskKind.GenerateImage) return generated;
+        if (request.Task == AiTaskKind.GenerateImage)
+        {
+            using (generated) return Resize(generated, original.CanvasWidth, original.CanvasHeight);
+        }
         using (generated)
         {
             using var fitted = Resize(generated, crop.Width, crop.Height);
             if (request.Task == AiTaskKind.GenerativeExpand)
             {
-                var expanded = Pixels.Clone(original.PreprocessedImage!);
-                Blend(expanded, fitted, blendMask, crop); return expanded;
+                if (request.ExpansionMode == AiExpansionMode.WholeImage) return Pixels.Clone(fitted);
+                var expanded = original.ExpandedContext();
+                using var coverage = AiResultPostprocessor.ExpansionEditMask(original.PreprocessedMask!, expanded,
+                    Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
+                Blend(expanded, fitted, coverage, crop); return expanded;
             }
             if (request.Task == AiTaskKind.ChangeBackground) return Pixels.Clone(fitted);
             var composite = Pixels.Clone(original.ContextImage);
@@ -113,8 +132,12 @@ internal sealed class PartnerImageInputs : IDisposable
     }
     private static SKBitmap Resize(SKBitmap source, int width, int height)
     {
+        var mismatch = Math.Abs((double)source.Width / source.Height / ((double)width / height) - 1);
+        if (mismatch > 0.025) throw new InvalidDataException($"GPT returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
         var result = Pixels.NewColor(width, height); using var canvas = new SKCanvas(result);
-        canvas.DrawImage(Pixels.ImageOf(source), new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell)); return result;
+        var scale = Math.Max((double)width / source.Width, (double)height / source.Height);
+        var w = (float)(source.Width * scale); var h = (float)(source.Height * scale);
+        canvas.DrawImage(Pixels.ImageOf(source), new SKRect((width - w) / 2, (height - h) / 2, (width + w) / 2, (height + h) / 2), new SKSamplingOptions(SKCubicResampler.Mitchell)); return result;
     }
     private static unsafe void Blend(SKBitmap destination, SKBitmap image, SKBitmap? mask, SKRectI bounds)
     {

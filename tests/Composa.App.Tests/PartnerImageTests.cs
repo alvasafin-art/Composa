@@ -31,7 +31,7 @@ public class PartnerImageTests
     internal static ComfyServerCapabilities Capabilities()
     {
         var definitions = JsonNode.Parse("""
-        {"input":{"required":{"model":["COMFY_DYNAMICCOMBO_V3",{"options":[{"key":"gpt-image-2.5-sunburst","inputs":{"required":{"quality":["COMBO",{"options":["low","medium","high","xhigh","max"]}],"size":["COMBO",{"options":["auto","1024x1024","1024x1536"]}]}}}]}]}}}
+        {"input":{"required":{"model":["COMFY_DYNAMICCOMBO_V3",{"options":[{"key":"gpt-image-2.5-sunburst","inputs":{"required":{"quality":["COMBO",{"options":["low","medium","high","xhigh","max"]}],"size":["COMBO",{"options":["auto","1024x1024","1024x1536","Custom"]}]}}}]}]}}}
         """)!.AsObject();
         definitions["price_badge"] = new JsonObject { ["expr"] = """
             ($ranges := {"gpt-image-2.5-sunburst":{"low":[0.0023,0.0283]}};
@@ -95,7 +95,7 @@ public class PartnerImageTests
             Assert.Contains($"Image {references + 2} is ONLY a grayscale editing mask", node["prompt"]!.GetValue<string>());
             Assert.Equal(references + 2, node.Count(pair => pair.Key.StartsWith("model.images.image_")));
         }
-        var generated = Pixels.NewColor(112, 96); generated.Erase(SKColors.CornflowerBlue);
+        var generated = Pixels.NewColor(api.Images["apiSource"].Width * 2, api.Images["apiSource"].Height * 2); generated.Erase(SKColors.CornflowerBlue);
         var result = api.Finish(generated); Assert.Equal((79, 61), (result.Width, result.Height));
         Assert.Equal(SKColors.White, result.GetPixel(0, 0)); Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(35, 30));
         AiTaskService.Insert(new EditorCommandService(session), request.Task, AiOutputMode.NewLayerWithMask, [result], inputs.TargetBounds, inputs, outputIsComposited: true);
@@ -133,7 +133,7 @@ public class PartnerImageTests
         using (var inputs = AiTaskInputPreparer.Prepare(session, request))
         using (var api = new PartnerImageInputs(inputs, request))
         {
-            var generated = Pixels.NewColor(112, 96); generated.Erase(SKColors.CornflowerBlue); var result = api.Finish(generated);
+            var generated = Pixels.NewColor(158, 122); generated.Erase(SKColors.CornflowerBlue); var result = api.Finish(generated);
             AiTaskService.Insert(new EditorCommandService(session), request.Task, AiOutputMode.LayerGroup, [result], inputs.TargetBounds, inputs);
             var group = Assert.Single(session.Document.Layers.Where(layer => layer.IsGroup));
             Assert.Equal(new[] { "AI Background", "Original Subject" }, group.Children.Select(layer => layer.Name));
@@ -172,6 +172,41 @@ public class PartnerImageTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => service.RunAsync(new EditorCommandService(session), request, TestContext.Current.CancellationToken));
             Assert.Empty(connection.Graphs); Assert.Empty(connection.Uploads); Assert.Equal(0, session.History.Count);
         }
+    }
+
+    [Theory]
+    [InlineData(AiTaskKind.ImageEdit)]
+    [InlineData(AiTaskKind.RemoveObject)]
+    [InlineData(AiTaskKind.ChangeBackground)]
+    [InlineData(AiTaskKind.Harmonize)]
+    [InlineData(AiTaskKind.Relight)]
+    public async Task Full_image_operations_without_selection_run_a_real_edit_workflow(AiTaskKind task)
+    {
+        var session = EditorSession.NewCanvas(79, 61, SKColors.White); var connection = new Connection();
+        var service = Service(connection); service.AdditionalPromptForPack = id => id == "chatgpt-image-2.5" ? "PACK INSTRUCTION" : "WRONG PACK";
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = task, Prompt = "make the cup blue" }, TestContext.Current.CancellationToken);
+        Assert.Single(connection.Graphs); Assert.Equal(new[] { "apiSource" }, connection.Uploads);
+        var node = connection.Graphs[0]["gpt"]!["inputs"]!;
+        Assert.Null(node["model.mask"]); Assert.Contains("PACK INSTRUCTION", node["prompt"]!.GetValue<string>());
+        Assert.Equal(SKColors.CornflowerBlue, session.ActiveLayer!.Pixels!.GetPixel(0, 0));
+        Assert.Equal(1, session.History.Count); Assert.Null(session.Selection);
+        session.Undo(); Assert.Single(session.Document.Layers);
+    }
+
+    [Theory]
+    [InlineData(AiExpansionMode.MaskedRegion, 3)]
+    [InlineData(AiExpansionMode.WholeImage, 2)]
+    public async Task Expansion_variants_use_actual_canvas_coordinates_and_undo_all_at_once(AiExpansionMode mode, int variants)
+    {
+        var session = EditorSession.NewCanvas(79, 61, SKColors.White); var connection = new Connection();
+        await Service(connection).RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = AiTaskKind.GenerativeExpand,
+            ExpansionBounds = new(-11, -7, 91, 69), ExpansionMode = mode, ExpansionMinimumSide = mode == AiExpansionMode.WholeImage ? 0 : 1024,
+            Settings = new() { Variants = variants, VariantMode = AiVariantMode.Batch } }, TestContext.Current.CancellationToken);
+        Assert.Single(connection.Graphs); Assert.Equal((102, 76), (session.Document.Width, session.Document.Height));
+        Assert.Equal(variants, session.AiVariantGroup!.Children.Count); Assert.Equal(1, session.History.Count);
+        using var result = session.Flatten(); Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(0, 0));
+        Assert.Equal(mode == AiExpansionMode.WholeImage ? SKColors.CornflowerBlue : SKColors.White, result.GetPixel(30, 30));
+        session.Undo(); Assert.Single(session.Document.Layers); Assert.Equal((79, 61), (session.Document.Width, session.Document.Height));
     }
 
     [Fact]
@@ -248,7 +283,7 @@ public class PartnerImageTests
             return Task.FromResult(new ComfyExecutionResult("job", JsonDocument.Parse("{}"), Enumerable.Range(0, count).Select(i => new ComfyImageReference(i + ".png", "", "output", "save")).ToArray()) { CreditsUsed = count * 2 });
         }
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
-        { var bitmap = Pixels.NewColor(112, 96); bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap); }
+        { var node = Graphs[^1]["gpt"]!["inputs"]!; var bitmap = Pixels.NewColor(node["model.custom_width"]!.GetValue<int>(), node["model.custom_height"]!.GetValue<int>()); bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap); }
         public void Dispose() { }
     }
 }

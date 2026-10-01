@@ -16,11 +16,6 @@ public sealed record AiTaskAvailability(AiTaskKind Task, bool Available, string?
         if (engine.Binding(task) == null) return new(task, false, $"{engine.DisplayName} does not provide {task.DisplayName()}.");
         if (session == null && task != AiTaskKind.GenerateImage) return new(task, false, "Open a document first.");
         if (task.RequiresSelection() && session?.Selection == null) return new(task, false, "Make a selection first.");
-        if (task == AiTaskKind.ChangeBackground && engine.PaidApi && session?.Selection == null)
-            return new(task, false, "Select the subject to keep first; this API pack does not include automatic subject selection.");
-        if (task == AiTaskKind.GenerativeExpand && !cropExpands) return new(task, false, "Extend the crop outside the canvas first.");
-        if (task is AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.Upscale && session?.ActiveLayer?.Pixels == null)
-            return new(task, false, "Select an image layer first.");
         return new(task, true, null);
     }
 
@@ -29,6 +24,7 @@ public sealed record AiTaskAvailability(AiTaskKind Task, bool Available, string?
         if (session == null) return engine?.Binding(AiTaskKind.GenerateImage) != null ? [AiTaskKind.GenerateImage] : [];
         var candidates = new List<AiTaskKind>();
         if (session.Selection != null) candidates.AddRange([AiTaskKind.GenerativeFill, AiTaskKind.RemoveObject]);
+        else candidates.Add(AiTaskKind.ImageEdit);
         if (session.ActiveLayer is { Pixels: not null } layer && layer.Pixels.GetPixelSpan().IndexOfAnyExcept((byte)0) < 0) candidates.Add(AiTaskKind.GenerateImage);
         if (cropExpands) candidates.Add(AiTaskKind.GenerativeExpand);
         return candidates.Where(task => Resolve(session, engine, task, cropExpands).Available).Distinct().ToList();

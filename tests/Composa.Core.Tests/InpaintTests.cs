@@ -139,6 +139,27 @@ public class InpaintTests
         Directory.CreateDirectory(folder); ImageFiles.Save(comparison, Path.Combine(folder, "native-fill-comparison.png"), ExportFormat.Png);
     }
 
+    [Fact]
+    public void Reduced_guide_never_leaves_selected_specks_or_original_scratch_pixels()
+    {
+        using var source = Pixels.NewColor(900, 620); source.Erase(new SKColor(80, 140, 190));
+        using var mask = Pixels.NewMask(900, 620);
+        // Irregular edges and isolated one-pixel repairs cross the guide's rounding boundaries.
+        for (var y = 80; y < 540; y++) for (var x = 200 + y % 3; x < 220 + y % 7; x++)
+        { source.SetPixel(x, y, SKColors.Magenta); mask.SetPixel(x, y, new SKColor(0, 0, 0, 255)); }
+        for (var y = 81; y < 539; y += 17)
+        { source.SetPixel(228, y, SKColors.Magenta); mask.SetPixel(228, y, new SKColor(0, 0, 0, 255)); }
+        Pixels.Invalidate(source); Pixels.Invalidate(mask);
+        using var result = Inpaint.Fill(source, mask);
+        AssertOutsideUnchanged(source, mask, result);
+        for (var y = 0; y < 620; y++) for (var x = 0; x < 900; x++)
+            if (mask.GetPixel(x, y).Alpha == 255)
+            {
+                Assert.InRange(result.GetPixel(x, y).Red, (byte)77, (byte)83);
+                Assert.InRange(result.GetPixel(x, y).Green, (byte)137, (byte)143);
+            }
+    }
+
     private static SKBitmap Pattern(int width, int height)
     {
         var image = Pixels.NewColor(width, height);

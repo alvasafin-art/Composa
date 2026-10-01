@@ -55,7 +55,9 @@
       "id": "background",
       "version": 1,
       "file": "workflows/background.json",
-      "outputNodes": ["save"]
+      "outputNodes": [
+        "save"
+      ]
     },
     {
       "id": "generate",
@@ -85,7 +87,9 @@
       "id": "remove",
       "version": 1,
       "file": "workflows/remove.json",
-      "outputNodes": ["save"]
+      "outputNodes": [
+        "save"
+      ]
     },
     {
       "id": "upscale",
@@ -601,6 +605,62 @@
           "input": "image"
         }
       }
+    },
+    {
+      "task": "imageEdit",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sampler",
+          "input": "seed"
+        },
+        "sourceImage": {
+          "nodeId": "source",
+          "input": "image"
+        },
+        "width": {
+          "nodeId": "scaleSource",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "scaleSource",
+          "input": "height"
+        },
+        "referenceImage1": {
+          "nodeId": "ref1load",
+          "input": "image"
+        },
+        "referenceImage2": {
+          "nodeId": "ref2load",
+          "input": "image"
+        },
+        "referenceImage3": {
+          "nodeId": "ref3load",
+          "input": "image"
+        },
+        "referenceImage4": {
+          "nodeId": "ref4load",
+          "input": "image"
+        },
+        "referenceImage5": {
+          "nodeId": "ref5load",
+          "input": "image"
+        },
+        "referenceImage6": {
+          "nodeId": "ref6load",
+          "input": "image"
+        }
+      }
     }
   ],
   "parameters": [
@@ -639,6 +699,8 @@
   ],
   "lora": {
     "supported": true,
-    "maximum": 3
+    "maximum": 3,
+    "minimumStrength": 0,
+    "maximumStrength": 3
   }
 }

@@ -7,12 +7,15 @@ namespace Composa.App.AI;
 
 internal sealed record PartnerPriceEstimate(double MinimumUsd, double MaximumUsd)
 {
-    public string Label => $"Estimate ≈ ${MinimumUsd.ToString("0.000", CultureInfo.InvariantCulture)}–${MaximumUsd.ToString("0.000", CultureInfo.InvariantCulture)}";
+    public string Label => $"≈ {(MinimumUsd * PartnerPricing.CreditsPerDollar).ToString("0.0", CultureInfo.InvariantCulture)}–{(MaximumUsd * PartnerPricing.CreditsPerDollar).ToString("0.0", CultureInfo.InvariantCulture)} cr / ${MinimumUsd.ToString("0.000", CultureInfo.InvariantCulture)}–{MaximumUsd.ToString("0.000", CultureInfo.InvariantCulture)}";
 }
 
 /// <summary>Reads data tables from the server's official GPT price badge. Never evaluates remote code/JSONata.</summary>
 internal static class PartnerPricing
 {
+    // Official Comfy rate, verified 2026-10-01: https://support.comfy.org/articles/1982697177-partner-nodes-pricing
+    public const double CreditsPerDollar = 211;
+    public static string Reported(double credits) => $"{credits.ToString("0.##", CultureInfo.InvariantCulture)} cr / ${(credits / CreditsPerDollar).ToString("0.000", CultureInfo.InvariantCulture)}";
     public static PartnerPriceEstimate? Estimate(ComfyServerCapabilities? capabilities, string model, string quality, string size, int images, int variants)
     {
         var expression = capabilities?.NodeDefinitions.GetValueOrDefault("OpenAIGPTImageNodeV2")?["price_badge"]?["expr"]?.GetValue<string>();

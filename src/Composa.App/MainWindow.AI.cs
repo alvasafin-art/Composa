@@ -79,7 +79,7 @@ public sealed partial class MainWindow
         aiActionHost.Children.Clear();
         var contextual = new List<AiTaskKind>();
         if (session?.Selection != null) contextual.AddRange([AiTaskKind.GenerativeFill, AiTaskKind.RemoveObject]);
-        else if (session?.ActiveLayer?.Pixels is { } pixels && IsEmpty(pixels)) contextual.Add(AiTaskKind.GenerateImage);
+        else if (session != null) contextual.Add(AiTaskKind.ImageEdit);
         if (CropExpands) contextual.Add(AiTaskKind.GenerativeExpand);
         foreach (var task in contextual.Distinct())
         {
@@ -198,25 +198,11 @@ public sealed partial class MainWindow
         aiVariantsCombo.MinWidth = 0; aiVariantsCombo.Padding = new Thickness(9, 5);
         ToolTip.SetTip(aiVariantsCombo, "Number of variants · 1, 2 or 3");
         // A split action: one silhouette, a straight seam, independent keyboard-accessible controls.
-        aiFloatingGenerate.Height = aiVariantsCombo.Height = 24; // 26 including the shared 1px outline
-        aiFloatingGenerate.MinHeight = aiVariantsCombo.MinHeight = 0;
         aiFloatingRemove.Height = aiFloatingMore.Height = 26;
         aiFloatingRemove.MinHeight = aiFloatingMore.MinHeight = 0;
         aiFloatingRemove.Padding = aiFloatingMore.Padding = new Thickness(8, 0);
         aiFloatingRemove.VerticalContentAlignment = aiFloatingMore.VerticalContentAlignment = VerticalAlignment.Center;
-        aiVariantsCombo.Padding = new Thickness(9, 0);
-        aiFloatingGenerate.Padding = new Thickness(14, 0);
-        aiFloatingGenerate.VerticalContentAlignment = VerticalAlignment.Center;
-        aiFloatingGenerate.CornerRadius = new CornerRadius(6, 0, 0, 6);
-        aiVariantsCombo.CornerRadius = new CornerRadius(0, 6, 6, 0);
-        aiFloatingGenerate.BorderThickness = aiVariantsCombo.BorderThickness = new Thickness(0);
-        aiVariantsCombo.Background = new SolidColorBrush(Color.Parse("#151515"));
-        actions.Children.Add(new Border
-        {
-            Name = "AiGenerateSplit", Height = 26, CornerRadius = new CornerRadius(6), ClipToBounds = true,
-            BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")), BorderThickness = new Thickness(1),
-            Child = Ui.Row(0, aiFloatingGenerate, aiVariantsCombo)
-        });
+        actions.Children.Add(AiGenerationControls.Split(aiFloatingGenerate, aiVariantsCombo));
         aiEngineCombo = Ui.Combo(aiTasks.Engines.Profiles, aiTasks.SelectedEngine!, value => value.DisplayName, value =>
         {
             aiTasks.SelectedEngine = value; settings.AiEngineId = value.Id; settings.Save(); RefreshAiUi();
@@ -240,6 +226,7 @@ public sealed partial class MainWindow
         var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
         foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject)))
         {
+            if (task == AiTaskKind.ImageEdit && session?.Selection != null) continue;
             var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
             var item = new MenuItem
             {
@@ -285,8 +272,8 @@ public sealed partial class MainWindow
         if (aiApiCost.IsVisible)
         {
             var count = 1 + aiReferences.Count + (aiReferences.Count > 0 ? 1 : 0); // source, references, mask guide when needed
-            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, aiTasks.SelectedEngine!.ApiModel!, settings.AiApiQuality, settings.AiApiSize, count, Math.Clamp(settings.AiVariants, 1, 3));
-            aiApiCost.Text = operation?.CreditsUsed is { } credits ? $"Reported cost: {credits:0.##} credits" : estimate?.Label ?? "Paid API · estimate unavailable";
+            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, aiTasks.SelectedEngine!.ApiModel!, settings.AiApiQuality, "Custom", count, Math.Clamp(settings.AiVariants, 1, 3));
+            aiApiCost.Text = operation?.CreditsUsed is { } credits ? PartnerPricing.Reported(credits) : estimate?.Label ?? "Paid API · estimate unavailable";
             ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and includes all variants. Actual charges may differ. Local ComfyUI does not expose the account balance. With multiple images the last input is a mask guide, not an API mask.");
         }
         ToolTip.SetTip(aiFloatingStatus, aiFloatingStatus.Text);
@@ -506,11 +493,12 @@ public sealed partial class MainWindow
             if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null)) return;
         }
         var aspect = AiAspect(task);
-        var fallback = AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Width, aspect.Height);
+        var fallback = settings.AiOriginalSize ? aspect : AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
-        if (useInlinePrompt || task is AiTaskKind.RemoveObject or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene)
+        if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene))
             options = new(initialPrompt, fallback.Width, fallback.Height, settings.AiSeed);
-        else options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks);
+        else options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count, session?.Selection != null);
+        RefreshAiUi();
         if (options == null) return;
         if (session == null)
         {
@@ -524,9 +512,11 @@ public sealed partial class MainWindow
             {
                 Task = task,
                 Prompt = options.Prompt,
+                ExpansionMode = settings.AiExpansionMode,
+                ExpansionMinimumSide = settings.AiExpansionMode == AiExpansionMode.WholeImage ? settings.AiWholeExpansionMinimumSide : settings.AiExpansionMinimumSide,
                 ReferenceImages = aiReferences.Select(item => item.Pixels).ToList(),
                 ReferenceMegapixels = settings.AiReferenceMegapixels,
-                ExpansionBounds = task == AiTaskKind.GenerativeExpand && canvas.CropRect is { } crop
+                ExpansionBounds = task == AiTaskKind.GenerativeExpand && CropExpands && canvas.CropRect is { } crop
                     ? new SKRectI((int)Math.Floor(crop.Left), (int)Math.Floor(crop.Top), (int)Math.Ceiling(crop.Right), (int)Math.Ceiling(crop.Bottom)) : null,
                 Settings = new AiGenerationSettings
                 {
@@ -537,7 +527,7 @@ public sealed partial class MainWindow
                     UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
                         ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch,
-                        ["apiQuality"] = settings.AiApiQuality, ["apiSize"] = settings.AiApiSize }
+                        ["apiQuality"] = settings.AiApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = settings.AiOriginalSize }
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);
@@ -555,12 +545,12 @@ public sealed partial class MainWindow
 
     private (int Width, int Height) AiAspect(AiTaskKind task)
     {
-        if (task == AiTaskKind.GenerativeExpand && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
+        if (task == AiTaskKind.GenerativeExpand && CropExpands && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
             return (Math.Max(1, (int)Math.Round(crop.Width)), Math.Max(1, (int)Math.Round(crop.Height)));
         if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight
             && session?.Selection is { } selection && SelectionMask.Bounds(selection) is { IsEmpty: false } bounds)
             return (bounds.Width, bounds.Height);
-        return (session?.Document.Width ?? 1, session?.Document.Height ?? 1);
+        return session == null ? AiDimensions.FromMegapixels(settings.AiMegapixels, 1, 1) : (session.Document.Width, session.Document.Height);
     }
 
     private static bool IsEmpty(SKBitmap bitmap) => bitmap.GetPixelSpan().IndexOfAnyExcept((byte)0) < 0;

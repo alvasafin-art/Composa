@@ -31,6 +31,8 @@ internal static class WorkflowExecution
             var height = Math.Min(inputs.ContextImage.Height, Math.Max(1, bounds.Height + 2 * halo));
             var pixels = (long)crop["output_target_width"]!.GetValue<int>() * crop["output_target_height"]!.GetValue<int>();
             var target = Math.Clamp((int)Math.Round(Math.Max(width, height) * Math.Sqrt((double)pixels / width / height) / 16) * 16, 64, 8192);
+            if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMinimumSide > 0)
+                target = Math.Clamp((int)Math.Round((double)Math.Max(width, height) * request.ExpansionMinimumSide / Math.Min(width, height) / 16) * 16, 64, 8192);
             // Pixaroma also ensures a 256 px short side. Cover the stitch's SOURCE-pixel
             // feather in model pixels, including the blur tail, without growing its final mask.
             var scale = Math.Max((double)target / Math.Max(width, height), 256.0 / Math.Min(width, height));
@@ -64,6 +66,13 @@ internal static class WorkflowExecution
             crop["context_from_mask_extend_factor"] = Math.Max(crop["context_from_mask_extend_factor"]!.GetValue<double>(),
                 1 + 2.0 * (grow + 4 * blend) / Math.Max(1, Math.Min(bounds.Width, bounds.Height)));
             var factor = crop["context_from_mask_extend_factor"]!.GetValue<double>();
+            if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMinimumSide > 0)
+            {
+                var dimensions = AiDimensions.FromMinimumSide(request.ExpansionMinimumSide,
+                    Math.Max(1, (int)Math.Min(inputs.ContextImage.Width, bounds.Width * factor)),
+                    Math.Max(1, (int)Math.Min(inputs.ContextImage.Height, bounds.Height * factor)));
+                crop["output_target_width"] = dimensions.Width; crop["output_target_height"] = dimensions.Height;
+            }
             var scale = Math.Max(crop["output_target_width"]!.GetValue<int>() / Math.Max(1.0, Math.Min(inputs.ContextImage.Width, bounds.Width * factor)),
                 crop["output_target_height"]!.GetValue<int>() / Math.Max(1.0, Math.Min(inputs.ContextImage.Height, bounds.Height * factor)));
             samplingMargin = (int)Math.Ceiling(blend * scale) + 3 * blurPixels;
@@ -155,7 +164,7 @@ internal static class WorkflowExecution
     public static void Loras(JsonObject graph, EngineProfile engine, IReadOnlyList<AiLora> settings, ComfyServerCapabilities server)
     {
         if (settings.Count > 3) throw new ArgumentException("At most three LoRAs can be configured.");
-        var enabled = settings.Where(lora => lora.Enabled && !string.IsNullOrWhiteSpace(lora.Name)).ToArray();
+        var enabled = settings.Where(lora => lora.Enabled && lora.Strength != 0 && !string.IsNullOrWhiteSpace(lora.Name)).ToArray();
         if (enabled.Length == 0) return;
         if (!engine.Lora.Supported || enabled.Length > engine.Lora.Maximum)
             throw new InvalidOperationException($"{engine.DisplayName} does not support these LoRAs.");
@@ -169,7 +178,7 @@ internal static class WorkflowExecution
         var last = loader;
         foreach (var lora in enabled)
         {
-            if (!double.IsFinite(lora.Strength) || lora.Strength < engine.Lora.MinimumStrength || lora.Strength > engine.Lora.MaximumStrength)
+            if (!double.IsFinite(lora.Strength) || lora.Strength < Math.Max(0, engine.Lora.MinimumStrength) || lora.Strength > Math.Min(3, engine.Lora.MaximumStrength))
                 throw new ArgumentException("LoRA strength is outside this workflow pack's range.");
             var name = WorkflowModels.Resolve(lora.Name, names) ?? throw new InvalidOperationException($"LoRA is missing or ambiguous on the connected server: {lora.Name}");
             var id = Unique(graph, "composa_lora");

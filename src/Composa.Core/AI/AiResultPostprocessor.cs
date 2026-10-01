@@ -6,6 +6,79 @@ namespace Composa.AI;
 /// <summary>Small deterministic finishing passes that make generated pixels agree with their immediate surroundings.</summary>
 public static class AiResultPostprocessor
 {
+    /// <summary>Final edit coverage, distinct from the larger context/sampling mask. Never leaks beyond its allowed support.</summary>
+    public static SKBitmap EditMask(SKBitmap selection, int grow, int blend)
+    {
+        using var support = grow > 0 ? Composa.Selections.SelectionMask.Expand(selection, grow) : Pixels.Clone(selection);
+        var result = Pixels.Clone(support);
+        if (blend <= 0) return result;
+        // A Gaussian clipped to the selection jumps from ~50% to zero at a hard edge.
+        // Feather INWARD instead. Two chamfer passes are linear-time, and use no pixel
+        // neighbourhood search. Cap the radius for tiny masks so their core stays fully editable.
+        var allowed = support.GetPixelSpan(); var mask = result.GetPixelSpan();
+        var w = support.Width; var h = support.Height; const int far = 1_000_000;
+        var distances = new int[checked(w * h)];
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
+            distances[y * w + x] = allowed[y * support.RowBytes + x] == 0 ? 0 : far;
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
+        {
+            var i = y * w + x;
+            if (x > 0) distances[i] = Math.Min(distances[i], distances[i - 1] + 3);
+            if (y > 0) {
+                distances[i] = Math.Min(distances[i], distances[i - w] + 3);
+                if (x > 0) distances[i] = Math.Min(distances[i], distances[i - w - 1] + 4);
+                if (x + 1 < w) distances[i] = Math.Min(distances[i], distances[i - w + 1] + 4);
+            }
+        }
+        for (var y = h - 1; y >= 0; y--) for (var x = w - 1; x >= 0; x--)
+        {
+            var i = y * w + x;
+            if (x + 1 < w) distances[i] = Math.Min(distances[i], distances[i + 1] + 3);
+            if (y + 1 < h) {
+                distances[i] = Math.Min(distances[i], distances[i + w] + 3);
+                if (x > 0) distances[i] = Math.Min(distances[i], distances[i + w - 1] + 4);
+                if (x + 1 < w) distances[i] = Math.Min(distances[i], distances[i + w + 1] + 4);
+            }
+        }
+        var radius = Math.Max(1, Math.Min(3 * Math.Clamp(blend, 0, 512), distances.Max()));
+        for (var y = 0; y < result.Height; y++)
+        for (var x = 0; x < result.Width; x++)
+        {
+            var t = Math.Min(1.0, (double)distances[y * w + x] / radius);
+            mask[y * result.RowBytes + x] = (byte)Math.Round(allowed[y * support.RowBytes + x] * t * t * (3 - 2 * t));
+        }
+        Pixels.Invalidate(result); return result;
+    }
+
+    public static SKBitmap ExpansionEditMask(SKBitmap emptyMask, SKBitmap context, int blend)
+    {
+        var mask = EditMask(emptyMask, 0, blend);
+        var coverage = mask.GetPixelSpan(); var empty = emptyMask.GetPixelSpan(); var pixels = context.GetPixelSpan();
+        // Empty canvas has no underlying color to feather into. Do not leave translucent holes
+        // or a black matte there; conditioning stays soft, but fully requested empty pixels fill fully.
+        for (var y = 0; y < mask.Height; y++) for (var x = 0; x < mask.Width; x++)
+            if (pixels[y * context.RowBytes + x * 4 + 3] == 0 && empty[y * emptyMask.RowBytes + x] == 255)
+                coverage[y * mask.RowBytes + x] = 255;
+        Pixels.Invalidate(mask); return mask;
+    }
+
+    public static SKBitmap Constrain(SKBitmap generated, SKBitmap context, SKBitmap mask)
+    {
+        if (generated.Width != context.Width || generated.Height != context.Height || mask.Width != context.Width || mask.Height != context.Height)
+            throw new ArgumentException("Final edit mask, context and result must share pixel coordinates.");
+        var result = Pixels.Clone(context); var output = result.GetPixelSpan(); var source = generated.GetPixelSpan(); var cover = mask.GetPixelSpan();
+        for (var y = 0; y < result.Height; y++)
+        for (var x = 0; x < result.Width; x++)
+        {
+            var amount = cover[y * mask.RowBytes + x];
+            for (var c = 0; c < 4; c++)
+            {
+                var i = y * result.RowBytes + x * 4 + c;
+                output[i] = (byte)((output[i] * (255 - amount) + source[y * generated.RowBytes + x * 4 + c] * amount + 127) / 255);
+            }
+        }
+        Pixels.Invalidate(result); return result;
+    }
     /// <summary>
     /// A stitched image already contains the soft transition. Reveal its changed pixels at full coverage,
     /// and leave identical pixels to the original layer. Multiplying by the soft selection again darkens

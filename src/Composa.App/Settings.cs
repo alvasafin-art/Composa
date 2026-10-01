@@ -50,6 +50,10 @@ public sealed class Settings
     public string? AiEngineId { get; set; }
     /// <summary>Generation pixel budget; the actual dimensions follow the selection/document aspect ratio.</summary>
     public double AiMegapixels { get; set; } = 1;
+    public bool AiOriginalSize { get; set; } = true;
+    public Composa.AI.AiExpansionMode AiExpansionMode { get; set; } = Composa.AI.AiExpansionMode.MaskedRegion;
+    public int AiExpansionMinimumSide { get; set; } = 1024;
+    public int AiWholeExpansionMinimumSide { get; set; }
     /// <summary>Pixel budget for each AI reference image; null keeps the original dimensions.</summary>
     public double? AiReferenceMegapixels { get; set; } = 1;
     public int AiMaskGrow { get; set; } = 8;
@@ -58,6 +62,9 @@ public sealed class Settings
     public string AiColorMatch { get; set; } = "subtle";
     public bool ComfyAdditionalPromptEnabled { get; set; } = true;
     public string ComfyAdditionalPrompt { get; set; } = Composa.AI.AiPromptDefaults.PreserveAppearance;
+    public Dictionary<string, AiPromptSetting> AiPackPrompts { get; set; } = [];
+    public AiPromptSetting PromptFor(string engineId) => AiPackPrompts.GetValueOrDefault(engineId)
+        ?? new(ComfyAdditionalPromptEnabled, ComfyAdditionalPrompt);
     public double AiMaskContext { get; set; } = 2;
     private const string DefaultUpscalerModel = "4x-UltraSharpV2.safetensors";
     public string AiUpscalerModel { get; set; } = DefaultUpscalerModel;
@@ -130,3 +137,4 @@ public sealed class Settings
 public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220);
 
 public sealed record AiLoraSetting(string Name = "", double Strength = 1, bool Enabled = true);
+public sealed record AiPromptSetting(bool Enabled, string Text);

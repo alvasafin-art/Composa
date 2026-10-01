@@ -22,6 +22,7 @@ public sealed class AiTaskService : IAiTaskRunner
     public string? ConnectedServerUrl { get; private set; }
     public Func<string, IReadOnlyDictionary<string, string>> ModelSelections { get; set; } = _ => new Dictionary<string, string>();
     public Func<string> AdditionalPrompt { get; set; } = () => AiPromptDefaults.PreserveAppearance;
+    public Func<string, string>? AdditionalPromptForPack { get; set; }
     public Func<string?> ApiKey { get; set; } = () => Environment.GetEnvironmentVariable("COMPOSA_COMFY_API_KEY");
     public string? SessionApiKey { get; set; }
     public string? Credential => string.IsNullOrWhiteSpace(SessionApiKey) ? ApiKey()?.Trim() : SessionApiKey.Trim();
@@ -112,20 +113,6 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
-        if (SelectedEngine?.PaidApi == true && request.Task == AiTaskKind.ChangeBackground && editor.Session.Selection == null)
-            throw new InvalidOperationException("Select the subject to keep first. This API pack has no automatic subject-selection model.");
-        if (request.Task == AiTaskKind.ChangeBackground && editor.Session.Selection == null)
-        {
-            await editor.Session.RunTransactionAsync("AI Change Background", async _ =>
-            {
-                await RunAsync(editor, new AiTaskRequest { Task = AiTaskKind.SelectSubject }, cancellationToken);
-                if (editor.Session.Selection == null || SelectionMask.Bounds(editor.Session.Selection).IsEmpty)
-                    throw new InvalidOperationException("No subject was found. Select the subject manually and retry Change Background.");
-                await RunAsync(editor, request, cancellationToken);
-                editor.Session.Deselect();
-            });
-            return;
-        }
         if (request.Task == AiTaskKind.MatchToScene)
         {
             Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
@@ -146,6 +133,9 @@ public sealed class AiTaskService : IAiTaskRunner
         }
         if (SelectedEngine is not { } engine) throw new InvalidOperationException("Install and select an Engine Pack first.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
+        var fullEdit = request.Task == AiTaskKind.ImageEdit || editor.Session.Selection == null && request.Task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground
+            || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage;
+        if (fullEdit) binding = engine.Binding(AiTaskKind.ImageEdit) ?? throw new InvalidOperationException("This pack has no full-image edit workflow.");
         var workflow = engine.Workflow(binding.Workflow);
         var graph = Engines.ReadWorkflow(engine, workflow);
         var variants = binding.OutputMode == AiOutputMode.Selection || request.Task == AiTaskKind.Upscale ? 1 : request.Settings.Variants;
@@ -164,9 +154,11 @@ public sealed class AiTaskService : IAiTaskRunner
             // Feeding an already grown/feathered mask into it would grow and blur the selection twice.
             var preparedRequest = request.Task == AiTaskKind.RemoveObject && (binding.Preprocess == "remove-object-in-workflow" || engine.PaidApi)
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
-            preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPrompt() };
+            preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
             using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, request) : null;
+            if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(inputs.PreprocessedMask!))
+                throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;
             using var client = Client();
             if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null || ConnectionState != ComfyConnectionState.Connected)
@@ -178,19 +170,43 @@ public sealed class AiTaskService : IAiTaskRunner
                 if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.");
                 if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
                     throw new InvalidOperationException($"The connected ComfyUI does not offer {engine.ApiModel}. Update ComfyUI and refresh its models.");
-                foreach (var (key, input, fallback) in new[] { ("apiQuality", "quality", "low"), ("apiSize", "size", "auto") })
-                    if (!PartnerPricing.Choices(capabilities, engine.ApiModel, input).Contains(request.Settings.Values.GetValueOrDefault(key)?.ToString() ?? fallback))
-                        throw new InvalidOperationException($"The connected server does not support this GPT {input}. Choose an available value in Advanced.");
+                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, "size").Contains("Custom"))
+                    throw new InvalidOperationException("Update ComfyUI: this GPT pack needs Custom dimensions to preserve image/mask proportions.");
+                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, "quality").Contains(request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low"))
+                    throw new InvalidOperationException("The connected server does not support this GPT quality. Choose an available value in Advanced.");
             }
             WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
                 var values = inputs.Values(files);
                 foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
+                if (apiInputs == null)
+                {
+                    // Original pixel sizes still need latent-friendly dimensions. Inpaint uses
+                    // original context dimensions, not a tiny selection's width stretched to the crop.
+                    var width = inputs.CanvasWidth; var height = inputs.CanvasHeight;
+                    if (graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
+                        && Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false)
+                        && request.Task != AiTaskKind.GenerativeExpand)
+                    {
+                        var margin = Math.Max(Convert.ToInt32(values.GetValueOrDefault("maskGrow") ?? 8) + 4 * Convert.ToInt32(values.GetValueOrDefault("maskBlend") ?? 32),
+                            (int)Math.Ceiling(Math.Max(inputs.TargetBounds.Width, inputs.TargetBounds.Height) * (Convert.ToDouble(values.GetValueOrDefault("maskContext") ?? 2) - 1) / 2));
+                        var contextBounds = SKRectI.Intersect(editor.Session.Document.Bounds, new(inputs.TargetBounds.Left - margin, inputs.TargetBounds.Top - margin, inputs.TargetBounds.Right + margin, inputs.TargetBounds.Bottom + margin));
+                        width = Math.Max(64, contextBounds.Width); height = Math.Max(64, contextBounds.Height);
+                    }
+                    values["width"] = Math.Max(16, (int)Math.Round(width / 16.0) * 16);
+                    values["height"] = Math.Max(16, (int)Math.Round(height / 16.0) * 16);
+                }
                 values["seed"] = (seed + index) & long.MaxValue;
-                if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
+                if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand) values["maskGrow"] = 0;
                 var boundGraph = apiInputs == null ? WorkflowBinder.Bind(graph, binding, values)
                     : apiInputs.Bind(graph, engine, files, (seed + index) & long.MaxValue);
+                if (request.Task == AiTaskKind.GenerativeExpand && !engine.PaidApi && request.ExpansionMode == AiExpansionMode.MaskedRegion)
+                {
+                    var expandedInputs = new AiTaskInputs { ContextImage = inputs.PreprocessedImage!, SelectionMask = inputs.PreprocessedMask,
+                        PreprocessedMask = inputs.PreprocessedMask, TargetBounds = SelectionMask.Bounds(inputs.PreprocessedMask!, 1) };
+                    WorkflowExecution.MaskedEdit(boundGraph, expandedInputs, request, capabilities);
+                }
                 WorkflowExecution.Loras(boundGraph, engine, request.Settings.Loras, capabilities);
                 if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
                     WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
@@ -205,6 +221,7 @@ public sealed class AiTaskService : IAiTaskRunner
             }
             // Validate before sending source/reference pictures or submitting a generation.
             var imagesToUpload = apiInputs?.Images ?? inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+            if (request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
             _ = Bind(imagesToUpload
                 .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -241,6 +258,16 @@ public sealed class AiTaskService : IAiTaskRunner
                         {
                             var image = await client.DownloadAsync(reference, linked.Token);
                             if (apiInputs != null) image = apiInputs.Finish(image);
+                            else if (request.Task == AiTaskKind.GenerativeExpand)
+                            {
+                                var fitted = Resize(image, inputs.PreprocessedImage!.Width, inputs.PreprocessedImage.Height); image.Dispose(); image = fitted;
+                                if (request.ExpansionMode == AiExpansionMode.MaskedRegion)
+                                {
+                                    using var context = inputs.ExpandedContext();
+                                    using var finalMask = AiResultPostprocessor.ExpansionEditMask(inputs.PreprocessedMask!, context, Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
+                                    var constrained = AiResultPostprocessor.Constrain(image, context, finalMask); image.Dispose(); image = constrained;
+                                }
+                            }
                             images.Add(image);
                             var pixels = images.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
                             if (binding.OutputMode == AiOutputMode.NewLayerWithMask && inputs.SelectionMask != null) pixels *= 2;
@@ -307,6 +334,16 @@ public sealed class AiTaskService : IAiTaskRunner
     internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false)
     {
         var session = editor.Session;
+        if (task == AiTaskKind.GenerativeExpand && inputs?.PreprocessedImage is { } expanded)
+        {
+            editor.Transaction("AI Generative Expand", target =>
+            {
+                if (inputs.ExpansionBounds is { } bounds) target.Crop(bounds, "Expand Canvas");
+                target.InsertAiOutput(task, images.Select((image, index) => new AiOutput(images.Count == 1 ? "AI Generative Expand" : $"AI Generative Expand {index + 1}", image,
+                    Bounds: new SKRect(0, 0, expanded.Width, expanded.Height))).ToList(), variants: variants);
+            });
+            return;
+        }
         if (mode == AiOutputMode.Selection)
         {
             var mask = ToMask(images[0], session.Document.Width, session.Document.Height);

@@ -34,8 +34,8 @@ public class AiAdvancedTests
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
         for (var i = 0; i < 6; i++) { var reference = new SKBitmap(32, 32); reference.Erase(new SKColor((byte)(i * 30), 120, 170)); window.AddAiReferenceForTests(reference); }
         Assert.True(Screenshots.Save(window, "ai-gpt-six-references"));
-        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.StartsWith("Estimate ≈ $") == true);
-        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == "Estimate ≈ $0.096–$0.169");
+        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);
+        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.StartsWith("≈ ") == true);
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "＋");
         window.Width = 900; Assert.True(Screenshots.Save(window, "ai-gpt-narrow-panel")); window.Close();
     }

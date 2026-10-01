@@ -4,6 +4,23 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.6] - 2026-10-01
+
+### Fixed
+
+- GPT masked replacement restores the untouched source outside the allowed edit area. Final feathering is inward and capped for small selections, separate from the larger conditioning mask and context; reference-mask guidance cannot accidentally replace the background. Answers with incompatible proportions are rejected instead of stretched into the selection.
+- GPT requests use explicit Custom dimensions with uniform sizing under the official limits, rather than Auto or square stretching. Generate Image defaults to canvas dimensions; MP sizing preserves proportions. Size constraints are shown before generation.
+- Native healing repairs previously skipped pixels when full-resolution donor remapping crosses the excluded area, using the bounded synthesized guide as a fallback instead of leaving original spots or stripes.
+
+### Added
+
+- Generative Expand offers FLUX/GPT selection, default empty-area-only masked generation with context and 768–2048 px minimum-side presets, or whole-image regeneration using the expanded canvas dimensions by default. Expand can fill existing transparent canvas with or without a selection; its black input and result placement preserve geometry and undo the canvas change together.
+- Image Edit is available without a selection. Remove, Change Background, Harmonize and Relight can also use the complete image without an artificial mask; only Generative Fill requires a selection. Background replacement still separates the original subject when a selection is supplied.
+- Each workflow pack has its own optional editable additional prompt, preserving existing custom instructions. All generation windows have a model picker and joined Generate + 1/2/3 control. Seed remains in Advanced; GPT quality is named separately from reasoning, which its image node does not expose.
+- Costs show Comfy credits / USD using the documented 211 credits per dollar, including references, mask guides and variants. LoRA strength accepts direct numeric entry and is restricted to 0–3.
+
+Paid GPT inference still requires testing with a funded account; automated tests verify input graphs, geometry, mask confinement and UI without billing.
+
 ## [1.2.1-preview.5] - 2026-10-01
 
 ### Added

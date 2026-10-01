@@ -112,7 +112,7 @@ public class MaskedEditTests
     }
 
     [Fact]
-    public void Additional_prompt_is_edit_only_and_can_be_disabled_without_removing_task_instructions()
+    public void Additional_prompt_applies_to_generation_and_edits_and_can_be_disabled_without_removing_task_instructions()
     {
         var session = EditorSession.NewCanvas(32, 32, SKColors.White); session.SelectRect(new SKRect(8, 8, 24, 24));
         using var enabled = AiTaskInputPreparer.Prepare(session, new() { Task = AiTaskKind.RemoveObject, Prompt = "erase cup", AdditionalPrompt = "KEEP COLORS UNIQUE" });
@@ -120,7 +120,7 @@ public class MaskedEditTests
         using var disabled = AiTaskInputPreparer.Prepare(session, new() { Task = AiTaskKind.RemoveObject, Prompt = "erase cup" });
         Assert.DoesNotContain("KEEP COLORS UNIQUE", disabled.Prompt); Assert.Contains("Remove the black patch", disabled.Prompt);
         using var fresh = AiTaskInputPreparer.Prepare(session, new() { Task = AiTaskKind.GenerateImage, Prompt = "a forest", AdditionalPrompt = "KEEP COLORS UNIQUE" });
-        Assert.Equal("a forest", fresh.Prompt);
+        Assert.Contains("a forest", fresh.Prompt); Assert.Contains("KEEP COLORS UNIQUE", fresh.Prompt);
     }
 
     [AvaloniaFact]
@@ -131,7 +131,7 @@ public class MaskedEditTests
         var asking = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs();
         var dialog = Assert.Single(window.OwnedWindows);
         var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn);
-        var enabled = dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Append to image-editing prompts");
+        var enabled = dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Append for this workflow pack");
         prompt.Text = "custom preservation instruction"; enabled.IsChecked = false;
         Assert.False(prompt.IsEnabled);
         var scroll = dialog.GetVisualDescendants().OfType<ScrollViewer>().Single(view => !double.IsInfinity(view.MaxHeight));
@@ -141,9 +141,10 @@ public class MaskedEditTests
         Assert.Equal(AiPromptDefaults.PreserveAppearance, settings.ComfyAdditionalPrompt);
         asking = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs(); dialog = Assert.Single(window.OwnedWindows);
         dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn).Text = "custom preservation instruction";
-        dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Append to image-editing prompts").IsChecked = false;
-        dialog.Close(true); Assert.True(await asking); Assert.False(settings.ComfyAdditionalPromptEnabled);
-        Assert.Equal("custom preservation instruction", settings.ComfyAdditionalPrompt); window.Close();
+        dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Append for this workflow pack").IsChecked = false;
+        dialog.Close(true); Assert.True(await asking); Assert.False(settings.PromptFor(service.SelectedEngine!.Id).Enabled);
+        Assert.Equal("custom preservation instruction", settings.PromptFor(service.SelectedEngine.Id).Text);
+        Assert.Equal(AiPromptDefaults.PreserveAppearance, settings.PromptFor("chatgpt-image-2.5").Text); window.Close();
     }
 
     [Fact]
