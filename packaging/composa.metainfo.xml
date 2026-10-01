@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.3" date="2026-10-01">
+      <description>
+        <p>One or three AI variants with sequential List or native Batch execution, separate Advanced options, and exact x2/x4 upscaling. Lightweight soft brushes improve edge quality. Embedded smart objects open layered contents in a tab and support shared instances, independent copies, undo and project saving. Projects use format version 7.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.2" date="2026-09-30">
       <description>
         <p>ComfyUI model dropdowns are populated by the connected server and saved per endpoint. Workflows resolve model files in server subfolders and validate missing models and nodes before uploading images. LAN and shared model storage need no client-side model paths. Windows packages remain self-contained and include the setup guide.</p>

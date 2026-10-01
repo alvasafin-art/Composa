@@ -4,11 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.3] - 2026-10-01
+
 ### Added
 
 - One or three AI variants, sequential low-VRAM List or native Batch execution, reusable uploads, exclusive variant groups and undoable result switching. Cancellation/failure never inserts a partial batch; a result refuses to overwrite a changed document state.
 - Separate AI Advanced options for generation, references and mask context/grow/blend; ComfyUI Settings focuses on server connectivity and actual model lists. Upscale offers ×2 and ×4, preserving odd dimensions, selection masks and source detail with final server-side sizing.
 - Embedded smart objects with layered contents opened in a tab, Ctrl+S/Save contents updates to shared instances, independent copies, masks, transforms, undo/redo and project serialization. Smart sources are stored once and protected from accidental pixel painting; scripts and native agent tools can convert/copy/rasterize them.
+
+Projects saved by this release use format version 7 and require this release or newer to open. Live GPU Batch inference remains unverified while the local ComfyUI server is offline; workflow execution is covered by automated tests.
 
 ### Improved
 
