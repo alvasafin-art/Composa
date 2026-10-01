@@ -108,6 +108,8 @@ internal static class WorkflowExecution
     public static void Batch(JsonObject graph, int count)
     {
         if (count == 1) return;
+        var api = graph.Where(pair => pair.Value?["class_type"]?.GetValue<string>() == "OpenAIGPTImageNodeV2").ToArray();
+        if (api.Length == 1) { api[0].Value!["inputs"]!["n"] = count; return; }
         var latents = graph.Where(pair => pair.Value?["class_type"]?.GetValue<string>() is
             "EmptyFlux2LatentImage" or "EmptyLatentImage" or "EmptySD3LatentImage").ToArray();
         var repeats = graph.Where(pair => pair.Value?["class_type"]?.GetValue<string>() == "RepeatLatentBatch").ToArray();
@@ -147,6 +149,37 @@ internal static class WorkflowExecution
                             inputs[key] = new JsonArray(last, 0);
             graph.Remove(id);
         }
+    }
+
+    public static void Loras(JsonObject graph, EngineProfile engine, IReadOnlyList<AiLora> settings, ComfyServerCapabilities server)
+    {
+        if (settings.Count > 3) throw new ArgumentException("At most three LoRAs can be configured.");
+        var enabled = settings.Where(lora => lora.Enabled && !string.IsNullOrWhiteSpace(lora.Name)).ToArray();
+        if (enabled.Length == 0) return;
+        if (!engine.Lora.Supported || enabled.Length > engine.Lora.Maximum)
+            throw new InvalidOperationException($"{engine.DisplayName} does not support these LoRAs.");
+        if (graph.Where(pair => pair.Value?["class_type"]?.GetValue<string>() == "UNETLoader").ToArray() is not [{ Key: var loader }])
+            throw new InvalidOperationException("This pack has no unambiguous diffusion-model LoRA target.");
+        const string type = "LoraLoaderModelOnly";
+        if (!server.NodeTypes.Contains(type) || !server.ModelChoices.TryGetValue(type + ".lora_name", out var names))
+            throw new InvalidOperationException("Refresh ComfyUI models; LoraLoaderModelOnly and its model list are required for LoRAs.");
+        var consumers = graph.Where(pair => pair.Value?["inputs"] is JsonObject inputs && inputs.Any(input =>
+            input.Value is JsonArray link && link.Count == 2 && link[0]?.GetValue<string>() == loader && link[1]?.GetValue<int>() == 0)).ToArray();
+        var last = loader;
+        foreach (var lora in enabled)
+        {
+            if (!double.IsFinite(lora.Strength) || lora.Strength < engine.Lora.MinimumStrength || lora.Strength > engine.Lora.MaximumStrength)
+                throw new ArgumentException("LoRA strength is outside this workflow pack's range.");
+            var name = WorkflowModels.Resolve(lora.Name, names) ?? throw new InvalidOperationException($"LoRA is missing or ambiguous on the connected server: {lora.Name}");
+            var id = Unique(graph, "composa_lora");
+            graph[id] = new JsonObject { ["class_type"] = type, ["inputs"] = new JsonObject
+                { ["model"] = new JsonArray(last, 0), ["lora_name"] = name, ["strength_model"] = lora.Strength } };
+            last = id;
+        }
+        foreach (var (_, node) in consumers)
+            foreach (var key in node!["inputs"]!.AsObject().Select(pair => pair.Key).ToArray())
+                if (node["inputs"]![key] is JsonArray link && link.Count == 2 && link[0]?.GetValue<string>() == loader && link[1]?.GetValue<int>() == 0)
+                    node["inputs"]![key] = new JsonArray(last, 0);
     }
 
     public static void Upscale(JsonObject graph, int factor, int width, int height)

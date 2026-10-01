@@ -24,6 +24,11 @@ public sealed class Settings
     /// <summary>ComfyUI is always addressed as a server URL, whether it runs on this computer or another one.</summary>
     public string ComfyServerUrl { get; set; } = "http://127.0.0.1:8188";
     public int ComfyConnectionTimeoutSeconds { get; set; } = 5;
+    /// <summary>Only the environment variable NAME is persisted, never the API credential.</summary>
+    public string ComfyApiKeyEnvironment { get; set; } = "COMPOSA_COMFY_API_KEY";
+    public string AiApiQuality { get; set; } = "low";
+    public string AiApiSize { get; set; } = "auto";
+    public bool AiLorasEnabled { get; set; } = true;
     /// <summary>Server-side loader identifiers per normalized endpoint; never filesystem paths on the client.</summary>
     public Dictionary<string, Dictionary<string, string>> ComfyModelSelections { get; set; } = [];
 
@@ -124,4 +129,4 @@ public sealed class Settings
 /// <summary>How one panel of the side dock was left: shown or not, collapsed to its header or not, and its height when open.</summary>
 public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220);
 
-public sealed record AiLoraSetting(string Name = "", double Strength = 1);
+public sealed record AiLoraSetting(string Name = "", double Strength = 1, bool Enabled = true);

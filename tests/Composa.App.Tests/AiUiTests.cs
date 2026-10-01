@@ -16,6 +16,20 @@ namespace Composa.App.Tests;
 public class AiUiTests
 {
     [AvaloniaFact]
+    public void Workflow_picker_and_compact_variant_dropdown_follow_the_selected_pack()
+    {
+        var window = new MainWindow { Width = 1280, Height = 900 }; window.Settings.CheckForUpdates = false; window.Show(); window.AiTasks.SetConnectedForTests();
+        var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
+        var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
+        var variants = Assert.Single(combos, combo => combo.Items.Cast<string>().SequenceEqual(new[] { "1", "2", "3" }));
+        Assert.Equal(60, variants.Width); variants.SelectedIndex = 1;
+        var engines = Assert.Single(combos, combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
+        engines.SelectedIndex = 1; Assert.True(window.AiTasks.SelectedEngine!.PaidApi);
+        Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
+        Assert.True(Screenshots.Save(window, "ai-gpt-pack-compact-panel")); window.Close();
+    }
+
+    [AvaloniaFact]
     public void Floating_panel_anchors_below_selection_follows_zoom_and_can_be_dragged()
     {
         var window = new MainWindow { Width = 1280, Height = 900 }; window.Show();
@@ -37,13 +51,13 @@ public class AiUiTests
     }
 
     [AvaloniaFact]
-    public void Reference_plus_is_centered_and_clicking_a_thumbnail_opens_a_preview()
+    public void Reference_image_icon_is_centered_and_clicking_a_thumbnail_opens_a_preview()
     {
         var window = new MainWindow { Width = 1280, Height = 900 }; window.Show(); window.AiTasks.SetConnectedForTests();
         var session = EditorSession.NewCanvas(640, 420); window.AddSession(session); session.SelectRect(new SKRect(100, 60, 200, 130));
         var reference = new SKBitmap(80, 40); reference.Erase(SKColors.CornflowerBlue); window.AddAiReferenceForTests(reference);
         Assert.True(Screenshots.Save(window, "ai-reference-thumbnails"));
-        var add = window.GetVisualDescendants().OfType<Button>().Single(button => button.Content as string == "＋");
+        var add = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString()?.StartsWith("Add another reference image") == true);
         Assert.Equal(0, add.MinWidth); Assert.Equal(HorizontalAlignment.Center, add.HorizontalContentAlignment); Assert.Equal(VerticalAlignment.Center, add.VerticalContentAlignment);
         var previewButton = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString() == "Preview reference: Test reference");
         previewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs();

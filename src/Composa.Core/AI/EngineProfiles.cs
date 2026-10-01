@@ -118,6 +118,9 @@ public sealed record EngineProfile
     public List<EngineTaskBinding> Tasks { get; init; } = [];
     public List<EngineParameter> Parameters { get; init; } = [];
     public EngineLoraSupport Lora { get; init; } = new();
+    /// <summary>Partner API packs have no local model weights; authentication is supplied at execution time.</summary>
+    public bool PaidApi { get; init; }
+    public string? ApiModel { get; init; }
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -177,6 +180,7 @@ public sealed record ComfyServerCapabilities
     public Dictionary<EngineAssetKind, HashSet<string>> Assets { get; init; } = [];
     /// <summary>Exact choice lists for each model loader input, as reported by object_info.</summary>
     public Dictionary<string, HashSet<string>> ModelChoices { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, JsonObject> NodeDefinitions { get; init; } = new(StringComparer.Ordinal);
 
     public bool Has(EngineAssetRequirement requirement) =>
         Assets.TryGetValue(requirement.Kind, out var names) && names.Contains(requirement.Name);

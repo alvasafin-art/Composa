@@ -24,8 +24,11 @@ public sealed record AiGenerationSettings
     public int Width { get; init; }
     public int Height { get; init; }
     public long Seed { get; init; } = -1;
+    public IReadOnlyList<AiLora> Loras { get; init; } = [];
     public Dictionary<string, object?> Values { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
+
+public sealed record AiLora(string Name, double Strength = 1, bool Enabled = true);
 
 public enum AiVariantMode { List, Batch }
 

@@ -2,6 +2,8 @@
 
 An Engine Pack is a lightweight directory named after its `id`. It contains `manifest.json`, ComfyUI API-format workflow JSON files, and optional task metadata. It never contains model weights.
 
+Bundled packs: **FLUX.2 Klein** (local models; up to three model-only LoRAs) and **[CHAT GPT 2.5](chatgpt-image-2.5/README.md)** (official paid Comfy.org Partner Node; no local weights). The floating selector chooses the whole pack; Advanced adapts to its capabilities. `paidApi`/`apiModel` distinguish the Partner Node path from local inference while old pack ids and saved local-model choices remain valid.
+
 The manifest declares the complete pipeline rather than a checkpoint filename: required node types and server assets, versioned workflows, supported editor tasks, semantic-to-node input bindings, parameters, output nodes, output mode, and LoRA support. Node references are explicit ComfyUI node ids; Composa never searches display names.
 
 Task bindings can declare `outputIsComposited: true` when a workflow already stitches its output against the input canvas. Such masked outputs must match the original canvas dimensions; Composa refuses a stretched cropped result and does not multiply the blend transition by the selection a second time. Their editable layer mask covers changed pixels, within the mask's grow/blend support. Raw outputs keep the legacy selection-mask path. `preprocess: "remove-object-in-workflow"` avoids client-side growth/feathering when the removal workflow owns those passes itself.

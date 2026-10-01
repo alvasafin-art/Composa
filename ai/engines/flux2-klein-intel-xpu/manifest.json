@@ -1,6 +1,6 @@
 {
   "id": "flux2-klein-intel-xpu",
-  "displayName": "FLUX.2 Klein · Intel XPU",
+  "displayName": "FLUX.2 Klein",
   "manifestVersion": 1,
   "minimumComfyVersion": "0.37.0",
   "requiredNodeTypes": [
@@ -638,7 +638,7 @@
     }
   ],
   "lora": {
-    "supported": false,
-    "maximum": 0
+    "supported": true,
+    "maximum": 3
   }
 }

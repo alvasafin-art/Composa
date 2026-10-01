@@ -22,7 +22,7 @@ public sealed class EngineCatalog
                 catch (Exception error) { errors.Add($"{manifest}: {error.Message}"); }
             }
         }
-        Profiles = profiles;
+        Profiles = profiles.OrderBy(profile => profile.PaidApi).ThenBy(profile => profile.DisplayName).ToArray();
         Errors = errors;
     }
 

@@ -22,6 +22,9 @@ public sealed class AiTaskService : IAiTaskRunner
     public string? ConnectedServerUrl { get; private set; }
     public Func<string, IReadOnlyDictionary<string, string>> ModelSelections { get; set; } = _ => new Dictionary<string, string>();
     public Func<string> AdditionalPrompt { get; set; } = () => AiPromptDefaults.PreserveAppearance;
+    public Func<string?> ApiKey { get; set; } = () => Environment.GetEnvironmentVariable("COMPOSA_COMFY_API_KEY");
+    public string? SessionApiKey { get; set; }
+    public string? Credential => string.IsNullOrWhiteSpace(SessionApiKey) ? ApiKey()?.Trim() : SessionApiKey.Trim();
     public event Action? StateChanged;
     public int ConnectionTimeoutSeconds { get; set; } = 5;
 
@@ -84,6 +87,8 @@ public sealed class AiTaskService : IAiTaskRunner
         if (ServerCapabilities is not { } capabilities) return new(false, ["Connect to ComfyUI to read its models."]);
         // Requirements describe the original pack. Selected replacement files are checked against their actual loaders.
         var missing = EngineCompatibility.Check(engine with { RequiredAssets = [] }, capabilities).Missing.ToHashSet(StringComparer.Ordinal);
+        if (engine.PaidApi && engine.ApiModel is { } apiModel && !PartnerPricing.SupportsModel(capabilities, apiModel))
+            missing.Add($"API model {apiModel}; update ComfyUI to a version offering it");
         var allSlots = Engines.ModelSlots(engine);
         foreach (var asset in engine.RequiredAssets.Where(asset => !asset.Optional
             && !allSlots.Any(slot => slot.Kind == asset.Kind && slot.Default == asset.Name) && !capabilities.Has(asset)))
@@ -107,6 +112,8 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
+        if (SelectedEngine?.PaidApi == true && request.Task == AiTaskKind.ChangeBackground && editor.Session.Selection == null)
+            throw new InvalidOperationException("Select the subject to keep first. This API pack has no automatic subject-selection model.");
         if (request.Task == AiTaskKind.ChangeBackground && editor.Session.Selection == null)
         {
             await editor.Session.RunTransactionAsync("AI Change Background", async _ =>
@@ -142,7 +149,7 @@ public sealed class AiTaskService : IAiTaskRunner
         var workflow = engine.Workflow(binding.Workflow);
         var graph = Engines.ReadWorkflow(engine, workflow);
         var variants = binding.OutputMode == AiOutputMode.Selection || request.Task == AiTaskKind.Upscale ? 1 : request.Settings.Variants;
-        if (variants is not (1 or 3)) throw new ArgumentException("Choose one or three variants.");
+        if (variants is < 1 or > 3) throw new ArgumentException("Choose one, two or three variants.");
         var initialState = editor.Session.History.CurrentId;
         var initialLayer = editor.Session.Document.ActiveLayerId;
 
@@ -155,16 +162,26 @@ public sealed class AiTaskService : IAiTaskRunner
         {
             // The bundled stitched removal workflow handles mask growth and its black patch itself.
             // Feeding an already grown/feathered mask into it would grow and blur the selection twice.
-            var preparedRequest = request.Task == AiTaskKind.RemoveObject && binding.Preprocess == "remove-object-in-workflow"
+            var preparedRequest = request.Task == AiTaskKind.RemoveObject && (binding.Preprocess == "remove-object-in-workflow" || engine.PaidApi)
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPrompt() };
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
+            using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, request) : null;
             var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;
             using var client = Client();
             if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null || ConnectionState != ComfyConnectionState.Connected)
                 await TestConnectionAsync(linked.Token, client.Address.ToString());
             if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities is not { } capabilities)
                 throw new InvalidOperationException("The ComfyUI connection changed during this request. Retry after connecting to the desired server.");
+            if (engine.PaidApi)
+            {
+                if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.");
+                if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
+                    throw new InvalidOperationException($"The connected ComfyUI does not offer {engine.ApiModel}. Update ComfyUI and refresh its models.");
+                foreach (var (key, input, fallback) in new[] { ("apiQuality", "quality", "low"), ("apiSize", "size", "auto") })
+                    if (!PartnerPricing.Choices(capabilities, engine.ApiModel, input).Contains(request.Settings.Values.GetValueOrDefault(key)?.ToString() ?? fallback))
+                        throw new InvalidOperationException($"The connected server does not support this GPT {input}. Choose an available value in Advanced.");
+            }
             WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
@@ -172,7 +189,9 @@ public sealed class AiTaskService : IAiTaskRunner
                 foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
                 values["seed"] = (seed + index) & long.MaxValue;
                 if (request.Task == AiTaskKind.GenerativeFill) values["maskGrow"] = 0;
-                var boundGraph = WorkflowBinder.Bind(graph, binding, values);
+                var boundGraph = apiInputs == null ? WorkflowBinder.Bind(graph, binding, values)
+                    : apiInputs.Bind(graph, engine, files, (seed + index) & long.MaxValue);
+                WorkflowExecution.Loras(boundGraph, engine, request.Settings.Loras, capabilities);
                 if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
                     WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
                 if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
@@ -185,16 +204,17 @@ public sealed class AiTaskService : IAiTaskRunner
                 return boundGraph;
             }
             // Validate before sending source/reference pictures or submitting a generation.
-            _ = Bind(inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key))
+            var imagesToUpload = apiInputs?.Images ?? inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+            _ = Bind(imagesToUpload
                 .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (semantic, bitmap) in inputs.Images())
+            foreach (var (semantic, bitmap) in imagesToUpload)
             {
-                if (!binding.Inputs.ContainsKey(semantic)) continue;
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
             }
             var images = new List<SKBitmap>();
             var applied = false;
+            double? reportedCredits = null;
             try
             {
                 var runs = request.Settings.VariantMode == AiVariantMode.List ? variants : 1;
@@ -205,12 +225,14 @@ public sealed class AiTaskService : IAiTaskRunner
                     {
                         if (!ReferenceEquals(running, linked) || linked.IsCancellationRequested) return;
                         Operation = state with { Status = state.Status == AiOperationStatus.Completed ? AiOperationStatus.Running : state.Status,
-                            Stage = variants == 1 ? state.Stage : $"{(runs == 1 ? "Batch · 3 variants" : $"Variant {number + 1}/{variants}")} · {state.Stage}" };
+                            Stage = variants == 1 ? state.Stage : $"{(runs == 1 ? $"Batch · {variants} variants" : $"Variant {number + 1}/{variants}")} · {state.Stage}",
+                            CreditsUsed = state.CreditsUsed is { } cost ? (reportedCredits ?? 0) + cost : reportedCredits };
                         StateChanged?.Invoke();
                     });
                     var result = await client.ExecuteAsync(Bind(uploaded, index), progress, linked.Token);
                     using (result.History)
                     {
+                        if (result.CreditsUsed is { } cost) reportedCredits = (reportedCredits ?? 0) + cost;
                         var references = workflow.OutputNodes.Count == 0 ? result.Images : result.Images.Where(image => image.NodeId != null && workflow.OutputNodes.Contains(image.NodeId)).ToList();
                         var expected = runs == 1 ? variants : 1;
                         if (references.Count == 0 || variants > 1 && references.Count != expected)
@@ -218,6 +240,7 @@ public sealed class AiTaskService : IAiTaskRunner
                         foreach (var reference in references)
                         {
                             var image = await client.DownloadAsync(reference, linked.Token);
+                            if (apiInputs != null) image = apiInputs.Finish(image);
                             images.Add(image);
                             var pixels = images.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
                             if (binding.OutputMode == AiOutputMode.NewLayerWithMask && inputs.SelectionMask != null) pixels *= 2;
@@ -240,7 +263,7 @@ public sealed class AiTaskService : IAiTaskRunner
                     }
                 Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited, variants: variants > 1);
                 applied = true;
-                Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed" };
+                Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed", CreditsUsed = reportedCredits };
                 StateChanged?.Invoke();
             }
             catch
@@ -266,15 +289,17 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public void Cancel() => running?.Cancel();
 
-    internal void SetConnectedForTests()
+    internal void SetConnectedForTests(ComfyServerCapabilities? capabilities = null)
     {
         ConnectionState = ComfyConnectionState.Connected;
+        ServerCapabilities = capabilities;
         StateChanged?.Invoke();
     }
 
     private IComfyConnection Client(string? overrideUrl = null)
     {
         var client = clientFactory(overrideUrl ?? serverUrl());
+        if (client is ComfyClient transport) transport.Credential = () => Credential;
         client.ConnectionTimeout = TimeSpan.FromSeconds(Math.Clamp(ConnectionTimeoutSeconds, 1, 120));
         return client;
     }

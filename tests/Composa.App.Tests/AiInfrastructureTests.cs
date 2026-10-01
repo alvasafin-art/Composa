@@ -45,7 +45,7 @@ public class AiInfrastructureTests
         session.SelectRect(new SKRect(28,22,49,41));
         using var inputs=AiTaskInputPreparer.Prepare(session,new AiTaskRequest { Task=AiTaskKind.RemoveObject,
             RemoveObject=new RemoveObjectSettings { Dilation=0,Feather=0 }, Settings=new AiGenerationSettings { Width=128,Height=128 } });
-        var catalog=new EngineCatalog(Path.Combine(AppContext.BaseDirectory,"ai","engines")); var engine=Assert.Single(catalog.Profiles);
+        var catalog=new EngineCatalog(Path.Combine(AppContext.BaseDirectory,"ai","engines")); var engine=Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
         var binding=engine.Binding(AiTaskKind.RemoveObject)!;
         var graph=JsonNode.Parse(File.ReadAllText(Path.Combine(catalog.DirectoryOf(engine),engine.Workflow(binding.Workflow).File)))!.AsObject();
         using var client=new ComfyClient(url);
@@ -309,7 +309,7 @@ public class AiInfrastructureTests
     public void Background_workflow_does_not_condition_on_or_redraw_the_original_subject()
     {
         var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-        var engine = Assert.Single(catalog.Profiles);
+        var engine = Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
         var binding = engine.Binding(AiTaskKind.ChangeBackground)!;
         Assert.Equal("background", binding.Workflow);
         Assert.DoesNotContain("sourceImage", binding.Inputs.Keys);

@@ -57,7 +57,8 @@ public sealed partial class MainWindow : Window
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
             ModelSelections = settings.ComfyModelsFor,
-            AdditionalPrompt = () => settings.ComfyAdditionalPromptEnabled ? settings.ComfyAdditionalPrompt : ""
+            AdditionalPrompt = () => settings.ComfyAdditionalPromptEnabled ? settings.ComfyAdditionalPrompt : "",
+            ApiKey = () => string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment)
         };
         aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
         if (aiTasks.SelectedEngine is { } engine)

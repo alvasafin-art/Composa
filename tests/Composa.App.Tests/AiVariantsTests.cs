@@ -12,6 +12,18 @@ namespace Composa.App.Tests;
 public class AiVariantsTests
 {
     [Theory]
+    [InlineData(AiVariantMode.List)]
+    [InlineData(AiVariantMode.Batch)]
+    public async Task Two_local_variants_also_work_in_list_and_native_batch(AiVariantMode mode)
+    {
+        var session = EditorSession.NewCanvas(48, 32); var fake = new Connection();
+        await Service(fake).RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = AiTaskKind.GenerateImage,
+            Settings = new() { Variants = 2, VariantMode = mode } }, TestContext.Current.CancellationToken);
+        Assert.Equal(mode == AiVariantMode.List ? 2 : 1, fake.Graphs.Count);
+        Assert.Equal(2, session.AiVariantGroup!.Children.Count); Assert.Single(session.AiVariantGroup.Children, layer => layer.Visible);
+        session.Undo(); Assert.Single(session.Document.Layers);
+    }
+    [Theory]
     [InlineData(AiVariantMode.List, 3)]
     [InlineData(AiVariantMode.Batch, 1)]
     public async Task Three_variants_reuse_inputs_use_one_undo_and_show_only_one_result(AiVariantMode mode, int runs)
@@ -128,7 +140,7 @@ public class AiVariantsTests
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-            var nodes = catalog.Profiles.Single().RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "RepeatLatentBatch", "GrowMask", "ThresholdMask" }).ToHashSet();
+            var nodes = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu").RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "RepeatLatentBatch", "GrowMask", "ThresholdMask" }).ToHashSet();
             return Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), new ComfyServerCapabilities { Version = "1.0", NodeTypes = nodes }));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)

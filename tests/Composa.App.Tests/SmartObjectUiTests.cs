@@ -60,7 +60,7 @@ public class SmartObjectUiTests
         var dialog = Assert.Single(window.OwnedWindows);
         var combos = dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
         combos.Single(combo => combo.SelectedItem?.ToString() == "List · lower VRAM").SelectedIndex = 1;
-        combos.Single(combo => combo.Width == 90).SelectedIndex = 1;
+        Assert.DoesNotContain(combos, combo => combo.Items.Cast<string>().SequenceEqual(new[] { "1", "2", "3" }));
         Assert.True(Screenshots.Save(dialog, "ai-advanced-variants"));
         dialog.Close(false); Assert.False(await asking); Assert.Equal(1, settings.AiVariants); Assert.Equal(Composa.AI.AiVariantMode.List, settings.AiVariantMode);
         var upscaling = AiDialogs.Upscale(window, settings, 57, 43, false); Dispatcher.UIThread.RunJobs();
@@ -76,13 +76,13 @@ public class SmartObjectUiTests
         var window = new MainWindow(); window.Show(); var settings = new Settings();
         var asking = AiDialogs.Prompt(window, Composa.AI.AiTaskKind.GenerativeFill, settings, 320, 160); Dispatcher.UIThread.RunJobs();
         var prompt = Assert.Single(window.OwnedWindows);
+        prompt.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 60).SelectedIndex = 1;
         prompt.GetVisualDescendants().OfType<Button>().Single(button => button.Content as string == "Advanced…")
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs();
         var advanced = Assert.Single(prompt.OwnedWindows);
-        var variants = advanced.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 90);
-        variants.SelectedIndex = 1;
+        advanced.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.SelectedItem?.ToString() == "List · lower VRAM").SelectedIndex = 1;
         advanced.Close(true); Dispatcher.UIThread.RunJobs();
-        Assert.Equal("3", prompt.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 90).SelectedItem);
-        prompt.Close(true); Assert.NotNull(await asking); Assert.Equal(3, settings.AiVariants); window.Close();
+        Assert.Equal("2", prompt.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 60).SelectedItem);
+        prompt.Close(true); Assert.NotNull(await asking); Assert.Equal(2, settings.AiVariants); Assert.Equal(Composa.AI.AiVariantMode.Batch, settings.AiVariantMode); window.Close();
     }
 }

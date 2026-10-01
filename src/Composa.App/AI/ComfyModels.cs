@@ -1,5 +1,9 @@
 using Composa.AI;
 using System.Text.Json;
+using System.Text;
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Composa.App.AI;
 
@@ -20,13 +24,31 @@ public sealed record AiOperationState
     public int? Value { get; init; }
     public int? Maximum { get; init; }
     public string? Error { get; init; }
+    public double? CreditsUsed { get; init; }
     public bool IsIndeterminate => Status == AiOperationStatus.Running && (Value == null || Maximum is null or <= 0);
 }
 
-public sealed record ComfyExecutionResult(string PromptId, JsonDocument History, IReadOnlyList<ComfyImageReference> Images);
+public sealed record ComfyExecutionResult(string PromptId, JsonDocument History, IReadOnlyList<ComfyImageReference> Images)
+{
+    public double? CreditsUsed { get; init; }
+}
 
 internal static class ComfyEventParser
 {
+    public static AiOperationState ParseBinary(ReadOnlySpan<byte> bytes, AiOperationState current)
+    {
+        // ComfyUI BinaryEventTypes.TEXT: event id, node-id byte count, node id, UTF-8 progress text.
+        if (bytes.Length < 8 || BinaryPrimitives.ReadUInt32BigEndian(bytes) != 3) return current;
+        var length = BinaryPrimitives.ReadUInt32BigEndian(bytes[4..]);
+        if (length > (uint)(bytes.Length - 8)) return current;
+        var node = Encoding.UTF8.GetString(bytes.Slice(8, (int)length));
+        if (node != current.NodeId) return current;
+        var message = Encoding.UTF8.GetString(bytes[(8 + (int)length)..]);
+        var match = Regex.Match(message, @"Price:\s*([\d,]+(?:\.\d+)?)\s+credits", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        double? price = match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.AllowThousands | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount)
+            && double.IsFinite(amount) && amount >= 0 ? amount : null;
+        return current with { Stage = message.Length > 500 ? message[..500] : message, CreditsUsed = price ?? current.CreditsUsed };
+    }
     public static AiOperationState Parse(string json, string promptId, AiOperationState current)
     {
         using var document = JsonDocument.Parse(json);

@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.5" date="2026-10-01">
+      <description>
+        <p>Official GPT Image 2.5 Comfy.org Partner Node pack with ordered references, context-aware masked editing, runtime API-key authentication and server-derived cost estimates. The floating panel has a workflow selector, compact one/two/three variants and centered reference image icons. FLUX supports three model-only LoRAs with independent strengths. Native content-aware fill and healing use bounded coherent exemplar synthesis.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.4" date="2026-10-01">
       <description>
         <p>Images dropped onto the tab strip open separate documents. Masked Klein edits use source-latent conditioning and automatic Pixaroma crop/stitch support with smooth seam blending. Remove no longer synthesizes grain. An editable appearance-preservation prompt and separate conditioning blur and color-match settings are available.</p>

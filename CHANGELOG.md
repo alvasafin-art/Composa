@@ -4,8 +4,17 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.5] - 2026-10-01
+
+### Added
+
+- CHAT GPT 2.5 Engine Pack uses the official ComfyUI OpenAIGPTImageNodeV2 and the requested gpt-image-2.5-sunburst model. No local model weights are needed. Supports text generation, ordered references, masked fill/removal, expansion, background replacement, harmonization and relighting. With multiple images the node's native-mask restriction is handled explicitly using a mask guide and local blending.
+- Paid Partner Nodes accept a Comfy.org API key from an environment variable or the current session, never saved in preferences or workflows. The connected server's own price-badge tables supply approximate estimates including all inputs/variants. Binary node progress supplies reported credit costs where supported; local-account balance and OpenAI usage tokens are explicitly unavailable.
+- Advanced offers up to three FLUX model-only LoRAs from the connected server, individual strengths and enable switches, with an overall enable switch. Missing models, unsupported settings and incompatible packs fail preflight before image uploads or paid submissions.
+
 ### Improved
 
+- Floating AI panel has a bottom-left pack selector, compact 1/2/3 dropdown after Generate, completion status above the actions, centered picture-icon reference cells and responsive thumbnail wrapping. FLUX display no longer includes XPU. GPT Advanced hides local-model/LoRA/seed controls and offers server-supported size and quality. Two variants also work in local List/Batch mode.
 - Native Content-Aware Fill and Spot Healing keep exact whole-patch matches fast, but synthesize difficult holes from coherent small exemplars using boundary/structure priorities, nearby donor searches and bounded color adaptation. Guide matching is bounded in size while the output samples original-resolution texture; no models or native libraries are added.
 - Healing searches respect the actual selected repair area while excluding the full brush footprint from donor samples. Donor patches are checked against every excluded pixel, soft coverage is applied once, and a completely selected layer with no evidence is left intact.
 

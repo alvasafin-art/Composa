@@ -39,7 +39,7 @@ public class ComfyModelSelectionTests
     public void Shared_loaders_across_tasks_have_one_slot_but_different_loaders_do_not_collide()
     {
         var catalog = new EngineCatalog(Engines);
-        var engine = Assert.Single(catalog.Profiles);
+        var engine = Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
         var slots = catalog.ModelSlots(engine);
         Assert.Equal(5, slots.Count);
         Assert.Single(slots, slot => slot.Kind == EngineAssetKind.DiffusionModel);
@@ -65,7 +65,7 @@ public class ComfyModelSelectionTests
     {
         var settings = new Settings { AiUpscalerModel = "4x_NMKD-Siax_200k.pth" };
         var catalog = new EngineCatalog(Engines);
-        var slots = catalog.ModelSlots(Assert.Single(catalog.Profiles));
+        var slots = catalog.ModelSlots(Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu"));
         var slot = Assert.Single(slots, slot => slot.Kind == EngineAssetKind.Upscaler);
         settings.MigrateComfyUpscaler(Lan, slots);
         Assert.Equal("4x_NMKD-Siax_200k.pth", settings.ComfyModelsFor(Lan)[slot.Key]);
@@ -269,7 +269,7 @@ public class ComfyModelSelectionTests
         public Server()
         {
             var catalog = new EngineCatalog(Engines);
-            var engine = Assert.Single(catalog.Profiles);
+            var engine = Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
             foreach (var workflow in engine.Workflows)
             {
                 var graph = catalog.ReadWorkflow(engine, workflow);

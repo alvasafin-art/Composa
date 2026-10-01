@@ -6,6 +6,8 @@
 
 Это предварительная AI-версия. ComfyUI, локальный сервер ассистента и модели в пакет не входят: на другом компьютере настройте подключение к своим AI-сервисам отдельно. Сам редактор запускается без них.
 
+В плавающей AI-панели выбирается **workflow pack**: **FLUX.2 Klein** использует локальные модели ComfyUI, **CHAT GPT 2.5** — платную официальную API-ноду с `gpt-image-2.5-sunburst`, без локальных весов. Для GPT нужен **API-ключ Comfy.org**, не OpenAI: вставьте его на текущий сеанс в ComfyUI Settings или задайте переменную `COMPOSA_COMFY_API_KEY`. Сам ключ не записывается в настройки. [Настройка GPT, референсов, масок и стоимости](ai/engines/chatgpt-image-2.5/README.md). Реальная платная генерация требует положительного баланса аккаунта Comfy.org.
+
 В **AI → ComfyUI Settings** укажите адрес запущенного ComfyUI, нажмите **Refresh Models / Test Connection** и выберите модели из серверных списков. Выбор сохраняется отдельно для каждого адреса. Если сервер на другом компьютере, используйте его адрес в локальной сети вместо `127.0.0.1`; доступ к его диску из Composa не нужен. Дополнительные папки (`shared` и другие) должны быть подключены в самом ComfyUI. Выбирайте веса, подходящие архитектуре workflow: список загрузчика не гарантирует совместимость произвольной модели с FLUX.2. [Подробности подключения](docs/ai-models.md).
 
 A layer-based image editor for compositing and retouching, with Photoshop-style tools and shortcuts. It is a from-scratch implementation of [Compositor](https://github.com/robbietilton/Compositor), Robbie Tilton's free and open-source macOS app.

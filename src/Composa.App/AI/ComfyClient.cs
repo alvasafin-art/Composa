@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Buffers.Binary;
 using Composa.AI;
 using Composa.IO;
 using Composa.Rendering;
@@ -15,14 +16,17 @@ public sealed class ComfyClient : IComfyConnection
 {
     private readonly HttpClient http;
     private readonly bool ownsHttp;
+    private Func<string?> apiKey;
+    internal Func<string?> Credential { set => apiKey = value; }
     public ComfyServerAddress Address { get; }
     public TimeSpan ConnectionTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
-    public ComfyClient(string serverUrl, HttpClient? httpClient = null)
+    public ComfyClient(string serverUrl, HttpClient? httpClient = null, Func<string?>? apiKey = null)
     {
         Address = ComfyServerAddress.Parse(serverUrl);
         http = httpClient ?? new HttpClient();
         ownsHttp = httpClient == null;
+        this.apiKey = apiKey ?? (() => null);
     }
 
     public async Task<(ComfyServerInfo Info, ComfyServerCapabilities Capabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
@@ -83,6 +87,12 @@ public sealed class ComfyClient : IComfyConnection
     public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)
     {
         var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = clientId.ToString("N") };
+        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() == "OpenAIGPTImageNodeV2"))
+        {
+            var key = apiKey()?.Trim();
+            if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone does not authorize external requests.");
+            payload["extra_data"] = new JsonObject { ["api_key_comfy_org"] = key };
+        }
         using var response = await http.PostAsJsonAsync(Address.Api("prompt"), payload, cancellationToken);
         await EnsureSuccess(response, cancellationToken);
         using var result = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
@@ -111,18 +121,43 @@ public sealed class ComfyClient : IComfyConnection
         try
         {
             var buffer = new byte[64 * 1024];
+            var activePrompt = false;
             while (state.Status is not (AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled))
             {
                 using var message = new MemoryStream();
+                var discardBinary = false;
                 WebSocketReceiveResult part;
                 do
                 {
                     part = await socket.ReceiveAsync(buffer, cancellationToken);
                     if (part.MessageType == WebSocketMessageType.Close) throw new IOException("ComfyUI closed the progress connection before completion.");
                     if (part.MessageType == WebSocketMessageType.Text) message.Write(buffer, 0, part.Count);
+                    else if (!discardBinary)
+                    {
+                        // Do not retain large preview images just to read the small TEXT billing/progress event.
+                        if (message.Length + part.Count > 8192) discardBinary = true;
+                        else
+                        {
+                            message.Write(buffer, 0, part.Count);
+                            if (message.Length >= 4 && BinaryPrimitives.ReadUInt32BigEndian(message.GetBuffer().AsSpan(0, 4)) != 3) discardBinary = true;
+                        }
+                        if (discardBinary) message.SetLength(0);
+                    }
                 } while (!part.EndOfMessage);
-                if (part.MessageType != WebSocketMessageType.Text) continue;
-                state = ComfyEventParser.Parse(Encoding.UTF8.GetString(message.ToArray()), promptId, state);
+                if (part.MessageType == WebSocketMessageType.Binary)
+                {
+                    if (!activePrompt || discardBinary) continue;
+                    state = ComfyEventParser.ParseBinary(message.ToArray(), state);
+                }
+                else
+                {
+                    var json = Encoding.UTF8.GetString(message.ToArray());
+                    using var eventData = JsonDocument.Parse(json);
+                    if (eventData.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("prompt_id", out var eventId)
+                        && eventData.RootElement.TryGetProperty("type", out var eventType) && eventType.GetString() is "execution_start" or "executing")
+                        activePrompt = eventId.GetString() == promptId;
+                    state = ComfyEventParser.Parse(json, promptId, state);
+                }
                 progress?.Report(state);
             }
         }
@@ -143,7 +178,7 @@ public sealed class ComfyClient : IComfyConnection
             history?.Dispose();
             history = await HistoryAsync(promptId, cancellationToken);
             var images = FindImages(history.RootElement, promptId);
-            if (images.Count > 0 || attempt == attempts - 1) return new ComfyExecutionResult(promptId, history, images);
+            if (images.Count > 0 || attempt == attempts - 1) return new ComfyExecutionResult(promptId, history, images) { CreditsUsed = state.CreditsUsed };
             await Task.Delay(100, cancellationToken);
         }
         throw new InvalidOperationException("ComfyUI history polling ended unexpectedly.");
@@ -167,10 +202,11 @@ public sealed class ComfyClient : IComfyConnection
         return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
     }
 
-    private static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken cancellationToken)
+    private async Task EnsureSuccess(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (apiKey() is { Length: > 0 } credential) body = body.Replace(credential, "[redacted]", StringComparison.Ordinal);
         throw new HttpRequestException($"ComfyUI returned {(int)response.StatusCode} {response.ReasonPhrase}: {body}", null, response.StatusCode);
     }
 
@@ -190,10 +226,12 @@ public sealed class ComfyClient : IComfyConnection
         var nodes = new HashSet<string>(StringComparer.Ordinal);
         var assets = new Dictionary<EngineAssetKind, HashSet<string>>();
         var modelChoices = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var definitions = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         if (root.ValueKind != JsonValueKind.Object) return new() { NodeTypes = nodes, Assets = assets };
         foreach (var node in root.EnumerateObject())
         {
             nodes.Add(node.Name);
+            if (node.Name == "OpenAIGPTImageNodeV2" && JsonNode.Parse(node.Value.GetRawText()) is JsonObject definition) definitions[node.Name] = definition;
             if (!node.Value.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object) continue;
             foreach (var sectionName in new[] { "required", "optional" })
             {
@@ -216,7 +254,7 @@ public sealed class ComfyClient : IComfyConnection
                 }
             }
         }
-        return new() { NodeTypes = nodes, Assets = assets, ModelChoices = modelChoices };
+        return new() { NodeTypes = nodes, Assets = assets, ModelChoices = modelChoices, NodeDefinitions = definitions };
     }
 
     internal static bool AssetKind(string input, string node, out EngineAssetKind kind)

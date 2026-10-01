@@ -1,0 +1,26 @@
+{
+  "gpt": {
+    "class_type": "OpenAIGPTImageNodeV2",
+    "inputs": {
+      "prompt": "",
+      "model": "gpt-image-2.5-sunburst",
+      "model.size": "auto",
+      "model.custom_width": 1024,
+      "model.custom_height": 1024,
+      "model.background": "auto",
+      "model.quality": "low",
+      "n": 1,
+      "seed": 0
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "gpt",
+        0
+      ],
+      "filename_prefix": "Composa-GPT-2.5"
+    }
+  }
+}

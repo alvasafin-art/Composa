@@ -57,7 +57,7 @@ public class MaskedEditTests
         var request = new AiTaskRequest { Task = task, RemoveObject = new() { Dilation = 0, Feather = 0 },
             Settings = new() { Width = 256, Height = 256, Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 24, ["maskContext"] = 2.0 } } };
         using var inputs = AiTaskInputPreparer.Prepare(session, request);
-        var catalog = Catalog(); var engine = catalog.Profiles.Single(); var binding = engine.Binding(task)!;
+        var catalog = Catalog(); var engine = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu"); var binding = engine.Binding(task)!;
         var values = inputs.Values(inputs.Images().ToDictionary(pair => pair.Key, pair => pair.Key + ".png"));
         foreach (var (key, value) in request.Settings.Values) values[key] = value;
         var graph = WorkflowBinder.Bind(catalog.ReadWorkflow(engine, engine.Workflow(binding.Workflow)), binding, values);
@@ -103,7 +103,7 @@ public class MaskedEditTests
         for (var y = 0; y < inputs.SelectionMask.Height; y++) for (var x = 0; x < inputs.SelectionMask.Width; x++)
             if (pixels[y * inputs.SelectionMask.RowBytes + x] != 0) pixels[y * inputs.SelectionMask.RowBytes + x] = 96;
         Pixels.Invalidate(inputs.SelectionMask);
-        var catalog = Catalog(); var engine = catalog.Profiles.Single();
+        var catalog = Catalog(); var engine = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu");
         var graph = catalog.ReadWorkflow(engine, engine.Workflow(engine.Binding(AiTaskKind.GenerativeFill)!.Workflow));
         WorkflowExecution.MaskedEdit(graph, inputs, new() { Task = AiTaskKind.GenerativeFill }, new ComfyServerCapabilities
             { NodeTypes = ["PixaromaInpaintCrop", "PixaromaInpaintStitch"] });
@@ -155,7 +155,7 @@ public class MaskedEditTests
             Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 24, ["maskContext"] = 2.0, ["colorMatch"] = "off" } } };
         using var inputs = AiTaskInputPreparer.Prepare(session, request);
         using var client = new ComfyClient(url); var (_, caps) = await client.TestConnectionAsync(TestContext.Current.CancellationToken);
-        var catalog = Catalog(); var engine = catalog.Profiles.Single(); var binding = engine.Binding(request.Task)!;
+        var catalog = Catalog(); var engine = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu"); var binding = engine.Binding(request.Task)!;
         var uploads = new Dictionary<string, string>();
         foreach (var (name, bitmap) in inputs.Images()) if (binding.Inputs.ContainsKey(name)) uploads[name] = await client.UploadPngAsync(name, bitmap, TestContext.Current.CancellationToken);
         var values = inputs.Values(uploads); foreach (var (key, value) in request.Settings.Values) values[key] = value;

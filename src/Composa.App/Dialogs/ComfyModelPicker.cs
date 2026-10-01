@@ -44,6 +44,12 @@ public sealed class ComfyModelPicker : StackPanel
         catch (FormatException) { Children.Add(Note("Enter a complete ComfyUI server URL, then refresh models.")); return; }
         var choices = (Dictionary<string, string>)Choices(address);
         var connected = service.ConnectedServerUrl == address && service.ConnectionState == ComfyConnectionState.Connected;
+        if (service.SelectedEngine is { PaidApi: true } api)
+        {
+            Children.Add(Ui.Label(api.DisplayName, weight: Avalonia.Media.FontWeight.SemiBold));
+            Children.Add(Note($"Paid Comfy.org Partner Node · {api.ApiModel}\nNo diffusion model, text encoder or VAE files are needed.\nBalance is not exposed by the local ComfyUI API; check Credits in ComfyUI."));
+            return;
+        }
         Children.Add(Ui.Label("Models on ComfyUI", weight: Avalonia.Media.FontWeight.SemiBold));
         if (!connected) Children.Add(Note("Refresh models to read this server. Lists from another computer are not used."));
         if (service.SelectedEngine is not { } engine) { Children.Add(Note("Select a workflow pack first.")); return; }

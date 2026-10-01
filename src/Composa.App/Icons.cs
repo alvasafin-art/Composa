@@ -41,6 +41,7 @@ public static class Icons
     public static readonly Icon Eye = new("M2 12 C5 6.5 8.5 5 12 5 C15.5 5 19 6.5 22 12 C19 17.5 15.5 19 12 19 C8.5 19 5 17.5 2 12 Z M12 9 A3 3 0 1 1 12 15 A3 3 0 1 1 12 9 Z");
     public static readonly Icon Folder = new("M3 6 H9.5 L11.5 8.5 H21 V19 H3 Z");
     public static readonly Icon Plus = new("M12 5 V19 M5 12 H19");
+    public static readonly Icon Image = new("M3 4 H21 V20 H3 Z M3 17 L9 11 L14 16 L17 13 L21 17 M16 7 A2 2 0 1 1 16 11 A2 2 0 1 1 16 7 Z");
     public static readonly Icon Close = new("M6 6 L18 18 M18 6 L6 18");
     public static readonly Icon Trash = new("M4 7 H20 M9 7 V4 H15 V7 M6 7 L7 21 H17 L18 7 M10 11 V17 M14 11 V17");
     public static readonly Icon Mask = new("M3 5 H21 V19 H3 Z", "M12 8 A4 4 0 1 1 12 16 A4 4 0 1 1 12 8 Z");

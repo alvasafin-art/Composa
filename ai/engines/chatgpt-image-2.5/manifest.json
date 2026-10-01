@@ -1,0 +1,141 @@
+{
+  "id": "chatgpt-image-2.5",
+  "displayName": "CHAT GPT 2.5",
+  "manifestVersion": 1,
+  "paidApi": true,
+  "apiModel": "gpt-image-2.5-sunburst",
+  "requiredNodeTypes": [
+    "OpenAIGPTImageNodeV2",
+    "LoadImage",
+    "SaveImage",
+    "ImageToMask"
+  ],
+  "requiredAssets": [],
+  "workflows": [
+    {
+      "id": "image",
+      "file": "workflows/image.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "GenerateImage",
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    },
+    {
+      "task": "GenerativeFill",
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    },
+    {
+      "task": "RemoveObject",
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    },
+    {
+      "task": "GenerativeExpand",
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    },
+    {
+      "task": "ChangeBackground",
+      "workflow": "image",
+      "outputMode": "layerGroup",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    },
+    {
+      "task": "Harmonize",
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    },
+    {
+      "task": "Relight",
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "seed"
+        }
+      }
+    }
+  ],
+  "lora": {
+    "supported": false,
+    "maximum": 0
+  }
+}
