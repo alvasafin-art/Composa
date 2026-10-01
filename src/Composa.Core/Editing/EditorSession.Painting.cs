@@ -217,7 +217,18 @@ public sealed partial class EditorSession
                 return;
             }
             var selection = SelectionInTargetSpace(layer);
-            var healed = MixBySelection(strokeOriginal!, Inpaint.Fill(strokeOriginal!, mask), selection);
+            using var donorExclusion = selection == null ? null : Pixels.Clone(mask);
+            if (selection != null)
+            {
+                // Search for donors for the ACTUAL repair area, not the entire brush footprint
+                // outside a selection. Keep partial coverage for the final selection mix, once.
+                var coverage = mask.GetPixelSpan(); var allowed = selection.GetPixelSpan();
+                for (var y = 0; y < mask.Height; y++)
+                for (var x = 0; x < mask.Width; x++)
+                    if (allowed[y * selection.RowBytes + x] == 0) coverage[y * mask.RowBytes + x] = 0;
+                Pixels.Invalidate(mask);
+            }
+            var healed = MixBySelection(strokeOriginal!, Inpaint.Fill(strokeOriginal!, mask, donorExclusion), selection);
             if (selection != document.Selection) selection?.Dispose();
             SetTarget(layer, healed);
             Invalidate(AffectedArea(layer));

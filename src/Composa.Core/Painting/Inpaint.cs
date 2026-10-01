@@ -7,8 +7,8 @@ namespace Composa.Painting;
 
 /// <summary>
 /// Content-aware fill, used by the Spot Healing Brush and Edit &gt; Content-Aware Fill. The hole is filled with the
-/// nearby patch whose surroundings match best, then the seam is removed by spreading the mismatch along the
-/// border smoothly through the hole (a membrane, as in Poisson cloning).
+/// nearby matching texture. Exact whole-patch matches take a fast path; complex holes use coherent small
+/// exemplars grown from their boundary. Both paths are deterministic and sample only the original layer.
 /// </summary>
 public static unsafe class Inpaint
 {
@@ -16,26 +16,24 @@ public static unsafe class Inpaint
     public const long MaxArea = 16_000_000;
 
     /// <summary>Returns a copy of <paramref name="source"/> (RGBA premultiplied) with the masked area replaced.</summary>
-    public static SKBitmap Fill(SKBitmap source, SKBitmap mask)
+    public static SKBitmap Fill(SKBitmap source, SKBitmap mask, SKBitmap? donorExclusion = null)
     {
-        var result = Pixels.Clone(source);
         var hole = SelectionMask.Bounds(mask, 1);
         hole = Geometry.Intersect(hole, new SKRectI(0, 0, source.Width, source.Height));
-        if (hole.IsEmpty) return result;
+        if (hole.IsEmpty) return Pixels.Clone(source);
 
         const int ring = 4;
         var area = Geometry.Intersect(new SKRectI(hole.Left - ring, hole.Top - ring, hole.Right + ring, hole.Bottom + ring),
             new SKRectI(0, 0, source.Width, source.Height));
         int w = area.Width, h = area.Height;
-        var holeMask = new float[w * h];
         var m = (byte*)mask.GetPixels();
-        for (var y = 0; y < h; y++)
-        for (var x = 0; x < w; x++)
-            holeMask[y * w + x] = m[(long)(y + area.Top) * mask.RowBytes + x + area.Left] / 255f;
 
         var src = (byte*)source.GetPixels();
+        var excluded = donorExclusion == null ? null : (byte*)donorExclusion.GetPixels();
         var stride = source.RowBytes;
-        bool Known(int x, int y) => holeMask[y * w + x] <= 0 && src[(long)(y + area.Top) * stride + (x + area.Left) * 4 + 3] > 0;
+        bool Known(int x, int y) => m[(long)(y + area.Top) * mask.RowBytes + x + area.Left] == 0
+            && (excluded == null || excluded[(long)(y + area.Top) * donorExclusion!.RowBytes + x + area.Left] == 0)
+            && src[(long)(y + area.Top) * stride + (x + area.Left) * 4 + 3] > 0;
 
         // Border samples: known pixels inside the working area (the ring around the hole).
         var border = new List<(int X, int Y)>();
@@ -44,8 +42,14 @@ public static unsafe class Inpaint
         for (var x = 0; x < w; x += step)
             if (Known(x, y)) border.Add((x, y));
 
-        var offset = border.Count >= 8 ? BestOffset(source, mask, area, border) : null;
+        if (border.Count == 0) return Pixels.Clone(source); // No evidence: never turn a fully selected layer into black.
+        var error = double.MaxValue;
+        var offset = border.Count >= 8 ? BestOffset(source, donorExclusion ?? mask, area, border, out error) : null;
+        if (offset is { } candidate && !CleanDonor(donorExclusion ?? mask, area, candidate)) offset = null;
+        if ((offset == null || error > 64) && ExemplarFill.TryFill(source, mask, hole, donorExclusion) is { } texture)
+            return texture;
 
+        var result = Pixels.Clone(source);
         var patch = new float[w * h * 4];
         var weight = new float[w * h];
         var difference = new float[w * h * 4];
@@ -70,7 +74,7 @@ public static unsafe class Inpaint
         for (var x = 0; x < w; x++)
         {
             var i = y * w + x;
-            var cover = holeMask[i];
+            var cover = m[(long)(y + area.Top) * mask.RowBytes + x + area.Left] / 255f;
             if (cover <= 0) continue;
             var p = dst + (long)(y + area.Top) * stride + (x + area.Left) * 4;
             var alpha = Math.Clamp(patch[i * 4 + 3] + difference[i * 4 + 3], 0, 255);
@@ -80,15 +84,27 @@ public static unsafe class Inpaint
                 p[c] = (byte)(p[c] * (1 - cover) + filled * cover + 0.5f);
             }
         }
+        Pixels.Invalidate(result);
         return result;
     }
 
-    private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border)
+    private static bool CleanDonor(SKBitmap mask, SKRectI area, SKPointI offset)
+    {
+        var pixels = (byte*)mask.GetPixels();
+        // Search scoring subsamples large holes. Validate the winning FULL patch exactly,
+        // including its context, so even a one-pixel/feathered blemish cannot become a donor.
+        for (var y = area.Top; y < area.Bottom; y++)
+        for (var x = area.Left; x < area.Right; x++)
+            if (pixels[(long)(y + offset.Y) * mask.RowBytes + x + offset.X] != 0) return false;
+        return true;
+    }
+
+    private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border, out double error)
     {
         var src = (byte*)source.GetPixels();
         var m = (byte*)mask.GetPixels();
         var stride = source.RowBytes;
-        int reachX = Math.Max(24, area.Width * 3), reachY = Math.Max(24, area.Height * 3);
+        int reachX = Math.Clamp(area.Width * 2, 24, 160), reachY = Math.Clamp(area.Height * 2, 24, 160);
         var coarse = Math.Max(1, Math.Max(area.Width, area.Height) / 12);
         var holeSamples = new List<(int X, int Y)>();
         var holeStep = Math.Max(1, (int)Math.Sqrt((double)area.Width * area.Height / 2_000));
@@ -125,6 +141,7 @@ public static unsafe class Inpaint
             var cost = Cost(ox, oy);
             if (cost < best) { best = cost; winner = new SKPointI(ox, oy); }
         }
+        error = best;
         if (winner is not { } found || coarse == 1) return winner;
         for (var oy = found.Y - coarse; oy <= found.Y + coarse; oy++)
         for (var ox = found.X - coarse; ox <= found.X + coarse; ox++)
@@ -132,6 +149,7 @@ public static unsafe class Inpaint
             var cost = Cost(ox, oy);
             if (cost < best) { best = cost; winner = new SKPointI(ox, oy); }
         }
+        error = best;
         return winner;
     }
 }
