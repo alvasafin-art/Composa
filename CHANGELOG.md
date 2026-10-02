@@ -4,6 +4,19 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.12] - 2026-10-02
+
+### Changed
+
+- Every workflow/task pair has independent Advanced and generation preferences, seeded from existing settings without resetting other operations. FLUX Expand starts with Original size, 1 MP references, List execution, grow/blend/conditioning blur 16/48/16 px, context 2, Color match subtle and random seed. Advanced titles identify the operation, and workflow switching restores independent values and unsaved dialog drafts.
+
+### Fixed
+
+- Original-size FLUX masked crops use right/bottom padding for VAE alignment instead of image/mask rescaling followed by an inverse resize. Decoded pixels return unscaled to their saved coordinates; technical padding is discarded and unexpected dimensions are rejected. Explicit MP and Expand minimum-side budgets remain intentionally scaled.
+- Expand color matching uses the expanded source context. Programmatic variant-control refresh no longer overwrites another workflow's settings.
+
+Verification: 752 automated tests passed. A live local ComfyUI stock-node check preserved every pixel in an odd-size image crop and its padded mask without using a model or paid API. Generative model detail drift is not eliminated by this host-coordinate fix.
+
 ## [1.2.1-preview.11] - 2026-10-02
 
 ### Changed

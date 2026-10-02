@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.12" date="2026-10-02">
+      <description>
+        <p>Independent preferences for every workflow and task preserve existing settings. FLUX Expand defaults use 16/48/16 px, context 2 and subtle color matching. Original-size masked crops preserve source pixels with padding rather than double resampling. Verified by 752 automated tests and live ComfyUI stock-node pixel checks.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.11" date="2026-10-02">
       <description>
         <p>FLUX Generative Fill has independent defaults of 4 px mask grow, 8 px blend, 4 px conditioning blur and 1.2 context. Advanced and context preview use these values; Expand and GPT settings remain unchanged.</p>

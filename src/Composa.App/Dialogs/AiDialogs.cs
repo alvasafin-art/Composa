@@ -178,20 +178,17 @@ public static class AiDialogs
         return true;
     }
 
-    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill)
+    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill, AiOperationSettings? initialProfile = null)
     {
-        var mp = ClosestMegapixels(settings.AiMegapixels);
-        var originalSize = settings.AiOriginalSize;
-        var reference = settings.AiReferenceMegapixels;
         var paid = service?.SelectedEngine?.PaidApi == true;
-        var fluxFill = task == AiTaskKind.GenerativeFill && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu";
-        var grow = paid ? settings.AiGptMaskGrow : fluxFill ? settings.AiFluxFillMaskGrow : settings.AiMaskGrow;
-        var blend = paid ? settings.AiGptMaskBlend : fluxFill ? settings.AiFluxFillMaskBlend : settings.AiMaskBlend;
-        var context = fluxFill ? settings.AiFluxFillMaskContext : settings.AiMaskContext;
-        var blur = fluxFill ? settings.AiFluxFillMaskBlur : settings.AiMaskBlur; var colorMatch = settings.AiColorMatch;
-        var seed = settings.AiSeed; var mode = settings.AiVariantMode;
-        var gptContext = Math.Clamp(settings.AiGptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
-        var quality = settings.AiApiQuality;
+        var profile = initialProfile ?? settings.OperationFor(service?.SelectedEngine?.Id, task, paid);
+        var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
+        var reference = profile.ReferenceMegapixels;
+        var grow = profile.MaskGrow; var blend = profile.MaskBlend; var context = profile.MaskContext;
+        var blur = profile.MaskBlur; var colorMatch = profile.ColorMatch;
+        var seed = profile.Seed; var mode = profile.VariantMode;
+        var gptContext = Math.Clamp(profile.GptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
+        var quality = profile.ApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, "quality");
         if (qualities.Count == 0) qualities = ["low", "medium", "high", "xhigh", "max"];
@@ -223,8 +220,8 @@ public static class AiDialogs
             : "List runs one variant at a time; Batch needs more VRAM. Mask blend controls the editable layer mask, conditioning blur the sampling mask. FLUX returns unmasked generated context pixels at their original coordinates. Color match uses unchanged surroundings; turn it off for intentional color changes. Use LoRAs compatible with the selected model. Ctrl+Z undoes the generation.", Palette.Secondary);
         note.MaxWidth = 470; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var extra = new StackPanel { Spacing = 9 };
-        var lorasEnabled = settings.AiLorasEnabled;
-        var loras = settings.AiLoras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
+        var lorasEnabled = profile.LorasEnabled;
+        var loras = profile.Loras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
         if (paid)
             extra.Children.Add(CanvasDialogs.Form(("GPT quality", Ui.Combo(qualities, qualities.Contains(quality) ? quality : "low", value => value, value => quality = value, 150))));
         else if (service?.SelectedEngine?.Lora.Supported == true)
@@ -248,19 +245,15 @@ public static class AiDialogs
             if (names.Count == 0) extra.Children.Add(Ui.Label("Connect / refresh models to read the server's LoRA list.", Palette.Secondary));
         }
         var body = new ScrollViewer { Content = Ui.Column(12, form, extra, note), MaxHeight = Math.Clamp(owner.Bounds.Height - 160, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        if (!await new DialogWindow("AI · Advanced", body).Ask(owner)) return false;
-        settings.AiMegapixels = mp; settings.AiOriginalSize = originalSize; settings.AiReferenceMegapixels = reference;
-        if (paid) { settings.AiGptMaskGrow = grow; settings.AiGptMaskBlend = blend; }
-        else if (fluxFill)
+        if (!await new DialogWindow($"{task.DisplayName()} · Advanced", body).Ask(owner)) return false;
+        settings.SetOperation(service?.SelectedEngine?.Id, task, profile with
         {
-            settings.AiFluxFillMaskGrow = grow; settings.AiFluxFillMaskBlend = blend;
-            settings.AiFluxFillMaskContext = context; settings.AiFluxFillMaskBlur = blur; settings.AiColorMatch = colorMatch;
-        }
-        else { settings.AiMaskGrow = grow; settings.AiMaskBlend = blend; settings.AiMaskContext = context; settings.AiMaskBlur = blur; settings.AiColorMatch = colorMatch; }
-        if (paid) settings.AiGptContextPadding = gptContext;
-        settings.AiSeed = seed; settings.AiVariantMode = mode;
-        settings.AiApiQuality = quality;
-        if (!paid && service?.SelectedEngine?.Lora.Supported == true) { settings.AiLorasEnabled = lorasEnabled; settings.AiLoras = loras.Where(lora => lora.Name.Length > 0).ToList(); }
+            Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference,
+            MaskGrow = grow, MaskBlend = blend, MaskContext = context, MaskBlur = blur, ColorMatch = colorMatch,
+            GptContextPadding = gptContext, Seed = seed, VariantMode = mode, ApiQuality = quality,
+            LorasEnabled = lorasEnabled, Loras = !paid && service?.SelectedEngine?.Lora.Supported == true
+                ? loras.Where(lora => lora.Name.Length > 0).ToList() : profile.Loras
+        });
         settings.Save();
         return true;
     }
@@ -280,9 +273,10 @@ public static class AiDialogs
         return key.Text?.Trim();
     }
 
-    public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection)
+    public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection, EngineProfile? engine = null)
     {
-        var factor = settings.AiUpscaleFactor == 4 ? 4 : 2;
+        var profile = settings.OperationFor(engine?.Id, AiTaskKind.Upscale, engine?.PaidApi == true);
+        var factor = profile.UpscaleFactor == 4 ? 4 : 2;
         var dimensions = Ui.Label("", Palette.Secondary);
         void Refresh() => dimensions.Text = $"{width * (long)factor} × {height * (long)factor} px" + (selection ? " · fitted back into your selection" : " · resizes the canvas");
         var scale = Ui.Combo(new[] { 2, 4 }, factor, value => "×" + value, value => { factor = value; Refresh(); }, 100);
@@ -290,18 +284,20 @@ public static class AiDialogs
         var note = Ui.Label("Inference is tiled. A ×4 model still computes its native scale for a ×2 result; the input is not reduced, so source details are preserved. For lowest memory use a native ×2 model in ComfyUI Settings.", Palette.Secondary);
         note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         if (!await new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Scale", scale)), dimensions, note), "Upscale").Ask(owner)) return false;
-        settings.AiUpscaleFactor = factor; settings.Save(); return true;
+        settings.SetOperation(engine?.Id, AiTaskKind.Upscale, profile with { UpscaleFactor = factor }); settings.Save(); return true;
     }
 
     public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null)
     {
         var previousEngine = service?.SelectedEngine;
         if (service != null) service.SelectedEngine = service.EngineFor(task);
+        var profile = settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true);
+        var profileDrafts = new Dictionary<string, AiOperationSettings>();
         var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
-        var originalSize = settings.AiOriginalSize; var mp = ClosestMegapixels(settings.AiMegapixels);
-        var variants = Math.Clamp(settings.AiVariants, 1, 3); var quality = settings.AiApiQuality;
-        var expansionMode = AiExpansionMode.MaskedRegion;
-        var regionSide = settings.AiExpansionMinimumSide; var wholeSide = settings.AiWholeExpansionMinimumSide;
+        var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
+        var variants = Math.Clamp(profile.Variants, 1, 3); var quality = profile.ApiQuality;
+        var expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : profile.ExpansionMode;
+        var regionSide = profile.ExpansionMinimumSide; var wholeSide = profile.WholeExpansionMinimumSide;
         var width = documentWidth; var height = documentHeight;
         var dimensions = Ui.Label("", Palette.Secondary); dimensions.MaxWidth = 430; dimensions.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var note = Ui.Label("", Palette.Secondary); note.MaxWidth = 430; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
@@ -339,19 +335,38 @@ public static class AiDialogs
             value => value == AiExpansionMode.MaskedRegion ? "Empty area only · preserve image" : "Regenerate whole expanded image",
             value => { expansionMode = value; RefreshExpandChoices(); Refresh(); }, 300);
         var variantsCombo = Ui.Combo(new[] { 1, 2, 3 }, variants, value => value.ToString(), value => { variants = value; Refresh(); }, 60);
+        AiOperationSettings CaptureProfile() => profile with
+        {
+            OriginalSize = originalSize, Megapixels = mp, Variants = variants, ApiQuality = quality,
+            ExpansionMode = task == AiTaskKind.GenerativeExpand ? expansionMode : profile.ExpansionMode,
+            ExpansionMinimumSide = regionSide, WholeExpansionMinimumSide = wholeSide
+        };
+        void LoadProfile(AiOperationSettings next)
+        {
+            profile = next; originalSize = next.OriginalSize; mp = ClosestMegapixels(next.Megapixels);
+            variants = Math.Clamp(next.Variants, 1, 3); quality = next.ApiQuality;
+            expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : next.ExpansionMode;
+            regionSide = next.ExpansionMinimumSide; wholeSide = next.WholeExpansionMinimumSide;
+            qualityCombo.SelectedItem = qualityOptions.Contains(quality) ? quality : "low";
+            size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);
+            variantsCombo.SelectedItem = variants.ToString(); mode.SelectedIndex = expansionMode == AiExpansionMode.WholeImage ? 1 : 0;
+            RefreshExpandChoices(); Refresh();
+        }
         var advanced = Ui.TextButton("Advanced…", () => { });
         advanced.Click += async (_, _) =>
         {
-            if (!await Advanced(dialog!, settings, service, task)) return;
-            quality = settings.AiApiQuality; qualityCombo.SelectedIndex = Array.IndexOf(qualityOptions, quality);
-            originalSize = settings.AiOriginalSize; mp = ClosestMegapixels(settings.AiMegapixels);
-            size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);
-            Refresh();
+            if (!await Advanced(dialog!, settings, service, task, CaptureProfile())) return;
+            LoadProfile(settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true));
         };
         var modelHost = new StackPanel();
         if (service != null && service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray() is { Length: > 0 } packs)
         {
-            var picker = Ui.Combo(packs, service.SelectedEngine ?? packs[0], pack => pack.DisplayName, pack => { service.SelectedEngine = pack; Refresh(); }, 210);
+            var picker = Ui.Combo(packs, service.SelectedEngine ?? packs[0], pack => pack.DisplayName, pack =>
+            {
+                profileDrafts[service.SelectedEngine?.Id ?? "default"] = CaptureProfile();
+                service.SelectedEngine = pack;
+                LoadProfile(profileDrafts.GetValueOrDefault(pack.Id) ?? settings.OperationFor(pack.Id, task, pack.PaidApi));
+            }, 210);
             modelHost.Children.Add(Ui.Row(12, picker, advanced));
         }
         else modelHost.Children.Add(advanced);
@@ -406,11 +421,10 @@ public static class AiDialogs
             if (service != null) service.SelectedEngine = previousEngine;
         }
         if (!accepted) return null;
-        settings.AiOriginalSize = originalSize; settings.AiMegapixels = mp; settings.AiVariants = variants; settings.AiApiQuality = quality;
-        settings.AiExpansionMode = expansionMode; settings.AiExpansionMinimumSide = regionSide; settings.AiWholeExpansionMinimumSide = wholeSide;
+        settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         if (chosenEngine != null) settings.AiTaskEngineIds[task.ToString()] = chosenEngine.Id;
         settings.Save();
-        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, settings.AiSeed, chosenEngine?.Id);
+        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, profile.Seed, chosenEngine?.Id);
     }
 
     private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));

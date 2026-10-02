@@ -31,6 +31,10 @@ Defaults are migrated once for existing preferences: Original size; FLUX 16 px g
 
 FLUX Generative Fill now keeps independent defaults of 4 px grow / 8 px blend / 4 px conditioning blur / context 1.2. Existing preferences gain these Fill values without changing Expand or GPT. Its Advanced dialog and selection-context preview use this independent set.
 
+All Advanced and generation preferences now belong to a **workflow + task** profile: dimensions, reference resizing, masks/context, color match, seed, variants/execution, LoRAs, paid quality and expansion/upscale sizes. Existing preferences seed every other profile unchanged. FLUX Expand starts with Original size, 1 MP references, List execution, 16/48/16 px, context 2, Color match subtle and seed −1. Switching workflows restores that task's values; cancelling a generation dialog does not save its unaccepted drafts. Advanced identifies its operation in the title.
+
+Original-size FLUX masked crops no longer undergo two inverse resizes to fit the VAE. Stock padding nodes add only technical right/bottom pixels, and the decoded crop is clipped into its saved source coordinates without scaling. Unexpected output dimensions are rejected. MP budgets and explicit Expand minimum-side requests still intentionally resize. This prevents host-side subpixel drift but cannot prevent a generative model from redrawing or moving details.
+
 ## Engine Packs and task bindings
 
 An Engine Profile describes a complete compatible pipeline: workflows, task bindings, required node types and model assets, supported parameters, LoRA rules, semantic inputs, output nodes, and version compatibility. Weights stay on the ComfyUI server.

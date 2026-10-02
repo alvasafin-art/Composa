@@ -83,6 +83,8 @@ public class SmartObjectUiTests
         advanced.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.SelectedItem?.ToString() == "List · lower VRAM").SelectedIndex = 1;
         advanced.Close(true); Dispatcher.UIThread.RunJobs();
         Assert.Equal("2", prompt.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 60).SelectedItem);
-        prompt.Close(true); Assert.NotNull(await asking); Assert.Equal(2, settings.AiVariants); Assert.Equal(Composa.AI.AiVariantMode.Batch, settings.AiVariantMode); window.Close();
+        prompt.Close(true); Assert.NotNull(await asking);
+        var profile = settings.OperationFor(null,Composa.AI.AiTaskKind.GenerativeFill);
+        Assert.Equal(2, profile.Variants); Assert.Equal(Composa.AI.AiVariantMode.Batch, profile.VariantMode); window.Close();
     }
 }

@@ -15,6 +15,8 @@ internal sealed class EditableMaskedWorkflow : IDisposable
     private readonly AiTaskRequest request;
     private readonly int grow;
     private readonly int blend;
+    private bool nativePixels;
+    internal (int Width, int Height) GenerationSize { get; private set; }
 
     internal EditableMaskedWorkflow(AiTaskInputs inputs, AiTaskRequest request)
     {
@@ -44,6 +46,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         var crop = graph["crop"]!["inputs"]!.AsObject();
         var image = crop["image"]!.DeepClone(); var mask = crop["mask"]!.DeepClone();
         var original = Convert.ToBoolean(request.Settings.Values.GetValueOrDefault("imageOriginalSize") ?? false);
+        nativePixels = original && (request.Task != AiTaskKind.GenerativeExpand || request.ExpansionMinimumSide == 0);
         var width = inputs.CanvasWidth; var height = inputs.CanvasHeight;
         if (request.Task == AiTaskKind.GenerativeExpand)
             (width, height) = AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, Bounds.Width, Bounds.Height);
@@ -53,18 +56,41 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             var scale = Math.Sqrt((double)width * height / Bounds.Width / Bounds.Height);
             width = Math.Max(1, (int)Math.Round(Bounds.Width * scale)); height = Math.Max(1, (int)Math.Round(Bounds.Height * scale));
         }
-        if (Math.Min(width, height) < 64) (width,height) = AiDimensions.FromMinimumSide(64,width,height);
-        width = Math.Max(16, (int)Math.Round(width / 16.0) * 16); height = Math.Max(16, (int)Math.Round(height / 16.0) * 16);
+        if (nativePixels)
+        {
+            // Original means original pixels, not two inverse resizes. Pad only right/bottom
+            // for the VAE; the saved crop origin and mask never move by half a pixel.
+            width = Math.Max(64, (Bounds.Width + 15) / 16 * 16);
+            height = Math.Max(64, (Bounds.Height + 15) / 16 * 16);
+        }
+        else
+        {
+            if (Math.Min(width, height) < 64) (width,height) = AiDimensions.FromMinimumSide(64,width,height);
+            width = Math.Max(16, (int)Math.Round(width / 16.0) * 16); height = Math.Max(16, (int)Math.Round(height / 16.0) * 16);
+        }
+        GenerationSize = (width,height);
         if (!Composa.Model.DocumentLimits.FitsSurface(width,height)) throw new InvalidOperationException("The generated context exceeds the image surface limit.");
         JsonObject Node(string type, JsonObject values) => new() { ["class_type"] = type, ["inputs"] = values };
         graph["composa_edit_crop"] = Node("ImageCrop", new() { ["image"] = image, ["x"] = Bounds.Left, ["y"] = Bounds.Top, ["width"] = Bounds.Width, ["height"] = Bounds.Height });
-        graph["composa_edit_size"] = Node("ImageScale", new() { ["image"] = new JsonArray("composa_edit_crop", 0), ["width"] = width, ["height"] = height, ["upscale_method"] = "lanczos", ["crop"] = "disabled" });
+        graph["composa_edit_size"] = nativePixels
+            ? Node("ImagePadForOutpaint", new() { ["image"] = new JsonArray("composa_edit_crop",0),
+                ["left"] = 0, ["top"] = 0, ["right"] = width-Bounds.Width, ["bottom"] = height-Bounds.Height, ["feathering"] = 0 })
+            : Node("ImageScale", new() { ["image"] = new JsonArray("composa_edit_crop", 0), ["width"] = width, ["height"] = height, ["upscale_method"] = "lanczos", ["crop"] = "disabled" });
         graph["composa_edit_mask_grow"] = Node("GrowMask", new() { ["mask"] = mask, ["expand"] = grow, ["tapered_corners"] = true });
         graph["composa_edit_mask_crop"] = Node("CropMask", new() { ["mask"] = new JsonArray("composa_edit_mask_grow", 0), ["x"] = Bounds.Left, ["y"] = Bounds.Top, ["width"] = Bounds.Width, ["height"] = Bounds.Height });
-        graph["composa_edit_mask_image"] = Node("MaskToImage", new() { ["mask"] = new JsonArray("composa_edit_mask_crop", 0) });
+        var croppedMask = "composa_edit_mask_crop";
+        if (nativePixels)
+        {
+            graph["composa_edit_empty_mask"] = Node("SolidMask", new() { ["value"] = 0.0, ["width"] = width, ["height"] = height });
+            graph["composa_edit_padded_mask"] = Node("MaskComposite", new() { ["destination"] = new JsonArray("composa_edit_empty_mask",0),
+                ["source"] = new JsonArray(croppedMask,0), ["x"] = 0, ["y"] = 0, ["operation"] = "add" });
+            croppedMask = "composa_edit_padded_mask";
+        }
+        graph["composa_edit_mask_image"] = Node("MaskToImage", new() { ["mask"] = new JsonArray(croppedMask, 0) });
         graph["composa_edit_mask_size"] = Node("ImageScale", new() { ["image"] = new JsonArray("composa_edit_mask_image", 0), ["width"] = width, ["height"] = height, ["upscale_method"] = "bilinear", ["crop"] = "disabled" });
         var blur = Value("maskBlur", 16);
-        var last = "composa_edit_mask_size";
+        var last = nativePixels ? "composa_edit_mask_image" : "composa_edit_mask_size";
+        if (nativePixels) graph.Remove("composa_edit_mask_size");
         if (blur > 0)
         {
             graph["composa_edit_mask_blur"] = Node("ImageBlur", new() { ["image"] = new JsonArray(last, 0), ["blur_radius"] = Math.Clamp(blur * 3, 1, Math.Min(31, Math.Min(width, height) - 1)), ["sigma"] = Math.Min(10, Math.Max(0.1, blur / 3.0)) });
@@ -80,7 +106,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
                         fields[key] = new JsonArray(slot == (pixaroma ? 0 : 1) ? "composa_edit_size" : "composa_edit_mask", 0);
                     }
         // Sampling is larger than final coverage. Its halo/conditioning never becomes layer alpha.
-        graph["composa_sampling_mask"]!["inputs"]!["expand"] = (int)Math.Ceiling((grow + blend) * Math.Max((double)width / Bounds.Width, (double)height / Bounds.Height)) + 3 * blur;
+        graph["composa_sampling_mask"]!["inputs"]!["expand"] = (int)Math.Ceiling((grow + blend) * (nativePixels ? 1 : Math.Max((double)width / Bounds.Width, (double)height / Bounds.Height))) + 3 * blur;
         graph["save"]!["inputs"]!["images"] = new JsonArray("decode", 0);
         graph.Remove("stitch"); graph.Remove("crop");
     }
@@ -89,19 +115,27 @@ internal sealed class EditableMaskedWorkflow : IDisposable
     {
         using (decoded)
         {
+            if (nativePixels && (decoded.Width,decoded.Height) != GenerationSize)
+                throw new InvalidDataException($"FLUX returned {decoded.Width} × {decoded.Height}; expected {GenerationSize.Width} × {GenerationSize.Height}. Refusing to stretch Original size pixels.");
             var result = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
             using (var canvas = new SKCanvas(result))
             using (var paint = new SKPaint { BlendMode = SKBlendMode.Src })
             {
-                if (decoded.Width == Bounds.Width && decoded.Height == Bounds.Height) canvas.DrawImage(Pixels.ImageOf(decoded),Bounds.Left,Bounds.Top,paint);
+                if (nativePixels)
+                {
+                    canvas.ClipRect(new SKRect(Bounds.Left,Bounds.Top,Bounds.Right,Bounds.Bottom));
+                    canvas.DrawImage(Pixels.ImageOf(decoded),Bounds.Left,Bounds.Top,paint);
+                }
+                else if (decoded.Width == Bounds.Width && decoded.Height == Bounds.Height) canvas.DrawImage(Pixels.ImageOf(decoded),Bounds.Left,Bounds.Top,paint);
                 else canvas.DrawImage(Pixels.ImageOf(decoded), new SKRect(Bounds.Left, Bounds.Top, Bounds.Right, Bounds.Bottom),
                     new SKSamplingOptions(SKCubicResampler.Mitchell), paint);
             }
             Pixels.Invalidate(result);
             if (request.Settings.Values.GetValueOrDefault("colorMatch")?.ToString() is "subtle" or "strong"
-                && request.Task is not (AiTaskKind.GenerativeExpand or AiTaskKind.ChangeBackground))
+                && request.Task != AiTaskKind.ChangeBackground)
             {
-                var matched = AiResultPostprocessor.MatchRemoval(result,inputs.ContextImage,Mask,inputs.Seed);
+                using var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
+                var matched = AiResultPostprocessor.MatchRemoval(result,context,Mask,inputs.Seed);
                 result.Dispose(); return matched;
             }
             return result;

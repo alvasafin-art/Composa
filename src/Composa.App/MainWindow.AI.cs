@@ -30,6 +30,12 @@ public sealed partial class MainWindow
     private Point? aiFloatingPinnedPosition;
     private Point? aiFloatingDragStart;
     private Point aiFloatingDragPosition;
+    private bool refreshingAiVariants;
+    private AiOperationSettings AiOptions(AiTaskKind task, EngineProfile? engine = null)
+    {
+        engine ??= aiTasks.EngineFor(task);
+        return settings.OperationFor(engine?.Id, task, engine?.PaidApi == true);
+    }
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly StackPanel aiProgressHost = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
     private readonly Canvas aiFloatingLayer = new();
@@ -151,12 +157,11 @@ public sealed partial class MainWindow
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
         {
             var bounds = SelectionMask.Bounds(selection, 1);
+            var profile = AiOptions(AiTaskKind.GenerativeFill);
             if (!bounds.IsEmpty)
                 context = aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.PaidApi == true
-                    ? AiContextGeometry.Padded(bounds, session.Document.Bounds, settings.AiGptContextPadding)
-                    : aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id == "flux2-klein-intel-xpu"
-                        ? AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, settings.AiFluxFillMaskBlend, settings.AiFluxFillMaskContext)
-                        : AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, settings.AiMaskBlend, settings.AiMaskContext);
+                    ? AiContextGeometry.Padded(bounds, session.Document.Bounds, profile.GptContextPadding)
+                    : AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, profile.MaskBlend, profile.MaskContext);
         }
         canvas.AiContextBounds = context;
     }
@@ -227,8 +232,14 @@ public sealed partial class MainWindow
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, HorizontalAlignment = HorizontalAlignment.Right };
         actions.Children.Add(aiFloatingMore);
         actions.Children.Add(aiFloatingRemove);
-        aiVariantsCombo = Ui.Combo(new[] { 1, 2, 3 }, Math.Clamp(settings.AiVariants, 1, 3),
-            value => value.ToString(), value => { settings.AiVariants = value; settings.Save(); RefreshAiFloatingUi(); }, 60);
+        aiVariantsCombo = Ui.Combo(new[] { 1, 2, 3 }, Math.Clamp(AiOptions(AiTaskKind.GenerativeFill).Variants, 1, 3),
+            value => value.ToString(), value =>
+            {
+                if (refreshingAiVariants) return;
+                var engine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
+                settings.SetOperation(engine?.Id, AiTaskKind.GenerativeFill, AiOptions(AiTaskKind.GenerativeFill, engine) with { Variants = value });
+                settings.Save(); RefreshAiFloatingUi();
+            }, 60);
         aiVariantsCombo.MinWidth = 0; aiVariantsCombo.Padding = new Thickness(9, 5);
         ToolTip.SetTip(aiVariantsCombo, "Number of variants · 1, 2 or 3");
         // A split action: one silhouette, a straight seam, independent keyboard-accessible controls.
@@ -283,7 +294,15 @@ public sealed partial class MainWindow
         aiFloatingHost.IsVisible = visible;
         if (!visible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
-        if (aiVariantsCombo != null) { aiVariantsCombo.SelectedIndex = Math.Clamp(settings.AiVariants, 1, 3) - 1; aiVariantsCombo.IsEnabled = !busy; }
+        var fillEngine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
+        var fillProfile = AiOptions(AiTaskKind.GenerativeFill, fillEngine);
+        if (aiVariantsCombo != null)
+        {
+            refreshingAiVariants = true;
+            try { aiVariantsCombo.SelectedIndex = Math.Clamp(fillProfile.Variants, 1, 3) - 1; }
+            finally { refreshingAiVariants = false; }
+            aiVariantsCombo.IsEnabled = !busy;
+        }
         if (aiEngineCombo != null)
         {
             var index = aiTasks.Engines.Profiles.ToList().FindIndex(profile => profile.Id == aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id);
@@ -306,12 +325,11 @@ public sealed partial class MainWindow
             _ => ""
         });
         aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
-        var fillEngine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
         aiApiCost.IsVisible = fillEngine?.PaidApi == true;
         if (aiApiCost.IsVisible)
         {
             var count = 1 + aiReferences.Count; // cropped source and genuine user references only
-            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, settings.AiApiQuality, "Custom", count, Math.Clamp(settings.AiVariants, 1, 3));
+            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, Math.Clamp(fillProfile.Variants, 1, 3));
             aiApiCost.Text = operation?.CreditsUsed is { } credits ? PartnerPricing.Reported(credits) : estimate?.Label ?? "Paid API · estimate unavailable";
             ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and includes the cropped source, user references and all variants. Actual charges may differ. Local ComfyUI does not expose the account balance. The edit mask stays in Composa and is not a billed input.");
         }
@@ -521,8 +539,9 @@ public sealed partial class MainWindow
     private async Task ShowAiAdvanced()
     {
         var previous = aiTasks.SelectedEngine;
-        aiTasks.SelectedEngine = aiTasks.EngineFor(session?.Selection != null ? AiTaskKind.GenerativeFill : AiTaskKind.ImageEdit);
-        try { await AiDialogs.Advanced(this, settings, aiTasks); }
+        var task = session?.Selection != null ? AiTaskKind.GenerativeFill : AiTaskKind.ImageEdit;
+        aiTasks.SelectedEngine = aiTasks.EngineFor(task);
+        try { await AiDialogs.Advanced(this, settings, aiTasks, task); }
         finally { aiTasks.SelectedEngine = previous; RefreshAiUi(); }
     }
 
@@ -543,13 +562,14 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.Upscale && session is { } upscaleSession)
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
-            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null)) return;
+            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, aiTasks.EngineFor(task))) return;
         }
         var aspect = AiAspect(task);
-        var fallback = settings.AiOriginalSize ? aspect : AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Width, aspect.Height);
+        var profile = AiOptions(task);
+        var fallback = profile.OriginalSize ? aspect : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
         if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene))
-            options = new(initialPrompt, fallback.Width, fallback.Height, settings.AiSeed);
+            options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed);
         else
         {
             var host = new StackPanel { Name = "AiDialogReferences", Spacing = 5, MaxWidth = 430 };
@@ -571,7 +591,7 @@ public sealed partial class MainWindow
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
         var engine = aiTasks.EngineFor(task, options.EngineId);
-        var fluxFill = task == AiTaskKind.GenerativeFill && engine?.Id == "flux2-klein-intel-xpu";
+        profile = AiOptions(task, engine);
         try
         {
             var request = new AiTaskRequest
@@ -580,28 +600,23 @@ public sealed partial class MainWindow
                 EngineId = engine?.Id,
                 SelectionRegion = selectionRegion, SelectionOperation = selectionOperation,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : options.Prompt,
-                ExpansionMode = settings.AiExpansionMode,
-                ExpansionMinimumSide = settings.AiExpansionMode == AiExpansionMode.WholeImage ? settings.AiWholeExpansionMinimumSide : settings.AiExpansionMinimumSide,
+                ExpansionMode = profile.ExpansionMode,
+                ExpansionMinimumSide = profile.ExpansionMode == AiExpansionMode.WholeImage ? profile.WholeExpansionMinimumSide : profile.ExpansionMinimumSide,
                 ReferenceImages = aiReferences.Select(item => item.Pixels).ToList(),
-                ReferenceMegapixels = settings.AiReferenceMegapixels,
+                ReferenceMegapixels = profile.ReferenceMegapixels,
                 ExpansionBounds = task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop && canvas.CropRect is { } crop
                     ? new SKRectI((int)Math.Floor(crop.Left), (int)Math.Floor(crop.Top), (int)Math.Ceiling(crop.Right), (int)Math.Ceiling(crop.Bottom)) : null,
                 Settings = new AiGenerationSettings
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
-                    Variants = Math.Clamp(settings.AiVariants, 1, 3), VariantMode = settings.AiVariantMode,
-                    Loras = engine?.Lora.Supported == true && settings.AiLorasEnabled
-                        ? settings.AiLoras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
-                    UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
-                    Values = new Dictionary<string, object?> { ["maskGrow"] = engine?.PaidApi == true ? settings.AiGptMaskGrow
-                            : fluxFill ? settings.AiFluxFillMaskGrow : settings.AiMaskGrow,
-                        ["maskBlend"] = engine?.PaidApi == true ? settings.AiGptMaskBlend
-                            : fluxFill ? settings.AiFluxFillMaskBlend : settings.AiMaskBlend,
-                        ["maskContext"] = fluxFill ? settings.AiFluxFillMaskContext : settings.AiMaskContext,
-                        ["maskBlur"] = fluxFill ? settings.AiFluxFillMaskBlur : settings.AiMaskBlur,
-                        ["colorMatch"] = settings.AiColorMatch,
-                        ["gptContextPadding"] = settings.AiGptContextPadding,
-                        ["apiQuality"] = settings.AiApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = settings.AiOriginalSize }
+                    Variants = Math.Clamp(profile.Variants, 1, 3), VariantMode = profile.VariantMode,
+                    Loras = engine?.Lora.Supported == true && profile.LorasEnabled
+                        ? profile.Loras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
+                    UpscaleFactor = profile.UpscaleFactor == 4 ? 4 : 2,
+                    Values = new Dictionary<string, object?> { ["maskGrow"] = profile.MaskGrow, ["maskBlend"] = profile.MaskBlend,
+                        ["maskContext"] = profile.MaskContext, ["maskBlur"] = profile.MaskBlur, ["colorMatch"] = profile.ColorMatch,
+                        ["gptContextPadding"] = profile.GptContextPadding,
+                        ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);

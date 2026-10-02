@@ -91,6 +91,36 @@ public sealed class Settings
     public Composa.AI.AiVariantMode AiVariantMode { get; set; } = Composa.AI.AiVariantMode.List;
     public int AiUpscaleFactor { get; set; } = 2;
     public List<AiLoraSetting> AiLoras { get; set; } = [];
+    /// <summary>Advanced/generation preferences are independent for every workflow and editor task.</summary>
+    public Dictionary<string, AiOperationSettings> AiOperations { get; set; } = [];
+
+    private static string OperationKey(string? engineId, Composa.AI.AiTaskKind task) =>
+        (engineId ?? "default") + "/" + (task == Composa.AI.AiTaskKind.SelectSubject ? Composa.AI.AiTaskKind.ObjectSelection : task);
+
+    public AiOperationSettings OperationFor(string? engineId, Composa.AI.AiTaskKind task, bool paid = false)
+    {
+        if (AiOperations.TryGetValue(OperationKey(engineId, task), out var saved)) return saved with { Loras = [..saved.Loras] };
+        // Legacy fields are a read-only migration seed. Editing one profile never changes another seed.
+        var fill = engineId == "flux2-klein-intel-xpu" && task == Composa.AI.AiTaskKind.GenerativeFill;
+        var profile = new AiOperationSettings
+        {
+            OriginalSize = AiOriginalSize, Megapixels = AiMegapixels, ReferenceMegapixels = AiReferenceMegapixels,
+            MaskGrow = paid ? AiGptMaskGrow : fill ? AiFluxFillMaskGrow : AiMaskGrow,
+            MaskBlend = paid ? AiGptMaskBlend : fill ? AiFluxFillMaskBlend : AiMaskBlend,
+            MaskBlur = fill ? AiFluxFillMaskBlur : AiMaskBlur, MaskContext = fill ? AiFluxFillMaskContext : AiMaskContext,
+            ColorMatch = AiColorMatch, GptContextPadding = AiGptContextPadding,
+            Seed = AiSeed, Variants = AiVariants, VariantMode = AiVariantMode,
+            LorasEnabled = AiLorasEnabled, Loras = [..AiLoras], ApiQuality = AiApiQuality, UpscaleFactor = AiUpscaleFactor,
+            ExpansionMode = AiExpansionMode, ExpansionMinimumSide = AiExpansionMinimumSide, WholeExpansionMinimumSide = AiWholeExpansionMinimumSide
+        };
+        return engineId == "flux2-klein-intel-xpu" && task == Composa.AI.AiTaskKind.GenerativeExpand
+            ? profile with { OriginalSize = true, ReferenceMegapixels = 1, VariantMode = Composa.AI.AiVariantMode.List,
+                MaskGrow = 16, MaskBlend = 48, MaskBlur = 16, MaskContext = 2, ColorMatch = "subtle", Seed = -1 }
+            : profile;
+    }
+
+    public void SetOperation(string? engineId, Composa.AI.AiTaskKind task, AiOperationSettings profile) =>
+        AiOperations[OperationKey(engineId, task)] = profile with { Loras = [..profile.Loras] };
     public List<string> CustomLayerTags { get; set; } = [];
 
     public string AssistantServerUrl { get; set; } = "http://127.0.0.1:8080";
@@ -174,3 +204,26 @@ public sealed record DockPanelState(bool Visible = true, bool Collapsed = false,
 
 public sealed record AiLoraSetting(string Name = "", double Strength = 1, bool Enabled = true);
 public sealed record AiPromptSetting(bool Enabled, string Text);
+
+public sealed record AiOperationSettings
+{
+    public bool OriginalSize { get; init; } = true;
+    public double Megapixels { get; init; } = 1;
+    public double? ReferenceMegapixels { get; init; } = 1;
+    public int MaskGrow { get; init; } = 16;
+    public int MaskBlend { get; init; } = 48;
+    public int MaskBlur { get; init; } = 16;
+    public double MaskContext { get; init; } = 2;
+    public string ColorMatch { get; init; } = "off";
+    public int GptContextPadding { get; init; }
+    public long Seed { get; init; } = -1;
+    public int Variants { get; init; } = 1;
+    public Composa.AI.AiVariantMode VariantMode { get; init; } = Composa.AI.AiVariantMode.List;
+    public bool LorasEnabled { get; init; }
+    public List<AiLoraSetting> Loras { get; init; } = [];
+    public string ApiQuality { get; init; } = "low";
+    public int UpscaleFactor { get; init; } = 2;
+    public Composa.AI.AiExpansionMode ExpansionMode { get; init; } = Composa.AI.AiExpansionMode.MaskedRegion;
+    public int ExpansionMinimumSide { get; init; } = 1024;
+    public int WholeExpansionMinimumSide { get; init; }
+}

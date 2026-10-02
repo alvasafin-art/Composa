@@ -140,7 +140,7 @@ public class AiVariantsTests
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-            var nodes = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu").RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "RepeatLatentBatch", "GrowMask", "ThresholdMask", "ImageCrop", "ImageScale", "CropMask", "MaskToImage", "ImageBlur" }).ToHashSet();
+            var nodes = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu").RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "RepeatLatentBatch", "GrowMask", "ThresholdMask", "ImageCrop", "ImageScale", "CropMask", "MaskToImage", "ImageBlur", "ImagePadForOutpaint", "SolidMask", "MaskComposite" }).ToHashSet();
             return Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), new ComfyServerCapabilities { Version = "1.0", NodeTypes = nodes }));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
