@@ -29,6 +29,8 @@ After a selection finishes, a dashed **AI context** rectangle previews the Fill 
 
 Defaults are migrated once for existing preferences: Original size; FLUX 16 px grow / 48 px blend / 16 px conditioning blur / color match off / context 2; GPT 4 px grow / 8 px blend / padding 0; LoRAs off. Later user changes survive reopening and relaunch. Model paths, server URL and custom pack assignments are preserved.
 
+FLUX Generative Fill now keeps independent defaults of 4 px grow / 8 px blend / 4 px conditioning blur / context 1.2. Existing preferences gain these Fill values without changing Expand or GPT. Its Advanced dialog and selection-context preview use this independent set.
+
 ## Engine Packs and task bindings
 
 An Engine Profile describes a complete compatible pipeline: workflows, task bindings, required node types and model assets, supported parameters, LoRA rules, semantic inputs, output nodes, and version compatibility. Weights stay on the ComfyUI server.

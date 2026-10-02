@@ -154,7 +154,9 @@ public sealed partial class MainWindow
             if (!bounds.IsEmpty)
                 context = aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.PaidApi == true
                     ? AiContextGeometry.Padded(bounds, session.Document.Bounds, settings.AiGptContextPadding)
-                    : AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, settings.AiMaskBlend, settings.AiMaskContext);
+                    : aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id == "flux2-klein-intel-xpu"
+                        ? AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, settings.AiFluxFillMaskBlend, settings.AiFluxFillMaskContext)
+                        : AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, settings.AiMaskBlend, settings.AiMaskContext);
         }
         canvas.AiContextBounds = context;
     }
@@ -569,6 +571,7 @@ public sealed partial class MainWindow
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
         var engine = aiTasks.EngineFor(task, options.EngineId);
+        var fluxFill = task == AiTaskKind.GenerativeFill && engine?.Id == "flux2-klein-intel-xpu";
         try
         {
             var request = new AiTaskRequest
@@ -590,9 +593,13 @@ public sealed partial class MainWindow
                     Loras = engine?.Lora.Supported == true && settings.AiLorasEnabled
                         ? settings.AiLoras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
                     UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
-                    Values = new Dictionary<string, object?> { ["maskGrow"] = engine?.PaidApi == true ? settings.AiGptMaskGrow : settings.AiMaskGrow,
-                        ["maskBlend"] = engine?.PaidApi == true ? settings.AiGptMaskBlend : settings.AiMaskBlend,
-                        ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch,
+                    Values = new Dictionary<string, object?> { ["maskGrow"] = engine?.PaidApi == true ? settings.AiGptMaskGrow
+                            : fluxFill ? settings.AiFluxFillMaskGrow : settings.AiMaskGrow,
+                        ["maskBlend"] = engine?.PaidApi == true ? settings.AiGptMaskBlend
+                            : fluxFill ? settings.AiFluxFillMaskBlend : settings.AiMaskBlend,
+                        ["maskContext"] = fluxFill ? settings.AiFluxFillMaskContext : settings.AiMaskContext,
+                        ["maskBlur"] = fluxFill ? settings.AiFluxFillMaskBlur : settings.AiMaskBlur,
+                        ["colorMatch"] = settings.AiColorMatch,
                         ["gptContextPadding"] = settings.AiGptContextPadding,
                         ["apiQuality"] = settings.AiApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = settings.AiOriginalSize }
                 }

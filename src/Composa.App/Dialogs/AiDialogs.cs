@@ -184,9 +184,11 @@ public static class AiDialogs
         var originalSize = settings.AiOriginalSize;
         var reference = settings.AiReferenceMegapixels;
         var paid = service?.SelectedEngine?.PaidApi == true;
-        var grow = paid ? settings.AiGptMaskGrow : settings.AiMaskGrow;
-        var blend = paid ? settings.AiGptMaskBlend : settings.AiMaskBlend; var context = settings.AiMaskContext;
-        var blur = settings.AiMaskBlur; var colorMatch = settings.AiColorMatch;
+        var fluxFill = task == AiTaskKind.GenerativeFill && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu";
+        var grow = paid ? settings.AiGptMaskGrow : fluxFill ? settings.AiFluxFillMaskGrow : settings.AiMaskGrow;
+        var blend = paid ? settings.AiGptMaskBlend : fluxFill ? settings.AiFluxFillMaskBlend : settings.AiMaskBlend;
+        var context = fluxFill ? settings.AiFluxFillMaskContext : settings.AiMaskContext;
+        var blur = fluxFill ? settings.AiFluxFillMaskBlur : settings.AiMaskBlur; var colorMatch = settings.AiColorMatch;
         var seed = settings.AiSeed; var mode = settings.AiVariantMode;
         var gptContext = Math.Clamp(settings.AiGptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
         var quality = settings.AiApiQuality;
@@ -249,6 +251,11 @@ public static class AiDialogs
         if (!await new DialogWindow("AI · Advanced", body).Ask(owner)) return false;
         settings.AiMegapixels = mp; settings.AiOriginalSize = originalSize; settings.AiReferenceMegapixels = reference;
         if (paid) { settings.AiGptMaskGrow = grow; settings.AiGptMaskBlend = blend; }
+        else if (fluxFill)
+        {
+            settings.AiFluxFillMaskGrow = grow; settings.AiFluxFillMaskBlend = blend;
+            settings.AiFluxFillMaskContext = context; settings.AiFluxFillMaskBlur = blur; settings.AiColorMatch = colorMatch;
+        }
         else { settings.AiMaskGrow = grow; settings.AiMaskBlend = blend; settings.AiMaskContext = context; settings.AiMaskBlur = blur; settings.AiColorMatch = colorMatch; }
         if (paid) settings.AiGptContextPadding = gptContext;
         settings.AiSeed = seed; settings.AiVariantMode = mode;

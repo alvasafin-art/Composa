@@ -48,6 +48,18 @@ public class AiEditableOutputTests
         var reloaded=Settings.FromJson(json); Assert.Equal((20,10),(reloaded.AiMaskBlend,reloaded.AiGptContextPadding)); Assert.Equal("http://server:8188",reloaded.ComfyServerUrl);
         reloaded.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)]=""; Assert.Null(reloaded.EngineForTask(AiTaskKind.GenerativeFill));
     }
+
+    [Fact]
+    public void Flux_fill_defaults_upgrade_existing_preferences_without_changing_other_tasks_and_roundtrip()
+    {
+        var settings = Settings.FromJson("""{"AiDefaultsRevision":1,"AiMaskGrow":16,"AiMaskBlend":48,"AiMaskBlur":16,"AiMaskContext":2,"AiGptMaskGrow":4,"AiGptMaskBlend":8}""");
+        Assert.Equal((4,8,4,1.2), (settings.AiFluxFillMaskGrow,settings.AiFluxFillMaskBlend,settings.AiFluxFillMaskBlur,settings.AiFluxFillMaskContext));
+        Assert.Equal((16,48,16,2.0), (settings.AiMaskGrow,settings.AiMaskBlend,settings.AiMaskBlur,settings.AiMaskContext));
+        Assert.Equal((4,8), (settings.AiGptMaskGrow,settings.AiGptMaskBlend));
+        settings.AiFluxFillMaskContext = 1.5; settings.AiFluxFillMaskBlend = 12;
+        var reloaded = Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(settings));
+        Assert.Equal((4,12,4,1.5), (reloaded.AiFluxFillMaskGrow,reloaded.AiFluxFillMaskBlend,reloaded.AiFluxFillMaskBlur,reloaded.AiFluxFillMaskContext));
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -139,9 +151,10 @@ public class AiEditableOutputTests
         {
             Assert.False(w.Settings.AiLorasEnabled); Assert.Equal((16,48,16,"off"), (w.Settings.AiMaskGrow,w.Settings.AiMaskBlend,w.Settings.AiMaskBlur,w.Settings.AiColorMatch));
             Assert.Equal((4,8,0),(w.Settings.AiGptMaskGrow,w.Settings.AiGptMaskBlend,w.Settings.AiGptContextPadding));
+            Assert.Equal((4,8,4,1.2),(w.Settings.AiFluxFillMaskGrow,w.Settings.AiFluxFillMaskBlend,w.Settings.AiFluxFillMaskBlur,w.Settings.AiFluxFillMaskContext));
             Assert.False(w.AiTasks.EngineFor(AiTaskKind.GenerativeExpand)!.PaidApi); Assert.False(w.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
             var s = EditorSession.NewCanvas(641,423,SKColors.White); w.AddSession(s); w.AiTasks.SetConnectedForTests(); s.SelectRect(new SKRect(250,160,330,240));
-            Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240),s.Document.Bounds,0,48,2),w.Canvas.AiContextBounds);
+            Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240),s.Document.Bounds,0,8,1.2),w.Canvas.AiContextBounds);
             Assert.True(Screenshots.Save(w,"ai-context-bounds"));
             w.Settings.AiShowContextBounds = false; w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.Null(w.Canvas.AiContextBounds);
             w.Settings.AiShowContextBounds = true; w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.NotNull(w.Canvas.AiContextBounds);

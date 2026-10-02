@@ -12,6 +12,29 @@ namespace Composa.App.Tests;
 public class AiAdvancedTests
 {
     [AvaloniaFact]
+    public async Task Flux_fill_advanced_uses_its_own_defaults_without_overwriting_expand_or_gpt()
+    {
+        var window = new MainWindow(); window.Settings.CheckForUpdates = false; window.Show();
+        try
+        {
+            var settings = new Settings();
+            window.AiTasks.SelectedEngine = window.AiTasks.Engines.Find("flux2-klein-intel-xpu");
+            foreach (var task in new[] { AiTaskKind.GenerativeFill, AiTaskKind.GenerativeExpand })
+            {
+                var pending = AiDialogs.Advanced(window, settings, window.AiTasks, task); Dispatcher.UIThread.RunJobs();
+                var dialog = Assert.Single(window.OwnedWindows);
+                var values = dialog.GetVisualDescendants().OfType<Composa.App.Controls.SliderField>().Take(4).Select(field => Math.Round(field.Value, 6)).ToArray();
+                Assert.Equal(task == AiTaskKind.GenerativeFill ? new[] { 4.0,8,4,1.2 } : new[] { 16.0,48,16,2 }, values);
+                dialog.Close(true); Assert.True(await pending);
+            }
+            Assert.Equal((4,8,4,1.2), (settings.AiFluxFillMaskGrow,settings.AiFluxFillMaskBlend,settings.AiFluxFillMaskBlur,settings.AiFluxFillMaskContext));
+            Assert.Equal((16,48,16,2.0), (settings.AiMaskGrow,settings.AiMaskBlend,settings.AiMaskBlur,settings.AiMaskContext));
+            Assert.Equal((4,8,0), (settings.AiGptMaskGrow,settings.AiGptMaskBlend,settings.AiGptContextPadding));
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Local_advanced_has_three_loras_and_paid_advanced_hides_local_model_controls()
     {
         var window = new MainWindow { Width = 1280, Height = 900 }; window.Settings.CheckForUpdates = false; window.Show();

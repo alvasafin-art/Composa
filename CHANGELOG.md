@@ -4,6 +4,14 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.11] - 2026-10-02
+
+### Changed
+
+- FLUX Generative Fill starts with Mask grow 4 px, Mask blend 8 px, conditioning blur 4 px and Mask context 1.2. Its values persist independently of Expand and other local operations; existing GPT settings remain unchanged. Context preview uses the Fill-specific values.
+
+Verification: 745 automated tests passed, including migration, persistence, Advanced controls and context bounds.
+
 ## [1.2.1-preview.10] - 2026-10-02
 
 ### Added

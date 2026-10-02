@@ -61,6 +61,11 @@ public sealed class Settings
     public int AiMaskGrow { get; set; } = 16;
     public int AiMaskBlend { get; set; } = 48;
     public int AiMaskBlur { get; set; } = 16;
+    /// <summary>FLUX Fill keeps its smaller context and soft edge independently of other operations.</summary>
+    public int AiFluxFillMaskGrow { get; set; } = 4;
+    public int AiFluxFillMaskBlend { get; set; } = 8;
+    public int AiFluxFillMaskBlur { get; set; } = 4;
+    public double AiFluxFillMaskContext { get; set; } = 1.2;
     public string AiColorMatch { get; set; } = "off";
     public int AiGptMaskGrow { get; set; } = 4;
     public int AiGptMaskBlend { get; set; } = 8;
