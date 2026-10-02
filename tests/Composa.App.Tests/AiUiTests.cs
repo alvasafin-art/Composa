@@ -38,7 +38,7 @@ public class AiUiTests
         var defaultEngine = window.AiTasks.SelectedEngine;
         engines.SelectedIndex = 1; Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
         Assert.Same(defaultEngine, window.AiTasks.SelectedEngine);
-        Assert.Same(defaultEngine, window.AiTasks.EngineFor(AiTaskKind.GenerateImage));
+        Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerateImage)!.PaidApi);
         Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
         Assert.True(Screenshots.Save(window, "ai-gpt-pack-compact-panel")); window.Close();
     }
@@ -62,6 +62,13 @@ public class AiUiTests
         window.MouseDown(at, MouseButton.Left); window.MouseMove(at + new Vector(30, -25), RawInputModifiers.LeftMouseButton); window.MouseUp(at + new Vector(30, -25), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(original.Y - 25, Canvas.GetTop(panel), 1); Assert.Equal(original.X + 30, Canvas.GetLeft(panel), 1);
+        var pinned = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
+        session.SelectRect(new SKRect(320, 210, 400, 290)); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
+        var close = header.GetVisualDescendants().OfType<Button>().Single(button => button.Content as string == "×");
+        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        session.SelectRect(new SKRect(100, 10, 200, 70)); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(window.Canvas.ToScreen(new SKPoint(200, 70)).Y + 10, Canvas.GetTop(panel), 1);
         Assert.True(Screenshots.Save(window, "ai-panel-dragged")); window.Close();
     }
 

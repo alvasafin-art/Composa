@@ -38,14 +38,14 @@ public class SettingsTests
         Assert.Equal(64, loaded.AiGptContextPadding);
         Assert.Equal("chatgpt-image-2.5", loaded.EngineForTask(AiTaskKind.GenerateImage));
         Assert.Equal("flux2-klein-intel-xpu", loaded.EngineForTask(AiTaskKind.GenerativeExpand));
-        Assert.Null(loaded.EngineForTask(AiTaskKind.GenerativeFill));
+        Assert.Equal("flux2-klein-intel-xpu", loaded.EngineForTask(AiTaskKind.GenerativeFill));
         Assert.Equal((settings.AssistantServerUrl, settings.AssistantServerExecutable, settings.AssistantModelPath),
             (loaded.AssistantServerUrl, loaded.AssistantServerExecutable, loaded.AssistantModelPath));
         Assert.Equal((8192, 1024, false), (loaded.AssistantContextSize, loaded.AssistantMaxTokens, loaded.AssistantAutoStart));
         // A settings file from before these were remembered keeps the defaults.
         var old = JsonSerializer.Deserialize<Settings>("""{ "JpegQuality": 80 }""")!;
         Assert.Equal((true, true, true), (old.ShowTransformControls, old.AutoSelect, old.View.Snap));
-        Assert.Equal(32, old.AiGptContextPadding);
+        Assert.Equal(0, old.AiGptContextPadding);
         Assert.Empty(old.AiTaskEngineIds);
     }
 

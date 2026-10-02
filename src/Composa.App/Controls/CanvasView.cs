@@ -80,6 +80,13 @@ public sealed partial class CanvasView : Control
     /// <summary>A Move-tool press selects the layer under the pointer. Off, it drags the active layer from anywhere and Ctrl-click picks.</summary>
     public bool AutoSelect { get; set; } = true;
     public double Zoom => zoom;
+    private SKRectI? aiContextBounds;
+    private (int Width, int Height) observedCanvasSize;
+    public SKRectI? AiContextBounds
+    {
+        get => aiContextBounds;
+        set { if (aiContextBounds == value) return; aiContextBounds = value; InvalidateVisual(); }
+    }
 
     public EditorSession? Session
     {
@@ -96,6 +103,7 @@ public sealed partial class CanvasView : Control
                 session.LayersChanged -= OnLayersChanged;
             }
             session = value;
+            observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
             if (session != null)
             {
                 session.CanvasChanged += OnCanvasChanged;
@@ -117,6 +125,17 @@ public sealed partial class CanvasView : Control
 
     private void OnCanvasChanged(SKRectI? area)
     {
+        if (session != null && observedCanvasSize != (session.Document.Width, session.Document.Height))
+        {
+            observedCanvasSize = (session.Document.Width, session.Document.Height);
+            if (session.Tool == Tool.Crop && cropRect != null)
+            {
+                cropRect = SKRect.Create(0, 0, observedCanvasSize.Width, observedCanvasSize.Height);
+                cropFramePristine = true;
+                FitCore();
+                ToolStateChanged?.Invoke();
+            }
+        }
         if (area is { } changed && !viewStale)
         {
             var (scale, shown, _, _) = viewKey;

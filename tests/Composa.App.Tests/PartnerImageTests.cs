@@ -157,7 +157,7 @@ public class PartnerImageTests
         var s = EditorSession.NewCanvas(211, 173, SKColors.White); s.SelectRect(new SKRect(1, 50, 21, 70));
         var selection = Pixels.Clone(s.Selection!); selection.SetPixel(5, 60, new SKColor(0, 0, 0, 128)); Pixels.Invalidate(selection);
         s.ApplyAiSelection(AiTaskKind.ObjectSelection, selection);
-        var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Settings = new() { Values = new() { ["maskBlend"] = 0 } } };
+        var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Settings = new() { Values = new() { ["maskBlend"] = 0, ["gptContextPadding"] = 32 } } };
         using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
         var source = api.Images["apiSource"]; Assert.Equal((53, 84), (source.Width, source.Height));
         var generated = Pixels.NewColor(source.Width, source.Height); generated.Erase(SKColors.CornflowerBlue);

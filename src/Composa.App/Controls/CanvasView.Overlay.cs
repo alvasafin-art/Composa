@@ -19,6 +19,20 @@ public sealed partial class CanvasView
 
         CaptureGuidesAndGrid(steps, view, hair);
 
+        if (aiContextBounds is { } aiBounds && session.Selection != null && !session.IsPaintingSelection && drag == Drag.None)
+        {
+            var screen = view.MapRect(new SKRect(aiBounds.Left, aiBounds.Top, aiBounds.Right, aiBounds.Bottom));
+            steps.Add(canvas =>
+            {
+                using var line = new SKPaint { Color = new SKColor(172, 148, 255, 215), StrokeWidth = hair,
+                    Style = SKPaintStyle.Stroke, IsAntialias = true, PathEffect = SKPathEffect.CreateDash([5 * hair, 4 * hair], 0) };
+                canvas.DrawRect(screen, line);
+                using var font = new SKFont(SKTypeface.Default, 11 * hair);
+                using var label = new SKPaint { Color = line.Color, IsAntialias = true };
+                canvas.DrawText("AI context", screen.Left + 4 * hair, screen.Top - 4 * hair, font, label);
+            });
+        }
+
         // A line being dragged out: exactly between the two points, so the start never shifts.
         if (drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.Line)
         {

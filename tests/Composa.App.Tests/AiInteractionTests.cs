@@ -117,10 +117,10 @@ public class AiInteractionTests
         Assert.Contains("Workflow by task",dialog.GetVisualDescendants().OfType<TextBlock>().Select(b=>b.Text));
         var pickers=dialog.GetVisualDescendants().OfType<ComboBox>().Where(c=>c.Items.Cast<object>().Contains("Use default workflow")).ToArray();
         Assert.True(pickers.Length>=10); Assert.Contains(pickers,c=>!c.Items.Cast<object>().Contains("CHAT GPT 2.5"));
-        var generation=pickers[0];generation.SelectedItem="CHAT GPT 2.5";
+        var generation=pickers[0];generation.SelectedItem="FLUX.2 Klein";
         Assert.True(Screenshots.Save(dialog,"ai-workflow-by-task"));
         dialog.Close(accept);Assert.Equal(accept,await pending);
-        if(accept) { Assert.Equal("chatgpt-image-2.5",settings.EngineForTask(AiTaskKind.GenerateImage));Assert.Single(settings.AiTaskEngineIds); }
+        if(accept) { Assert.Equal("flux2-klein-intel-xpu",settings.EngineForTask(AiTaskKind.GenerateImage));Assert.Single(settings.AiTaskEngineIds); }
         else Assert.Empty(settings.AiTaskEngineIds);
         w.Close();
     }

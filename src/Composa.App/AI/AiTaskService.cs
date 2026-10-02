@@ -34,6 +34,7 @@ public sealed class AiTaskService : IAiTaskRunner
     public Func<string, string>? AdditionalPromptForPack { get; set; }
     public Func<string?> ApiKey { get; set; } = () => Environment.GetEnvironmentVariable("COMPOSA_COMFY_API_KEY");
     public string? SessionApiKey { get; set; }
+    public Func<CancellationToken, Task<string?>>? RequestApiKey { get; set; }
     public string? Credential => string.IsNullOrWhiteSpace(SessionApiKey) ? ApiKey()?.Trim() : SessionApiKey.Trim();
     public event Action? StateChanged;
     public int ConnectionTimeoutSeconds { get; set; } = 5;
@@ -171,6 +172,10 @@ public sealed class AiTaskService : IAiTaskRunner
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
             using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
             using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, preparedRequest) : null;
+            using var editable = engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
+                && (inputs.SelectionMask != null || request.Task == AiTaskKind.GenerativeExpand && !fullEdit || inputs.BackgroundMask != null)
+                ? new EditableMaskedWorkflow(inputs, preparedRequest) : null;
+            using var localOutputMask = apiInputs?.OutputMask() ?? (editable == null ? null : Pixels.Clone(editable.Mask));
             if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(inputs.PreprocessedMask!))
                 throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;
@@ -181,6 +186,12 @@ public sealed class AiTaskService : IAiTaskRunner
                 throw new InvalidOperationException("The ComfyUI connection changed during this request. Retry after connecting to the desired server.");
             if (engine.PaidApi)
             {
+                if (string.IsNullOrWhiteSpace(Credential) && RequestApiKey != null)
+                {
+                    var key = await RequestApiKey(linked.Token);
+                    if (string.IsNullOrWhiteSpace(key)) throw new OperationCanceledException("API key entry cancelled.");
+                    SessionApiKey = key.Trim();
+                }
                 if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.");
                 if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
                     throw new InvalidOperationException($"The connected ComfyUI does not offer {engine.ApiModel}. Update ComfyUI and refresh its models.");
@@ -224,6 +235,7 @@ public sealed class AiTaskService : IAiTaskRunner
                 WorkflowExecution.Loras(boundGraph, engine, request.Settings.Loras, capabilities);
                 if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
                     WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
+                editable?.Bind(boundGraph);
                 if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
                 if (request.Task == AiTaskKind.Upscale)
                     WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);
@@ -271,7 +283,8 @@ public sealed class AiTaskService : IAiTaskRunner
                         foreach (var reference in references)
                         {
                             var image = await client.DownloadAsync(reference, linked.Token);
-                            if (apiInputs != null) image = apiInputs.Finish(image);
+                            if (apiInputs != null) image = apiInputs.FinishUnmasked(image);
+                            else if (editable != null) image = editable.Finish(image);
                             else if (request.Task == AiTaskKind.GenerativeExpand)
                             {
                                 var fitted = Resize(image, inputs.PreprocessedImage!.Width, inputs.PreprocessedImage.Height); image.Dispose(); image = fitted;
@@ -302,7 +315,8 @@ public sealed class AiTaskService : IAiTaskRunner
                         images[index].Dispose();
                         images[index] = matched;
                     }
-                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited, variants: variants > 1);
+                Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited,
+                    variants: variants > 1, localOutputMask: localOutputMask);
                 applied = true;
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed", CreditsUsed = reportedCredits };
                 StateChanged?.Invoke();
@@ -345,7 +359,7 @@ public sealed class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false, SKBitmap? localOutputMask = null)
     {
         var session = editor.Session;
         if (task == AiTaskKind.GenerativeExpand && inputs?.PreprocessedImage is { } expanded)
@@ -354,7 +368,7 @@ public sealed class AiTaskService : IAiTaskRunner
             {
                 if (inputs.ExpansionBounds is { } bounds) target.Crop(bounds, "Expand Canvas");
                 target.InsertAiOutput(task, images.Select((image, index) => new AiOutput(images.Count == 1 ? "AI Generative Expand" : $"AI Generative Expand {index + 1}", image,
-                    Bounds: new SKRect(0, 0, expanded.Width, expanded.Height))).ToList(), variants: variants);
+                    Mask: localOutputMask == null ? null : Pixels.Clone(localOutputMask), Bounds: new SKRect(0, 0, expanded.Width, expanded.Height))).ToList(), variants: variants);
             });
             return;
         }
@@ -447,7 +461,8 @@ public sealed class AiTaskService : IAiTaskRunner
             var selection = inputs?.OutputMask ?? inputs?.SelectionMask ?? session.Selection;
             if (mode == AiOutputMode.NewLayerWithMask && selection != null)
             {
-                if (outputIsComposited)
+                if (localOutputMask != null) mask = Pixels.Clone(localOutputMask);
+                else if (outputIsComposited)
                 {
                     if (!documentSized || inputs == null) throw new InvalidDataException("A stitched workflow must return the original canvas dimensions. Refusing to stretch a cropped result over the selection.");
                     using var support = SelectionMask.Expand(inputs.PreprocessedMask ?? inputs.SelectionMask!, inputs.TransitionMargin);

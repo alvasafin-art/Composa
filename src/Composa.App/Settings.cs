@@ -28,7 +28,9 @@ public sealed class Settings
     public string ComfyApiKeyEnvironment { get; set; } = "COMPOSA_COMFY_API_KEY";
     public string AiApiQuality { get; set; } = "low";
     public string AiApiSize { get; set; } = "auto";
-    public bool AiLorasEnabled { get; set; } = true;
+    public bool AiLorasEnabled { get; set; }
+    public bool AiShowContextBounds { get; set; } = true;
+    public int AiDefaultsRevision { get; set; } = 1;
     /// <summary>Server-side loader identifiers per normalized endpoint; never filesystem paths on the client.</summary>
     public Dictionary<string, Dictionary<string, string>> ComfyModelSelections { get; set; } = [];
 
@@ -56,10 +58,12 @@ public sealed class Settings
     public int AiWholeExpansionMinimumSide { get; set; }
     /// <summary>Pixel budget for each AI reference image; null keeps the original dimensions.</summary>
     public double? AiReferenceMegapixels { get; set; } = 1;
-    public int AiMaskGrow { get; set; } = 8;
-    public int AiMaskBlend { get; set; } = 32;
-    public int AiMaskBlur { get; set; } = 4;
-    public string AiColorMatch { get; set; } = "subtle";
+    public int AiMaskGrow { get; set; } = 16;
+    public int AiMaskBlend { get; set; } = 48;
+    public int AiMaskBlur { get; set; } = 16;
+    public string AiColorMatch { get; set; } = "off";
+    public int AiGptMaskGrow { get; set; } = 4;
+    public int AiGptMaskBlend { get; set; } = 8;
     public bool ComfyAdditionalPromptEnabled { get; set; } = true;
     public string ComfyAdditionalPrompt { get; set; } = Composa.AI.AiPromptDefaults.PreserveAppearance;
     public Dictionary<string, AiPromptSetting> AiPackPrompts { get; set; } = [];
@@ -69,8 +73,12 @@ public sealed class Settings
     /// <summary>GPT crop context in source pixels, independent of FLUX context and final mask feathering.</summary>
     public int AiGptContextPadding { get; set; } = AI.PartnerImageInputs.DefaultContextPadding;
     public Dictionary<string, string> AiTaskEngineIds { get; set; } = [];
-    public string? EngineForTask(Composa.AI.AiTaskKind task) => AiTaskEngineIds.GetValueOrDefault(
-        (task == Composa.AI.AiTaskKind.SelectSubject ? Composa.AI.AiTaskKind.ObjectSelection : task).ToString());
+    public string? EngineForTask(Composa.AI.AiTaskKind task)
+    {
+        if (AiTaskEngineIds.TryGetValue((task == Composa.AI.AiTaskKind.SelectSubject ? Composa.AI.AiTaskKind.ObjectSelection : task).ToString(), out var id))
+            return string.IsNullOrEmpty(id) ? null : id;
+        return task == Composa.AI.AiTaskKind.GenerateImage ? "chatgpt-image-2.5" : "flux2-klein-intel-xpu";
+    }
     private const string DefaultUpscalerModel = "4x-UltraSharpV2.safetensors";
     public string AiUpscalerModel { get; set; } = DefaultUpscalerModel;
     public long AiSeed { get; set; } = -1;
@@ -114,8 +122,26 @@ public sealed class Settings
     public static Settings Load()
     {
         if (!Persist) return new Settings();
-        try { return File.Exists(FilePath) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new Settings() : new Settings(); }
+        try { return File.Exists(FilePath) ? FromJson(File.ReadAllText(FilePath)) : new Settings(); }
         catch { return new Settings(); } // A damaged settings file only costs the remembered preferences.
+    }
+
+    internal static Settings FromJson(string json)
+    {
+        var value = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty(nameof(AiDefaultsRevision), out _))
+        {
+            // One-time adoption of the requested preview defaults. Afterwards keep all custom values.
+            value.AiOriginalSize = true; value.AiLorasEnabled = false;
+            value.AiMaskGrow = 16; value.AiMaskBlend = 48; value.AiMaskBlur = 16; value.AiColorMatch = "off"; value.AiMaskContext = 2;
+            value.AiGptMaskGrow = 4; value.AiGptMaskBlend = 8; value.AiGptContextPadding = 0;
+            foreach (var task in new[] { Composa.AI.AiTaskKind.GenerativeFill, Composa.AI.AiTaskKind.GenerativeExpand, Composa.AI.AiTaskKind.GenerateImage })
+                if (!value.AiTaskEngineIds.TryGetValue(task.ToString(), out var id) || id is "" or "chatgpt-image-2.5" or "flux2-klein-intel-xpu")
+                    value.AiTaskEngineIds[task.ToString()] = task == Composa.AI.AiTaskKind.GenerateImage ? "chatgpt-image-2.5" : "flux2-klein-intel-xpu";
+            value.AiDefaultsRevision = 1;
+        }
+        return value;
     }
 
     public void Save()

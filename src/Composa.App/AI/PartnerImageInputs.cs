@@ -16,7 +16,7 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly SKRectI crop;
     private readonly SKBitmap? blendMask;
     private readonly (int Width, int Height) generationSize;
-    internal const int DefaultContextPadding = 32;
+    internal const int DefaultContextPadding = 0;
     internal const int MaximumContextPadding = 1024;
 
     public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request)
@@ -101,7 +101,7 @@ internal sealed class PartnerImageInputs : IDisposable
             AiTaskKind.GenerativeFill => guidance,
             AiTaskKind.Harmonize when blendMask != null => $"Harmonize the object in image 1 with its surrounding scene while preserving identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
             AiTaskKind.Relight when blendMask != null => $"Relight image 1. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill. Lighting request: {guidance}",
-            AiTaskKind.GenerativeExpand when request.ExpansionMode == AiExpansionMode.MaskedRegion => AiPromptDefaults.Expand,
+            AiTaskKind.GenerativeExpand => AiPromptDefaults.Expand,
             _ => null
         };
         return instruction == null ? original.Prompt
@@ -129,6 +129,27 @@ internal sealed class PartnerImageInputs : IDisposable
             var composite = Pixels.Clone(original.ContextImage);
             Blend(composite, fitted, blendMask, crop);
             return composite;
+        }
+    }
+
+    internal SKBitmap? OutputMask()
+    {
+        if (request.Task != AiTaskKind.GenerativeExpand) return blendMask == null ? null : Pixels.Clone(blendMask);
+        if (request.ExpansionMode == AiExpansionMode.WholeImage) return null;
+        using var context = original.ExpandedContext();
+        return AiResultPostprocessor.ExpansionEditMask(original.OutputMask ?? original.PreprocessedMask!, context,
+            Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 8));
+    }
+
+    internal SKBitmap FinishUnmasked(SKBitmap generated)
+    {
+        if (request.Task is AiTaskKind.GenerateImage or AiTaskKind.ChangeBackground) return Finish(generated);
+        using (generated)
+        using (var fitted = Resize(generated, crop.Width, crop.Height))
+        {
+            var result = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage);
+            Blend(result, fitted, null, crop);
+            return result;
         }
     }
 

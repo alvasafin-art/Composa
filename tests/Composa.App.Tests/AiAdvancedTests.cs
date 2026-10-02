@@ -35,6 +35,7 @@ public class AiAdvancedTests
         Assert.DoesNotContain(paid.GetVisualDescendants().OfType<CheckBox>(), check => check.Content as string == "Enable LoRAs");
         Assert.True(Screenshots.Save(paid, "ai-advanced-gpt")); paid.Close(); Assert.False(await pending);
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
+        window.Settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)] = "chatgpt-image-2.5";
         for (var i = 0; i < 6; i++) { var reference = new SKBitmap(32, 32); reference.Erase(new SKColor((byte)(i * 30), 120, 170)); window.AddAiReferenceForTests(reference); }
         Assert.True(Screenshots.Save(window, "ai-gpt-six-references"));
         Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);

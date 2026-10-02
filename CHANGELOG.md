@@ -4,6 +4,21 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.10] - 2026-10-02
+
+### Added
+
+- Optional selection-context bounds overlay, session-only API key prompt before paid uploads, and stable floating-panel placement until closed.
+- Requested defaults migrate once: Original size; FLUX grow/blend/conditioning blur 16/48/16 px, color match off, context 2; GPT grow/blend 4/8 px, padding 0; LoRAs off. Generate Image starts with GPT, Fill and Expand with FLUX. Later user preferences remain persistent.
+
+### Fixed
+
+- Bundled FLUX and GPT masked results retain unmasked generated context pixels under a separate editable layer mask, instead of baking the cutout and feathering twice. Crop coordinates and output placement remain in source pixels. Custom workflow compatibility remains unchanged.
+- Expanded canvases refit the active Crop frame and recenter. GPT Expand always receives its dedicated automatic prompt, including whole-image mode with no user prompt.
+- Generate Image Advanced hides mask/context controls; LoRA strengths use double-click numeric entry without the duplicate 123 button.
+
+Verification: 743 automated tests passed. Live ComfyUI/GPU generation and paid GPT image quality could not be tested on this computer.
+
 ## [1.2.1-preview.9] - 2026-10-02
 
 ### Added

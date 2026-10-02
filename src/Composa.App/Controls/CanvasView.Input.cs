@@ -67,6 +67,15 @@ public sealed partial class CanvasView
     public bool HasCrop => cropRect != null;
     public SKRect? CropRect => cropRect;
 
+    public void ResetCropToCanvas()
+    {
+        if (session?.Tool != Tool.Crop) return;
+        cropRect = SKRect.Create(0, 0, session.Document.Width, session.Document.Height);
+        cropFramePristine = true;
+        Fit();
+        ToolStateChanged?.Invoke();
+    }
+
     private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject;
 
     public void ToolChanged()

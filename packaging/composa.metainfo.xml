@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.10" date="2026-10-02">
+      <description>
+        <p>Editable masks preserve unmasked generated context pixels for FLUX and GPT. Optional context outlines, stable floating-panel placement, updated Crop frames, automatic GPT Expand prompts, session-only API key entry and separate requested workflow defaults.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.9" date="2026-10-02">
       <description>
         <p>Shared native MCP and Assistant tools, structured document inspection, validated layer batches, persistent task journals and independently verified edit results. AI selection supports add/subtract modifiers, workflow assignments are task-specific and generation dialogs share ordered reference controls. Verified with 732 automated tests and six real-model acceptance scenarios.</p>

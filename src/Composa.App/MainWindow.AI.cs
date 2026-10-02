@@ -27,9 +27,9 @@ public sealed partial class MainWindow
     internal int AiReferenceCount => aiReferences.Count;
     internal Border AiFloatingPanel => aiFloatingHost;
     internal Task RunAiForTests(AiTaskKind task) => RunAi(task);
-    private Vector aiFloatingOffset;
+    private Point? aiFloatingPinnedPosition;
     private Point? aiFloatingDragStart;
-    private Vector aiFloatingDragOffset;
+    private Point aiFloatingDragPosition;
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly StackPanel aiProgressHost = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
     private readonly Canvas aiFloatingLayer = new();
@@ -86,6 +86,7 @@ public sealed partial class MainWindow
 
     private void RefreshAiUi()
     {
+        RefreshAiContextBounds();
         if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;
         if (aiContextHost.Child == null) return;
         aiActionHost.Children.Clear();
@@ -143,6 +144,21 @@ public sealed partial class MainWindow
         RefreshAiFloatingUi();
     }
 
+    private void RefreshAiContextBounds()
+    {
+        SKRectI? context = null;
+        if (settings.AiShowContextBounds && aiTasks.ConnectionState == ComfyConnectionState.Connected
+            && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
+        {
+            var bounds = SelectionMask.Bounds(selection, 1);
+            if (!bounds.IsEmpty)
+                context = aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.PaidApi == true
+                    ? AiContextGeometry.Padded(bounds, session.Document.Bounds, settings.AiGptContextPadding)
+                    : AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, settings.AiMaskBlend, settings.AiMaskContext);
+        }
+        canvas.AiContextBounds = context;
+    }
+
     private Button BuildAiTaskMenu()
     {
         Button? button = null;
@@ -179,13 +195,14 @@ public sealed partial class MainWindow
             if (e.Source is Avalonia.Visual visual && visual.GetVisualAncestors().OfType<Button>().Any()) return;
             if (e.Source is Button) return;
             if (!e.GetCurrentPoint(aiFloatingLayer).Properties.IsLeftButtonPressed) return;
-            aiFloatingDragStart = e.GetPosition(aiFloatingLayer); aiFloatingDragOffset = aiFloatingOffset;
+            aiFloatingDragStart = e.GetPosition(aiFloatingLayer);
+            aiFloatingDragPosition = new Point(Avalonia.Controls.Canvas.GetLeft(aiFloatingHost), Avalonia.Controls.Canvas.GetTop(aiFloatingHost));
             e.Pointer.Capture(header); e.Handled = true;
         };
         header.PointerMoved += (_, e) =>
         {
             if (aiFloatingDragStart is not { } start) return;
-            aiFloatingOffset = aiFloatingDragOffset + (e.GetPosition(aiFloatingLayer) - start);
+            aiFloatingPinnedPosition = aiFloatingDragPosition + (e.GetPosition(aiFloatingLayer) - start);
             RefreshAiFloatingPosition(); e.Handled = true;
         };
         header.PointerReleased += (_, e) =>
@@ -194,7 +211,7 @@ public sealed partial class MainWindow
         var advanced = Ui.TextButton("Advanced…", () => _ = ShowAiAdvanced());
         advanced.MinWidth = 0;
         AddAt(header, advanced, 1).Margin = new Thickness(0, 0, 5, 0);
-        var close = Ui.TextButton("×", () => { aiFloatingDismissed = true; RefreshAiFloatingUi(); });
+        var close = Ui.TextButton("×", () => { aiFloatingDismissed = true; aiFloatingPinnedPosition = null; RefreshAiFloatingUi(); });
         close.MinWidth = 32;
         ToolTip.SetTip(close, "Close until the selection changes");
         AddAt(header, close, 2);
@@ -321,8 +338,8 @@ public sealed partial class MainWindow
         var below = bottomRight.Y + 10;
         // Always anchor below, never jump to an unrelated side of the selection. Only
         // constrain to the viewport at its edges, and retain the user's drag offset.
-        left = Math.Clamp(left + aiFloatingOffset.X, 8, maxLeft);
-        var top = below + aiFloatingOffset.Y;
+        left = Math.Clamp(aiFloatingPinnedPosition?.X ?? left, 8, maxLeft);
+        var top = aiFloatingPinnedPosition?.Y ?? below;
         top = Math.Clamp(top, 8, Math.Max(8, canvas.Bounds.Height - height - 8));
         Avalonia.Controls.Canvas.SetLeft(aiFloatingHost, left);
         Avalonia.Controls.Canvas.SetTop(aiFloatingHost, top);
@@ -573,13 +590,15 @@ public sealed partial class MainWindow
                     Loras = engine?.Lora.Supported == true && settings.AiLorasEnabled
                         ? settings.AiLoras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
                     UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
-                    Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
+                    Values = new Dictionary<string, object?> { ["maskGrow"] = engine?.PaidApi == true ? settings.AiGptMaskGrow : settings.AiMaskGrow,
+                        ["maskBlend"] = engine?.PaidApi == true ? settings.AiGptMaskBlend : settings.AiMaskBlend,
                         ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch,
                         ["gptContextPadding"] = settings.AiGptContextPadding,
                         ["apiQuality"] = settings.AiApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = settings.AiOriginalSize }
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);
+            if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop) canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { AiFailed(error.Message); }

@@ -47,6 +47,7 @@ public static class AiDialogs
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service)
     {
         var originalEngine = service.SelectedEngine;
+        var showContext = new CheckBox { Content = "Show AI context bounds after selection", IsChecked = settings.AiShowContextBounds };
         var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
         var url = new TextBox { Text = settings.ComfyServerUrl, Width = 330 };
         var timeout = Ui.Number(settings.ComfyConnectionTimeoutSeconds, 1, 120, _ => { }, 1, "0", 80);
@@ -140,13 +141,13 @@ public static class AiDialogs
             var packs = service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray();
             if (packs.Length == 0) continue;
             const string inherit = "Use default workflow";
-            var assigned = taskDrafts.GetValueOrDefault(key);
+            var assigned = taskDrafts.GetValueOrDefault(key) ?? settings.EngineForTask(task);
             var missing = assigned != null && packs.All(pack => pack.Id != assigned) ? "Unavailable: " + assigned : null;
             var names = new[] { inherit }.Concat(packs.Select(pack => pack.DisplayName)).Concat(missing == null ? [] : new[] { missing }).ToArray();
             var selected = packs.FirstOrDefault(pack => pack.Id == assigned)?.DisplayName ?? missing ?? inherit;
             taskRows.Add((task.DisplayName(), Ui.Combo(names, selected, name => name, name =>
             {
-                if (name == inherit) taskDrafts.Remove(key);
+                if (name == inherit) taskDrafts[key] = "";
                 else if (packs.FirstOrDefault(pack => pack.DisplayName == name) is { } chosen) taskDrafts[key] = chosen.Id;
             }, 260)));
         }
@@ -158,7 +159,7 @@ public static class AiDialogs
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         RefreshStatus();
         var auth = CanvasDialogs.Form(("Key environment variable", keyEnvironment), ("Session API key", sessionKey), ("", clear));
-        var body = new ScrollViewer { Content = Ui.Column(12, connection, assignments, models, note, Ui.Label("Paid Partner Nodes", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote, Ui.Label("Additional image-editing prompt"), additionalEnabled, additionalPrompt, resetPrompt,
+        var body = new ScrollViewer { Content = Ui.Column(12, connection, assignments, models, note, showContext, Ui.Label("Paid Partner Nodes", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote, Ui.Label("Additional image-editing prompt"), additionalEnabled, additionalPrompt, resetPrompt,
             Ui.Label("Sent as text to the image model, not as a separate chat system role.", Palette.Secondary)), MaxHeight = Math.Clamp(owner.Bounds.Height - 140, 300, 620),
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         if (!await new DialogWindow("ComfyUI Settings", body).Ask(owner)) { service.SelectedEngine = originalEngine; return false; }
@@ -170,21 +171,23 @@ public static class AiDialogs
         else if (clearKey) service.SessionApiKey = null;
         settings.AiEngineId = service.SelectedEngine?.Id;
         settings.AiTaskEngineIds = taskDrafts;
+        settings.AiShowContextBounds = showContext.IsChecked == true;
         SavePromptDraft(); settings.AiPackPrompts = promptDrafts;
         models.Save();
         settings.Save();
         return true;
     }
 
-    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null)
+    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill)
     {
         var mp = ClosestMegapixels(settings.AiMegapixels);
         var originalSize = settings.AiOriginalSize;
         var reference = settings.AiReferenceMegapixels;
-        var grow = settings.AiMaskGrow; var blend = settings.AiMaskBlend; var context = settings.AiMaskContext;
+        var paid = service?.SelectedEngine?.PaidApi == true;
+        var grow = paid ? settings.AiGptMaskGrow : settings.AiMaskGrow;
+        var blend = paid ? settings.AiGptMaskBlend : settings.AiMaskBlend; var context = settings.AiMaskContext;
         var blur = settings.AiMaskBlur; var colorMatch = settings.AiColorMatch;
         var seed = settings.AiSeed; var mode = settings.AiVariantMode;
-        var paid = service?.SelectedEngine?.PaidApi == true;
         var gptContext = Math.Clamp(settings.AiGptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
         var quality = settings.AiApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
@@ -207,12 +210,15 @@ public static class AiDialogs
             ("Mask context", Ui.Row(6, Ui.SliderField("", context, 1, 8, value => context = value, 0.1, "0.0", 150, reset: 1), Ui.Label("× selection bounds"))),
             ("GPT context padding", Ui.Row(6, Ui.SliderField("", gptContext, 0, PartnerImageInputs.MaximumContextPadding, value => gptContext = (int)value, 1, "0", 150, reset: PartnerImageInputs.DefaultContextPadding), Ui.Label("px · each side"))),
             ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label("-1 = random")))];
-        var form = CanvasDialogs.Form(fields.Where(field => paid
+        var form = CanvasDialogs.Form(fields.Where(field => task != AiTaskKind.GenerateImage || !field.Item1.StartsWith("Mask") && field.Item1 is not ("GPT context padding" or "Color match"))
+            .Where(field => paid
             ? field.Item1 is not ("Color match" or "Seed" or "Mask conditioning blur" or "Mask context")
             : field.Item1 != "GPT context padding").ToArray());
-        var note = Ui.Label(paid
+        var note = Ui.Label(task == AiTaskKind.GenerateImage
+            ? "Generate a new image using the prompt and optional references. Image size preserves proportions. List runs variants separately; Batch groups them. Paid variants are billed individually."
+            : paid
             ? "GPT receives an image crop plus context padding and your references, not a mask image. Composa places the result back and applies the soft edit mask once. Padding controls what GPT sees; Mask blend controls the local edge, independently. Mask grow is ignored for Fill. Remove/Expand keep their black repair areas. Each variant is billed; Ctrl+Z undoes edits, not charges."
-            : "List runs one variant at a time; Batch needs more VRAM. Mask blend controls the final seam, conditioning blur the sampling mask. Pixaroma nodes are used automatically when installed. Color match uses unchanged surroundings; turn it off for intentional color changes. Use LoRAs compatible with the selected model. Ctrl+Z undoes the generation.", Palette.Secondary);
+            : "List runs one variant at a time; Batch needs more VRAM. Mask blend controls the editable layer mask, conditioning blur the sampling mask. FLUX returns unmasked generated context pixels at their original coordinates. Color match uses unchanged surroundings; turn it off for intentional color changes. Use LoRAs compatible with the selected model. Ctrl+Z undoes the generation.", Palette.Secondary);
         note.MaxWidth = 470; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var extra = new StackPanel { Spacing = 9 };
         var lorasEnabled = settings.AiLorasEnabled;
@@ -234,9 +240,7 @@ public static class AiDialogs
                 var toggle = Ui.Check("", draft.Enabled, value => loras[index] = loras[index] with { Enabled = value }); ToolTip.SetTip(toggle, "Enable this LoRA");
                 var strength = Ui.SliderField("", Math.Clamp(draft.Strength, 0, 3), 0, 3, value => loras[index] = loras[index] with { Strength = value }, 0.01, "0.00", 100, reset: 1);
                 loras[index] = loras[index] with { Strength = Math.Clamp(draft.Strength, 0, 3) };
-                var type = Ui.TextButton("123", strength.BeginEdit); type.MinWidth = 0; type.Padding = new Thickness(5, 0); type.Height = 26;
-                ToolTip.SetTip(type, "Type an exact LoRA strength · 0 to 3");
-                rows.Children.Add(Ui.Column(3, Ui.Label($"LoRA {i + 1}", Palette.Secondary), Ui.Row(7, toggle, combo, strength, type)));
+                rows.Children.Add(Ui.Column(3, Ui.Label($"LoRA {i + 1}", Palette.Secondary), Ui.Row(7, toggle, combo, strength)));
             }
             extra.Children.Add(rows);
             if (names.Count == 0) extra.Children.Add(Ui.Label("Connect / refresh models to read the server's LoRA list.", Palette.Secondary));
@@ -244,14 +248,29 @@ public static class AiDialogs
         var body = new ScrollViewer { Content = Ui.Column(12, form, extra, note), MaxHeight = Math.Clamp(owner.Bounds.Height - 160, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         if (!await new DialogWindow("AI · Advanced", body).Ask(owner)) return false;
         settings.AiMegapixels = mp; settings.AiOriginalSize = originalSize; settings.AiReferenceMegapixels = reference;
-        settings.AiMaskGrow = grow; settings.AiMaskBlend = blend; settings.AiMaskContext = context;
-        settings.AiMaskBlur = blur; settings.AiColorMatch = colorMatch;
+        if (paid) { settings.AiGptMaskGrow = grow; settings.AiGptMaskBlend = blend; }
+        else { settings.AiMaskGrow = grow; settings.AiMaskBlend = blend; settings.AiMaskContext = context; settings.AiMaskBlur = blur; settings.AiColorMatch = colorMatch; }
         if (paid) settings.AiGptContextPadding = gptContext;
         settings.AiSeed = seed; settings.AiVariantMode = mode;
         settings.AiApiQuality = quality;
         if (!paid && service?.SelectedEngine?.Lora.Supported == true) { settings.AiLorasEnabled = lorasEnabled; settings.AiLoras = loras.Where(lora => lora.Name.Length > 0).ToList(); }
         settings.Save();
         return true;
+    }
+
+    public static async Task<string?> ApiKey(Window owner, CancellationToken cancellationToken)
+    {
+        var key = new TextBox { Width = 390, PasswordChar = '●', PlaceholderText = "Comfy.org API key", Name = "ComfyApiKeyEntry" };
+        var note = Ui.Label("This workflow needs a Comfy.org API key. It will be kept for this program session only, not saved to disk. An OpenAI key cannot be used here.", Palette.Secondary);
+        note.MaxWidth = 390; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        var dialog = new DialogWindow("Comfy.org API key", Ui.Column(10, note, key), "Continue");
+        dialog.CanAccept = false;
+        key.TextChanged += (_, _) => dialog.CanAccept = !string.IsNullOrWhiteSpace(key.Text);
+        dialog.Opened += (_, _) => key.Focus();
+        using var registration = cancellationToken.Register(() => Avalonia.Threading.Dispatcher.UIThread.Post(dialog.Close));
+        if (!await dialog.Ask(owner)) return null;
+        cancellationToken.ThrowIfCancellationRequested();
+        return key.Text?.Trim();
     }
 
     public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection)
@@ -316,7 +335,7 @@ public static class AiDialogs
         var advanced = Ui.TextButton("Advanced…", () => { });
         advanced.Click += async (_, _) =>
         {
-            if (!await Advanced(dialog!, settings, service)) return;
+            if (!await Advanced(dialog!, settings, service, task)) return;
             quality = settings.AiApiQuality; qualityCombo.SelectedIndex = Array.IndexOf(qualityOptions, quality);
             originalSize = settings.AiOriginalSize; mp = ClosestMegapixels(settings.AiMegapixels);
             size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);

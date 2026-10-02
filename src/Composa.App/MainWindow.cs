@@ -59,7 +59,8 @@ public sealed partial class MainWindow : Window
             ModelSelections = settings.ComfyModelsFor,
             EngineIdForTask = settings.EngineForTask,
             AdditionalPromptForPack = id => settings.PromptFor(id) is { Enabled: true } value ? value.Text : "",
-            ApiKey = () => string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment)
+            ApiKey = () => string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment),
+            RequestApiKey = token => Dialogs.AiDialogs.ApiKey(this, token)
         };
         aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
         if (aiTasks.SelectedEngine is { } engine)
@@ -229,7 +230,7 @@ public sealed partial class MainWindow : Window
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
-        added.SelectionChanged += () => { if (added == session) { aiFloatingDismissed = false; aiFloatingOffset = default; refreshOptions?.Invoke(); RefreshAiUi(); } };
+        added.SelectionChanged += () => { if (added == session) { aiFloatingDismissed = false; refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
     }
 
@@ -245,7 +246,7 @@ public sealed partial class MainWindow : Window
         var tool = session?.Tool ?? Tool.Move;
         session = next;
         aiFloatingDismissed = false;
-        aiFloatingOffset = default;
+        aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;
         layers.Session = session;
