@@ -41,7 +41,11 @@ public sealed record AssistantRequest(string UserText, string DocumentContext, s
 }
 public sealed record AssistantToolDefinition(string Name, string Description, JsonElement Parameters);
 public sealed record AssistantToolCall(string Id, string Name, JsonElement Arguments);
-public sealed record AssistantToolMessage(string Role, string Text, string? CallId = null, IReadOnlyList<AssistantToolCall>? Calls = null);
+public sealed record AssistantToolMessage(string Role, string Text, string? CallId = null, IReadOnlyList<AssistantToolCall>? Calls = null)
+{
+    /// <summary>Actual native render output; only transmitted when vision is explicitly enabled.</summary>
+    public string? ImageDataUrl { get; init; }
+}
 public sealed record AssistantPlan(string Summary, string Script)
 {
     public IReadOnlyList<AssistantToolCall> Calls { get; init; } = [];

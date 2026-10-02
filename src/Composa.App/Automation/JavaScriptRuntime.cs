@@ -108,17 +108,18 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         var output = new System.Text.StringBuilder();
         var exportQuality = 90;
         using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var memory = new ScriptMemoryBudget(24_000_000);
         var raw = new Engine(options =>
         {
             options.ExperimentalFeatures = ExperimentalFeature.TaskInterop;
             options.Constraints.PromiseTimeout = TimeSpan.FromMinutes(20);
+            options.Constraints.Constraints.Add(memory);
             options.Strict()
                 .TimeoutInterval(TimeSpan.FromSeconds(8))
-                .LimitMemory(24_000_000)
                 .MaxStatements(100_000)
                 .CancellationToken(inputCancellation.Token);
         });
-        var engine = new ScriptEngine(raw);
+        var engine = new ScriptEngine(raw, memory);
         var pendingInputs = 0;
         var inputCount = 0;
         engine.SetValue("__form", (Func<string, Task<string>>)(async json =>

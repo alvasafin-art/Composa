@@ -15,6 +15,7 @@ using Composa.Editing;
 using Composa.IO;
 using Composa.Rendering;
 using Composa.Selections;
+using SelectionMode = Composa.Selections.SelectionMode;
 using SkiaSharp;
 
 namespace Composa.App;
@@ -25,6 +26,7 @@ public sealed partial class MainWindow
     internal bool AiFloatingVisible => aiFloatingHost.IsVisible;
     internal int AiReferenceCount => aiReferences.Count;
     internal Border AiFloatingPanel => aiFloatingHost;
+    internal Task RunAiForTests(AiTaskKind task) => RunAi(task);
     private Vector aiFloatingOffset;
     private Point? aiFloatingDragStart;
     private Vector aiFloatingDragOffset;
@@ -40,6 +42,8 @@ public sealed partial class MainWindow
     private readonly TextBox aiFloatingPrompt = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 54, MaxHeight = 90, PlaceholderText = "Describe what you want to create or edit" };
     private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
     private readonly List<AiReferenceItem> aiReferences = [];
+    private AiReferenceEditor? aiDialogReferences;
+    private bool refreshingAiEngine;
     private bool aiFloatingDismissed;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingRemove, aiFloatingMore;
@@ -76,9 +80,7 @@ public sealed partial class MainWindow
 
     private AiTaskAvailability AiAvailability(AiTaskKind task)
     {
-        var engine = aiTasks.SelectedEngine;
-        if (task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && engine?.Binding(task) == null)
-            engine = aiTasks.Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
+        var engine = aiTasks.EngineFor(task);
         return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
     }
 
@@ -93,7 +95,7 @@ public sealed partial class MainWindow
         if (CropExpands) contextual.Add(AiTaskKind.GenerativeExpand);
         foreach (var task in contextual.Distinct())
         {
-            var availability = AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands);
+            var availability = AiAvailability(task);
             var button = Ui.TextButton(task.DisplayName(), () => _ = RunAi(task), accent: task is AiTaskKind.GenerativeFill or AiTaskKind.GenerateImage);
             button.MinWidth = 0;
             button.IsEnabled = availability.Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
@@ -218,7 +220,8 @@ public sealed partial class MainWindow
         actions.Children.Add(AiGenerationControls.Split(aiFloatingGenerate, aiVariantsCombo));
         aiEngineCombo = Ui.Combo(aiTasks.Engines.Profiles, aiTasks.SelectedEngine!, value => value.DisplayName, value =>
         {
-            aiTasks.SelectedEngine = value; settings.AiEngineId = value.Id; settings.Save(); RefreshAiUi();
+            if (refreshingAiEngine) return;
+            settings.AiTaskEngineIds[AiTaskKind.GenerativeFill.ToString()] = value.Id; settings.Save(); RefreshAiUi();
         }, 168);
         aiEngineCombo.MinWidth = 0; aiEngineCombo.Padding = new Thickness(9, 5);
         ToolTip.SetTip(aiEngineCombo, "Workflow pack · GPT uses paid Comfy.org credits; FLUX uses your server's models");
@@ -264,14 +267,16 @@ public sealed partial class MainWindow
         if (aiVariantsCombo != null) { aiVariantsCombo.SelectedIndex = Math.Clamp(settings.AiVariants, 1, 3) - 1; aiVariantsCombo.IsEnabled = !busy; }
         if (aiEngineCombo != null)
         {
-            var index = aiTasks.Engines.Profiles.ToList().FindIndex(profile => profile.Id == aiTasks.SelectedEngine?.Id);
-            if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index;
+            var index = aiTasks.Engines.Profiles.ToList().FindIndex(profile => profile.Id == aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id);
+            refreshingAiEngine = true;
+            try { if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index; }
+            finally { refreshingAiEngine = false; }
             aiEngineCombo.IsEnabled = !busy;
         }
-        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, AiTaskKind.GenerativeFill, CropExpands).Available;
-        if (aiFloatingRemove != null) aiFloatingRemove.IsEnabled = !busy && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, AiTaskKind.RemoveObject, CropExpands).Available;
+        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(AiTaskKind.GenerativeFill).Available;
+        if (aiFloatingRemove != null) { aiFloatingRemove.IsEnabled = !busy && AiAvailability(AiTaskKind.RemoveObject).Available; ToolTip.SetTip(aiFloatingRemove, "Remove Object · " + aiTasks.EngineFor(AiTaskKind.RemoveObject)?.DisplayName); }
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy && Enum.GetValues<AiTaskKind>().Any(task =>
-            task is not (AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject) && AiTaskAvailability.Resolve(session, aiTasks.SelectedEngine, task, CropExpands).Available);
+            task is not (AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject) && AiAvailability(task).Available);
         var operation = aiTasks.Operation;
         aiFloatingStatus.Text = aiLastError ?? (operation?.Status switch
         {
@@ -282,11 +287,12 @@ public sealed partial class MainWindow
             _ => ""
         });
         aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
-        aiApiCost.IsVisible = aiTasks.SelectedEngine?.PaidApi == true;
+        var fillEngine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
+        aiApiCost.IsVisible = fillEngine?.PaidApi == true;
         if (aiApiCost.IsVisible)
         {
             var count = 1 + aiReferences.Count; // cropped source and genuine user references only
-            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, aiTasks.SelectedEngine!.ApiModel!, settings.AiApiQuality, "Custom", count, Math.Clamp(settings.AiVariants, 1, 3));
+            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, settings.AiApiQuality, "Custom", count, Math.Clamp(settings.AiVariants, 1, 3));
             aiApiCost.Text = operation?.CreditsUsed is { } credits ? PartnerPricing.Reported(credits) : estimate?.Label ?? "Paid API · estimate unavailable";
             ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and includes the cropped source, user references and all variants. Actual charges may differ. Local ComfyUI does not expose the account balance. The edit mask stays in Composa and is not a billed input.");
         }
@@ -324,7 +330,7 @@ public sealed partial class MainWindow
 
     private async Task PickAiReferences()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await (aiDialogReferences?.Owner ?? this).StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Choose Reference Images", AllowMultiple = true, FileTypeFilter = [ImageType]
         });
@@ -333,8 +339,16 @@ public sealed partial class MainWindow
 
     private void RefreshAiReferenceUi()
     {
-        aiReferenceHost.Children.Clear();
-        aiReferenceHost.Children.Add(Ui.Label($"References ({aiReferences.Count}/6)", Palette.Secondary));
+        BuildAiReferenceUi(aiReferenceHost);
+        if (aiDialogReferences?.View is StackPanel dialogHost) BuildAiReferenceUi(dialogHost);
+        aiDialogReferences?.NotifyChanged();
+        RefreshAiFloatingUi();
+    }
+
+    private void BuildAiReferenceUi(StackPanel host)
+    {
+        host.Children.Clear();
+        host.Children.Add(Ui.Label($"References ({aiReferences.Count}/6)", Palette.Secondary));
         var items = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         foreach (var item in aiReferences.ToArray())
         {
@@ -357,7 +371,7 @@ public sealed partial class MainWindow
             var cell = new Grid { Width = 56, Height = 56, Margin = new Thickness(0, 0, 7, 5) };
             var show = new Button { Content = preview, Padding = new Thickness(0),
                 HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
-            show.Click += (_, _) => _ = ShowAiReferencePreview(item);
+            show.Click += (_, _) => _ = ShowAiReferencePreview(item, TopLevel.GetTopLevel(host) as Window);
             ToolTip.SetTip(show, "Preview reference: " + item.Name);
             cell.Children.Add(show);
             cell.Children.Add(remove);
@@ -379,11 +393,10 @@ public sealed partial class MainWindow
             ToolTip.SetTip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
             items.Children.Add(add);
         }
-        aiReferenceHost.Children.Add(items);
-        RefreshAiFloatingUi();
+        host.Children.Add(items);
     }
 
-    private async Task ShowAiReferencePreview(AiReferenceItem item)
+    private async Task ShowAiReferencePreview(AiReferenceItem item, Window? owner = null)
     {
         // Hold a separate image while the preview is open: removing a reference must not
         // dispose pixels still being rendered by another window.
@@ -395,7 +408,7 @@ public sealed partial class MainWindow
         var close = Ui.TextButton("Close", dialog.Close); DockPanel.SetDock(close, Dock.Bottom); root.Children.Add(close);
         var label = Ui.Label($"{item.Name} · {item.Pixels.Width} × {item.Pixels.Height}"); DockPanel.SetDock(label, Dock.Top); root.Children.Add(label);
         root.Children.Add(new Image { Source = preview, Stretch = Stretch.Uniform }); dialog.Content = root;
-        await dialog.ShowDialog(this);
+        await dialog.ShowDialog(owner ?? this);
     }
 
     private void AddAiReferencePaths(IEnumerable<string> paths)
@@ -486,7 +499,13 @@ public sealed partial class MainWindow
         catch (Exception error) { ShowProblem(error.Message); }
     }
 
-    private async Task ShowAiAdvanced() { await AiDialogs.Advanced(this, settings, aiTasks); RefreshAiUi(); }
+    private async Task ShowAiAdvanced()
+    {
+        var previous = aiTasks.SelectedEngine;
+        aiTasks.SelectedEngine = aiTasks.EngineFor(session?.Selection != null ? AiTaskKind.GenerativeFill : AiTaskKind.ImageEdit);
+        try { await AiDialogs.Advanced(this, settings, aiTasks); }
+        finally { aiTasks.SelectedEngine = previous; RefreshAiUi(); }
+    }
 
     private async Task EditLayerTags(Composa.Model.Layer layer)
     {
@@ -494,7 +513,7 @@ public sealed partial class MainWindow
         if (await AiDialogs.LayerTags(this, layer, settings) is { } tags) session.SetLayerTags(layer, tags);
     }
 
-    private async Task RunAi(AiTaskKind task, string initialPrompt = "", bool useInlinePrompt = false)
+    private async Task RunAi(AiTaskKind task, string initialPrompt = "", bool useInlinePrompt = false, SKRectI? selectionRegion = null, SelectionMode selectionOperation = SelectionMode.Replace)
     {
         if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
@@ -512,8 +531,18 @@ public sealed partial class MainWindow
         AiPromptResult? options;
         if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene))
             options = new(initialPrompt, fallback.Width, fallback.Height, settings.AiSeed);
-        else options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
-            session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop));
+        else
+        {
+            var host = new StackPanel { Name = "AiDialogReferences", Spacing = 5, MaxWidth = 430 };
+            DragDrop.SetAllowDrop(host, true);
+            host.AddHandler(DragDrop.DropEvent, OnAiReferenceDrop);
+            host.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; });
+            aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText);
+            BuildAiReferenceUi(host);
+            try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
+                session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences); }
+            finally { aiDialogReferences = null; }
+        }
         RefreshAiUi();
         if (options == null) return;
         if (session == null)
@@ -522,11 +551,14 @@ public sealed partial class MainWindow
             AddSession(EditorSession.NewCanvas(options.Width, options.Height));
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
+        var engine = aiTasks.EngineFor(task, options.EngineId);
         try
         {
             var request = new AiTaskRequest
             {
                 Task = task,
+                EngineId = engine?.Id,
+                SelectionRegion = selectionRegion, SelectionOperation = selectionOperation,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : options.Prompt,
                 ExpansionMode = settings.AiExpansionMode,
                 ExpansionMinimumSide = settings.AiExpansionMode == AiExpansionMode.WholeImage ? settings.AiWholeExpansionMinimumSide : settings.AiExpansionMinimumSide,
@@ -538,7 +570,7 @@ public sealed partial class MainWindow
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
                     Variants = Math.Clamp(settings.AiVariants, 1, 3), VariantMode = settings.AiVariantMode,
-                    Loras = aiTasks.SelectedEngine?.Lora.Supported == true && settings.AiLorasEnabled
+                    Loras = engine?.Lora.Supported == true && settings.AiLorasEnabled
                         ? settings.AiLoras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
                     UpscaleFactor = settings.AiUpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,

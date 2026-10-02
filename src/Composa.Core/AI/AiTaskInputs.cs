@@ -36,6 +36,10 @@ public enum AiExpansionMode { MaskedRegion, WholeImage }
 public sealed record AiTaskRequest
 {
     public AiTaskKind Task { get; init; }
+    public string? EngineId { get; init; }
+    /// <summary>Independent AI-selection search rectangle; does not replace the current document selection.</summary>
+    public SKRectI? SelectionRegion { get; init; }
+    public SelectionMode SelectionOperation { get; init; } = SelectionMode.Replace;
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
     public string AdditionalPrompt { get; init; } = "";
@@ -109,6 +113,7 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap SourceImage { get; init; } = null!;
     public SKBitmap ContextImage { get; init; } = null!;
     public SKBitmap? ActiveLayerImage { get; init; }
+    public SelectionMode SelectionOperation { get; init; } = SelectionMode.Replace;
     public SKBitmap? SelectionMask { get; init; }
     /// <summary>The inverse selection, used when a task changes the background while preserving the subject.</summary>
     public SKBitmap? BackgroundMask { get; init; }
@@ -198,6 +203,12 @@ public static class AiTaskInputPreparer
     {
         if (request.Task.RequiresSelection() && session.Selection == null)
             throw new InvalidOperationException($"{request.Task.DisplayName()} requires a selection.");
+        SKRectI? searchBounds = null;
+        if (request.SelectionRegion is { } search && request.Task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
+        {
+            searchBounds = SKRectI.Intersect(session.Document.Bounds, search);
+            if (searchBounds.Value.IsEmpty) throw new InvalidOperationException("Draw an AI selection rectangle inside the canvas.");
+        }
         var expansionSize = request.Task == AiTaskKind.GenerativeExpand
             ? AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, (request.ExpansionBounds ?? session.Document.Bounds).Width, (request.ExpansionBounds ?? session.Document.Bounds).Height)
             : (Width: 0, Height: 0);
@@ -206,6 +217,11 @@ public static class AiTaskInputPreparer
         var context = Pixels.Clone(flattened);
         var active = RenderActiveLayer(session);
         var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null : Pixels.Clone(session.Selection);
+        if (searchBounds is { } region)
+        {
+            selection?.Dispose();
+            selection = SelectionMask.FromRect(session.Document.Width, session.Document.Height, region);
+        }
         var background = request.Task == AiTaskKind.ChangeBackground && selection != null ? Invert(selection) : null;
         var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.Upscale
             ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
@@ -249,6 +265,7 @@ public static class AiTaskInputPreparer
             SourceImage = source,
             ContextImage = context,
             ActiveLayerImage = active,
+            SelectionOperation = request.SelectionOperation,
             SelectionMask = selection,
             BackgroundMask = background,
             AlphaMask = alpha,

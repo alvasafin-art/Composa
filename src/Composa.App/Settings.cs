@@ -68,6 +68,9 @@ public sealed class Settings
     public double AiMaskContext { get; set; } = 2;
     /// <summary>GPT crop context in source pixels, independent of FLUX context and final mask feathering.</summary>
     public int AiGptContextPadding { get; set; } = AI.PartnerImageInputs.DefaultContextPadding;
+    public Dictionary<string, string> AiTaskEngineIds { get; set; } = [];
+    public string? EngineForTask(Composa.AI.AiTaskKind task) => AiTaskEngineIds.GetValueOrDefault(
+        (task == Composa.AI.AiTaskKind.SelectSubject ? Composa.AI.AiTaskKind.ObjectSelection : task).ToString());
     private const string DefaultUpscalerModel = "4x-UltraSharpV2.safetensors";
     public string AiUpscalerModel { get; set; } = DefaultUpscalerModel;
     public long AiSeed { get; set; } = -1;

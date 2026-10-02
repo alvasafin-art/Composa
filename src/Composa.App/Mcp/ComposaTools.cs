@@ -28,7 +28,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     {
         var tools = new McpServerPrimitiveCollection<McpServerTool>();
         foreach (var method in typeof(ComposaTools).GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            if (method.GetCustomAttribute<McpServerToolAttribute>() != null) tools.Add(McpServerTool.Create(method, this));
+            if (method.GetCustomAttribute<McpServerToolAttribute>() != null) tools.Add(EditorOperationCatalog.Create(method, this));
         return tools;
     }
 

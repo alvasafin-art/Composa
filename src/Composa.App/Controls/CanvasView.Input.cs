@@ -13,6 +13,7 @@ public sealed partial class CanvasView
     private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle }
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
+    public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
 
     private Drag drag;
     private MouseButton dragButton;
@@ -247,6 +248,7 @@ public sealed partial class CanvasView
                 else session.SelectWand((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 break;
             case Tool.ObjectSelectionAi:
+                dragMode = alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : SelectionMode.Replace;
                 drag = Drag.AiRectangle;
                 snapFrom = snapTo = pressDocument;
                 ToolStateChanged?.Invoke();
@@ -407,8 +409,9 @@ public sealed partial class CanvasView
             case Drag.AiRectangle:
                 if (moved)
                 {
-                    session.SelectRect(MarqueeRect(false, false), SelectionMode.Replace);
-                    if (session.Selection != null) AiSelectionCompleted?.Invoke(Composa.AI.AiTaskKind.ObjectSelection);
+                    var search = MarqueeRect(false, false);
+                    var area = SKRectI.Intersect(session.Document.Bounds, new SKRectI((int)Math.Floor(search.Left), (int)Math.Floor(search.Top), (int)Math.Ceiling(search.Right), (int)Math.Ceiling(search.Bottom)));
+                    if (!area.IsEmpty) AiObjectSelectionRequested?.Invoke(area, dragMode);
                 }
                 break;
             case Drag.Marquee:

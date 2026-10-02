@@ -95,11 +95,13 @@ public sealed partial class EditorSession
         }
     }
 
-    public void ApplyAiSelection(AiTaskKind task, SKBitmap mask)
+    public void ApplyAiSelection(AiTaskKind task, SKBitmap mask, SelectionMode mode = SelectionMode.Replace)
     {
         if (mask.ColorType != SKColorType.Alpha8 || mask.Width != document.Width || mask.Height != document.Height)
             throw new ArgumentException("An AI selection must be a document-sized Alpha8 bitmap.");
-        SetSelection("AI " + task.DisplayName(), mask);
+        var combined = SelectionMask.Combine(document.Selection, mask, mode);
+        if (!ReferenceEquals(combined, mask) && !ReferenceEquals(document.Selection, mask)) mask.Dispose();
+        SetSelection("AI " + task.DisplayName(), combined);
     }
 
     /// <summary>Inserts every part of an AI result as one non-destructive, undoable editor transaction.</summary>

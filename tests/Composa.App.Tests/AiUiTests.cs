@@ -35,7 +35,10 @@ public class AiUiTests
         Assert.Equal(new Avalonia.CornerRadius(6, 0, 0, 6), generate.CornerRadius);
         Assert.Equal(new Avalonia.CornerRadius(0, 6, 6, 0), variants.CornerRadius);
         var engines = Assert.Single(combos, combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
-        engines.SelectedIndex = 1; Assert.True(window.AiTasks.SelectedEngine!.PaidApi);
+        var defaultEngine = window.AiTasks.SelectedEngine;
+        engines.SelectedIndex = 1; Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
+        Assert.Same(defaultEngine, window.AiTasks.SelectedEngine);
+        Assert.Same(defaultEngine, window.AiTasks.EngineFor(AiTaskKind.GenerateImage));
         Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
         Assert.True(Screenshots.Save(window, "ai-gpt-pack-compact-panel")); window.Close();
     }

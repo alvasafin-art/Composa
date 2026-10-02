@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Composa.AI;
 using Composa.App.AI;
@@ -7,7 +9,7 @@ using Composa.Model;
 
 namespace Composa.App.Dialogs;
 
-public sealed record AiPromptResult(string Prompt, int Width, int Height, long Seed);
+public sealed record AiPromptResult(string Prompt, int Width, int Height, long Seed, string? EngineId = null);
 
 public static class AiDialogs
 {
@@ -45,6 +47,7 @@ public static class AiDialogs
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service)
     {
         var originalEngine = service.SelectedEngine;
+        var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
         var url = new TextBox { Text = settings.ComfyServerUrl, Width = 330 };
         var timeout = Ui.Number(settings.ComfyConnectionTimeoutSeconds, 1, 120, _ => { }, 1, "0", 80);
         var keyEnvironment = new TextBox { Text = settings.ComfyApiKeyEnvironment, Width = 330 };
@@ -129,13 +132,33 @@ public static class AiDialogs
             ("Connection timeout", Ui.Row(6, timeout, Ui.Label("seconds", Palette.Secondary))),
             ("", test),
             ("Status", status),
-            ("Workflow pack", engine));
+            ("Default workflow", engine));
+        var taskRows = new List<(string, Control)>();
+        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.SelectSubject or AiTaskKind.MatchToScene)))
+        {
+            var key = task.ToString();
+            var packs = service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray();
+            if (packs.Length == 0) continue;
+            const string inherit = "Use default workflow";
+            var assigned = taskDrafts.GetValueOrDefault(key);
+            var missing = assigned != null && packs.All(pack => pack.Id != assigned) ? "Unavailable: " + assigned : null;
+            var names = new[] { inherit }.Concat(packs.Select(pack => pack.DisplayName)).Concat(missing == null ? [] : new[] { missing }).ToArray();
+            var selected = packs.FirstOrDefault(pack => pack.Id == assigned)?.DisplayName ?? missing ?? inherit;
+            taskRows.Add((task.DisplayName(), Ui.Combo(names, selected, name => name, name =>
+            {
+                if (name == inherit) taskDrafts.Remove(key);
+                else if (packs.FirstOrDefault(pack => pack.DisplayName == name) is { } chosen) taskDrafts[key] = chosen.Id;
+            }, 260)));
+        }
+        var assignmentNote = Ui.Label("Each task keeps its own choice. Changing Fill does not change generation or Expand.", Palette.Secondary);
+        assignmentNote.MaxWidth = 430; assignmentNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        var assignments = Ui.Column(7, Ui.Label("Workflow by task", weight: Avalonia.Media.FontWeight.SemiBold), CanvasDialogs.Form(taskRows.ToArray()), assignmentNote);
         var note = Ui.Label("Models are read from this ComfyUI server, including shared folders. Generation and mask options are in Advanced on the AI panel.", Palette.Secondary);
         note.MaxWidth = 430;
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         RefreshStatus();
         var auth = CanvasDialogs.Form(("Key environment variable", keyEnvironment), ("Session API key", sessionKey), ("", clear));
-        var body = new ScrollViewer { Content = Ui.Column(12, connection, models, note, Ui.Label("Paid Partner Nodes", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote, Ui.Label("Additional image-editing prompt"), additionalEnabled, additionalPrompt, resetPrompt,
+        var body = new ScrollViewer { Content = Ui.Column(12, connection, assignments, models, note, Ui.Label("Paid Partner Nodes", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote, Ui.Label("Additional image-editing prompt"), additionalEnabled, additionalPrompt, resetPrompt,
             Ui.Label("Sent as text to the image model, not as a separate chat system role.", Palette.Secondary)), MaxHeight = Math.Clamp(owner.Bounds.Height - 140, 300, 620),
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         if (!await new DialogWindow("ComfyUI Settings", body).Ask(owner)) { service.SelectedEngine = originalEngine; return false; }
@@ -146,6 +169,7 @@ public static class AiDialogs
         if (!string.IsNullOrWhiteSpace(sessionKey.Text)) service.SessionApiKey = sessionKey.Text.Trim();
         else if (clearKey) service.SessionApiKey = null;
         settings.AiEngineId = service.SelectedEngine?.Id;
+        settings.AiTaskEngineIds = taskDrafts;
         SavePromptDraft(); settings.AiPackPrompts = promptDrafts;
         models.Save();
         settings.Save();
@@ -243,9 +267,10 @@ public static class AiDialogs
         settings.AiUpscaleFactor = factor; settings.Save(); return true;
     }
 
-    public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false)
+    public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null)
     {
         var previousEngine = service?.SelectedEngine;
+        if (service != null) service.SelectedEngine = service.EngineFor(task);
         var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
         var originalSize = settings.AiOriginalSize; var mp = ClosestMegapixels(settings.AiMegapixels);
         var variants = Math.Clamp(settings.AiVariants, 1, 3); var quality = settings.AiApiQuality;
@@ -321,7 +346,7 @@ public static class AiDialogs
             }
             catch (Exception error) { dimensions.Text = error.Message; if (dialog != null) dialog.CanAccept = false; }
             var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
-            var count = sourceCount + referenceCount;
+            var count = sourceCount + (references?.Count ?? referenceCount);
             cost.Text = paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
             note.Text = paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
@@ -331,15 +356,35 @@ public static class AiDialogs
             ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
-        var body = Ui.Column(10, prompt, resolution, dimensions, qualityHost, note, cost, modelHost);
+        var content = Ui.Column(10, prompt, resolution, dimensions, qualityHost, note, cost, modelHost);
+        if (references != null) content.Children.Insert(1, references.View);
+        var body = new ScrollViewer { Content = content, MaxHeight = Math.Clamp(owner.Bounds.Height - 170, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         dialog = new DialogWindow(task.DisplayName(), body, "Generate"); dialog.UseGenerationVariants(variantsCombo);
+        if (references != null)
+        {
+            references.Owner = dialog;
+            references.Changed += Refresh;
+            dialog.AddHandler(InputElement.KeyDownEvent, async (_, e) =>
+            {
+                if (e.Key == Key.V && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+                { e.Handled = true; await references.Paste(prompt.IsVisible ? prompt : null); }
+            }, RoutingStrategies.Tunnel);
+        }
         RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => { if (prompt.IsVisible) prompt.Focus(); };
-        if (!await dialog.Ask(owner)) { if (service != null) service.SelectedEngine = previousEngine; return null; }
+        bool accepted;
+        EngineProfile? chosenEngine = null;
+        try { accepted = await dialog.Ask(owner); chosenEngine = service?.SelectedEngine; }
+        finally
+        {
+            if (references != null) { references.Changed -= Refresh; references.Owner = null; }
+            if (service != null) service.SelectedEngine = previousEngine;
+        }
+        if (!accepted) return null;
         settings.AiOriginalSize = originalSize; settings.AiMegapixels = mp; settings.AiVariants = variants; settings.AiApiQuality = quality;
         settings.AiExpansionMode = expansionMode; settings.AiExpansionMinimumSide = regionSide; settings.AiWholeExpansionMinimumSide = wholeSide;
-        if (service != null) settings.AiEngineId = service.SelectedEngine?.Id;
+        if (chosenEngine != null) settings.AiTaskEngineIds[task.ToString()] = chosenEngine.Id;
         settings.Save();
-        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, settings.AiSeed);
+        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, settings.AiSeed, chosenEngine?.Id);
     }
 
     private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));

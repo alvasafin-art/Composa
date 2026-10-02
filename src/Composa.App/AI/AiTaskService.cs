@@ -15,6 +15,15 @@ public sealed class AiTaskService : IAiTaskRunner
     public EngineCatalog Engines { get; }
     public IReadOnlyList<PromptPreset> Presets { get; }
     public EngineProfile? SelectedEngine { get; set; }
+    public Func<AiTaskKind, string?> EngineIdForTask { get; set; } = _ => null;
+    public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
+    {
+        var id = overrideId ?? EngineIdForTask(task);
+        var engine = id == null ? SelectedEngine : Engines.Profiles.FirstOrDefault(pack => pack.Id == id);
+        if (id == null && task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.Upscale && engine?.Binding(task) == null)
+            engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
+        return engine;
+    }
     public AiOperationState? Operation { get; private set; }
     public ComfyConnectionState ConnectionState { get; private set; }
     public ComfyServerInfo? ServerInfo { get; private set; }
@@ -113,6 +122,7 @@ public sealed class AiTaskService : IAiTaskRunner
 
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
+        var requestedTask = request.Task;
         // An explicit selection is an edit, not a transparent-canvas expansion. Crop bounds take precedence.
         if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds == null && editor.Session.Selection != null)
             request = request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
@@ -135,10 +145,7 @@ public sealed class AiTaskService : IAiTaskRunner
                 throw;
             }
         }
-        var engine = SelectedEngine ?? throw new InvalidOperationException("Install and select an Engine Pack first.");
-        if (request.Task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && engine.Binding(request.Task) == null)
-            engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(request.Task) != null)
-                ?? throw new InvalidOperationException("Install a local Object Selection workflow pack.");
+        var engine = EngineFor(requestedTask, request.EngineId) ?? throw new InvalidOperationException("The workflow pack assigned to this task is unavailable. Choose one in ComfyUI Settings.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
         var fullEdit = request.Task == AiTaskKind.ImageEdit || editor.Session.Selection == null && request.Task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground
             || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage;
@@ -369,7 +376,7 @@ public sealed class AiTaskService : IAiTaskRunner
             }
             else mask = ToMask(images[0], session.Document.Width, session.Document.Height);
             foreach (var image in images) image.Dispose();
-            session.ApplyAiSelection(task, mask);
+            session.ApplyAiSelection(task, mask, inputs?.SelectionOperation ?? SelectionMode.Replace);
             return;
         }
         if (task == AiTaskKind.Upscale)

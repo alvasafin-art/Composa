@@ -58,6 +58,7 @@ public class AssistantTests
         var messages = payload.GetProperty("messages");
         Assert.Equal(2, messages.GetArrayLength());
         Assert.Contains("not an edit to execute", messages[0].GetProperty("content").GetString());
+        Assert.DoesNotContain("AGENT WORKFLOW", messages[0].GetProperty("content").GetString());
     }
 
     [Fact]
@@ -81,6 +82,29 @@ public class AssistantTests
         var messages=payload.GetProperty("messages"); Assert.Equal("tool",messages[messages.GetArrayLength()-1].GetProperty("role").GetString());
         Assert.Equal("call1",messages[messages.GetArrayLength()-1].GetProperty("tool_call_id").GetString());
     }
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Native_render_image_is_transmitted_as_tool_data_only_when_vision_enabled(bool vision)
+    {
+        JsonElement payload=default;
+        using var client=new HttpClient(new ApiHandler(async request=>
+        {
+            using var json=JsonDocument.Parse(await request.Content!.ReadAsStringAsync()); payload=json.RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content=new StringContent("{\"choices\":[{\"message\":{\"content\":\"Done\"}}]}") };
+        }));
+        var provider=new ChatCompletionAssistantProvider(new Settings { AssistantApiUrl="https://example.test",AssistantApiModel="test-model",AssistantVision=vision },transport:client);
+        var call=new AssistantToolCall("render-call","render",JsonSerializer.SerializeToElement(new { }));
+        await provider.PlanAsync(new AssistantRequest("Inspect", "{}", "") {
+            ToolMessages=[new("assistant","",Calls:[call]),new("tool","{\"ok\":true}",call.Id) {ImageDataUrl="data:image/png;base64,AQ=="}]
+        },TestContext.Current.CancellationToken);
+        var messages=payload.GetProperty("messages"); var last=messages[messages.GetArrayLength()-1];
+        Assert.Equal(vision?"user":"tool",last.GetProperty("role").GetString());
+        if(vision) { Assert.Contains("render-call",last.GetProperty("content")[0].GetProperty("text").GetString());
+            Assert.Equal("data:image/png;base64,AQ==",last.GetProperty("content")[1].GetProperty("image_url").GetProperty("url").GetString()); }
+        else Assert.DoesNotContain("AQ==",payload.GetRawText());
+    }
+
     [Fact]
     public async Task API_provider_sends_history_and_attached_script_without_local_server_contract()
     {

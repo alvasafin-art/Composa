@@ -4,6 +4,24 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.9] - 2026-10-02
+
+### Added
+
+- Object Selection AI supports Shift to add and Alt to subtract. Its rectangle is an independent search region; the existing selection remains intact until the mask arrives, and combination is one undoable change.
+- ComfyUI Settings assigns compatible workflow packs independently per task. Fill, image generation and Expand keep separate choices; an unavailable explicit assignment is reported instead of silently selecting another pack.
+- Generate Image and Image Edit dialogs share the floating panel's ordered reference editor: up to six images, file selection, clipboard paste, drop, previews and removal, with live paid-cost estimates.
+- The Assistant uses a shared native MCP operation catalog with full schemas, bounded dynamic tool discovery, structured execution receipts and changed-layer identities. Structured document inspection and explicit postcondition verification are available to both MCP and chat. Task intent replaces edit-verb matching; declared inspect tasks cannot mutate documents and the host independently rechecks final assertions on actual output ids before commit.
+- General query/batch layer tools filter by native type, geometry, name, tag and group, then compute panel order/start/step deterministically. Batch changes validate all targets before editing and preserve unmatched layers, masks and live geometry in one Undo entry. Verified already-satisfied requests are valid no-ops.
+- Task plans and a bounded operation journal survive conversation compaction; task declaration is removed from the tool list once accepted. The scripting manual loads on demand, context-aware pruning preserves complete tool exchanges, and enabled vision receives the actual native render region/grid.
+- Agent contract tests and a real-model acceptance suite cover basic shapes/guides, grouped text, masks, alternating-layer batches and embedded smart objects, including preservation and Undo/Redo checks. See [agent architecture and tests](docs/assistant-agent.md).
+
+### Fixed
+
+- Assistant tool JSON is no longer truncated mid-object. Native editor allocations are excluded from the JavaScript interpreter memory limit while native surface budgets and script execution limits remain active. Local llama.cpp schemas normalize unrestricted boolean schema nodes without changing their meaning.
+
+Verification: 732 automated tests passed, plus six real Qwen 3.5 9B acceptance scenarios covering shapes, guides, grouped text, masks, alternating-layer edits and smart objects with Undo/Redo. This is a finite acceptance suite, not a guarantee of arbitrary model answers.
+
 ## [1.2.1-preview.8] - 2026-10-01
 
 ### Fixed

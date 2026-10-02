@@ -8,7 +8,7 @@ using Jint.Runtime.Interop;
 namespace Composa.App.Automation;
 
 /// <summary>Jint resumes promises on a worker; editor delegates must remain on their owning UI thread.</summary>
-internal sealed class ScriptEngine(Engine engine)
+internal sealed class ScriptEngine(Engine engine, ScriptMemoryBudget? memory = null)
 {
     private readonly bool onUi = Dispatcher.UIThread.CheckAccess();
     public Engine Raw => engine;
@@ -29,6 +29,7 @@ internal sealed class ScriptEngine(Engine engine)
             try { return callback.DynamicInvoke(arguments); }
             catch (TargetInvocationException error) { ExceptionDispatchInfo.Capture(error.InnerException ?? error).Throw(); return null; }
         }
-        return onUi && !Dispatcher.UIThread.CheckAccess() ? Dispatcher.UIThread.InvokeAsync(Run).GetAwaiter().GetResult() : Run();
+        object? Dispatch() => onUi && !Dispatcher.UIThread.CheckAccess() ? Dispatcher.UIThread.InvokeAsync(Run).GetAwaiter().GetResult() : Run();
+        return memory == null ? Dispatch() : memory.Native(Dispatch);
     }
 }

@@ -57,6 +57,7 @@ public sealed partial class MainWindow : Window
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
             ModelSelections = settings.ComfyModelsFor,
+            EngineIdForTask = settings.EngineForTask,
             AdditionalPromptForPack = id => settings.PromptFor(id) is { Enabled: true } value ? value.Text : "",
             ApiKey = () => string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment)
         };
@@ -127,6 +128,7 @@ public sealed partial class MainWindow : Window
         canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
         canvas.AiSelectionCompleted += task => _ = RunAi(task, useInlinePrompt: true);
+        canvas.AiObjectSelectionRequested += (region, mode) => _ = RunAi(Composa.AI.AiTaskKind.ObjectSelection, useInlinePrompt: true, selectionRegion: region, selectionOperation: mode);
         // Opening text from the canvas with another tool switches to the Type tool, so the toolbar has to follow.
         canvas.TextEditingChanged += () => { if (session != null) ShowTool(session.Tool); RebuildOptions(); UpdateStatus(); };
         layers.EditTextRequested += BeginTextEdit;

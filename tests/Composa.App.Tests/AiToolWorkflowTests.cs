@@ -77,6 +77,7 @@ public class AiToolWorkflowTests
         var canvas = new CanvasView { Session = EditorSession.NewCanvas(600, 400), AiToolsAvailable = () => true };
         var w = new Window { Width = 900, Height = 650, Content = canvas }; w.Show(); canvas.Fit(); Dispatcher.UIThread.RunJobs();
         var completed = new List<AiTaskKind>(); canvas.AiSelectionCompleted += completed.Add;
+        canvas.AiObjectSelectionRequested += (_, _) => completed.Add(AiTaskKind.ObjectSelection);
         Point At(float x, float y) => canvas.TranslatePoint(canvas.ToScreen(new SKPoint(x, y)), w)!.Value;
         foreach (var tool in new[] { Tool.ObjectSelectionAi, Tool.RemoveObject })
         {
@@ -84,7 +85,8 @@ public class AiToolWorkflowTests
             w.MouseDown(At(100, 100), MouseButton.Left); w.MouseMove(At(160, 140), RawInputModifiers.LeftMouseButton);
             Assert.Equal(count, completed.Count);
             w.MouseUp(At(160, 140), MouseButton.Left); Assert.Equal(count + 1, completed.Count);
-            Assert.NotNull(canvas.Session.Selection); Assert.False(canvas.Session.IsInteracting);
+            if (tool == Tool.ObjectSelectionAi) Assert.Null(canvas.Session.Selection); else Assert.NotNull(canvas.Session.Selection);
+            Assert.False(canvas.Session.IsInteracting);
         }
         Assert.Equal(new[] { AiTaskKind.ObjectSelection, AiTaskKind.RemoveObject }, completed); w.Close();
     }

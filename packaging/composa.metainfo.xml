@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.9" date="2026-10-02">
+      <description>
+        <p>Shared native MCP and Assistant tools, structured document inspection, validated layer batches, persistent task journals and independently verified edit results. AI selection supports add/subtract modifiers, workflow assignments are task-specific and generation dialogs share ordered reference controls. Verified with 732 automated tests and six real-model acceptance scenarios.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.8" date="2026-10-01">
       <description>
         <p>GPT edits cropped source images with independent context padding and ordered references. Masks stay local, results return to their saved coordinates with one soft blend, and FLUX workflows remain unchanged.</p>

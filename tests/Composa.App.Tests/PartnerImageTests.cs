@@ -40,7 +40,7 @@ public class PartnerImageTests
             """ };
         return new() { Version = "1.0", NodeTypes = Pack().RequiredNodeTypes.ToHashSet(), NodeDefinitions = new() { ["OpenAIGPTImageNodeV2"] = definitions } };
     }
-    private static AiTaskService Service(Connection connection, bool key = true) => new(() => "http://localhost:8188", Catalog().Root, _ => connection)
+    internal static AiTaskService Service(Connection connection, bool key = true) => new(() => "http://localhost:8188", Catalog().Root, _ => connection)
         { SelectedEngine = Pack(), ApiKey = () => key ? "test-only-comfy-key" : null };
 
     [Fact]
@@ -349,7 +349,7 @@ public class PartnerImageTests
             return new(Fail ? HttpStatusCode.BadRequest : HttpStatusCode.OK) { Content = new StringContent(Fail ? "test-private-key invalid" : "{\"prompt_id\":\"job\"}") };
         }
     }
-    private sealed class Connection : IComfyConnection
+    internal sealed class Connection : IComfyConnection
     {
         public ComfyServerAddress Address { get; } = ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout { get; set; }
