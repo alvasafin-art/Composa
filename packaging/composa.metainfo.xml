@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.13" date="2026-10-04">
+      <description>
+        <p>PSD interchange keeps supported text and vectors editable and reports conversions. Installed font styles replace Bold/Italic buttons. Gradient layer effects, editable shape properties, Alt-drag duplication, object selection in Move, raster content controls and the original blue accent are included. Verified by 837 automated tests.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.12" date="2026-10-02">
       <description>
         <p>Independent preferences for every workflow and task preserve existing settings. FLUX Expand defaults use 16/48/16 px, context 2 and subtle color matching. Original-size masked crops preserve source pixels with padding rather than double resampling. Verified by 752 automated tests and live ComfyUI stock-node pixel checks.</p>

@@ -36,11 +36,12 @@ public sealed partial class ComposaTools
     }
 
     [McpServerTool(Name = "save_document")]
-    [Description("Saves the document as a Composa project (.cmps) with all its layers, in the background as Ctrl+S does. Without a path it saves to the file the document came from.")]
+    [Description("Saves the document as a Composa project (.cmps) or a layered Photoshop document (.psd), in the background as Ctrl+S does. Without a path it saves to the file the document came from.")]
     public Task<string> SaveDocument(
-        [Description("Absolute path ending in .cmps; leave it out to save to the document's own file")] string? path = null,
+        [Description("Absolute path ending in .cmps or .psd; leave it out to save to the document's own file")] string? path = null,
         [Description("Replace a file that exists at a new path; the document's own file is always replaced")] bool overwrite = false,
-        int? document = null) => OnUi(async () =>
+        int? document = null,
+        [Description("Allow PSD conversion of live content, effects and adjustments to pixels; save .cmps to keep all settings")] bool allowConversion = false) => OnUi(async () =>
     {
         var s = Editable(document);                             // Text being typed is committed first, so it is in what gets saved.
         if (path == null)
@@ -50,12 +51,15 @@ public sealed partial class ComposaTools
         else
         {
             path = Absolute(path);
-            if (!path.EndsWith(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase))
-                throw new McpException($"A project file ends in {ProjectFile.Extension}; export_image writes an image file.");
+            if (!path.EndsWith(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
+                throw new McpException($"A project file ends in {ProjectFile.Extension} or .psd; export_image writes an image file.");
             Fresh(path, s.FilePath, overwrite);
         }
+        var conversions = Path.GetExtension(path).Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase) ? PsdExport.Conversions(s.Document) : [];
+        if (conversions.Count > 0 && !allowConversion)
+            throw new McpException("PSD conversion requires allowConversion: true. " + string.Join(" ", conversions.Select(c => c.LayerName + ": " + c.Message)));
         if (await window.SaveTo(s, path) is { } error) throw new McpException($"Couldn't save {Path.GetFileName(path)}: {error.Message}");
-        return $"Saved \"{s.Title}\" to {path}.";
+        return $"Saved \"{s.Title}\" to {path}." + (conversions.Count == 0 ? "" : "\n" + string.Join("\n", conversions.Select(c => c.LayerName + ": " + c.Message)));
     });
 
     [McpServerTool(Name = "export_image")]

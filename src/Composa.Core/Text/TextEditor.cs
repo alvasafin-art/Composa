@@ -114,11 +114,13 @@ public sealed class TextEditor
         Apply(next, Caret, Anchor);
     }
 
-    /// <summary>The face the Type bar's Bold and Italic show: the first selected letter's, otherwise the letter before the caret's.</summary>
+    /// <summary>The first selected letter's face, otherwise the letter before the caret's.</summary>
     public TextFace FaceAtCaret => Style.FaceAt(HasSelection ? SelectionStart : Math.Max(0, Caret - 1));
 
     /// <summary>The family the Type bar's font menu shows: the one every selected letter is in, or null when they mix families.</summary>
     public string? UniformFamilyInSelection => HasSelection ? Style.UniformFamilyIn(SelectionStart, SelectionEnd) : FaceAtCaret.FontFamily;
+
+    public TextFace? UniformFaceInSelection => HasSelection ? Style.UniformFaceIn(SelectionStart, SelectionEnd) : FaceAtCaret;
 
     // ---- Caret ----------------------------------------------------------------------------------------------------
 

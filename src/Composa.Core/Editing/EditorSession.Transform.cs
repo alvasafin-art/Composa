@@ -32,14 +32,14 @@ public sealed class TransformEdit
         if (layers.Count == 0) StartFrame = new SKRect(0, 0, session.Document.Width, session.Document.Height);
         else if (layers.Count == 1)
         {
-            var t = layers[0].Start;
+            var t = layers[0].Layer.ControlTransform;
             StartFrame = SKRect.Create((float)t.X, (float)t.Y, (float)t.Width, (float)t.Height);
             StartRotation = t.Rotation;
         }
         else
         {
             var bounds = SKRect.Empty;
-            foreach (var (layer, _) in layers) bounds = bounds.IsEmpty ? layer.Bounds : SKRect.Union(bounds, layer.Bounds);
+            foreach (var (layer, _) in layers) bounds = bounds.IsEmpty ? layer.ControlBounds : SKRect.Union(bounds, layer.ControlBounds);
             StartFrame = bounds;
         }
         Frame = StartFrame;
@@ -54,7 +54,7 @@ public sealed class TransformEdit
     public SKPoint[] Corners()
     {
         if (layers.Count == 1 && layers[0].Layer is { Pixels: { } pixels, Transform.Distort: not null } distorted)
-            return distorted.Transform.Corners(pixels.Width, pixels.Height);
+            return distorted.ControlTransform.Corners(pixels.Width, pixels.Height);
         var rotate = SKMatrix.CreateRotationDegrees((float)Rotation, Frame.MidX, Frame.MidY);
         return [rotate.MapPoint(Frame.Left, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Bottom), rotate.MapPoint(Frame.Left, Frame.Bottom)];
     }
@@ -181,12 +181,7 @@ public sealed class TransformEdit
         if (layers.Count == 1)
         {
             var (layer, start) = layers[0];
-            layer.Transform = start with
-            {
-                X = frame.Left, Y = frame.Top, Width = frame.Width, Height = frame.Height, Rotation = Rotation,
-                FlipHorizontal = start.FlipHorizontal ^ flipX, FlipVertical = start.FlipVertical ^ flipY,
-                Distort = start.Distort == null ? null : ScaleDistort(start.Distort, frame.Width / start.Width, frame.Height / start.Height)
-            };
+            layer.Transform = MapControlFrame(start, StartFrame, StartRotation, frame, Rotation, flipX, flipY);
             return;
         }
         double sx = frame.Width / Math.Max(1e-6, StartFrame.Width), sy = frame.Height / Math.Max(1e-6, StartFrame.Height);
@@ -209,6 +204,24 @@ public sealed class TransformEdit
         }
     }
 
+    /// <summary>Maps a content frame without changing, cropping or resampling its padded source bitmap or mask.</summary>
+    internal static LayerTransform MapControlFrame(LayerTransform start, SKRect original, double originalRotation, SKRect frame, double rotation, bool flipX = false, bool flipY = false)
+    {
+        if (frame == original && rotation == originalRotation && !flipX && !flipY) return start;
+        double sx = frame.Width / Math.Max(1e-6, original.Width), sy = frame.Height / Math.Max(1e-6, original.Height);
+        var local = SKMatrix.CreateRotationDegrees((float)-originalRotation, original.MidX, original.MidY).MapPoint(start.Center);
+        var x = (flipX ? original.Right - local.X : local.X - original.Left) * sx + frame.Left;
+        var y = (flipY ? original.Bottom - local.Y : local.Y - original.Top) * sy + frame.Top;
+        var center = SKMatrix.CreateRotationDegrees((float)rotation, frame.MidX, frame.MidY).MapPoint((float)x, (float)y);
+        return start with
+        {
+            X = center.X - start.Width * sx / 2, Y = center.Y - start.Height * sy / 2,
+            Width = start.Width * sx, Height = start.Height * sy, Rotation = rotation,
+            FlipHorizontal = start.FlipHorizontal ^ flipX, FlipVertical = start.FlipVertical ^ flipY,
+            Distort = start.Distort == null ? null : ScaleDistort(start.Distort, sx, sy)
+        };
+    }
+
     /// <summary>True when any layer ended up somewhere other than where it started.</summary>
     public bool HasChanges => layers.Any(l => !Same(l.Layer.Transform, l.Start)) || masks.Any(m => !ReferenceEquals(m.Layer.Mask, m.Start));
 
@@ -226,12 +239,39 @@ public sealed class TransformEdit
         if (layers.Count != 1 || session.Transform != this) return;
         var before = Area();
         var (layer, start) = layers[0];
+        var pixels = layer.Pixels!;
+        var source = layer.ControlSourceBounds;
+        if (source == new SKRectI(0, 0, pixels.Width, pixels.Height))
+        {
+            // Preserve exact offsets of untouched corners when the source already fills its controls.
+            var p = SKMatrix.CreateRotationDegrees((float)-start.Rotation, start.Center.X, start.Center.Y).MapPoint(point);
+            var offsets = (float[])(start.Distort ?? new float[8]).Clone();
+            offsets[corner * 2] = p.X - (float)start.X - (corner is 1 or 2 ? (float)start.Width : 0);
+            offsets[corner * 2 + 1] = p.Y - (float)start.Y - (corner is 2 or 3 ? (float)start.Height : 0);
+            layer.Transform = start with { Distort = offsets.All(v => Math.Abs(v) < .01f) ? null : offsets };
+            session.Invalidate(Geometry.Union(before, Area()));
+            return;
+        }
+        // Corner order is geometric (TL first), even when the source has been flipped.
+        float left = start.FlipHorizontal ? source.Right : source.Left, right = start.FlipHorizontal ? source.Left : source.Right;
+        float top = start.FlipVertical ? source.Bottom : source.Top, bottom = start.FlipVertical ? source.Top : source.Bottom;
+        var corners = new[] { new SKPoint(left, top), new SKPoint(right, top), new SKPoint(right, bottom), new SKPoint(left, bottom) };
+        var originalMatrix = start.Matrix(pixels.Width, pixels.Height);
+        var target = corners.Select(originalMatrix.MapPoint).ToArray();
+        target[corner] = point;
+        var matrix = SKMatrix.CreateTranslation(-left, -top).PostConcat(Geometry.RectToQuad(right - left, bottom - top, target));
         var unrotate = SKMatrix.CreateRotationDegrees((float)-start.Rotation, start.Center.X, start.Center.Y);
-        var p = unrotate.MapPoint(point);
-        var distort = (float[])(start.Distort ?? new float[8]).Clone();
-        float baseX = corner is 1 or 2 ? (float)start.Width : 0, baseY = corner is 2 or 3 ? (float)start.Height : 0;
-        distort[corner * 2] = p.X - (float)start.X - baseX;
-        distort[corner * 2 + 1] = p.Y - (float)start.Y - baseY;
+        var full = new[] { new SKPoint(start.FlipHorizontal ? pixels.Width : 0, start.FlipVertical ? pixels.Height : 0),
+            new SKPoint(start.FlipHorizontal ? 0 : pixels.Width, start.FlipVertical ? pixels.Height : 0),
+            new SKPoint(start.FlipHorizontal ? 0 : pixels.Width, start.FlipVertical ? 0 : pixels.Height),
+            new SKPoint(start.FlipHorizontal ? pixels.Width : 0, start.FlipVertical ? 0 : pixels.Height) };
+        var distort = new float[8];
+        for (var i = 0; i < 4; i++)
+        {
+            var p = unrotate.MapPoint(matrix.MapPoint(full[i]));
+            distort[i * 2] = p.X - (float)(start.X + (i is 1 or 2 ? start.Width : 0));
+            distort[i * 2 + 1] = p.Y - (float)(start.Y + (i is 2 or 3 ? start.Height : 0));
+        }
         layer.Transform = start with { Distort = distort.All(v => Math.Abs(v) < 0.01f) ? null : distort };
         session.Invalidate(Geometry.Union(before, Area()));
     }
@@ -245,13 +285,21 @@ public sealed partial class EditorSession
     public List<Layer> TransformTargets() =>
         SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null).Distinct().ToList();
 
-    public TransformEdit? BeginTransform(string name = "Transform")
+    public TransformEdit? BeginTransform(string name = "Transform", bool duplicate = false)
     {
         var targets = TransformTargets();
         var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null).Distinct().ToList();
         if (targets.Count == 0 && maskOwners.Count == 0) return null;
-        Begin(name);
-        return Transform = new TransformEdit(this, targets, maskOwners);
+        Begin(duplicate ? "Duplicate and Move" : name);
+        if (duplicate)
+        {
+            InsertLayerCopies(SelectedRoots());
+            targets = TransformTargets();
+            maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null).Distinct().ToList();
+        }
+        Transform = new TransformEdit(this, targets, maskOwners);
+        if (duplicate) { InvalidateAll(); LayersChanged?.Invoke(); }
+        return Transform;
     }
 
     public void CommitTransform()
@@ -302,6 +350,13 @@ public sealed partial class EditorSession
 
     private const string InspectorEditName = "Transform";
     private (Guid LayerId, int Revision)? inspectorEdit;
+
+    public void SetControlTransform(Layer layer, LayerTransform control)
+    {
+        var before = layer.ControlTransform;
+        SetTransform(layer, TransformEdit.MapControlFrame(layer.Transform, SKRect.Create((float)before.X, (float)before.Y, (float)before.Width, (float)before.Height), before.Rotation,
+            SKRect.Create((float)control.X, (float)control.Y, (float)control.Width, (float)control.Height), control.Rotation));
+    }
 
     /// <summary>
     /// Sets exact values from the transform inspector. Every keystroke in a field, and every pixel of a drag on its

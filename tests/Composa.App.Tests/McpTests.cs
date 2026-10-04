@@ -361,6 +361,19 @@ public class McpTests
             Assert.NotEqual(true, (await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = jpeg, ["overwrite"] = true }))).IsError);
             Assert.False(session.IsModified);                                                       // Exporting is not a change.
 
+            var photoshop = Path.Combine(folder, "layers.psd");
+            var psdNotes = Composa.IO.Psd.PsdExport.Conversions(session.Document);
+            if (psdNotes.Count > 0)
+            {
+                var psdRefused = await Pumped(client.CallToolAsync("save_document", new Dictionary<string, object?> { ["path"] = photoshop }));
+                Assert.Equal(true, psdRefused.IsError); Assert.Contains("allowConversion", Text(psdRefused));
+                Assert.False(File.Exists(photoshop));
+            }
+            Assert.NotEqual(true, (await Pumped(client.CallToolAsync("save_document", new Dictionary<string, object?> { ["path"] = photoshop, ["allowConversion"] = true }))).IsError);
+            Assert.True(Composa.IO.Psd.PsdImport.IsPsd(photoshop));
+            var psd = Composa.IO.Psd.PsdImport.Load(photoshop); Assert.NotEmpty(psd.Layers); psd.Discard();
+            Assert.NotEqual(true, (await Pumped(client.CallToolAsync("save_document", new Dictionary<string, object?> { ["path"] = copy, ["overwrite"] = true }))).IsError);
+
             var again = await Pumped(client.CallToolAsync("open_document", new Dictionary<string, object?> { ["path"] = copy }));
             Assert.Equal("Document 1 \"copy\" was already open, now active.", Text(again));
             Assert.Single(window.Sessions);

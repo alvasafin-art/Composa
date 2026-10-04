@@ -18,7 +18,7 @@ internal static class PsdChannels
     /// outside it are skipped by their byte counts, so pixels beyond the canvas never cost memory. A zip plane has to be
     /// inflated whole before it can be cut, so there the saving is the color image, not the plane.
     /// </summary>
-    public static byte[] Decode(int compression, int width, int height, ReadOnlySpan<byte> data, bool largeDocument = false, PsdCrop? crop = null)
+    private static byte[] DecodeBytes(int compression, int width, int height, ReadOnlySpan<byte> data, bool largeDocument = false, PsdCrop? crop = null)
     {
         var expected = (long)width * height;
         if (expected == 0) return [];
@@ -38,7 +38,7 @@ internal static class PsdChannels
                 for (var row = 0; row < height; row++) counts[row] = RowCount(ref cursor, largeDocument);
                 return UnpackRows(data[cursor.Offset..], counts, width, part);
             }
-            return Slice(Decode(compression, width, height, data, largeDocument), width, part);
+            return Slice(DecodeBytes(compression, width, height, data, largeDocument), width, part);
         }
         switch (compression)
         {
@@ -69,6 +69,41 @@ internal static class PsdChannels
             default:
                 throw new PsdException("This Photoshop file uses a layer compression method that isn't supported.");
         }
+    }
+
+    /// <summary>Converts an 8- or 16-bit sample plane to the editor's 8-bit channels, retaining crop savings.</summary>
+    public static byte[] Decode(int compression, int width, int height, ReadOnlySpan<byte> data, bool largeDocument = false, PsdCrop? crop = null, int depth = 8)
+    {
+        if (depth == 8) return DecodeBytes(compression, width, height, data, largeDocument, crop);
+        if (depth != 16) throw new PsdException("Only 8-bit or 16-bit RGB Photoshop files can be imported.");
+        var byteWidth = checked(width * 2);
+        var byteCrop = crop is { } part ? new PsdCrop(part.X * 2, part.Y, part.Width * 2, part.Height) : (PsdCrop?)null;
+        byte[] samples;
+        if (compression == ZipWithPrediction)
+        {
+            samples = DecodeBytes(Zip, byteWidth, height, data, largeDocument);
+            // Prediction in a 16-bit file adds unsigned big-endian samples, not the individual bytes.
+            for (var y = 0; y < height; y++)
+            {
+                var previous = 0;
+                for (var x = 0; x < width; x++)
+                {
+                    var i = y * byteWidth + x * 2;
+                    previous = (previous + (samples[i] << 8 | samples[i + 1])) & 65535;
+                    samples[i] = (byte)(previous >> 8); samples[i + 1] = (byte)previous;
+                }
+            }
+            if (byteCrop is { } cut) samples = Slice(samples, byteWidth, cut);
+        }
+        else samples = DecodeBytes(compression, byteWidth, height, data, largeDocument, byteCrop);
+        return Reduce16(samples);
+    }
+
+    internal static byte[] Reduce16(ReadOnlySpan<byte> samples)
+    {
+        var result = new byte[samples.Length / 2];
+        for (var i = 0; i < result.Length; i++) result[i] = (byte)(((samples[i * 2] << 8 | samples[i * 2 + 1]) + 128) / 257);
+        return result;
     }
 
     /// <summary>A PackBits row's byte count: 2 bytes in a PSD, 4 in a PSB.</summary>
@@ -163,7 +198,7 @@ internal static class PsdChannels
     }
 
     /// <summary>Premultiplied RGBA pixels from straight planes; a missing alpha means opaque.</summary>
-    public static SKBitmap ColorImage(int width, int height, byte[]? red, byte[]? green, byte[]? blue, byte[]? alpha)
+    public static SKBitmap ColorImage(int width, int height, byte[]? red, byte[]? green, byte[]? blue, byte[]? alpha, bool whiteMatte = false)
     {
         var count = (long)width * height;
         if ((red != null && red.Length < count) || (green != null && green.Length < count) || (blue != null && blue.Length < count) || (alpha != null && alpha.Length < count))
@@ -173,14 +208,16 @@ internal static class PsdChannels
         for (long i = 0, p = 0; i < count; i++, p += 4)
         {
             var a = alpha == null ? (byte)255 : alpha[i];
-            pixels[(int)p] = Premultiply(red == null ? (byte)0 : red[i], a);
-            pixels[(int)p + 1] = Premultiply(green == null ? (byte)0 : green[i], a);
-            pixels[(int)p + 2] = Premultiply(blue == null ? (byte)0 : blue[i], a);
+            pixels[(int)p] = ColorByte(red == null ? (byte)0 : red[i], a, whiteMatte);
+            pixels[(int)p + 1] = ColorByte(green == null ? (byte)0 : green[i], a, whiteMatte);
+            pixels[(int)p + 2] = ColorByte(blue == null ? (byte)0 : blue[i], a, whiteMatte);
             pixels[(int)p + 3] = a;
         }
         Pixels.Invalidate(bitmap);
         return bitmap;
     }
+
+    private static byte ColorByte(byte value, byte alpha, bool whiteMatte) => whiteMatte ? (byte)Math.Clamp(value - (255 - alpha), 0, alpha) : Premultiply(value, alpha);
 
     private static byte Premultiply(byte value, byte alpha) => alpha == 255 ? value : (byte)((value * alpha + 127) / 255);
 

@@ -97,6 +97,10 @@ internal sealed class PsdWriter
         // The merged image: one compression for all planes, R, G, B (and A with four channels).
         var planes = new List<byte[]>();
         for (var c = 0; c < Channels; c++) planes.Add(Composite == null ? new byte[Width * Height] : Plane(Composite, c switch { 0 => 0, 1 => 1, 2 => 2, _ => -1 }));
+        if (Channels == 4 && Composite != null)
+            for (var c = 0; c < 3; c++)
+            for (var i = 0; i < planes[c].Length; i++)
+                planes[c][i] = (byte)((planes[c][i] * planes[3][i] + 127) / 255 + 255 - planes[3][i]);
         file.U16((ushort)(Compression == 1 ? 1 : 0));
         if (Compression == 1)
         {
@@ -209,10 +213,11 @@ internal sealed class PsdWriter
     }
 
     /// <summary>Stroke settings: whether the fill and the stroke are on, and the stroke's width and color.</summary>
-    public static byte[] StrokeSettings(bool fill, bool stroke, double width, SKColor color)
+    public static byte[] StrokeSettings(bool fill, bool stroke, double width, SKColor color, string unit = "#Pxl", double resolution = 72, double opacity = 100)
     {
         var settings = new Descriptor().Add("strokeStyleVersion", Descriptor.Long(2)).Add("fillEnabled", Descriptor.Bool(fill)).Add("strokeEnabled", Descriptor.Bool(stroke))
-            .Add("strokeStyleLineWidth", Descriptor.UntF("#Pxl", width))
+            .Add("strokeStyleLineWidth", Descriptor.UntF(unit, width)).Add("strokeStyleResolution", Descriptor.Doub(resolution))
+            .Add("strokeStyleOpacity", Descriptor.UntF("#Prc", opacity))
             .Add("strokeStyleContent", Descriptor.Objc(new Descriptor().Add("Clr ", Descriptor.Objc(Rgb(color)))));
         var buffer = new Buffer();
         buffer.U32(16);
@@ -329,7 +334,7 @@ internal sealed class PsdWriter
         {
             var block = new Buffer();
             block.U16(1);
-            foreach (var value in new[] { Xx, Xy, Yx, Yy, Tx, Ty }) block.F64(value);
+            foreach (var value in new[] { Xx, Yx, Xy, Yy, Tx, Ty }) block.F64(value);
             block.U16(50);
             var text = new Descriptor().Add("Txt ", Descriptor.Text(Text)).Add("Ornt", Descriptor.Enum("Ornt", Vertical ? "Vrtc" : "Hrzn"));
             if (Bounds is { } bounds) text.Add("bounds", Descriptor.Objc(Rect(bounds)));

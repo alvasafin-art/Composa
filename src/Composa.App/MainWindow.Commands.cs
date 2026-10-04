@@ -74,6 +74,7 @@ public sealed partial class MainWindow
             Line(),
             Item("Save", () => _ = Save(session!, false), Key.S, ctrl),
             Item("Save As…", () => _ = Save(session!, true), Key.S, ctrl | shift),
+            Item("Save as PSD…", () => _ = Save(session!, true, photoshop: true)),
             Line(),
             Item("Export PNG…", () => _ = Export(ExportFormat.Png), Key.E, ctrl | shift),
             Item("Export JPEG…", () => _ = Export(ExportFormat.Jpeg), Key.S, ctrl | shift | alt),
@@ -435,8 +436,8 @@ public sealed partial class MainWindow
     private void OnSessionLayersChanged()
     {
         RefreshAiUi();
-        if (session?.Tool != Tool.Move) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer) RebuildOptions();
+        if (session?.Tool is not (Tool.Move or Tool.Shape)) return;
+        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }
@@ -508,6 +509,7 @@ public sealed partial class MainWindow
     // ---- Files --------------------------------------------------------------------------------------------------
 
     private static readonly FilePickerFileType ProjectType = new("Composa project") { Patterns = ["*" + ProjectFile.Extension] };
+    private static readonly FilePickerFileType PhotoshopType = new("Photoshop document") { Patterns = ["*.psd"] };
     private static readonly string[] ImageExtensions = [.. ImageFiles.ImportExtensions, .. RawImporter.Extensions];
     private static readonly FilePickerFileType ImageType = new("Images") { Patterns = ImageExtensions.Select(e => "*" + e).ToArray() };
     private static readonly FilePickerFileType RawType = new("Camera RAW") { Patterns = RawImporter.Extensions.Select(e => "*" + e).ToArray() };
@@ -548,6 +550,7 @@ public sealed partial class MainWindow
             // Photoshop files open as unsaved documents; what had to be converted is shown before anything is applied.
             if (await ImportPhotoshop(path, DocumentLimits.DocumentPixelBudget) is not { } import) return null;
             AddSession(opened = EditorSession.OpenPhotoshop(import, Path.GetFileNameWithoutExtension(path)));
+            if (import.Conversions.Count == 0 && Path.GetExtension(path).Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase)) opened.MarkSaved(path);
         }
         else if (Path.GetExtension(path).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase))
         {
@@ -634,7 +637,14 @@ public sealed partial class MainWindow
     private async Task<PsdImport?> ImportPhotoshop(string path, long pixelBudget)
     {
         var import = await Task.Run(() => PsdImport.Load(path, pixelBudget));
-        if (import.Conversions.Count == 0 || await PsdConversionDialog.Confirm(this, Path.GetFileName(path), import.Conversions)) return import;
+        if (import.Conversions.Count == 0) return import;
+        var merged = false;
+        if (await PsdConversionDialog.Confirm(this, Path.GetFileName(path), import.Conversions, chooseMerged: value => merged = value))
+        {
+            if (!merged) return import;
+            import.Discard();
+            return await Task.Run(() => PsdImport.LoadAppearance(path, pixelBudget));
+        }
         import.Discard();
         return null;
     }
@@ -666,7 +676,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task<bool> Save(EditorSession target, bool saveAs)
+    private async Task<bool> Save(EditorSession target, bool saveAs, bool photoshop = false)
     {
         if (!saveAs && embeddedTabs.ContainsKey(target))
         {
@@ -678,11 +688,19 @@ public sealed partial class MainWindow
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "Save Project", SuggestedFileName = target.Title + ProjectFile.Extension, DefaultExtension = ProjectFile.Extension.TrimStart('.'), FileTypeChoices = [ProjectType]
+                Title = photoshop ? "Save as PSD" : "Save Document", SuggestedFileName = target.Title + (photoshop ? PsdExport.Extension : ProjectFile.Extension),
+                DefaultExtension = (photoshop ? PsdExport.Extension : ProjectFile.Extension).TrimStart('.'),
+                FileTypeChoices = photoshop ? [PhotoshopType] : [ProjectType, PhotoshopType]
             });
             path = file?.TryGetLocalPath();
             if (path == null) return false;
-            if (!path.EndsWith(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase)) path += ProjectFile.Extension;
+            if (!path.EndsWith(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
+                path += photoshop ? PsdExport.Extension : ProjectFile.Extension;
+        }
+        if (Path.GetExtension(path).Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
+        {
+            var conversions = PsdExport.Conversions(target.Document);
+            if (conversions.Count > 0 && !await PsdConversionDialog.Confirm(this, Path.GetFileName(path), conversions, exporting: true)) return false;
         }
         if (await SaveTo(target, path) is not { } error) return true;
         await Prompts.Alert(this, "Couldn't save", error.Message);
@@ -720,9 +738,18 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task<Exception?> Write(EditorSession target, string path)
     {
+        var extension = Path.GetExtension(path);
+        if (!extension.Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
+            return new IOException("Save a .cmps project or a .psd Photoshop document.");
+        if (canvas.IsDragging) return new IOException("Finish dragging on the canvas before saving.");
+        target.FinishText();
         var snapshot = target.Document.Clone();
         var state = target.History.CurrentId;
-        try { await Task.Run(() => ProjectFile.Save(snapshot, path)); }
+        try { await Task.Run(() =>
+        {
+            if (extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase)) PsdExport.Save(snapshot, path);
+            else ProjectFile.Save(snapshot, path);
+        }); }
         catch (Exception error) { return error; }
         if (!embeddedTabs.ContainsKey(target)) target.MarkSaved(path, state);
         recovery?.Forget(target);

@@ -25,19 +25,21 @@ public static class EffectsDialog
             Ui.SliderField(label, value, min, max, changed, step, format, fieldWidth);
         // Photoshop's dial for the light's direction, with the field beside it for an exact number; each follows the other.
         Control Angle(double value, Action<double> changed) => Ui.AngleField("Angle", value, -180, 180, changed, fieldWidth);
-        Control Swatch()
+        Control Swatch(string label = "Color", Func<uint>? get = null, Action<uint>? set = null)
         {
+            get ??= () => effects.ColorOf(kind) ?? 0xFF000000;
+            set ??= color => Set(effects.WithColor(kind, color));
             var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Brushes.White, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
-            void Paint() => swatch.Background = new SolidColorBrush(new SKColor(effects.ColorOf(kind) ?? 0xFF000000).ToAvalonia());
+            void Paint() => swatch.Background = new SolidColorBrush(new SKColor(get()).ToAvalonia());
             Paint();
-            ToolTip.SetTip(swatch, LayerEffects.DisplayName(kind) + " color");
+            ToolTip.SetTip(swatch, LayerEffects.DisplayName(kind) + " " + label.ToLowerInvariant());
             swatch.PointerPressed += async (_, _) =>
             {
-                if (TopLevel.GetTopLevel(swatch) is not Window window || await Prompts.Color(window, LayerEffects.DisplayName(kind) + " Color", new SKColor(effects.ColorOf(kind) ?? 0xFF000000)) is not { } picked) return;
-                Set(effects.WithColor(kind, (uint)picked | 0xFF000000));
+                if (TopLevel.GetTopLevel(swatch) is not Window window || await Prompts.Color(window, LayerEffects.DisplayName(kind) + " " + label, new SKColor(get())) is not { } picked) return;
+                set((uint)picked | 0xFF000000);
                 Paint();
             };
-            return Ui.Row(10, Ui.Label("Color", Palette.Secondary, weight: FontWeight.Normal) is var l ? Width(l, 70) : l, swatch);
+            return Ui.Row(10, Ui.Label(label, Palette.Secondary, weight: FontWeight.Normal) is var l ? Width(l, 70) : l, swatch);
         }
 
         switch (kind)
@@ -64,6 +66,18 @@ public static class EffectsDialog
             case LayerEffectKind.ColorOverlay:
                 rows.Children.Add(Swatch());
                 rows.Children.Add(Slider("Opacity", effects.ColorOverlay!.Opacity * 100, 0, 100, v => Set(effects with { ColorOverlay = effects.ColorOverlay! with { Opacity = v / 100 } })));
+                break;
+            case LayerEffectKind.GradientOverlay:
+                var gradient = effects.GradientOverlay!;
+                rows.Children.Add(Ui.Row(10, Width(Ui.Label("Style", Palette.Secondary), 70),
+                    Ui.Combo(new[] { "Linear", "Radial" }, gradient.Radial ? "Radial" : "Linear", v => v,
+                        v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Radial = v == "Radial" } }), 120)));
+                rows.Children.Add(Swatch("Start", () => effects.GradientOverlay!.StartColor, color => Set(effects with { GradientOverlay = effects.GradientOverlay! with { StartColor = color } })));
+                rows.Children.Add(Swatch("End", () => effects.GradientOverlay!.EndColor, color => Set(effects with { GradientOverlay = effects.GradientOverlay! with { EndColor = color } })));
+                rows.Children.Add(Slider("Opacity", gradient.Opacity * 100, 0, 100, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Opacity = v / 100 } })));
+                rows.Children.Add(Angle(gradient.Angle, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Angle = v } })));
+                rows.Children.Add(Slider("Scale", gradient.Scale, 1, 1000, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Scale = v } })));
+                rows.Children.Add(Ui.Check("Reverse", gradient.Reverse, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Reverse = v } })));
                 break;
             case LayerEffectKind.OuterGlow:
                 var glow = effects.OuterGlow!;

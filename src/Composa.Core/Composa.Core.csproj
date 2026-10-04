@@ -6,5 +6,7 @@
     <PackageReference Include="SkiaSharp" Version="$(SkiaSharpVersion)" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaSharpVersion)" />
     <InternalsVisibleTo Include="Composa.Core.Tests" />
+    <EmbeddedResource Include="IO/Psd/sRGB2014.icc" />
+    <Content Include="IO/Psd/sRGB2014-LICENSE.txt" Link="sRGB2014-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

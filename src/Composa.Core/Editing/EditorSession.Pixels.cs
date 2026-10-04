@@ -487,30 +487,44 @@ public sealed partial class EditorSession
 
     public static SKBitmap RenderShape(ShapeStyle style, int width, int height)
     {
+        style = style.Clamped();
         var pixels = Pixels.NewColor(width, height);
         using var canvas = new SKCanvas(pixels);
         using var paint = new SKPaint { Color = new SKColor(style.Fill), IsAntialias = true };
-        var rect = new SKRect(0, 0, width, height);
-        switch (style.Kind)
+        if (style.Kind == ShapeKind.Line)
         {
-            case ShapeKind.Line:
-                // The ends sit where they were dragged, as fractions of the box; a line without stored ends runs corner
-                // to corner, inset by half its thickness so the stroke stays inside the layer.
-                var thickness = (float)Math.Max(1, style.LineWidth);
+            var thickness = (float)style.LineWidth;
+            paint.Style = SKPaintStyle.Stroke;
+            paint.StrokeWidth = thickness;
+            paint.StrokeCap = SKStrokeCap.Round;
+            var inset = new SKPoint(Math.Min(thickness, width) / 2, Math.Min(thickness, height) / 2);
+            var from = style.StartX is { } sx && style.StartY is { } sy ? new SKPoint((float)(sx * width), (float)(sy * height)) : inset;
+            var to = style.EndX is { } ex && style.EndY is { } ey ? new SKPoint((float)(ex * width), (float)(ey * height)) : new SKPoint(width - inset.X, height - inset.Y);
+            canvas.DrawLine(from, to, paint);
+        }
+        else
+        {
+            var strokeWidth = style.Stroke != null ? (float)Math.Min(style.StrokeWidth, Math.Min(width, height)) : 0;
+            var inset = strokeWidth / 2;
+            var rect = new SKRect(inset, inset, width - inset, height - inset);
+            void Draw()
+            {
+                if (style.Kind == ShapeKind.Ellipse) canvas.DrawOval(rect, paint);
+                else if (style.Kind == ShapeKind.RoundedRectangle)
+                {
+                    var radius = (float)Math.Max(0, Math.Min(style.CornerRadius, Math.Min(width, height) / 2.0) - inset);
+                    canvas.DrawRoundRect(rect, radius, radius, paint);
+                }
+                else canvas.DrawRect(rect, paint);
+            }
+            if (style.FillEnabled) Draw();
+            if (style.Stroke is { } stroke && strokeWidth > 0)
+            {
+                paint.Color = new SKColor(stroke);
                 paint.Style = SKPaintStyle.Stroke;
-                paint.StrokeWidth = thickness;
-                paint.StrokeCap = SKStrokeCap.Round;
-                var inset = new SKPoint(Math.Min(thickness, width) / 2, Math.Min(thickness, height) / 2);
-                var from = style.StartX is { } sx && style.StartY is { } sy ? new SKPoint((float)(sx * width), (float)(sy * height)) : inset;
-                var to = style.EndX is { } ex && style.EndY is { } ey ? new SKPoint((float)(ex * width), (float)(ey * height)) : new SKPoint(width - inset.X, height - inset.Y);
-                canvas.DrawLine(from, to, paint);
-                break;
-            case ShapeKind.Ellipse: canvas.DrawOval(rect, paint); break;
-            case ShapeKind.RoundedRectangle:
-                var radius = (float)Math.Min(style.CornerRadius, Math.Min(width, height) / 2.0);
-                canvas.DrawRoundRect(rect, radius, radius, paint);
-                break;
-            default: canvas.DrawRect(rect, paint); break;
+                paint.StrokeWidth = strokeWidth;
+                Draw();
+            }
         }
         return pixels;
     }
@@ -554,6 +568,7 @@ public sealed partial class EditorSession
 
     private Layer? AddShapeLayer(ShapeStyle style, SKRect rect, string stem)
     {
+        style = style.Clamped();
         if ((long)rect.Width * (long)rect.Height > DocumentLimits.MaxSurfacePixels) { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return null; }
         var layer = Layer.Raster(document.UniqueName(stem), RenderShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
         layer.Shape = style;
@@ -563,15 +578,75 @@ public sealed partial class EditorSession
         return layer;
     }
 
-    /// <summary>Turns a live shape into ordinary pixels so it can be painted on.</summary>
+    /// <summary>Changes a live shape's fill without rasterizing it.</summary>
     public void SetShapeColor(Layer layer, SKColor color)
     {
-        if (layer.Shape is not { } style || layer.Pixels is not { } pixels)
-            throw new InvalidOperationException("Choose a live shape layer to change its fill color.");
-        if (style.Fill == (uint)color) return;
-        var next = style with { Fill = (uint)color };
-        Apply("Shape Color", () => { layer.Pixels = RenderShape(next, pixels.Width, pixels.Height); layer.Shape = next; });
-        Invalidate(AffectedArea(layer));
+        if (layer.Shape is not { } style) throw new InvalidOperationException("Choose a live shape layer to change its fill color.");
+        ChangeShapeStyle(layer, style with { Fill = (uint)color });
+    }
+
+    private (Guid LayerId, int Revision)? shapeStyleEdit;
+
+    /// <summary>Rebuilds a live shape from editable properties; color pickers preview inside one open edit and bar fields can fold consecutive changes.</summary>
+    public void ChangeShapeStyle(Layer layer, ShapeStyle style, bool preview = false, bool merge = false)
+    {
+        if (layer.Shape == null || layer.Pixels is not { } pixels) return;
+        style = style.Clamped();
+        if (layer.Shape == style) return;
+        var before = AffectedArea(layer);
+        var width = pixels.Width; var height = pixels.Height;
+        var pad = 0;
+        if (style.Kind == ShapeKind.Line)
+        {
+            var oldThickness = layer.Shape.LineWidth;
+            var from = new SKPoint((float)(style.StartX * width ?? Math.Min(oldThickness, width) / 2), (float)(style.StartY * height ?? Math.Min(oldThickness, height) / 2));
+            var to = new SKPoint((float)(style.EndX * width ?? width - Math.Min(oldThickness, width) / 2), (float)(style.EndY * height ?? height - Math.Min(oldThickness, height) / 2));
+            var gap = Math.Min(Math.Min(from.X, to.X), Math.Min(width - Math.Max(from.X, to.X), Math.Min(Math.Min(from.Y, to.Y), height - Math.Max(from.Y, to.Y))));
+            pad = Math.Max(0, (int)Math.Ceiling(style.LineWidth / 2 - gap));
+            if (pad > 0)
+            {
+                width += pad * 2; height += pad * 2;
+                if (width > DocumentLimits.MaxSide || height > DocumentLimits.MaxSide || (long)width * height > DocumentLimits.MaxSurfacePixels)
+                { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return; }
+                style = style with { StartX = (from.X + pad) / width, StartY = (from.Y + pad) / height, EndX = (to.X + pad) / width, EndY = (to.Y + pad) / height };
+            }
+        }
+        void Change()
+        {
+            if (pad > 0)
+            {
+                var t = layer.Transform;
+                var sx = t.Width / pixels.Width; var sy = t.Height / pixels.Height;
+                var grown = t with { X = t.X - pad * sx, Y = t.Y - pad * sy, Width = width * sx, Height = height * sy };
+                if (t.Distort != null)
+                {
+                    var matrix = (t with { Rotation = 0, FlipHorizontal = false, FlipVertical = false }).Matrix(pixels.Width, pixels.Height);
+                    var corners = new[] { matrix.MapPoint(-pad, -pad), matrix.MapPoint(pixels.Width + pad, -pad), matrix.MapPoint(pixels.Width + pad, pixels.Height + pad), matrix.MapPoint(-pad, pixels.Height + pad) };
+                    grown = grown with { Distort = [(float)(corners[0].X - grown.X), (float)(corners[0].Y - grown.Y), (float)(corners[1].X - grown.X - grown.Width), (float)(corners[1].Y - grown.Y), (float)(corners[2].X - grown.X - grown.Width), (float)(corners[2].Y - grown.Y - grown.Height), (float)(corners[3].X - grown.X), (float)(corners[3].Y - grown.Y - grown.Height)] };
+                }
+                layer.Transform = grown;
+                if (layer.Mask is { } mask)
+                {
+                    var expanded = Pixels.NewMask(width, height);
+                    using var canvas = new SKCanvas(expanded);
+                    canvas.DrawBitmap(mask, pad, pad);
+                    layer.Mask = expanded;
+                }
+            }
+            layer.Pixels = RenderShape(style, width, height); layer.Shape = style;
+        }
+        if (preview)
+        {
+            if (!IsInteracting) throw new InvalidOperationException("A shape preview needs an open edit.");
+            Change();
+        }
+        else
+        {
+            Apply("Shape Properties", Change);
+            if (merge && shapeStyleEdit is { } last && last.LayerId == layer.Id && last.Revision == Revision - 1) FoldLastStep("Shape Properties");
+            shapeStyleEdit = merge ? (layer.Id, Revision) : null;
+        }
+        Invalidate(Geometry.Union(before, AffectedArea(layer)));
         LayersChanged?.Invoke();
     }
 

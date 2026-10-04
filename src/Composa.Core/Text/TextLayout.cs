@@ -53,19 +53,19 @@ public sealed class TextLayout
     public static SKTypeface TypefaceFor(TextStyle style) => TypefaceFor(style.Face);
 
     public static SKTypeface TypefaceFor(TextFace face) => typefaces.GetOrAdd(face, static f =>
-        SKFontManager.Default.MatchFamily(f.FontFamily, FontStyle(f)) ?? SKTypeface.FromFamilyName(f.FontFamily, FontStyle(f)) ?? SKTypeface.Default);
-
-    private static SKFontStyle FontStyle(TextFace face) => new(
-        face.Bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.Normal, SKFontStyleWidth.Normal,
-        face.Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright);
+    {
+        var selected = FontCatalog.Style(f);
+        using var style = new SKFontStyle(selected.Weight, selected.Width, selected.Slant);
+        return SKFontManager.Default.MatchFamily(f.FontFamily, style) ?? SKTypeface.FromFamilyName(f.FontFamily, style) ?? SKTypeface.Default;
+    });
 
     /// <summary>The font for layout and drawing alike. A face without a bold or italic variant gets them synthesized, as Photoshop's faux styles do.</summary>
     private SKFont MakeFont(TextFace face)
     {
         var typeface = TypefaceFor(face);
         var font = new SKFont(typeface, (float)Math.Clamp(Style.Size, 1, 4000)) { Subpixel = true, Edging = SKFontEdging.Antialias, Hinting = SKFontHinting.None };
-        if (face.Bold && typeface.FontWeight < (int)SKFontStyleWeight.SemiBold) font.Embolden = true;
-        if (face.Italic && typeface.FontSlant == SKFontStyleSlant.Upright) font.SkewX = -0.25f;
+        if (face.FontStyle == null && face.Bold && typeface.FontWeight < (int)SKFontStyleWeight.SemiBold) font.Embolden = true;
+        if (face.FontStyle == null && face.Italic && typeface.FontSlant == SKFontStyleSlant.Upright) font.SkewX = -0.25f;
         return font;
     }
 

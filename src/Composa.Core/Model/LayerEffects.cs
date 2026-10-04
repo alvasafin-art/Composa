@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Composa.Model;
 
-public enum LayerEffectKind { Stroke, DropShadow, ColorOverlay, InnerShadow, OuterGlow, InnerGlow }
+public enum LayerEffectKind { Stroke, DropShadow, ColorOverlay, InnerShadow, OuterGlow, InnerGlow, GradientOverlay }
 
 /// <summary>A line drawn around what the layer shows, outside its edge or inside it.</summary>
 public sealed record StrokeEffect
@@ -101,6 +101,26 @@ public sealed record InnerGlowEffect
     };
 }
 
+/// <summary>A two-color gradient clipped to a layer's visible pixels.</summary>
+public sealed record GradientOverlayEffect
+{
+    public bool Enabled { get; init; } = true;
+    public uint StartColor { get; init; } = 0xFF000000;
+    public uint EndColor { get; init; } = 0xFFFFFFFF;
+    public double Opacity { get; init; } = 1;
+    public double Angle { get; init; } = 90;
+    public double Scale { get; init; } = 100;
+    public bool Radial { get; init; }
+    public bool Reverse { get; init; }
+
+    public GradientOverlayEffect Clamped() => this with
+    {
+        Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0, 1) : 1,
+        Angle = double.IsFinite(Angle) ? Math.Clamp(Angle, -180, 180) : 90,
+        Scale = double.IsFinite(Scale) ? Math.Clamp(Scale, 1, 1000) : 100
+    };
+}
+
 /// <summary>
 /// What a layer draws around itself. Kept with the layer, so it follows every edit and can be changed or removed at
 /// any time; the pixels themselves are never touched. A null member means the effect is absent; a disabled one keeps
@@ -111,6 +131,7 @@ public sealed record LayerEffects
     public StrokeEffect? Stroke { get; init; }
     public ShadowEffect? Shadow { get; init; }
     public ColorOverlayEffect? ColorOverlay { get; init; }
+    public GradientOverlayEffect? GradientOverlay { get; init; }
     /// <summary>A shadow cast inside the layer's own edges, as though it were cut out of what is behind it. Shares the shadow's settings.</summary>
     public ShadowEffect? InnerShadow { get; init; }
     public OuterGlowEffect? OuterGlow { get; init; }
@@ -118,7 +139,7 @@ public sealed record LayerEffects
 
     public static readonly LayerEffects Empty = new();
 
-    [JsonIgnore] public bool IsEmpty => Stroke == null && Shadow == null && ColorOverlay == null && InnerShadow == null && OuterGlow == null && InnerGlow == null;
+    [JsonIgnore] public bool IsEmpty => Stroke == null && Shadow == null && ColorOverlay == null && InnerShadow == null && OuterGlow == null && InnerGlow == null && GradientOverlay == null;
 
     /// <summary>The effects present, in the order they are listed under a layer.</summary>
     [JsonIgnore] public IEnumerable<LayerEffectKind> Kinds => Enum.GetValues<LayerEffectKind>().Where(Contains);
@@ -130,6 +151,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => ColorOverlay != null,
         LayerEffectKind.OuterGlow => OuterGlow != null,
         LayerEffectKind.InnerGlow => InnerGlow != null,
+        LayerEffectKind.GradientOverlay => GradientOverlay != null,
         _ => InnerShadow != null
     };
 
@@ -140,6 +162,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => ColorOverlay?.Enabled == true,
         LayerEffectKind.OuterGlow => OuterGlow?.Enabled == true,
         LayerEffectKind.InnerGlow => InnerGlow?.Enabled == true,
+        LayerEffectKind.GradientOverlay => GradientOverlay?.Enabled == true,
         _ => InnerShadow?.Enabled == true
     };
 
@@ -150,6 +173,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => ColorOverlay?.Color,
         LayerEffectKind.OuterGlow => OuterGlow?.Color,
         LayerEffectKind.InnerGlow => InnerGlow?.Color,
+        LayerEffectKind.GradientOverlay => GradientOverlay?.StartColor,
         _ => InnerShadow?.Color
     };
 
@@ -160,6 +184,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => this with { ColorOverlay = ColorOverlay == null ? null : ColorOverlay with { Color = color } },
         LayerEffectKind.OuterGlow => this with { OuterGlow = OuterGlow == null ? null : OuterGlow with { Color = color } },
         LayerEffectKind.InnerGlow => this with { InnerGlow = InnerGlow == null ? null : InnerGlow with { Color = color } },
+        LayerEffectKind.GradientOverlay => this with { GradientOverlay = GradientOverlay == null ? null : GradientOverlay with { StartColor = color } },
         _ => this with { InnerShadow = InnerShadow == null ? null : InnerShadow with { Color = color } }
     };
 
@@ -170,6 +195,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => this with { ColorOverlay = ColorOverlay == null ? null : ColorOverlay with { Enabled = enabled } },
         LayerEffectKind.OuterGlow => this with { OuterGlow = OuterGlow == null ? null : OuterGlow with { Enabled = enabled } },
         LayerEffectKind.InnerGlow => this with { InnerGlow = InnerGlow == null ? null : InnerGlow with { Enabled = enabled } },
+        LayerEffectKind.GradientOverlay => this with { GradientOverlay = GradientOverlay == null ? null : GradientOverlay with { Enabled = enabled } },
         _ => this with { InnerShadow = InnerShadow == null ? null : InnerShadow with { Enabled = enabled } }
     };
 
@@ -180,6 +206,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => this with { ColorOverlay = null },
         LayerEffectKind.OuterGlow => this with { OuterGlow = null },
         LayerEffectKind.InnerGlow => this with { InnerGlow = null },
+        LayerEffectKind.GradientOverlay => this with { GradientOverlay = null },
         _ => this with { InnerShadow = null }
     };
 
@@ -191,6 +218,7 @@ public sealed record LayerEffects
         LayerEffectKind.ColorOverlay => this with { ColorOverlay = source.ColorOverlay },
         LayerEffectKind.OuterGlow => this with { OuterGlow = source.OuterGlow },
         LayerEffectKind.InnerGlow => this with { InnerGlow = source.InnerGlow },
+        LayerEffectKind.GradientOverlay => this with { GradientOverlay = source.GradientOverlay },
         _ => this with { InnerShadow = source.InnerShadow }
     };
 
@@ -202,6 +230,7 @@ public sealed record LayerEffects
         ColorOverlay = ColorOverlay?.Enabled == true ? ColorOverlay.Clamped() : null,
         InnerShadow = InnerShadow?.Enabled == true ? InnerShadow.Clamped() : null,
         OuterGlow = OuterGlow?.Enabled == true ? OuterGlow.Clamped() : null,
+        GradientOverlay = GradientOverlay?.Enabled == true ? GradientOverlay.Clamped() : null,
         InnerGlow = InnerGlow?.Enabled == true ? InnerGlow.Clamped() : null
     };
 
@@ -209,7 +238,7 @@ public sealed record LayerEffects
     public LayerEffects Clamped() => new()
     {
         Stroke = Stroke?.Clamped(), Shadow = Shadow?.Clamped(), ColorOverlay = ColorOverlay?.Clamped(), InnerShadow = InnerShadow?.Clamped(),
-        OuterGlow = OuterGlow?.Clamped(), InnerGlow = InnerGlow?.Clamped()
+        OuterGlow = OuterGlow?.Clamped(), InnerGlow = InnerGlow?.Clamped(), GradientOverlay = GradientOverlay?.Clamped()
     };
 
     /// <summary>How far the visible effects reach beyond the layer's pixels, in layer pixels.</summary>
@@ -234,6 +263,7 @@ public sealed record LayerEffects
         LayerEffectKind.InnerShadow => "Inner Shadow",
         LayerEffectKind.OuterGlow => "Outer Glow",
         LayerEffectKind.InnerGlow => "Inner Glow",
+        LayerEffectKind.GradientOverlay => "Gradient Overlay",
         _ => "Stroke"
     };
 }

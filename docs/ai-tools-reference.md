@@ -14,7 +14,7 @@ Most tools take a `document` parameter: the tab number as `list_documents` repor
 
 **open_document**: opens a project or an image file in a new tab, or makes an already open file the active document. Photoshop and camera RAW files are refused because they need a dialog. Parameter: `path`, absolute.
 
-**save_document**: saves the project with all its layers, in the background as Ctrl+S does. Parameters: `path`, absolute and ending in `.cmps`, left out to save to the document's own file; `overwrite`, needed to replace an existing file at a new path.
+**save_document**: saves a `.cmps` project or a layered `.psd` in the background as Ctrl+S does. Parameters: `path`, absolute, left out to save to the document's own file; `overwrite`, needed to replace an existing file at a new path; `allowConversion`, required for PSD when live content, effects or adjustments need conversion. PSD results report what was converted; `.cmps` retains all settings.
 
 **export_image**: exports the document flattened to a PNG, JPEG or WebP, by the extension of `path`. Parameters: `path`; `quality` from 1 to 100 for JPEG and WebP, 90 by default; `overwrite`.
 

@@ -22,9 +22,10 @@ Tool keys are ignored while you are typing text. While you are dragging, a comma
 Moves, resizes, rotates and distorts layers.
 
 - Drag to move a layer. Shift locks the move to one axis. Moves snap to guides, the grid, other layers' edges and centers and the document bounds, according to View > Snap To; magenta lines show what you snapped to. Hold Ctrl to move without snapping.
-- **Auto Select** (on by default) selects the layer whose pixels you click. With it off, a drag moves the current layer from anywhere. Ctrl-click always picks the layer under the pointer, and Shift adds it to the selected layers.
+- **Alt-drag** duplicates the selected layers and moves the copies as one undo step. Escape cancels both the copies and the move.
+- **Auto Select** (on by default) selects the layer whose visible pixels you click, including through transparent or masked areas of the current layer. A click on empty canvas space clears the layer selection; a click outside the canvas also clears it. With it off, a drag moves the current layer from anywhere. Ctrl-click always picks the layer under the pointer, and Shift adds it to the selected layers.
 - **Transform controls** (on by default, also View > Show Transform Controls, Ctrl+H) show a frame with handles around the layer. Drag a handle to resize, proportionally by default; Shift resizes freely and Alt resizes from the center. Dragging the frame through itself flips the layer. Drag just outside a corner to rotate; Shift snaps to 15 degrees. Ctrl-drag a corner to distort. Live text and shapes are redrawn sharp at their new size.
-- The options bar shows X, Y, W, H and the angle as numbers. Drag a label to change its value, hold Alt for finer steps, or type a value.
+- The options bar shows X, Y, W, H and the angle as numbers. Raster frames and these values enclose the non-transparent content, so a filled selection's controls surround the filled object rather than the canvas. Transparent source pixels and masks remain intact. Live text and shapes keep their editable boxes. Drag a label to change its value, hold Alt for finer steps, or type a value.
 - With a selection on a plain pixel layer, dragging inside the selection moves the selected pixels; with Alt it moves a copy.
 - A double-click on text opens it for typing.
 
@@ -77,6 +78,8 @@ Drag to draw a gradient from the foreground color to the background color, or to
 ## Shape (U)
 
 Draws a rectangle, rounded rectangle, ellipse or line in the foreground color, each on its own live shape layer that stays editable: transform it later and it is redrawn sharp. Pick one from the button's group, or step through them with Shift+U or Tab. Shift makes a square or circle, Alt draws from the center, and a line snaps to 45 degrees with Shift. The corners snap to guides, the grid, layer edges and the canvas edges according to View > Snap To; hold Ctrl to draw freely. Rounded rectangles have a corner radius (0 to 400) and lines a width (1 to 100).
+
+To restyle an existing shape, select it with Move or Shape. Its properties appear directly in the upper options bar: fill toggle and color, stroke toggle and color, stroke width, and rounded rectangles' corner radius. Lines show color and width. Changes redraw the shape immediately, stay editable, and undo together while you keep adjusting the same layer. Right-click a shape layer and choose **Shape Properties…** to show the same controls with the Shape tool.
 
 ## Type (T)
 

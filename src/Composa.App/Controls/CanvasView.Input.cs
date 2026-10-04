@@ -686,11 +686,11 @@ public sealed partial class CanvasView
         {
             // A distorted layer's handles sit on its corners, wherever they were dragged to.
             var target = targets[0];
-            if (target.Pixels != null && target.Transform.Distort != null) return target.Transform.Corners(target.Pixels.Width, target.Pixels.Height);
-            return new TransformFrame(target.Transform).Corners();
+            if (target.Pixels != null && target.Transform.Distort != null) return target.ControlTransform.Corners(target.Pixels.Width, target.Pixels.Height);
+            return new TransformFrame(target.ControlTransform).Corners();
         }
         var bounds = SKRect.Empty;
-        foreach (var layer in targets) bounds = bounds.IsEmpty ? layer.Bounds : SKRect.Union(bounds, layer.Bounds);
+        foreach (var layer in targets) bounds = bounds.IsEmpty ? layer.ControlBounds : SKRect.Union(bounds, layer.ControlBounds);
         return Corners(bounds);
     }
 
@@ -750,28 +750,31 @@ public sealed partial class CanvasView
         Cursor = new Cursor(type);
     }
 
-    /// <summary>The topmost visible layer with a non-transparent pixel under a document point.</summary>
     /// <summary>Whether the one layer being transformed already has a corner pulled out of place.</summary>
     private bool IsDistorted() => session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
 
-    /// <summary>Whether <paramref name="layer"/> is painted above <paramref name="other"/>; layers are stored bottom to top.</summary>
-    private bool IsAbove(Layer layer, Layer? other)
-    {
-        if (session == null || other == null) return true;
-        var order = session.Document.AllLayers().ToList();
-        return order.IndexOf(layer) > order.IndexOf(other);
-    }
-
+    /// <summary>The topmost visible layer with a non-transparent pixel under a document point.</summary>
     private Layer? LayerAt(SKPoint p)
     {
-        if (session == null) return null;
+        if (session == null || !session.Document.Bounds.Contains((int)Math.Floor(p.X), (int)Math.Floor(p.Y))) return null;
         foreach (var layer in session.Document.AllLayers().Reverse())
         {
             if (layer.Pixels == null || !session.Document.IsEffectivelyVisible(layer) || !layer.Matrix.TryInvert(out var inverse)) continue;
             var local = inverse.MapPoint(p);
             int x = (int)Math.Floor(local.X), y = (int)Math.Floor(local.Y);
             if (x < 0 || y < 0 || x >= layer.Pixels.Width || y >= layer.Pixels.Height) continue;
-            if (layer.Pixels.GetPixel(x, y).Alpha > 12) return layer;
+            var alpha = layer.Pixels.GetPixel(x, y).Alpha * layer.Opacity;
+            if (layer.MaskEnabled && layer.Mask is { } mask) alpha *= mask.GetPixel(x, y).Alpha / 255.0;
+            for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
+            {
+                alpha *= parent.Opacity;
+                if (parent.MaskEnabled && parent.Mask is { } parentMask)
+                {
+                    int px = (int)Math.Floor(p.X), py = (int)Math.Floor(p.Y);
+                    alpha *= px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha / 255.0 : 0;
+                }
+            }
+            if (alpha > 12) return layer;
         }
         return null;
     }
@@ -819,7 +822,7 @@ public sealed partial class CanvasView
         var hit = LayerAt(pressDocument);
         if (hit != null && !session.Document.SelectedLayerIds.Contains(hit.Id) && (frame == null || HitFrame(frame, pressScreen, allowRotate: false) == TransformHandle.None))
             session.SelectLayer(hit.Id, extend: false);
-        if (session.BeginTransform("Move") == null)
+        if (session.BeginTransform("Move", duplicate: dragModifiers.HasFlag(KeyModifiers.Alt)) == null)
         {
             Problem?.Invoke("Select a layer with pixels to move.");
             return;
@@ -837,12 +840,15 @@ public sealed partial class CanvasView
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
         if (!onHandle)
         {
-            // Clicking pixels of another layer selects it: Ctrl-click or double-click always; with Auto Select, also when
-            // the click misses the current frame or lands on a layer stacked above the active one. A selected background
-            // that covers the canvas contains every press, and keeping it would hide the layer painted on top.
             var hit = LayerAt(pressDocument);
-            if (hit != null && !session.Document.SelectedLayerIds.Contains(hit.Id)
-                && (control || clicks >= 2 || (AutoSelect && (handle == TransformHandle.None || IsAbove(hit, session.ActiveLayer)))))
+            if (!session.Document.Bounds.Contains((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y))
+                || hit == null && (AutoSelect || control || clicks >= 2))
+            {
+                session.ClearLayerSelection();
+                return;
+            }
+            if (hit != null && (AutoSelect || control || clicks >= 2)
+                && (!session.Document.SelectedLayerIds.Contains(hit.Id) || dragModifiers.HasFlag(KeyModifiers.Shift)))
                 session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
             handle = TransformHandle.Move;
         }
@@ -851,7 +857,7 @@ public sealed partial class CanvasView
             // Ctrl-dragging a corner distorts, as in Photoshop; once a layer is distorted its corners keep distorting.
             distortCorner = handle switch { TransformHandle.TopLeft => 0, TransformHandle.TopRight => 1, TransformHandle.BottomRight => 2, _ => 3 };
         }
-        if (session.BeginTransform(handle == TransformHandle.Move ? "Move" : handle == TransformHandle.Rotate ? "Rotate" : distortCorner >= 0 ? "Distort" : "Scale") == null)
+        if (session.BeginTransform(handle == TransformHandle.Move ? "Move" : handle == TransformHandle.Rotate ? "Rotate" : distortCorner >= 0 ? "Distort" : "Scale", duplicate: handle == TransformHandle.Move && dragModifiers.HasFlag(KeyModifiers.Alt)) == null)
         {
             Problem?.Invoke("Select a layer with pixels to move.");
             return;

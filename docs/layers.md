@@ -56,11 +56,12 @@ To copy the whole picture there is no need to flatten: Edit > Copy Merged (Ctrl+
 
 ## Layer effects
 
-Effects are drawn around or over a layer's pixels and follow the layer as it changes. Layer > Layer Effects offers Stroke, Drop Shadow, Color Overlay, Inner Shadow, Outer Glow and Inner Glow, each with its own dialog; the effects button in the Layers panel offers the same.
+Effects are drawn around or over a layer's pixels and follow the layer as it changes. Layer > Layer Effects offers Stroke, Drop Shadow, Color Overlay, Inner Shadow, Outer Glow, Inner Glow and Gradient Overlay, each with its own dialog; the effects button in the Layers panel offers the same.
 
 - **Stroke**: a line along the edge, outside or inside, with a color, a size and an opacity.
 - **Drop Shadow** and **Inner Shadow**: a color, an opacity, an angle, a distance and a blur. The angle is where the light comes from, so the shadow falls the other way; a dial beside the field turns it, Shift snaps the dial to 15 degrees, and the arrow keys or the wheel turn it by one degree.
 - **Color Overlay**: a color at an opacity over the whole layer.
+- **Gradient Overlay**: a linear or radial gradient clipped to the layer and its mask, with start/end colors, opacity, angle, scale and reverse. The original pixels remain unchanged.
 - **Outer Glow** and **Inner Glow**: a color, an opacity and a size.
 
 Each effect appears as a row under its layer, with its own eye to hide or show it. Double-click the row to edit it, right-click for edit, hide and delete, and Alt-drag the row onto another layer to copy the effect there. Layer > Layer Effects > Delete Effect, or Backspace with the row selected, removes it.

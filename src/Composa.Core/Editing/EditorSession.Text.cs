@@ -231,14 +231,16 @@ public sealed partial class EditorSession
     /// <summary>The color the Type bar's swatch shows: the letter at the caret while typing, otherwise the style's own.</summary>
     public uint CurrentTextColor => TextEdit?.ColorAtCaret ?? CurrentTextStyle.Color;
 
-    /// <summary>The face the Type bar's Bold and Italic show: the selected letters' first while typing, the text's own otherwise.</summary>
+    /// <summary>The face at the selected letters' first while typing, the text's own otherwise.</summary>
     public TextFace CurrentTextFace => TextEdit?.FaceAtCaret ?? CurrentTextStyle.Face;
 
     /// <summary>The family the Type bar's font menu shows: null while the selected letters mix families, so the menu can say so.</summary>
     public string? CurrentUniformTextFamily => TextEdit != null ? TextEdit.UniformFamilyInSelection : CurrentTextStyle.FontFamily;
 
+    public TextFace? CurrentUniformTextFace => TextEdit != null ? TextEdit.UniformFaceInSelection : CurrentTextStyle.UniformFaceIn(0, CurrentTextStyle.Text.Length);
+
     /// <summary>
-    /// A font, Bold or Italic change in the Type bar: on the selected letters of the text being typed (all of them
+    /// A font family or style change in the Type bar: on the selected letters of the text being typed (all of them
     /// when nothing is selected), or on the whole of a selected text layer, or on the next text.
     /// </summary>
     public void SetTextFace(Func<TextFace, TextFace> change)

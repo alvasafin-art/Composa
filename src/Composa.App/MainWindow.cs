@@ -133,6 +133,7 @@ public sealed partial class MainWindow : Window
         // Opening text from the canvas with another tool switches to the Type tool, so the toolbar has to follow.
         canvas.TextEditingChanged += () => { if (session != null) ShowTool(session.Tool); RebuildOptions(); UpdateStatus(); };
         layers.EditTextRequested += BeginTextEdit;
+        layers.EditShapeRequested += layer => { session?.SelectLayer(layer.Id); SelectTool(Tool.Shape); };
         layers.EditAdjustmentRequested += layer => _ = EditAdjustmentLayer(layer, isNew: false);
         layers.NewAdjustmentRequested += kind => _ = NewAdjustmentLayer(kind);
         layers.EditEffectRequested += (layer, kind) => _ = EditEffect(layer, kind);

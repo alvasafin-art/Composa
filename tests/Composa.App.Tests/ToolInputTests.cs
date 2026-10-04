@@ -386,6 +386,63 @@ public class ToolInputTests
         Assert.False(session.IsInteracting);
     }
 
+    [AvaloniaFact]
+    public void Alt_drag_moves_a_copy_and_escape_or_a_click_leaves_no_copy()
+    {
+        var box = Rendering.Pixels.NewColor(100, 100); box.Erase(SKColors.Red);
+        var original = session.AddImageLayer("box", box, new SKPoint(300, 200));
+        var start = original.Transform;
+        session.View = session.View with { Snap = false };
+        window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
+        Drag(new SKPoint(300, 200), new SKPoint(350, 230), RawInputModifiers.Alt);
+        var copy = session.ActiveLayer!;
+        Assert.NotEqual(original.Id, copy.Id);
+        Assert.Equal(start, original.Transform);
+        Assert.Equal((start.X + 50, start.Y + 30), (copy.Transform.X, copy.Transform.Y));
+        Assert.Equal("Duplicate and Move", session.History.UndoName);
+        session.Undo(); Assert.Equal(2, session.Document.Layers.Count);
+        session.Redo(); Assert.Equal(3, session.Document.Layers.Count);
+        window.MouseDown(At(350, 230), MouseButton.Left, RawInputModifiers.Alt);
+        window.MouseMove(At(390, 250), RawInputModifiers.LeftMouseButton | RawInputModifiers.Alt);
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        window.MouseUp(At(390, 250), MouseButton.Left);
+        Assert.Equal(3, session.Document.Layers.Count);
+        Click(345, 225, RawInputModifiers.Alt);
+        Assert.Equal(3, session.Document.Layers.Count);
+    }
+
+    [AvaloniaFact]
+    public void Move_picks_pixels_below_the_selected_frame_and_clears_selection_outside_canvas()
+    {
+        var background = session.ActiveLayer!;
+        var ring = session.AddShape(new ShapeStyle(ShapeKind.Rectangle, (uint)SKColors.Red, 0) { FillEnabled = false, Stroke = (uint)SKColors.Red, StrokeWidth = 8 }, new SKRect(150, 100, 450, 300))!;
+        window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
+        Click(300, 200); // The frame contains this click, but the ring's center has no pixels.
+        Assert.Equal(background.Id, session.ActiveLayer!.Id);
+        Click(153, 170); Assert.Equal(ring.Id, session.ActiveLayer!.Id);
+        Click(640, 200);
+        Assert.Null(session.ActiveLayer); Assert.Empty(session.Document.SelectedLayerIds);
+        Assert.False(session.IsInteracting);
+        window.MouseDown(At(630, 230), MouseButton.Left);
+        window.MouseMove(At(650, 250), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(At(650, 250), MouseButton.Left);
+        Assert.Null(session.ActiveLayer);
+    }
+
+    [AvaloniaFact]
+    public void Move_ignores_masked_pixels_and_clicking_transparent_canvas_selects_nothing()
+    {
+        var transparent = EditorSession.NewCanvas(600, 400, null);
+        window.AddSession(transparent);
+        var lower = transparent.AddShape(new ShapeStyle(ShapeKind.Rectangle, (uint)SKColors.Blue, 0), new SKRect(100, 100, 400, 300))!;
+        var upper = transparent.AddShape(new ShapeStyle(ShapeKind.Rectangle, (uint)SKColors.Red, 0), new SKRect(150, 120, 350, 280))!;
+        var mask = Rendering.Pixels.NewMask(200, 160); mask.Erase(SKColors.Transparent);
+        upper.Mask = mask;
+        window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
+        Click(250, 200); Assert.Equal(lower.Id, transparent.ActiveLayer!.Id);
+        Click(500, 350); Assert.Null(transparent.ActiveLayer);
+    }
+
     private static void TestColor(SKColor expected, SKColor actual) =>
         Assert.True(Math.Abs(expected.Red - actual.Red) < 3 && Math.Abs(expected.Green - actual.Green) < 3 && Math.Abs(expected.Blue - actual.Blue) < 3, $"expected {expected}, found {actual}");
 }

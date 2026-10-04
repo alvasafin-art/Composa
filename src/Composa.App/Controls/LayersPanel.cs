@@ -43,6 +43,7 @@ public sealed class LayersPanel : UserControl
 
     public event Action<Layer>? EditAdjustmentRequested;
     public event Action<Layer>? EditTextRequested;
+    public event Action<Layer>? EditShapeRequested;
     public event Action<Layer>? EditSmartObjectRequested;
     public event Action<AdjustmentKind>? NewAdjustmentRequested;
     /// <summary>Double-click on an effect row: open its settings.</summary>
@@ -497,6 +498,7 @@ public sealed class LayersPanel : UserControl
         Add(targetsMask ? "Delete Mask" : several ? "Delete Selected Layers" : "Delete Layer", () => { if (targetsMask) current.DeleteMask(layer); else current.DeleteSelectedLayers(); });
         Add("Tags…", () => EditTagsRequested?.Invoke(layer), !several);
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
+        if (layer.Shape != null) Add("Shape Properties…", () => EditShapeRequested?.Invoke(layer));
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
         if (layer.IsLive) Add("Rasterize Layer", () => current.RasterizeShape(layer));
         if (!layer.IsSmartObject) Add("Convert to Smart Object", () => current.ConvertToSmartObject());

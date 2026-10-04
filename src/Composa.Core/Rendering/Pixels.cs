@@ -7,6 +7,29 @@ namespace Composa.Rendering;
 /// <summary>Pixel formats and helpers shared by everything that touches bitmaps.</summary>
 public static class Pixels
 {
+    private sealed record ContentExtent(SKRectI Bounds);
+    private static readonly ConditionalWeakTable<SKBitmap, ContentExtent> extents = new();
+
+    /// <summary>The non-transparent source rectangle. Committed pixels are immutable, so scan only once per bitmap.</summary>
+    public static SKRectI ContentBounds(SKBitmap bitmap) => extents.GetValue(bitmap, static image => new(ScanContent(image))).Bounds;
+
+    private static unsafe SKRectI ScanContent(SKBitmap image)
+    {
+        if (image.ColorType != SKColorType.Rgba8888) return new(0, 0, image.Width, image.Height);
+        int left = image.Width, top = image.Height, right = 0, bottom = 0;
+        var pixels = (byte*)image.GetPixels();
+        for (var y = 0; y < image.Height; y++)
+        {
+            var row = pixels + (long)y * image.RowBytes;
+            for (var x = 0; x < image.Width; x++)
+            {
+                if (row[x * 4 + 3] == 0) continue;
+                left = Math.Min(left, x); top = Math.Min(top, y);
+                right = Math.Max(right, x + 1); bottom = y + 1;
+            }
+        }
+        return right <= left ? SKRectI.Empty : new(left, top, right, bottom);
+    }
     public static SKImageInfo ColorInfo(int width, int height) => new(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
     public static SKImageInfo MaskInfo(int width, int height) => new(width, height, SKColorType.Alpha8, SKAlphaType.Premul);
 
@@ -153,6 +176,7 @@ public static class Pixels
     /// <summary>Drops everything cached for a bitmap whose pixels changed.</summary>
     public static void Invalidate(SKBitmap bitmap)
     {
+        extents.Remove(bitmap);
         Invalidated?.Invoke(bitmap);
         lock (bitmap)
         {

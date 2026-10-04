@@ -7,7 +7,7 @@ namespace Composa.App.Dialogs;
 /// <summary>What a Photoshop file loses on the way in, listed per layer, with the choice to go ahead or not.</summary>
 public static class PsdConversionDialog
 {
-    public static Task<bool> Confirm(Window owner, string fileName, IReadOnlyList<PsdConversion> conversions)
+    public static Task<bool> Confirm(Window owner, string fileName, IReadOnlyList<PsdConversion> conversions, bool exporting = false, Action<bool>? chooseMerged = null)
     {
         var rows = new StackPanel { Spacing = 10 };
         foreach (var item in conversions.Take(500))
@@ -18,11 +18,19 @@ public static class PsdConversionDialog
             rows.Children.Add(Ui.Column(2, Ui.Label(item.LayerName, Palette.Foreground, weight: FontWeight.SemiBold), message));
         }
         if (conversions.Count > 500) rows.Children.Add(Ui.Label($"…and {conversions.Count - 500} more.", Palette.Secondary));
-        var intro = Ui.Label("Composa will convert these Photoshop features. Nothing is applied until you continue.", Palette.Secondary);
+        var intro = Ui.Label(exporting
+            ? "The PSD will preserve the appearance with these conversions. Save a .cmps project to keep every feature editable."
+            : "Composa will convert these Photoshop features. Nothing is applied until you continue.", Palette.Secondary);
         intro.TextWrapping = TextWrapping.Wrap;
         intro.MaxWidth = 500;
         var list = new ScrollViewer { Content = rows, MaxHeight = 320, Width = 500, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var body = Ui.Column(12, intro, list);
-        return new DialogWindow($"Open {fileName}?", body, "Import").Ask(owner);
+        if (!exporting && chooseMerged != null)
+        {
+            var merged = new CheckBox { Content = "Use Photoshop's merged image instead (one layer)" };
+            merged.IsCheckedChanged += (_, _) => chooseMerged(merged.IsChecked == true);
+            body.Children.Add(merged);
+        }
+        return new DialogWindow($"{(exporting ? "Save" : "Open")} {fileName}?", body, exporting ? "Save PSD" : "Import").Ask(owner);
     }
 }

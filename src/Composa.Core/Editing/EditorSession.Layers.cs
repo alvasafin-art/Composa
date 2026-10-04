@@ -36,6 +36,16 @@ public sealed partial class EditorSession
         LayersChanged?.Invoke();
     }
 
+    /// <summary>Clears the layer selection after a click on empty canvas space.</summary>
+    public void ClearLayerSelection()
+    {
+        FinishText();
+        document.SetActive(null);
+        SelectedEffect = null;
+        EditingMask = false;
+        LayersChanged?.Invoke();
+    }
+
     /// <summary>The selected layers without any whose ancestor is also selected, bottom to top.</summary>
     public List<Layer> SelectedRoots()
     {
@@ -131,30 +141,35 @@ public sealed partial class EditorSession
         if (roots.Count == 0) return;
         Apply(roots.Count > 1 && name == "Duplicate Layer" ? "Duplicate Layers" : name, () =>
         {
-            var copies = roots.Select(layer =>
-            {
-                var copy = layer.Clone(newIds: true);
-                copy.Name = layer.Name + " copy";
-                return (Original: layer, Copy: copy);
-            }).ToList();
-            if (copies.Count == 1)
-            {
-                var siblings = document.SiblingsOf(roots[0].Id)!;
-                siblings.Insert(siblings.IndexOf(roots[0]) + 1, copies[0].Copy);
-            }
-            else
-            {
-                // Above the topmost original, keeping the copies in the originals' order.
-                var top = roots[^1];
-                var siblings = document.SiblingsOf(top.Id)!;
-                siblings.InsertRange(siblings.IndexOf(top) + 1, copies.Select(c => c.Copy));
-            }
-            var active = copies.FirstOrDefault(c => c.Original.Id == document.ActiveLayerId).Copy ?? copies[^1].Copy;
-            document.SetActive(active.Id);
-            foreach (var (_, copy) in copies) document.SelectedLayerIds.Add(copy.Id);
+            InsertLayerCopies(roots);
         });
         InvalidateAll();
         LayersChanged?.Invoke();
+    }
+
+    private void InsertLayerCopies(List<Layer> roots)
+    {
+        var copies = roots.Select(layer =>
+        {
+            var copy = layer.Clone(newIds: true);
+            copy.Name = layer.Name + " copy";
+            return (Original: layer, Copy: copy);
+        }).ToList();
+        if (copies.Count == 1)
+        {
+            var siblings = document.SiblingsOf(roots[0].Id)!;
+            siblings.Insert(siblings.IndexOf(roots[0]) + 1, copies[0].Copy);
+        }
+        else
+        {
+            // Above the topmost original, keeping the copies in the originals' order.
+            var top = roots[^1];
+            var siblings = document.SiblingsOf(top.Id)!;
+            siblings.InsertRange(siblings.IndexOf(top) + 1, copies.Select(c => c.Copy));
+        }
+        var active = copies.FirstOrDefault(c => c.Original.Id == document.ActiveLayerId).Copy ?? copies[^1].Copy;
+        document.SetActive(active.Id);
+        foreach (var (_, copy) in copies) document.SelectedLayerIds.Add(copy.Id);
     }
 
     public void SetVisible(Layer layer, bool visible, bool undoable = true)

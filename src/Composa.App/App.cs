@@ -10,7 +10,11 @@ public sealed class App : Application
     public override void Initialize()
     {
         RequestedThemeVariant = ThemeVariant.Dark;
-        Styles.Add(new FluentTheme { DensityStyle = DensityStyle.Compact });
+        // Native controls otherwise inherit Windows' accent, which can turn the blue interface purple.
+        var theme = new FluentTheme { DensityStyle = DensityStyle.Compact };
+        theme.Palettes[ThemeVariant.Dark] = new ColorPaletteResources { Accent = Avalonia.Media.Color.Parse("#3D9BFF") };
+        theme.Palettes[ThemeVariant.Light] = new ColorPaletteResources { Accent = Avalonia.Media.Color.Parse("#3D9BFF") };
+        Styles.Add(theme);
         Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://composa/")) { Source = new Uri("avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml") });
         Styles.Add(Palette.Styles());
     }

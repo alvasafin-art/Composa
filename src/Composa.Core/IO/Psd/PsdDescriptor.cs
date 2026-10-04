@@ -76,7 +76,7 @@ internal static class PsdDescriptor
                 return list;
             }
             case "doub": return cursor.F64();
-            case "UntF": cursor.Skip(4); return cursor.F64();
+            case "UntF": return new UnitValue(cursor.Ascii(4), cursor.F64());
             case "UnFl":
             {
                 cursor.Skip(4);
@@ -112,6 +112,7 @@ internal static class PsdDescriptor
 
     /// <summary>An <c>enum</c> item's value, kept apart from text so a name is never mistaken for what the user typed.</summary>
     public sealed record EnumValue(string Value);
+    public sealed record UnitValue(string Unit, double Value);
 
     /// <summary>Skips a descriptor reference so a later item can still be read.</summary>
     private static void Reference(ref PsdCursor cursor)
@@ -136,16 +137,22 @@ internal static class PsdDescriptor
     public static string? Text(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) ? v as string : null;
     public static string? Enumeration(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) && v is EnumValue e ? e.Value : null;
     public static byte[]? Data(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) ? v as byte[] : null;
-    public static double? Number(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) && v is double d && double.IsFinite(d) ? d : null;
+    public static double? Number(Dictionary<string, object?>? items, string key)
+    {
+        if (items == null || !items.TryGetValue(key, out var value)) return null;
+        var n = value switch { double d => d, UnitValue u => u.Value, _ => double.NaN };
+        return double.IsFinite(n) ? n : null;
+    }
+    public static string? Unit(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var value) && value is UnitValue u ? u.Unit : null;
     public static bool? Flag(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) && v is bool b ? b : null;
     public static Dictionary<string, object?>? Child(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) ? v as Dictionary<string, object?> : null;
     public static List<object?>? List(Dictionary<string, object?>? items, string key) => items != null && items.TryGetValue(key, out var v) ? v as List<object?> : null;
 
-    /// <summary>A <c>Clr </c> record's red, green and blue, given as 0 to 255 (or 0 to 1 by older writers), as an opaque ARGB color.</summary>
+    /// <summary>A <c>Clr </c> record's red, green and blue, specified by Adobe as 0 to 255, as an opaque ARGB color.</summary>
     public static uint? Color(Dictionary<string, object?>? color)
     {
         if (Number(color, "Rd  ") is not { } r || Number(color, "Grn ") is not { } g || Number(color, "Bl  ") is not { } b) return null;
-        byte Channel(double value) => (byte)Math.Round(value > 1 ? Math.Clamp(value, 0, 255) : Math.Clamp(value, 0, 1) * 255);
+        byte Channel(double value) => (byte)Math.Round(Math.Clamp(value, 0, 255));
         return 0xFF000000u | (uint)Channel(r) << 16 | (uint)Channel(g) << 8 | Channel(b);
     }
 }

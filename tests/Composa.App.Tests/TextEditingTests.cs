@@ -237,10 +237,12 @@ public class TextEditingTests
         Assert.Null(session.TextDefaults.ColorRuns);                         // The next text starts in one color.
     }
 
-    /// <summary>With letters selected, Bold and the font menu change only those; the menu says (Multiple) for a selection in several faces.</summary>
+    /// <summary>Installed styles and families apply to selected letters; mixed styles are shown explicitly.</summary>
     [AvaloniaFact]
     public void The_bar_changes_the_face_of_the_selected_letters_while_typing()
     {
+        var family = EditorSession.FontFamilies.First(f => Composa.Text.FontCatalog.ForFamily(f).Count >= 2);
+        session.TextDefaults = session.TextDefaults with { FontFamily = family };
         Click(80, 120);
         window.KeyTextInput("Faces");
         window.KeyPressQwerty(PhysicalKey.ArrowLeft, RawInputModifiers.Shift);
@@ -248,26 +250,32 @@ public class TextEditingTests
         Dispatcher.UIThread.RunJobs();
         var layer = session.TextEditLayer!;
         Assert.Equal("es", session.TextEdit!.SelectedText);
-        var family = layer.Text!.FontFamily;
-        CheckBox Bold() => window.GetVisualDescendants().OfType<CheckBox>().First(c => c.Content as string == "Bold");
+        ComboBox Styles() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => ToolTip.GetTip(c) as string == "Font style");
         ComboBox Font() => window.GetVisualDescendants().OfType<ComboBox>().First(c => c.MaxWidth == 190);
-        Bold().IsChecked = true;
+        var choices = Composa.Text.FontCatalog.ForFamily(family);
+        var chosen = choices.First(c => c.Face != layer.Text!.Face);
+        Styles().SelectedIndex = choices.ToList().IndexOf(chosen);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal([new TextFontRun(3, 2, family, true, false)], layer.Text!.FontRuns); // Only the selected letters.
-        Assert.False(layer.Text.Bold);
-        Assert.True(Bold().IsChecked);                                        // The bar shows the selection's face.
-        // A selection mixing weights: Bold shows the first letter's, the font menu still names the one family.
+        Assert.Equal(chosen.Face, layer.Text!.FaceAt(3));
+        Assert.NotEqual(chosen.Face, layer.Text.FaceAt(2));
+        Assert.Equal(chosen.Name, Styles().SelectedItem);
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CheckBox>(), c => c.Content as string is "Bold" or "Italic");
+        // A selection mixing styles: the family remains uniform.
         window.KeyPressQwerty(PhysicalKey.ArrowLeft, RawInputModifiers.Shift);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("ces", session.TextEdit!.SelectedText);
-        Assert.False(Bold().IsChecked);
+        Assert.Equal(-1, Styles().SelectedIndex);
+        Assert.Equal("(Multiple)", Styles().PlaceholderText);
         Assert.Equal(family, Font().PlaceholderText);
         Assert.True(Font().SelectedIndex >= 0);
         // Another family from the menu lands on the three letters, bold or not as each was.
         var other = EditorSession.FontFamilies.First(f => f != family);
+        var expectedPlain = Composa.Text.FontCatalog.Closest(other, layer.Text.FaceAt(2)).Face;
+        var expectedStyled = Composa.Text.FontCatalog.Closest(other, layer.Text.FaceAt(3)).Face;
         Font().SelectedIndex = EditorSession.FontFamilies.ToList().IndexOf(other);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal([new TextFontRun(2, 1, other, false, false), new TextFontRun(3, 2, other, true, false)], layer.Text!.FontRuns);
+        Assert.Equal(expectedPlain, layer.Text!.FaceAt(2));
+        Assert.Equal(expectedStyled, layer.Text.FaceAt(3));
         Assert.Equal(family, layer.Text.FontFamily);
         Assert.Equal(other, Font().PlaceholderText);
         // Taking a letter of the first family into the selection: two families, so the menu names none.
@@ -276,10 +284,11 @@ public class TextEditingTests
         Assert.Equal("aces", session.TextEdit!.SelectedText);
         Assert.Equal(-1, Font().SelectedIndex);
         Assert.Equal("(Multiple)", Font().PlaceholderText);
+        Assert.False(Styles().IsEnabled);
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
         Dispatcher.UIThread.RunJobs();
         Assert.False(session.IsEditingText);
-        Assert.Equal([new TextFontRun(2, 1, other, false, false), new TextFontRun(3, 2, other, true, false)], session.Document.Find(layer.Id)!.Text!.FontRuns);
+        Assert.Equal(expectedStyled, session.Document.Find(layer.Id)!.Text!.FaceAt(3));
         Assert.Null(session.TextDefaults.FontRuns);                          // The next text starts in one face.
     }
 

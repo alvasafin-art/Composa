@@ -22,6 +22,9 @@ internal sealed class PsdFile
     public int Width;
     public int Height;
     public double Resolution = 72;
+    public int Depth = 8;
+    public byte[]? ColorProfile;
+    public List<Guide> Guides = [];
     /// <summary>A Large Document (<c>.psb</c>, header version 2).</summary>
     public bool LargeDocument;
     public List<PsdLayer> Layers = [];

@@ -22,7 +22,7 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 
 ### Layers
 - Layers and folders with 24 blend modes, grouped in the menu as Photoshop groups them, and opacity
-- Layer effects: Stroke (outside or inside), Drop Shadow, Outer Glow, Inner Glow, Color Overlay and Inner Shadow, each switchable, editable with a live preview and copied between layers by Alt-dragging
+- Layer effects: Stroke (outside or inside), Drop Shadow, Outer Glow, Inner Glow, Color Overlay, Gradient Overlay and Inner Shadow, each switchable, editable with a live preview and copied between layers by Alt-dragging
 - Layer masks on layers, folders and adjustment layers: paint, fill, gradient, invert, blur, apply, disable
 - Clipping masks (Alt-click a layer, or Ctrl+Alt+G)
 - Adjustment layers: Hue/Saturation, Levels, Curves, Exposure, Gradient Map, Grain, Brightness/Contrast, Black & White, Color Balance, Invert, and the live Gaussian Blur, Motion Blur and Add Noise, which work on everything beneath them
@@ -39,7 +39,8 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 - Transform several layers, or a whole folder, together
 - Snapping to canvas and layer edges and centers, with guides
 - Exact values for position, size and angle; arrow keys nudge (Shift for 10 px)
-- Live shape layers (rectangle, rounded rectangle, ellipse, line) that are redrawn sharp when scaled
+- Alt-drag duplicates and moves layers as one undoable step
+- Live shape layers (rectangle, rounded rectangle, ellipse, line) with editable fill, stroke, corner radius and line width, redrawn sharp when scaled
 - Rulers, guides dragged out of them, a layout grid with its own color, style, spacing and subdivisions (View > Grid Settings), and snapping of moves, marquees, shapes, selection outlines and crops to guides, grid, layers and the canvas (View > Snap To)
 
 ### Selections
@@ -76,7 +77,7 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 - Smooth downsampling when zoomed out, crisp pixels and a pixel grid when zoomed in
 - Open PNG, JPEG, WebP, BMP and GIF (and HEIC, AVIF, TIFF and SVG through ImageMagick when it is installed); drop files onto the window; paste images from other apps. An SVG placed into a document is drawn to fit the canvas, so a small icon comes in sharp
 - Open camera RAW files (Canon, Nikon, Sony, Fujifilm, DNG and more) through ImageMagick when it is installed: a develop step with exposure, temperature and tint and a live preview comes first, working on a 16-bit decode, so you choose what to keep before the image becomes an 8-bit layer
-- Open Photoshop files, `.psd` and Large Document `.psb`: layers, folders, masks, clipping, opacity, blend modes, solid fill shapes, adjustments and simple horizontal text come in editable, and a report lists everything that has to be converted before anything is applied; dropped onto an open document, a Photoshop file arrives inside a folder
+- Open 8-bit or 16-bit RGB Photoshop files, `.psd` and Large Document `.psb`: layers, folders, masks, clipping, opacity, blend modes, solid fill shapes, adjustments and simple horizontal text come in editable, and a report lists everything that has to be converted before anything is applied; dropped onto an open document, a Photoshop file arrives inside a folder
 - Export PNG, JPEG (with a live preview of the compression and the file size) and WebP; Copy Merged
 - Undo history limited by memory, not by a fixed step count
 - Tools that come in groups open beside their toolbar button when it is held or right-clicked, as in Photoshop: the marquees, the lassos, Magic Wand and Object Selection, Brush and Eraser, the Smear modes and the shapes
@@ -112,7 +113,7 @@ The tools create a document, list and describe the open ones, place an image fil
 - Double-clicking a slider types an exact value; a Reset button then appears on its left. The macOS app resets on double-click and types in a separate field.
 - Point text grows from the edge its alignment reads from (right-aligned text grows leftward); the macOS app keeps the top-left corner.
 - Layer effects are drawn on the CPU from a cached image; while a brush stroke is in progress they follow the pixels the stroke started from and catch up when it ends.
-- Photoshop files are opened, never written. Horizontal text with one style stays editable; vertical, sheared or unevenly scaled text, smart objects and paths other than solid rectangles and ellipses arrive as pixels, layer effects are dropped, and adjustments other than Levels, Curves, Hue/Saturation, Brightness/Contrast, Exposure, Black & White, Color Balance and Invert are skipped; every such change is listed before the import goes ahead. Only 8-bit RGB `.psd` and `.psb` files open (no CMYK or 16-bit).
+- Photoshop interchange: opens 8-bit or 16-bit RGB PSD/PSB (16-bit is converted to 8-bit), and writes layered 8-bit RGB PSD with editable horizontal text, character colors and faces, paragraph frames, vector rectangles, rounded rectangles, ellipses and round-ended lines, fills and strokes. Groups, masks, clipping, opacity, blend modes, Unicode names, resolution, guides and a tagged sRGB merged preview survive. Unsupported live features, smart objects and effects are rendered to pixels with a conversion report; adjustments get a merged appearance layer with separate sources in a hidden folder. Import can use Photoshop's merged image to preserve complex effects. CMYK, 32-bit RGB and PSD export above 2 GB are not supported; `.cmps` retains every Composa setting.
 - Camera RAW files open only through ImageMagick's LibRaw delegate. The develop step applies exposure and white balance to the 16-bit decoded frame rather than to the sensor data, as Apple's RAW pipeline does on macOS, so its temperature and tint are relative to the camera's reading and there is no tone Boost control.
 - The Camera Raw Filter has no Geometry group (Upright and guided lines), no vectorscope, no Option-drag clipping views, no point colors and no sharpening-mask overlay; its white-balance eyedropper works on the thumbnail in the panel rather than on the canvas, because the panel is a dialog. The filter renders on the full layer while you drag, so a very large layer answers more slowly than the macOS preview does.
 - Layer masks always move with their layer, so the layer menu has no Link Mask item.

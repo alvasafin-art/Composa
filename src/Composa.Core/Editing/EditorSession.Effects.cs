@@ -25,6 +25,7 @@ public sealed partial class EditorSession
         {
             LayerEffectKind.Stroke => effects with { Stroke = new StrokeEffect { Color = background } },
             LayerEffectKind.DropShadow => effects with { Shadow = new ShadowEffect() },
+            LayerEffectKind.GradientOverlay => effects with { GradientOverlay = new GradientOverlayEffect { StartColor = (uint)Foreground, EndColor = (uint)Background } },
             LayerEffectKind.ColorOverlay => effects with { ColorOverlay = new ColorOverlayEffect { Color = background } },
             LayerEffectKind.OuterGlow => effects with { OuterGlow = new OuterGlowEffect() },
             LayerEffectKind.InnerGlow => effects with { InnerGlow = new InnerGlowEffect() },

@@ -114,6 +114,21 @@ public static class LayerEffectsRenderer
             using var ring = Ring(coverage, stroke);
             Tint(canvas, ring, stroke.Color, stroke.Opacity);
         }
+        if (visible.GradientOverlay is { Opacity: > 0 } gradient)
+        {
+            var radians = gradient.Angle * Math.PI / 180;
+            var dx = (float)Math.Cos(radians); var dy = (float)-Math.Sin(radians);
+            var center = new SKPoint(inset + pixels.Width / 2f, inset + pixels.Height / 2f);
+            var reach = (Math.Abs(dx) * pixels.Width + Math.Abs(dy) * pixels.Height) / 2f * (float)(gradient.Scale / 100);
+            var colors = new[] { new SKColor(gradient.StartColor), new SKColor(gradient.EndColor) };
+            if (gradient.Reverse) Array.Reverse(colors);
+            using var shader = gradient.Radial
+                ? SKShader.CreateRadialGradient(center, Math.Max(pixels.Width, pixels.Height) / 2f * (float)(gradient.Scale / 100), colors, null, SKShaderTileMode.Clamp)
+                : SKShader.CreateLinearGradient(new SKPoint(center.X - dx * reach, center.Y - dy * reach), new SKPoint(center.X + dx * reach, center.Y + dy * reach), colors, null, SKShaderTileMode.Clamp);
+            using var shownCanvas = new SKCanvas(shown);
+            using var paint = new SKPaint { Shader = shader, BlendMode = SKBlendMode.SrcATop, Color = SKColors.White.WithAlpha((byte)Math.Round(gradient.Opacity * 255)) };
+            shownCanvas.DrawRect(SKRect.Create(0, 0, shown.Width, shown.Height), paint);
+        }
         canvas.DrawBitmap(shown, 0, 0);
         if (visible.ColorOverlay is { Opacity: > 0 } overlay) Tint(canvas, coverage, overlay.Color, overlay.Opacity);
         if (visible.InnerGlow is { Opacity: > 0, Size: > 0 } innerGlow)

@@ -195,7 +195,7 @@ public class PsdTests
     [Fact]
     public void Text_the_model_cannot_hold_stays_pixels_and_the_rest_is_reported()
     {
-        foreach (var type in new[] { new PsdWriter.TypeTool { Vertical = true }, new PsdWriter.TypeTool { Xy = 0.4 }, new PsdWriter.TypeTool { Xx = 2, Yy = 1 } })
+        foreach (var type in new[] { new PsdWriter.TypeTool { Vertical = true }, new PsdWriter.TypeTool { Xx = 0, Yy = 0 } })
         {
             var import = LoadText(type);
             var layer = Assert.Single(import.Layers);
@@ -207,9 +207,9 @@ public class PsdTests
         Assert.NotNull(Assert.Single(noted.Layers).Text);
         var messages = noted.Conversions.Select(c => c.Message).ToList();
         Assert.Contains(PsdText.WarpNote, messages);
-        Assert.Contains(PsdText.FauxNote, messages);
+        Assert.True(noted.Layers[0].Text!.Bold);
         Assert.Contains(PsdText.JustifyNote, messages);
-        Assert.Contains(PsdText.FirstStyleNote, messages);
+        Assert.Contains(messages, m => m.Contains("first style"));
         Assert.Contains(messages, m => m.Contains("NoSuchFace") && m.Contains("installed"));
         Assert.Equal(TextAlignment.Left, noted.Layers[0].Text!.Alignment);
         // Without engine data the words still come across, at 12 points.
@@ -268,7 +268,8 @@ public class PsdTests
         Assert.Equal(ShapeKind.Ellipse, ellipse.Shape!.Kind);
         Assert.Equal(0xFF0000FFu, ellipse.Shape.Fill);
         Assert.Equal(0, ellipse.Pixels!.GetPixel(0, 0).Alpha);              // An ellipse leaves its corners clear.
-        Assert.Contains(import.Conversions, c => c.LayerName == "Ellipse" && c.Message.Contains("stroke"));
+        Assert.Equal(0xFF000000u, ellipse.Shape.Stroke); Assert.Equal(3, ellipse.Shape.StrokeWidth);
+        Assert.DoesNotContain(import.Conversions, c => c.LayerName == "Ellipse");
         var rounded = import.Layers[2];
         Assert.Equal(ShapeKind.RoundedRectangle, rounded.Shape!.Kind);
         Assert.Equal(6, rounded.Shape.CornerRadius);
@@ -300,7 +301,8 @@ public class PsdTests
         AssertColor(SKColors.Green, pixels.GetPixel(40, 70));               // Inside the triangle.
         Assert.Equal(0, pixels.GetPixel(2, 2).Alpha);                       // Its top-left corner is empty.
         var outline = import.Layers[1];
-        Assert.Null(outline.Shape);                                          // No fill, so not a live shape: a stroked path instead.
+        Assert.Equal(ShapeKind.Rectangle, outline.Shape!.Kind);
+        Assert.False(outline.Shape.FillEnabled); Assert.Equal(0xFF0000FFu, outline.Shape.Stroke);
         using var flat = DocumentRenderer.Flatten(import.ToDocument());
         AssertColor(SKColors.Blue, flat.GetPixel(10, 35));
         Assert.Equal(0, flat.GetPixel(35, 35).Alpha);
@@ -442,8 +444,8 @@ public class PsdTests
     {
         byte[] Plain() { var w = new PsdWriter { Width = 10, Height = 10 }; w.Layers.Add(new PsdWriterLayer { Image = Solid(10, 10, SKColors.Red) }); return w.Build(); }
         Assert.Contains("format version", Assert.Throws<PsdException>(() => PsdImport.Load(new PsdWriter { Version = 3 }.Build())).Message);
-        Assert.Contains("8-bit RGB", Assert.Throws<PsdException>(() => PsdImport.Load(new PsdWriter { Mode = 4 }.Build())).Message);
-        Assert.Contains("8-bit RGB", Assert.Throws<PsdException>(() => PsdImport.Load(new PsdWriter { Depth = 16 }.Build())).Message);
+        Assert.Contains("8-bit or 16-bit RGB", Assert.Throws<PsdException>(() => PsdImport.Load(new PsdWriter { Mode = 4 }.Build())).Message);
+        Assert.Contains("8-bit or 16-bit RGB", Assert.Throws<PsdException>(() => PsdImport.Load(new PsdWriter { Depth = 32 }.Build())).Message);
         Assert.Contains("larger", Assert.Throws<PsdException>(() => PsdImport.Load(new PsdWriter { Width = 40_000, Height = 10 }.Build())).Message);
         Assert.Contains("larger", Assert.Throws<PsdException>(() => PsdImport.Load(Plain(), pixelBudget: 50)).Message);
         Assert.Contains("not a Photoshop", Assert.Throws<PsdException>(() => PsdImport.Load("hello world, not a psd"u8.ToArray())).Message);

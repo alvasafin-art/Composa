@@ -14,7 +14,7 @@ Keys while typing: Enter starts a new line; Tab inserts a tab; the arrow keys mo
 
 ## The Type bar
 
-The options bar shows the text settings: the font family from the fonts installed on your machine; the size in pixels from 1 to 2000; Bold and Italic; the color; left, center and right alignment; Tracking, the extra space after every character, from -100 to 1000; and Leading, the distance between baselines, where 0 means automatic at 120 percent of the size.
+The options bar shows the text settings: the installed font family and its available styles (for example Light, Semibold, Black, Condensed or Italic); the size in pixels from 1 to 2000; the color; left, center and right alignment; Tracking, the extra space after every character, from -100 to 1000; and Leading, the distance between baselines, where 0 means automatic at 120 percent of the size. A family with just one installed style has just one entry in the style menu.
 
 A change in the bar applies to the text you are typing, or to the active text layer when none is being typed, or to the next text you add when no text layer is active. A run of changes on one layer undoes as a single step.
 
@@ -24,6 +24,6 @@ While typing, select some of the text and pick a color from the bar's swatch or 
 
 ## Letters in their own fonts
 
-The font, Bold and Italic work the same way: while typing, select some of the text and choose a family from the menu or tick Bold or Italic, and only those letters change. With nothing selected the change goes on all of the text, and a family chosen for all of it keeps the letters that were bold or italic as they were. When the selected letters use more than one family the menu says (Multiple), and choosing one from it puts all of them in that family. New letters take the face of the letter before them. Projects that use this are format version 5 and need Composa 1.3 or later to open.
+Font family and style work the same way: while typing, select some of the text and choose a family or style, and only those letters change. With nothing selected the change goes on all of the text. Changing the family chooses its closest available weight, width and slant for each letter. A selection mixing families or styles shows (Multiple) in the corresponding menu. Choose one family before choosing a shared style for letters in different families. New letters take the face of the letter before them.
 
-If a font has no bold or italic face, Composa substitutes one or synthesizes the weight and slant, so Bold and Italic always show.
+Styles come from the installed font rather than synthesized Bold and Italic buttons. Exact weights, widths and slants are saved in project format version 8 and in editable PSD text. Older projects' Bold and Italic settings remain supported.

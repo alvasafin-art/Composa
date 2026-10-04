@@ -61,7 +61,7 @@ public sealed partial class EditorSession
         {
             foreach (var other in document.AllLayers().Where(l => l.Pixels != null && (moving == null || !moving.Contains(l.Id)) && document.IsEffectivelyVisible(l)).Take(60))
             {
-                var b = other.Bounds;
+                var b = other.ControlBounds;
                 xs.AddRange([MathF.Round(b.Left), MathF.Round(b.Right)]);
                 ys.AddRange([MathF.Round(b.Top), MathF.Round(b.Bottom)]);
                 if (includeCenters) { xs.Add(MathF.Round(b.MidX)); ys.Add(MathF.Round(b.MidY)); }

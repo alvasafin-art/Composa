@@ -1,0 +1,13 @@
+sRGB2014.icc is distributed unchanged from the International Color Consortium:
+https://registry.color.org/rgb-registry/profiles/sRGB2014.icc
+https://registry.color.org/profile-library/
+
+Copyright owner: International Color Consortium (also identified in the embedded profile).
+
+This profile is made available by the International Color Consortium, and may be copied,
+distributed, embedded, made, used, and sold without restriction. Altered versions of this
+profile shall have the original identification and copyright information removed and shall
+not be misrepresented as the original profile.
+
+The profile is embedded in Composa.Core.dll and in exported PSD files, identifying their
+8-bit RGB pixels as sRGB. It adds no runtime dependency.

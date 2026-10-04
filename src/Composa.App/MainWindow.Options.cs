@@ -1,4 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Composa.Editing;
@@ -11,13 +14,16 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
+    private bool optionsHaveShape;
+
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
     private void RebuildOptions()
     {
         refreshOptions = null;
+        optionsHaveShape = session?.ActiveLayer?.Shape != null;
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.ActiveLayer?.Shape != null && s.Tool == Tool.Move ? 10 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
         if (embeddedTabs.TryGetValue(s, out var embedded))
@@ -33,6 +39,7 @@ public sealed partial class MainWindow
             case Tool.Move:
                 Add(Title("Move"));
                 BuildTransformFields(row);
+                if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 break;
             case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear:
                 Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.CloneStamp => "Clone Stamp", _ => Chosen() }));
@@ -120,10 +127,18 @@ public sealed partial class MainWindow
                 refreshOptions = () => gradientOpacity.Value = s.GradientOpacity * 100;
                 break;
             case Tool.Shape:
-                Add(Title(Chosen()));
-                if (s.ShapeKind == ShapeKind.Line) Add(Ui.SliderField("Width", s.ShapeLineWidth, 1, 100, v => s.ShapeLineWidth = v));
-                else if (s.ShapeKind == ShapeKind.RoundedRectangle) Add(Ui.SliderField("Corner radius", s.ShapeCornerRadius, 0, 400, v => s.ShapeCornerRadius = v, width: 150));
-                Add(Ui.Label(s.ShapeKind == ShapeKind.Line ? "Draws in the foreground color · Shift snaps to 45°" : "Fills with the foreground color", Palette.Secondary));
+                if (s.ActiveLayer?.Shape is { } shape)
+                {
+                    Add(Title(ShapeStyle.DisplayName(shape.Kind)));
+                    BuildShapeFields(row);
+                }
+                else
+                {
+                    Add(Title(Chosen()));
+                    if (s.ShapeKind == ShapeKind.Line) Add(Ui.SliderField("Width", s.ShapeLineWidth, 1, 100, v => s.ShapeLineWidth = v));
+                    else if (s.ShapeKind == ShapeKind.RoundedRectangle) Add(Ui.SliderField("Corner radius", s.ShapeCornerRadius, 0, 400, v => s.ShapeCornerRadius = v, width: 150));
+                    Add(Ui.Label(s.ShapeKind == ShapeKind.Line ? "Draws in the foreground color · Shift snaps to 45°" : "Fills with the foreground color", Palette.Secondary));
+                }
                 break;
             case Tool.Text:
                 Add(Title("Type"));
@@ -155,6 +170,78 @@ public sealed partial class MainWindow
         toolOptionsHost.Child = row;
     }
 
+    /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
+    private void BuildShapeFields(StackPanel row)
+    {
+        var s = session!;
+        var id = s.ActiveLayer!.Id;
+        var style = s.ActiveLayer.Shape!;
+        var updating = false;
+        var strokeColor = style.Stroke ?? 0xFF000000;
+        Layer? Current() => s.Document.Find(id);
+        void Change(Func<ShapeStyle, ShapeStyle> change)
+        {
+            if (updating || canvas.IsDragging || Current() is not { Shape: { } live } layer) return;
+            s.ChangeShapeStyle(layer, change(live), merge: true);
+        }
+        Border Swatch(string label, Func<ShapeStyle, uint> get, Func<ShapeStyle, uint, ShapeStyle> set)
+        {
+            var swatch = new Border { Width = 28, CornerRadius = new CornerRadius(3), BorderBrush = Brushes.White, BorderThickness = new Thickness(1), Cursor = new Cursor(StandardCursorType.Hand) };
+            ToolTip.SetTip(swatch, label + " color");
+            swatch.PointerPressed += async (_, e) =>
+            {
+                if (!e.GetCurrentPoint(swatch).Properties.IsLeftButtonPressed || canvas.IsDragging || Current() is not { Shape: { } original } layer) return;
+                s.Begin("Shape Properties");
+                SKColor? picked;
+                try
+                {
+                    picked = await Dialogs.Prompts.Color(this, label + " Color", new SKColor(get(original)), color =>
+                    {
+                        if (Current() is { Shape: { } live } current) s.ChangeShapeStyle(current, set(live, (uint)color | 0xFF000000), preview: true);
+                    });
+                }
+                finally { s.Cancel(); }
+                if (picked is { } color) Change(st => set(st, (uint)color | 0xFF000000));
+                refreshOptions?.Invoke();
+            };
+            refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToAvalonia()); };
+            return swatch;
+        }
+        row.Children.Add(Ui.Separator());
+        if (style.Kind == ShapeKind.Line)
+        {
+            row.Children.Add(Ui.Row(5, Ui.Label("Color", Palette.Secondary), Swatch("Line", st => st.Fill, (st, c) => st with { Fill = c })));
+            var width = Ui.SliderField("Width", style.LineWidth, 1, 500, v => Change(st => st with { LineWidth = v }), width: 115);
+            row.Children.Add(width);
+            refreshOptions += () => { if (Current()?.Shape is { } live) width.Value = live.LineWidth; };
+        }
+        else
+        {
+            var fill = Ui.Check("Fill", style.FillEnabled, v => Change(st => st with { FillEnabled = v }));
+            var stroke = Ui.Check("Stroke", style.Stroke != null, v => Change(st => st with { Stroke = v ? strokeColor : null }));
+            row.Children.Add(Ui.Row(5, fill, Swatch("Fill", st => st.Fill, (st, c) => st with { Fill = c, FillEnabled = true })));
+            row.Children.Add(Ui.Row(5, stroke, Swatch("Stroke", st => st.Stroke ?? strokeColor, (st, c) => st with { Stroke = c })));
+            var width = Ui.SliderField("Stroke width", style.StrokeWidth, 0, 500, v => Change(st => st with { StrokeWidth = v }), width: 115);
+            row.Children.Add(width);
+            refreshOptions += () =>
+            {
+                if (Current()?.Shape is not { } live) return;
+                updating = true;
+                fill.IsChecked = live.FillEnabled; stroke.IsChecked = live.Stroke != null;
+                if (live.Stroke is { } color) strokeColor = color;
+                width.Value = live.StrokeWidth;
+                updating = false;
+            };
+            if (style.Kind == ShapeKind.RoundedRectangle)
+            {
+                var radius = Ui.SliderField("Corner radius", style.CornerRadius, 0, DocumentLimits.MaxSide, v => Change(st => st with { CornerRadius = v }), width: 130);
+                row.Children.Add(radius);
+                refreshOptions += () => { if (Current()?.Shape is { } live) radius.Value = live.CornerRadius; };
+            }
+        }
+        refreshOptions?.Invoke();
+    }
+
     /// <summary>The Type bar: font, size, style, color, alignment and spacing for the text being typed (or the next text).</summary>
     private void BuildTextFields(StackPanel row)
     {
@@ -168,13 +255,23 @@ public sealed partial class MainWindow
         var families = EditorSession.FontFamilies;
         var family = families.Contains(style.FontFamily) ? style.FontFamily : families.FirstOrDefault(f => f.Contains("Sans", StringComparison.OrdinalIgnoreCase)) ?? families.FirstOrDefault() ?? style.FontFamily;
         // A long font name is cut off rather than widening the bar.
-        // While typing, the family, Bold and Italic land on the selected letters only, as the color does.
+        // While typing, the family and installed style land on the selected letters only, as the color does.
         void ChangeFace(Func<TextFace, TextFace> change) { if (!updating) s.SetTextFace(change); }
-        var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => face with { FontFamily = f }), 190);
+        var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face), 190);
         font.MaxWidth = 190;
         var size = Ui.Number(style.Size, 1, 2000, v => Change(st => st with { Size = v }), 1, "0.#", 64);
-        var bold = Ui.Check("Bold", style.Bold, v => ChangeFace(face => face with { Bold = v }));
-        var italic = Ui.Check("Italic", style.Italic, v => ChangeFace(face => face with { Italic = v }));
+        var faceChoices = Composa.Text.FontCatalog.ForFamily(family);
+        var stylesFamily = family;
+        var faceMenu = new ComboBox { Width = 145, MaxWidth = 145, ItemsSource = faceChoices.Select(c => c.Name).ToArray() };
+        ToolTip.SetTip(faceMenu, "Font style");
+        faceMenu.SelectionChanged += (_, _) =>
+        {
+            if (!updating && faceMenu.SelectedIndex >= 0 && faceMenu.SelectedIndex < faceChoices.Count)
+            {
+                var selected = faceChoices[faceMenu.SelectedIndex].Face;
+                ChangeFace(face => face with { Bold = selected.Bold, Italic = selected.Italic, FontStyle = selected.FontStyle });
+            }
+        };
         var swatch = new Border { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), BorderBrush = Avalonia.Media.Brushes.White, BorderThickness = new Avalonia.Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
         ToolTip.SetTip(swatch, "Text color");
         swatch.PointerPressed += async (_, _) =>
@@ -224,7 +321,7 @@ public sealed partial class MainWindow
         var cancel = Ui.TextButton("Cancel", () => { s.CancelText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); });
         var edit = Ui.TextButton("Edit Text", () => { if (s.ActiveLayer is { Text: not null } layer) BeginTextEdit(layer); });
         foreach (var button in new[] { done, cancel, edit }) button.MinWidth = 0;
-        row.Children.AddRange([font, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), bold, italic, swatch, alignRow,
+        row.Children.AddRange([font, faceMenu, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), swatch, alignRow,
             Ui.Row(5, Ui.Scrub(Ui.Label("Tracking", Palette.Secondary), tracking), tracking), Ui.Row(5, Ui.Scrub(Ui.Label("Leading", Palette.Secondary), leading), leading), Ui.Separator()]);
         if (s.IsEditingText) row.Children.AddRange([done, cancel]);
         else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
@@ -236,13 +333,22 @@ public sealed partial class MainWindow
             tracking.Value = (decimal)current.Tracking;
             leading.Value = (decimal)current.Leading;
             var face = s.CurrentTextFace;
-            bold.IsChecked = face.Bold;
-            italic.IsChecked = face.Italic;
             // Selected letters in more than one family: the menu says so instead of naming one.
             var uniform = s.CurrentUniformTextFamily;
             var index = uniform == null ? -1 : families.ToList().IndexOf(uniform);
             font.PlaceholderText = uniform ?? "(Multiple)";
             if (font.SelectedIndex != index) font.SelectedIndex = index;
+            if (stylesFamily != face.FontFamily)
+            {
+                stylesFamily = face.FontFamily;
+                faceChoices = Composa.Text.FontCatalog.ForFamily(stylesFamily);
+                faceMenu.ItemsSource = faceChoices.Select(c => c.Name).ToArray();
+            }
+            var uniformFace = s.CurrentUniformTextFace;
+            faceMenu.IsEnabled = uniform != null;
+            faceMenu.PlaceholderText = uniformFace == null ? "(Multiple)" : Composa.Text.FontCatalog.Closest(face.FontFamily, face).Name;
+            var faceIndex = uniformFace == null ? -1 : faceChoices.ToList().IndexOf(Composa.Text.FontCatalog.Closest(face.FontFamily, face));
+            if (faceMenu.SelectedIndex != faceIndex) faceMenu.SelectedIndex = faceIndex;
             swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToAvalonia());
             foreach (var (alignment, button) in alignments) button.IsChecked = current.Alignment == alignment;
             updating = false;
@@ -264,7 +370,7 @@ public sealed partial class MainWindow
         var autoSelect = Ui.Check("Auto Select", canvas.AutoSelect, v => { canvas.AutoSelect = v; RememberToolSettings(); });
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
-        row.Children.Add(Ui.Check("Transform controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
+        row.Children.Add(Ui.Check(layer?.Shape != null ? "Controls" : "Transform controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
         if (layer?.Pixels == null)
         {
             row.Children.Add(Ui.Label(layer == null ? "No layer selected" : layer.IsGroup ? "Moves every layer in the folder" : "This layer has no pixels", Palette.Secondary));
@@ -273,11 +379,11 @@ public sealed partial class MainWindow
         var updating = false;
         NumericUpDown Field(string label, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> set, double min, double max, string format)
         {
-            var box = Ui.Number(get(layer.Transform), min, max, v =>
+            var box = Ui.Number(get(layer.ControlTransform), min, max, v =>
             {
                 if (updating || s.Document.Find(layer.Id) is not { } live) return;
-                s.SetTransform(live, set(live.Transform, v));
-            }, 1, format, 74);
+                s.SetControlTransform(live, set(live.ControlTransform, v));
+            }, 1, format, layer.Shape != null ? 55 : 74);
             row.Children.Add(Ui.Row(5, Ui.Scrub(Ui.Label(label, Palette.Secondary), box), box));
             return box;
         }
@@ -290,9 +396,9 @@ public sealed partial class MainWindow
         {
             if (s.Document.Find(layer.Id) is not { } live) return;
             updating = true;
-            x.Value = (decimal)live.Transform.X; y.Value = (decimal)live.Transform.Y;
-            w.Value = (decimal)live.Transform.Width; h.Value = (decimal)live.Transform.Height;
-            angle.Value = (decimal)live.Transform.Rotation;
+            x.Value = (decimal)live.ControlTransform.X; y.Value = (decimal)live.ControlTransform.Y;
+            w.Value = (decimal)live.ControlTransform.Width; h.Value = (decimal)live.ControlTransform.Height;
+            angle.Value = (decimal)live.ControlTransform.Rotation;
             updating = false;
         };
     }

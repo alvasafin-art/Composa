@@ -8,13 +8,14 @@ namespace Composa.IO.Psd;
 /// <summary>
 /// A Photoshop file rebuilt as this editor's layers, as far as they can carry it, with a report of everything that had
 /// to be converted on the way. Nothing is applied to a document until the caller decides to, so the report can be
-/// shown first. Photoshop is an interchange format here: files are opened, never written.
+/// shown first. Photoshop is an interchange format here: files are opened with a conversion report and written by PsdExport.
 /// </summary>
 public sealed class PsdImport
 {
     public int Width { get; }
     public int Height { get; }
     public double Resolution { get; }
+    public IReadOnlyList<Guide> Guides { get; private init; } = [];
     /// <summary>Root layers, bottom to top, with folders holding their children. Meant to be placed once.</summary>
     public List<Layer> Layers { get; }
     public IReadOnlyList<PsdConversion> Conversions { get; }
@@ -56,6 +57,21 @@ public sealed class PsdImport
         }
     }
 
+    /// <summary>The Photoshop-authored merged appearance as one layer, without reconstructing unsupported features.</summary>
+    public static PsdImport LoadAppearance(string path, long pixelBudget)
+    {
+        if (new FileInfo(path).Length > int.MaxValue) throw PsdException.TooLarge();
+        return LoadAppearance(File.ReadAllBytes(path), pixelBudget);
+    }
+
+    public static PsdImport LoadAppearance(byte[] data, long pixelBudget)
+    {
+        var file = PsdReader.Read(data, pixelBudget, mergedOnly: true);
+        var import = Build(file, pixelBudget);
+        return new PsdImport(import.Width, import.Height, import.Resolution, import.Layers,
+            [.. import.Conversions, new PsdConversion("Document", "Opened Photoshop's merged appearance as one layer. The original Photoshop layers were not imported.")]) { Guides = import.Guides };
+    }
+
     /// <summary>Frees the layers' pixels when the import is not going ahead.</summary>
     public void Discard()
     {
@@ -74,6 +90,7 @@ public sealed class PsdImport
     {
         var document = new Document(Width, Height) { Resolution = Resolution };
         document.Layers.AddRange(Layers);
+        document.Guides.AddRange(Guides);
         document.SetActive(Layers.LastOrDefault()?.Id);
         return document;
     }
@@ -89,6 +106,8 @@ public sealed class PsdImport
         // Dissolve, Darker Color and Lighter Color have no equivalent here and fall through to Normal with a conversion listed.
     };
 
+    internal static string BlendKey(BlendMode mode) => Blends.First(pair => pair.Value == mode).Key;
+
     /// <summary>Listed for every layer the reader had to cut to the canvas to make the file fit.</summary>
     public const string CroppedNote = "Cropped to the canvas so the file fits in memory. Pixels outside the canvas weren't imported.";
 
@@ -101,6 +120,7 @@ public sealed class PsdImport
     private static PsdImport Build(PsdFile file, long pixelBudget)
     {
         var conversions = new List<PsdConversion>();
+        if (file.Depth == 16) conversions.Add(new PsdConversion("Document", "16-bit RGB channels are converted to the editor's 8-bit channels. Save the original PSD to retain its full precision."));
         var canvas = new SKSizeI(file.Width, file.Height);
         var remaining = pixelBudget - file.Layers.Sum(l => (long)(l.Image?.Width ?? 0) * (l.Image?.Height ?? 0));
 
@@ -109,7 +129,7 @@ public sealed class PsdImport
             // A flattened file: the merged image is all there is, and it becomes the one layer.
             var flat = new List<Layer>();
             if (file.Composite != null) flat.Add(Layer.Raster("Background", file.Composite));
-            return new PsdImport(file.Width, file.Height, file.Resolution, flat, conversions);
+            return Complete(file, flat, conversions);
         }
 
         // Photoshop lists layers bottom to top: a folder's hidden divider comes first, then its contents, then the
@@ -139,7 +159,8 @@ public sealed class PsdImport
                 layer = new Layer { Id = id, Name = name, Kind = LayerKind.Group, Collapsed = record.Section == 2 };
                 if (pending.TryGetValue(id, out var children)) layer.Children.AddRange(children);
                 target = openGroups.Count > 0 ? pending[openGroups.Peek()] : roots;
-                if (record.BlendKey is not ("pass" or "norm")) conversions.Add(new PsdConversion(name, $"Folder blend mode \"{record.BlendKey.Trim()}\" isn't supported. The folder will be pass-through."));
+                if (record.BlendKey != "pass" && !Blends.ContainsKey(record.BlendKey)) conversions.Add(new PsdConversion(name, $"Folder blend mode \"{record.BlendKey.Trim()}\" isn't supported. The folder will be pass-through."));
+                layer.Blend = Blends.GetValueOrDefault(record.BlendKey, BlendMode.Normal);
                 record.Image?.Dispose();
             }
             else
@@ -159,7 +180,14 @@ public sealed class PsdImport
         // A file whose folders never closed is damaged: keep their contents at the top level rather than lose them.
         while (openGroups.Count > 0) roots.AddRange(pending[openGroups.Pop()]);
         ResolveClipping(roots, clipping, conversions);
-        return new PsdImport(file.Width, file.Height, file.Resolution, roots, conversions);
+        return Complete(file, roots, conversions);
+    }
+
+    private static PsdImport Complete(PsdFile file, List<Layer> layers, List<PsdConversion> conversions)
+    {
+        var import = new PsdImport(file.Width, file.Height, file.Resolution, layers, conversions) { Guides = file.Guides };
+        try { PsdColor.Apply(layers, file.ColorProfile, conversions); return import; }
+        catch { import.Discard(); throw; }
     }
 
     /// <summary>Layer opacity times fill opacity, as Photoshop shows them multiplied; a layer with effects keeps fill for the effects, which are dropped here.</summary>
@@ -196,8 +224,10 @@ public sealed class PsdImport
         if (kind == PsdLayerKind.Text)
         {
             // Horizontal type keeps its wording, font, size, color, alignment, tracking and leading, so it can be retyped.
-            if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref remaining) is { } text)
+            var available = remaining + (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+            if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref available) is { } text)
             {
+                remaining = available;
                 record.Image?.Dispose();
                 foreach (var note in source.Notes) Note(note);
                 return text;
@@ -209,13 +239,16 @@ public sealed class PsdImport
 
         if (kind is PsdLayerKind.Vector or PsdLayerKind.Fill)
         {
-            if (PsdVector.LiveShape(extra, canvas, remaining) is { } live)
+            var cached = (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+            if (PsdVector.LiveShape(extra, canvas, remaining + cached) is { } live)
             {
                 record.Image?.Dispose();
                 foreach (var note in live.Notes) Note(note);
-                remaining -= (long)live.Bounds.Width * live.Bounds.Height;
+                remaining += cached - (long)live.Bounds.Width * live.Bounds.Height;
                 var pixels = EditorSession.RenderShape(live.Style, live.Bounds.Width, live.Bounds.Height);
-                return AsShape(Layer.Raster(name, pixels, live.Bounds.Left, live.Bounds.Top), live.Style);
+                var shape = AsShape(Layer.Raster(name, pixels, live.Bounds.Left, live.Bounds.Top), live.Style);
+                if (live.Placement is { } matrix) shape.Transform = PsdGeometry.Place(matrix, pixels.Width, pixels.Height);
+                return shape;
             }
             if (kind == PsdLayerKind.Fill && PsdVector.FillColor(extra) is { } fill)
             {
@@ -266,10 +299,22 @@ public sealed class PsdImport
         if (record.MaskImage is { } plane)
         {
             using (plane)
-            using (var surface = new SKCanvas(mask))
             {
-                using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-                surface.DrawBitmap(plane, dx, dy, paint);
+                if (layer.IsLive && layer.Pixels is { } source && !layer.Transform.IsPureTranslation(source.Width, source.Height) && layer.Matrix.TryInvert(out var inverse))
+                {
+                    // PSD masks are in document coordinates. Move coverage back into the live layer's local grid.
+                    using var surface = new SKCanvas(mask);
+                    surface.SetMatrix(SKMatrix.CreateTranslation(record.MaskLeft, record.MaskTop).PostConcat(inverse));
+                    using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+                    using var image = SKImage.FromBitmap(plane);
+                    surface.DrawImage(image, 0, 0, new SKSamplingOptions(SKFilterMode.Linear), paint);
+                }
+                else
+                {
+                    using var surface = new SKCanvas(mask);
+                    using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+                    surface.DrawBitmap(plane, dx, dy, paint);
+                }
             }
             Pixels.Invalidate(mask);
         }

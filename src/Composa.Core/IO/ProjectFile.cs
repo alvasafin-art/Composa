@@ -20,9 +20,9 @@ public static class ProjectFile
     /// The format version new saves write, and the highest one <see cref="Read"/> accepts. 1 was the first release,
     /// 2 added guides, 3 added the Gaussian Blur, Motion Blur and Add Noise adjustment layers and the Inner Glow effect,
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
-    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents.
+    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles.
     /// </summary>
-    public const int Version = 7;
+    public const int Version = 8;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -204,7 +204,7 @@ public static class ProjectFile
                 Id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, Name = record.Name, Kind = record.Kind, Visible = record.Visible,
                 Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, Blend = record.Blend,
                 MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false,
-                Adjustment = record.Adjustment, Shape = record.Shape, Text = record.Text?.Clamped()
+                Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped()
             };
             if (record.Tags != null)
                 foreach (var tag in record.Tags.Take(64)) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);

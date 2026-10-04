@@ -4,6 +4,24 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.13] - 2026-10-04
+
+### Added
+
+- PSD opening and saving with a merged compatibility preview, editable horizontal text and supported vector shapes, layer masks, groups and blend modes. Unsupported effects, perspective and adjustment settings produce an explicit conversion report; native `.cmps` projects retain editor settings.
+- Gradient Overlay in Layer Effects, with color, angle, scale, radial and reverse controls.
+- Installed font styles in the Type bar instead of Bold/Italic buttons. Exact weight, width and slant follow character selections, undo, project saves and editable PSD text. New project saves use format version 8; older projects remain readable.
+- Editable shape fill, stroke, stroke width and supported corner radii directly in the options bar.
+
+### Fixed
+
+- Alt-drag duplicates selected objects and moves the copies in one undo step; cancelling removes the copies.
+- Move selects the visible object under the pointer rather than always dragging the top layer. Empty space and clicks outside the canvas clear the layer selection.
+- Filled selections and gradient objects use transform frames and inspector sizes around their non-transparent content, preserving the original source pixels and masks.
+- Native controls keep the editor's blue accent instead of inheriting a different Windows accent.
+
+Verification: 837 automated tests passed (368 core and 469 headless UI), with inspected interface screenshots and project/PSD reopen checks. Earlier PSD validation also checked compatibility caches with ImageMagick and native records with an independent reader. Photoshop itself was not run. PSD interchange uses the existing C#/Skia stack without adding a runtime library; some Photoshop features still require conversion.
+
 ## [1.2.1-preview.12] - 2026-10-02
 
 ### Changed

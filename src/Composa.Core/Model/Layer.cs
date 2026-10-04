@@ -10,6 +10,17 @@ public enum ShapeKind { Rectangle, RoundedRectangle, Ellipse, Line }
 /// <summary>A live shape: redrawn at full sharpness whenever its layer is scaled.</summary>
 public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
 {
+    public bool FillEnabled { get; init; } = true;
+    public uint? Stroke { get; init; }
+    public double StrokeWidth { get; init; } = 2;
+
+    public ShapeStyle Clamped() => this with
+    {
+        CornerRadius = double.IsFinite(CornerRadius) ? Math.Clamp(CornerRadius, 0, DocumentLimits.MaxSide) : 0,
+        StrokeWidth = double.IsFinite(StrokeWidth) ? Math.Clamp(StrokeWidth, 0, 500) : 2,
+        LineWidth = double.IsFinite(LineWidth) ? Math.Clamp(LineWidth, Kind == ShapeKind.Line ? 1 : 0, 5000) : (Kind == ShapeKind.Line ? 1 : 0)
+    };
+
     /// <summary>A line's thickness in layer pixels; other shapes ignore it.</summary>
     public double LineWidth { get; init; }
     /// <summary>A line's two ends as fractions of the layer's box (0 to 1), so a scaled line still runs between the same two places. Null runs corner to corner.</summary>
@@ -30,13 +41,23 @@ public sealed record TextColorRun(int Start, int Length, uint Color)
 }
 
 /// <summary>A font family with its weight and slant: what one letter is set in.</summary>
-public readonly record struct TextFace(string FontFamily, bool Bold, bool Italic);
+public sealed record TextFontStyle(int Weight, int Width, SKFontStyleSlant Slant)
+{
+    [System.Text.Json.Serialization.JsonIgnore] public bool IsValid => Weight is >= 1 and <= 1000 && Width is >= 1 and <= 9 && Enum.IsDefined(Slant);
+}
+
+public readonly record struct TextFace(string FontFamily, bool Bold, bool Italic)
+{
+    /// <summary>Exact installed weight, width and slant; null keeps older projects' Bold/Italic semantics.</summary>
+    public TextFontStyle? FontStyle { get; init; }
+}
 
 /// <summary>Letters set in a face other than their style's own: a character range into the text (end exclusive) and the face.</summary>
 public sealed record TextFontRun(int Start, int Length, string FontFamily, bool Bold, bool Italic)
 {
+    public TextFontStyle? FontStyle { get; init; }
     [System.Text.Json.Serialization.JsonIgnore] public int End => Start + Length;
-    [System.Text.Json.Serialization.JsonIgnore] public TextFace Face => new(FontFamily, Bold, Italic);
+    [System.Text.Json.Serialization.JsonIgnore] public TextFace Face => new(FontFamily, Bold, Italic) { FontStyle = FontStyle };
 }
 
 /// <summary>Live text: kept as characters and redrawn sharp whenever it is edited or its layer is scaled.</summary>
@@ -53,6 +74,7 @@ public sealed record TextStyle
     public uint Color { get; init; } = 0xFF000000;
     public bool Bold { get; init; }
     public bool Italic { get; init; }
+    public TextFontStyle? FontStyle { get; init; }
     public TextAlignment Alignment { get; init; }
     /// <summary>Extra space after every character, in layer pixels.</summary>
     public double Tracking { get; init; }
@@ -73,7 +95,7 @@ public sealed record TextStyle
     public IReadOnlyList<TextFontRun>? FontRuns { get; init; }
 
     /// <summary>The style's own face, which every letter outside a font run is set in.</summary>
-    [System.Text.Json.Serialization.JsonIgnore] public TextFace Face => new(FontFamily, Bold, Italic);
+    [System.Text.Json.Serialization.JsonIgnore] public TextFace Face => new(FontFamily, Bold, Italic) { FontStyle = FontStyle };
     [System.Text.Json.Serialization.JsonIgnore] public double LineHeight => Leading > 0 ? Leading : Size * 1.2;
     [System.Text.Json.Serialization.JsonIgnore] public bool IsBox => BoxWidth != null && BoxHeight != null;
 
@@ -91,6 +113,7 @@ public sealed record TextStyle
             BoxWidth = box ? Math.Clamp(Math.Round(BoxWidth!.Value), MinBox, MaxBox) : null,
             BoxHeight = box ? Math.Clamp(Math.Round(BoxHeight!.Value), MinBox, MaxBox) : null,
             Color = Color | 0xFF000000,
+            FontStyle = FontStyle is { IsValid: true } ? FontStyle : null,
             ColorRuns = ValidRuns(ColorRuns, text.Length),
             FontRuns = ValidFontRuns(FontRuns, text.Length)
         };
@@ -103,7 +126,7 @@ public sealed record TextStyle
         var end = 0;
         foreach (var run in runs)
         {
-            if (run.Start < end || run.Length <= 0 || run.Start > length - run.Length || !IsFamilyName(run.FontFamily)) return null;
+            if (run.Start < end || run.Length <= 0 || run.Start > length - run.Length || !IsFamilyName(run.FontFamily) || run.FontStyle is { IsValid: false }) return null;
             end = run.End;
         }
         return runs;
@@ -132,6 +155,16 @@ public sealed record TextStyle
         return family;
     }
 
+    public TextFace? UniformFaceIn(int start, int end)
+    {
+        start = Math.Clamp(start, 0, Text.Length);
+        end = Math.Clamp(end, start, Text.Length);
+        if (start == end) return Face;
+        var face = FaceAt(start);
+        for (var i = start + 1; i < end; i++) if (FaceAt(i) != face) return null;
+        return face;
+    }
+
     /// <summary>
     /// Changes the face of the characters from <paramref name="start"/> to <paramref name="end"/> (exclusive): the family,
     /// the weight or the slant, whichever the change touches. An empty range, or one covering the whole text, changes
@@ -145,10 +178,17 @@ public sealed record TextStyle
         end = Math.Clamp(end, start, count);
         var all = start == end || (start == 0 && end == count);
         var faces = UnitFaces();
-        for (var i = all ? 0 : start; i < (all ? count : end); i++) faces[i] = change(faces[i]);
-        var face = all ? change(Face) : Face;
+        TextFace Changed(TextFace before)
+        {
+            var after = change(before);
+            // Existing commands still accept Bold/Italic. An explicit face must not swallow those changes.
+            if (after.FontStyle == before.FontStyle && (after.Bold != before.Bold || after.Italic != before.Italic)) after = after with { FontStyle = null };
+            return after.FontStyle is { IsValid: false } ? after with { FontStyle = null } : after;
+        }
+        for (var i = all ? 0 : start; i < (all ? count : end); i++) faces[i] = Changed(faces[i]);
+        var face = all ? Changed(Face) : Face;
         if (!IsFamilyName(face.FontFamily) || faces.Any(f => !IsFamilyName(f.FontFamily))) return this;
-        return this with { FontFamily = face.FontFamily, Bold = face.Bold, Italic = face.Italic, FontRuns = FontRunsOf(faces, face) };
+        return this with { FontFamily = face.FontFamily, Bold = face.Bold, Italic = face.Italic, FontStyle = face.FontStyle, FontRuns = FontRunsOf(faces, face) };
     }
 
     /// <summary>The runs as they are when they are sorted, disjoint and inside the text, with their colors opaque; otherwise none, since a damaged file cannot say which letter has which color.</summary>
@@ -238,7 +278,7 @@ public sealed record TextStyle
         {
             if (faces[i] == baseFace) continue;
             if (runs.Count > 0 && runs[^1].End == i && runs[^1].Face == faces[i]) runs[^1] = runs[^1] with { Length = runs[^1].Length + 1 };
-            else runs.Add(new TextFontRun(i, 1, faces[i].FontFamily, faces[i].Bold, faces[i].Italic));
+            else runs.Add(new TextFontRun(i, 1, faces[i].FontFamily, faces[i].Bold, faces[i].Italic) { FontStyle = faces[i].FontStyle });
         }
         return runs.Count == 0 ? null : runs;
     }
@@ -267,13 +307,13 @@ public sealed record TextStyle
     // from none, so equality is spelled out. A new property belongs in both members.
     public bool Equals(TextStyle? other) =>
         other is not null && Text == other.Text && FontFamily == other.FontFamily && Size == other.Size && Color == other.Color
-        && Bold == other.Bold && Italic == other.Italic && Alignment == other.Alignment && Tracking == other.Tracking && Leading == other.Leading
+        && Bold == other.Bold && Italic == other.Italic && FontStyle == other.FontStyle && Alignment == other.Alignment && Tracking == other.Tracking && Leading == other.Leading
         && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight
         && (ColorRuns == null ? other.ColorRuns == null : other.ColorRuns != null && ColorRuns.SequenceEqual(other.ColorRuns))
         && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns));
 
     public override int GetHashCode() =>
-        HashCode.Combine(Text, FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0));
+        HashCode.Combine(Text, FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle));
 
     /// <summary>The same text drawn <paramref name="factor"/> times as large: size, spacing and box together.</summary>
     public TextStyle Scaled(double factor) => Scaled(factor, factor);
@@ -336,6 +376,68 @@ public sealed class Layer
 
     /// <summary>Document-space bounds of the layer's pixels; empty for groups and adjustments.</summary>
     public SKRect Bounds => Pixels == null ? SKRect.Empty : Transform.Bounds(Pixels.Width, Pixels.Height);
+
+    /// <summary>Raster controls enclose content, while live text and shapes retain their editable boxes. The source grid and masks stay intact.</summary>
+    public LayerTransform ControlTransform
+    {
+        get
+        {
+            if (Pixels == null || IsLive || IsSmartObject) return Transform;
+            var bounds = ControlSourceBounds;
+            if (bounds == new SKRectI(0, 0, Pixels.Width, Pixels.Height)) return Transform;
+            double midX = (bounds.Left + bounds.Right) / 2.0, midY = (bounds.Top + bounds.Bottom) / 2.0;
+            var center = new SKPoint((float)(Transform.X + (Transform.FlipHorizontal ? Pixels.Width - midX : midX) * Transform.Width / Pixels.Width),
+                (float)(Transform.Y + (Transform.FlipVertical ? Pixels.Height - midY : midY) * Transform.Height / Pixels.Height));
+            if (Transform.Rotation != 0) center = SKMatrix.CreateRotationDegrees((float)Transform.Rotation, Transform.Center.X, Transform.Center.Y).MapPoint(center);
+            var width = Transform.Width * bounds.Width / Pixels.Width;
+            var height = Transform.Height * bounds.Height / Pixels.Height;
+            var control = Transform with { X = center.X - width / 2, Y = center.Y - height / 2, Width = width, Height = height };
+            if (Transform.Distort == null) return control;
+            var points = ControlSourceCorners.Select(Matrix.MapPoint).ToArray();
+            var unrotate = SKMatrix.CreateRotationDegrees((float)-control.Rotation, center.X, center.Y);
+            var offsets = new float[8];
+            for (var i = 0; i < 4; i++)
+            {
+                var p = unrotate.MapPoint(points[i]);
+                offsets[i * 2] = p.X - (float)(control.X + (i is 1 or 2 ? width : 0));
+                offsets[i * 2 + 1] = p.Y - (float)(control.Y + (i is 2 or 3 ? height : 0));
+            }
+            return control with { FlipHorizontal = false, FlipVertical = false, Distort = offsets };
+        }
+    }
+
+    internal SKRectI ControlSourceBounds
+    {
+        get
+        {
+            if (Pixels == null) return SKRectI.Empty;
+            var bounds = IsLive || IsSmartObject ? SKRectI.Empty : Rendering.Pixels.ContentBounds(Pixels);
+            return bounds.IsEmpty ? new(0, 0, Pixels.Width, Pixels.Height) : bounds;
+        }
+    }
+
+    internal SKPoint[] ControlSourceCorners
+    {
+        get
+        {
+            var b = ControlSourceBounds;
+            float l = Transform.FlipHorizontal ? b.Right : b.Left, r = Transform.FlipHorizontal ? b.Left : b.Right;
+            float t = Transform.FlipVertical ? b.Bottom : b.Top, bottom = Transform.FlipVertical ? b.Top : b.Bottom;
+            return [new(l, t), new(r, t), new(r, bottom), new(l, bottom)];
+        }
+    }
+
+    public SKRect ControlBounds
+    {
+        get
+        {
+            if (Pixels == null) return SKRect.Empty;
+            var control = ControlTransform;
+            if (control.Distort != null) return control.Bounds(Pixels.Width, Pixels.Height);
+            var box = SKRect.Create((float)control.X, (float)control.Y, (float)control.Width, (float)control.Height);
+            return control.Rotation == 0 ? box : SKMatrix.CreateRotationDegrees((float)control.Rotation, control.Center.X, control.Center.Y).MapRect(box);
+        }
+    }
 
     /// <summary>How far the layer's effects reach beyond its pixels, in layer pixels.</summary>
     public int EffectMargin => Pixels != null && Effects != null ? Effects.Margin() : 0;
