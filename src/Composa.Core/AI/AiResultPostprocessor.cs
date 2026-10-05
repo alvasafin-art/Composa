@@ -133,7 +133,9 @@ public static class AiResultPostprocessor
         // A single average cannot correct opposing tone errors on different sides of a
         // patch. Extend a low-frequency correction from the SAME unchanged surrounding
         // pixels into the edit. No source subject pixels are used to recolor a new object.
-        var tone = ToneField.Build(generated,context,mask,ring);
+        // An explicit decoded ROI gives reliable surrounding samples. Keep the legacy
+        // conservative bound when a caller cannot identify what was actually generated.
+        var tone = ToneField.Build(generated,context,mask,ring,generatedArea.HasValue ? 64 : 32);
         if (tone == null) return Pixels.Clone(generated);
 
         var result = Pixels.Clone(generated);
@@ -176,7 +178,7 @@ public static class AiResultPostprocessor
     /// <summary>A bounded, coarse harmonic tone field. Adds smooth bias, never texture or gain.</summary>
     private sealed class ToneField(SKRectI area,int step,int width,int height,double[] values)
     {
-        internal static ToneField? Build(SKBitmap generated,SKBitmap context,SKBitmap mask,SKRectI area)
+        internal static ToneField? Build(SKBitmap generated,SKBitmap context,SKBitmap mask,SKRectI area,int limit)
         {
             if(area.IsEmpty) return null;
             var step=Math.Max(2,(Math.Max(area.Width,area.Height)+63)/64);
@@ -193,7 +195,7 @@ public static class AiResultPostprocessor
             }
             if(count==0) return null;
             for(var i=0;i<counts.Length;i++) for(var c=0;c<3;c++)
-                values[i*3+c]=Math.Clamp(counts[i]>0?values[i*3+c]/counts[i]:sums[c]/count,-32,32);
+                values[i*3+c]=Math.Clamp(counts[i]>0?values[i*3+c]/counts[i]:sums[c]/count,-limit,limit);
             // Anchored cells are immutable. Alternating sweeps avoid directional bias;
             // coarse interpolation keeps model detail and grain out of the correction.
             for(var pass=0;pass<160;pass++)

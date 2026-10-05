@@ -44,13 +44,15 @@ public class AiMaskFinishingTests
             if(x<120-radius || x>=180+radius || y<70-radius || y>=118+radius) Assert.Equal(0,mask.GetPixel(x,y).Alpha);
     }
     [Theory]
-    [InlineData(0.5,190)]
-    [InlineData(1,200)]
-    public void Color_matching_uses_only_generated_context_and_corrects_soft_edges_once(double strength, int expected)
+    [InlineData(20,0.5,190)]
+    [InlineData(20,1,200)]
+    [InlineData(48,0.5,176)]
+    [InlineData(48,1,200)]
+    public void Color_matching_uses_only_generated_context_and_corrects_soft_edges_once(int bias, double strength, int expected)
     {
         using var context = Pixels.NewColor(96,96); context.Erase(new SKColor(200,200,200));
         using var generated = Pixels.Clone(context);
-        using(var canvas = new SKCanvas(generated)) using(var paint = new SKPaint { Color = new SKColor(180,180,180) })
+        using(var canvas = new SKCanvas(generated)) using(var paint = new SKPaint { Color = new SKColor((byte)(200-bias),(byte)(200-bias),(byte)(200-bias)) })
             canvas.DrawRect(new SKRect(20,20,76,76),paint);
         Pixels.Invalidate(generated);
         using var support = SelectionMask.FromRect(96,96,new SKRect(32,32,64,64));
@@ -59,7 +61,7 @@ public class AiMaskFinishingTests
         Assert.Equal(expected,result.GetPixel(33,48).Red); // partial alpha is applied by the layer, not the color pass
         Assert.Equal(expected,result.GetPixel(48,48).Red);
         Assert.Equal(generated.GetPixel(20,48),result.GetPixel(20,48));
-        Assert.Equal(180,generated.GetPixel(48,48).Red); Assert.Equal(200,context.GetPixel(48,48).Red);
+        Assert.Equal(200-bias,generated.GetPixel(48,48).Red); Assert.Equal(200,context.GetPixel(48,48).Red);
         using var composite = AiResultPostprocessor.Constrain(result,context,mask);
         var amount = mask.GetPixel(33,48).Alpha;
         Assert.InRange(amount,1,254);
