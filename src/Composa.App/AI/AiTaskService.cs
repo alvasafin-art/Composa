@@ -223,7 +223,7 @@ public sealed class AiTaskService : IAiTaskRunner
                     values["height"] = Math.Max(16, (int)Math.Round(height / 16.0) * 16);
                 }
                 values["seed"] = (seed + index) & long.MaxValue;
-                if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand) values["maskGrow"] = 0;
+                if (editable == null && request.Task is (AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand)) values["maskGrow"] = 0;
                 var boundGraph = apiInputs == null ? WorkflowBinder.Bind(graph, binding, values)
                     : apiInputs.Bind(graph, engine, files, (seed + index) & long.MaxValue);
                 if (request.Task == AiTaskKind.GenerativeExpand && !engine.PaidApi && request.ExpansionMode == AiExpansionMode.MaskedRegion)
@@ -236,6 +236,8 @@ public sealed class AiTaskService : IAiTaskRunner
                 if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
                     WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
                 editable?.Bind(boundGraph);
+                if (engine.Id == "flux2-klein-intel-xpu")
+                    WorkflowMemory.Apply(boundGraph, request.Settings.Values.GetValueOrDefault("fluxMemory")?.ToString() ?? "auto", ServerInfo, capabilities);
                 if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
                 if (request.Task == AiTaskKind.Upscale)
                     WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);

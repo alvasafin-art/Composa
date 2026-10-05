@@ -4,6 +4,16 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.15] - 2026-10-05
+
+### Fixed
+
+- FLUX masked MP editing sizes the selected region as requested and scales its context uniformly with it. Image and masks share their content dimensions and right/bottom padding; padding is removed before placement. The dialog shows both selected-area and actual context dimensions, and unexpected output sizes are rejected in every size mode.
+- Conditioning blur is applied in source coordinates before resizing, including wide blur values. Fill's Mask grow now affects conditioning without enlarging final selection coverage. A separate binary noise mask fully denoises the repair halo instead of repeatedly mixing unfinished soft-mask latents; editable layer masks still blend once.
+- Object removal uses a finite outward transition with an opaque replacement core, preventing Gaussian mask tails from changing distant background. Color matching extends a smooth local tone field from unchanged generated surroundings, distinguishes subtle/strong, corrects soft edges once and preserves texture amplitude without contrast amplification or synthetic grain.
+- FLUX reuses its source latent instead of redundant inpainting encodes. Advanced adds Auto / Lower VRAM / Standard execution: Lower VRAM places the text encoder on CPU and tiles VAE work, retaining selected model files. Auto selects this path on Intel XPU to avoid repeated large text-encoder transfers; Standard retains normal server placement.
+- Added resolution, padding, finite-mask, color and UI regression checks, plus opt-in live ComfyUI pixel-registration, VAE comparison and photographic task/undo checks. Existing model choices, task profiles and UI styling are retained.
+
 ## [1.2.1-preview.14] - 2026-10-05
 
 ### Added

@@ -10,6 +10,29 @@ namespace Composa.App.Tests;
 
 public class AiOperationSettingsTests
 {
+    [AvaloniaFact]
+    public async Task Fill_dialog_shows_selected_resolution_and_actual_context_dimensions_in_both_size_modes()
+    {
+        var window=new MainWindow(); window.Settings.CheckForUpdates=false; window.Show();
+        try
+        {
+            window.Settings.SetOperation(Flux,AiTaskKind.GenerativeFill,window.Settings.OperationFor(Flux,AiTaskKind.GenerativeFill)
+                with { OriginalSize=false,Megapixels=0.5,MaskGrow=4,MaskBlend=8,MaskBlur=4,MaskContext=1.2 });
+            var before=JsonSerializer.Serialize(window.Settings);
+            var pending=AiDialogs.Prompt(window,AiTaskKind.GenerativeFill,window.Settings,264,176,service:window.AiTasks,
+                hasSelection:true,sourceCanvas:new(0,0,1537,991),selectionBounds:new(600,350,864,526));
+            Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
+            var label=Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("Selected area:")==true);
+            Assert.Contains("FLUX request with context:",label.Text);
+            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.Cast<string>().Contains("Original size"));
+            size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
+            Assert.Equal("Selected area: 264 × 176 px\nFLUX request with context: 336 × 256 px",label.Text);
+            size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
+            Assert.True(Screenshots.Save(dialog,"flux-selection-resolution-and-context"));
+            dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(window.Settings));
+        }
+        finally { window.Close(); }
+    }
     private const string Flux = "flux2-klein-intel-xpu";
     private const string Gpt = "chatgpt-image-2.5";
 
@@ -51,12 +74,15 @@ public class AiOperationSettingsTests
             var dialog=Assert.Single(window.OwnedWindows);
             Assert.Equal(new[] { 16.0,48,16,2 },dialog.GetVisualDescendants().OfType<Composa.App.Controls.SliderField>().Take(4).Select(f=>Math.Round(f.Value,6)));
             var color=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("subtle"));
+            var memory=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("Lower VRAM"));
+            Assert.Equal("Auto",memory.SelectedItem); memory.SelectedItem="Lower VRAM";
             Assert.Equal("subtle",color.SelectedItem);
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.SelectedItem as string=="Original size");
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.SelectedItem as string=="List · lower VRAM");
             Assert.True(Screenshots.Save(dialog,"flux-expand-independent-advanced"));
             color.SelectedItem="strong"; dialog.Close(true); Assert.True(await pending);
             Assert.Equal("strong",window.Settings.OperationFor(Flux,AiTaskKind.GenerativeExpand).ColorMatch);
+            Assert.Equal("reduced",Settings.FromJson(JsonSerializer.Serialize(window.Settings)).OperationFor(Flux,AiTaskKind.GenerativeExpand).FluxMemory);
             Assert.Equal(fillBefore,JsonSerializer.Serialize(window.Settings.OperationFor(Flux,AiTaskKind.GenerativeFill)));
             Assert.Equal("off",window.Settings.AiColorMatch);
         }

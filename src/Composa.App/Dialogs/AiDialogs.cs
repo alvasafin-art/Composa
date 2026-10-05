@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Composa.AI;
 using Composa.App.AI;
+using SkiaSharp;
 using Composa.Model;
 
 namespace Composa.App.Dialogs;
@@ -186,6 +187,7 @@ public static class AiDialogs
         var reference = profile.ReferenceMegapixels;
         var grow = profile.MaskGrow; var blend = profile.MaskBlend; var context = profile.MaskContext;
         var blur = profile.MaskBlur; var colorMatch = profile.ColorMatch;
+        var fluxMemory = profile.FluxMemory is "reduced" or "standard" ? profile.FluxMemory : "auto";
         var seed = profile.Seed; var mode = profile.VariantMode;
         var gptContext = Math.Clamp(profile.GptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
         var quality = profile.ApiQuality;
@@ -202,6 +204,8 @@ public static class AiDialogs
             ("Execution", Ui.Combo(new[] { AiVariantMode.List, AiVariantMode.Batch }, mode,
                 value => paid ? value == AiVariantMode.List ? "List · separate API requests" : "Batch · one API request"
                     : value == AiVariantMode.List ? "List · lower VRAM" : "Batch · faster, more VRAM", value => mode = value, 250)),
+            ("Memory use", Ui.Combo(new[] { "auto", "reduced", "standard" }, fluxMemory,
+                value => value == "auto" ? "Auto" : value == "reduced" ? "Lower VRAM" : "Standard", value => fluxMemory = value, 150)),
             ("Mask grow", Ui.Row(6, Ui.SliderField("", grow, 0, 64, value => grow = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
             ("Mask blend", Ui.Row(6, Ui.SliderField("", blend, 0, 64, value => blend = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
             ("Mask conditioning blur", Ui.Row(6, Ui.SliderField("", blur, 0, 64, value => blur = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
@@ -209,7 +213,8 @@ public static class AiDialogs
             ("Mask context", Ui.Row(6, Ui.SliderField("", context, 1, 8, value => context = value, 0.1, "0.0", 150, reset: 1), Ui.Label("× selection bounds"))),
             ("GPT context padding", Ui.Row(6, Ui.SliderField("", gptContext, 0, PartnerImageInputs.MaximumContextPadding, value => gptContext = (int)value, 1, "0", 150, reset: PartnerImageInputs.DefaultContextPadding), Ui.Label("px · each side"))),
             ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label("-1 = random")))];
-        var form = CanvasDialogs.Form(fields.Where(field => task != AiTaskKind.GenerateImage || !field.Item1.StartsWith("Mask") && field.Item1 is not ("GPT context padding" or "Color match"))
+        var form = CanvasDialogs.Form(fields.Where(field => field.Item1 != "Memory use" || service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
+            .Where(field => task != AiTaskKind.GenerateImage || !field.Item1.StartsWith("Mask") && field.Item1 is not ("GPT context padding" or "Color match"))
             .Where(field => paid
             ? field.Item1 is not ("Color match" or "Seed" or "Mask conditioning blur" or "Mask context")
             : field.Item1 != "GPT context padding").ToArray());
@@ -219,6 +224,8 @@ public static class AiDialogs
             ? "GPT receives an image crop plus context padding and your references, not a mask image. Composa places the result back and applies the soft edit mask once. Padding controls what GPT sees; Mask blend controls the local edge, independently. Mask grow is ignored for Fill. Remove/Expand keep their black repair areas. Each variant is billed; Ctrl+Z undoes edits, not charges."
             : "List runs one variant at a time; Batch needs more VRAM. Mask blend controls the editable layer mask, conditioning blur the sampling mask. FLUX returns unmasked generated context pixels at their original coordinates. Color match uses unchanged surroundings; turn it off for intentional color changes. Use LoRAs compatible with the selected model. Ctrl+Z undoes the generation.", Palette.Secondary);
         note.MaxWidth = 470; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        if (service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
+            note.Text += " Auto uses Lower VRAM on Intel: the text encoder runs on CPU and VAE works in tiles. This may take longer; Standard keeps normal server placement.";
         var extra = new StackPanel { Spacing = 9 };
         var lorasEnabled = profile.LorasEnabled;
         var loras = profile.Loras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
@@ -248,7 +255,7 @@ public static class AiDialogs
         if (!await new DialogWindow($"{task.DisplayName()} · Advanced", body).Ask(owner)) return false;
         settings.SetOperation(service?.SelectedEngine?.Id, task, profile with
         {
-            Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference,
+            Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference, FluxMemory = fluxMemory,
             MaskGrow = grow, MaskBlend = blend, MaskContext = context, MaskBlur = blur, ColorMatch = colorMatch,
             GptContextPadding = gptContext, Seed = seed, VariantMode = mode, ApiQuality = quality,
             LorasEnabled = lorasEnabled, Loras = !paid && service?.SelectedEngine?.Lora.Supported == true
@@ -287,7 +294,8 @@ public static class AiDialogs
         settings.SetOperation(engine?.Id, AiTaskKind.Upscale, profile with { UpscaleFactor = factor }); settings.Save(); return true;
     }
 
-    public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null)
+    public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null,
+        SKRectI? sourceCanvas = null, SKRectI? selectionBounds = null)
     {
         var previousEngine = service?.SelectedEngine;
         if (service != null) service.SelectedEngine = service.EngineFor(task);
@@ -383,6 +391,13 @@ public static class AiDialogs
                     : originalSize ? (documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
                 var api = paid ? PartnerImageSize.Plan(width, height) : (width, height);
                 dimensions.Text = $"{width} × {height} px · proportions preserved" + (paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
+                if (!paid && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu" && sourceCanvas is { } canvas && selectionBounds is { } selection
+                    && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight)
+                {
+                    var contextBounds = AiContextGeometry.Flux(selection,canvas,profile.MaskGrow,profile.MaskBlend,profile.MaskContext,profile.MaskBlur);
+                    var generated = AiContextGeometry.FluxSize(contextBounds,selection,width,height,originalSize).Padded;
+                    dimensions.Text = $"Selected area: {width} × {height} px\nFLUX request with context: {generated.Width} × {generated.Height} px";
+                }
                 if (dialog != null) dialog.CanAccept = true;
             }
             catch (Exception error) { dimensions.Text = error.Message; if (dialog != null) dialog.CanAccept = false; }
@@ -393,7 +408,8 @@ public static class AiDialogs
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
                     ? "Fill only the selection with surrounding context. Existing canvas size is preserved; the expansion instruction is automatic."
                     : "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
-                : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
+                : hasSelection ? "Original size keeps source pixels. MP sizes the selected area; surrounding context uses the same scale and adds pixels. Seed and execution mode are in Advanced."
+                    : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
             ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;

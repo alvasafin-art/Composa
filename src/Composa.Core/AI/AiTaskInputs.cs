@@ -335,8 +335,9 @@ public static class AiTaskInputPreparer
         var blend = settings.Values.TryGetValue("maskBlend", out var b) ? Math.Clamp(Convert.ToInt32(b), 0, 512) : 32;
         // Keep the stitcher's transition outside the original selection; clipping it back to
         // that selection restores object fringes and creates a hard, visible boundary.
-        using var expanded = SelectionMask.Expand(mask, grow + blend);
-        return blend > 0 ? SelectionMask.Feather(expanded, blend) : Pixels.Clone(expanded);
+        // Keep a fully editable object/grow core, then feather inward from the finite
+        // outer support. Gaussian tails used to change distant background pixels too.
+        return AiResultPostprocessor.EditMask(mask, grow + blend, blend);
     }
 
     private static string RemovePrompt(string guidance)

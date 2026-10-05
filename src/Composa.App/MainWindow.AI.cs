@@ -161,7 +161,7 @@ public sealed partial class MainWindow
             if (!bounds.IsEmpty)
                 context = aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.PaidApi == true
                     ? AiContextGeometry.Padded(bounds, session.Document.Bounds, profile.GptContextPadding)
-                    : AiContextGeometry.Flux(bounds, session.Document.Bounds, 0, profile.MaskBlend, profile.MaskContext);
+                    : AiContextGeometry.Flux(bounds, session.Document.Bounds, profile.MaskGrow, profile.MaskBlend, profile.MaskContext, profile.MaskBlur);
         }
         canvas.AiContextBounds = context;
     }
@@ -579,7 +579,8 @@ public sealed partial class MainWindow
             aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText);
             BuildAiReferenceUi(host);
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
-                session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences); }
+                session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
+                session?.Document.Bounds, session?.Selection is { } selected ? SelectionMask.Bounds(selected,1) : null); }
             finally { aiDialogReferences = null; }
         }
         RefreshAiUi();
@@ -615,6 +616,7 @@ public sealed partial class MainWindow
                     UpscaleFactor = profile.UpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["maskGrow"] = profile.MaskGrow, ["maskBlend"] = profile.MaskBlend,
                         ["maskContext"] = profile.MaskContext, ["maskBlur"] = profile.MaskBlur, ["colorMatch"] = profile.ColorMatch,
+                        ["fluxMemory"] = profile.FluxMemory,
                         ["gptContextPadding"] = profile.GptContextPadding,
                         ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }
                 }

@@ -103,13 +103,13 @@ public class AiEditableOutputTests
         var server = new ComfyServerCapabilities { NodeTypes = pixaroma ? new() { "PixaromaInpaintCrop", "PixaromaInpaintStitch" } : [] };
         WorkflowExecution.MaskedEdit(graph, inputs, request, server);
         using var editable = new EditableMaskedWorkflow(inputs, request); editable.Bind(graph);
-        Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240), s.Document.Bounds, 0,16,2), editable.Bounds);
+        Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240), s.Document.Bounds, 16,16,2,16), editable.Bounds);
         Assert.False(graph.ContainsKey("stitch")); Assert.False(graph.ContainsKey("crop"));
         Assert.Equal("decode", graph["save"]!["inputs"]!["images"]![0]!.GetValue<string>());
         Assert.Equal(editable.Bounds.Left, graph["composa_edit_crop"]!["inputs"]!["x"]!.GetValue<int>());
         Assert.DoesNotContain(graph, pair => pair.Value?["inputs"] is System.Text.Json.Nodes.JsonObject fields && fields.Any(field =>
             field.Value is System.Text.Json.Nodes.JsonArray link && link.Count == 2 && link[0]?.GetValue<string>() is "crop" or "stitch"));
-        var decoded = Pixels.NewColor(editable.Bounds.Width, editable.Bounds.Height); decoded.Erase(SKColors.Blue);
+        var decoded = Pixels.NewColor(editable.GenerationSize.Width, editable.GenerationSize.Height); decoded.Erase(SKColors.Blue);
         var raw = editable.Finish(decoded);
         AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [raw], inputs.TargetBounds, inputs, true, localOutputMask: editable.Mask);
         Assert.Equal(SKColors.Blue, s.ActiveLayer!.Pixels!.GetPixel(220, 200));
@@ -154,7 +154,7 @@ public class AiEditableOutputTests
             Assert.Equal((4,8,4,1.2),(w.Settings.AiFluxFillMaskGrow,w.Settings.AiFluxFillMaskBlend,w.Settings.AiFluxFillMaskBlur,w.Settings.AiFluxFillMaskContext));
             Assert.False(w.AiTasks.EngineFor(AiTaskKind.GenerativeExpand)!.PaidApi); Assert.False(w.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
             var s = EditorSession.NewCanvas(641,423,SKColors.White); w.AddSession(s); w.AiTasks.SetConnectedForTests(); s.SelectRect(new SKRect(250,160,330,240));
-            Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240),s.Document.Bounds,0,8,1.2),w.Canvas.AiContextBounds);
+            Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240),s.Document.Bounds,4,8,1.2,4),w.Canvas.AiContextBounds);
             Assert.True(Screenshots.Save(w,"ai-context-bounds"));
             w.Settings.AiShowContextBounds = false; w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.Null(w.Canvas.AiContextBounds);
             w.Settings.AiShowContextBounds = true; w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.NotNull(w.Canvas.AiContextBounds);

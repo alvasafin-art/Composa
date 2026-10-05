@@ -118,7 +118,8 @@ public static class AiResultPostprocessor
         Pixels.Invalidate(mask); return mask;
     }
 
-    public static SKBitmap MatchRemoval(SKBitmap generated, SKBitmap context, SKBitmap mask, long seed)
+    public static SKBitmap MatchRemoval(SKBitmap generated, SKBitmap context, SKBitmap mask, long seed,
+        SKRectI? generatedArea = null, double strength = 1)
     {
         if (generated.Width != context.Width || generated.Height != context.Height || mask.Width != context.Width || mask.Height != context.Height)
             return Pixels.Clone(generated);
@@ -128,11 +129,12 @@ public static class AiResultPostprocessor
         var radius = Math.Clamp(Math.Max(bounds.Width, bounds.Height) / 3, 8, 96);
         var ring = new SKRectI(Math.Max(0, bounds.Left - radius), Math.Max(0, bounds.Top - radius),
             Math.Min(context.Width, bounds.Right + radius), Math.Min(context.Height, bounds.Bottom + radius));
-        var outside = StatsOf(context, mask, ring, selected: false);
-        // Compare the SAME surrounding pixels, not the reconstructed patch with an unrelated
-        // scene average. A stitched result already matches there; shifting it creates a seam.
-        var inside = StatsOf(generated, mask, ring, selected: false);
-        if (outside.Count == 0 || inside.Count == 0) return Pixels.Clone(generated);
+        if (generatedArea is { } area) ring = SKRectI.Intersect(ring, area);
+        // A single average cannot correct opposing tone errors on different sides of a
+        // patch. Extend a low-frequency correction from the SAME unchanged surrounding
+        // pixels into the edit. No source subject pixels are used to recolor a new object.
+        var tone = ToneField.Build(generated,context,mask,ring);
+        if (tone == null) return Pixels.Clone(generated);
 
         var result = Pixels.Clone(generated);
         unsafe
@@ -154,15 +156,15 @@ public static class AiResultPostprocessor
                     if (alpha == 0) continue;
                     for (var channel = 0; channel < 3; channel++)
                     {
-                        var contrast = outside.Deviation(channel) < 1 && inside.Deviation(channel) < 1 ? 1
-                            : Math.Clamp(outside.Deviation(channel) / Math.Max(inside.Deviation(channel), 1), 0.72, 1.38);
-                        var shift = Math.Clamp(outside.Mean(channel) - inside.Mean(channel), -18, 18);
+                        var shift = tone.At(x,y,channel) * Math.Clamp(strength,0,1);
                         var straight = sourceRow[offset + channel] * 255.0 / alpha;
-                        var matched = inside.Mean(channel) + shift + (straight - inside.Mean(channel)) * contrast;
+                        var matched = straight + shift;
                         // Local edge detail is not a noise estimate: lines and texture would
                         // become artificial grain across an otherwise clean reconstructed patch.
                         var adjusted = Math.Clamp((int)Math.Round(matched), 0, 255);
-                        destinationRow[offset + channel] = Blend(sourceRow[offset + channel], (byte)((adjusted * alpha + 127) / 255), amount);
+                        // Coverage belongs to the editable layer mask. Applying it here too
+                        // weakens the correction twice precisely where a seam would be visible.
+                        destinationRow[offset + channel] = (byte)((adjusted * alpha + 127) / 255);
                     }
                 }
             }
@@ -171,33 +173,51 @@ public static class AiResultPostprocessor
         return result;
     }
 
-    private readonly record struct Statistics(long Count, double Red, double Green, double Blue,
-        double RedSquared, double GreenSquared, double BlueSquared)
+    /// <summary>A bounded, coarse harmonic tone field. Adds smooth bias, never texture or gain.</summary>
+    private sealed class ToneField(SKRectI area,int step,int width,int height,double[] values)
     {
-        public double Mean(int channel) => channel switch { 0 => Red / Count, 1 => Green / Count, _ => Blue / Count };
-        public double Deviation(int channel)
+        internal static ToneField? Build(SKBitmap generated,SKBitmap context,SKBitmap mask,SKRectI area)
         {
-            var sum = channel switch { 0 => RedSquared, 1 => GreenSquared, _ => BlueSquared };
-            var mean = Mean(channel);
-            return Math.Sqrt(Math.Max(0, sum / Count - mean * mean));
-        }
-    }
-
-    private static Statistics StatsOf(SKBitmap image, SKBitmap mask, SKRectI area, bool selected)
-    {
-        long count = 0;
-        double r = 0, g = 0, b = 0, rr = 0, gg = 0, bb = 0;
-        for (var y = area.Top; y < area.Bottom; y++)
-            for (var x = area.Left; x < area.Right; x++)
+            if(area.IsEmpty) return null;
+            var step=Math.Max(2,(Math.Max(area.Width,area.Height)+63)/64);
+            var w=(area.Width+step-1)/step; var h=(area.Height+step-1)/step;
+            var counts=new int[w*h]; var values=new double[w*h*3]; var sums=new double[3]; long count=0;
+            for(var y=area.Top;y<area.Bottom;y++) for(var x=area.Left;x<area.Right;x++)
             {
-                var covered = mask.GetPixel(x, y).Alpha >= 128;
-                if (covered != selected) continue;
-                var color = image.GetPixel(x, y);
-                if (color.Alpha == 0) continue;
-                count++; r += color.Red; g += color.Green; b += color.Blue;
-                rr += color.Red * color.Red; gg += color.Green * color.Green; bb += color.Blue * color.Blue;
+                if (mask.GetPixel(x, y).Alpha > 0) continue;
+                var a=context.GetPixel(x,y); var b=generated.GetPixel(x,y);
+                if(a.Alpha==0 || b.Alpha==0) continue;
+                var i=(y-area.Top)/step*w+(x-area.Left)/step; counts[i]++; count++;
+                values[i*3]+=a.Red-b.Red; values[i*3+1]+=a.Green-b.Green; values[i*3+2]+=a.Blue-b.Blue;
+                sums[0]+=a.Red-b.Red; sums[1]+=a.Green-b.Green; sums[2]+=a.Blue-b.Blue;
             }
-        return new(count, r, g, b, rr, gg, bb);
+            if(count==0) return null;
+            for(var i=0;i<counts.Length;i++) for(var c=0;c<3;c++)
+                values[i*3+c]=Math.Clamp(counts[i]>0?values[i*3+c]/counts[i]:sums[c]/count,-32,32);
+            // Anchored cells are immutable. Alternating sweeps avoid directional bias;
+            // coarse interpolation keeps model detail and grain out of the correction.
+            for(var pass=0;pass<160;pass++)
+                for(var row=0;row<h;row++) for(var col=0;col<w;col++)
+                {
+                    var y=pass%2==0?row:h-1-row; var x=pass%2==0?col:w-1-col; var i=y*w+x;
+                    if(counts[i]>0) continue;
+                    var neighbors=(x>0?1:0)+(x+1<w?1:0)+(y>0?1:0)+(y+1<h?1:0);
+                    if(neighbors==0) continue;
+                    for(var c=0;c<3;c++)
+                        values[i*3+c]=((x>0?values[(i-1)*3+c]:0)+(x+1<w?values[(i+1)*3+c]:0)
+                            +(y>0?values[(i-w)*3+c]:0)+(y+1<h?values[(i+w)*3+c]:0))/neighbors;
+                }
+            return new(area,step,w,h,values);
+        }
+
+        internal double At(int x,int y,int channel)
+        {
+            var px=Math.Clamp((x-area.Left+0.5)/step-0.5,0,width-1); var py=Math.Clamp((y-area.Top+0.5)/step-0.5,0,height-1);
+            var left=(int)px; var top=(int)py; var right=Math.Min(left+1,width-1); var bottom=Math.Min(top+1,height-1);
+            var dx=px-left; var dy=py-top;
+            return (values[(top*width+left)*3+channel]*(1-dx)+values[(top*width+right)*3+channel]*dx)*(1-dy)
+                +(values[(bottom*width+left)*3+channel]*(1-dx)+values[(bottom*width+right)*3+channel]*dx)*dy;
+        }
     }
 
     private static SKRectI SelectionBounds(SKBitmap mask)
@@ -213,5 +233,4 @@ public static class AiResultPostprocessor
         return left >= right || top >= bottom ? SKRectI.Empty : new SKRectI(left, top, right, bottom);
     }
 
-    private static byte Blend(byte from, byte to, byte amount) => (byte)((from * (255 - amount) + to * amount + 127) / 255);
 }

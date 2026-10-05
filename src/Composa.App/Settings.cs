@@ -213,6 +213,7 @@ public sealed record AiOperationSettings
     public bool OriginalSize { get; init; } = true;
     public double Megapixels { get; init; } = 1;
     public double? ReferenceMegapixels { get; init; } = 1;
+    public string FluxMemory { get; init; } = "auto";
     public int MaskGrow { get; init; } = 16;
     public int MaskBlend { get; init; } = 48;
     public int MaskBlur { get; init; } = 16;

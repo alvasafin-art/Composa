@@ -18,9 +18,9 @@ public class MaskedEditTests
     private static EngineCatalog Catalog() => new(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
 
     [Theory]
-    [InlineData(1, AiVariantMode.List)]
-    [InlineData(3, AiVariantMode.Batch)]
-    public async Task Masked_removal_runs_real_model_and_keeps_the_original_outside_the_seam_when_requested(int variants, AiVariantMode mode)
+    [InlineData(1, AiVariantMode.List, false)]
+    [InlineData(3, AiVariantMode.Batch, true)]
+    public async Task Masked_removal_runs_real_model_and_keeps_the_original_outside_the_seam_when_requested(int variants, AiVariantMode mode, bool originalSize)
     {
         var url = Environment.GetEnvironmentVariable("COMPOSA_MASKED_EDIT_GPU_URL"); if (string.IsNullOrWhiteSpace(url)) return;
         var session = EditorSession.NewCanvas(301, 189, new SKColor(200, 200, 200));
@@ -32,7 +32,7 @@ public class MaskedEditTests
         await service.RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = AiTaskKind.RemoveObject,
             Prompt = "Continue the same clean plain light gray background. No object, no pattern, no grain.",
             Settings = new() { Width = 256, Height = 256, Seed = 19, Variants = variants, VariantMode = mode,
-                Values = new() { ["maskGrow"] = 4, ["maskBlend"] = 32, ["maskContext"] = 2.0, ["colorMatch"] = "subtle" } } }, TestContext.Current.CancellationToken);
+                Values = new() { ["imageOriginalSize"] = originalSize, ["maskGrow"] = 4, ["maskBlend"] = 32, ["maskContext"] = 2.0, ["colorMatch"] = "subtle" } } }, TestContext.Current.CancellationToken);
         using var result = session.Flatten(); Assert.Equal((301, 189), (result.Width, result.Height));
         Assert.Equal(original.GetPixel(0, 0), result.GetPixel(0, 0)); Assert.Equal(original.GetPixel(50, 90), result.GetPixel(50, 90));
         Assert.True(result.GetPixel(150, 94).Red > 60, "The selected dark object/black preconditioning patch was not removed.");

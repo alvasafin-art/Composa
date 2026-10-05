@@ -140,7 +140,7 @@ public class AiVariantsTests
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-            var nodes = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu").RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "RepeatLatentBatch", "GrowMask", "ThresholdMask", "ImageCrop", "ImageScale", "CropMask", "MaskToImage", "ImageBlur", "ImagePadForOutpaint", "SolidMask", "MaskComposite" }).ToHashSet();
+            var nodes = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu").RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "SetLatentNoiseMask", "RepeatLatentBatch", "GrowMask", "ThresholdMask", "ImageCrop", "ImageScale", "CropMask", "MaskToImage", "ImageBlur", "ImagePadForOutpaint", "SolidMask", "MaskComposite" }).ToHashSet();
             return Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), new ComfyServerCapabilities { Version = "1.0", NodeTypes = nodes }));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
@@ -160,7 +160,9 @@ public class AiVariantsTests
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
         {
             var resize = Graphs[^1]["composa_upscale_size"]?["inputs"];
-            var bitmap = Pixels.NewColor(resize?["width"]?.GetValue<int>() ?? 48, resize?["height"]?.GetValue<int>() ?? 32);
+            var masked = Graphs[^1]["composa_edit_empty_mask"]?["inputs"];
+            var bitmap = Pixels.NewColor(resize?["width"]?.GetValue<int>() ?? masked?["width"]?.GetValue<int>() ?? 48,
+                resize?["height"]?.GetValue<int>() ?? masked?["height"]?.GetValue<int>() ?? 32);
             bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap);
         }
         public void Dispose() { }

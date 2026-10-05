@@ -10,10 +10,11 @@ namespace Composa.App.Tests;
 public class AiPixelAlignmentTests
 {
     [Theory]
-    [InlineData(false,false)]
-    [InlineData(false,true)]
-    [InlineData(true,false)]
-    public void Original_size_pads_without_scaling_and_preserves_every_source_pixel_at_saved_coordinates(bool expand, bool tinyEdge)
+    [InlineData(false,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,false,true)]
+    [InlineData(true,false,false)]
+    public void Original_size_pads_without_scaling_and_preserves_every_source_pixel_at_saved_coordinates(bool expand, bool tinyEdge, bool originalSetting)
     {
         var source=Pixels.NewColor(641,423);
         for(var y=0;y<source.Height;y++) for(var x=0;x<source.Width;x++)
@@ -26,7 +27,7 @@ public class AiPixelAlignmentTests
         {
             Task=expand ? AiTaskKind.GenerativeExpand : AiTaskKind.GenerativeFill,
             ExpansionBounds=expand ? new SKRectI(-17,-19,699,437) : null, ExpansionMinimumSide=0,
-            Settings=new() { Values=new() { ["imageOriginalSize"]=true,["maskGrow"]=expand?16:4,["maskBlend"]=tinyEdge?0:expand?48:8,
+            Settings=new() { Values=new() { ["imageOriginalSize"]=originalSetting,["maskGrow"]=expand?16:4,["maskBlend"]=tinyEdge?0:expand?48:8,
                 ["maskBlur"]=expand?16:4,["maskContext"]=expand?2:1.2,["colorMatch"]=expand?"subtle":"off" } }
         };
         using var inputs=AiTaskInputPreparer.Prepare(session,request);
