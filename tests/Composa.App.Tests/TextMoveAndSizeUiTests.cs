@@ -51,7 +51,7 @@ public class TextMoveAndSizeUiTests
         session.FinishText(); window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
         Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Name == "AlignmentReference");
         var reference = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "AlignmentReference");
-        var transform = window.GetVisualDescendants().OfType<Button>().Single(c => c.Name == "TransformFields");
+        var transform = window.GetVisualDescendants().OfType<NumericUpDown>().First();
         Assert.Equal(transform.TranslatePoint(new Avalonia.Point(0, transform.Bounds.Height / 2), window)!.Value.Y,
             reference.TranslatePoint(new Avalonia.Point(0, reference.Bounds.Height / 2), window)!.Value.Y, 1);
         Assert.Equal(6, window.GetVisualDescendants().OfType<Button>().Count(b => b.Name?.StartsWith("Align", StringComparison.Ordinal) == true));

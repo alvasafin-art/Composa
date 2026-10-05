@@ -7,8 +7,8 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 ### Changed
 
 - Removed optional heavyweight native BiRefNet and its setup flow. Old preferences migrate to U²-Net lite; bundled lightweight models and real ComfyUI BiRefNet/HR/matting choices remain available.
-- Object alignment now uses the second selected root object, retaining selection order across undo, duplicates and added selections. Alignment/distribution buttons share the single options row; position, size and rotation are in a compact Transform menu, leaving shape properties inline.
-- AI editing has an explicit task selector with a task-specific workflow, variant count, prompt and run action. It describes the selected area, hides the prompt for removal, filters unsupported workflow packs and locks editing controls while a job runs. Empty references use a compact add button.
+- Object alignment now uses the second selected root object, retaining selection order across undo, duplicates and added selections. Alignment/distribution buttons share the single options row; position, size, rotation and shape properties remain directly accessible in that row.
+- The floating AI selection panel retains its established compact layout, with prompt, references, workflow and Generate/Remove controls.
 - ComfyUI Settings separates Connection, Workflows & models, Prompts and API access into tabs; invalid URLs cannot be saved. Generation dialogs group workflow, instructions, optional references and output settings. The compact AI menu remains accessible while disconnected.
 
 ## [1.2.1-preview.16] - 2026-10-05

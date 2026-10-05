@@ -58,7 +58,7 @@ To copy the whole picture there is no need to flatten: Edit > Copy Merged (Ctrl+
 
 With Move active, the top row includes six alignment buttons and equal horizontal/vertical gap buttons. Choose **Canvas** to align to the canvas, or **2nd object** to keep the second selected object in place and align the others to it. Shift-click adds objects; adding a third object does not change the reference. A selected folder counts as one object with its children's bounds. Equal gaps need at least three objects and keep the outermost objects fixed. Each operation is one Undo step.
 
-Position, size and rotation are available through **Transform ▾** in that same row. Fill, stroke and corner controls remain inline for supported shapes.
+Position, size and rotation fields are directly visible in that same row. Fill, stroke and corner controls remain inline for supported shapes.
 
 ## Layer effects
 

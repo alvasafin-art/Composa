@@ -40,8 +40,8 @@ public sealed partial class MainWindow
             case Tool.Move:
                 Add(Title("Move"));
                 BuildTransformFields(row);
-                BuildAlignmentFields(row);
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
+                BuildAlignmentFields(row);
                 break;
             case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear:
                 Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.CloneStamp => "Clone Stamp", _ => Chosen() }));
@@ -386,10 +386,6 @@ public sealed partial class MainWindow
             return;
         }
         var updating = false;
-        var fields = new StackPanel { Spacing = 8, Classes = { "options" } };
-        var transformButton = new Button { Content = "Transform ▾", MinWidth = 0, Name = "TransformFields", Flyout = new Flyout { Content = fields } };
-        ToolTip.SetTip(transformButton, "Position, size and rotation of the selected object");
-        row.Children.Add(transformButton);
         NumericUpDown Field(string label, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> set, double min, double max, string format)
         {
             var box = Ui.Number(get(layer.ControlTransform), min, max, v =>
@@ -397,8 +393,7 @@ public sealed partial class MainWindow
                 if (updating || s.Document.Find(layer.Id) is not { } live) return;
                 s.SetControlTransform(live, set(live.ControlTransform, v));
             }, 1, format, layer.Shape != null ? 55 : 74);
-            var caption = Ui.Scrub(Ui.Label(label, Palette.Secondary), box); caption.Width = 30;
-            fields.Children.Add(Ui.Row(8, caption, box));
+            row.Children.Add(Ui.Row(5, Ui.Scrub(Ui.Label(label, Palette.Secondary), box), box));
             return box;
         }
         var x = Field("X", t => t.X, (t, v) => t with { X = v }, -100000, 100000, "0.#");

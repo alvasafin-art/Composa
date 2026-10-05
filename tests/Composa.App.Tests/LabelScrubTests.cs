@@ -29,10 +29,9 @@ public class LabelScrubTests
 
     private static TextBlock Label(Visual root, string text) => root.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == text);
 
-    private static void Drag(TopLevel on, Control label, double dx, RawInputModifiers modifiers = RawInputModifiers.None)
+    private static void Drag(Window on, Control label, double dx, RawInputModifiers modifiers = RawInputModifiers.None)
     {
         var start = label.TranslatePoint(new Point(label.Bounds.Width / 2, label.Bounds.Height / 2), on)!.Value;
-        on.MouseMove(start);
         on.MouseDown(start, MouseButton.Left, modifiers);
         on.MouseMove(start + new Vector(dx, 0), RawInputModifiers.LeftMouseButton | modifiers);
         on.MouseUp(start + new Vector(dx, 0), MouseButton.Left, modifiers);
@@ -46,28 +45,18 @@ public class LabelScrubTests
         var x = layer.Transform.X;
         window.SelectTool(Tool.Move);
         Dispatcher.UIThread.RunJobs();
-        var button = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformFields");
-        var flyout = Assert.IsType<Flyout>(button.Flyout);
-        flyout.ShowAt(button);
-        Dispatcher.UIThread.RunJobs();
-        var content = Assert.IsAssignableFrom<Control>(flyout.Content);
-        var popup = Assert.IsAssignableFrom<TopLevel>(TopLevel.GetTopLevel(content));
-        var label = Label(content, "X");
-        Assert.True(Screenshots.Save(window, "transform-inspector-scrub"));
-        var at = label.TranslatePoint(new Point(label.Bounds.Width / 2, label.Bounds.Height / 2), popup)!.Value;
-        Assert.Same(label, popup.InputHitTest(at));
+        var label = Label(window, "X");
         Assert.NotNull(label.Cursor); // The resize cursor says it drags.
 
-        Drag(popup, label, 40);
+        Drag(window, label, 40);
         Assert.Equal(x + 40, session.Document.Find(layer.Id)!.Transform.X);
         Assert.Equal("Transform", session.History.UndoName);
         session.Undo();
         Assert.Equal(x, session.Document.Find(layer.Id)!.Transform.X);
 
         // Alt: ten pixels of travel move it one.
-        Drag(popup, label, 40, RawInputModifiers.Alt);
+        Drag(window, label, 40, RawInputModifiers.Alt);
         Assert.Equal(x + 4, session.Document.Find(layer.Id)!.Transform.X);
-        flyout.Hide();
     }
 
     [AvaloniaFact]
