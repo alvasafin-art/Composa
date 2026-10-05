@@ -79,15 +79,17 @@ public class TextSizeAndAlignmentTests
     [InlineData(ObjectAlignment.Top, 220, 60)]
     [InlineData(ObjectAlignment.Middle, 220, 65)]
     [InlineData(ObjectAlignment.Bottom, 220, 70)]
-    public void Alignment_uses_first_clicked_object_instead_of_active_or_stack_order(ObjectAlignment align, double x, double y)
+    public void Alignment_uses_second_clicked_object_instead_of_active_or_stack_order(ObjectAlignment align, double x, double y)
     {
         var s = EditorSession.NewCanvas(500, 300); var other = Box(s, 20, 20, 220, 200); var anchor = Box(s, 30, 30, 50, 60);
-        s.SelectLayer(anchor.Id); s.SelectLayer(other.Id, extend: true);
-        Assert.Equal(other.Id, s.Document.ActiveLayerId); var history = s.History.Count;
-        s.AlignObjects(align, AlignmentReference.FirstSelected);
+        var third = Box(s, 20, 20, 350, 240);
+        s.SelectLayer(other.Id); s.SelectLayer(anchor.Id, extend: true); s.SelectLayer(third.Id, extend: true);
+        Assert.Equal(third.Id, s.Document.ActiveLayerId); var history = s.History.Count;
+        s.AlignObjects(align, AlignmentReference.SecondSelected);
         Assert.Equal(x, other.Transform.X, 3); Assert.Equal(y, other.Transform.Y, 3); Assert.Equal(50, anchor.Transform.X); Assert.Equal(60, anchor.Transform.Y);
         Assert.Equal(history + 1, s.History.Count);
-        s.Undo(); Assert.Equal(220, s.Document.Find(other.Id)!.Transform.X); Assert.Equal(anchor.Id, s.Document.SelectionAnchorId);
+        s.Undo(); Assert.Equal(220, s.Document.Find(other.Id)!.Transform.X); Assert.Equal(other.Id, s.Document.SelectionAnchorId);
+        Assert.Equal(new[] { other.Id, anchor.Id, third.Id }, s.Document.SelectionOrder);
     }
 
     [Theory]

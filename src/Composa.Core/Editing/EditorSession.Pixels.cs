@@ -787,6 +787,8 @@ public sealed partial class EditorSession
             else document.Layers.AddRange(pasted);
             document.SetActive(pasted[^1].Id);
             foreach (var layer in pasted) document.SelectedLayerIds.Add(layer.Id);
+            document.SelectionOrder.Clear(); document.SelectionOrder.AddRange(pasted.Select(l => l.Id));
+            document.SelectionAnchorId = pasted[0].Id;
         });
         EditingMask = false;
         InvalidateAll();

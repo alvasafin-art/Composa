@@ -14,6 +14,11 @@ public sealed record AiPromptResult(string Prompt, int Width, int Height, long S
 
 public static class AiDialogs
 {
+    private static Border Section(string title, params Control[] controls) => new()
+    {
+        Background = Palette.Panel, CornerRadius = new CornerRadius(5), Padding = new Thickness(10),
+        Child = Ui.Column(8, new Control[] { Ui.Label(title, weight: Avalonia.Media.FontWeight.SemiBold) }.Concat(controls).ToArray())
+    };
     public static async Task<IReadOnlyList<string>?> LayerTags(Window owner, Layer layer, Settings settings)
     {
         var box = new TextBox { Text = string.Join(", ", layer.Tags.Order()), Width = 390, PlaceholderText = "title, product, hero-image" };
@@ -48,6 +53,7 @@ public static class AiDialogs
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service)
     {
         var originalEngine = service.SelectedEngine;
+        DialogWindow? settingsDialog = null;
         var showContext = new CheckBox { Content = "Show AI context bounds after selection", IsChecked = settings.AiShowContextBounds };
         var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
         var url = new TextBox { Text = settings.ComfyServerUrl, Width = 330 };
@@ -60,6 +66,7 @@ public static class AiDialogs
         keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var promptDrafts = new Dictionary<string, AiPromptSetting>(settings.AiPackPrompts);
         var promptPack = service.SelectedEngine?.Id ?? "";
+        var promptScope = Ui.Label("Workflow: " + service.SelectedEngine?.DisplayName, Palette.Secondary);
         var currentPrompt = settings.PromptFor(promptPack);
         var additionalEnabled = new CheckBox { Content = "Append for this workflow pack", IsChecked = currentPrompt.Enabled };
         var additionalPrompt = new TextBox { Text = currentPrompt.Text, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
@@ -68,6 +75,7 @@ public static class AiDialogs
         void LoadPromptDraft()
         {
             promptPack = service.SelectedEngine?.Id ?? "";
+            promptScope.Text = "Workflow: " + service.SelectedEngine?.DisplayName;
             var value = promptDrafts.GetValueOrDefault(promptPack) ?? settings.PromptFor(promptPack);
             additionalPrompt.Text = value.Text; additionalEnabled.IsChecked = value.Enabled; additionalPrompt.IsEnabled = value.Enabled;
         }
@@ -81,7 +89,8 @@ public static class AiDialogs
         {
             string address;
             try { address = ComfyServerAddress.Parse(url.Text ?? "").ToString(); }
-            catch (FormatException) { status.Text = "Enter a complete ComfyUI URL."; return; }
+            catch (FormatException) { status.Text = "Enter a complete ComfyUI URL."; if (settingsDialog != null) settingsDialog.CanAccept = false; return; }
+            if (settingsDialog != null) settingsDialog.CanAccept = true;
             if (service.ConnectedServerUrl != address || service.ConnectionState != ComfyConnectionState.Connected)
             {
                 status.Text = "Refresh models to connect to this server.";
@@ -133,8 +142,7 @@ public static class AiDialogs
             ("ComfyUI Server URL", url),
             ("Connection timeout", Ui.Row(6, timeout, Ui.Label("seconds", Palette.Secondary))),
             ("", test),
-            ("Status", status),
-            ("Default workflow", engine));
+            ("Status", status));
         var taskRows = new List<(string, Control)>();
         foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.SelectSubject or AiTaskKind.MatchToScene)))
         {
@@ -160,10 +168,20 @@ public static class AiDialogs
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         RefreshStatus();
         var auth = CanvasDialogs.Form(("Key environment variable", keyEnvironment), ("Session API key", sessionKey), ("", clear));
-        var body = new ScrollViewer { Content = Ui.Column(12, connection, assignments, models, note, showContext, Ui.Label("Paid Partner Nodes", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote, Ui.Label("Additional image-editing prompt"), additionalEnabled, additionalPrompt, resetPrompt,
-            Ui.Label("Sent as text to the image model, not as a separate chat system role.", Palette.Secondary)), MaxHeight = Math.Clamp(owner.Bounds.Height - 140, 300, 620),
+        Control Page(params Control[] controls) => new ScrollViewer { Content = Ui.Column(12, controls),
+            MaxHeight = Math.Clamp(owner.Bounds.Height - 230, 260, 520), Margin = new Thickness(0, 12, 0, 0),
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        if (!await new DialogWindow("ComfyUI Settings", body).Ask(owner)) { service.SelectedEngine = originalEngine; return false; }
+        var body = new TabControl { Width = 590, Name = "AiSettingsTabs", FontSize = 13, ItemsSource = new[]
+        {
+            new TabItem { Header = "Connection", FontSize = 13, Content = Page(connection, showContext,
+                Ui.Label("Connect first, then choose the server's installed models in Workflows & models.", Palette.Secondary)) },
+            new TabItem { Header = "Workflows & models", FontSize = 13, Content = Page(CanvasDialogs.Form(("Default workflow", engine)), assignments, models, note) },
+            new TabItem { Header = "Prompts", FontSize = 13, Content = Page(Ui.Label("Additional image-editing prompt", weight: Avalonia.Media.FontWeight.SemiBold), promptScope, additionalEnabled,
+                additionalPrompt, resetPrompt, Ui.Label("Added to this workflow's image-editing instructions.", Palette.Secondary)) },
+            new TabItem { Header = "API access", FontSize = 13, Content = Page(Ui.Label("Paid Comfy.org models", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote) }
+        } };
+        settingsDialog = new DialogWindow("ComfyUI Settings", body, "Save settings"); RefreshStatus();
+        if (!await settingsDialog.Ask(owner)) { service.SelectedEngine = originalEngine; return false; }
         _ = ComfyServerAddress.Parse(url.Text ?? "");
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
@@ -413,8 +431,11 @@ public static class AiDialogs
             ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
-        var content = Ui.Column(10, prompt, resolution, dimensions, qualityHost, note, cost, modelHost);
-        if (references != null) content.Children.Insert(1, references.View);
+        var promptSection = Section("Describe the result", prompt); promptSection.IsVisible = prompt.IsVisible;
+        var content = Ui.Column(10, Section("Workflow", modelHost), promptSection);
+        if (references != null) content.Children.Add(Section("Optional references", references.View));
+        content.Children.Add(Section("Output", resolution, dimensions, qualityHost, cost));
+        content.Children.Add(note);
         var body = new ScrollViewer { Content = content, MaxHeight = Math.Clamp(owner.Bounds.Height - 170, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         dialog = new DialogWindow(task.DisplayName(), body, "Generate"); dialog.UseGenerationVariants(variantsCombo);
         if (references != null)

@@ -73,9 +73,12 @@ public class FontStylesAndContentUiTests
         else session.Fill(new SKColor(0x3D, 0x9B, 0xFF));
         session.Deselect(); window.SelectTool(Tool.Move); window.Canvas.ShowTransformControls = true; Dispatcher.UIThread.RunJobs();
         var source = session.ActiveLayer!.Pixels;
-        var fields = window.GetVisualDescendants().OfType<NumericUpDown>().ToList();
+        var transformButton = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformFields");
+        var flyout = Assert.IsType<Flyout>(transformButton.Flyout); flyout.ShowAt(transformButton); Dispatcher.UIThread.RunJobs();
+        var fields = Assert.IsAssignableFrom<Control>(flyout.Content).GetVisualDescendants().OfType<NumericUpDown>().ToList();
         Assert.Contains(fields, n => n.Value == 170); Assert.Contains(fields, n => n.Value == 130);
         Assert.True(Screenshots.Save(window, gradient ? "gradient-content-frame" : "fill-content-frame"));
+        flyout.Hide(); Dispatcher.UIThread.RunJobs();
         Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
         window.MouseDown(At(300, 230), MouseButton.Left);
         Assert.Equal(new SKRect(170, 100, 300, 230), session.Transform!.StartFrame);

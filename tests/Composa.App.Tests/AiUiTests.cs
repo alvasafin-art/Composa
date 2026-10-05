@@ -28,9 +28,7 @@ public class AiUiTests
         var joined = Assert.IsType<StackPanel>(split.Child);
         Assert.Equal(0, joined.Spacing);
         Assert.Equal(generate.Height, variants.Height);
-        var remove = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "Remove");
         var more = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "••• ▾");
-        Assert.Equal(remove.Height, split.Height);
         Assert.Equal(more.Height, split.Height);
         Assert.Equal(new Avalonia.CornerRadius(6, 0, 0, 6), generate.CornerRadius);
         Assert.Equal(new Avalonia.CornerRadius(0, 6, 6, 0), variants.CornerRadius);
@@ -39,6 +37,15 @@ public class AiUiTests
         engines.SelectedIndex = 1; Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
         Assert.Same(defaultEngine, window.AiTasks.SelectedEngine);
         Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerateImage)!.PaidApi);
+        var task = Assert.Single(combos, combo => combo.Name == "AiPanelTask");
+        task.SelectedIndex = 1; Assert.Equal("Remove", generate.Content);
+        Assert.False(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBox>().Single().IsVisible);
+        var fillProfile = window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill, true);
+        variants.SelectedIndex = 2;
+        Assert.Equal(3, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.RemoveObject)!.Id, AiTaskKind.RemoveObject).Variants);
+        Assert.Equal(fillProfile.Variants, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill, true).Variants);
+        task.SelectedIndex = 0; Assert.Equal("Generate", generate.Content);
+        Assert.Equal(fillProfile.Variants.ToString(), variants.SelectedItem);
         Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
         Assert.True(Screenshots.Save(window, "ai-gpt-pack-compact-panel")); window.Close();
     }
@@ -111,7 +118,7 @@ public class AiUiTests
 
         var text = window.GetVisualDescendants().OfType<TextBlock>().Select(item => item.Text).Where(value => value != null).ToList();
         Assert.Contains("Generate", window.GetVisualDescendants().OfType<Button>().Select(button => button.Content as string));
-        Assert.Contains("Remove", window.GetVisualDescendants().OfType<Button>().Select(button => button.Content as string));
+        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>(), combo => combo.Name == "AiPanelTask" && combo.Items.Cast<string>().Contains(AiTaskKind.RemoveObject.DisplayName()));
         Assert.Contains("Advanced…", window.GetVisualDescendants().OfType<Button>().Select(button => button.Content as string));
         Assert.Contains("Selection Brush", text);
         Assert.Contains("References (0/6)", text);

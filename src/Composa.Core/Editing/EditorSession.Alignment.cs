@@ -4,10 +4,11 @@ using SkiaSharp;
 namespace Composa.Editing;
 
 public enum ObjectAlignment { Left, Center, Right, Top, Middle, Bottom }
-public enum AlignmentReference { Canvas, FirstSelected }
+public enum AlignmentReference { Canvas, SecondSelected }
 
 public sealed partial class EditorSession
 {
+    public int AlignableObjectCount => SelectedRoots().Count(l => !AlignmentBounds(l).IsEmpty);
     private static SKRect AlignmentBounds(Layer root)
     {
         var bounds = SKRect.Empty;
@@ -20,13 +21,15 @@ public sealed partial class EditorSession
     {
         FinishText();
         var roots = SelectedRoots().Where(l => !AlignmentBounds(l).IsEmpty).ToList();
-        if (roots.Count == 0 || reference == AlignmentReference.FirstSelected && roots.Count < 2) return;
-        var anchor = roots.FirstOrDefault(l => l.Id == document.SelectionAnchorId || Document.Flatten([l]).Any(c => c.Id == document.SelectionAnchorId)) ?? roots[0];
+        if (roots.Count == 0 || reference == AlignmentReference.SecondSelected && roots.Count < 2) return;
+        var orderedRoots = document.SelectionOrder.Select(id => roots.FirstOrDefault(l => Document.Flatten([l]).Any(c => c.Id == id)))
+            .OfType<Layer>().Distinct().ToList();
+        var anchor = orderedRoots.Count >= 2 ? orderedRoots[1] : roots.FirstOrDefault(l => l.Id == document.ActiveLayerId) ?? roots[0];
         var target = reference == AlignmentReference.Canvas ? new SKRect(0, 0, document.Width, document.Height) : AlignmentBounds(anchor);
         var moves = new List<(Layer, float, float)>();
         foreach (var root in roots)
         {
-            if (reference == AlignmentReference.FirstSelected && root == anchor) continue;
+            if (reference == AlignmentReference.SecondSelected && root == anchor) continue;
             var b = AlignmentBounds(root);
             float dx = alignment switch { ObjectAlignment.Left => target.Left - b.Left, ObjectAlignment.Center => target.MidX - b.MidX, ObjectAlignment.Right => target.Right - b.Right, _ => 0 };
             float dy = alignment switch { ObjectAlignment.Top => target.Top - b.Top, ObjectAlignment.Middle => target.MidY - b.MidY, ObjectAlignment.Bottom => target.Bottom - b.Bottom, _ => 0 };

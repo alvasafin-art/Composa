@@ -73,7 +73,6 @@ public sealed partial class MainWindow : Window
             try { settings.MigrateComfyUpscaler(settings.ComfyServerUrl, aiTasks.Engines.ModelSlots(engine)); }
             catch (Exception error) when (error is FormatException or IOException or System.Text.Json.JsonException) { /* Settings can still repair a broken URL/pack. */ }
         }
-        SubjectModels.BiRefNetPath = settings.NativeBiRefNetPath;
         aiTasks.StateChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(() => { RefreshObjectModelChoices(); RefreshAiUi(); });
         assistantServer = new LlamaServerHost(settings);
         Title = "Composa";

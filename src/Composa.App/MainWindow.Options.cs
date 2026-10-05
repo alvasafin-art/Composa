@@ -20,11 +20,11 @@ public sealed partial class MainWindow
     private void RebuildOptions()
     {
         refreshOptions = null;
-        optionsHost.Height = session?.Tool == Tool.Move ? 74 : 40;
+        optionsHost.Height = 40;
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.ActiveLayer?.Shape != null && s.Tool == Tool.Move ? 10 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool == Tool.Move ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
         if (embeddedTabs.TryGetValue(s, out var embedded))
@@ -40,6 +40,7 @@ public sealed partial class MainWindow
             case Tool.Move:
                 Add(Title("Move"));
                 BuildTransformFields(row);
+                BuildAlignmentFields(row);
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 break;
             case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear:
@@ -171,13 +172,9 @@ public sealed partial class MainWindow
                 Add(Title(s.Tool == Tool.Hand ? "Hand" : "Zoom"), Flat("Fit", canvas.Fit), Flat("100%", () => canvas.ZoomTo(1)), Flat("200%", () => canvas.ZoomTo(2)));
                 break;
         }
-        if (s.Tool == Tool.Move)
-        {
-            var alignmentRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Classes = { "options" } };
-            alignmentRow.Children.Add(Title("Align")); BuildAlignmentFields(alignmentRow);
-            toolOptionsHost.Child = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center, Children = { row, alignmentRow } };
-        }
-        else toolOptionsHost.Child = row;
+        toolOptionsHost.Child = new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        UpdateLayout();
     }
 
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
@@ -382,13 +379,17 @@ public sealed partial class MainWindow
         var autoSelect = Ui.Check("Auto Select", canvas.AutoSelect, v => { canvas.AutoSelect = v; RememberToolSettings(); });
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
-        row.Children.Add(Ui.Check(layer?.Shape != null ? "Controls" : "Transform controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
+        row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
         if (layer?.Pixels == null)
         {
             row.Children.Add(Ui.Label(layer == null ? "No layer selected" : layer.IsGroup ? "Moves every layer in the folder" : "This layer has no pixels", Palette.Secondary));
             return;
         }
         var updating = false;
+        var fields = new StackPanel { Spacing = 8, Classes = { "options" } };
+        var transformButton = new Button { Content = "Transform ▾", MinWidth = 0, Name = "TransformFields", Flyout = new Flyout { Content = fields } };
+        ToolTip.SetTip(transformButton, "Position, size and rotation of the selected object");
+        row.Children.Add(transformButton);
         NumericUpDown Field(string label, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> set, double min, double max, string format)
         {
             var box = Ui.Number(get(layer.ControlTransform), min, max, v =>
@@ -396,7 +397,8 @@ public sealed partial class MainWindow
                 if (updating || s.Document.Find(layer.Id) is not { } live) return;
                 s.SetControlTransform(live, set(live.ControlTransform, v));
             }, 1, format, layer.Shape != null ? 55 : 74);
-            row.Children.Add(Ui.Row(5, Ui.Scrub(Ui.Label(label, Palette.Secondary), box), box));
+            var caption = Ui.Scrub(Ui.Label(label, Palette.Secondary), box); caption.Width = 30;
+            fields.Children.Add(Ui.Row(8, caption, box));
             return box;
         }
         var x = Field("X", t => t.X, (t, v) => t with { X = v }, -100000, 100000, "0.#");

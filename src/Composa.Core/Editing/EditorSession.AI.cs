@@ -144,6 +144,8 @@ public sealed partial class EditorSession
             {
                 document.SelectedLayerIds.Clear();
                 foreach (var layer in layers) document.SelectedLayerIds.Add(layer.Id);
+                document.SelectionOrder.Clear(); document.SelectionOrder.AddRange(layers.Select(l => l.Id));
+                document.SelectionAnchorId = layers[0].Id;
                 document.ActiveLayerId = layers[^1].Id;
             }
         });

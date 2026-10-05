@@ -54,6 +54,12 @@ Layer > Merge Visible combines every visible layer into one and leaves the hidde
 
 To copy the whole picture there is no need to flatten: Edit > Copy Merged (Ctrl+Shift+C) with nothing selected copies it as it looks, and leaves the layers alone.
 
+## Align and distribute
+
+With Move active, the top row includes six alignment buttons and equal horizontal/vertical gap buttons. Choose **Canvas** to align to the canvas, or **2nd object** to keep the second selected object in place and align the others to it. Shift-click adds objects; adding a third object does not change the reference. A selected folder counts as one object with its children's bounds. Equal gaps need at least three objects and keep the outermost objects fixed. Each operation is one Undo step.
+
+Position, size and rotation are available through **Transform ▾** in that same row. Fill, stroke and corner controls remain inline for supported shapes.
+
 ## Layer effects
 
 Effects are drawn around or over a layer's pixels and follow the layer as it changes. Layer > Layer Effects offers Stroke, Drop Shadow, Color Overlay, Inner Shadow, Outer Glow, Inner Glow and Gradient Overlay, each with its own dialog; the effects button in the Layers panel offers the same.

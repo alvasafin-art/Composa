@@ -20,6 +20,7 @@ public sealed partial class EditorSession
             int from = order.IndexOf(anchor), to = order.IndexOf(id);
             if (from > to) (from, to) = (to, from);
             for (var i = from; i <= to; i++) document.SelectedLayerIds.Add(order[i]);
+            for (var i = from; i <= to; i++) if (!document.SelectionOrder.Contains(order[i])) document.SelectionOrder.Add(order[i]);
             document.ActiveLayerId = id;
         }
         else if (extend)
@@ -30,8 +31,10 @@ public sealed partial class EditorSession
                 if (document.ActiveLayerId == id) document.ActiveLayerId = document.SelectedLayerIds.First();
             }
             else document.ActiveLayerId = id;
+            if (document.SelectedLayerIds.Contains(id) && !document.SelectionOrder.Contains(id)) document.SelectionOrder.Add(id);
         }
         else document.SetActive(id);
+        document.SelectionOrder.RemoveAll(selected => !document.SelectedLayerIds.Contains(selected));
         if (document.SelectionAnchorId is not { } first || !document.SelectedLayerIds.Contains(first))
             document.SelectionAnchorId = document.ActiveLayerId;
         if (ActiveLayer?.Mask == null) EditingMask = false;
@@ -170,8 +173,12 @@ public sealed partial class EditorSession
             siblings.InsertRange(siblings.IndexOf(top) + 1, copies.Select(c => c.Copy));
         }
         var active = copies.FirstOrDefault(c => c.Original.Id == document.ActiveLayerId).Copy ?? copies[^1].Copy;
+        var orderedCopies = document.SelectionOrder.Select(id => copies.FirstOrDefault(c => Document.Flatten([c.Original]).Any(l => l.Id == id)).Copy)
+            .OfType<Layer>().Concat(copies.Select(c => c.Copy)).Distinct().Select(c => c.Id).ToList();
         document.SetActive(active.Id);
         foreach (var (_, copy) in copies) document.SelectedLayerIds.Add(copy.Id);
+        document.SelectionOrder.Clear(); document.SelectionOrder.AddRange(orderedCopies);
+        document.SelectionAnchorId = orderedCopies[0];
     }
 
     public void SetVisible(Layer layer, bool visible, bool undoable = true)

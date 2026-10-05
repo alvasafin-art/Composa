@@ -16,6 +16,8 @@ public sealed class Document
     public HashSet<Guid> SelectedLayerIds { get; init; } = [];
     /// <summary>The first object selected, retained while extending the selection.</summary>
     public Guid? SelectionAnchorId { get; set; }
+    /// <summary>Click order for selected objects, independent of their layer-stack order.</summary>
+    public List<Guid> SelectionOrder { get; init; } = [];
     /// <summary>Alpha8 selection coverage at document size, or null when nothing is selected.</summary>
     public SKBitmap? Selection { get; set; }
     /// <summary>User-placed alignment lines. Saved with the project; undo covers them.</summary>
@@ -43,6 +45,7 @@ public sealed class Document
         var copy = new Document(Width, Height) { Resolution = Resolution, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
         foreach (var layer in Layers) copy.Layers.Add(layer.Clone());
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
+        copy.SelectionOrder.AddRange(SelectionOrder);
         copy.Guides.AddRange(Guides);
         return copy;
     }
@@ -83,7 +86,9 @@ public sealed class Document
         ActiveLayerId = id;
         SelectionAnchorId = id;
         SelectedLayerIds.Clear();
+        SelectionOrder.Clear();
         if (id is { } value) SelectedLayerIds.Add(value);
+        if (id is { } selected) SelectionOrder.Add(selected);
     }
 
     /// <summary>Inserts above the active layer (inside its group), or on top when there is none.</summary>

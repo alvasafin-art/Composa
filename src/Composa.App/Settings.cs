@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Composa.App;
 
-public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, BiRefNet }
+public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI }
 
 /// <summary>Preferences remembered between launches, stored in the platform's config directory (<see cref="AppPaths.Config"/>).</summary>
 public sealed class Settings
@@ -17,7 +17,6 @@ public sealed class Settings
     public bool ShowTransformControls { get; set; } = true;
     public bool AutoSelect { get; set; } = true;
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.AnySubject;
-    public string? NativeBiRefNetPath { get; set; }
     public string? ObjectSelectionComfyModel { get; set; }
     public Composa.Editing.ViewOptions View { get; set; } = new();
     /// <summary>The panels under the Layers panel by title: whether each is shown, collapsed to its header, and how tall it is.</summary>
@@ -169,6 +168,8 @@ public sealed class Settings
     internal static Settings FromJson(string json)
     {
         var value = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+        // Preview 16's optional native model was removed. Keep all other preferences intact.
+        if (!Enum.IsDefined(value.ObjectSelectionModel)) value.ObjectSelectionModel = ObjectSelectionSource.AnySubject;
         using var document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty(nameof(AiDefaultsRevision), out _))
         {

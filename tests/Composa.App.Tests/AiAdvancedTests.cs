@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -64,6 +65,10 @@ public class AiAdvancedTests
         Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);
         Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.StartsWith("≈ ") == true);
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "＋");
-        window.Width = 900; Assert.True(Screenshots.Save(window, "ai-gpt-narrow-panel")); window.Close();
+        window.Width = 800; Assert.True(Screenshots.Save(window, "ai-gpt-narrow-panel"));
+        var workflow = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Name == "AiPanelWorkflow");
+        var at = workflow.TranslatePoint(default, window.AiFloatingPanel)!.Value;
+        Assert.True(at.X + workflow.Bounds.Width <= window.AiFloatingPanel.Bounds.Width);
+        window.Close();
     }
 }

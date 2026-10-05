@@ -1,8 +1,7 @@
 using Avalonia.Controls;
-using Avalonia.Platform.Storage;
 using Composa.App.AI;
-using Composa.AI;
 using Composa.App.Dialogs;
+using Composa.AI;
 using Composa.Selections;
 using Composa.Vision;
 using SkiaSharp;
@@ -17,7 +16,6 @@ public sealed partial class MainWindow
     {
         ObjectSelectionSource.Person => SubjectDetect.Person,
         ObjectSelectionSource.PlainBackdrop => SubjectDetect.Backdrop,
-        ObjectSelectionSource.BiRefNet => SubjectDetect.BiRefNet,
         _ => SubjectDetect.Any
     };
 
@@ -34,7 +32,6 @@ public sealed partial class MainWindow
             new(ObjectSelectionSource.AnySubject, "U²-Net lite · Local"), new(ObjectSelectionSource.Person, "MODNet · Local"),
             new(ObjectSelectionSource.PlainBackdrop, "Plain backdrop")
         };
-        if (SubjectModels.NativeBiRefNet.IsInstalled) choices.Add(new(ObjectSelectionSource.BiRefNet, "BiRefNet · Local (CPU)"));
         var engine = aiTasks.EngineFor(AiTaskKind.ObjectSelection);
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
         {
@@ -87,29 +84,7 @@ public sealed partial class MainWindow
         };
         RefreshObjectModelChoices();
         ToolTip.SetTip(combo, "Local models work without ComfyUI. Server entries are the actual installed background-removal weights.");
-        var native = Ui.TextButton("Local BiRefNet…", () => _ = ChooseNativeBiRefNet()); native.MinWidth = 0;
-        ToolTip.SetTip(native, SubjectModels.BiRefNet.Note + " Choose the FP32 model.onnx from onnx-community/BiRefNet-ONNX.");
-        return Ui.Row(6, Ui.Label("Model", Palette.Secondary), combo, native);
-    }
-
-    private async Task ChooseNativeBiRefNet()
-    {
-        var note = new TextBlock { Text = "BiRefNet runs locally without ComfyUI. Its separate model is 973 MB; CPU inference can need about 9 GB RAM. The installer stays small. Choose the original FP32 model.onnx.",
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxWidth = 440 };
-        var download = Ui.TextButton("Open model download", () => UpdateNotice.OpenInBrowser(SubjectModels.BiRefNet.Url));
-        var dialog = new DialogWindow("Local BiRefNet", Ui.Column(10, note, download), "Choose file…");
-        if (!await dialog.Ask(this)) return;
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "BiRefNet ONNX (FP32, 973 MB)",
-            FileTypeFilter = [new FilePickerFileType("BiRefNet model.onnx") { Patterns = ["*.onnx"] }] });
-        if (files.FirstOrDefault()?.TryGetLocalPath() is not { } path) return;
-        var model = SubjectModels.BiRefNet with { File = path };
-        var verified = await ProgressWindow.Run(this, "Verifying BiRefNet…", cancellation => Task.Run(() =>
-        { cancellation.ThrowIfCancellationRequested(); var valid = model.Verify(); cancellation.ThrowIfCancellationRequested(); return valid; }, cancellation));
-        if (!verified) { ShowProblem("Choose the original FP32 model.onnx from https://huggingface.co/onnx-community/BiRefNet-ONNX. The selected file does not match its verified size and SHA-256."); return; }
-        settings.NativeBiRefNetPath = path; SubjectModels.BiRefNetPath = path;
-        settings.ObjectSelectionModel = ObjectSelectionSource.BiRefNet;
-        settings.Save(); if (session != null) session.Detect = LocalDetect;
-        RefreshObjectModelChoices();
+        return Ui.Row(6, Ui.Label("Model", Palette.Secondary), combo);
     }
 
     internal async Task RunObjectSelection(SKRectI? region, SelectionMode mode, SKPointI? point = null)

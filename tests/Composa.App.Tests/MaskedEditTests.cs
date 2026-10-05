@@ -130,6 +130,7 @@ public class MaskedEditTests
         var service = new AiTaskService(() => "http://localhost:8188", Catalog().Root);
         var asking = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs();
         var dialog = Assert.Single(window.OwnedWindows);
+        dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
         var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn);
         var enabled = dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Append for this workflow pack");
         prompt.Text = "custom preservation instruction"; enabled.IsChecked = false;
@@ -140,6 +141,7 @@ public class MaskedEditTests
         dialog.Close(false); Assert.False(await asking); Assert.True(settings.ComfyAdditionalPromptEnabled);
         Assert.Equal(AiPromptDefaults.PreserveAppearance, settings.ComfyAdditionalPrompt);
         asking = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs(); dialog = Assert.Single(window.OwnedWindows);
+        dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
         dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn).Text = "custom preservation instruction";
         dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Append for this workflow pack").IsChecked = false;
         dialog.Close(true); Assert.True(await asking); Assert.False(settings.PromptFor(service.SelectedEngine!.Id).Enabled);

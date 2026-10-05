@@ -13,6 +13,15 @@ namespace Composa.App.Tests;
 
 public class LocalSubjectUiTests
 {
+    [Fact]
+    public void Removed_native_model_preferences_migrate_without_losing_server_choices()
+    {
+        var settings = Settings.FromJson("""{"AiDefaultsRevision":1,"ObjectSelectionModel":4,"NativeBiRefNetPath":"old/model.onnx","ObjectSelectionComfyModel":"BiRefNet-HR","ComfyServerUrl":"http://192.168.1.10:8188"}""");
+        Assert.Equal(ObjectSelectionSource.AnySubject, settings.ObjectSelectionModel);
+        Assert.Equal("BiRefNet-HR", settings.ObjectSelectionComfyModel);
+        Assert.Equal("http://192.168.1.10:8188", settings.ComfyServerUrl);
+    }
+
     private static async Task Pump(Task task)
     {
         var deadline = DateTime.UtcNow.AddSeconds(20);

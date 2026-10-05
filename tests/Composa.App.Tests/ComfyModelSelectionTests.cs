@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
@@ -214,7 +215,9 @@ public class ComfyModelSelectionTests
         {
             Dispatcher.UIThread.RunJobs();
             Assert.True(dialog.Bounds.Height <= owner.Bounds.Height);
-            Assert.Single(dialog.GetLogicalDescendants().OfType<ComfyModelPicker>());
+            var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<TabControl>());
+            Assert.Equal(4, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
             Assert.True(Screenshots.Save(dialog, "comfy-complete-settings"));
         }
         finally { dialog.Close(false); owner.Close(); }
