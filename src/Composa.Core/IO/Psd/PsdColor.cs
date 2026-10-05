@@ -23,7 +23,8 @@ internal static class PsdColor
         }
         foreach (var layer in Document.Flatten(layers))
         {
-            if (layer.Pixels is { } pixels)
+            // Embedded documents have their own profile and have already been converted on import.
+            if (!layer.IsSmartObject && layer.Pixels is { } pixels)
             {
                 var converted = Convert(pixels, source, srgb);
                 layer.Pixels = converted; pixels.Dispose(); // These bitmaps belong to this uncommitted import only.
@@ -33,6 +34,12 @@ internal static class PsdColor
             {
                 Color = Color(text.Color), ColorRuns = text.ColorRuns?.Select(r => r with { Color = Color(r.Color) }).ToArray()
             };
+            if (layer.Effects is { } effects)
+            {
+                foreach (var kind in effects.Kinds) if (effects.ColorOf(kind) is { } color) effects = effects.WithColor(kind, Color(color));
+                if (effects.GradientOverlay is { } gradient) effects = effects with { GradientOverlay = gradient with { EndColor = Color(gradient.EndColor) } };
+                layer.Effects = effects;
+            }
         }
         conversions.Add(new PsdConversion("Document", "The embedded RGB color profile was converted to the editor's sRGB working space. Adjustment results may differ from Photoshop."));
     }

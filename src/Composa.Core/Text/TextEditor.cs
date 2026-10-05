@@ -114,6 +114,9 @@ public sealed class TextEditor
         Apply(next, Caret, Anchor);
     }
 
+    public void SetSize(double size) => ChangeStyle(st => st.WithSize(size, SelectionStart, SelectionEnd));
+    public double SizeAtCaret => Style.SizeAt(HasSelection ? SelectionStart : Math.Max(0, Caret - 1));
+
     /// <summary>The first selected letter's face, otherwise the letter before the caret's.</summary>
     public TextFace FaceAtCaret => Style.FaceAt(HasSelection ? SelectionStart : Math.Max(0, Caret - 1));
 

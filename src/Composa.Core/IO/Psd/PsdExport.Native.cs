@@ -17,6 +17,7 @@ public static partial class PsdExport
     private static string? NativeProblem(Layer layer, Document document)
     {
         if (layer.Pixels == null) return "The live layer has no render cache.";
+        if (layer.FillOpacity < 1) return "Separate fill opacity is preserved in the raster appearance rather than native Photoshop text or shape settings.";
         if (layer.Effects?.Visible() is { IsEmpty: false }) return "This live layer has effects whose Photoshop settings are not yet supported.";
         var m = layer.Matrix;
         if (!new[] { m.ScaleX, m.ScaleY, m.SkewX, m.SkewY, m.TransX, m.TransY }.All(float.IsFinite)
@@ -53,13 +54,14 @@ public static partial class PsdExport
         else WriteShape(o, layer, document);
     }
 
-    private sealed record Segment(int Start, int Length, TextFace Face, uint Color);
+    private sealed record Segment(int Start, int Length, TextFace Face, uint Color, double Size);
 
     private static List<Segment> Segments(TextStyle style)
     {
         var cuts = new SortedSet<int> { 0, style.Text.Length };
         foreach (var r in style.ColorRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
         foreach (var r in style.FontRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
+        foreach (var r in style.SizeRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
         var result = new List<Segment>();
         var points = cuts.ToArray();
         int colorIndex = 0, fontIndex = 0;
@@ -71,10 +73,11 @@ public static partial class PsdExport
             var color = style.ColorRuns != null && colorIndex < style.ColorRuns.Count && style.ColorRuns[colorIndex].Start <= start ? style.ColorRuns[colorIndex].Color : style.Color;
             var face = style.FontRuns != null && fontIndex < style.FontRuns.Count && style.FontRuns[fontIndex].Start <= start ? style.FontRuns[fontIndex].Face : style.Face;
             var length = points[i + 1] - start;
-            if (result.Count > 0 && result[^1].Face == face && result[^1].Color == color) result[^1] = result[^1] with { Length = result[^1].Length + length };
-            else result.Add(new(start, length, face, color));
+            var size = style.SizeAt(start);
+            if (result.Count > 0 && result[^1].Face == face && result[^1].Color == color && result[^1].Size == size) result[^1] = result[^1] with { Length = result[^1].Length + length };
+            else result.Add(new(start, length, face, color, size));
         }
-        if (result.Count == 0) result.Add(new(0, 0, style.Face, style.Color));
+        if (result.Count == 0) result.Add(new(0, 0, style.Face, style.Color, style.Size));
         return result;
     }
 
@@ -116,11 +119,11 @@ public static partial class PsdExport
         var faces = new List<TextFace> { s.Face };
         foreach (var run in segments) if (!faces.Contains(run.Face)) faces.Add(run.Face);
         object Color(uint color) => Dict(("Type", 1), ("Values", new object[] { 1.0, (color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0 }));
-        object Sheet(TextFace face, uint color) => Dict(
-            ("Font", faces.IndexOf(face) + 1), ("FontSize", s.Size), ("FauxBold", face.FontStyle == null && face.Bold && TextLayout.TypefaceFor(face).FontWeight < (int)SKFontStyleWeight.SemiBold),
+        object Sheet(TextFace face, uint color, double? fontSize = null) => Dict(
+            ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? s.Size), ("FauxBold", face.FontStyle == null && face.Bold && TextLayout.TypefaceFor(face).FontWeight < (int)SKFontStyleWeight.SemiBold),
             ("FauxItalic", face.FontStyle == null && face.Italic && TextLayout.TypefaceFor(face).FontSlant == SKFontStyleSlant.Upright),
             ("AutoLeading", s.Leading == 0), ("Leading", s.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
-            ("Tracking", s.Tracking * 1000 / s.Size), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
+            ("Tracking", s.Tracking * 1000 / (fontSize ?? s.Size)), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
             ("FontCaps", 0), ("FontBaseline", 0), ("Underline", false), ("Strikethrough", false), ("Ligatures", true), ("DLigatures", false),
             ("BaselineDirection", 2), ("Tsume", 0.0), ("StyleRunAlignment", 2), ("Language", 0), ("NoBreak", false),
             ("FillColor", Color(color)), ("StrokeColor", Color(s.Color)), ("FillFlag", true), ("StrokeFlag", false), ("FillFirst", true),
@@ -146,7 +149,7 @@ public static partial class PsdExport
         var engine = Dict(("EngineDict", Dict(("Editor", Dict(("Text", content))),
             ("ParagraphRun", Dict(("DefaultRunData", paragraph), ("RunArray", paragraphs), ("RunLengthArray", lengths), ("IsJoinable", 1))),
             ("StyleRun", Dict(("DefaultRunData", Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(s.Face, s.Color)))))),
-                ("RunArray", segments.Select(r => (object)Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(r.Face, r.Color)))))).ToArray()),
+                ("RunArray", segments.Select(r => (object)Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(r.Face, r.Color, r.Size)))))).ToArray()),
                 ("RunLengthArray", segments.Select((r, i) => (object)(r.Length + (i == segments.Count - 1 ? 1 : 0))).ToArray()), ("IsJoinable", 2))),
             ("GridInfo", Dict(("GridIsOn", false), ("ShowGrid", false), ("GridSize", 18.0), ("GridLeading", 22.0),
                 ("GridColor", Color(0xFF0000FF)), ("GridLeadingFillColor", Color(0xFF0000FF)), ("AlignLineHeightToGridFlags", false))),

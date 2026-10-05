@@ -46,6 +46,12 @@ public sealed record TextFontStyle(int Weight, int Width, SKFontStyleSlant Slant
     [System.Text.Json.Serialization.JsonIgnore] public bool IsValid => Weight is >= 1 and <= 1000 && Width is >= 1 and <= 9 && Enum.IsDefined(Slant);
 }
 
+/// <summary>A character range with a font size different from the block's default.</summary>
+public sealed record TextSizeRun(int Start, int Length, double Size)
+{
+    [System.Text.Json.Serialization.JsonIgnore] public int End => Start + Length;
+}
+
 public readonly record struct TextFace(string FontFamily, bool Bold, bool Italic)
 {
     /// <summary>Exact installed weight, width and slant; null keeps older projects' Bold/Italic semantics.</summary>
@@ -93,6 +99,32 @@ public sealed record TextStyle
     /// as character indices into <see cref="Text"/>, sorted and not overlapping. Null when the whole text is one face.
     /// </summary>
     public IReadOnlyList<TextFontRun>? FontRuns { get; init; }
+    public IReadOnlyList<TextSizeRun>? SizeRuns { get; init; }
+
+    public double SizeAt(int index) => SizeRuns?.FirstOrDefault(r => r.Start <= index && index < r.End)?.Size ?? Size;
+
+    public TextStyle WithSize(double size, int start, int end)
+    {
+        if (!double.IsFinite(size)) return this;
+        size = Math.Clamp(size, 1, 2000);
+        start = Math.Clamp(start, 0, Text.Length); end = Math.Clamp(end, start, Text.Length);
+        if (start == end || start == 0 && end == Text.Length) return this with { Size = size, SizeRuns = null };
+        var sizes = Enumerable.Range(0, Text.Length).Select(SizeAt).ToList();
+        for (var i = start; i < end; i++) sizes[i] = size;
+        return this with { SizeRuns = SizeRunsOf(sizes, Size) };
+    }
+
+    private static IReadOnlyList<TextSizeRun>? SizeRunsOf(List<double> sizes, double baseSize)
+    {
+        var runs = new List<TextSizeRun>();
+        for (var i = 0; i < sizes.Count; i++)
+        {
+            if (sizes[i] == baseSize) continue;
+            if (runs.Count > 0 && runs[^1].End == i && runs[^1].Size == sizes[i]) runs[^1] = runs[^1] with { Length = runs[^1].Length + 1 };
+            else runs.Add(new(i, 1, sizes[i]));
+        }
+        return runs.Count == 0 ? null : runs;
+    }
 
     /// <summary>The style's own face, which every letter outside a font run is set in.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public TextFace Face => new(FontFamily, Bold, Italic) { FontStyle = FontStyle };
@@ -115,8 +147,21 @@ public sealed record TextStyle
             Color = Color | 0xFF000000,
             FontStyle = FontStyle is { IsValid: true } ? FontStyle : null,
             ColorRuns = ValidRuns(ColorRuns, text.Length),
-            FontRuns = ValidFontRuns(FontRuns, text.Length)
+            FontRuns = ValidFontRuns(FontRuns, text.Length),
+            SizeRuns = ValidSizeRuns(SizeRuns, text.Length)
         };
+    }
+
+    private static IReadOnlyList<TextSizeRun>? ValidSizeRuns(IReadOnlyList<TextSizeRun>? runs, int length)
+    {
+        if (runs == null || runs.Count == 0) return null;
+        var end = 0;
+        foreach (var run in runs)
+        {
+            if (run.Start < end || run.Length <= 0 || run.Start > length - run.Length || !double.IsFinite(run.Size) || run.Size is < 1 or > 2000) return null;
+            end = run.End;
+        }
+        return runs;
     }
 
     /// <summary>The font runs when they are sorted, disjoint, inside the text and name a plausible family; otherwise none.</summary>
@@ -236,11 +281,19 @@ public sealed record TextStyle
     /// </summary>
     public TextStyle WithReplacedCharacters(int start, int end, int length)
     {
-        if (ColorRuns == null && FontRuns == null) return this;
+        if (ColorRuns == null && FontRuns == null && SizeRuns == null) return this;
         var count = Text.Length;
         start = Math.Clamp(start, 0, count);
         end = Math.Clamp(end, start, count);
         var result = this;
+        if (SizeRuns != null)
+        {
+            var sizes = Enumerable.Range(0, count).Select(SizeAt).ToList();
+            var inherited = SizeAt(start > 0 ? start - 1 : 0);
+            sizes.RemoveRange(start, end - start);
+            sizes.InsertRange(start, Enumerable.Repeat(inherited, Math.Max(0, length)));
+            result = result with { SizeRuns = SizeRunsOf(sizes, Size) };
+        }
         if (ColorRuns != null)
         {
             var colors = UnitColors();
@@ -261,7 +314,7 @@ public sealed record TextStyle
     }
 
     /// <summary>The style the next text takes: the same look, without this text's wording, box and per-letter colors and faces.</summary>
-    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, ColorRuns = null, FontRuns = null };
+    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, ColorRuns = null, FontRuns = null, SizeRuns = null };
 
     private List<TextFace> UnitFaces()
     {
@@ -310,17 +363,18 @@ public sealed record TextStyle
         && Bold == other.Bold && Italic == other.Italic && FontStyle == other.FontStyle && Alignment == other.Alignment && Tracking == other.Tracking && Leading == other.Leading
         && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight
         && (ColorRuns == null ? other.ColorRuns == null : other.ColorRuns != null && ColorRuns.SequenceEqual(other.ColorRuns))
-        && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns));
+        && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns))
+        && (SizeRuns == null ? other.SizeRuns == null : other.SizeRuns != null && SizeRuns.SequenceEqual(other.SizeRuns));
 
     public override int GetHashCode() =>
-        HashCode.Combine(Text, FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle));
+        HashCode.Combine(Text, FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
 
     /// <summary>The same text drawn <paramref name="factor"/> times as large: size, spacing and box together.</summary>
     public TextStyle Scaled(double factor) => Scaled(factor, factor);
 
     public TextStyle Scaled(double horizontal, double vertical) => (this with
     {
-        Size = Size * vertical, Tracking = Tracking * horizontal, Leading = Leading * vertical,
+        Size = Size * vertical, SizeRuns = SizeRuns?.Select(r => r with { Size = Math.Clamp(r.Size * vertical, 1, 2000) }).ToArray(), Tracking = Tracking * horizontal, Leading = Leading * vertical,
         BoxWidth = BoxWidth * horizontal, BoxHeight = BoxHeight * vertical
     }).Clamped();
 
@@ -345,6 +399,7 @@ public sealed class Layer
     public LayerKind Kind { get; init; }
     public bool Visible { get; set; } = true;
     public double Opacity { get; set; } = 1;
+    public double FillOpacity { get; set; } = 1;
     public BlendMode Blend { get; set; } = BlendMode.Normal;
     /// <summary>RGBA8888 premultiplied source pixels; null for groups and adjustments.</summary>
     public SKBitmap? Pixels { get; set; }
@@ -459,7 +514,7 @@ public sealed class Layer
     {
         var copy = new Layer
         {
-            Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, Blend = Blend,
+            Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, FillOpacity = FillOpacity, Blend = Blend,
             Pixels = Pixels, Transform = Transform, Mask = Mask, MaskEnabled = MaskEnabled, Clipped = Clipped,
             Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed
         };

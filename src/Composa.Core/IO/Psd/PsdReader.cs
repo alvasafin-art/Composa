@@ -89,6 +89,7 @@ internal static class PsdReader
                 file.Resolution = double.IsFinite(resolution) && resolution >= 1 ? Math.Min(9600, resolution) : 72;
             }
             if (id == 1039) file.ColorProfile = cursor.Bytes(length).ToArray();
+            if (id == 1037 && length >= 4) file.GlobalLightAngle = cursor.I32();
             if (id == 1032 && length >= 16)
             {
                 var guides = new PsdCursor(cursor.Bytes(length));
@@ -121,7 +122,7 @@ internal static class PsdReader
             cursor.Seek(infoEnd);
             var maskLength = cursor.U32(); cursor.Skip(maskLength);
             // Photoshop can put high-depth layers in an Lr16 block instead of the first layer-info section.
-            while (file.Layers.Count == 0 && cursor.Offset + 12 <= sectionEnd)
+            while (cursor.Offset + 12 <= sectionEnd)
             {
                 var signature = cursor.Ascii(4);
                 if (signature is not ("8BIM" or "8B64")) break;
@@ -129,7 +130,8 @@ internal static class PsdReader
                 var length = Length(ref cursor, signature == "8B64" || (largeDocument && LargeKeys.Contains(key)));
                 var blockEnd = cursor.Offset + length;
                 if (blockEnd > sectionEnd) throw PsdException.Truncated();
-                if (key == (depth == 16 ? "Lr16" : "Layr")) ReadLayers(ref cursor, file, pixelBudget);
+                if (file.Layers.Count == 0 && key == (depth == 16 ? "Lr16" : "Layr")) ReadLayers(ref cursor, file, pixelBudget);
+                else if (key is "lnkD" or "lnk2" or "lnk3") file.Extra[key] = cursor.Bytes(length).ToArray();
                 if (cursor.Offset > blockEnd) throw PsdException.Truncated();
                 cursor.Seek(blockEnd);
                 if (length % 2 != 0) cursor.Skip(1);

@@ -12,7 +12,8 @@ public enum SubjectDetect
     /// <summary>MODNet: a person, with hair and soft edges.</summary>
     Person,
     /// <summary>No model: the backdrop is what touches the picture's edges in a near-uniform color.</summary>
-    Backdrop
+    Backdrop,
+    BiRefNet
 }
 
 /// <summary>
@@ -25,6 +26,7 @@ public static class SubjectFinder
     {
         SubjectDetect.Any => SubjectModels.U2NetP,
         SubjectDetect.Person => SubjectModels.ModNet,
+        SubjectDetect.BiRefNet => SubjectModels.NativeBiRefNet,
         _ => null
     };
 
@@ -32,6 +34,7 @@ public static class SubjectFinder
     {
         SubjectDetect.Any => "Any subject",
         SubjectDetect.Person => "Person",
+        SubjectDetect.BiRefNet => "BiRefNet",
         _ => "Plain backdrop"
     };
 

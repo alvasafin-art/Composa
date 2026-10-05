@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Composa.App;
 
-public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI }
+public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, BiRefNet }
 
 /// <summary>Preferences remembered between launches, stored in the platform's config directory (<see cref="AppPaths.Config"/>).</summary>
 public sealed class Settings
@@ -17,6 +17,8 @@ public sealed class Settings
     public bool ShowTransformControls { get; set; } = true;
     public bool AutoSelect { get; set; } = true;
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.AnySubject;
+    public string? NativeBiRefNetPath { get; set; }
+    public string? ObjectSelectionComfyModel { get; set; }
     public Composa.Editing.ViewOptions View { get; set; } = new();
     /// <summary>The panels under the Layers panel by title: whether each is shown, collapsed to its header, and how tall it is.</summary>
     public Dictionary<string, DockPanelState> Dock { get; set; } = [];

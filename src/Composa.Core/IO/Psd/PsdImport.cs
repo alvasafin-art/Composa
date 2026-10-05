@@ -46,9 +46,18 @@ public sealed class PsdImport
     }
 
     public static PsdImport Load(byte[] data, long pixelBudget)
+        => LoadNested(data, pixelBudget, 0);
+
+    private static PsdImport LoadNested(byte[] data, long pixelBudget, int depth)
     {
+        if (depth >= SmartObjectSource.MaxDepth) throw new PsdException("The Photoshop file contains too many nested smart objects.");
         var file = PsdReader.Read(data, pixelBudget);
-        try { return Build(file, pixelBudget); }
+        try
+        {
+            var import = Build(file, pixelBudget, depth);
+            if (import.ToDocument().RasterPixels() > pixelBudget) { import.Discard(); throw PsdException.TooLarge(); }
+            return import;
+        }
         catch
         {
             foreach (var layer in file.Layers) { layer.Image?.Dispose(); layer.MaskImage?.Dispose(); }
@@ -75,10 +84,11 @@ public sealed class PsdImport
     /// <summary>Frees the layers' pixels when the import is not going ahead.</summary>
     public void Discard()
     {
+        var bitmaps = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        ToDocument().CollectBitmaps(bitmaps, new(), includeSelection: false);
+        foreach (var bitmap in bitmaps) bitmap.Dispose();
         foreach (var layer in Document.Flatten(Layers))
         {
-            layer.Pixels?.Dispose();
-            layer.Mask?.Dispose();
             layer.Pixels = null;
             layer.Mask = null;
         }
@@ -113,16 +123,18 @@ public sealed class PsdImport
 
     private static readonly string[] TextKeys = ["TySh", "tySh", "txt2"];
     private static readonly string[] VectorKeys = ["vmsk", "vsms", "vogk"];
-    private static readonly string[] SmartObjectKeys = ["SoLd", "SoLE"];
+    private static readonly string[] SmartObjectKeys = ["SoLd", "SoLE", "PlLd", "plLd"];
     private static readonly string[] EffectKeys = ["lfx2", "lrFX", "lmfx"];
     private static readonly string[] OtherFillKeys = ["GdFl", "PtFl"];
 
-    private static PsdImport Build(PsdFile file, long pixelBudget)
+    private static PsdImport Build(PsdFile file, long pixelBudget, int depth = 0)
     {
         var conversions = new List<PsdConversion>();
         if (file.Depth == 16) conversions.Add(new PsdConversion("Document", "16-bit RGB channels are converted to the editor's 8-bit channels. Save the original PSD to retain its full precision."));
         var canvas = new SKSizeI(file.Width, file.Height);
         var remaining = pixelBudget - file.Layers.Sum(l => (long)(l.Image?.Width ?? 0) * (l.Image?.Height ?? 0));
+        var embedded = PsdSmartObjects.Embedded(file);
+        var sources = new Dictionary<string, SmartObjectSource>(StringComparer.Ordinal);
 
         if (file.Layers.Count == 0)
         {
@@ -166,6 +178,8 @@ public sealed class PsdImport
             else
             {
                 layer = BuildLayer(record, name, canvas, ref remaining, conversions);
+                if (SmartObjectKeys.Any(record.Extra.ContainsKey))
+                    layer = ImportSmartObject(record, layer, name, embedded, sources, ref remaining, depth, conversions);
                 if (layer == null) continue;
                 if (!Blends.ContainsKey(record.BlendKey) && record.BlendKey != "pass")
                     conversions.Add(new PsdConversion(name, $"Blend mode \"{record.BlendKey.Trim()}\" isn't supported and will be applied as Normal."));
@@ -173,7 +187,10 @@ public sealed class PsdImport
                 if (record.Clipping) clipping.Add(layer.Id);
             }
             layer.Visible = !record.Hidden;
+            if (layer.Pixels != null) layer.Effects = PsdEffects.Read(record, file.GlobalLightAngle, conversions);
+            else if (EffectKeys.Any(record.Extra.ContainsKey)) conversions.Add(new(name, "Effects on folders/adjustments are not supported."));
             layer.Opacity = Opacity(record);
+            if (EffectKeys.Any(record.Extra.ContainsKey)) layer.FillOpacity = record.Fill / 255.0;
             ApplyMask(record, layer, canvas, conversions);
             target.Add(layer);
         }
@@ -202,14 +219,13 @@ public sealed class PsdImport
     {
         var extra = record.Extra;
         void Note(string message) => conversions.Add(new PsdConversion(name, message));
-        var kind = TextKeys.Any(extra.ContainsKey) ? PsdLayerKind.Text
+        var kind = SmartObjectKeys.Any(extra.ContainsKey) ? PsdLayerKind.SmartObject
+            : TextKeys.Any(extra.ContainsKey) ? PsdLayerKind.Text
             : VectorKeys.Any(extra.ContainsKey) ? PsdLayerKind.Vector
-            : SmartObjectKeys.Any(extra.ContainsKey) ? PsdLayerKind.SmartObject
             : PsdAdjustments.IsAdjustment(extra) ? PsdLayerKind.Adjustment
             : extra.ContainsKey("SoCo") ? PsdLayerKind.Fill
             : OtherFillKeys.Any(extra.ContainsKey) ? PsdLayerKind.Other
             : PsdLayerKind.Raster;
-        if (EffectKeys.Any(extra.ContainsKey)) Note("Layer effects were discarded, so the appearance may differ.");
 
         if (kind == PsdLayerKind.Adjustment)
         {
@@ -234,7 +250,6 @@ public sealed class PsdImport
             }
             Note(PsdText.RasterizedNote);
         }
-        if (kind == PsdLayerKind.SmartObject) Note("The smart object was rasterized. Linked contents can't be edited.");
         if (kind == PsdLayerKind.Other) Note("Gradient and pattern fills aren't supported; the layer was imported empty.");
 
         if (kind is PsdLayerKind.Vector or PsdLayerKind.Fill)
@@ -266,8 +281,74 @@ public sealed class PsdImport
             if (kind == PsdLayerKind.Vector) Note("Vector shape was rasterized to pixels.");
         }
         if (record.Image is { } image) return Layer.Raster(name, image, record.Left, record.Top);
+        // Cropping can remove the whole layer. Keep one transparent pixel at its original location,
+        // rather than allocating a canvas-sized placeholder that defeats the import budget.
+        if (record.Cropped) return Layer.Raster(name, Pixels.NewColor(1, 1), record.Left, record.Top);
         // No pixel area: an empty layer over the canvas, as Photoshop shows it.
         return Layer.Raster(name, Pixels.NewColor(canvas.Width, canvas.Height));
+    }
+
+    /// <summary>The layer as a live shape: redrawn sharp whenever it is scaled.</summary>
+    private static Layer? ImportSmartObject(PsdLayer record, Layer? fallback, string name, Dictionary<string, byte[]> embedded,
+        Dictionary<string, SmartObjectSource> sources, ref long remaining, int depth, List<PsdConversion> conversions)
+    {
+        void Note(string message) => conversions.Add(new(name, message));
+        var placement = PsdSmartObjects.Placement(record);
+        if (placement.Warped || record.Extra.ContainsKey("FXid") || record.Extra.ContainsKey("FEid") || record.Extra.ContainsKey("vmsk") || record.Extra.ContainsKey("vsms"))
+        { Note("The smart object's warp, vector mask or smart filters are preserved in its Photoshop compatibility pixels; its source cannot be edited here."); return fallback; }
+        if (placement.Id == null || placement.Quad == null || !embedded.TryGetValue(placement.Id, out var data))
+        { Note("The smart object has no usable embedded content/placement (it may be externally linked). Photoshop compatibility pixels were kept."); return fallback; }
+        var cache = (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+        var initialRemaining = remaining;
+        var available = remaining + cache;
+        PsdImport? inner = null;
+        SmartObjectSource? created = null;
+        Document? createdContents = null;
+        try
+        {
+            if (!sources.TryGetValue(placement.Id, out var source))
+            {
+                Document contents;
+                if (PsdReader.Matches(data))
+                {
+                    inner = LoadNested(data, available, depth + 1); contents = inner.ToDocument();
+                    foreach (var conversion in inner.Conversions) Note("Embedded content: " + conversion.Message);
+                }
+                else
+                {
+                    using var stream = new MemoryStream(data, writable: false);
+                    var image = ImageFiles.Load(stream, "Embedded smart object");
+                    if ((long)image.Width * image.Height * 2 > available) { image.Dispose(); throw PsdException.TooLarge(); }
+                    contents = new Document(image.Width, image.Height); contents.Layers.Add(Layer.Raster("Contents", image));
+                }
+                if (contents.RasterPixels() + (long)contents.Width * contents.Height > available) throw PsdException.TooLarge();
+                createdContents = contents;
+                source = created = SmartObjectSource.Create(contents);
+                var cost = contents.RasterPixels() + (long)source.Width * source.Height;
+                remaining = available - cost;
+            }
+            else remaining += cache;
+            var transform = PsdSmartObjects.Place(placement.Quad, source.Width, source.Height);
+            sources.TryAdd(placement.Id, source);
+            if (fallback?.Pixels != null && !ReferenceEquals(fallback.Pixels, record.Image)) fallback.Pixels.Dispose();
+            record.Image?.Dispose(); record.Image = null;
+            var layer = Layer.Raster(name, source.Preview); layer.SmartObject = source; layer.Transform = transform;
+            return layer;
+        }
+        catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException)
+        {
+            remaining = initialRemaining;
+            created?.Preview.Dispose();
+            if (createdContents != null && inner == null)
+            {
+                var bitmaps = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+                createdContents.CollectBitmaps(bitmaps, new(), includeSelection: false);
+                foreach (var bitmap in bitmaps) bitmap.Dispose();
+            }
+            inner?.Discard();
+            Note("The smart object's embedded content could not be rebuilt; compatibility pixels were kept. " + error.Message);
+            return fallback;
+        }
     }
 
     /// <summary>The layer as a live shape: redrawn sharp whenever it is scaled.</summary>
@@ -300,7 +381,7 @@ public sealed class PsdImport
         {
             using (plane)
             {
-                if (layer.IsLive && layer.Pixels is { } source && !layer.Transform.IsPureTranslation(source.Width, source.Height) && layer.Matrix.TryInvert(out var inverse))
+                if ((layer.IsLive || layer.IsSmartObject) && layer.Pixels is { } source && !layer.Transform.IsPureTranslation(source.Width, source.Height) && layer.Matrix.TryInvert(out var inverse))
                 {
                     // PSD masks are in document coordinates. Move coverage back into the live layer's local grid.
                     using var surface = new SKCanvas(mask);

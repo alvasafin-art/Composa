@@ -19,7 +19,7 @@ internal static class PsdText
     public sealed record Source(TextStyle Style, List<string> Notes, SKPoint DocumentAnchor, double Rotation, bool FlipY, bool AnchorIsFrame, SKMatrix? Affine = null);
 
     public const string RasterizedNote = "Editable Photoshop text becomes pixels and can't be retyped.";
-    public const string FirstStyleNote = "Different character sizes or spacing cannot be kept; the first size and spacing were used.";
+    public const string FirstStyleNote = "Different character spacing or leading cannot be kept; the first spacing and leading were used.";
     public const string WarpNote = "The Photoshop text warp was omitted.";
     public const string JustifyNote = "Full justification was imported as left alignment.";
 
@@ -191,7 +191,7 @@ internal static class PsdText
         var lengths = EngineData.List(EngineData.Walk(engine, "EngineDict", "StyleRun", "RunLengthArray"));
         if (runs.Count == lengths.Count && lengths.Count > 0)
         {
-            var colors = new List<TextColorRun>(); var faces = new List<TextFontRun>();
+            var colors = new List<TextColorRun>(); var faces = new List<TextFontRun>(); var sizes = new List<TextSizeRun>();
             long start = 0;
             for (var i = 0; i < runs.Count; i++)
             {
@@ -199,6 +199,9 @@ internal static class PsdText
                 if (n == null || n < 0 || n != Math.Truncate(n.Value) || n > TextStyle.MaxLength + 1) { notes.Add(FirstStyleNote); break; }
                 var length = (int)Math.Min(n.Value, Math.Max(0, style.Text.Length - start));
                 var data = EngineData.Walk(runs[i], "StyleSheet", "StyleSheetData");
+                var size = EngineData.Number(EngineData.Walk(data, "FontSize")) ?? points;
+                if (length > 0 && double.IsFinite(size) && size > 0 && size * pixelScale != style.Size)
+                    sizes.Add(new((int)start, length, Math.Clamp(size * pixelScale, 1, 2000)));
                 var rgba = EngineData.List(EngineData.Walk(data, "FillColor", "Values")).Select(EngineData.Number).OfType<double>().ToList();
                 if (length > 0 && rgba.Count > 0 && Color(rgba) != style.Color) colors.Add(new((int)start, length, Color(rgba)));
                 var fontIndex = (int)Math.Round(EngineData.Number(EngineData.Walk(data, "Font")) ?? index);
@@ -215,7 +218,7 @@ internal static class PsdText
                 start += (int)n.Value;
                 if (start >= style.Text.Length) break;
             }
-            style = style with { ColorRuns = colors.Count == 0 ? null : colors, FontRuns = faces.Count == 0 ? null : faces };
+            style = style with { ColorRuns = colors.Count == 0 ? null : colors, FontRuns = faces.Count == 0 ? null : faces, SizeRuns = sizes.Count == 0 ? null : sizes };
         }
         else if (runs.Count > 1) notes.Add("The character style run lengths are missing or inconsistent; only the first style was kept.");
 
@@ -235,7 +238,9 @@ internal static class PsdText
     private static string Signature(object? run)
     {
         var sheet = EngineData.Walk(run, "StyleSheet", "StyleSheetData") ?? run;
-        return string.Join("|", new[] { "FontSize", "Tracking", "AutoLeading", "Leading", "HorizontalScale", "VerticalScale" }
+        var size = EngineData.Number(EngineData.Walk(sheet, "FontSize")) ?? 12;
+        var tracking = (EngineData.Number(EngineData.Walk(sheet, "Tracking")) ?? 0) * size / 1000;
+        return tracking.ToString("0.###", CultureInfo.InvariantCulture) + "|" + string.Join("|", new[] { "AutoLeading", "Leading", "HorizontalScale", "VerticalScale" }
             .Select(key => EngineData.Walk(sheet, key) switch { double d => d.ToString("0.###", CultureInfo.InvariantCulture), bool b => b.ToString(), _ => "" }));
     }
 

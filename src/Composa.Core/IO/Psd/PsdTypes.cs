@@ -22,6 +22,8 @@ internal sealed class PsdFile
     public int Width;
     public int Height;
     public double Resolution = 72;
+    public double GlobalLightAngle = 120;
+    public Dictionary<string, byte[]> Extra = [];
     public int Depth = 8;
     public byte[]? ColorProfile;
     public List<Guide> Guides = [];

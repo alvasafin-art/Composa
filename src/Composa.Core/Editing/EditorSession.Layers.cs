@@ -32,6 +32,8 @@ public sealed partial class EditorSession
             else document.ActiveLayerId = id;
         }
         else document.SetActive(id);
+        if (document.SelectionAnchorId is not { } first || !document.SelectedLayerIds.Contains(first))
+            document.SelectionAnchorId = document.ActiveLayerId;
         if (ActiveLayer?.Mask == null) EditingMask = false;
         LayersChanged?.Invoke();
     }

@@ -20,6 +20,7 @@ internal sealed class PsdWriter
     public int Compression = 1;
     /// <summary>Bottom to top, as the file lists them.</summary>
     public List<PsdWriterLayer> Layers = [];
+    public List<(string Key, byte[] Data)> GlobalExtra = [];
     /// <summary>The merged image; transparent black when absent.</summary>
     public SKBitmap? Composite;
 
@@ -92,6 +93,11 @@ internal sealed class PsdWriter
         }
         var section = new Buffer();
         if (Layers.Count > 0) { section.Block(layerInfo, LargeDocument); section.U32(0); }
+        foreach (var (key, data) in GlobalExtra)
+        {
+            section.Ascii("8BIM"); section.Ascii(key); section.Length((uint)data.Length, LargeDocument && LargeKeys.Contains(key));
+            section.Bytes(data); if (data.Length % 2 != 0) section.U8(0);
+        }
         file.Block(section, LargeDocument);
 
         // The merged image: one compression for all planes, R, G, B (and A with four channels).

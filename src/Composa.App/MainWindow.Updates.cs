@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     /// </summary>
     private void StartUpdateCheck()
     {
+        if (!Settings.Persist) return; // Transient/headless windows do not make background network requests.
         var check = NewUpdateCheck();
         if (!check.RunsAutomatically) return;
 

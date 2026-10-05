@@ -312,11 +312,12 @@ public static class DocumentRenderer
 
     /// <summary>The layer's pixels with its effects drawn around them, or null when it has none (or they cannot be drawn).</summary>
     private static (SKBitmap Image, int Inset)? EffectsOf(Layer layer) =>
-        layer.Pixels == null || layer.Effects == null ? null : LayerEffectsRenderer.Cached(layer.Pixels, layer.Mask != null && layer.MaskEnabled ? layer.Mask : null, layer.Effects);
+        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.Pixels, layer.Mask != null && layer.MaskEnabled ? layer.Mask : null, layer.Effects, layer.FillOpacity);
 
     private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, (SKBitmap Image, int Inset)? effects)
     {
         if (layer.Pixels == null) return;
+        if (effects == null) opacity *= layer.FillOpacity;
         using var paint = new SKPaint { BlendMode = blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(opacity)), IsAntialias = true };
         void Draw(SKCanvas target)
         {

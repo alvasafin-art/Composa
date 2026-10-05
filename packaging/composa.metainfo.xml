@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.16" date="2026-10-05">
+      <description>
+        <p>Mixed character sizes, embedded Photoshop smart objects and supported layer effects, reliable text movement, canvas/first-object alignment and equal gaps. Object Selection lists real server models and supports optional native BiRefNet. Assistant Settings creates a llama.cpp server launcher from a selected folder.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.15" date="2026-10-05">
       <description><p>Correct selected-region FLUX resolution, source-space mask blur, separate denoising coverage, finite removal transitions and texture-preserving color matching.</p></description>
     </release>

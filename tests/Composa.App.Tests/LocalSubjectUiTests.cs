@@ -39,8 +39,10 @@ public class LocalSubjectUiTests
         Assert.Equal(1, Menu().SelectedIndex); Assert.Equal(SubjectDetect.Person, second.Detect);
         window.SelectTool(Tool.Wand); second.WandMode = WandMode.Object; window.SelectTool(Tool.Wand);
         Assert.Equal(1, Menu().SelectedIndex);
-        Menu().SelectedIndex = 3;
-        Assert.Equal(ObjectSelectionSource.ComfyUI, window.Settings.ObjectSelectionModel);
+        Assert.DoesNotContain(Menu().Items.OfType<string>(), name => name.Contains("ComfyUI")); // No invented server model while disconnected.
+        window.Settings.ObjectSelectionModel = ObjectSelectionSource.ComfyUI;
+        window.SelectTool(Tool.ObjectSelectionAi);
+        Assert.Equal(-1, Menu().SelectedIndex);
         Assert.False(window.Canvas.ObjectSelectionAvailable!());
         Menu().SelectedIndex = 0; Assert.True(window.Canvas.ObjectSelectionAvailable!());
         window.SelectTool(Tool.ObjectSelectionAi);

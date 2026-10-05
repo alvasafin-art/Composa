@@ -231,7 +231,7 @@ public static partial class PsdExport
             if (record.Appearance) { result.Image = merged.Image; return result; }
             if (record.Section != 0) { result.Mask = record.HasMask ? layer.Mask : null; return result; }
             if (layer.Pixels == null) return result;
-            var direct = !record.HasEffects && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height);
+            var direct = !record.HasEffects && layer.FillOpacity >= 1 && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height);
             if (direct) result.Image = layer.Pixels;
             else
             {

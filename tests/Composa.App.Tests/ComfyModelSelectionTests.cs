@@ -258,6 +258,36 @@ public class ComfyModelSelectionTests
 
     private static AiTaskService Service(HttpClient http) => new(() => Lan, Engines, url => new ComfyClient(url, http));
 
+    [AvaloniaFact]
+    public async Task Object_tool_lists_installed_BiRefNet_variants_and_routes_the_chosen_server_identifier()
+    {
+        using var handler = new Server();
+        handler.Objects["LoadBackgroundRemovalModel"]!["input"]!["required"]!["bg_removal_name"] =
+            new JsonArray(new JsonArray("birefnet.safetensors", "shared/birefnet-hr.safetensors", "birefnet-matting.safetensors"), new JsonObject());
+        using var http = new HttpClient(handler);
+        var window = new MainWindow(null, url => new ComfyClient(url, http)); window.Settings.CheckForUpdates = false;
+        window.Settings.ComfyServerUrl = Lan; window.Show();
+        window.AddSession(EditorSession.NewCanvas(600, 400)); window.SelectTool(Tool.ObjectSelectionAi);
+        await window.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken); Dispatcher.UIThread.RunJobs();
+        ComboBox Menu() => window.GetLogicalDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
+        Assert.Contains("birefnet.safetensors · ComfyUI", Menu().Items.Cast<string>());
+        Assert.Contains("shared/birefnet-hr.safetensors · ComfyUI", Menu().Items.Cast<string>());
+        Assert.Contains("birefnet-matting.safetensors · ComfyUI", Menu().Items.Cast<string>());
+        Assert.DoesNotContain("ComfyUI", Menu().Items.Cast<string>());
+        Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
+        Assert.Equal(ObjectSelectionSource.ComfyUI, window.Settings.ObjectSelectionModel);
+        var engine = window.AiTasks.EngineFor(AiTaskKind.ObjectSelection)!;
+        var graph = window.AiTasks.Engines.ReadWorkflow(engine, engine.Workflow(engine.Binding(AiTaskKind.ObjectSelection)!.Workflow));
+        WorkflowModels.ApplyChoices(graph, engine.Id, window.Settings.ComfyModelsFor(Lan));
+        Assert.Equal("shared/birefnet-hr.safetensors", graph["model"]!["inputs"]!["bg_removal_name"]!.GetValue<string>());
+        Screenshots.Save(window, "object-model-variants");
+        window.Settings.ComfyServerUrl = "http://192.168.1.51:8188";
+        window.SelectTool(Tool.Wand); window.SelectTool(Tool.ObjectSelectionAi);
+        Assert.DoesNotContain(Menu().Items.Cast<string>(), name => name.Contains("ComfyUI"));
+        Assert.Empty(window.Settings.ComfyModelsFor(window.Settings.ComfyServerUrl));
+        window.Close();
+    }
+
     private sealed class Server : HttpMessageHandler
     {
         public JsonObject Objects { get; } = new();

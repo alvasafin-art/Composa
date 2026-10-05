@@ -19,7 +19,7 @@ public static class SubjectMatting
     public static SKBitmap Matte(SKBitmap source, SubjectModel model, CancellationToken cancellation = default)
     {
         var edge = model.InputSize;
-        var plan = Matting.PlanLetterbox(source.Width, source.Height, edge);
+        var plan = model.StretchInput ? new LetterboxPlan(edge, 1, 0, 0, edge, edge) : Matting.PlanLetterbox(source.Width, source.Height, edge);
         float[] input;
         using (var square = Pixels.NewColor(edge, edge))
         {
@@ -36,6 +36,25 @@ public static class SubjectMatting
         var activated = Matting.ActivateMask(raw, model.Activation);
         var coarse = Matting.UnpadMask(activated, plan);
         cancellation.ThrowIfCancellationRequested();
+        if (model.StretchInput)
+        {
+            // BiRefNet already predicts a detailed 1024² matte. The guide used for the small bundled
+            // models widens its sharp outline and leaks background color; retain the model's soft alpha.
+            var alpha = GuidedFilter.Resample(coarse, plan.ContentWidth, plan.ContentHeight, source.Width, source.Height);
+            var mask = Pixels.NewMask(source.Width, source.Height);
+            try
+            {
+                var destination = mask.GetPixelSpan(); var pixels = source.GetPixelSpan();
+                for (var y = 0; y < source.Height; y++)
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    for (var x = 0; x < source.Width; x++) destination[y * mask.RowBytes + x] =
+                        (byte)Math.Clamp((int)MathF.Round(alpha[y * source.Width + x] * pixels[y * source.RowBytes + x * 4 + 3]), 0, 255);
+                }
+                return mask;
+            }
+            catch { mask.Dispose(); throw; }
+        }
         return GuidedFilter.Upsample(coarse, plan.ContentWidth, plan.ContentHeight, source, cancellation);
     }
 }

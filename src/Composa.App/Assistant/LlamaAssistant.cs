@@ -27,12 +27,7 @@ public sealed class LlamaServerHost(Settings settings) : IDisposable
                 WorkingDirectory = Path.GetDirectoryName(settings.AssistantServerExecutable)!,
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
             };
-            foreach (var argument in new[]
-            {
-                "--model", settings.AssistantModelPath, "--host", uri.Host, "--port", uri.Port.ToString(),
-                "--ctx-size", Math.Clamp(settings.AssistantContextSize, 2048, 131072).ToString(), "--parallel", "1",
-                "--jinja", "--reasoning", "off", "--no-webui"
-            }) start.ArgumentList.Add(argument);
+            foreach (var argument in LlamaLauncher.Arguments(settings)) start.ArgumentList.Add(argument);
             ownedProcess = Process.Start(start) ?? throw new InvalidOperationException("Could not start llama-server.");
             ownedProcess.OutputDataReceived += (_, _) => { };
             ownedProcess.ErrorDataReceived += (_, _) => { };

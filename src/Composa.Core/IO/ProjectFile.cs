@@ -20,9 +20,10 @@ public static class ProjectFile
     /// The format version new saves write, and the highest one <see cref="Read"/> accepts. 1 was the first release,
     /// 2 added guides, 3 added the Gaussian Blur, Motion Blur and Add Noise adjustment layers and the Inner Glow effect,
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
-    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles.
+    /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
+    /// 9 character size runs and separate fill opacity for imported Photoshop effects.
     /// </summary>
-    public const int Version = 8;
+    public const int Version = 9;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -61,6 +62,7 @@ public static class ProjectFile
         public LayerKind Kind { get; set; }
         public bool Visible { get; set; } = true;
         public double Opacity { get; set; } = 1;
+        public double FillOpacity { get; set; } = 1;
         public BlendMode Blend { get; set; }
         public LayerTransform? Transform { get; set; }
         public string? ImageFile { get; set; }
@@ -117,7 +119,7 @@ public static class ProjectFile
         LayerRecord Record(Layer layer) => new()
         {
             Id = layer.Id, Name = layer.Name, Tags = layer.Tags.Count > 0 ? layer.Tags.Order().ToList() : null,
-            Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, Blend = layer.Blend,
+            Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, FillOpacity = layer.FillOpacity, Blend = layer.Blend,
             Transform = layer.Pixels != null ? layer.Transform : null,
             ImageFile = layer.Pixels != null && !layer.IsSmartObject ? Store(layer.Pixels, $"{written.Count}.png") : null,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
@@ -202,7 +204,7 @@ public static class ProjectFile
             var layer = new Layer
             {
                 Id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, Name = record.Name, Kind = record.Kind, Visible = record.Visible,
-                Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, Blend = record.Blend,
+                Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, FillOpacity = double.IsFinite(record.FillOpacity) ? Math.Clamp(record.FillOpacity, 0, 1) : 1, Blend = record.Blend,
                 MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false,
                 Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped()
             };

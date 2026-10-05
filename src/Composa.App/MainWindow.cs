@@ -9,8 +9,10 @@ using Composa.App.AI;
 using Composa.App.Assistant;
 using Composa.App.Automation;
 using Composa.App.Controls;
+using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
+using Composa.Vision;
 using SkiaSharp;
 
 namespace Composa.App;
@@ -51,9 +53,12 @@ public sealed partial class MainWindow : Window
     private string? problem, note;
 
     public MainWindow(string? automationDirectory = null)
+        : this(automationDirectory, url => new ComfyClient(url)) { }
+
+    internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory)
     {
         automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
-        aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"))
+        aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), comfyClientFactory)
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
             ModelSelections = settings.ComfyModelsFor,
@@ -68,7 +73,8 @@ public sealed partial class MainWindow : Window
             try { settings.MigrateComfyUpscaler(settings.ComfyServerUrl, aiTasks.Engines.ModelSlots(engine)); }
             catch (Exception error) when (error is FormatException or IOException or System.Text.Json.JsonException) { /* Settings can still repair a broken URL/pack. */ }
         }
-        aiTasks.StateChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiUi);
+        SubjectModels.BiRefNetPath = settings.NativeBiRefNetPath;
+        aiTasks.StateChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(() => { RefreshObjectModelChoices(); RefreshAiUi(); });
         assistantServer = new LlamaServerHost(settings);
         Title = "Composa";
         Width = Math.Clamp(settings.WindowWidth, 800, 10000);
@@ -691,6 +697,8 @@ public sealed partial class MainWindow : Window
         canvas.ToolChanged();
         RebuildOptions();
         UpdateStatus();
+        // The Move bar has a second row. Settle the viewport before the next pointer event maps its coordinates.
+        UpdateLayout();
     }
 
     /// <summary>Marks the tool's button and shows each group's current tool on its button.</summary>

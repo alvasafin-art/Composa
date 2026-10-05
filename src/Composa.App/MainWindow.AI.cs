@@ -92,6 +92,7 @@ public sealed partial class MainWindow
 
     private void RefreshAiUi()
     {
+        RefreshObjectModelChoices();
         RefreshAiContextBounds();
         if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;
         if (aiContextHost.Child == null) return;

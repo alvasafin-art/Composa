@@ -20,6 +20,7 @@ public sealed partial class MainWindow
     private void RebuildOptions()
     {
         refreshOptions = null;
+        optionsHost.Height = session?.Tool == Tool.Move ? 74 : 40;
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
@@ -170,7 +171,13 @@ public sealed partial class MainWindow
                 Add(Title(s.Tool == Tool.Hand ? "Hand" : "Zoom"), Flat("Fit", canvas.Fit), Flat("100%", () => canvas.ZoomTo(1)), Flat("200%", () => canvas.ZoomTo(2)));
                 break;
         }
-        toolOptionsHost.Child = row;
+        if (s.Tool == Tool.Move)
+        {
+            var alignmentRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Classes = { "options" } };
+            alignmentRow.Children.Add(Title("Align")); BuildAlignmentFields(alignmentRow);
+            toolOptionsHost.Child = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center, Children = { row, alignmentRow } };
+        }
+        else toolOptionsHost.Child = row;
     }
 
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
@@ -262,7 +269,9 @@ public sealed partial class MainWindow
         void ChangeFace(Func<TextFace, TextFace> change) { if (!updating) s.SetTextFace(change); }
         var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face), 190);
         font.MaxWidth = 190;
-        var size = Ui.Number(style.Size, 1, 2000, v => Change(st => st with { Size = v }), 1, "0.#", 64);
+        var size = Ui.Number(s.CurrentTextSize, 1, 2000, v => { if (!updating) s.SetTextSize(v); }, 1, "0.#", 64);
+        size.Name = "TextSize";
+        ToolTip.SetTip(size, "Font size of the selected characters; select text on the canvas to change a fragment");
         var faceChoices = Composa.Text.FontCatalog.ForFamily(family);
         var stylesFamily = family;
         var faceMenu = new ComboBox { Width = 145, MaxWidth = 145, ItemsSource = faceChoices.Select(c => c.Name).ToArray() };
@@ -332,7 +341,7 @@ public sealed partial class MainWindow
         {
             var current = s.CurrentTextStyle;
             updating = true;
-            size.Value = (decimal)current.Size;
+            size.Value = (decimal)s.CurrentTextSize;
             tracking.Value = (decimal)current.Tracking;
             leading.Value = (decimal)current.Leading;
             var face = s.CurrentTextFace;

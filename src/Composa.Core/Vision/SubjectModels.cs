@@ -29,7 +29,10 @@ public sealed record SubjectModel(
     float[] Mean,
     float[] Std,
     MaskActivation Activation,
-    string Note) : OnnxModel(Id, Name, File, Sha256, Bytes, Licence, Attribution, Source, Url);
+    string Note) : OnnxModel(Id, Name, File, Sha256, Bytes, Licence, Attribution, Source, Url)
+{
+    public bool StretchInput { get; init; }
+}
 
 /// <summary>
 /// The models Composa knows. Only weights under a permissive licence (Apache-2.0, MIT or BSD) are listed: BRIA's RMBG
@@ -77,8 +80,21 @@ public static class SubjectModels
 
     public static readonly IReadOnlyList<SubjectModel> All = [U2NetP, ModNet];
 
+    /// <summary>Optional full BiRefNet weights, kept outside the installer. Pin the graph and tensor contract.</summary>
+    public static readonly SubjectModel BiRefNet = new(
+        "birefnet", "BiRefNet · High quality", "birefnet.onnx",
+        "58f621f00f5d756097615970a88a791584600dcf7c45b18a0a6267535a1ebd3c", 972_666_916, "MIT",
+        "BiRefNet, Copyright (c) 2024 ZhengPeng; ONNX conversion by onnx-community",
+        "https://github.com/ZhengPeng7/BiRefNet",
+        "https://huggingface.co/onnx-community/BiRefNet-ONNX/resolve/9b057984031590f02a042f18187c76c8d818a26b/onnx/model.onnx",
+        1024, ImageNetMean, ImageNetStd, MaskActivation.Sigmoid,
+        "Optional 973 MB model; CPU inference can use about 9 GB RAM. Weights are released after each operation.") { StretchInput = true };
+
+    public static string? BiRefNetPath { get; set; }
+    public static SubjectModel NativeBiRefNet => string.IsNullOrWhiteSpace(BiRefNetPath) ? BiRefNet : BiRefNet with { File = System.IO.Path.GetFullPath(BiRefNetPath) };
+
     /// <summary>Where the model files are; see <see cref="OnnxModels.Directory"/>.</summary>
     public static string Directory => OnnxModels.Directory;
 
-    public static SubjectModel? Find(string id) => All.FirstOrDefault(m => m.Id == id);
+    public static SubjectModel? Find(string id) => id == BiRefNet.Id ? NativeBiRefNet : All.FirstOrDefault(m => m.Id == id);
 }

@@ -231,6 +231,13 @@ public sealed partial class EditorSession
     /// <summary>The color the Type bar's swatch shows: the letter at the caret while typing, otherwise the style's own.</summary>
     public uint CurrentTextColor => TextEdit?.ColorAtCaret ?? CurrentTextStyle.Color;
 
+    public double CurrentTextSize => TextEdit?.SizeAtCaret ?? CurrentTextStyle.Size;
+    public void SetTextSize(double size)
+    {
+        if (TextEdit is { } editor) { editor.SetSize(size); return; }
+        ChangeTextStyle(st => st.WithSize(size, 0, 0));
+    }
+
     /// <summary>The face at the selected letters' first while typing, the text's own otherwise.</summary>
     public TextFace CurrentTextFace => TextEdit?.FaceAtCaret ?? CurrentTextStyle.Face;
 

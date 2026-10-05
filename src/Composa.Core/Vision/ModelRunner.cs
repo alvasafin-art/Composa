@@ -60,6 +60,9 @@ public static class ModelRunner
     public static (float[] Planes, int Width, int Height) RunImage(OnnxModel model, float[] input, int width, int height, CancellationToken cancellation = default)
     {
         var session = Session(model);
+        // Full BiRefNet is optional and memory intensive. Release its weights and arena after inference,
+        // rather than keeping several GB in the editor while the person is working on other tools.
+        using var transient = model.Id == SubjectModels.BiRefNet.Id ? session : null;
         cancellation.ThrowIfCancellationRequested();
         var channels = input.Length / (width * height);
         var tensor = new DenseTensor<float>(input, [1, channels, height, width]);
@@ -82,12 +85,13 @@ public static class ModelRunner
     {
         lock (gate)
         {
-            if (sessions.TryGetValue(model.Id, out var existing)) return existing;
+            var key = model.Path + "|" + model.Sha256;
+            if (sessions.TryGetValue(key, out var existing)) return existing;
             if (!model.IsInstalled) throw new InvalidDataException($"The {model.Name} model is not installed: {model.Path} is missing.");
-            if (!verified.Contains(model.Id))
+            if (!verified.Contains(key))
             {
                 if (!model.Verify()) throw new InvalidDataException($"{model.Path} is not the {model.Name} model Composa was built with, so it is not used.");
-                verified.Add(model.Id);
+                verified.Add(key);
             }
             var options = new SessionOptions
             {
@@ -99,7 +103,7 @@ public static class ModelRunner
             try
             {
                 var session = new InferenceSession(model.Path, options);
-                sessions[model.Id] = session;
+                if (model.Id != SubjectModels.BiRefNet.Id) sessions[key] = session;
                 return session;
             }
             finally { options.Dispose(); }

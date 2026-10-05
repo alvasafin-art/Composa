@@ -42,3 +42,8 @@ Live shape colors are edited with the native `set_shape(layer,color)` operation 
 Scripts use existing editor commands in a constrained JavaScript engine without CLR, arbitrary file reads, processes or network access. Execution has memory, statement, time and cancellation limits. Explicit export is the exposed file-writing operation. AI calls require compatible connected ComfyUI and an Engine Pack. Local edits and queued AI tasks commit together as one history entry. A script generated for another document tab is not applied to the current tab.
 
 See [Scripting](scripting.md) for API examples.
+# Portable llama.cpp launcher
+
+In **Assistant Settings**, select **Local llama.cpp**, then **Choose folder & create launcher…**. Choose the complete llama.cpp folder containing `llama-server` and its libraries. Select a GGUF model and configure the server URL and context. Saving creates `run-composa-assistant.cmd` on Windows or `run-composa-assistant.sh` on Linux/macOS in that folder, using the same arguments as the application's automatic server startup.
+
+Paths inside that folder are relative, so the folder can be moved to another computer together with its model and libraries. A model outside it keeps an absolute path and must be reselected on the other computer. The launcher does not download or copy llama.cpp files.

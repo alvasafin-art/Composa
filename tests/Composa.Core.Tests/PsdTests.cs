@@ -134,7 +134,7 @@ public class PsdTests
     }
 
     [Fact]
-    public void Text_smart_objects_and_effects_become_pixels_with_a_report()
+    public void Malformed_text_smart_objects_and_effects_keep_compatibility_pixels_with_a_report()
     {
         var writer = new PsdWriter { Width = 50, Height = 50 };
         writer.Layers.Add(new PsdWriterLayer { Name = "Headline", Image = Solid(30, 10, SKColors.Black), Left = 5, Top = 5 }.With("TySh", new byte[16]));
@@ -147,8 +147,10 @@ public class PsdTests
         AssertColor(SKColors.Black, import.Layers[0].Pixels!.GetPixel(0, 0));
         Assert.Contains(import.Conversions, c => c.LayerName == "Headline" && c.Message.Contains("retyped"));
         Assert.Contains(import.Conversions, c => c.LayerName == "Logo" && c.Message.Contains("smart object"));
-        Assert.Contains(import.Conversions, c => c.LayerName == "Glowing" && c.Message.Contains("effects"));
-        Assert.Equal(1, import.Layers[2].Opacity);                          // Fill opacity belongs to the effects that were dropped.
+        Assert.Contains(import.Conversions, c => c.LayerName == "Glowing" && c.Message.Contains("could not be read"));
+        Assert.Null(import.Layers[2].Effects);
+        Assert.Equal(1, import.Layers[2].Opacity);
+        Assert.Equal(128 / 255.0, import.Layers[2].FillOpacity, 4);
         Assert.Contains(import.Conversions, c => c.LayerName == "Pattern" && c.Message.Contains("imported empty"));
         Assert.Equal((50, 50), (import.Layers[3].Pixels!.Width, import.Layers[3].Pixels.Height));
     }

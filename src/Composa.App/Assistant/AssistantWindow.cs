@@ -341,6 +341,20 @@ public static class AssistantDialogs
         var url = new TextBox { Text = settings.AssistantServerUrl, Width = 340 };
         var executable = new TextBox { Text = settings.AssistantServerExecutable, Width = 270 };
         var model = new TextBox { Text = settings.AssistantModelPath, Width = 270 };
+        string? launcherDirectory = null;
+        var launcherNote = Ui.Label("Choose the complete llama.cpp folder, including its libraries.", Palette.Secondary);
+        async Task PickDirectory()
+        {
+            var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "llama.cpp folder", AllowMultiple = false });
+            if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
+            try
+            {
+                executable.Text = LlamaLauncher.FindExecutable(directory);
+                launcherDirectory = directory;
+                launcherNote.Text = "Saving these settings creates run-composa-assistant in this folder.";
+            }
+            catch (Exception error) { launcherNote.Text = error.Message; }
+        }
         var apiUrl = new TextBox { Text = settings.AssistantApiUrl, Width = 340, PlaceholderText = "https://server.example/v1" };
         var apiModel = new TextBox { Text = settings.AssistantApiModel, Width = 340, PlaceholderText = "Model ID from your provider" };
         var apiKey = new TextBox { Text = settings.AssistantApiKey, Width = 340, PasswordChar = '●', PlaceholderText = "API key for this session" };
@@ -357,6 +371,7 @@ public static class AssistantDialogs
         var vision = new CheckBox { Content = "Send document preview and attached images (vision model)", IsChecked = settings.AssistantVision };
         var json = new CheckBox { Content = "Request JSON response format (if supported)", IsChecked = settings.AssistantJsonResponse };
         var local = CanvasDialogs.Form(("Server URL", url),
+            ("llama.cpp folder", Ui.Column(6, Ui.TextButton("Choose folder & create launcher…", () => _ = PickDirectory()), launcherNote)),
             ("llama-server", Ui.Row(6, executable, Ui.TextButton("Browse…", () => _ = Pick(executable, "llama-server", "*")))),
             ("GGUF model", Ui.Row(6, model, Ui.TextButton("Browse…", () => _ = Pick(model, "GGUF model", "*.gguf")))),
             ("Context", context), ("", auto));
@@ -372,6 +387,11 @@ public static class AssistantDialogs
             ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
             if (string.IsNullOrWhiteSpace(apiModel.Text)) throw new FormatException("Enter the API model name.");
         }
+        if (launcherDirectory != null && provider.SelectedIndex == 0)
+            LlamaLauncher.Write(launcherDirectory, new Settings {
+                AssistantServerUrl = url.Text?.Trim().TrimEnd('/') ?? "", AssistantServerExecutable = executable.Text?.Trim() ?? "",
+                AssistantModelPath = model.Text?.Trim() ?? "", AssistantContextSize = (int)(context.Value ?? 16384)
+            });
         settings.AssistantProvider = provider.SelectedIndex == 0 ? "local" : "api";
         settings.AssistantServerUrl = url.Text?.Trim().TrimEnd('/') ?? "";
         settings.AssistantServerExecutable = executable.Text?.Trim() ?? "";

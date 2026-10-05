@@ -24,6 +24,10 @@ public sealed class TextLayout
         /// <summary>Where the line starts, after alignment.</summary>
         public float X { get; init; }
         public float Baseline { get; init; }
+        public float Ascent { get; init; }
+        public float Descent { get; init; }
+        public float Top { get; init; }
+        public float Height { get; init; }
         /// <summary>The x offset of each character boundary from <see cref="X"/>: <c>Positions[k]</c> is where character <c>Start + k</c> begins, and the last entry is where the line ends.</summary>
         public float[] Positions { get; init; } = [];
         /// <summary>The width without trailing spaces, which alignment ignores.</summary>
@@ -60,10 +64,10 @@ public sealed class TextLayout
     });
 
     /// <summary>The font for layout and drawing alike. A face without a bold or italic variant gets them synthesized, as Photoshop's faux styles do.</summary>
-    private SKFont MakeFont(TextFace face)
+    private SKFont MakeFont(TextFace face, double size)
     {
         var typeface = TypefaceFor(face);
-        var font = new SKFont(typeface, (float)Math.Clamp(Style.Size, 1, 4000)) { Subpixel = true, Edging = SKFontEdging.Antialias, Hinting = SKFontHinting.None };
+        var font = new SKFont(typeface, (float)Math.Clamp(size, 1, 4000)) { Subpixel = true, Edging = SKFontEdging.Antialias, Hinting = SKFontHinting.None };
         if (face.FontStyle == null && face.Bold && typeface.FontWeight < (int)SKFontStyleWeight.SemiBold) font.Embolden = true;
         if (face.FontStyle == null && face.Italic && typeface.FontSlant == SKFontStyleSlant.Upright) font.SkewX = -0.25f;
         return font;
@@ -72,8 +76,12 @@ public sealed class TextLayout
     /// <summary>One font per face the text uses, made as they are needed and disposed together.</summary>
     private sealed class Fonts(TextLayout layout) : IDisposable
     {
-        private readonly Dictionary<TextFace, SKFont> fonts = [];
-        public SKFont For(TextFace face) => fonts.TryGetValue(face, out var font) ? font : fonts[face] = layout.MakeFont(face);
+        private readonly Dictionary<(TextFace, double), SKFont> fonts = [];
+        public SKFont For(TextFace face, double? size = null)
+        {
+            var key = (face, size ?? layout.Style.Size);
+            return fonts.TryGetValue(key, out var font) ? font : fonts[key] = layout.MakeFont(face, key.Item2);
+        }
         public void Dispose() { foreach (var font in fonts.Values) font.Dispose(); }
     }
 
@@ -110,6 +118,20 @@ public sealed class TextLayout
             visible[i] = Sum(advances, start, last);
             contentWidth = Math.Max(contentWidth, visible[i]);
         }
+        var lineMetrics = new List<(float Ascent, float Descent, float Height)>();
+        foreach (var (start, end) in ranges)
+        {
+            float ascent = 0, descent = 0, largest = 0;
+            for (var k = start; k < Math.Max(start + 1, end); k++)
+            {
+                var size = style.SizeAt(k);
+                var m = fonts.For(style.FaceAt(k), size).Metrics;
+                ascent = Math.Max(ascent, -m.Ascent); descent = Math.Max(descent, m.Descent); largest = Math.Max(largest, (float)size);
+            }
+            lineMetrics.Add((ascent, descent, (float)(style.Leading > 0 ? style.Leading : largest * 1.2)));
+        }
+        var explicitShift = style.Leading > 0
+            ? Math.Max(0, lineMetrics.Select((m, i) => m.Ascent - lineMetrics[0].Ascent - i * LineHeight).Max()) : 0;
         if (style.IsBox)
         {
             Width = (int)Math.Round(style.BoxWidth!.Value);
@@ -119,14 +141,18 @@ public sealed class TextLayout
         else
         {
             // A caret's worth of width so an empty line still has somewhere to type.
-            Width = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentWidth + Padding * 2 + style.Size * 0.1));
-            var contentHeight = Math.Max(ranges.Count * LineHeight, Ascent + Descent);
+            var largestSize = Math.Max(style.Size, style.SizeRuns?.Max(r => r.Size) ?? style.Size);
+            Width = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentWidth + Padding * 2 + largestSize * 0.1));
+            var contentHeight = style.Leading > 0
+                ? Math.Max(ranges.Count * LineHeight + explicitShift, lineMetrics.Select((m, i) => lineMetrics[0].Ascent + explicitShift + i * LineHeight + m.Descent).Max())
+                : Math.Max(lineMetrics.Sum(m => m.Height), lineMetrics.Take(lineMetrics.Count - 1).Sum(m => m.Height) + lineMetrics[^1].Ascent + lineMetrics[^1].Descent);
             Height = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + Padding * 2));
         }
         Width = Math.Min(Width, Document.MaxSide);
         Height = Math.Min(Height, Document.MaxSide);
 
         var lines = new List<Line>(ranges.Count);
+        float top = Padding;
         for (var i = 0; i < ranges.Count; i++)
         {
             var (start, end) = ranges[i];
@@ -138,10 +164,13 @@ public sealed class TextLayout
                 TextAlignment.Right => contentWidth - visible[i],
                 _ => 0
             };
-            lines.Add(new Line { Start = start, End = end, X = x, Baseline = Padding + Ascent + i * LineHeight, Positions = positions, VisibleWidth = visible[i] });
+            var lm = lineMetrics[i];
+            var baseline = style.Leading > 0 ? Padding + lineMetrics[0].Ascent + explicitShift + i * LineHeight : top + lm.Ascent;
+            lines.Add(new Line { Start = start, End = end, X = x, Top = top, Height = lm.Height, Ascent = lm.Ascent, Descent = lm.Descent, Baseline = baseline, Positions = positions, VisibleWidth = visible[i] });
+            top += lm.Height;
         }
         Lines = lines;
-        Overflows = style.IsBox && lines.Count > 0 && lines[^1].Baseline + Descent > Height - Padding + 0.5f;
+        Overflows = style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f);
     }
 
     /// <summary>The advance of every character (a surrogate pair's second half advances nothing), tracking included, each stretch of one face measured with its own font.</summary>
@@ -151,9 +180,10 @@ public sealed class TextLayout
         for (var start = 0; start < text.Length;)
         {
             var face = Style.FaceAt(start);
+            var size = Style.SizeAt(start);
             var end = start + 1;
-            while (end < text.Length && Style.FaceAt(end) == face) end++;
-            var font = fonts.For(face);
+            while (end < text.Length && Style.FaceAt(end) == face && Style.SizeAt(end) == size) end++;
+            var font = fonts.For(face, size);
             var segment = text.Substring(start, end - start);
             var widths = font.GetGlyphWidths(font.GetGlyphs(segment));
             var glyph = 0;
@@ -226,10 +256,11 @@ public sealed class TextLayout
             for (var k = 0; k < line.Length;)
             {
                 var face = Style.FaceAt(line.Start + k);
+                var size = Style.SizeAt(line.Start + k);
                 var color = Style.ColorAt(line.Start + k);
                 var end = k + 1;
-                while (end < line.Length && Style.FaceAt(line.Start + end) == face && Style.ColorAt(line.Start + end) == color) end++;
-                var font = fonts.For(face);
+                while (end < line.Length && Style.FaceAt(line.Start + end) == face && Style.SizeAt(line.Start + end) == size && Style.ColorAt(line.Start + end) == color) end++;
+                var font = fonts.For(face, size);
                 var segment = Text.Substring(line.Start + k, end - k);
                 var glyphs = font.GetGlyphs(segment);
                 if (glyphs.Length > 0)
@@ -278,15 +309,15 @@ public sealed class TextLayout
         index = Math.Clamp(index, 0, Text.Length);
         var line = Lines[LineOf(index)];
         var k = Math.Clamp(index - line.Start, 0, line.Positions.Length - 1);
-        return (line.X + line.Positions[k], line.Baseline - Ascent, line.Baseline + Descent);
+        var metrics = MakeFont(Style.FaceAt(Math.Max(0, index - 1)), Style.SizeAt(Math.Max(0, index - 1)));
+        using (metrics) return (line.X + line.Positions[k], line.Baseline + metrics.Metrics.Ascent, line.Baseline + metrics.Metrics.Descent);
     }
 
     /// <summary>The character boundary nearest a point in layout pixels.</summary>
     public int IndexAt(SKPoint point)
     {
         if (Lines.Count == 0) return 0;
-        var row = (int)Math.Floor((point.Y - Padding) / Math.Max(1e-3f, LineHeight));
-        var line = Lines[Math.Clamp(row, 0, Lines.Count - 1)];
+        var line = Lines.FirstOrDefault(l => point.Y < l.Top + l.Height) ?? Lines[^1];
         return line.Start + NearestBoundary(line, point.X);
     }
 
@@ -329,8 +360,8 @@ public sealed class TextLayout
             var left = line.X + line.Positions[from - line.Start];
             var right = line.X + line.Positions[to - line.Start];
             // A newline taken into the selection shows as a sliver past the line's end.
-            if (end > line.End && to == line.End) right += Math.Max(4, Ascent * 0.3f);
-            rects.Add(new SKRect(left, line.Baseline - Ascent, right, line.Baseline + Descent));
+            if (end > line.End && to == line.End) right += Math.Max(4, line.Ascent * 0.3f);
+            rects.Add(new SKRect(left, line.Baseline - line.Ascent, right, line.Baseline + line.Descent));
         }
         return rects;
     }

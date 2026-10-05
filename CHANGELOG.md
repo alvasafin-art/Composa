@@ -4,6 +4,25 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.16] - 2026-10-05
+
+### Added
+
+- Character-size runs inside one text block, with selection-aware Type controls, matching caret/line layout, undo, native project persistence and editable Photoshop text interchange. Native project format is now version 9; older projects remain readable.
+- Embedded Photoshop PSD/PSB and raster smart-object sources, shared instances, affine/perspective placement and masks. Linked external files, warps, vector masks and smart filters retain compatibility pixels with an explicit conversion report.
+- Photoshop layer shadows, glows, color overlays and supported strokes, including separate fill opacity. Unsupported effects and advanced parameters are reported instead of silently dropped.
+- Move-bar alignment to the canvas or first-selected object in all six directions, plus equal horizontal/vertical gaps. Commands move selected objects/groups in one undo step.
+- Object Selection lists actual models from the connected ComfyUI server. Optional native BiRefNet FP32 runs without ComfyUI, verifies the selected ONNX file and releases its inference session after each operation. Its 973 MB weights are not bundled; a measured CPU run took about 13 seconds and peaked near 9 GB RAM.
+- Assistant Settings can select a complete llama.cpp folder and create a portable server launcher using the application's model, address and context settings.
+
+### Fixed
+
+- Move can pick text throughout its editable box, including whitespace, while preserving visible-layer order and masks.
+- Cropped-away PSD layers use a minimal transparent placeholder rather than allocating a full canvas.
+- Headless/transient windows do not issue background update requests that shift the canvas during pointer checks.
+
+Verification: automated core and headless UI checks cover mixed text sizes, PSD sources/effects, alignment, server model choices and launcher generation. Interface screenshots and an actual native BiRefNet portrait mask were inspected. Photoshop itself was not run.
+
 ## [1.2.1-preview.15] - 2026-10-05
 
 ### Fixed

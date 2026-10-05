@@ -14,6 +14,8 @@ public sealed class Document
     public List<Layer> Layers { get; init; } = [];
     public Guid? ActiveLayerId { get; set; }
     public HashSet<Guid> SelectedLayerIds { get; init; } = [];
+    /// <summary>The first object selected, retained while extending the selection.</summary>
+    public Guid? SelectionAnchorId { get; set; }
     /// <summary>Alpha8 selection coverage at document size, or null when nothing is selected.</summary>
     public SKBitmap? Selection { get; set; }
     /// <summary>User-placed alignment lines. Saved with the project; undo covers them.</summary>
@@ -38,7 +40,7 @@ public sealed class Document
 
     public Document Clone()
     {
-        var copy = new Document(Width, Height) { Resolution = Resolution, ActiveLayerId = ActiveLayerId, Selection = Selection };
+        var copy = new Document(Width, Height) { Resolution = Resolution, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
         foreach (var layer in Layers) copy.Layers.Add(layer.Clone());
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.Guides.AddRange(Guides);
@@ -79,6 +81,7 @@ public sealed class Document
     public void SetActive(Guid? id)
     {
         ActiveLayerId = id;
+        SelectionAnchorId = id;
         SelectedLayerIds.Clear();
         if (id is { } value) SelectedLayerIds.Add(value);
     }

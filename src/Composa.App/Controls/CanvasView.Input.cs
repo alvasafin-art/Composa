@@ -774,7 +774,9 @@ public sealed partial class CanvasView
             var local = inverse.MapPoint(p);
             int x = (int)Math.Floor(local.X), y = (int)Math.Floor(local.Y);
             if (x < 0 || y < 0 || x >= layer.Pixels.Width || y >= layer.Pixels.Height) continue;
-            var alpha = layer.Pixels.GetPixel(x, y).Alpha * layer.Opacity;
+            // Live text is picked by its editable box, including spaces and thin glyphs. Keep stack order:
+            // an opaque layer above the text still wins, and layer/group masks still constrain the hit.
+            var alpha = (layer.Text != null ? 255 : layer.Pixels.GetPixel(x, y).Alpha) * layer.Opacity;
             if (layer.MaskEnabled && layer.Mask is { } mask) alpha *= mask.GetPixel(x, y).Alpha / 255.0;
             for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
             {

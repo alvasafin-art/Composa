@@ -13,7 +13,7 @@ public static class LayerEffectsRenderer
 {
     public const long MaxPixels = 100_000_000;
 
-    private sealed record Entry(SKBitmap Pixels, SKBitmap? Mask, LayerEffects Effects, SKBitmap Result, int Inset);
+    private sealed record Entry(SKBitmap Pixels, SKBitmap? Mask, LayerEffects Effects, double FillOpacity, SKBitmap Result, int Inset);
 
     private static readonly List<Entry> Cache = [];
     private const int MaxEntries = 12;
@@ -30,14 +30,14 @@ public static class LayerEffectsRenderer
     /// The layer's pixels, through its mask, with its visible effects around them; null when there is nothing to
     /// draw or the result would be too large, in which case the caller draws the layer as it is.
     /// </summary>
-    public static (SKBitmap Image, int Inset)? Cached(SKBitmap pixels, SKBitmap? mask, LayerEffects? effects)
+    public static (SKBitmap Image, int Inset)? Cached(SKBitmap pixels, SKBitmap? mask, LayerEffects? effects, double fillOpacity = 1)
     {
         if (effects == null) return null;
         var visible = effects.Visible();
         if (visible.IsEmpty) return null;
         lock (Cache)
         {
-            var index = Cache.FindIndex(e => ReferenceEquals(e.Pixels, pixels) && ReferenceEquals(e.Mask, mask) && e.Effects == visible);
+            var index = Cache.FindIndex(e => ReferenceEquals(e.Pixels, pixels) && ReferenceEquals(e.Mask, mask) && e.Effects == visible && e.FillOpacity == fillOpacity);
             if (index >= 0)
             {
                 var hit = Cache[index];
@@ -45,14 +45,14 @@ public static class LayerEffectsRenderer
                 return (hit.Result, hit.Inset);
             }
         }
-        var made = Render(pixels, mask, visible);
+        var made = Render(pixels, mask, visible, fillOpacity);
         if (made == null) return null;
         lock (Cache)
         {
             // Two render bands may have built the same image at once; the first one in wins.
-            var other = Cache.Find(e => ReferenceEquals(e.Pixels, pixels) && ReferenceEquals(e.Mask, mask) && e.Effects == visible);
+            var other = Cache.Find(e => ReferenceEquals(e.Pixels, pixels) && ReferenceEquals(e.Mask, mask) && e.Effects == visible && e.FillOpacity == fillOpacity);
             if (other != null) { made.Value.Image.Dispose(); return (other.Result, other.Inset); }
-            Cache.Add(new Entry(pixels, mask, visible, made.Value.Image, made.Value.Inset));
+            Cache.Add(new Entry(pixels, mask, visible, fillOpacity, made.Value.Image, made.Value.Inset));
             // Evicted results are left to the garbage collector: a render on another thread may still be drawing them.
             while (Cache.Count > MaxEntries || (Cache.Count > 1 && Cache.Sum(e => (long)e.Result.ByteCount) > Budget)) Cache.RemoveAt(0);
         }
@@ -66,7 +66,7 @@ public static class LayerEffectsRenderer
     }
 
     /// <summary>Renders the effects without the cache. <paramref name="visible"/> should come from <see cref="LayerEffects.Visible"/>.</summary>
-    public static (SKBitmap Image, int Inset)? Render(SKBitmap pixels, SKBitmap? mask, LayerEffects visible)
+    public static (SKBitmap Image, int Inset)? Render(SKBitmap pixels, SKBitmap? mask, LayerEffects visible, double fillOpacity = 1)
     {
         var inset = visible.Margin();
         if (inset == 0) inset = 2;
@@ -129,7 +129,8 @@ public static class LayerEffectsRenderer
             using var paint = new SKPaint { Shader = shader, BlendMode = SKBlendMode.SrcATop, Color = SKColors.White.WithAlpha((byte)Math.Round(gradient.Opacity * 255)) };
             shownCanvas.DrawRect(SKRect.Create(0, 0, shown.Width, shown.Height), paint);
         }
-        canvas.DrawBitmap(shown, 0, 0);
+        using (var fill = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round(Math.Clamp(fillOpacity, 0, 1) * 255)) })
+            canvas.DrawBitmap(shown, 0, 0, fill);
         if (visible.ColorOverlay is { Opacity: > 0 } overlay) Tint(canvas, coverage, overlay.Color, overlay.Opacity);
         if (visible.InnerGlow is { Opacity: > 0, Size: > 0 } innerGlow)
         {
