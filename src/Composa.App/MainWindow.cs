@@ -128,8 +128,10 @@ public sealed partial class MainWindow : Window
         canvas.Problem += message => { problem = message; UpdateStatus(); };
         canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
+        canvas.ObjectSelectionAvailable = () => !localSelectionBusy && (settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI || canvas.AiToolsAvailable() == true);
         canvas.AiSelectionCompleted += task => _ = RunAi(task, useInlinePrompt: true);
-        canvas.AiObjectSelectionRequested += (region, mode) => _ = RunAi(Composa.AI.AiTaskKind.ObjectSelection, useInlinePrompt: true, selectionRegion: region, selectionOperation: mode);
+        canvas.AiObjectSelectionRequested += (region, mode) => _ = RunObjectSelection(region, mode);
+        canvas.ObjectSelectionPointRequested += (x, y, mode) => _ = RunObjectSelection(null, mode, new SkiaSharp.SKPointI(x, y));
         // Opening text from the canvas with another tool switches to the Type tool, so the toolbar has to follow.
         canvas.TextEditingChanged += () => { if (session != null) ShowTool(session.Tool); RebuildOptions(); UpdateStatus(); };
         layers.EditTextRequested += BeginTextEdit;
@@ -266,6 +268,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Tool choice, colors and brush settings follow the user from tab to tab.</summary>
     private void CarryToolState(EditorSession target, Tool tool)
     {
+        target.Detect = LocalDetect;
         if (lastToolSource is { } from && from != target)
         {
             target.Foreground = from.Foreground; target.Background = from.Background; target.Brush = from.Brush;
@@ -534,7 +537,7 @@ public sealed partial class MainWindow : Window
                 Choice("Magic Wand", Icons.Wand, MagicKey, s => !magicShowsSelectionBrush && !magicShowsAi && s.WandMode == WandMode.Wand, s => s.WandMode = WandMode.Wand),
                 Choice("Object Selection", Icons.ObjectSelect, MagicKey, s => !magicShowsSelectionBrush && !magicShowsAi && s.WandMode == WandMode.Object, s => s.WandMode = WandMode.Object),
                 new ToolChoice("Object Selection AI", Icons.ObjectSelectAi, () => null,
-                    () => magicShowsAi, () => { SelectTool(Tool.ObjectSelectionAi); canvas.Focus(); }, () => canvas.AiToolsAvailable?.Invoke() == true),
+                    () => magicShowsAi, () => { SelectTool(Tool.ObjectSelectionAi); canvas.Focus(); }),
                 new ToolChoice("Selection Brush", Icons.SelectionBrush, () => toolKeys.FirstOrDefault(k => k.Id == "Selection Brush")?.Gesture,
                     () => magicShowsSelectionBrush, () => { SelectTool(Tool.SelectionBrush); canvas.Focus(); })
             ],

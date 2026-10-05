@@ -8,3 +8,4 @@ dist/
 plan-*.md
 artifacts/
 TestResults/
+src/Composa.Core/Models/modnet.onnx

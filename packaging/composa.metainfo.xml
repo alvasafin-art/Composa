@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.14" date="2026-10-05">
+      <description><p>Local subject selection with bundled U²-Net lite and MODNet, an options-bar model menu, ComfyUI routing and cancellable CPU inference.</p></description>
+    </release>
     <release version="1.2.1-preview.13" date="2026-10-04">
       <description>
         <p>PSD interchange keeps supported text and vectors editable and reports conversions. Installed font styles replace Bold/Italic buttons. Gradient layer effects, editable shape properties, Alt-drag duplication, object selection in Move, raster content controls and the original blue accent are included. Verified by 837 automated tests.</p>

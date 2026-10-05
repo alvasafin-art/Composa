@@ -79,6 +79,7 @@ public sealed partial class MainWindow
                         Add(Ui.SliderField("Tolerance", s.WandTolerance, 0, 255, v => s.WandTolerance = (int)v, width: 130), Ui.Check("Contiguous", s.WandContiguous, v => s.WandContiguous = v));
                     else
                     {
+                        Add(ObjectSelectionModelMenu());
                         var edge = Ui.Number(s.ObjectEdgeOffset, -10, 10, v => s.ObjectEdgeOffset = (int)v, 1, "0", 52);
                         ToolTip.SetTip(edge, "Positive values tighten the detected outline inward; negative values loosen it outward");
                         Add(Ui.Row(5, Ui.Scrub(Ui.Label("Edge", Palette.Secondary), edge), edge, Ui.Label("px", Palette.Secondary)));
@@ -112,7 +113,9 @@ public sealed partial class MainWindow
                 Add(Ui.Separator(), Flat("Deselect", s.Deselect));
                 break;
             case Tool.ObjectSelectionAi:
-                Add(Title("Object Selection AI"), Ui.Label("Draw a rectangle around the object · release to select", Palette.Secondary));
+                Add(Title("Object Selection AI"), ObjectSelectionModelMenu(),
+                    Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v),
+                    Ui.Label("Click or draw a rectangle · Shift adds · Alt subtracts", Palette.Secondary));
                 break;
             case Tool.Bucket:
                 Add(Title("Paint Bucket"), Ui.SliderField("Tolerance", s.WandTolerance, 0, 255, value => s.WandTolerance = (int)value),

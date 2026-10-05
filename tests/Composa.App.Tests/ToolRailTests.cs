@@ -53,7 +53,7 @@ public class ToolRailTests
         Assert.StartsWith("Selection Brush (Q)",ToolTip.GetTip(lasso) as string);
         window.MouseDown(Center(lasso),MouseButton.Right); window.MouseUp(Center(lasso),MouseButton.Right); Dispatcher.UIThread.RunJobs();
         Assert.Equal(["Magic Wand", "Object Selection", "Object Selection AI", "Selection Brush"],lasso.GroupItems.Select(item=>item.Header!.ToString()));
-        Assert.False(lasso.GroupItems[2].IsEnabled);
+        Assert.True(lasso.GroupItems[2].IsEnabled); // Bundled models work without a ComfyUI connection.
         var popup=TopLevel.GetTopLevel(lasso.GroupItems[3])!;
         var selected=lasso.GroupItems[3].TranslatePoint(new Point(40,10),popup)!.Value;
         popup.MouseDown(selected,MouseButton.Left); popup.MouseUp(selected,MouseButton.Left);

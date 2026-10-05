@@ -24,13 +24,13 @@
       wherever the library goes. They are tied to the reference here rather than to a packaging
       script, so no build can carry the library without them.
     -->
-    <None Include="../../packaging/THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(PkgMagick_NET-Q16-AnyCPU)/Notice.txt" Link="ImageMagick-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(BundleImageMagick)' != 'true'">
     <Compile Remove="BundledImageMagick.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="../../packaging/THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Controls.ColorPicker" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />

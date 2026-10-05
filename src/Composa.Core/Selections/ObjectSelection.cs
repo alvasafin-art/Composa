@@ -52,6 +52,35 @@ public static class ObjectSelection
         return soft;
     }
 
+    /// <summary>
+    /// The object at a point in a model's matte: the connected piece of the matte around the point, keeping the
+    /// matte's own soft edge for a short way around it, tightened or loosened by <paramref name="edgeOffset"/> pixels.
+    /// Null when the point is on the backdrop or outside the picture.
+    /// </summary>
+    public static unsafe SKBitmap? FromMatte(SKBitmap matte, int x, int y, int edgeOffset)
+    {
+        if (x < 0 || y < 0 || x >= matte.Width || y >= matte.Height) return null;
+        if (((byte*)matte.GetPixels())[(long)y * matte.RowBytes + x] < 128) return null;
+        using var piece = ConnectedPiece(matte, x, y);
+        var steps = Math.Min(10, Math.Abs(edgeOffset));
+        if (steps > 0)
+        {
+            // Moved off the matte's edge, the piece takes a plain soft edge, as the traced method's does.
+            using var adjusted = edgeOffset > 0 ? SelectionMask.Contract(piece, steps) : SelectionMask.Expand(piece, steps);
+            return adjusted == null ? null : SelectionMask.Feather(adjusted, 2f);
+        }
+        // The matte's values within a few pixels of the piece: its soft fringe, without the other objects in it.
+        using var fringe = SelectionMask.Expand(piece, 3);
+        var result = Pixels.Clone(fringe);
+        byte* r = (byte*)result.GetPixels(), m = (byte*)matte.GetPixels();
+        for (var py = 0; py < matte.Height; py++)
+        {
+            byte* row = r + (long)py * result.RowBytes, values = m + (long)py * matte.RowBytes;
+            for (var px = 0; px < matte.Width; px++) row[px] = Math.Min(row[px], values[px]);
+        }
+        return result;
+    }
+
     /// <summary>The 4-connected run of set mask pixels around a seed, as a new mask.</summary>
     private static unsafe SKBitmap ConnectedPiece(SKBitmap mask, int seedX, int seedY)
     {

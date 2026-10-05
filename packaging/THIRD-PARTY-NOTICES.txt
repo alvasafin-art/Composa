@@ -12,3 +12,22 @@ Several of those components are licensed under the GNU Lesser General Public Lic
   https://github.com/dlemstra/Magick.NET
 
 and each component's own upstream source is linked from ImageMagick-NOTICE.txt.
+
+On-device subject selection
+
+Every build includes ONNX Runtime and two unmodified, Apache-2.0 subject models. They run on the CPU locally, without sending images anywhere or downloading models at runtime. The full Apache-2.0 and ONNX Runtime licence texts are included in model-licenses/.
+
+ONNX Runtime 1.30.0, Copyright (c) Microsoft Corporation, MIT licence.
+Source: https://github.com/microsoft/onnxruntime
+
+models/u2netp.onnx: U²-Net lite, Copyright (c) 2020 Xuebin Qin et al., Apache-2.0.
+Source: https://github.com/xuebinqin/U-2-Net
+ONNX conversion: https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
+4,574,861 bytes; SHA-256 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
+
+models/modnet.onnx: MODNet, Copyright (c) 2020 Zhanghan Ke et al., Apache-2.0.
+Source: https://github.com/ZHKKKe/MODNet
+ONNX conversion: https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx
+25,888,640 bytes; SHA-256 07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9
+
+The model runner, catalogue and tensor preprocessing were adapted from dvdstelt/Composa at 86529d3. That upstream records the Lolly port (MPL-2.0) as used under MIT by permission of Andy Fitzsimon on 2026-09-30; the original provenance comments remain in the source.

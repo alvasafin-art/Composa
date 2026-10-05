@@ -14,6 +14,8 @@ public sealed partial class CanvasView
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
+    public event Action<int, int, SelectionMode>? ObjectSelectionPointRequested;
+    public Func<bool>? ObjectSelectionAvailable { get; set; }
 
     private Drag drag;
     private MouseButton dragButton;
@@ -178,8 +180,11 @@ public sealed partial class CanvasView
         base.OnPointerPressed(e);
         Focus();
         if (session == null || drag != Drag.None && !(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) return;
-        if (session.Tool is Tool.ObjectSelectionAi or Tool.RemoveObject && AiToolsAvailable?.Invoke() != true)
+        if (session.Tool == Tool.RemoveObject && AiToolsAvailable?.Invoke() != true)
         { Problem?.Invoke("Connect to ComfyUI and wait for the current AI operation to finish."); return; }
+        if ((session.Tool == Tool.ObjectSelectionAi || session.Tool == Tool.Wand && session.WandMode == WandMode.Object)
+            && ObjectSelectionAvailable?.Invoke() == false)
+        { Problem?.Invoke("Wait for selection to finish, or choose a local model in the options bar instead of ComfyUI."); return; }
         var point = e.GetCurrentPoint(this);
         pressScreen = cursorScreen = point.Position;
         pressDocument = currentDocument = ToDocument(point.Position);
@@ -253,7 +258,12 @@ public sealed partial class CanvasView
                 }
                 break;
             case Tool.Wand:
-                if (session.WandMode == WandMode.Object) session.SelectObject((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
+                if (session.WandMode == WandMode.Object)
+                {
+                    var x = (int)Math.Floor(pressDocument.X); var y = (int)Math.Floor(pressDocument.Y);
+                    if (ObjectSelectionPointRequested != null) ObjectSelectionPointRequested.Invoke(x, y, ModeFor(e.KeyModifiers));
+                    else session.SelectObject(x, y, ModeFor(e.KeyModifiers));
+                }
                 else session.SelectWand((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 break;
             case Tool.ObjectSelectionAi:
@@ -422,6 +432,7 @@ public sealed partial class CanvasView
                     var area = SKRectI.Intersect(session.Document.Bounds, new SKRectI((int)Math.Floor(search.Left), (int)Math.Floor(search.Top), (int)Math.Ceiling(search.Right), (int)Math.Ceiling(search.Bottom)));
                     if (!area.IsEmpty) AiObjectSelectionRequested?.Invoke(area, dragMode);
                 }
+                else ObjectSelectionPointRequested?.Invoke((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), dragMode);
                 break;
             case Drag.Marquee:
                 guides.Clear();

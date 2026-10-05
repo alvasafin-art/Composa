@@ -4,6 +4,7 @@
 #   usage: tarball.sh <rid> <output-dir>
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+bash "$ROOT/scripts/models/fetch.sh"
 
 RID="${1:?usage: tarball.sh <rid> <output-dir>}"
 OUT="$(ensure_dir "${2:?}")"

@@ -4,6 +4,14 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.14] - 2026-10-05
+
+### Added
+
+- On-device object and subject selection using bundled U²-Net lite and MODNet models, adapted from original Composa 1.4. The Object Selection options bar chooses U²-Net lite (default), MODNet, Plain backdrop or the existing ComfyUI workflow; the choice persists across tabs and launches.
+- Local selection by point or search rectangle, sampling the active layer or all visible layers, with Shift/Alt combination, undo and cancellable background inference. Select > Subject shares the model choice. Missing model/runtime falls back to Plain backdrop with an explicit status message.
+- CPU-only ONNX Runtime loaded on demand, pinned model size/SHA-256 verification, model fetching during packaging and complete notices in Windows and Linux builds. No model is downloaded at application runtime.
+
 ## [1.2.1-preview.13] - 2026-10-04
 
 ### Added

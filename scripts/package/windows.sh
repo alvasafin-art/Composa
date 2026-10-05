@@ -14,6 +14,7 @@
 # that antivirus software distrusts; a folder in a zip is what Windows users expect anyway.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+bash "$ROOT/scripts/models/fetch.sh"
 
 RID="${1:-win-x64}"
 OUT="$(ensure_dir "${2:-$BUILD}")"

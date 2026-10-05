@@ -26,6 +26,10 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Fetch and verify subject models
+        shell: bash
+        run: bash scripts/models/fetch.sh
+
       - name: Build
         run: dotnet build --configuration Release
 
@@ -54,6 +58,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+
+      - name: Fetch and verify subject models
+        shell: bash
+        run: bash scripts/models/fetch.sh
 
       - name: Build
         run: dotnet build --configuration Release

@@ -31,6 +31,7 @@ public class SelectionAndShapeBarTests
     [AvaloniaFact]
     public void Tab_switches_the_magic_tool_to_object_mode_and_a_click_selects_the_object()
     {
+        window.Settings.ObjectSelectionModel = ObjectSelectionSource.PlainBackdrop;
         session.AddImageLayer("box", Rendering.Pixels.NewColor(80, 60), new SKPoint(300, 200));
         session.ActiveLayer!.Pixels!.Erase(SKColors.Red);
         session.InvalidateAll();

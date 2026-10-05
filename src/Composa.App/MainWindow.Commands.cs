@@ -920,8 +920,7 @@ public sealed partial class MainWindow
 
     private void SelectSubject()
     {
-        if (session == null) return;
-        if (!session.SelectSubject()) ShowProblem("No subject found: the picture has no plain backdrop to tell it apart from.");
+        _ = RunObjectSelection(null, Composa.Selections.SelectionMode.Replace);
     }
 
     private Histogram? HistogramOfActive()
