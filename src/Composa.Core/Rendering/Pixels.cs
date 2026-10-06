@@ -5,7 +5,7 @@ using SkiaSharp;
 namespace Composa.Rendering;
 
 /// <summary>Pixel formats and helpers shared by everything that touches bitmaps.</summary>
-public static class Pixels
+public static partial class Pixels
 {
     private sealed record ContentExtent(SKRectI Bounds);
     private static readonly ConditionalWeakTable<SKBitmap, ContentExtent> extents = new();

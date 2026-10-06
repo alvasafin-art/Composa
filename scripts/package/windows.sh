@@ -39,6 +39,7 @@ cp "$ROOT/run-composa.bat" "$TREE/"
 mkdir -p "$TREE/docs"
 cp "$ROOT/docs/ai-models.md" "$TREE/docs/"
 cp "$ROOT/docs/assistant-agent.md" "$TREE/docs/"
+cp "$ROOT/docs/professional-editing.md" "$ROOT/docs/object-selection-models.md" "$TREE/docs/"
 
 # Bundling ImageMagick redistributes LGPL libraries, and the notices are what makes that allowed.
 # The project file adds them; this makes sure no change there can ship a build without them.

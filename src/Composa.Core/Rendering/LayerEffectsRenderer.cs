@@ -120,8 +120,7 @@ public static class LayerEffectsRenderer
             var dx = (float)Math.Cos(radians); var dy = (float)-Math.Sin(radians);
             var center = new SKPoint(inset + pixels.Width / 2f, inset + pixels.Height / 2f);
             var reach = (Math.Abs(dx) * pixels.Width + Math.Abs(dy) * pixels.Height) / 2f * (float)(gradient.Scale / 100);
-            var colors = new[] { new SKColor(gradient.StartColor), new SKColor(gradient.EndColor) };
-            if (gradient.Reverse) Array.Reverse(colors);
+            var colors = (gradient.Ramp ?? GradientRamp.Between(gradient.StartColor, gradient.EndColor)).ShaderColors(gradient.Reverse);
             using var shader = gradient.Radial
                 ? SKShader.CreateRadialGradient(center, Math.Max(pixels.Width, pixels.Height) / 2f * (float)(gradient.Scale / 100), colors, null, SKShaderTileMode.Clamp)
                 : SKShader.CreateLinearGradient(new SKPoint(center.X - dx * reach, center.Y - dy * reach), new SKPoint(center.X + dx * reach, center.Y + dy * reach), colors, null, SKShaderTileMode.Clamp);
@@ -129,9 +128,13 @@ public static class LayerEffectsRenderer
             using var paint = new SKPaint { Shader = shader, BlendMode = SKBlendMode.SrcATop, Color = SKColors.White.WithAlpha((byte)Math.Round(gradient.Opacity * 255)) };
             shownCanvas.DrawRect(SKRect.Create(0, 0, shown.Width, shown.Height), paint);
         }
-        using (var fill = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round(Math.Clamp(fillOpacity, 0, 1) * 255)) })
+        if (visible.ColorOverlay is { Opacity: > 0 } overlay)
+        {
+            MixColorOverlay(shown, overlay, fillOpacity);
+            canvas.DrawBitmap(shown, 0, 0);
+        }
+        else using (var fill = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round(Math.Clamp(fillOpacity, 0, 1) * 255)) })
             canvas.DrawBitmap(shown, 0, 0, fill);
-        if (visible.ColorOverlay is { Opacity: > 0 } overlay) Tint(canvas, coverage, overlay.Color, overlay.Opacity);
         if (visible.InnerGlow is { Opacity: > 0, Size: > 0 } innerGlow)
         {
             // The shape softened inward: what is inside it but not inside its blurred self, kept to the layer's own shape.
@@ -166,6 +169,20 @@ public static class LayerEffectsRenderer
         }
         canvas.Flush();
         return (result, inset);
+    }
+
+    private static unsafe void MixColorOverlay(SKBitmap image, ColorOverlayEffect overlay, double fillOpacity)
+    {
+        var color = new SKColor(overlay.Color); var amount = (float)Math.Clamp(overlay.Opacity, 0, 1);
+        var keep = (float)Math.Clamp(fillOpacity, 0, 1) * (1 - amount); var data = (byte*)image.GetPixels();
+        for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++)
+        {
+            var p = data + (long)y * image.RowBytes + x * 4; var alpha = p[3];
+            p[0] = (byte)Math.Clamp(p[0] * keep + color.Red * alpha / 255f * amount + .5f, 0, 255);
+            p[1] = (byte)Math.Clamp(p[1] * keep + color.Green * alpha / 255f * amount + .5f, 0, 255);
+            p[2] = (byte)Math.Clamp(p[2] * keep + color.Blue * alpha / 255f * amount + .5f, 0, 255);
+            p[3] = (byte)Math.Clamp(alpha * (keep + amount) + .5f, 0, 255);
+        }
     }
 
     /// <summary>The coverage moved by an offset and softened by a Gaussian of <paramref name="sigma"/>.</summary>

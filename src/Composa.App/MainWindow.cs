@@ -147,6 +147,7 @@ public sealed partial class MainWindow : Window
         layers.NewEffectRequested += kind => _ = NewEffect(kind);
         layers.EditTagsRequested += layer => _ = EditLayerTags(layer);
         layers.EditSmartObjectRequested += layer => OpenSmartObject(layer);
+        layers.EditSmartFilterRequested += (layer, filter) => _ = SmartFilter(filter.Settings.Kind, layer, filter);
 
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -232,7 +233,7 @@ public sealed partial class MainWindow : Window
     public void AddSession(EditorSession added)
     {
         // The first document starts from the remembered view options; later ones inherit them from the current tab.
-        if (lastToolSource == null) added.View = settings.View;
+        if (lastToolSource == null) { added.View = settings.View; added.Brush = settings.Brush; }
         sessions.Add(added);
         added.HistoryChanged += RebuildTabs;
         added.Problem += message => { if (added == session) ShowProblem(message); };
@@ -277,6 +278,7 @@ public sealed partial class MainWindow : Window
         if (lastToolSource is { } from && from != target)
         {
             target.Foreground = from.Foreground; target.Background = from.Background; target.Brush = from.Brush;
+            target.GradientRamp = from.GradientRamp;
             target.EraserMode = from.EraserMode; target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
             target.Feather = from.Feather; target.WandTolerance = from.WandTolerance; target.WandContiguous = from.WandContiguous;
             target.SampleAllLayers = from.SampleAllLayers; target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
@@ -416,7 +418,7 @@ public sealed partial class MainWindow : Window
         settings.ShowPixelGrid = canvas.ShowPixelGrid;
         settings.ShowTransformControls = canvas.ShowTransformControls;
         settings.AutoSelect = canvas.AutoSelect;
-        if (session != null) settings.View = session.View;
+        if (session != null) { settings.View = session.View; settings.Brush = session.Brush; }
         settings.Save();
     }
 
@@ -503,8 +505,10 @@ public sealed partial class MainWindow : Window
         (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B) · Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.SpotHealing, Icons.Heal, "Spot Healing Brush (J)"), (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
+        (Tool.HealingBrush, Icons.Heal, "Healing Brush · Alt-click sets the texture source"), (Tool.Patch, Icons.Marquee, "Patch · select an area and drag to the donor"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
+        (Tool.Pen, Icons.Line, "Pen (P) · click adds a corner, drag creates curve handles · Enter finishes · click first node closes"),
         (Tool.Hand, Icons.Hand, "Hand (H) · hold Space with any tool"), (Tool.Zoom, Icons.Zoom, "Zoom (Z)")
     ];
 
@@ -589,16 +593,20 @@ public sealed partial class MainWindow : Window
         foregroundSwatch.HorizontalAlignment = backgroundSwatch.HorizontalAlignment = HorizontalAlignment.Left;
         foregroundSwatch.VerticalAlignment = backgroundSwatch.VerticalAlignment = VerticalAlignment.Top;
         var swatches = new Panel { Width = 42, Height = 42, Margin = new Thickness(0, 8, 0, 0), Children = { backgroundSwatch, foregroundSwatch } };
-        rail.Children.Add(swatches);
+        var colors = new StackPanel { Spacing = 2, HorizontalAlignment = HorizontalAlignment.Center };
+        colors.Children.Add(swatches);
         var swap = Ui.IconButton(Icons.Swap, "Swap colors (X) · D resets to black and white", () => { session?.SwapColors(); UpdateColors(); }, 14);
         swap.HorizontalAlignment = HorizontalAlignment.Center;
-        rail.Children.Add(swap);
+        colors.Children.Add(swap);
 
-        return new ScrollViewer
+        var tools = new ScrollViewer
         {
             Content = rail, Width = 56, Background = Palette.Panel, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
+        var dock = new DockPanel { Width = 56, Background = Palette.Panel };
+        DockPanel.SetDock(colors, Dock.Bottom); dock.Children.Add(colors); dock.Children.Add(tools);
+        return dock;
     }
 
     private Control BuildStatusBar()

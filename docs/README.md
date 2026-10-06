@@ -9,6 +9,7 @@ This guide describes what Composa can do and how to do it. It is written for peo
 - [Getting started](getting-started.md): installing, the window, your first document, tabs and recovery.
 - [Files](files.md): opening, placing, saving and exporting, the formats Composa reads and writes, Photoshop and camera RAW files.
 - [Tools](tools.md): every tool in the toolbar, its options and the keys and modifiers that go with it.
+- [Retouching and non-destructive editing](professional-editing.md): brush flow, Patch/Healing, sampling workspace, SAM models, refined masks, channels, locks, paths, smart filters and gradient stops.
 - [Selections](selections.md): making, combining and changing selections.
 - [Layers](layers.md): layer kinds, the Layers panel, masks, clipping, blend modes, folders and layer effects.
 - [Text](text.md): the Type tool, the Type bar and editing text.

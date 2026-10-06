@@ -23,6 +23,7 @@ public sealed partial class EditorSession
                 else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, rect.Width, rect.Height, shift, 255);
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, rect.Width, rect.Height, shift);
+            foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], rect.Width, rect.Height, shift) ?? Pixels.NewMask(rect.Width, rect.Height);
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Offset(-rect.Left, -rect.Top);
             document.Width = rect.Width;
             document.Height = rect.Height;
@@ -87,7 +88,7 @@ public sealed partial class EditorSession
                 if (layer.Pixels is { } pixels)
                 {
                     var t = layer.Transform;
-                    if (layer.IsSmartObject)
+                    if (layer.IsSmartObject || layer.FilterSource != null)
                     {
                         // Keep original content pixels intact even when the outer canvas is resized.
                         var scaled = t with { X = t.X * sx, Y = t.Y * sy, Width = t.Width * sx, Height = t.Height * sy,
@@ -168,6 +169,7 @@ public sealed partial class EditorSession
                 else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, width, height, scale, 0);
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, width, height, scale);
+            foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], width, height, scale) ?? Pixels.NewMask(width, height);
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Scaled(sx, sy);
             document.Width = width;
             document.Height = height;
@@ -212,6 +214,7 @@ public sealed partial class EditorSession
                 else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, document.Width, document.Height, mirror, 255);
             }
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, document.Width, document.Height, mirror);
+            foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], document.Width, document.Height, mirror) ?? Pixels.NewMask(document.Width, document.Height);
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Mirrored(horizontally, (horizontally ? document.Width : document.Height) / 2.0);
         });
         InvalidateAll();
@@ -241,6 +244,7 @@ public sealed partial class EditorSession
                 else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, height, width, turn, 255);
             }
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, height, width, turn);
+            foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], height, width, turn) ?? Pixels.NewMask(height, width);
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Turned(clockwise, width, height);
             document.Width = height;
             document.Height = width;
@@ -254,7 +258,7 @@ public sealed partial class EditorSession
     /// <summary>Turns the selected layers in place, each around its own center.</summary>
     public void RotateLayers(double degrees)
     {
-        var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null).ToList();
+        var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).ToList();
         if (layers.Count == 0) return;
         Apply("Rotate Layer", () =>
         {
@@ -273,7 +277,7 @@ public sealed partial class EditorSession
     /// <summary>Flips the selected layers in place, each around its own center.</summary>
     public void FlipLayers(bool horizontally)
     {
-        var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null).ToList();
+        var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).ToList();
         if (layers.Count == 0) return;
         Apply(horizontally ? "Flip Layer Horizontal" : "Flip Layer Vertical", () =>
         {

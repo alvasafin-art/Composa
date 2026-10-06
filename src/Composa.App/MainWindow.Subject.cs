@@ -30,7 +30,8 @@ public sealed partial class MainWindow
         var choices = new List<ObjectModelChoice>
         {
             new(ObjectSelectionSource.AnySubject, "U²-Net lite · Local"), new(ObjectSelectionSource.Person, "MODNet · Local"),
-            new(ObjectSelectionSource.PlainBackdrop, "Plain backdrop")
+            new(ObjectSelectionSource.PlainBackdrop, "Plain backdrop"),
+            new(ObjectSelectionSource.MobileSam, "MobileSAM · Local"), new(ObjectSelectionSource.EfficientSamTi, "EfficientSAM Ti · Local")
         };
         var engine = aiTasks.EngineFor(AiTaskKind.ObjectSelection);
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
@@ -91,6 +92,19 @@ public sealed partial class MainWindow
     {
         var target = session;
         if (target == null || localSelectionBusy || canvas.IsDragging || target.IsInteracting) return;
+        if (settings.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi)
+        {
+            localSelectionBusy = true;
+            try
+            {
+                var model = settings.ObjectSelectionModel == ObjectSelectionSource.MobileSam ? PromptModels.MobileSam : PromptModels.EfficientSamTi;
+                await ProgressWindow.Run(this, "Selecting with " + model.Name + "…", async c => { await target.SelectPromptObjectAsync(model, point, region ?? (point == null ? target.Document.Bounds : null), mode, c); return true; });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { ShowProblem("Object selection failed: " + error.Message); }
+            finally { localSelectionBusy = false; }
+            return;
+        }
         if (settings.ObjectSelectionModel == ObjectSelectionSource.PlainBackdrop && region == null)
         {
             if (point is { } p) target.SelectObject(p.X, p.Y, mode);

@@ -168,7 +168,7 @@ public static class DocumentRenderer
         }
         // Effects are drawn from an image that already has the mask applied, so the mask is not applied again.
         var effects = EffectsOf(layer);
-        var hasMask = layer.Mask != null && layer.MaskEnabled && effects == null;
+        var hasMask = layer.RenderMask() != null && effects == null;
         if (layer.IsGroup && !hasMask && layer.Opacity >= 1 && layer.Blend == BlendMode.Normal && clipped.Count == 0)
         {
             RenderNodes(layer.Children, tile, options); // Pass-through folder.
@@ -214,7 +214,7 @@ public static class DocumentRenderer
                 var topEffects = EffectsOf(top);
                 if (top.IsGroup) RenderNodes(top.Children, over, options);
                 else DrawPixels(top, over.Canvas, 1, BlendMode.Normal, topEffects);
-                if (top.Mask != null && top.MaskEnabled && topEffects == null) MultiplyByMask(top, over);
+                if (top.RenderMask() != null && topEffects == null) MultiplyByMask(top, over);
                 over.Canvas.Flush();
                 if (top.Blend.IsCustom()) { content.Canvas.Flush(); SeparableBlend.Composite(content.Bitmap, over.Bitmap, top.Blend, top.Opacity); continue; }
                 using var blend = new SKPaint { BlendMode = top.Blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(top.Opacity)) };
@@ -312,7 +312,7 @@ public static class DocumentRenderer
 
     /// <summary>The layer's pixels with its effects drawn around them, or null when it has none (or they cannot be drawn).</summary>
     private static (SKBitmap Image, int Inset)? EffectsOf(Layer layer) =>
-        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.Pixels, layer.Mask != null && layer.MaskEnabled ? layer.Mask : null, layer.Effects, layer.FillOpacity);
+        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.Pixels, layer.RenderMask(), layer.Effects, layer.FillOpacity);
 
     private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, (SKBitmap Image, int Inset)? effects)
     {
@@ -329,7 +329,7 @@ public static class DocumentRenderer
                 DrawBitmap(target, built.Image, paint);
                 target.Restore();
                 // While a stroke is in progress the effects are those of the pixels at its start; the wet paint goes over them.
-                if (Pixels.IsLive(layer.Pixels) && (layer.Mask == null || !layer.MaskEnabled)) DrawBitmap(target, layer.Pixels, paint);
+                if (Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
             }
             else DrawBitmap(target, layer.Pixels, paint);
         }
@@ -369,8 +369,8 @@ public static class DocumentRenderer
 
     private static void MultiplyByMask(Layer layer, Tile content)
     {
-        var mask = layer.Mask!;
-        var matrix = MaskMatrix(layer);
+        var mask = layer.RenderMask()!;
+        var matrix = layer.Pixels == null ? SKMatrix.Identity : layer.Transform.Matrix(mask.Width, mask.Height);
         var canvas = content.Canvas;
         if (layer.Pixels == null)
         {

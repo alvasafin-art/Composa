@@ -69,11 +69,11 @@ public static class EffectsDialog
                 break;
             case LayerEffectKind.GradientOverlay:
                 var gradient = effects.GradientOverlay!;
+                rows.Children.Add(new Controls.GradientEditor(owner, gradient.Ramp ?? GradientRamp.Between(gradient.StartColor, gradient.EndColor),
+                    ramp => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Ramp = ramp } })));
                 rows.Children.Add(Ui.Row(10, Width(Ui.Label("Style", Palette.Secondary), 70),
                     Ui.Combo(new[] { "Linear", "Radial" }, gradient.Radial ? "Radial" : "Linear", v => v,
                         v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Radial = v == "Radial" } }), 120)));
-                rows.Children.Add(Swatch("Start", () => effects.GradientOverlay!.StartColor, color => Set(effects with { GradientOverlay = effects.GradientOverlay! with { StartColor = color } })));
-                rows.Children.Add(Swatch("End", () => effects.GradientOverlay!.EndColor, color => Set(effects with { GradientOverlay = effects.GradientOverlay! with { EndColor = color } })));
                 rows.Children.Add(Slider("Opacity", gradient.Opacity * 100, 0, 100, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Opacity = v / 100 } })));
                 rows.Children.Add(Angle(gradient.Angle, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Angle = v } })));
                 rows.Children.Add(Slider("Scale", gradient.Scale, 1, 1000, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Scale = v } })));

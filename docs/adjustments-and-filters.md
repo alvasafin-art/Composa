@@ -1,6 +1,6 @@
 # Adjustments and filters
 
-An **adjustment** changes colors and tones. Applied from the Image menu it changes the active layer's pixels for good; added from Layer > New Adjustment Layer it becomes an adjustment layer that changes the look of every layer below it, keeps its settings editable (double-click it in the Layers panel, or Layer > Edit Adjustment), and takes the current selection as its mask. A **filter** (the Filter menu) always changes the pixels of the active layer or of its mask, within the selection when there is one.
+An **adjustment** changes colors and tones. Applied from Image it changes the active layer's pixels; Layer > New Adjustment Layer creates an editable layer affecting those below it, with the selection as its mask. Ordinary **Filter** commands change target pixels within the selection. **Filter > Add Smart Filter** instead keeps the original source and an editable filter stack, including on smart objects; see [non-destructive editing](professional-editing.md).
 
 Every dialog previews on the canvas as you drag, with a Preview checkbox to compare. Sliders are dragged; hold Alt for finer steps, double-click to type a value, and a Reset button then puts the slider back to the value that changes nothing, or to a filter's default.
 

@@ -18,6 +18,7 @@ public sealed partial class CanvasView
         var phase = antsPhase;
 
         CaptureGuidesAndGrid(steps, view, hair);
+        CapturePenOverlay(steps, view, hair);
 
         if (aiContextBounds is { } aiBounds && session.Selection != null && !session.IsPaintingSelection && drag == Drag.None)
         {
@@ -75,6 +76,12 @@ public sealed partial class CanvasView
             var shift = SKMatrix.CreateTranslation(selectionOffset.X, selectionOffset.Y);
             var moved = shift.PostConcat(view);
             steps.Add(canvas => DrawAnts(canvas, outline, moved, phase, scaling));
+        }
+        if (drag == Drag.Patch && AntsOutline() is { } donorOutline)
+        {
+            var offset = currentDocument - pressDocument;
+            var moved = SKMatrix.CreateTranslation(offset.X, offset.Y).PostConcat(view);
+            steps.Add(canvas => DrawAnts(canvas, donorOutline, moved, phase, scaling));
         }
 
         if (polygon.Count > 0)
@@ -155,7 +162,7 @@ public sealed partial class CanvasView
             });
         }
 
-        if (tool == Tool.CloneStamp && session.CloneSamplePoint(currentDocument) is { } sample)
+        if (tool is Tool.CloneStamp or Tool.HealingBrush && session.CloneSamplePoint(currentDocument) is { } sample)
         {
             var p = view.MapPoint(sample);
             steps.Add(canvas => DrawCrosshair(canvas, p, hair));
@@ -164,9 +171,9 @@ public sealed partial class CanvasView
         // With Ctrl held the pointer is about to move a layer, so the brush outline gives way to the move cursor.
         if (IsBrushTool && cursorInside && !spaceDown && !controlHover && !temporaryMove && drag is Drag.None or Drag.Stroke or Drag.SelectionBrush)
         {
-            var center = view.MapPoint(currentDocument);
+            var center = view.MapPoint(session.BrushPosition ?? currentDocument);
             var selectionBrush = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
-            var radius = (float)((selectionBrush ? session.SelectionBrushSize : session.Brush.Size) / 2 * UnitsPerPixel);
+            var radius = (float)((selectionBrush ? session.SelectionBrushSize / 2 : session.Brush.CursorRadius(session.BrushPressure)) * UnitsPerPixel);
             var inner = selectionBrush ? Math.Max(0, radius - (float)(session.SelectionBrushFeather * UnitsPerPixel)) : radius * (float)session.Brush.Hardness;
             steps.Add(canvas =>
             {

@@ -44,7 +44,7 @@ public sealed partial class EditorSession
     /// </summary>
     public void SetText(Layer layer, TextStyle style)
     {
-        if (layer.Pixels == null) return;
+        if (layer.Pixels == null || PixelsLocked(layer)) return;
         style = style.Clamped();
         var before = AffectedArea(layer);
         var t = layer.Transform;
@@ -125,7 +125,7 @@ public sealed partial class EditorSession
     /// <summary>Opens an existing text layer for typing. Returns null for anything that is not live text.</summary>
     public TextEditor? EditText(Layer layer)
     {
-        if (layer.Text == null || layer.Pixels == null || document.Find(layer.Id) != layer) return null;
+        if (layer.Text == null || layer.Pixels == null || PixelsLocked(layer) || document.Find(layer.Id) != layer) return null;
         if (TextEdit != null && textLayer == layer) return TextEdit;
         FinishText();
         SelectLayer(layer.Id);
@@ -218,6 +218,7 @@ public sealed partial class EditorSession
     {
         if (TextEdit is { } editor) { editor.ChangeStyle(change); return; }
         if (ActiveLayer is not { Text: { } current } live) { TextDefaults = change(TextDefaults).Clamped().AsDefaults(); return; }
+        if (PixelsLocked(live)) return;
         var style = change(current).Clamped();
         if (style == current) return;
         Apply(StyleEditName, () => SetText(live, style));

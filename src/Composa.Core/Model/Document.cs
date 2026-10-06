@@ -20,6 +20,7 @@ public sealed class Document
     public List<Guid> SelectionOrder { get; init; } = [];
     /// <summary>Alpha8 selection coverage at document size, or null when nothing is selected.</summary>
     public SKBitmap? Selection { get; set; }
+    public Dictionary<string, SKBitmap> AlphaChannels { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>User-placed alignment lines. Saved with the project; undo covers them.</summary>
     public List<Guide> Guides { get; init; } = [];
 
@@ -47,6 +48,7 @@ public sealed class Document
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.SelectionOrder.AddRange(SelectionOrder);
         copy.Guides.AddRange(Guides);
+        foreach (var pair in AlphaChannels) copy.AlphaChannels.Add(pair.Key, pair.Value);
         return copy;
     }
 
@@ -126,9 +128,11 @@ public sealed class Document
         foreach (var layer in AllLayers())
         {
             if (layer.Pixels != null) into.Add(layer.Pixels);
+            if (layer.FilterSource != null) into.Add(layer.FilterSource);
             if (layer.Mask != null) into.Add(layer.Mask);
             layer.SmartObject?.CollectBitmaps(into, visited);
         }
         if (includeSelection && Selection != null) into.Add(Selection);
+        foreach (var channel in AlphaChannels.Values) into.Add(channel);
     }
 }

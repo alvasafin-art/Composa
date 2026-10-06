@@ -23,7 +23,7 @@ public static class ProjectFile
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
     /// 9 character size runs and separate fill opacity for imported Photoshop effects.
     /// </summary>
-    public const int Version = 9;
+    public const int Version = 10;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -45,6 +45,7 @@ public static class ProjectFile
         public List<LayerRecord> Layers { get; set; } = [];
         /// <summary>Alignment guides; absent on version 1 files.</summary>
         public List<Guide>? Guides { get; set; }
+        public Dictionary<string, string>? AlphaChannels { get; set; }
         public Dictionary<string, SmartRecord>? SmartObjects { get; set; }
     }
 
@@ -70,6 +71,13 @@ public static class ProjectFile
         public bool? MaskEnabled { get; set; }
         public bool? Clipped { get; set; }
         public bool? Collapsed { get; set; }
+        public LayerLocks Locks { get; set; }
+        public string? FilterSourceFile { get; set; }
+        public SmartFilter[]? SmartFilters { get; set; }
+        public int FilterPaddingX { get; set; }
+        public int FilterPaddingY { get; set; }
+        public VectorPath? VectorMask { get; set; }
+        public bool? VectorMaskEnabled { get; set; }
         public Adjustment? Adjustment { get; set; }
         public ShapeStyle? Shape { get; set; }
         public TextStyle? Text { get; set; }
@@ -121,9 +129,13 @@ public static class ProjectFile
             Id = layer.Id, Name = layer.Name, Tags = layer.Tags.Count > 0 ? layer.Tags.Order().ToList() : null,
             Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, FillOpacity = layer.FillOpacity, Blend = layer.Blend,
             Transform = layer.Pixels != null ? layer.Transform : null,
-            ImageFile = layer.Pixels != null && !layer.IsSmartObject ? Store(layer.Pixels, $"{written.Count}.png") : null,
+            ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null) ? Store(layer.Pixels, $"{written.Count}.png") : null,
+            FilterSourceFile = layer.FilterSource != null ? Store(layer.FilterSource, $"{written.Count}.filter-source.png") : null,
+            SmartFilters = layer.SmartFilters.Length == 0 ? null : layer.SmartFilters,
+            FilterPaddingX = layer.FilterPaddingX, FilterPaddingY = layer.FilterPaddingY,
+            VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
-            MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null,
+            MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null, Locks = layer.Locks,
             Clipped = layer.Clipped ? true : null,
             Collapsed = layer.Collapsed ? true : null,
             Adjustment = layer.Adjustment, Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
@@ -135,7 +147,8 @@ public static class ProjectFile
         {
             Width = value.Width, Height = value.Height, Resolution = value.Resolution,
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
-            Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null
+            Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null,
+            AlphaChannels = value.AlphaChannels.Count == 0 ? null : value.AlphaChannels.ToDictionary(p => p.Key, p => Store(p.Value, $"{written.Count}.channel.png"))
         };
         var manifest = RecordDocument(document);
         manifest.SmartObjects = objects.Count > 0 ? objects : null;
@@ -205,8 +218,9 @@ public static class ProjectFile
             {
                 Id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, Name = record.Name, Kind = record.Kind, Visible = record.Visible,
                 Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, FillOpacity = double.IsFinite(record.FillOpacity) ? Math.Clamp(record.FillOpacity, 0, 1) : 1, Blend = record.Blend,
-                MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false,
-                Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped()
+                MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false, Locks = record.Locks & LayerLocks.All,
+                Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
+                VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true
             };
             if (record.Tags != null)
                 foreach (var tag in record.Tags.Take(64)) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
@@ -227,6 +241,14 @@ public static class ProjectFile
             else if (record.Kind == LayerKind.Raster) throw new InvalidDataException($"Layer \"{record.Name}\" has no image.");
             if (record.Kind == LayerKind.Adjustment && record.Adjustment == null) throw new InvalidDataException($"Adjustment layer \"{record.Name}\" has no settings.");
             if (record.MaskFile != null) layer.Mask = Fetch(record.MaskFile, mask: true);
+            if (record.FilterSourceFile != null)
+            {
+                layer.FilterSource = Fetch(record.FilterSourceFile, mask: false);
+                layer.SmartFilters = record.SmartFilters?.Take(64).Where(f => Enum.IsDefined(f.Settings.Kind)).ToArray() ?? [];
+                layer.FilterPaddingX = Math.Clamp(record.FilterPaddingX, 0, DocumentLimits.MaxSide);
+                layer.FilterPaddingY = Math.Clamp(record.FilterPaddingY, 0, DocumentLimits.MaxSide);
+                if (record.ImageFile != null) layer.Pixels = Fetch(record.ImageFile, mask: false);
+            }
             if (record.Kind == LayerKind.Group && record.Children != null)
                 foreach (var child in record.Children) layer.Children.Add(Build(child, depth + 1));
             return layer;
@@ -238,6 +260,9 @@ public static class ProjectFile
                 throw new InvalidDataException("Invalid embedded document size or format.");
             var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72 };
             foreach (var record in value.Layers) result.Layers.Add(Build(record, 0));
+            if (value.AlphaChannels != null)
+                foreach (var pair in value.AlphaChannels.Take(64))
+                    if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Key.Length <= 200) result.AlphaChannels[pair.Key] = Fetch(pair.Value, mask: true);
             if (value.Guides != null)
                 foreach (var guide in value.Guides.Where(g => g.IsValid).Take(1000))
                     result.Guides.Add(guide.Id == Guid.Empty ? guide with { Id = Guid.NewGuid() } : guide);

@@ -1,6 +1,6 @@
 # Tools
 
-The toolbar on the left holds fifteen tools. Each has a single-letter key, and pressing the key of a tool that has modes switches to the next mode; Tab does the same while the tool is active. Below the tools sit the foreground and background swatches: click one to open the color picker, press X to swap them and D to reset them to black and white.
+The toolbar on the left holds painting, selection, retouching and vector tools. Most have a single-letter key; tools with modes cycle through them with their key or Tab. The color swatches stay visible at the bottom; on short windows, scroll the tool rail to reach lower tools. Click a swatch for its picker, press X to swap colors and D to reset to black and white. See [retouching and non-destructive editing](professional-editing.md) for Flow, Healing, Patch, Pen, smart filters and multi-stop gradients.
 
 Six buttons hold a group of tools, as in Photoshop, and show a small triangle in their corner: Marquee, Lasso, Magic, Brush and Eraser, Smear, and Shape. A click uses the tool the button shows. Press and hold the button, or right-click it, and the group opens beside it, listing each tool with its icon and key, with a dot at the current one. Click a tool there, or keep the button held, slide onto a tool and let go. The button then shows the tool you picked and the options bar names it.
 

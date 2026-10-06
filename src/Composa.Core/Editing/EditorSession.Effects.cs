@@ -17,7 +17,7 @@ public sealed partial class EditorSession
     /// </summary>
     public bool AddEffect(Layer layer, LayerEffectKind kind, bool commit = true)
     {
-        if (!CanHaveEffects(layer)) return false;
+        if (IsLocked(layer) || !CanHaveEffects(layer)) return false;
         var effects = layer.Effects ?? LayerEffects.Empty;
         if (effects.Contains(kind)) { SelectedEffect = (layer.Id, kind); return true; }
         var background = (uint)Background | 0xFF000000;
@@ -42,7 +42,7 @@ public sealed partial class EditorSession
     /// <summary>Changes a layer's effects live; wrap a dialog's slider drags in Begin/Commit so they undo as one step.</summary>
     public void SetEffects(Layer layer, LayerEffects? effects)
     {
-        if (!CanHaveEffects(layer)) return;
+        if (IsLocked(layer) || !CanHaveEffects(layer)) return;
         var before = AffectedArea(layer);
         layer.Effects = effects == null || effects.IsEmpty ? null : effects.Clamped();
         Invalidate(Geometry.Union(before, AffectedArea(layer)));
@@ -50,7 +50,7 @@ public sealed partial class EditorSession
 
     public void ToggleEffect(Layer layer, LayerEffectKind kind)
     {
-        if (layer.Effects is not { } effects || !effects.Contains(kind)) return;
+        if (IsLocked(layer) || layer.Effects is not { } effects || !effects.Contains(kind)) return;
         var enabled = effects.IsEnabled(kind);
         Apply((enabled ? "Hide " : "Show ") + LayerEffects.DisplayName(kind), () => SetEffects(layer, effects.WithEnabled(kind, !enabled)));
         LayersChanged?.Invoke();
@@ -58,7 +58,7 @@ public sealed partial class EditorSession
 
     public void RemoveEffect(Layer layer, LayerEffectKind kind)
     {
-        if (layer.Effects is not { } effects || !effects.Contains(kind)) return;
+        if (IsLocked(layer) || layer.Effects is not { } effects || !effects.Contains(kind)) return;
         Apply("Remove " + LayerEffects.DisplayName(kind), () => SetEffects(layer, effects.Without(kind)));
         if (SelectedEffect is { } selected && selected.LayerId == layer.Id && selected.Kind == kind) SelectedEffect = null;
         LayersChanged?.Invoke();
@@ -73,7 +73,7 @@ public sealed partial class EditorSession
     }
 
     public bool CanCopyEffect(LayerEffectKind kind, Layer from, Layer to) =>
-        from.Id != to.Id && from.Effects?.Contains(kind) == true && CanHaveEffects(to);
+        from.Id != to.Id && !IsLocked(to) && from.Effects?.Contains(kind) == true && CanHaveEffects(to);
 
     /// <summary>Alt-dragging an effect row onto another layer gives that layer a copy of the effect.</summary>
     public void CopyEffect(LayerEffectKind kind, Layer from, Layer to)

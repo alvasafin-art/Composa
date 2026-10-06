@@ -6,7 +6,7 @@ using SkiaSharp;
 
 namespace Composa.Editing;
 
-public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket }
+public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen }
 
 public enum MarqueeKind { Rectangle, Ellipse }
 public enum LassoKind { Freehand, Polygonal }
@@ -111,6 +111,7 @@ public sealed partial class EditorSession
     };
     public ShapeKind ShapeKind { get; set; } = ShapeKind.Rectangle;
     public double ShapeCornerRadius { get; set; } = 24;
+    public GradientRamp? GradientRamp { get; set; }
     /// <summary>A Line shape's thickness in document pixels.</summary>
     public double ShapeLineWidth { get; set; } = 4;
     /// <summary>The settings new text starts with; the color follows the foreground color.</summary>
@@ -443,7 +444,7 @@ public sealed partial class EditorSession
             case Tool.Lasso: LassoKind = Next(LassoKind); break;
             case Tool.Wand: WandMode = Next(WandMode); break;
             case Tool.SelectionBrush: SelectionBrushMode = SelectionBrushMode == SelectionMode.Add ? SelectionMode.Subtract : SelectionMode.Add; break;
-            case Tool.Shape: ShapeKind = Next(ShapeKind); break;
+            case Tool.Shape: ShapeKind = Next(ShapeKind); if (ShapeKind == ShapeKind.Path) ShapeKind = ShapeKind.Rectangle; break;
             case Tool.Brush: EraserMode = !EraserMode; break;
             case Tool.Smear: SmearMode = Next(SmearMode); break;
             case Tool.SpotHealing or Tool.CloneStamp: SampleAllLayers = !SampleAllLayers; break;

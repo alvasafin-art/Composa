@@ -104,6 +104,7 @@ public sealed record InnerGlowEffect
 /// <summary>A two-color gradient clipped to a layer's visible pixels.</summary>
 public sealed record GradientOverlayEffect
 {
+    public GradientRamp? Ramp { get; init; }
     public bool Enabled { get; init; } = true;
     public uint StartColor { get; init; } = 0xFF000000;
     public uint EndColor { get; init; } = 0xFFFFFFFF;
@@ -117,7 +118,8 @@ public sealed record GradientOverlayEffect
     {
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0, 1) : 1,
         Angle = double.IsFinite(Angle) ? Math.Clamp(Angle, -180, 180) : 90,
-        Scale = double.IsFinite(Scale) ? Math.Clamp(Scale, 1, 1000) : 100
+        Scale = double.IsFinite(Scale) ? Math.Clamp(Scale, 1, 1000) : 100,
+        Ramp = Ramp?.Normalized()
     };
 }
 

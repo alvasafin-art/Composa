@@ -23,9 +23,12 @@ public static partial class PsdExport
     public static IReadOnlyList<PsdConversion> Conversions(Document document)
     {
         var notes = new List<PsdConversion>();
+        if (document.AlphaChannels.Count > 0) notes.Add(new("Saved selections", "Saved alpha channels stay in the Composa project and are not exported to PSD yet."));
         if (NeedsAppearance(document)) notes.Add(new("Document", "Adjustments are applied to a merged appearance layer. Source layers are kept in a hidden folder; adjustment settings stay in the Composa project."));
         foreach (var layer in document.AllLayers())
         {
+            if (layer.FilterSource != null) notes.Add(new(layer.Name, "Smart filters are exported as the rendered appearance; their editable source and settings stay in the Composa project."));
+            if (layer.VectorMask != null) notes.Add(new(layer.Name, "Vector masks are applied to the exported appearance; their editable paths stay in the Composa project."));
             if (layer.IsAdjustment) { notes.Add(new(layer.Name, "Adjustment settings cannot be represented exactly in Photoshop and are not exported as editable adjustments.")); continue; }
             if ((layer.Text != null || layer.Shape != null) && NativeProblem(layer, document) is { } problem)
                 notes.Add(new(layer.Name, problem + " This layer is saved as pixels; keep a Composa project for editing."));
@@ -58,7 +61,7 @@ public static partial class PsdExport
 
     private sealed record Record(Layer Layer, SKRectI Bounds, int Section = 0, bool Appearance = false)
     {
-        public bool HasEffects => Layer.Effects?.Visible() is { IsEmpty: false };
+        public bool HasEffects => Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
         public bool HasMask => Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
         public List<(short Id, long Position)> Channels { get; } = [];
         public SKRectI MaskBounds => Layer.IsGroup ? new(0, 0, Layer.Mask!.Width, Layer.Mask.Height) : Bounds;

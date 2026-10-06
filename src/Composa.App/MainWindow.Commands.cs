@@ -98,7 +98,7 @@ public sealed partial class MainWindow
             Item("Fill with Foreground Color", () => session!.Fill(session.Foreground, "Fill"), Key.Back, alt, () => session!.CanFill),
             Item("Fill with Background Color", () => session!.Fill(session.Background, "Fill"), Key.Back, ctrl, () => session!.CanFill),
             Item("Clear", DeletePressed, Key.Delete),
-            Item("Content-Aware Fill", () => Busy(() => session!.ContentAwareFill()), Key.Back, shift, () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
+            Item("Content-Aware Fill…", () => _ = ContentAwareFillWorkspace(), Key.Back, shift, () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
             Line(),
             Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), needsDocument: false, id: "Keyboard Shortcuts (Edit menu)"));
 
@@ -111,6 +111,9 @@ public sealed partial class MainWindow
             Item("Layer's Mask", () => session!.SelectLayerMask(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.Mask != null),
             Item("Subject", SelectSubject, Key.A, ctrl | alt),
             Item("Color Range…", ShowColorRange, enabled: () => session!.CanSelectColorRange),
+            Item("Save Selection…", () => _ = SaveSelectionChannel(), enabled: () => session!.Selection != null),
+            Item("Load Selection…", () => _ = LoadSelectionChannel(), enabled: () => session!.Document.AlphaChannels.Count > 0),
+            Item("Select and Mask…", () => _ = RefineSelection(), enabled: () => session!.Selection != null),
             Line(),
             Item("Expand…", () => _ = ModifySelection("Expand Selection", "Expand by", () => session!.SelectionExpandAmount, 500, v => { session!.SelectionExpandAmount = v; session.ExpandSelection(v); }), enabled: () => session!.Selection != null),
             Item("Contract…", () => _ = ModifySelection("Contract Selection", "Contract by", () => session!.SelectionContractAmount, 500, v => { session!.SelectionContractAmount = v; session.ContractSelection(v); }), enabled: () => session!.Selection != null),
@@ -140,7 +143,8 @@ public sealed partial class MainWindow
             Item("Flip Canvas Horizontal", () => session!.FlipCanvas(true)),
             Item("Flip Canvas Vertical", () => session!.FlipCanvas(false)));
 
-        Top("F_ilter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels)).ToArray());
+        Top("F_ilter", new object[] { Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
+            .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels))).ToArray());
 
         Top("_AI",
             Item("Generate Image…", () => _ = RunAi(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
@@ -299,6 +303,7 @@ public sealed partial class MainWindow
         void Key(string title, Avalonia.Input.Key key, Action run, KeyModifiers modifiers = KeyModifiers.None, bool hidden = false) =>
             toolKeys.Add(new Shortcut(title, title, "Tools and Canvas", new KeyGesture(key, modifiers), run, hidden: hidden));
         Key("Move tool", Avalonia.Input.Key.V, () => SelectTool(Tool.Move));
+        Key("Pen tool", Avalonia.Input.Key.P, () => SelectTool(Tool.Pen));
         Key(MarqueeKey, Avalonia.Input.Key.M, () =>
         {
             if (session!.Tool == Tool.Marquee) session.MarqueeKind = session.MarqueeKind == MarqueeKind.Rectangle ? MarqueeKind.Ellipse : MarqueeKind.Rectangle;
@@ -436,7 +441,7 @@ public sealed partial class MainWindow
     private void OnSessionLayersChanged()
     {
         RefreshAiUi();
-        if (session?.Tool is not (Tool.Move or Tool.Shape)) return;
+        if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen)) return;
         if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Composa.App;
 
-public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI }
+public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, MobileSam = 5, EfficientSamTi = 6 }
 
 /// <summary>Preferences remembered between launches, stored in the platform's config directory (<see cref="AppPaths.Config"/>).</summary>
 public sealed class Settings
@@ -19,6 +19,8 @@ public sealed class Settings
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.AnySubject;
     public string? ObjectSelectionComfyModel { get; set; }
     public Composa.Editing.ViewOptions View { get; set; } = new();
+    public Composa.Painting.BrushSettings Brush { get; set; } = new();
+    public Dictionary<string, Composa.Painting.BrushSettings> BrushPresets { get; set; } = [];
     /// <summary>The panels under the Layers panel by title: whether each is shown, collapsed to its header, and how tall it is.</summary>
     public Dictionary<string, DockPanelState> Dock { get; set; } = [];
     /// <summary>Rebound shortcuts by command id: a gesture string, or empty for none. Missing entries keep the default.</summary>

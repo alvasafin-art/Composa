@@ -4,6 +4,18 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- Local MobileSAM and EfficientSAM Ti with their real encoder/decoder weights, click and rectangle prompts, CPU inference, cancellation and one cached image embedding. Both choices are available for comparison without ComfyUI; their combined weights add about 82 MiB.
+- Brush Flow independently of whole-stroke Opacity, Spacing, pressure size/flow switches, normal/full outlines, factory and saved brush presets. Stroke coverage uses sparse 16-bit tiles rather than a full-frame allocation.
+- Source Healing Brush, donor-drag Patch with live preview, and a conventional Content-Aware Fill workspace with sampling exclusions, preview/cancel and repair-layer output. Texture synthesis now includes coarse-to-fine PatchMatch refinement and boundary color adaptation.
+- Select and Mask with image-guided boundaries, smoothing, feather, contrast, edge shift, preview backgrounds, color decontamination and selection/mask/cutout output. Saved selections are undoable alpha channels that follow canvas edits.
+- Pixel, position and transparency locks, including inherited folder locks.
+- Editable Bezier paths with corner/smooth handles, node insertion/deletion, path-to-selection and vector masks.
+- Non-destructive filter stacks on raster layers and smart objects, with per-filter edit/enable/delete controls and retained source pixels. Smart-object updates and canvas resizing preserve the stack.
+- Multi-stop gradients with independent opacity stops, presets and a checkerboard preview, for the Gradient tool and Gradient Overlay effect.
+- Native project format 10 retains paths, vector masks, smart filters, channels, locks and gradient stops. Older projects remain readable. PSD export reports features saved as rendered pixels.
+
 ### Changed
 
 - Removed optional heavyweight native BiRefNet and its setup flow. Old preferences migrate to U²-Net lite; bundled lightweight models and real ComfyUI BiRefNet/HR/matting choices remain available.

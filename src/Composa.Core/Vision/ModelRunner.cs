@@ -78,7 +78,7 @@ public static class ModelRunner
         }
     }
 
-    private static InferenceSession Session(OnnxModel model)
+    internal static InferenceSession Session(OnnxModel model)
     {
         lock (gate)
         {

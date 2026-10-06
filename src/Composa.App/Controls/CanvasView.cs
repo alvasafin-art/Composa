@@ -97,6 +97,7 @@ public sealed partial class CanvasView : Control
             if (session != null)
             {
                 CancelInteraction();
+                FinishPen(); penSelectedLayer = null; penSelectedNode = -1; EditVectorMask = false;
                 session.CanvasChanged -= OnCanvasChanged;
                 session.SelectionChanged -= OnSelectionChanged;
                 session.ColorRangeChanged -= OnColorRangeChanged;

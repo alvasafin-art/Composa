@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode }
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
@@ -78,10 +78,11 @@ public sealed partial class CanvasView
         ToolStateChanged?.Invoke();
     }
 
-    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject;
+    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject;
 
     public void ToolChanged()
     {
+        if (session?.Tool != Tool.Pen) FinishPen();
         CancelInteraction();
         if (session?.Tool != Tool.Crop) { cropRect = null; cropFramePristine = false; }
         // With a selection, the crop starts at its bounds, as Photoshop's does: C, then Enter, crops to it.
@@ -124,6 +125,8 @@ public sealed partial class CanvasView
         switch (drag)
         {
             case Drag.Stroke: session.CancelStroke(); break;
+            case Drag.Patch: session.CancelPreview(); break;
+            case Drag.PenNode: if (!penDraftDrag) session.Cancel(); penLayer = null; penOriginal = null; penDraft.Clear(); break;
             case Drag.SelectionBrush: session.CancelSelectionBrush(); break;
             case Drag.Transform: session.CancelTransform(); break;
             case Drag.MovePixels: session.EndMovePixels(keep: false); break;
@@ -144,14 +147,14 @@ public sealed partial class CanvasView
         if (session != null)
         {
             if (spaceDown || drag == Drag.Pan) type = StandardCursorType.Hand;
-            else if (temporaryMove || (controlHover && drag == Drag.None)) type = StandardCursorType.SizeAll; // The four-way move arrow says what Ctrl will do.
+            else if (temporaryMove || (controlHover && drag == Drag.None && session.Tool != Tool.Pen)) type = StandardCursorType.SizeAll; // The four-way move arrow says what Ctrl will do.
             else if (session.ColorRange != null) type = StandardCursorType.Cross; // Every click picks a color while the panel is open.
             else type = session.Tool switch
             {
                 Tool.Hand => StandardCursorType.Hand,
-                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.ObjectSelectionAi or Tool.Bucket => StandardCursorType.Cross,
+                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.ObjectSelectionAi or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
                 Tool.Text => StandardCursorType.Ibeam,
-                Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
+                Tool.Brush or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
                 _ => StandardCursorType.Arrow
             };
@@ -222,7 +225,7 @@ public sealed partial class CanvasView
         // pixels, and Ctrl on a crop frame's handles adjusts the crop without snapping.
         var movingPixels = session.Tool == Tool.Marquee && session.CanMovePixels && InsideSelection(pressDocument);
         var adjustingCrop = session.Tool == Tool.Crop && cropRect is { } cropFrame && HitFrame(Corners(cropFrame), point.Position, allowRotate: false) != TransformHandle.None;
-        if (control && session.Tool != Tool.Move && !movingPixels && !adjustingCrop) BeginTemporaryMove();
+        if (control && session.Tool is not (Tool.Move or Tool.Pen) && !movingPixels && !adjustingCrop) BeginTemporaryMove();
         else switch (session.Tool)
         {
             case Tool.Move:
@@ -275,6 +278,14 @@ public sealed partial class CanvasView
             case Tool.Bucket:
                 session.BucketFill(pressDocument);
                 break;
+            case Tool.Patch:
+                if (session.Selection is { } repair && pressDocument.X >= 0 && pressDocument.Y >= 0 && pressDocument.X < repair.Width && pressDocument.Y < repair.Height
+                    && repair.GetPixel((int)pressDocument.X, (int)pressDocument.Y).Alpha > 0 && session.BeginPatch()) drag = Drag.Patch;
+                else { drag = Drag.Marquee; dragMode = Composa.Selections.SelectionMode.Replace; snapFrom = snapTo = pressDocument; }
+                break;
+            case Tool.Pen:
+                PenPress(alt, e.KeyModifiers.HasFlag(KeyModifiers.Control), shift);
+                break;
             case Tool.SelectionBrush or Tool.RemoveObject:
                 var selectionMode = session.Tool == Tool.RemoveObject ? SelectionMode.Replace : alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : session.SelectionBrushMode;
                 session.BeginSelectionBrush(pressDocument, selectionMode);
@@ -287,11 +298,12 @@ public sealed partial class CanvasView
                 else cropStart = cropRect!.Value;
                 drag = Drag.Crop;
                 break;
-            case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear:
-                if (alt && session.Tool == Tool.CloneStamp) { session.SetCloneSource(pressDocument); InvalidateVisual(); break; }
+            case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
+                if (alt && session.Tool is Tool.CloneStamp or Tool.HealingBrush) { session.SetCloneSource(pressDocument); InvalidateVisual(); break; }
                 if (alt && session.Tool == Tool.Brush) { PickColor(background: false); drag = Drag.Eyedropper; break; }
                 session.ViewZoom = UnitsPerPixel;
-                if (session.BeginStroke(pressDocument, out var problem, lineFromLast: shift && session.LastStrokeEnd != null)) drag = Drag.Stroke;
+                if (session.BeginStroke(pressDocument, out var problem, lineFromLast: shift && session.LastStrokeEnd != null,
+                    pressure: e.Pointer.Type == PointerType.Pen ? point.Properties.Pressure : 1)) drag = Drag.Stroke;
                 else if (problem != null) Problem?.Invoke(problem);
                 break;
             case Tool.Gradient:
@@ -351,6 +363,8 @@ public sealed partial class CanvasView
         switch (drag)
         {
             case Drag.Pan: PanBy(delta); break;
+            case Drag.Patch: session.PreviewPatch(currentDocument - pressDocument); break;
+            case Drag.PenNode: PenMove(alt); break;
             case Drag.Marquee or Drag.Shape or Drag.AiRectangle: snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.MoveSelection: selectionOffset = SnappedSelectionOffset(shift, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Stroke:
@@ -421,6 +435,13 @@ public sealed partial class CanvasView
         {
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
+            case Drag.PenNode:
+                if (!penDraftDrag && penLayer != null) { if (moved) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
+                penLayer = null; penOriginal = null; break;
+            case Drag.Patch:
+                if (moved) { session.PreviewPatch(currentDocument - pressDocument, final: true); session.CommitPreview(); }
+                else session.CancelPreview();
+                break;
             case Drag.SelectionBrush:
                 session.EndSelectionBrush();
                 if (session.Tool == Tool.RemoveObject && session.Selection != null) AiSelectionCompleted?.Invoke(Composa.AI.AiTaskKind.RemoveObject);
@@ -932,6 +953,13 @@ public sealed partial class CanvasView
     {
         if (session == null) return false;
         if (session.TextEdit is { } editor) return HandleTextKey(editor, e);
+        if (session.Tool == Tool.Pen)
+        {
+            if (e.Key == Key.Escape) { CancelInteraction(); penDraft.Clear(); InvalidateVisual(); return true; }
+            if (e.Key == Key.Enter) { FinishPen(); return true; }
+            if (e.Key == Key.Back && penDraft.Count > 0) { penDraft.RemoveAt(penDraft.Count - 1); InvalidateVisual(); return true; }
+            if (drag == Drag.None && e.Key is Key.Back or Key.Delete && DeletePenNode()) return true;
+        }
         if (session.ColorRange != null && drag == Drag.None)
         {
             // The panel's OK and Cancel, reached from the canvas too.

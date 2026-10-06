@@ -7,7 +7,22 @@ namespace Composa.Editing;
 
 public sealed partial class EditorSession
 {
-    public bool IsLocked(Layer layer) => false;
+    public LayerLocks EffectiveLocks(Layer layer)
+    {
+        var locks = layer.Locks;
+        for (var parent = document.ParentOf(layer.Id); parent != null; parent = document.ParentOf(parent.Id)) locks |= parent.Locks;
+        return locks;
+    }
+    public bool IsLocked(Layer layer) => EffectiveLocks(layer) == LayerLocks.All;
+    public bool PixelsLocked(Layer layer) => EffectiveLocks(layer).HasFlag(LayerLocks.Pixels);
+    public bool PositionLocked(Layer layer) => EffectiveLocks(layer).HasFlag(LayerLocks.Position);
+    public void SetLayerLocks(Layer layer, LayerLocks locks)
+    {
+        FinishText();
+        if (layer.Locks == locks) return;
+        Apply("Layer Locks", () => layer.Locks = locks & LayerLocks.All);
+        LayersChanged?.Invoke();
+    }
 
     public void SelectLayer(Guid id, bool extend = false, bool range = false)
     {
@@ -106,13 +121,14 @@ public sealed partial class EditorSession
     /// <summary>Changes a live adjustment; wrap a slider drag in Begin/Commit so it undoes as one step.</summary>
     public void SetAdjustment(Layer layer, Adjustment adjustment)
     {
+        if (PixelsLocked(layer)) return;
         layer.Adjustment = adjustment;
         InvalidateAll();
     }
 
     public void DeleteSelectedLayers()
     {
-        var roots = SelectedRoots();
+        var roots = SelectedRoots().Where(l => !IsLocked(l)).ToList();
         if (roots.Count == 0) return;
         Apply(roots.Count > 1 ? "Delete Layers" : "Delete Layer", () =>
         {
@@ -192,13 +208,14 @@ public sealed partial class EditorSession
 
     public void SetOpacity(Layer layer, double opacity)
     {
+        if (IsLocked(layer)) return;
         layer.Opacity = Math.Clamp(opacity, 0, 1);
         Invalidate(AffectedArea(layer));
     }
 
     public void SetBlend(Layer layer, BlendMode blend)
     {
-        if (layer.Blend == blend) return;
+        if (IsLocked(layer) || layer.Blend == blend) return;
         Apply("Blend Mode", () => layer.Blend = blend);
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
@@ -220,7 +237,7 @@ public sealed partial class EditorSession
 
     public void ToggleClippingMask(Layer layer)
     {
-        if (!CanClip(layer)) return;
+        if (IsLocked(layer) || !CanClip(layer)) return;
         Apply(layer.Clipped ? "Release Clipping Mask" : "Create Clipping Mask", () => layer.Clipped = !layer.Clipped);
         InvalidateAll();
         LayersChanged?.Invoke();
@@ -280,7 +297,7 @@ public sealed partial class EditorSession
     /// <summary>Moves layers next to <paramref name="target"/>: above it, below it, or into it when it is a folder.</summary>
     public void MoveLayers(IReadOnlyList<Layer> layers, Layer? target, LayerDrop drop)
     {
-        layers = layers.Where(l => target == null || (l.Id != target.Id && !Document.Flatten(l.Children).Any(c => c.Id == target.Id))).ToList();
+        layers = layers.Where(l => !IsLocked(l) && (target == null || (l.Id != target.Id && !Document.Flatten(l.Children).Any(c => c.Id == target.Id)))).ToList();
         if (layers.Count == 0) return;
         Apply("Reorder Layers", () =>
         {
@@ -304,7 +321,7 @@ public sealed partial class EditorSession
     /// <summary>Moves the active layer one step up (+1) or down (-1) among its siblings.</summary>
     public void MoveActiveLayer(int direction)
     {
-        if (ActiveLayer is not { } layer) return;
+        if (ActiveLayer is not { } layer || IsLocked(layer)) return;
         var siblings = document.SiblingsOf(layer.Id)!;
         var index = siblings.IndexOf(layer);
         var target = index + direction;
@@ -334,13 +351,14 @@ public sealed partial class EditorSession
         get
         {
             var roots = SelectedRoots();
+            if (roots.SelectMany(r => Document.Flatten([r])).Any(PixelsLocked)) return false;
             if (roots.Count > 1) return true;
             if (roots.Count == 0) return false;
             if (roots[0].IsGroup) return roots[0].Children.Count > 0;
             var siblings = document.SiblingsOf(roots[0].Id)!;
             var index = siblings.IndexOf(roots[0]);
             // Merging into a hidden layer would silently throw that layer's pixels away.
-            return index > 0 && !siblings[index - 1].IsAdjustment && siblings[index - 1].Visible && roots[0].Visible;
+            return index > 0 && !PixelsLocked(siblings[index - 1]) && !siblings[index - 1].IsAdjustment && siblings[index - 1].Visible && roots[0].Visible;
         }
     }
 
@@ -362,6 +380,7 @@ public sealed partial class EditorSession
     private List<Layer>? VisibleRoots()
     {
         var visible = document.Layers.Where(l => l.Visible).ToList();
+        if (visible.SelectMany(r => Document.Flatten([r])).Any(PixelsLocked)) return null;
         return visible.Count > 1 || visible is [{ IsGroup: true, Children.Count: > 0 }] ? visible : null;
     }
 
@@ -482,7 +501,7 @@ public sealed partial class EditorSession
     /// <summary>Adds a mask revealing everything, or only the current selection when there is one.</summary>
     public void AddMask(Layer layer, bool hideAll = false)
     {
-        if (layer.Mask != null) return;
+        if (PixelsLocked(layer) || layer.Mask != null) return;
         Apply("Add Layer Mask", () =>
         {
             if (layer.Pixels == null)
@@ -498,7 +517,7 @@ public sealed partial class EditorSession
 
     public void DeleteMask(Layer layer)
     {
-        if (layer.Mask == null) return;
+        if (PixelsLocked(layer) || layer.Mask == null) return;
         Apply("Delete Layer Mask", () => layer.Mask = null);
         EditingMask = false;
         Invalidate(AffectedArea(layer));
@@ -508,8 +527,9 @@ public sealed partial class EditorSession
     /// <summary>Burns the mask into the layer's alpha and removes it.</summary>
     public void ApplyMask(Layer layer)
     {
-        if (layer.Mask == null || layer.Pixels == null) return;
+        if (PixelsLocked(layer) || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency) || layer.Mask == null || layer.Pixels == null) return;
         if (layer.IsSmartObject) throw new InvalidOperationException("Rasterize the smart object before applying its mask. Keep the mask editable otherwise.");
+        if (layer.FilterSource != null || layer.Shape != null || layer.Text != null) throw new InvalidOperationException("Rasterize the live layer before applying its mask. Keep the mask editable otherwise.");
         Apply("Apply Layer Mask", () =>
         {
             var pixels = Pixels.Clone(layer.Pixels);
@@ -526,7 +546,7 @@ public sealed partial class EditorSession
 
     public void SetMaskEnabled(Layer layer, bool enabled)
     {
-        if (layer.Mask == null || layer.MaskEnabled == enabled) return;
+        if (IsLocked(layer) || layer.Mask == null || layer.MaskEnabled == enabled) return;
         Apply(enabled ? "Enable Layer Mask" : "Disable Layer Mask", () => layer.MaskEnabled = enabled);
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();

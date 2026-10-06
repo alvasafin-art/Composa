@@ -87,9 +87,9 @@ public class ObjectPropertiesUiTests
         session.AddEffect(layer, LayerEffectKind.GradientOverlay, commit: false);
         _ = EffectsDialog.Edit(window, session, layer, LayerEffectKind.GradientOverlay); Dispatcher.UIThread.RunJobs();
         var dialog = window.OwnedWindows.Last(); Assert.Equal("Gradient Overlay", dialog.Title);
-        Assert.Equal(3, dialog.GetVisualDescendants().OfType<SliderField>().Count());
+        Assert.Equal(5, dialog.GetVisualDescendants().OfType<SliderField>().Count());
         Assert.Single(dialog.GetVisualDescendants().OfType<AngleDial>());
-        var styles = dialog.GetVisualDescendants().OfType<ComboBox>().Single(); styles.SelectedIndex = 1;
+        var styles = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Items.OfType<string>().Contains("Radial")); styles.SelectedIndex = 1;
         Assert.True(layer.Effects!.GradientOverlay!.Radial);
         Click(dialog, dialog.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Reverse"));
         Assert.True(layer.Effects.GradientOverlay.Reverse);

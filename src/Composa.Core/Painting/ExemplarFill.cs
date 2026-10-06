@@ -15,7 +15,7 @@ internal static unsafe class ExemplarFill
     private const int Radius = 2;
     private const int GuideSide = 384;
 
-    public static SKBitmap? TryFill(SKBitmap source, SKBitmap mask, SKRectI hole, SKBitmap? donorExclusion)
+    public static SKBitmap? TryFill(SKBitmap source, SKBitmap mask, SKRectI hole, SKBitmap? donorExclusion, CancellationToken cancellation = default)
     {
         var margin = Math.Clamp(Math.Min(hole.Width, hole.Height), 24, 128);
         var bounds = Geometry.Intersect(new SKRectI(hole.Left - margin, hole.Top - margin, hole.Right + margin, hole.Bottom + margin),
@@ -104,6 +104,7 @@ internal static unsafe class ExemplarFill
 
         while (front.TryDequeue(out var entry, out _))
         {
+            cancellation.ThrowIfCancellationRequested();
             var target = entry.Pixel;
             if (entry.Version != versions[target] || known[target] > 0) continue;
             int tx = target % w, ty = target / w;

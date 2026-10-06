@@ -35,17 +35,19 @@ public sealed partial class EditorSession
     public static ClipboardLayers? CopiedLayers { get; set; }
 
     /// <summary>The active layer when it (or its mask) can take pixel edits.</summary>
-    public Layer? EditableLayer => ActiveLayer is { } layer && (IsEditingMask || (layer.Pixels != null && !layer.IsLive)) ? layer : null;
+    public Layer? EditableLayer => ActiveLayer is { } layer && !PixelsLocked(layer) && (IsEditingMask || (layer.Pixels != null && !layer.IsLive)) ? layer : null;
 
     public bool CanEditPixels => EditableLayer != null;
 
     /// <summary>Fill also recolors live text: a text layer with nothing selected takes the color as its own.</summary>
-    public bool CanFill => CanEditPixels || (!IsEditingMask && document.Selection == null && ActiveLayer?.Text != null);
+    public bool CanFill => CanEditPixels || (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && !PixelsLocked(text));
 
     private SKBitmap Target(Layer layer) => IsEditingMask ? layer.Mask! : layer.Pixels!;
 
     private void SetTarget(Layer layer, SKBitmap bitmap)
     {
+        if (!IsEditingMask && !IsStroking && layer.Pixels is { } original && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
+            && !ReferenceEquals(bitmap, original)) bitmap = Pixels.WithAlphaOf(bitmap, original);
         if (IsEditingMask) layer.Mask = bitmap; else layer.Pixels = bitmap;
     }
 
@@ -215,6 +217,7 @@ public sealed partial class EditorSession
     /// <summary>Delete: erases the selected pixels (or paints the mask black).</summary>
     public void ClearSelection()
     {
+        if (!IsEditingMask && ActiveLayer is { } locked && EffectiveLocks(locked).HasFlag(LayerLocks.Transparency)) return;
         if (EditableLayer is not { } layer || document.Selection == null) return;
         Apply("Clear", () =>
         {
@@ -325,11 +328,13 @@ public sealed partial class EditorSession
         using (result) return (ColorToMask(result), growX, growY);
     });
 
-    public void PreviewContentAwareFill() => Preview(source =>
+    public void PreviewContentAwareFill(SKBitmap? donorExclusion = null) => Preview(source =>
     {
         if (previewSelection == null || source.ColorType == SKColorType.Alpha8) return (Pixels.Clone(source), 0, 0);
-        return (Inpaint.Fill(source, previewSelection), 0, 0);
+        return (Inpaint.Fill(source, previewSelection, donorExclusion), 0, 0);
     }, mix: false);
+
+    public void PreviewComputedFill(SKBitmap bitmap) => Preview(_ => (Pixels.Clone(bitmap), 0, 0), mix: false);
 
     private void Preview(Func<SKBitmap, (SKBitmap Result, int GrowX, int GrowY)> run, bool mix = true)
     {
@@ -400,7 +405,7 @@ public sealed partial class EditorSession
     {
         if (document.Selection == null || IsEditingMask) return;
         if (Selections.SelectionMask.Bounds(document.Selection) is var hole && (long)hole.Width * hole.Height > Inpaint.MaxArea)
-            throw new InvalidOperationException("The selection is too large for Content-Aware Fill. Select a smaller area (up to about 16 megapixels).");
+            throw new InvalidOperationException($"The selection is too large for Content-Aware Fill. Select a smaller area (up to about {DocumentLimits.MaxRetouchPixels / 1_000_000} megapixels).");
         // Growing the layer to the canvas lets a selection past the image's edge extend the image.
         if (!BeginPreview("Content-Aware Fill", coverCanvas: true)) return;
         PreviewContentAwareFill();
@@ -466,12 +471,14 @@ public sealed partial class EditorSession
             end = new SKColor(0, 0, 0, Gray(Background));
         }
         var painted = Pixels.Clone(original);
+        var colors = GradientRamp?.ShaderColors() ?? [start, end];
+        if (IsEditingMask && GradientRamp != null) colors = colors.Select(c => new SKColor(0, 0, 0, (byte)((c.Red * 54 + c.Green * 183 + c.Blue * 19) / 256 * c.Alpha / 255))).ToArray();
         using (var canvas = new SKCanvas(painted))
         {
             canvas.SetMatrix(in inverse);
             using var shader = GradientRadial
-                ? SKShader.CreateRadialGradient(from, Math.Max(0.5f, SKPoint.Distance(from, to)), [start, end], SKShaderTileMode.Clamp)
-                : SKShader.CreateLinearGradient(from, to, [start, end], SKShaderTileMode.Clamp);
+                ? SKShader.CreateRadialGradient(from, Math.Max(0.5f, SKPoint.Distance(from, to)), colors, SKShaderTileMode.Clamp)
+                : SKShader.CreateLinearGradient(from, to, colors, SKShaderTileMode.Clamp);
             using var paint = new SKPaint { Shader = shader, IsDither = true };
             if (IsEditingMask) paint.BlendMode = SKBlendMode.Src;
             paint.Color = paint.Color.WithAlpha((byte)Math.Round(Math.Clamp(GradientOpacity, 0, 1) * 255));
@@ -509,7 +516,12 @@ public sealed partial class EditorSession
             var rect = new SKRect(inset, inset, width - inset, height - inset);
             void Draw()
             {
-                if (style.Kind == ShapeKind.Ellipse) canvas.DrawOval(rect, paint);
+                if (style.Kind == ShapeKind.Path && style.Path is { } geometry)
+                {
+                    using var path = geometry.Build(width, height);
+                    if (paint.Style == SKPaintStyle.Stroke || geometry.Closed) canvas.DrawPath(path, paint);
+                }
+                else if (style.Kind == ShapeKind.Ellipse) canvas.DrawOval(rect, paint);
                 else if (style.Kind == ShapeKind.RoundedRectangle)
                 {
                     var radius = (float)Math.Max(0, Math.Min(style.CornerRadius, Math.Min(width, height) / 2.0) - inset);
@@ -590,7 +602,7 @@ public sealed partial class EditorSession
     /// <summary>Rebuilds a live shape from editable properties; color pickers preview inside one open edit and bar fields can fold consecutive changes.</summary>
     public void ChangeShapeStyle(Layer layer, ShapeStyle style, bool preview = false, bool merge = false)
     {
-        if (layer.Shape == null || layer.Pixels is not { } pixels) return;
+        if (layer.Shape == null || layer.Pixels is not { } pixels || PixelsLocked(layer)) return;
         style = style.Clamped();
         if (layer.Shape == style) return;
         var before = AffectedArea(layer);
@@ -652,8 +664,8 @@ public sealed partial class EditorSession
 
     public void RasterizeShape(Layer layer)
     {
-        if (!layer.IsLive) return;
-        Apply("Rasterize Layer", () => { layer.Shape = null; layer.Text = null; layer.SmartObject = null; });
+        if (PixelsLocked(layer) || !layer.IsLive) return;
+        Apply("Rasterize Layer", () => { layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0; });
         LayersChanged?.Invoke();
     }
 

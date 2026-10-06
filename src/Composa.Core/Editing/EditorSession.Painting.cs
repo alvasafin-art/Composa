@@ -17,6 +17,9 @@ public sealed partial class EditorSession
     private SKPoint? lastStrokeEnd;
     private SKPoint? smoothingAnchor;
     private SKPoint? smoothingPointer;
+    private float strokePressure = 1;
+    public SKPoint? BrushPosition => IsStroking ? smoothingAnchor : null;
+    public float BrushPressure => IsStroking && PressureSensitive ? strokePressure : 1;
 
     public bool IsStroking => stroke != null;
     /// <summary>Screen pixels per document pixel, told by the canvas, so Smoothing feels the same at any zoom.</summary>
@@ -41,6 +44,7 @@ public sealed partial class EditorSession
     public BrushMode CurrentBrushMode => Tool switch
     {
         Tool.SpotHealing => BrushMode.Heal,
+        Tool.HealingBrush => BrushMode.Healing,
         Tool.CloneStamp => BrushMode.Clone,
         Tool.Smear => SmearMode switch
         {
@@ -90,25 +94,26 @@ public sealed partial class EditorSession
 
     /// <summary>Starts painting at a document point. Returns false (with a reason) when the active layer can't be painted.</summary>
     /// <param name="mode">The brush to use; the current tool's when left out.</param>
-    public bool BeginStroke(SKPoint point, out string? problem, bool lineFromLast = false, BrushMode? mode = null)
+    public bool BeginStroke(SKPoint point, out string? problem, bool lineFromLast = false, BrushMode? mode = null, float pressure = 1)
     {
         problem = null;
         if (ActiveLayer is not { } layer) { problem = "Select a layer to paint on."; return false; }
+        if (PixelsLocked(layer)) { problem = "Unlock the layer's pixels before painting."; return false; }
         if (!IsEditingMask && layer.Pixels == null) { problem = layer.IsGroup ? "Folders can't be painted on. Select a layer inside." : "Adjustment layers have no pixels. Add a mask to paint on."; return false; }
         if (!IsEditingMask && layer.IsLive) { problem = layer.IsSmartObject ? "Open the smart object's contents to paint, or rasterize it (Layer menu)." : $"This is live {(layer.Text != null ? "text" : "shape")}. Rasterize it (Layer menu) to paint on it."; return false; }
         if (!document.IsEffectivelyVisible(layer)) { problem = "The layer is hidden."; return false; }
         mode ??= CurrentBrushMode;
-        if (mode == BrushMode.Clone && cloneSource == null) { problem = "Alt-click to set the clone source first."; return false; }
-        if (mode == BrushMode.Heal && IsEditingMask) { problem = "The Spot Healing Brush works on pixels, not masks."; return false; }
+        if (mode is BrushMode.Clone or BrushMode.Healing && cloneSource == null) { problem = "Alt-click to set the source first."; return false; }
+        if (mode is BrushMode.Heal or BrushMode.Healing && IsEditingMask) { problem = "Healing brushes work on pixels, not masks."; return false; }
 
         Begin(mode.Value switch
         {
-            BrushMode.Erase => "Eraser", BrushMode.Clone => "Clone Stamp", BrushMode.Heal => "Spot Healing Brush",
+            BrushMode.Erase => "Eraser", BrushMode.Clone => "Clone Stamp", BrushMode.Heal => "Spot Healing Brush", BrushMode.Healing => "Healing Brush",
             BrushMode.Liquify => "Liquify", BrushMode.Blur => "Blur", BrushMode.Smudge => "Smudge", BrushMode.Dodge => "Dodge", BrushMode.Burn => "Burn", _ => "Brush"
         });
         // A brush on a mask can paint anywhere on the canvas, as Photoshop's does, growing the mask past its layer. The
         // smearing brushes work the mask's own pixels and stay within it.
-        if (!IsEditingMask || mode is BrushMode.Paint or BrushMode.Erase) GrowToCanvas(layer);
+        if ((!IsEditingMask || mode is BrushMode.Paint or BrushMode.Erase) && !EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)) GrowToCanvas(layer);
         var target = Target(layer);
         var matrix = TargetMatrix(layer);
         if (!matrix.TryInvert(out strokeToLayer)) { Cancel(); problem = "The layer is too small to paint on."; return false; }
@@ -116,7 +121,7 @@ public sealed partial class EditorSession
 
         SKBitmap? source = null;
         var offset = SKPointI.Empty;
-        if (mode == BrushMode.Clone)
+        if (mode is BrushMode.Clone or BrushMode.Healing)
         {
             if (!CloneAligned || cloneOffset == null) cloneOffset = new SKPoint(cloneSource!.Value.X - point.X, cloneSource.Value.Y - point.Y);
             var o = cloneOffset.Value;
@@ -136,7 +141,8 @@ public sealed partial class EditorSession
         var color = mode == BrushMode.Paint ? Foreground : SKColors.Black;
         stroke = new BrushStroke(target, Brush, mode.Value, color, scale)
         {
-            Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset
+            Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset,
+            LockTransparency = !IsEditingMask && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
         };
         strokeLayer = layer;
         strokeOriginal = target;
@@ -146,7 +152,8 @@ public sealed partial class EditorSession
         if (lineFromLast && lastStrokeEnd is { } from) stroke.AddPoint(strokeToLayer.MapPoint(from));
         // The first dab always lands; from here on Smoothing decides how the brush follows.
         smoothingAnchor = smoothingPointer = point;
-        Paint(point, 1);
+        strokePressure = pressure;
+        Paint(point, pressure);
         if (lineFromLast) Invalidate(AffectedArea(layer));
         return true;
     }
@@ -154,7 +161,9 @@ public sealed partial class EditorSession
     public void ContinueStroke(SKPoint point, float pressure = 1)
     {
         if (stroke == null || strokeLayer == null) return;
+        strokePressure = pressure;
         smoothingPointer = point;
+        if (!IsSmoothing) smoothingAnchor = point;
         if (Smoothed(point) is not { } painted) return;
         Paint(painted, pressure);
     }
@@ -198,7 +207,7 @@ public sealed partial class EditorSession
         if (stroke == null || strokeLayer == null) return;
         var layer = strokeLayer;
         // Smoothing leaves the brush short of the pointer; the stroke ends where the hand did.
-        if (IsSmoothing && smoothingPointer is { } pointer && smoothingAnchor is { } anchor && pointer != anchor) Paint(pointer, 1);
+        if (IsSmoothing && smoothingPointer is { } pointer && smoothingAnchor is { } anchor && pointer != anchor) Paint(pointer, strokePressure);
         if (stroke.Touched.IsEmpty)
         {
             SetTarget(layer, strokeOriginal!);
@@ -206,9 +215,14 @@ public sealed partial class EditorSession
             Cancel();
             return;
         }
-        if (strokeMode == BrushMode.Heal)
+        if (strokeMode is BrushMode.Heal or BrushMode.Healing)
         {
             using var mask = stroke.CoverageMask();
+            if (strokeMode == BrushMode.Healing)
+            {
+                var coverage = mask.GetPixelSpan();
+                for (var i = 0; i < coverage.Length; i++) coverage[i] = (byte)(coverage[i] * Math.Clamp(Brush.Opacity, 0, 1));
+            }
             if ((long)stroke.Touched.Width * stroke.Touched.Height > Inpaint.MaxArea)
             {
                 CloseStroke();
@@ -228,7 +242,14 @@ public sealed partial class EditorSession
                     if (allowed[y * selection.RowBytes + x] == 0) coverage[y * mask.RowBytes + x] = 0;
                 Pixels.Invalidate(mask);
             }
-            var healed = MixBySelection(strokeOriginal!, Inpaint.Fill(strokeOriginal!, mask, donorExclusion), selection);
+            var repair = strokeMode == BrushMode.Healing
+                ? PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset)
+                : Inpaint.Fill(strokeOriginal!, mask, donorExclusion);
+            var healed = MixBySelection(strokeOriginal!, repair, selection);
+            if (EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
+            {
+                var locked = Pixels.WithAlphaOf(healed, strokeOriginal!); healed.Dispose(); healed = locked;
+            }
             if (selection != document.Selection) selection?.Dispose();
             SetTarget(layer, healed);
             Invalidate(AffectedArea(layer));

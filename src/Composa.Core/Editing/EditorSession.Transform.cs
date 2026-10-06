@@ -283,19 +283,19 @@ public sealed partial class EditorSession
 
     /// <summary>The raster layers a transform applies to: the selection, including everything inside selected folders.</summary>
     public List<Layer> TransformTargets() =>
-        SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null).Distinct().ToList();
+        SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).Distinct().ToList();
 
     public TransformEdit? BeginTransform(string name = "Transform", bool duplicate = false)
     {
         var targets = TransformTargets();
-        var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null).Distinct().ToList();
+        var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && !PositionLocked(l)).Distinct().ToList();
         if (targets.Count == 0 && maskOwners.Count == 0) return null;
         Begin(duplicate ? "Duplicate and Move" : name);
         if (duplicate)
         {
             InsertLayerCopies(SelectedRoots());
             targets = TransformTargets();
-            maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null).Distinct().ToList();
+            maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && !PositionLocked(l)).Distinct().ToList();
         }
         Transform = new TransformEdit(this, targets, maskOwners);
         if (duplicate) { InvalidateAll(); LayersChanged?.Invoke(); }
@@ -364,7 +364,7 @@ public sealed partial class EditorSession
     /// </summary>
     public void SetTransform(Layer layer, LayerTransform transform)
     {
-        if (layer.Pixels == null || TransformEdit.Same(transform, layer.Transform)) return;
+        if (layer.Pixels == null || PositionLocked(layer) || TransformEdit.Same(transform, layer.Transform)) return;
         Apply(InspectorEditName, () =>
         {
             layer.Transform = transform;

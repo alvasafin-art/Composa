@@ -14,8 +14,8 @@
 #   u2netp.onnx  is in git (4.6 MB), from rembg's release page; upstream xuebinqin/U-2-Net, Apache-2.0.
 #   modnet.onnx  26 MB, from Xenova/modnet on Hugging Face; upstream ZHKKKe/MODNet, Apache-2.0.
 # This is a new subject-only packaging script in this fork (no Models or scripts/models
-# files existed at HEAD). Real-ESRGAN is not bundled: only the two subject models below
-# are required and both retain their pinned hashes and file sizes.
+# files existed at HEAD). Real-ESRGAN is not bundled. The two promptable SAM encoder/decoder
+# pairs are committed and verified below; provenance and licenses travel with the application.
 # A new model goes here, into SubjectModels.cs and into packaging/THIRD-PARTY-NOTICES.txt in one change,
 # and only with weights under a permissive licence (Apache-2.0, MIT or BSD): BRIA's RMBG models are
 # non-commercial and never ship.
@@ -57,3 +57,7 @@ check() {
   echo "fetch.sh: $1 is present and verified"
 }
 check u2netp.onnx 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
+check mobile_sam_encoder.onnx 20deef402855b31222b528f52b04807e41ebe47216ac0e39a0729f43491a0209
+check mobile_sam_decoder.onnx 22cf85e35d14182f4b4712364264c06b22edbef63f065189586f080ef4e2f325
+check efficient_sam_vitt_encoder.onnx 7a73ee65aa2c37237c89b4b18e73082f757ffb173899609c5d97a2bbd4ebb02d
+check efficient_sam_vitt_decoder.onnx e1afe46232c3bfa3470a6a81c7d3181836a94ea89528aff4e0f2d2c611989efd

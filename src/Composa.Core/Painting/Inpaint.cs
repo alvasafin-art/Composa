@@ -13,14 +13,18 @@ namespace Composa.Painting;
 public static unsafe class Inpaint
 {
     /// <summary>The largest hole (bounding box, in pixels) worth attempting; beyond this the working buffers reach gigabytes.</summary>
-    public const long MaxArea = 16_000_000;
+    public const long MaxArea = DocumentLimits.MaxRetouchPixels;
 
     /// <summary>Returns a copy of <paramref name="source"/> (RGBA premultiplied) with the masked area replaced.</summary>
-    public static SKBitmap Fill(SKBitmap source, SKBitmap mask, SKBitmap? donorExclusion = null)
+    public static SKBitmap Fill(SKBitmap source, SKBitmap mask, SKBitmap? donorExclusion = null, CancellationToken cancellation = default)
     {
+        cancellation.ThrowIfCancellationRequested();
+        using var combinedExclusion = donorExclusion == null ? null : SelectionMask.Combine(mask, donorExclusion, SelectionMode.Add);
+        donorExclusion = combinedExclusion ?? donorExclusion;
         var hole = SelectionMask.Bounds(mask, 1);
         hole = Geometry.Intersect(hole, new SKRectI(0, 0, source.Width, source.Height));
         if (hole.IsEmpty) return Pixels.Clone(source);
+        if ((long)hole.Width * hole.Height > MaxArea) throw new InvalidOperationException($"Select an area below {DocumentLimits.MaxRetouchPixels / 1_000_000} MP for Content-Aware Fill.");
 
         const int ring = 4;
         var area = Geometry.Intersect(new SKRectI(hole.Left - ring, hole.Top - ring, hole.Right + ring, hole.Bottom + ring),
@@ -44,10 +48,17 @@ public static unsafe class Inpaint
 
         if (border.Count == 0) return Pixels.Clone(source); // No evidence: never turn a fully selected layer into black.
         var error = double.MaxValue;
-        var offset = border.Count >= 8 ? BestOffset(source, donorExclusion ?? mask, area, border, out error) : null;
+        var offset = border.Count >= 8 ? BestOffset(source, donorExclusion ?? mask, area, border, out error, cancellation) : null;
         if (offset is { } candidate && !CleanDonor(donorExclusion ?? mask, area, candidate)) offset = null;
-        if ((offset == null || error > 64) && ExemplarFill.TryFill(source, mask, hole, donorExclusion) is { } texture)
-            return texture;
+        if ((offset == null || error > 64) && ExemplarFill.TryFill(source, mask, hole, donorExclusion, cancellation) is { } texture)
+        {
+            using (texture)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                using (var refined = PatchMatchRefinement.Fill(source, texture, mask, donorExclusion, cancellation))
+                    return PatchBlend.Blend(source, refined, mask, SKPointI.Empty, preserveAlpha: false, cancellation: cancellation);
+            }
+        }
 
         var result = Pixels.Clone(source);
         var patch = new float[w * h * 4];
@@ -99,7 +110,7 @@ public static unsafe class Inpaint
         return true;
     }
 
-    private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border, out double error)
+    private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border, out double error, CancellationToken cancellation)
     {
         var src = (byte*)source.GetPixels();
         var m = (byte*)mask.GetPixels();
@@ -114,6 +125,7 @@ public static unsafe class Inpaint
 
         double Cost(int ox, int oy)
         {
+            cancellation.ThrowIfCancellationRequested();
             if (Math.Abs(ox) < area.Width / 2 && Math.Abs(oy) < area.Height / 2) return double.MaxValue;
             if (area.Left + ox < 0 || area.Top + oy < 0 || area.Right + ox > source.Width || area.Bottom + oy > source.Height) return double.MaxValue;
             // The patch that lands in the hole has to come from real, unmasked pixels.

@@ -38,5 +38,5 @@ With any selection tool, Shift adds to the selection, Alt subtracts from it, and
 - **Edit > Paste Special > Paste in Place** (Ctrl+Shift+V) puts them where they came from even when that lies partly outside the canvas, and layers copied whole keep their positions in another document too.
 - **Edit > Paste Special > Paste Into** (Ctrl+Alt+Shift+V) puts the clipboard's pixels on a new layer centered on the selection, with the selection as its mask, so they show only inside it. The mask moves with the layer.
 - **Layer > Layer via Copy** (Ctrl+J) copies the selected pixels to a new layer.
-- **Edit > Content-Aware Fill** (Shift+Backspace) fills the selection from its surroundings, on a pixel layer, for selections up to about 16 megapixels.
+- **Edit > Content-Aware Fill** (Shift+Backspace) opens the sampling/preview workspace and offers output to a repair layer, for selected areas up to about 16 megapixels. **Select and Mask**, **Save Selection** and **Load Selection** are described in [retouching and non-destructive editing](professional-editing.md).
 - A new adjustment layer takes the selection as its mask, and Layer > Add Layer Mask uses it too, so an adjustment applies only inside the selection.

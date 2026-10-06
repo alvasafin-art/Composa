@@ -45,6 +45,7 @@ public sealed class LayersPanel : UserControl
     public event Action<Layer>? EditTextRequested;
     public event Action<Layer>? EditShapeRequested;
     public event Action<Layer>? EditSmartObjectRequested;
+    public event Action<Layer, SmartFilter>? EditSmartFilterRequested;
     public event Action<AdjustmentKind>? NewAdjustmentRequested;
     /// <summary>Double-click on an effect row: open its settings.</summary>
     public event Action<Layer, LayerEffectKind>? EditEffectRequested;
@@ -237,6 +238,7 @@ public sealed class LayersPanel : UserControl
             var layer = layers[i];
             rows.Children.Add(BuildRow(layer, depth, parentVisible));
             if (layer.Effects is { } effects) foreach (var kind in effects.Kinds) rows.Children.Add(BuildEffectRow(layer, kind, depth, parentVisible && layer.Visible));
+            foreach (var filter in layer.SmartFilters.Reverse()) rows.Children.Add(BuildSmartFilterRow(layer, filter, depth));
             if (layer.IsGroup && !layer.Collapsed) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
         }
     }
@@ -323,6 +325,8 @@ public sealed class LayersPanel : UserControl
         else
         {
             var name = Ui.Label(layer.Name);
+            if (layer.Locks != LayerLocks.None) { name.Text += "  [locked]"; ToolTip.SetTip(name, "Locked: " + layer.Locks); }
+            if (layer.VectorMask != null) { name.Text += "  [vector mask]"; }
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = 150;
             if (layer.IsLive) name.FontStyle = FontStyle.Italic;
@@ -397,6 +401,15 @@ public sealed class LayersPanel : UserControl
         Add("Delete", () => current.RemoveEffect(layer, kind));
         row.ContextMenu = menu;
         return row;
+    }
+
+    private Control BuildSmartFilterRow(Layer layer, SmartFilter filter, int depth)
+    {
+        var current = session!;
+        var toggle = Ui.Check("", filter.Enabled, enabled => current.ChangeSmartFilter(layer, filter.Id, enabled: enabled));
+        var edit = Ui.TextButton(FilterSettings.DisplayName(filter.Settings.Kind) + "…", () => EditSmartFilterRequested?.Invoke(layer, filter));
+        var delete = Ui.IconButton(Icons.Trash, "Delete smart filter", () => current.ChangeSmartFilter(layer, filter.Id, remove: true));
+        return new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = Ui.Row(5, toggle, edit, delete) };
     }
 
     private void EffectDragMoved(PointerEventArgs e)
@@ -483,6 +496,13 @@ public sealed class LayersPanel : UserControl
     {
         var current = session!;
         var menu = new ContextMenu();
+        var locks = new MenuItem { Header = "Lock" };
+        foreach (var (flag, title) in new[] { (LayerLocks.Pixels, "Pixels"), (LayerLocks.Position, "Position"), (LayerLocks.Transparency, "Transparency") })
+        {
+            var item = new MenuItem { Header = title, ToggleType = MenuItemToggleType.CheckBox, IsChecked = layer.Locks.HasFlag(flag) };
+            item.Click += (_, _) => current.SetLayerLocks(layer, layer.Locks ^ flag);
+            locks.Items.Add(item);
+        }
         MenuItem Add(string header, Action action, bool enabled = true, MenuItem? parent = null)
         {
             var item = new MenuItem { Header = header, IsEnabled = enabled };
@@ -496,11 +516,24 @@ public sealed class LayersPanel : UserControl
         Add(several ? "Duplicate Layers" : "Duplicate Layer", () => current.DuplicateSelectedLayers());
         Add("Rename…", () => { renaming = layer.Id; Rebuild(); }, !several);
         Add(targetsMask ? "Delete Mask" : several ? "Delete Selected Layers" : "Delete Layer", () => { if (targetsMask) current.DeleteMask(layer); else current.DeleteSelectedLayers(); });
+        menu.Items.Add(locks);
         Add("Tags…", () => EditTagsRequested?.Invoke(layer), !several);
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
         if (layer.Shape != null) Add("Shape Properties…", () => EditShapeRequested?.Invoke(layer));
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
         if (layer.IsLive) Add("Rasterize Layer", () => current.RasterizeShape(layer));
+        if (layer.Shape?.Path is { Closed: true })
+        {
+            var targets = new MenuItem { Header = "Use path as vector mask" };
+            foreach (var target in current.Document.AllLayers().Where(l => l.Id != layer.Id && l.Pixels != null))
+                Add(target.Name, () => current.ApplyPathAsVectorMask(layer, target), !current.PixelsLocked(target), targets);
+            menu.Items.Add(targets);
+        }
+        if (layer.VectorMask != null)
+        {
+            Add("Vector mask to selection", () => current.PathToSelection(layer));
+            Add("Delete vector mask", () => current.RemoveVectorMask(layer));
+        }
         if (!layer.IsSmartObject) Add("Convert to Smart Object", () => current.ConvertToSmartObject());
         else
         {

@@ -5,17 +5,22 @@ namespace Composa.Model;
 
 public enum LayerKind { Raster, Group, Adjustment }
 
-public enum ShapeKind { Rectangle, RoundedRectangle, Ellipse, Line }
+public enum ShapeKind { Rectangle, RoundedRectangle, Ellipse, Line, Path }
+
+[Flags]
+public enum LayerLocks { None = 0, Pixels = 1, Position = 2, Transparency = 4, All = 7 }
 
 /// <summary>A live shape: redrawn at full sharpness whenever its layer is scaled.</summary>
 public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
 {
+    public VectorPath? Path { get; init; }
     public bool FillEnabled { get; init; } = true;
     public uint? Stroke { get; init; }
     public double StrokeWidth { get; init; } = 2;
 
     public ShapeStyle Clamped() => this with
     {
+        Path = Path?.Normalized(),
         CornerRadius = double.IsFinite(CornerRadius) ? Math.Clamp(CornerRadius, 0, DocumentLimits.MaxSide) : 0,
         StrokeWidth = double.IsFinite(StrokeWidth) ? Math.Clamp(StrokeWidth, 0, 500) : 2,
         LineWidth = double.IsFinite(LineWidth) ? Math.Clamp(LineWidth, Kind == ShapeKind.Line ? 1 : 0, 5000) : (Kind == ShapeKind.Line ? 1 : 0)
@@ -390,7 +395,7 @@ public sealed record TextStyle
 /// A node in the layer tree. Bitmaps are treated as immutable once a layer has been committed to the document:
 /// every edit swaps in a new bitmap, so history snapshots can share pixels freely.
 /// </summary>
-public sealed class Layer
+public sealed partial class Layer
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; set; } = "Layer";
@@ -418,10 +423,17 @@ public sealed class Layer
     /// <summary>Stroke, shadows and overlay drawn around the pixels; null when the layer has none.</summary>
     public LayerEffects? Effects { get; set; }
     /// <summary>Live layers (shapes and text) are regenerated from their settings; they take pixel edits only once rasterized.</summary>
-    public bool IsLive => Shape != null || Text != null || SmartObject != null;
+    public bool IsLive => Shape != null || Text != null || SmartObject != null || FilterSource != null;
     /// <summary>Bottom-to-top children of a group.</summary>
     public List<Layer> Children { get; init; } = [];
     public bool Collapsed { get; set; }
+    public LayerLocks Locks { get; set; }
+    public SKBitmap? FilterSource { get; set; }
+    public SmartFilter[] SmartFilters { get; set; } = [];
+    public int FilterPaddingX { get; set; }
+    public int FilterPaddingY { get; set; }
+    public VectorPath? VectorMask { get; set; }
+    public bool VectorMaskEnabled { get; set; } = true;
 
     public bool IsGroup => Kind == LayerKind.Group;
     public bool IsAdjustment => Kind == LayerKind.Adjustment;
@@ -516,7 +528,9 @@ public sealed class Layer
         {
             Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, FillOpacity = FillOpacity, Blend = Blend,
             Pixels = Pixels, Transform = Transform, Mask = Mask, MaskEnabled = MaskEnabled, Clipped = Clipped,
-            Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed
+            Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed, Locks = Locks,
+            FilterSource = FilterSource, SmartFilters = SmartFilters, FilterPaddingX = FilterPaddingX, FilterPaddingY = FilterPaddingY,
+            VectorMask = VectorMask, VectorMaskEnabled = VectorMaskEnabled
         };
         copy.Tags.UnionWith(Tags);
         foreach (var child in Children) copy.Children.Add(child.Clone(newIds));

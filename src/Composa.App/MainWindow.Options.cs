@@ -24,7 +24,7 @@ public sealed partial class MainWindow
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool == Tool.Move ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
         if (embeddedTabs.TryGetValue(s, out var embedded))
@@ -43,8 +43,8 @@ public sealed partial class MainWindow
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildAlignmentFields(row);
                 break;
-            case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.Smear:
-                Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.CloneStamp => "Clone Stamp", _ => Chosen() }));
+            case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
+                Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.CloneStamp => "Clone Stamp", Tool.HealingBrush => "Healing Brush", _ => Chosen() }));
                 var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v => s.Brush = s.Brush with { Size = v });
                 var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => s.Brush = s.Brush with { Hardness = v / 100 });
                 Add(size, hardness);
@@ -55,23 +55,37 @@ public sealed partial class MainWindow
                     setOpacity = v => opacity.Value = v;
                     Add(opacity);
                 }
-                Action<double>? setSmoothing = null;
                 if (s.Tool == Tool.Brush)
                 {
-                    // Healing, cloning and smearing keep their own feel; only Paint and Erase trail the pointer.
-                    var smoothing = Ui.SliderField("Smoothing", s.Brush.Smoothing, 0, 100, v => s.Brush = s.Brush with { Smoothing = v });
-                    setSmoothing = v => smoothing.Value = v;
-                    Add(smoothing);
+                    var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
+                    var spacing = Ui.SliderField("Spacing", s.Brush.Spacing * 100, 1, 100, v => s.Brush = s.Brush with { Spacing = v / 100 }, width: 105);
+                    Add(flow, spacing);
+                    var presets = new[] { new Composa.Painting.BrushPreset("Custom", s.Brush) }.Concat(Composa.Painting.BrushPresets.All)
+                        .Concat(settings.BrushPresets.Select(p => new Composa.Painting.BrushPreset(p.Key, p.Value))).ToArray();
+                    Add(Ui.Combo(presets, presets[0], p => p.Name,
+                        p => { if (p.Name != "Custom") { s.Brush = p.Settings with { Size = s.Brush.Size, Opacity = s.Brush.Opacity }; RebuildOptions(); } }, 130),
+                        BrushDynamicsMenu(s));
+                    refreshOptions += () => { flow.Value = s.Brush.Flow * 100; spacing.Value = s.Brush.Spacing * 100; };
                 }
-                if (s.Tool == Tool.CloneStamp)
+                if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
                     Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v), Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
-                refreshOptions = () =>
+                refreshOptions += () =>
                 {
                     size.Value = Math.Min(500, s.Brush.Size);
                     hardness.Value = s.Brush.Hardness * 100;
                     setOpacity?.Invoke(s.Brush.Opacity * 100);
-                    setSmoothing?.Invoke(s.Brush.Smoothing);
                 };
+                break;
+            case Tool.Patch:
+                Add(Title("Patch"), Ui.Label("Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels", Palette.Secondary));
+                break;
+            case Tool.Pen:
+                var penTitle = Title("Pen");
+                ToolTip.SetTip(penTitle, "Shift-click curve adds a node · Delete removes selected node · Alt breaks handles · Ctrl starts a new path");
+                Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
+                    Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateVisual(); }),
+                    Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
+                if (s.ActiveLayer?.Shape?.Path != null) BuildShapeFields(row);
                 break;
             case Tool.Marquee or Tool.Lasso or Tool.Wand:
                 Add(Title(Chosen()));
@@ -125,8 +139,10 @@ public sealed partial class MainWindow
                 break;
             case Tool.Gradient:
                 Add(Title("Gradient"),
+                    Flat("Edit stops…", () => _ = EditGradientRamp()),
+                    Flat("Use foreground / background", () => s.GradientRamp = null),
                     Ui.Combo(new[] { "Linear", "Radial" }, s.GradientRadial ? "Radial" : "Linear", v => v, v => s.GradientRadial = v == "Radial", 90),
-                    Ui.Check("Foreground to transparent", s.GradientToTransparent, v => { s.GradientToTransparent = v; UpdateStatus(); }));
+                    Ui.Check("Foreground to transparent", s.GradientToTransparent, v => { s.GradientToTransparent = v; s.GradientRamp = null; UpdateStatus(); }));
                 var gradientOpacity = Ui.SliderField("Opacity", s.GradientOpacity * 100, 1, 100, v => s.GradientOpacity = v / 100);
                 Add(gradientOpacity);
                 refreshOptions = () => gradientOpacity.Value = s.GradientOpacity * 100;

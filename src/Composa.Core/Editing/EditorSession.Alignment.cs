@@ -61,6 +61,7 @@ public sealed partial class EditorSession
 
     private void MoveObjects(string name, List<(Layer Root, float X, float Y)> moves)
     {
+        moves.RemoveAll(m => Document.Flatten([m.Root]).Any(PositionLocked));
         if (IsInteracting || moves.All(m => Math.Abs(m.X) < .0001 && Math.Abs(m.Y) < .0001)) return;
         Begin(name);
         foreach (var (root, x, y) in moves)

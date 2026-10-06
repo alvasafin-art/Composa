@@ -17,6 +17,8 @@ public static partial class PsdExport
     private static string? NativeProblem(Layer layer, Document document)
     {
         if (layer.Pixels == null) return "The live layer has no render cache.";
+        if (layer.FilterSource != null) return "Smart filters are exported as the rendered appearance.";
+        if (layer.Shape?.Path != null || layer.VectorMask != null) return "Editable custom paths and vector masks keep their settings in Composa and export their rendered appearance to PSD.";
         if (layer.FillOpacity < 1) return "Separate fill opacity is preserved in the raster appearance rather than native Photoshop text or shape settings.";
         if (layer.Effects?.Visible() is { IsEmpty: false }) return "This live layer has effects whose Photoshop settings are not yet supported.";
         var m = layer.Matrix;
