@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.17" date="2026-10-06">
+      <description>
+        <p>Improved brush controls and retouching, a Content-Aware Fill workspace, Select and Mask, editable Bezier paths, vector masks, non-destructive filters, selection channels, layer locks and multi-stop gradients. MobileSAM and EfficientSAM Ti run locally for comparison. Alignment uses the second selected object; AI settings are clearer. Verified by 948 automated tests.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.16" date="2026-10-05">
       <description>
         <p>Mixed character sizes, embedded Photoshop smart objects and supported layer effects, reliable text movement, canvas/first-object alignment and equal gaps. Object Selection lists real server models and supports optional native BiRefNet. Assistant Settings creates a llama.cpp server launcher from a selected folder.</p>

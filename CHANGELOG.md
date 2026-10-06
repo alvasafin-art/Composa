@@ -4,6 +4,8 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.17] - 2026-10-06
+
 ### Added
 
 - Local MobileSAM and EfficientSAM Ti with their real encoder/decoder weights, click and rectangle prompts, CPU inference, cancellation and one cached image embedding. Both choices are available for comparison without ComfyUI; their combined weights add about 82 MiB.
