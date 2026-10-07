@@ -29,7 +29,7 @@ public class AiMaskFinishingTests
     [InlineData(32)]
     [InlineData(48)]
     [InlineData(64)]
-    public void Removal_keeps_an_opaque_replacement_core_and_never_leaks_past_grow_plus_blend(int blend)
+    public void Removal_ignores_legacy_blend_and_keeps_an_opaque_core_with_finite_automatic_support(int blend)
     {
         var session=EditorSession.NewCanvas(301,189,new SKColor(200,200,200));
         session.SelectRect(new SKRect(120,70,180,118));
@@ -39,7 +39,7 @@ public class AiMaskFinishingTests
         var mask=inputs.OutputMask!;
         Assert.Equal(255,mask.GetPixel(120,94).Alpha); Assert.Equal(255,mask.GetPixel(179,94).Alpha);
         Assert.Equal(0,mask.GetPixel(50,90).Alpha);
-        var radius=4+blend;
+        var radius=inputs.MaskPlan!.SeamWidth;
         for(var y=0;y<mask.Height;y++) for(var x=0;x<mask.Width;x++)
             if(x<120-radius || x>=180+radius || y<70-radius || y>=118+radius) Assert.Equal(0,mask.GetPixel(x,y).Alpha);
     }

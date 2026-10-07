@@ -231,7 +231,8 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
 
     private static AiTaskRequest Request(EditorSession session, QueuedAiTask call, Settings settings)
     {
-        SKRectI? selection = session.Selection == null ? null : SelectionMask.Bounds(session.Selection);
+        SKRectI? selection = session.Selection == null ? null : AutomaticAiMask.AppliesTo(call.Task)
+            ? AutomaticAiMask.ContourBounds(session.Selection) : SelectionMask.Bounds(session.Selection);
         var aspect = call.Task != AiTaskKind.ChangeBackground && selection is { IsEmpty: false } bounds
             ? (bounds.Width, bounds.Height) : (session.Document.Width, session.Document.Height);
         var dimensions = AiDimensions.FromMegapixels(settings.AiMegapixels, aspect.Item1, aspect.Item2);
@@ -251,12 +252,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
                 Variants = call.Options.Variants ?? 1,
                 VariantMode = call.Options.Batch ? AiVariantMode.Batch : AiVariantMode.List,
                 UpscaleFactor = call.Options.Factor ?? settings.AiUpscaleFactor,
-                Values = new Dictionary<string, object?>
-                {
-                    ["maskGrow"] = settings.AiMaskGrow, ["maskBlend"] = settings.AiMaskBlend,
-                    ["maskContext"] = settings.AiMaskContext, ["maskBlur"] = settings.AiMaskBlur, ["colorMatch"] = settings.AiColorMatch,
-                    ["gptContextPadding"] = settings.AiGptContextPadding
-                }
+                Values = new Dictionary<string, object?>()
             }
         };
     }

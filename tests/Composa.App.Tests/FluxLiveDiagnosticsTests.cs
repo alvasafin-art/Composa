@@ -21,6 +21,7 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
         var folder = Environment.GetEnvironmentVariable("COMPOSA_FLUX_DIAGNOSTIC_OUTPUT")
             ?? Path.Combine(Screenshots.Folder, "flux-diagnostics");
         Directory.CreateDirectory(folder);
+        var replay = Environment.GetEnvironmentVariable("COMPOSA_FLUX_DIAGNOSTIC_REPLAY");
         using var client = new ComfyClient(url);
         var (server, caps) = await client.TestConnectionAsync(TestContext.Current.CancellationToken);
         var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
@@ -60,10 +61,12 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
             if (name.Contains("match")) request.Settings.Values["colorMatch"] = "strong";
             WorkflowModels.ResolvePaths(graph, caps);
             File.WriteAllText(Path.Combine(folder, name + "-graph.json"), graph.ToJsonString(new() { WriteIndented = true }));
-            var execution = await client.ExecuteAsync(graph, cancellationToken: TestContext.Current.CancellationToken);
+            var execution = replay == null ? await client.ExecuteAsync(graph, cancellationToken: TestContext.Current.CancellationToken)
+                : new ComfyExecutionResult("replay", JsonDocument.Parse("{}"), []);
             using (execution.History)
             {
-                using var decoded = await client.DownloadAsync(Assert.Single(execution.Images), TestContext.Current.CancellationToken);
+                using var decoded = replay == null ? await client.DownloadAsync(Assert.Single(execution.Images), TestContext.Current.CancellationToken)
+                    : ImageFiles.Load(Path.Combine(replay, name + "-decoded.png"));
                 ImageFiles.Save(decoded, Path.Combine(folder, name + "-decoded.png"), ExportFormat.Png);
                 using var raw = editable.Finish(Pixels.Clone(decoded));
                 using var result = AiResultPostprocessor.Constrain(raw, inputs.ContextImage, editable.Mask);
@@ -85,6 +88,7 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
                 var json = JsonSerializer.Serialize(metrics, new JsonSerializerOptions { IncludeFields = true, WriteIndented = true });
                 File.WriteAllText(Path.Combine(folder, name + "-metrics.json"), json); output.WriteLine(json);
                 Assert.True(double.IsFinite(mean));
+                if (name is "mp-full" or "native-full") Assert.InRange(mean, 198, 202);
             }
         }
     }
@@ -159,8 +163,9 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
         foreach(var (task,native,smallVae) in cases)
         {
             var chosenVae=Environment.GetEnvironmentVariable("COMPOSA_FLUX_PHOTO_VAE");
-            if(chosenVae=="small"&&!smallVae || chosenVae=="full"&&smallVae) continue;
-            var name=$"{task}-{(native?"native":"mp")}-{(smallVae?"small":"full")}";
+            var chosenCases = Environment.GetEnvironmentVariable("COMPOSA_FLUX_PHOTO_CASES");
+            if (chosenCases != null && !chosenCases.Split(',').Contains(task.ToString())) continue;
+            var name=$"{task}-{(native?"native":"mp")}-{chosenVae ?? (smallVae?"small":"full")}";
             using var loaded=ImageFiles.Load(Path.Combine(sourceFolder,task is AiTaskKind.Relight or AiTaskKind.Harmonize ? "portrait.jpeg":"car-interior.jpeg"));
             var source=Pixels.NewColor(384,688);
             using(var canvas=new SKCanvas(source)) canvas.DrawImage(Pixels.ImageOf(loaded),SKRect.Create(source.Width,source.Height),new SKSamplingOptions(SKCubicResampler.Mitchell));
@@ -188,7 +193,7 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
                     Values=new() { ["imageOriginalSize"]=native,["maskGrow"]=4,["maskBlend"]=16,["maskBlur"]=4,
                         ["maskContext"]=1.2,["colorMatch"]=task is AiTaskKind.Relight or AiTaskKind.Harmonize ? "strong" : "subtle" } } };
             var service=new AiTaskService(()=>url,catalog.Root) { SelectedEngine=engine };
-            if(smallVae) service.ModelSelections=_=>WorkflowModels.Slots(catalog.ReadWorkflow(engine,engine.Workflow(engine.Binding(task)!.Workflow)),engine.Id)
+            if(chosenVae=="small" || chosenVae != "full" && smallVae) service.ModelSelections=_=>WorkflowModels.Slots(catalog.ReadWorkflow(engine,engine.Workflow(engine.Binding(task)!.Workflow)),engine.Id)
                 .Where(slot=>slot.Kind==EngineAssetKind.Vae).ToDictionary(slot=>slot.Key,_=>"full_encoder_small_decoder.safetensors");
             using var before=session.Flatten(); var state=session.History.CurrentId;
             ImageFiles.Save(before,Path.Combine(folder,name+"-before.png"),ExportFormat.Png);
@@ -221,8 +226,9 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
         var session=EditorSession.NewCanvas(17,17,SKColors.White); session.SelectRect(new SKRect(0,0,1,1));
         var request=new AiTaskRequest { Task=AiTaskKind.GenerativeFill,Settings=new() { Values=new()
             { ["imageOriginalSize"]=true,["maskGrow"]=0,["maskBlend"]=0,["maskBlur"]=0,["maskContext"]=1.0 } } };
+        var selection = Pixels.Clone(session.Selection!); selection.GetPixelSpan()[0] = coverage; Pixels.Invalidate(selection);
+        session.ApplyAiSelection(AiTaskKind.ObjectSelection, selection);
         using var inputs=AiTaskInputPreparer.Prepare(session,request);
-        inputs.SelectionMask!.GetPixelSpan()[0]=coverage; Pixels.Invalidate(inputs.SelectionMask);
         var catalog=new EngineCatalog(Path.Combine(AppContext.BaseDirectory,"ai","engines")); var engine=catalog.Find("flux2-klein-intel-xpu")!; var binding=engine.Binding(request.Task)!;
         var files=new Dictionary<string,string>();
         foreach(var (key,bitmap) in inputs.Images()) if(binding.Inputs.ContainsKey(key)) files[key]=await client.UploadPngAsync(key,bitmap,TestContext.Current.CancellationToken);
@@ -235,9 +241,10 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
         using(execution.History)
         using(var noise=await client.DownloadAsync(Assert.Single(execution.Images),TestContext.Current.CancellationToken))
         {
-            Assert.Equal((64,64),(noise.Width,noise.Height)); Assert.Equal(coverage,noise.GetPixel(0,0).Red);
-            for(var y=0;y<64;y++) for(var x=0;x<64;x++) if(x!=0 || y!=0) Assert.Equal(0,noise.GetPixel(x,y).Red);
+            Assert.Equal((64,64),(noise.Width,noise.Height)); Assert.InRange(noise.GetPixel(0,0).Red, (byte)254, (byte)255);
+            for(var y=0;y<64;y++) for(var x=0;x<64;x++) if(x>=edit.ContentSize.Width || y>=edit.ContentSize.Height) Assert.Equal(0,noise.GetPixel(x,y).Red);
         }
-        Assert.Equal(coverage,edit.Mask.GetPixel(0,0).Alpha); // denoising never changes editable coverage
+        Assert.Equal(255,edit.Mask.GetPixel(0,0).Alpha);
+        Assert.Equal(coverage,session.Selection!.GetPixel(0,0).Alpha); // document selection remains intact
     }
 }

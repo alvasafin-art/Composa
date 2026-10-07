@@ -23,10 +23,10 @@ public class AiOperationSettingsTests
                 hasSelection:true,sourceCanvas:new(0,0,1537,991),selectionBounds:new(600,350,864,526));
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
             var label=Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("FLUX request including context:")==true);
-            Assert.Contains("MP",label.Text); Assert.Contains("848 × 608 px",label.Text);
+            Assert.Contains("MP",label.Text); Assert.Contains("816 × 624 px",label.Text);
             var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.Cast<string>().Contains("Original size"));
             size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
-            Assert.Equal($"FLUX request including context: 384 × 272 px · {0.1:0.##} MP",label.Text);
+            Assert.Equal($"FLUX request including context: 368 × 272 px · {0.1:0.##} MP",label.Text);
             size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog,"flux-selection-resolution-and-context"));
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(window.Settings));
@@ -72,16 +72,14 @@ public class AiOperationSettingsTests
             var fillBefore=JsonSerializer.Serialize(window.Settings.OperationFor(Flux,AiTaskKind.GenerativeFill));
             var pending=AiDialogs.Advanced(window,window.Settings,window.AiTasks,AiTaskKind.GenerativeExpand); Dispatcher.UIThread.RunJobs();
             var dialog=Assert.Single(window.OwnedWindows);
-            Assert.Equal(new[] { 16.0,48,16,2 },dialog.GetVisualDescendants().OfType<Composa.App.Controls.SliderField>().Take(4).Select(f=>Math.Round(f.Value,6)));
-            var color=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("subtle"));
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("Mask ")==true || text.Text=="Color match");
             var memory=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("Lower VRAM"));
             Assert.Equal("Auto",memory.SelectedItem); memory.SelectedItem="Lower VRAM";
-            Assert.Equal("subtle",color.SelectedItem);
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.SelectedItem as string=="Original size");
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.SelectedItem as string=="List · lower VRAM");
             Assert.True(Screenshots.Save(dialog,"flux-expand-independent-advanced"));
-            color.SelectedItem="strong"; dialog.Close(true); Assert.True(await pending);
-            Assert.Equal("strong",window.Settings.OperationFor(Flux,AiTaskKind.GenerativeExpand).ColorMatch);
+            dialog.Close(true); Assert.True(await pending);
+            Assert.Equal("subtle",window.Settings.OperationFor(Flux,AiTaskKind.GenerativeExpand).ColorMatch); // retained only for older versions
             Assert.Equal("reduced",Settings.FromJson(JsonSerializer.Serialize(window.Settings)).OperationFor(Flux,AiTaskKind.GenerativeExpand).FluxMemory);
             Assert.Equal(fillBefore,JsonSerializer.Serialize(window.Settings.OperationFor(Flux,AiTaskKind.GenerativeFill)));
             Assert.Equal("off",window.Settings.AiColorMatch);

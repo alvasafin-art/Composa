@@ -14,6 +14,20 @@ namespace Composa.App.Tests;
 
 public class PartnerImageTests
 {
+    // A masked model preserves its source context. This fixture distinguishes local
+    // insertion from the separate tests which deliberately corrupt that context.
+    internal static SKBitmap GeneratedPatch(AiTaskInputs inputs, PartnerImageInputs api, SKColor color)
+    {
+        var bounds = api.SourceBounds;
+        using var context = inputs.ExpansionBounds != null ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
+        var result = Pixels.NewColor(bounds.Width, bounds.Height);
+        using (var draw = new SKCanvas(result)) draw.DrawImage(Pixels.ImageOf(context), -bounds.Left, -bounds.Top);
+        var core = inputs.OutputMask != null && inputs.PreprocessedImage?.Width != inputs.ContextImage.Width
+            ? inputs.OutputMask : inputs.BackgroundMask ?? inputs.SelectionMask ?? inputs.OutputMask;
+        for (var y = 0; y < result.Height; y++) for (var x = 0; x < result.Width; x++)
+            if (core?.GetPixel(x + bounds.Left, y + bounds.Top).Alpha >= 128) result.SetPixel(x, y, color);
+        Pixels.Invalidate(result); return result;
+    }
     [Fact]
     public async Task Live_partner_schema_can_be_checked_without_uploads_or_a_paid_request_when_requested()
     {
@@ -100,7 +114,7 @@ public class PartnerImageTests
         Assert.Equal("apiSource.png", graph["composa_api_image_1"]!["inputs"]!["image"]!.GetValue<string>());
         for (var i = 1; i <= references; i++) Assert.Equal($"referenceImage{i}.png", graph[$"composa_api_image_{i + 1}"]!["inputs"]!["image"]!.GetValue<string>());
         Assert.Equal(request.Prompt + "\n\n" + request.AdditionalPrompt, node["prompt"]!.GetValue<string>());
-        var generated = Pixels.NewColor(api.Images["apiSource"].Width * 2, api.Images["apiSource"].Height * 2); generated.Erase(SKColors.CornflowerBlue);
+        var generated = GeneratedPatch(inputs, api, SKColors.CornflowerBlue);
         var result = api.Finish(generated); Assert.Equal((79, 61), (result.Width, result.Height));
         Assert.Equal(SKColors.White, result.GetPixel(0, 0)); Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(35, 30));
         AiTaskService.Insert(new EditorCommandService(session), request.Task, AiOutputMode.NewLayerWithMask, [result], inputs.TargetBounds, inputs, outputIsComposited: true);
@@ -114,8 +128,8 @@ public class PartnerImageTests
         var session = EditorSession.NewCanvas(500, 400, SKColors.White); session.SelectRect(new SKRect(240, 180, 260, 200));
         var request = new AiTaskRequest { Task = AiTaskKind.RemoveObject, Settings = new() { Values = new() { ["maskGrow"] = 0, ["maskBlend"] = 0, ["gptContextPadding"] = 10 } } };
         using var inputs = AiTaskInputPreparer.Prepare(session, request); using var api = new PartnerImageInputs(inputs, request);
-        Assert.Equal((40, 40), (api.Images["apiSource"].Width, api.Images["apiSource"].Height));
-        Assert.Equal(SKColors.Black, api.Images["apiSource"].GetPixel(20, 20));
+        Assert.Equal((90, 90), (api.Images["apiSource"].Width, api.Images["apiSource"].Height));
+        Assert.Equal(SKColors.Black, api.Images["apiSource"].GetPixel(45, 45));
         Assert.Equal(SKColors.White, inputs.ContextImage.GetPixel(250, 190));
         Assert.Equal(SKColors.White, session.ActiveLayer!.Pixels!.GetPixel(250, 190));
     }
@@ -147,7 +161,7 @@ public class PartnerImageTests
         var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Settings = new() { Values = new()
             { ["gptContextPadding"] = padding, ["maskBlend"] = blend, ["maskGrow"] = 64, ["maskBlur"] = 64, ["maskContext"] = 8 } } };
         using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
-        Assert.Equal((20 + padding * 2, 20 + padding * 2), (api.Images["apiSource"].Width, api.Images["apiSource"].Height));
+        Assert.Equal((90, 90), (api.Images["apiSource"].Width, api.Images["apiSource"].Height));
         Assert.Single(api.Images);
     }
 
@@ -159,12 +173,12 @@ public class PartnerImageTests
         s.ApplyAiSelection(AiTaskKind.ObjectSelection, selection);
         var request = new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Settings = new() { Values = new() { ["maskBlend"] = 0, ["gptContextPadding"] = 32 } } };
         using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
-        var source = api.Images["apiSource"]; Assert.Equal((53, 84), (source.Width, source.Height));
-        var generated = Pixels.NewColor(source.Width, source.Height); generated.Erase(SKColors.CornflowerBlue);
-        generated.SetPixel(10, 42, SKColors.Red); Pixels.Invalidate(generated); // crop starts at (0,18)
+        var source = api.Images["apiSource"]; Assert.Equal((90, 90), (source.Width, source.Height));
+        var generated = GeneratedPatch(inputs, api, SKColors.CornflowerBlue);
+        generated.SetPixel(10 - api.SourceBounds.Left, 60 - api.SourceBounds.Top, SKColors.Red); Pixels.Invalidate(generated);
         var result = api.Finish(generated);
         Assert.Equal(SKColors.Red, result.GetPixel(10, 60)); Assert.Equal(SKColors.White, result.GetPixel(10, 17));
-        var edge = result.GetPixel(5, 60); Assert.InRange(edge.Red, 175, 178); // 128/255, not feathered twice
+        var edge = result.GetPixel(5, 60); Assert.Equal(SKColors.CornflowerBlue, edge); // selection opacity is not generation strength
         AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [result], inputs.TargetBounds, inputs, true);
         using var displayed = s.Flatten(); Assert.Equal(edge, displayed.GetPixel(5, 60)); Assert.Equal(SKColors.Red, displayed.GetPixel(10, 60));
         s.Undo(); Assert.Single(s.Document.Layers); s.Redo(); using var redone = s.Flatten(); Assert.Equal(edge, redone.GetPixel(5, 60));
@@ -180,7 +194,8 @@ public class PartnerImageTests
         var prompt = connection.Graphs[0]["gpt"]!["inputs"]!["prompt"]!.GetValue<string>();
         Assert.Contains(AiPromptDefaults.Expand, prompt); Assert.DoesNotContain("stale prompt", prompt);
         Assert.Equal((300, 200), (s.Document.Width, s.Document.Height));
-        using var image = s.Flatten(); Assert.Equal(SKColors.White, image.GetPixel(20, 20)); Assert.Equal(SKColors.CornflowerBlue, image.GetPixel(130, 90));
+        using var image = s.Flatten(); Assert.Equal(SKColors.White, image.GetPixel(20, 20));
+        Assert.True(image.GetPixel(130, 90).Blue > image.GetPixel(130, 90).Red + 60); // context-biased model output is corrected automatically
         Assert.Equal(history + 1, s.History.Count); s.Undo(); Assert.Single(s.Document.Layers);
     }
 
@@ -193,7 +208,7 @@ public class PartnerImageTests
         using (var inputs = AiTaskInputPreparer.Prepare(session, request))
         using (var api = new PartnerImageInputs(inputs, request))
         {
-            var generated = Pixels.NewColor(128, 96); generated.Erase(SKColors.CornflowerBlue);
+            var generated = GeneratedPatch(inputs, api, SKColors.CornflowerBlue);
             using var result = api.Finish(generated); Assert.Equal((102, 76), (result.Width, result.Height));
             Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(0, 0)); Assert.Equal(SKColors.White, result.GetPixel(30, 30));
         }
@@ -202,7 +217,7 @@ public class PartnerImageTests
         using (var inputs = AiTaskInputPreparer.Prepare(session, request))
         using (var api = new PartnerImageInputs(inputs, request))
         {
-            var generated = Pixels.NewColor(158, 122); generated.Erase(SKColors.CornflowerBlue); var result = api.Finish(generated);
+            var generated = GeneratedPatch(inputs, api, SKColors.CornflowerBlue); var result = api.Finish(generated);
             AiTaskService.Insert(new EditorCommandService(session), request.Task, AiOutputMode.LayerGroup, [result], inputs.TargetBounds, inputs);
             var group = Assert.Single(session.Document.Layers.Where(layer => layer.IsGroup));
             Assert.Equal(new[] { "AI Background", "Original Subject" }, group.Children.Select(layer => layer.Name));
@@ -288,7 +303,8 @@ public class PartnerImageTests
             Settings = new() { Variants = variants, VariantMode = AiVariantMode.Batch } }, TestContext.Current.CancellationToken);
         Assert.Single(connection.Graphs); Assert.Equal((102, 76), (session.Document.Width, session.Document.Height));
         Assert.Equal(variants, session.AiVariantGroup!.Children.Count); Assert.Equal(1, session.History.Count);
-        using var result = session.Flatten(); Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(0, 0));
+        using var result = session.Flatten(); Assert.Equal(255, result.GetPixel(0, 0).Alpha);
+        Assert.True(result.GetPixel(0, 0).Blue > result.GetPixel(0, 0).Red + 60);
         Assert.Equal(mode == AiExpansionMode.WholeImage ? SKColors.CornflowerBlue : SKColors.White, result.GetPixel(30, 30));
         session.Undo(); Assert.Single(session.Document.Layers); Assert.Equal((79, 61), (session.Document.Width, session.Document.Height));
     }

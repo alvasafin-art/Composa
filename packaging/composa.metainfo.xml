@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.19" date="2026-10-07">
+      <description>
+        <p>TEST: automatic AI context, conditioning overlap and seam matching. Removes manual edge controls and ignores legacy selection softness and AI edge settings during generation. Keeps one editable output mask, source pixels outside its finite support, and undo. Includes comparative research on Photoshop and open inpainting workflows.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.18" date="2026-10-07">
       <description>
         <p>Fixes local SAM selection crashes and FLUX mask conditioning, context sizing and padding seams. Adds a persistent collapsed selection panel, adjacent flip controls and selection contraction. Content-Aware Fill has a larger resizable workspace and fast preview; curves use smoother interpolation. Includes experimental Windows Photoshop exchange scripts.</p>

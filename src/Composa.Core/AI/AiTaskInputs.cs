@@ -126,12 +126,15 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap? ActiveLayerImage { get; init; }
     public SelectionMode SelectionOperation { get; init; } = SelectionMode.Replace;
     public SKBitmap? SelectionMask { get; init; }
+    /// <summary>Original cutout matte for the preserved subject; never used for model conditioning.</summary>
+    public SKBitmap? SubjectMatte { get; init; }
     /// <summary>The inverse selection, used when a task changes the background while preserving the subject.</summary>
     public SKBitmap? BackgroundMask { get; init; }
     public SKBitmap? AlphaMask { get; init; }
     public SKBitmap? PreprocessedImage { get; init; }
     public SKBitmap? PreprocessedMask { get; init; }
     public SKBitmap? OutputMask { get; init; }
+    public AiMaskPlan? MaskPlan { get; init; }
     /// <summary>Conservative support for a workflow's grow and blur; not an additional feather pass.</summary>
     public int TransitionMargin { get; init; }
     public SKBitmap? ReferenceImage { get; init; }
@@ -166,6 +169,7 @@ public sealed class AiTaskInputs : IDisposable
         };
         if (ActiveLayerImage != null) images["activeLayerImage"] = ActiveLayerImage;
         if (SelectionMask != null) images["selectionMask"] = SelectionMask;
+        if (SubjectMatte != null) images["subjectMatte"] = SubjectMatte;
         if (BackgroundMask != null) images["backgroundMask"] = BackgroundMask;
         if (AlphaMask != null) images["alphaMask"] = AlphaMask;
         if (PreprocessedImage != null) images["preprocessedImage"] = PreprocessedImage;
@@ -227,15 +231,16 @@ public static class AiTaskInputPreparer
         var flattened = session.Flatten();
         var context = Pixels.Clone(flattened);
         var active = RenderActiveLayer(session);
-        var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null : Pixels.Clone(session.Selection);
+        var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null
+            : AutomaticAiMask.AppliesTo(request.Task) ? AutomaticAiMask.Normalize(session.Selection) : Pixels.Clone(session.Selection);
         if (searchBounds is { } region)
         {
             selection?.Dispose();
             selection = SelectionMask.FromRect(session.Document.Width, session.Document.Height, region);
         }
         var background = request.Task == AiTaskKind.ChangeBackground && selection != null ? Invert(selection) : null;
-        var target = request.ExpansionBounds ?? (session.Selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.Upscale
-            ? SelectionMask.Bounds(session.Selection) : session.Document.Bounds);
+        var target = request.ExpansionBounds ?? (selection != null && request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.Upscale
+            ? SelectionMask.Bounds(selection) : session.Document.Bounds);
         SKRectI? upscaleBounds = request.Task == AiTaskKind.Upscale && session.Selection != null && !target.IsEmpty
             ? SKRectI.Intersect(session.Document.Bounds,new SKRectI(target.Left-32,target.Top-32,target.Right+32,target.Bottom+32)) : null;
         // Convolution/attention upscalers need surrounding pixels at the patch edge,
@@ -252,7 +257,7 @@ public static class AiTaskInputPreparer
         var alpha = session.ActiveLayer is { Pixels: not null } layer ? SelectionMask.FromLayer(session.Document, layer, fromMask: false) : null;
         SKBitmap? preprocessed = null, preprocessedMask = null;
         if (request.Task == AiTaskKind.RemoveObject && selection != null)
-            (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, selection, request.RemoveObject);
+            (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, selection, request.RemoveObject with { Dilation = 0, Feather = 0 });
         else if (request.Task == AiTaskKind.ChangeBackground && background != null)
             (preprocessed, preprocessedMask) = RemoveObjectPreprocessor.Prepare(source, background,
                 new RemoveObjectSettings { Dilation = 0, Feather = 0 });
@@ -260,12 +265,22 @@ public static class AiTaskInputPreparer
             (preprocessed, preprocessedMask) = PrepareExpansion(source, session.Document.Bounds, request.ExpansionBounds ?? session.Document.Bounds,
                 request.ExpansionBounds == null ? selection : null);
 
+        AiMaskPlan? maskPlan = null;
         SKBitmap? expansionEmpty = null;
+        if (AutomaticAiMask.AppliesTo(request.Task))
+        {
+            if (request.Task == AiTaskKind.GenerativeExpand && preprocessedMask != null)
+            {
+                using var expandedContext = Pixels.NewColor(preprocessedMask.Width, preprocessedMask.Height);
+                using (var draw = new SKCanvas(expandedContext)) draw.DrawImage(Pixels.ImageOf(context), -(request.ExpansionBounds?.Left ?? 0), -(request.ExpansionBounds?.Top ?? 0));
+                maskPlan = AutomaticAiMask.Analyze(preprocessedMask, expandedContext);
+            }
+            else if ((background ?? selection) is { } core) maskPlan = AutomaticAiMask.Analyze(core, context);
+        }
         if (request.Task == AiTaskKind.GenerativeExpand && preprocessedMask != null && request.ExpansionMode == AiExpansionMode.MaskedRegion)
         {
             expansionEmpty = preprocessedMask;
-            var overlap = Math.Clamp(Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32), 0,
-                Math.Max(1, Math.Min(64, Math.Min(expansionEmpty.Width, expansionEmpty.Height) / 16)));
+            var overlap = maskPlan?.SeamWidth ?? 0;
             preprocessedMask = SelectionMask.Expand(expansionEmpty, overlap);
         }
         var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(6).ToList()
@@ -278,14 +293,15 @@ public static class AiTaskInputPreparer
             ActiveLayerImage = active,
             SelectionOperation = request.SelectionOperation,
             SelectionMask = selection,
+            SubjectMatte = request.Task == AiTaskKind.ChangeBackground && session.Selection != null ? Pixels.Clone(session.Selection) : null,
             BackgroundMask = background,
             AlphaMask = alpha,
             PreprocessedImage = preprocessed,
             PreprocessedMask = preprocessedMask,
             OutputMask = request.Task == AiTaskKind.RemoveObject && preprocessedMask != null
-                ? RemovalOutputMask(preprocessedMask, request.Settings) : expansionEmpty,
-            TransitionMargin = (request.Task == AiTaskKind.GenerativeFill ? 0 : request.Settings.Values.TryGetValue("maskGrow", out var grow) ? Math.Clamp(Convert.ToInt32(grow), 0, 512) : 8)
-                + 4 * (request.Settings.Values.TryGetValue("maskBlend", out var blend) ? Math.Clamp(Convert.ToInt32(blend), 0, 512) : 32),
+                ? AutomaticAiMask.OutputMask(preprocessedMask, context, maskPlan!) : expansionEmpty,
+            MaskPlan = maskPlan,
+            TransitionMargin = maskPlan?.SeamWidth ?? 0,
             ReferenceImage = references.FirstOrDefault(),
             ReferenceImages = references,
             CanvasWidth = request.Task == AiTaskKind.GenerativeExpand ? expansionSize.Width
@@ -338,17 +354,6 @@ public static class AiTaskInputPreparer
         canvas.DrawImage(Pixels.ImageOf(source), new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom),
             new SKRect(0, 0, bounds.Width, bounds.Height), new SKSamplingOptions(SKCubicResampler.Mitchell));
         return result;
-    }
-
-    private static SKBitmap RemovalOutputMask(SKBitmap mask, AiGenerationSettings settings)
-    {
-        var grow = settings.Values.TryGetValue("maskGrow", out var g) ? Math.Clamp(Convert.ToInt32(g), 0, 512) : 8;
-        var blend = settings.Values.TryGetValue("maskBlend", out var b) ? Math.Clamp(Convert.ToInt32(b), 0, 512) : 32;
-        // Keep the stitcher's transition outside the original selection; clipping it back to
-        // that selection restores object fringes and creates a hard, visible boundary.
-        // Keep a fully editable object/grow core, then feather inward from the finite
-        // outer support. Gaussian tails used to change distant background pixels too.
-        return AiResultPostprocessor.EditMask(mask, grow + blend, blend);
     }
 
     private static string RemovePrompt(string guidance)

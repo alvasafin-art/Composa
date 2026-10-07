@@ -33,7 +33,7 @@ public class AiEditingRegressionTests
         using var inputs = AiTaskInputPreparer.Prepare(session, request);
         using var api = new PartnerImageInputs(inputs, request);
         var source = api.Images["apiSource"];
-        var generated = Pixels.NewColor(source.Width * 2, source.Height * 2); generated.Erase(SKColors.CornflowerBlue);
+        var generated = PartnerImageTests.GeneratedPatch(inputs, api, SKColors.CornflowerBlue);
         var result = api.Finish(generated);
         for (var y = 0; y < result.Height; y++) for (var x = 0; x < result.Width; x++)
             if (inputs.SelectionMask!.GetPixel(x, y).Alpha == 0) Assert.Equal(SKColors.White, result.GetPixel(x, y));
@@ -125,7 +125,9 @@ public class AiEditingRegressionTests
         Assert.Equal(SKColors.Black, inputs.PreprocessedImage!.GetPixel(0, 0));
         Assert.DoesNotContain("apiMask", api.Images.Keys); // expansion mask is local in both GPT modes
         Assert.Equal(mode == AiExpansionMode.WholeImage ? 102 : 1024, Math.Max(inputs.CanvasWidth, inputs.CanvasHeight));
-        var source = api.Images["apiSource"]; var generated = Pixels.NewColor(source.Width * 2, source.Height * 2); generated.Erase(SKColors.CornflowerBlue);
+        var source = api.Images["apiSource"]; var generated = mode == AiExpansionMode.WholeImage ? Pixels.NewColor(source.Width, source.Height)
+            : PartnerImageTests.GeneratedPatch(inputs, api, SKColors.CornflowerBlue);
+        if (mode == AiExpansionMode.WholeImage) generated.Erase(SKColors.CornflowerBlue);
         var result = api.Finish(generated);
         Assert.Equal((102, 76), (result.Width, result.Height));
         Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(0, 0)); // no black matte / translucent hole

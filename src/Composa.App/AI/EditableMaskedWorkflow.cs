@@ -13,9 +13,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
     internal SKBitmap Mask { get; }
     private readonly AiTaskInputs inputs;
     private readonly AiTaskRequest request;
-    private readonly int grow;
-    private readonly int blend;
-    private readonly int blur;
+    private readonly AiMaskPlan plan;
     private bool nativePixels;
     internal (int Width, int Height) ContentSize { get; private set; }
     internal (int Width, int Height) GenerationSize { get; private set; }
@@ -23,25 +21,15 @@ internal sealed class EditableMaskedWorkflow : IDisposable
     internal EditableMaskedWorkflow(AiTaskInputs inputs, AiTaskRequest request)
     {
         this.inputs = inputs; this.request = request;
-        grow = Value("maskGrow", 16);
-        blend = Value("maskBlend", 48);
-        blur = Value("maskBlur", 16);
         var sourceMask = request.Task == AiTaskKind.GenerativeExpand ? inputs.PreprocessedMask!
             : request.Task == AiTaskKind.ChangeBackground ? inputs.BackgroundMask! : inputs.PreprocessedMask ?? inputs.SelectionMask!;
-        var area = request.Task == AiTaskKind.GenerativeExpand ? inputs.PreprocessedImage!.Info.Rect : inputs.ContextImage.Info.Rect;
-        Bounds = AiContextGeometry.Flux(SelectionMask.Bounds(sourceMask, 1), area, grow, blend,
-            Convert.ToDouble(request.Settings.Values.GetValueOrDefault("maskContext") ?? 2), blur);
+        using var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
+        var core = request.Task == AiTaskKind.GenerativeExpand ? inputs.OutputMask ?? sourceMask : sourceMask;
+        plan = inputs.MaskPlan ?? AutomaticAiMask.Analyze(core, context);
+        Bounds = plan.Bounds;
         if (Bounds.IsEmpty) throw new InvalidOperationException("The edit mask is empty.");
-        if (request.Task == AiTaskKind.GenerativeExpand)
-        {
-            using var context = inputs.ExpandedContext();
-            Mask = AiResultPostprocessor.ExpansionEditMask(inputs.OutputMask ?? sourceMask, context, blend);
-        }
-        else if (request.Task == AiTaskKind.RemoveObject && inputs.OutputMask != null) Mask = Pixels.Clone(inputs.OutputMask);
-        else Mask = AiResultPostprocessor.OutwardEditMask(sourceMask, grow, blend);
+        Mask = AutomaticAiMask.OutputMask(core, context, plan, request.Task == AiTaskKind.GenerativeExpand);
     }
-
-    private int Value(string name, int fallback) => Math.Clamp(Convert.ToInt32(request.Settings.Values.GetValueOrDefault(name) ?? fallback), 0, 64);
 
     internal void Bind(JsonObject graph)
     {
@@ -53,6 +41,8 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         (ContentSize, GenerationSize) = AiContextGeometry.FluxSize(Bounds, inputs.TargetBounds, inputs.CanvasWidth, inputs.CanvasHeight,
             nativePixels, request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide : null);
         var (width,height) = GenerationSize;
+        var grow = plan.ConditioningGrow(Math.Min((double)ContentSize.Width / Bounds.Width, (double)ContentSize.Height / Bounds.Height));
+        const int blur = AiMaskPlan.ModelBlur;
         JsonObject Node(string type, JsonObject values) => new() { ["class_type"] = type, ["inputs"] = values };
         graph["composa_edit_crop"] = Node("ImageCrop", new() { ["image"] = image, ["x"] = Bounds.Left, ["y"] = Bounds.Top, ["width"] = Bounds.Width, ["height"] = Bounds.Height });
         if (!nativePixels)
@@ -134,15 +124,10 @@ internal sealed class EditableMaskedWorkflow : IDisposable
                 }
             }
             Pixels.Invalidate(result);
-            if (request.Settings.Values.GetValueOrDefault("colorMatch")?.ToString() is "subtle" or "strong"
-                && request.Task != AiTaskKind.ChangeBackground)
-            {
-                using var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
-                var matched = AiResultPostprocessor.MatchRemoval(result,context,Mask,inputs.Seed,Bounds,
-                    request.Settings.Values["colorMatch"]?.ToString() == "subtle" ? 0.5 : 1);
-                result.Dispose(); return matched;
-            }
-            return result;
+            using (result)
+            using (var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage))
+                return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan.SeamWidth,
+                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground));
         }
     }
     public void Dispose() => Mask.Dispose();

@@ -31,7 +31,7 @@ internal static class AiContextGeometry
         var w = checked((int)Math.Round(bounds.Width * scale)); var h = checked((int)Math.Round(bounds.Height * scale));
         var padded = (Width: Math.Max(64, checked((w + 15) / 16 * 16)), Height: Math.Max(64, checked((h + 15) / 16 * 16)));
         if (!Composa.Model.DocumentLimits.FitsSurface(padded.Width, padded.Height))
-            throw new InvalidOperationException($"Generation including context exceeds the {Composa.Model.DocumentLimits.MaxSide} px / {Composa.Model.DocumentLimits.MaxSurfaceMegapixels} MP limit. Reduce image size or mask context.");
+            throw new InvalidOperationException($"Generation including context exceeds the {Composa.Model.DocumentLimits.MaxSide} px / {Composa.Model.DocumentLimits.MaxSurfaceMegapixels} MP limit. Reduce image size.");
         return ((w,h), padded);
     }
 

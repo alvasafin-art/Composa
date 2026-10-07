@@ -4,6 +4,23 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.19] - 2026-10-07 · TEST
+
+### Changed
+
+- Masked FLUX and GPT edits automatically choose context, conditioning overlap and insertion coverage. Manual grow, blend, blur, context and color-match controls are removed; saved legacy values and script overrides are ignored.
+- Generation uses the selection contour at full strength, independently of selection-tool opacity and feather. The current selection remains unchanged; a preserved background subject retains its separate original cutout matte.
+- Generated pixels receive conservative local registration and a screened regional color correction before one editable layer mask is applied. Nearly uniform backgrounds receive an additional small neutral tone-drift correction; Relight, Harmonize and background replacement preserve independent interior color. Pixels outside the finite insertion support are restored exactly.
+- Runtime FLUX graphs use stock nodes regardless of whether Pixaroma is installed. CPU result finishing runs away from the editor thread.
+
+### Added
+
+- Research comparing Photoshop/Firefly, the supplied Pixaroma workflow, Krita AI Diffusion, FLUX.2 Klein in Diffusers, and gradient/regional harmonization methods: `docs/automatic-seams-research.md`, included in Windows downloads.
+
+This is an experimental TEST pre-release. Automatic seam treatment cannot repair arbitrary model hallucinations or large geometric changes. Paid GPT generation and Photoshop's closed internals are not part of live validation.
+
+Validation: 965 automated tests (457 core, 508 headless app), plus opt-in runs on Intel Arc B580 with FLUX.2 Klein 9B and full FLUX VAE. Six photo-edit scenarios checked output support and undo/redo. Live stock-node checks covered image/mask alignment and tiny low-opacity selections; the uniform-background tone drift improved from 187.85 to 199.78 against a source level of 200.
+
 ## [1.2.1-preview.18] - 2026-10-07
 
 ### Fixed

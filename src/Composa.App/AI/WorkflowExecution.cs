@@ -27,72 +27,11 @@ internal static class WorkflowExecution
             || graph["sampler"]?["class_type"]?.GetValue<string>() != "KSampler") return;
         var crop = graph["crop"]!["inputs"]!.AsObject();
         var sampler = graph["sampler"]!["inputs"]!.AsObject();
-        var pixaroma = capabilities.NodeTypes.Contains("PixaromaInpaintCrop") && capabilities.NodeTypes.Contains("PixaromaInpaintStitch")
-            && HasSolidCore(inputs.PreprocessedMask ?? inputs.SelectionMask);
-        var blend = crop["mask_blend_pixels"]!.GetValue<int>();
-        var grow = crop["mask_expand_pixels"]!.GetValue<int>();
-        var blurPixels = request.Settings.Values.TryGetValue("maskBlur", out var blur) ? Math.Clamp(Convert.ToInt32(blur), 0, 64) : 4;
-        var samplingMargin = blend;
-        if (pixaroma)
-        {
-            var bounds = inputs.TargetBounds;
-            var context = Math.Clamp((int)Math.Ceiling(Math.Max(bounds.Width, bounds.Height)
-                * (crop["context_from_mask_extend_factor"]!.GetValue<double>() - 1) / 2), 0, 1024);
-            context = Math.Max(context, 2 * blend + grow);
-            var halo = Math.Max(context, blend) + grow;
-            var width = Math.Min(inputs.ContextImage.Width, Math.Max(1, bounds.Width + 2 * halo));
-            var height = Math.Min(inputs.ContextImage.Height, Math.Max(1, bounds.Height + 2 * halo));
-            var pixels = (long)crop["output_target_width"]!.GetValue<int>() * crop["output_target_height"]!.GetValue<int>();
-            var target = Math.Clamp((int)Math.Round(Math.Max(width, height) * Math.Sqrt((double)pixels / width / height) / 16) * 16, 64, 8192);
-            if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMinimumSide > 0)
-                target = request.ExpansionMinimumSide;
-            // Pixaroma also ensures a 256 px short side. Cover the stitch's SOURCE-pixel
-            // feather in model pixels, including the blur tail, without growing its final mask.
-            var scale = Math.Max((double)target / Math.Max(width, height), 256.0 / Math.Min(width, height));
-            samplingMargin = (int)Math.Ceiling(blend * scale) + 3 * blurPixels;
-            graph["crop"] = new JsonObject { ["class_type"] = "PixaromaInpaintCrop", ["inputs"] = new JsonObject
-            {
-                ["image"] = crop["image"]!.DeepClone(), ["mask"] = crop["mask"]!.DeepClone(),
-                ["size_mode"] = "keep shape (long side)", ["target"] = target, ["multiple"] = 16,
-                ["context_px"] = context, ["mask_grow"] = grow,
-                ["mask_blur"] = blurPixels,
-                ["softness"] = blend, ["blend_mode"] = "mask", ["invert_mask"] = false
-            } };
-            // Improved: metadata,image,mask. Pixaroma: image,mask,metadata.
-            foreach (var (_, node) in graph)
-                if (node?["inputs"] is JsonObject nodeInputs)
-                    foreach (var (_, value) in nodeInputs)
-                        if (value is JsonArray link && link.Count == 2 && link[0]?.GetValue<string>() == "crop")
-                            link[1] = link[1]!.GetValue<int>() switch { 0 => 2, 1 => 0, 2 => 1, var slot => slot };
-            var colorMatch = request.Settings.Values.TryGetValue("colorMatch", out var match) ? Convert.ToString(match) : "subtle";
-            if (colorMatch is not ("off" or "subtle" or "strong")) throw new ArgumentException("Color match must be off, subtle or strong.");
-            graph["stitch"] = new JsonObject { ["class_type"] = "PixaromaInpaintStitch", ["inputs"] = new JsonObject
-            { ["image"] = new JsonArray("decode", 0), ["crop_info"] = new JsonArray("crop", 2),
-                ["softness"] = blend, ["blend_mode"] = "mask", ["color_match"] = colorMatch } };
-            // Do NOT wire the resized/blurred conditioning mask into Stitch: its full-resolution
-            // original mask in crop_info gives one outward-only feather, without a second halo.
-        }
-        else
-        {
-            crop["mask_hipass_filter"] = 0; // do not clip a soft brush's low-coverage rim
-            var bounds = inputs.TargetBounds;
-            crop["context_from_mask_extend_factor"] = Math.Max(crop["context_from_mask_extend_factor"]!.GetValue<double>(),
-                1 + 2.0 * (grow + 4 * blend) / Math.Max(1, Math.Min(bounds.Width, bounds.Height)));
-            var factor = crop["context_from_mask_extend_factor"]!.GetValue<double>();
-            if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMinimumSide > 0)
-            {
-                var dimensions = AiDimensions.FromMaximumSide(request.ExpansionMinimumSide,
-                    Math.Max(1, (int)Math.Min(inputs.ContextImage.Width, bounds.Width * factor)),
-                    Math.Max(1, (int)Math.Min(inputs.ContextImage.Height, bounds.Height * factor)));
-                crop["output_target_width"] = dimensions.Width; crop["output_target_height"] = dimensions.Height;
-            }
-            var scale = Math.Max(crop["output_target_width"]!.GetValue<int>() / Math.Max(1.0, Math.Min(inputs.ContextImage.Width, bounds.Width * factor)),
-                crop["output_target_height"]!.GetValue<int>() / Math.Max(1.0, Math.Min(inputs.ContextImage.Height, bounds.Height * factor)));
-            samplingMargin = (int)Math.Ceiling(blend * scale) + 3 * blurPixels;
-        }
-        var maskSlot = pixaroma ? 1 : 2;
+        // Crop/stitch is performed locally with stock nodes, regardless of optional packs.
+        crop["mask_hipass_filter"] = 0;
+        const int maskSlot = 2;
         graph["composa_sampling_mask"] = new JsonObject { ["class_type"] = "GrowMask", ["inputs"] = new JsonObject
-        { ["mask"] = new JsonArray("crop", maskSlot), ["expand"] = samplingMargin, ["tapered_corners"] = true } };
+        { ["mask"] = new JsonArray("crop", maskSlot), ["expand"] = 0, ["tapered_corners"] = true } };
         if (request.Task == AiTaskKind.RemoveObject)
         {
             graph["composa_black_mask"] = new JsonObject { ["class_type"] = "ThresholdMask", ["inputs"] = new JsonObject
@@ -115,17 +54,6 @@ internal static class WorkflowExecution
         // The installed Flux.2 Klein model already has its native sampling schedule. The old
         // AuraFlow shift override was unrelated to the user's working four-step Klein pipeline.
         graph.Remove("sampling");
-    }
-
-    private static bool HasSolidCore(SkiaSharp.SKBitmap? mask)
-    {
-        if (mask == null) return false;
-        // Pixaroma uses >0.5 to find its crop and falls back to a whole-crop stitch
-        // when there is no such core. A faint/tiny selection must NOT edit the whole image.
-        var pixels = mask.GetPixelSpan();
-        for (var y = 0; y < mask.Height; y++)
-            foreach (var value in pixels.Slice(y * mask.RowBytes, mask.Width)) if (value >= 128) return true;
-        return false;
     }
 
     public static void Batch(JsonObject graph, int count)

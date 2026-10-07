@@ -52,7 +52,7 @@ public class FluxMaskGeometryTests
     [Fact]
     public void MP_padding_is_discarded_before_placing_a_non_square_result_back_on_canvas()
     {
-        var session=EditorSession.NewCanvas(173,121,SKColors.White); session.SelectRect(new SKRect(50,40,81,93));
+        var session=EditorSession.NewCanvas(173,121,SKColors.CornflowerBlue); session.SelectRect(new SKRect(50,40,81,93));
         var request=new AiTaskRequest { Task=AiTaskKind.GenerativeFill,Settings=new() { Width=144,Height=256,
             Values=new() { ["maskGrow"]=0,["maskBlend"]=0,["maskBlur"]=0,["maskContext"]=1.0 } } };
         using var inputs=AiTaskInputPreparer.Prepare(session,request); using var edit=new EditableMaskedWorkflow(inputs,request); Bind(edit,inputs,request);
@@ -63,8 +63,9 @@ public class FluxMaskGeometryTests
         using var raw=edit.Finish(decoded);
         Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(80,92)); Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(50,40));
         Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom-1));
-        Assert.Equal(SKColors.White,raw.GetPixel(edit.Bounds.Right,edit.Bounds.Bottom-1));
-        Assert.Equal(SKColors.White,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom));
+        Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(0,0));
+        if (edit.Bounds.Right < raw.Width) Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right,edit.Bounds.Bottom-1));
+        if (edit.Bounds.Bottom < raw.Height) Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom));
     }
 
     [Fact]

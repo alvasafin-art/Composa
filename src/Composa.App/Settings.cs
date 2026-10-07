@@ -65,6 +65,7 @@ public sealed class Settings
     public int AiWholeExpansionMinimumSide { get; set; }
     /// <summary>Pixel budget for each AI reference image; null keeps the original dimensions.</summary>
     public double? AiReferenceMegapixels { get; set; } = 1;
+    // Legacy edge controls roundtrip for older builds; TEST generation ignores them.
     public int AiMaskGrow { get; set; } = 16;
     public int AiMaskBlend { get; set; } = 48;
     public int AiMaskBlur { get; set; } = 16;

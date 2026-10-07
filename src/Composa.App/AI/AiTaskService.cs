@@ -124,6 +124,7 @@ public sealed class AiTaskService : IAiTaskRunner
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
         var requestedTask = request.Task;
+        request = AutomaticAiMask.IgnoreLegacyControls(request);
         // An explicit selection is an edit, not a transparent-canvas expansion. Crop bounds take precedence.
         if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds == null && editor.Session.Selection != null)
             request = request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
@@ -214,9 +215,7 @@ public sealed class AiTaskService : IAiTaskRunner
                         && Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false)
                         && request.Task != AiTaskKind.GenerativeExpand)
                     {
-                        var margin = Math.Max(Convert.ToInt32(values.GetValueOrDefault("maskGrow") ?? 8) + 4 * Convert.ToInt32(values.GetValueOrDefault("maskBlend") ?? 32),
-                            (int)Math.Ceiling(Math.Max(inputs.TargetBounds.Width, inputs.TargetBounds.Height) * (Convert.ToDouble(values.GetValueOrDefault("maskContext") ?? 2) - 1) / 2));
-                        var contextBounds = SKRectI.Intersect(editor.Session.Document.Bounds, new(inputs.TargetBounds.Left - margin, inputs.TargetBounds.Top - margin, inputs.TargetBounds.Right + margin, inputs.TargetBounds.Bottom + margin));
+                        var contextBounds = inputs.MaskPlan?.Bounds ?? editor.Session.Document.Bounds;
                         width = Math.Max(64, contextBounds.Width); height = Math.Max(64, contextBounds.Height);
                     }
                     values["width"] = Math.Max(16, (int)Math.Round(width / 16.0) * 16);
@@ -288,15 +287,16 @@ public sealed class AiTaskService : IAiTaskRunner
                         foreach (var reference in references)
                         {
                             var image = await client.DownloadAsync(reference, linked.Token);
-                            if (apiInputs != null) image = apiInputs.FinishUnmasked(image);
-                            else if (editable != null) image = editable.Finish(image);
+                            // CPU finishing reads immutable snapshots; keep the editor responsive.
+                            if (apiInputs != null) image = await Task.Run(() => apiInputs.FinishUnmasked(image));
+                            else if (editable != null) image = await Task.Run(() => editable.Finish(image));
                             else if (request.Task == AiTaskKind.GenerativeExpand)
                             {
                                 var fitted = Resize(image, inputs.PreprocessedImage!.Width, inputs.PreprocessedImage.Height); image.Dispose(); image = fitted;
                                 if (request.ExpansionMode == AiExpansionMode.MaskedRegion)
                                 {
                                     using var context = inputs.ExpandedContext();
-                                    using var finalMask = AiResultPostprocessor.ExpansionEditMask(inputs.OutputMask ?? inputs.PreprocessedMask!, context, Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
+                                    using var finalMask = AutomaticAiMask.OutputMask(inputs.OutputMask ?? inputs.PreprocessedMask!, context, inputs.MaskPlan!, expansion: true);
                                     var constrained = AiResultPostprocessor.Constrain(image, context, finalMask); image.Dispose(); image = constrained;
                                 }
                             }
@@ -455,7 +455,7 @@ public sealed class AiTaskService : IAiTaskRunner
                 if (!ReferenceEquals(fitted, image)) image.Dispose();
                 backgroundOutputs.Add(new AiOutput("AI Background", fitted, Tags: ["background"]));
             }
-            backgroundOutputs.Add(new AiOutput("Original Subject", Pixels.Clone(inputs.ContextImage), Pixels.Clone(inputs.SelectionMask), ["product", "editable"]));
+            backgroundOutputs.Add(new AiOutput("Original Subject", Pixels.Clone(inputs.ContextImage), Pixels.Clone(inputs.SubjectMatte ?? inputs.SelectionMask), ["product", "editable"]));
             session.InsertAiOutput(task, backgroundOutputs, group: true);
             return;
         }

@@ -69,31 +69,17 @@ public class MaskedEditTests
         Assert.Equal("model", graph["sampler"]!["inputs"]!["model"]![0]!.GetValue<string>());
         Assert.False(graph.ContainsKey("sampling"));
         Assert.Equal("euler", graph["sampler"]!["inputs"]!["sampler_name"]!.GetValue<string>());
-        if (pixaroma)
-        {
-            Assert.Equal(16, graph["crop"]!["inputs"]!["multiple"]!.GetValue<int>());
-            Assert.Equal(24, graph["crop"]!["inputs"]!["softness"]!.GetValue<int>());
-            Assert.Equal(4, graph["crop"]!["inputs"]!["mask_blur"]!.GetValue<int>());
-            Assert.Equal("mask", graph["stitch"]!["inputs"]!["blend_mode"]!.GetValue<string>());
-            Assert.Equal(2, graph["stitch"]!["inputs"]!["crop_info"]![1]!.GetValue<int>());
-            Assert.Null(graph["stitch"]!["inputs"]!["mask"]); // no second blur from the conditioning mask
-            Assert.Equal(task == AiTaskKind.RemoveObject ? "originalSource" : "source", graph["crop"]!["inputs"]!["image"]![0]!.GetValue<string>());
-            if (task == AiTaskKind.RemoveObject)
-            {
-                Assert.Equal(0, graph["blackPatch"]!["inputs"]!["destination"]![1]!.GetValue<int>());
-                Assert.Equal("composa_black_mask", graph["blackPatch"]!["inputs"]!["mask"]![0]!.GetValue<string>());
-                Assert.Equal(1, graph["composa_black_mask"]!["inputs"]!["mask"]![1]!.GetValue<int>());
-            }
-        }
-        else Assert.Equal(0, graph["crop"]!["inputs"]!["mask_hipass_filter"]!.GetValue<int>());
-        Assert.True(graph["composa_sampling_mask"]!["inputs"]!["expand"]!.GetValue<int>() > 0);
-        Assert.Equal("composa_sampling_mask", graph["composa_condition"]!["inputs"]!["mask"]![0]!.GetValue<string>());
+        using var edit = new EditableMaskedWorkflow(inputs, request);
+        edit.Bind(graph);
+        Assert.DoesNotContain(graph, pair => pair.Value?["class_type"]?.GetValue<string>()?.StartsWith("Pixaroma") == true);
+        Assert.False(graph.ContainsKey("crop")); Assert.False(graph.ContainsKey("stitch"));
+        Assert.Equal("composa_edit_padded_mask", graph["composa_condition"]!["inputs"]!["mask"]![0]!.GetValue<string>());
+        Assert.True(graph["composa_edit_mask_grow"]!["inputs"]!["expand"]!.GetValue<int>() > 0);
+        if (task == AiTaskKind.RemoveObject)
+            Assert.Equal("composa_edit_padded_mask", graph["composa_black_mask"]!["inputs"]!["mask"]![0]!.GetValue<string>());
         WorkflowExecution.Batch(graph, 3);
         Assert.Equal(3, graph["latent"]!["inputs"]!["amount"]!.GetValue<int>());
-        if (pixaroma) Assert.Equal("PixaromaInpaintStitch", graph["stitch"]!["class_type"]!.GetValue<string>());
-        else Assert.Equal(3, graph.Count(pair => pair.Value?["class_type"]?.GetValue<string>() == "InpaintStitchImproved"));
     }
-
     [Fact]
     public void Faint_selection_does_not_trigger_pixaroma_whole_crop_fallback()
     {

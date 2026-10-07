@@ -144,12 +144,9 @@ public sealed partial class MainWindow
         if (settings.AiShowContextBounds && aiTasks.ConnectionState == ComfyConnectionState.Connected
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
         {
-            var bounds = SelectionMask.Bounds(selection, 1);
-            var profile = AiOptions(AiTaskKind.GenerativeFill);
+            var bounds = AutomaticAiMask.ContourBounds(selection);
             if (!bounds.IsEmpty)
-                context = aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.PaidApi == true
-                    ? AiContextGeometry.Padded(bounds, session.Document.Bounds, profile.GptContextPadding)
-                    : AiContextGeometry.Flux(bounds, session.Document.Bounds, profile.MaskGrow, profile.MaskBlend, profile.MaskContext, profile.MaskBlur);
+                context = AutomaticAiMask.Geometry(bounds, session.Document.Bounds).Bounds;
         }
         canvas.AiContextBounds = context;
     }
@@ -582,7 +579,7 @@ public sealed partial class MainWindow
             BuildAiReferenceUi(host);
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
-                session?.Document.Bounds, session?.Selection is { } selected ? SelectionMask.Bounds(selected,1) : null); }
+                session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null); }
             finally { aiDialogReferences = null; }
         }
         RefreshAiUi();
@@ -616,10 +613,7 @@ public sealed partial class MainWindow
                     Loras = engine?.Lora.Supported == true && profile.LorasEnabled
                         ? profile.Loras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
                     UpscaleFactor = profile.UpscaleFactor == 4 ? 4 : 2,
-                    Values = new Dictionary<string, object?> { ["maskGrow"] = profile.MaskGrow, ["maskBlend"] = profile.MaskBlend,
-                        ["maskContext"] = profile.MaskContext, ["maskBlur"] = profile.MaskBlur, ["colorMatch"] = profile.ColorMatch,
-                        ["fluxMemory"] = profile.FluxMemory,
-                        ["gptContextPadding"] = profile.GptContextPadding,
+                    Values = new Dictionary<string, object?> { ["fluxMemory"] = profile.FluxMemory,
                         ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }
                 }
             };
@@ -642,7 +636,7 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
             return (Math.Max(1, (int)Math.Round(crop.Width)), Math.Max(1, (int)Math.Round(crop.Height)));
         if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand
-            && session?.Selection is { } selection && SelectionMask.Bounds(selection) is { IsEmpty: false } bounds)
+            && session?.Selection is { } selection && AutomaticAiMask.ContourBounds(selection) is { IsEmpty: false } bounds)
             return (bounds.Width, bounds.Height);
         return session == null ? AiDimensions.FromMegapixels(settings.AiMegapixels, 1, 1) : (session.Document.Width, session.Document.Height);
     }

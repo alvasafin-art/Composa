@@ -163,7 +163,7 @@ public static class AiDialogs
         var assignmentNote = Ui.Label("Each task keeps its own choice. Changing Fill does not change generation or Expand.", Palette.Secondary);
         assignmentNote.MaxWidth = 430; assignmentNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var assignments = Ui.Column(7, Ui.Label("Workflow by task", weight: Avalonia.Media.FontWeight.SemiBold), CanvasDialogs.Form(taskRows.ToArray()), assignmentNote);
-        var note = Ui.Label("Models are read from this ComfyUI server, including shared folders. Generation and mask options are in Advanced on the AI panel.", Palette.Secondary);
+        var note = Ui.Label("Models are read from this ComfyUI server, including shared folders. Generation options are in Advanced; context and insertion edges are automatic.", Palette.Secondary);
         note.MaxWidth = 430;
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         RefreshStatus();
@@ -203,11 +203,8 @@ public static class AiDialogs
         var profile = initialProfile ?? settings.OperationFor(service?.SelectedEngine?.Id, task, paid);
         var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
         var reference = profile.ReferenceMegapixels;
-        var grow = profile.MaskGrow; var blend = profile.MaskBlend; var context = profile.MaskContext;
-        var blur = profile.MaskBlur; var colorMatch = profile.ColorMatch;
         var fluxMemory = profile.FluxMemory is "reduced" or "standard" ? profile.FluxMemory : "auto";
         var seed = profile.Seed; var mode = profile.VariantMode;
-        var gptContext = Math.Clamp(profile.GptContextPadding, 0, PartnerImageInputs.MaximumContextPadding);
         var quality = profile.ApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, "quality");
@@ -224,23 +221,14 @@ public static class AiDialogs
                     : value == AiVariantMode.List ? "List · lower VRAM" : "Batch · faster, more VRAM", value => mode = value, 250)),
             ("Memory use", Ui.Combo(new[] { "auto", "reduced", "standard" }, fluxMemory,
                 value => value == "auto" ? "Auto" : value == "reduced" ? "Lower VRAM" : "Standard", value => fluxMemory = value, 150)),
-            ("Mask grow", Ui.Row(6, Ui.SliderField("", grow, 0, 64, value => grow = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
-            ("Mask blend", Ui.Row(6, Ui.SliderField("", blend, 0, 64, value => blend = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
-            ("Mask conditioning blur", Ui.Row(6, Ui.SliderField("", blur, 0, 64, value => blur = (int)value, 1, "0", 150, reset: 0), Ui.Label("px"))),
-            ("Color match", Ui.Combo(new[] { "off", "subtle", "strong" }, colorMatch, value => value, value => colorMatch = value, 150)),
-            ("Mask context", Ui.Row(6, Ui.SliderField("", context, 1, 8, value => context = value, 0.1, "0.0", 150, reset: 1), Ui.Label("× selection bounds"))),
-            ("GPT context padding", Ui.Row(6, Ui.SliderField("", gptContext, 0, PartnerImageInputs.MaximumContextPadding, value => gptContext = (int)value, 1, "0", 150, reset: PartnerImageInputs.DefaultContextPadding), Ui.Label("px · each side"))),
             ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label("-1 = random")))];
         var form = CanvasDialogs.Form(fields.Where(field => field.Item1 != "Memory use" || service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
-            .Where(field => task != AiTaskKind.GenerateImage || !field.Item1.StartsWith("Mask") && field.Item1 is not ("GPT context padding" or "Color match"))
-            .Where(field => paid
-            ? field.Item1 is not ("Color match" or "Seed" or "Mask conditioning blur" or "Mask context")
-            : field.Item1 != "GPT context padding").ToArray());
+            .Where(field => !paid || field.Item1 != "Seed").ToArray());
         var note = Ui.Label(task == AiTaskKind.GenerateImage
             ? "Generate a new image using the prompt and optional references. Image size preserves proportions. List runs variants separately; Batch groups them. Paid variants are billed individually."
             : paid
-            ? "GPT receives an image crop plus context padding and your references, not a mask image. Composa places the result back and applies the soft edit mask once. Padding controls what GPT sees; Mask blend controls the local edge, independently. Mask grow is ignored for Fill. Remove/Expand keep their black repair areas. Each variant is billed; Ctrl+Z undoes edits, not charges."
-            : "List runs one variant at a time; Batch needs more VRAM. Mask blend controls the editable layer mask, conditioning blur the sampling mask. FLUX returns unmasked generated context pixels at their original coordinates. Color match uses unchanged surroundings; turn it off for intentional color changes. Use LoRAs compatible with the selected model. Ctrl+Z undoes the generation.", Palette.Secondary);
+            ? "Context, edge matching and the insertion mask are automatic. Selection softness and saved edge settings do not control generation. GPT receives an image crop and references; Composa restores placement and applies its own mask once. Each variant is billed; Undo does not refund charges."
+            : "Context, conditioning overlap and the insertion edge are automatic. Selection softness and saved edge settings do not control generation. Local color matching uses unchanged surroundings and fades inside the edit. List runs variants separately; Batch needs more memory. Undo restores the original.", Palette.Secondary);
         note.MaxWidth = 470; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         if (service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
             note.Text += " Auto uses Lower VRAM on Intel: the text encoder runs on CPU and VAE works in tiles. This may take longer; Standard keeps normal server placement.";
@@ -274,8 +262,7 @@ public static class AiDialogs
         settings.SetOperation(service?.SelectedEngine?.Id, task, profile with
         {
             Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference, FluxMemory = fluxMemory,
-            MaskGrow = grow, MaskBlend = blend, MaskContext = context, MaskBlur = blur, ColorMatch = colorMatch,
-            GptContextPadding = gptContext, Seed = seed, VariantMode = mode, ApiQuality = quality,
+            Seed = seed, VariantMode = mode, ApiQuality = quality,
             LorasEnabled = lorasEnabled, Loras = !paid && service?.SelectedEngine?.Lora.Supported == true
                 ? loras.Where(lora => lora.Name.Length > 0).ToList() : profile.Loras
         });
@@ -412,7 +399,7 @@ public static class AiDialogs
                 if (!paid && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu" && sourceCanvas is { } canvas && selectionBounds is { } selection
                     && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight)
                 {
-                    var contextBounds = AiContextGeometry.Flux(selection,canvas,profile.MaskGrow,profile.MaskBlend,profile.MaskContext,profile.MaskBlur);
+                    var contextBounds = AutomaticAiMask.Geometry(selection,canvas).Bounds;
                     var generated = AiContextGeometry.FluxSize(contextBounds,selection,width,height,originalSize).Padded;
                     dimensions.Text = $"FLUX request including context: {generated.Width} × {generated.Height} px · {generated.Width * (double)generated.Height / 1_000_000:0.##} MP";
                 }

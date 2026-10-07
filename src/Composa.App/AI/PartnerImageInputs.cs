@@ -15,9 +15,11 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly AiTaskRequest request;
     private readonly SKRectI crop;
     private readonly SKBitmap? blendMask;
+    private readonly AiMaskPlan? plan;
     private readonly (int Width, int Height) generationSize;
     internal const int DefaultContextPadding = 0;
     internal const int MaximumContextPadding = 1024;
+    internal SKRectI SourceBounds => crop;
 
     public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request)
     {
@@ -31,24 +33,18 @@ internal sealed class PartnerImageInputs : IDisposable
         crop = new SKRectI(0, 0, source.Width, source.Height);
         if (mask != null)
         {
-            int Setting(string name, int fallback) => request.Settings.Values.TryGetValue(name, out var value) ? Math.Clamp(Convert.ToInt32(value), 0, 64) : fallback;
-            var grow = request.Task is AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand ? 0 : Setting("maskGrow", 8);
-            var blend = Setting("maskBlend", 32);
-            blendMask = Own(AiResultPostprocessor.EditMask(mask, grow, blend));
+            using var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
+            var core = request.Task == AiTaskKind.GenerativeExpand ? inputs.OutputMask ?? mask : mask;
+            plan = inputs.MaskPlan ?? AutomaticAiMask.Analyze(core, context);
+            blendMask = Own(AutomaticAiMask.OutputMask(core, context, plan, request.Task == AiTaskKind.GenerativeExpand));
             if (request.Task == AiTaskKind.RemoveObject)
             {
-                var removal = RemoveObjectPreprocessor.Prepare(inputs.SourceImage, mask, new RemoveObjectSettings { Dilation = grow, Feather = 0 });
+                var removal = RemoveObjectPreprocessor.Prepare(inputs.SourceImage, mask, new RemoveObjectSettings { Dilation = 0, Feather = 0 });
                 source = Own(removal.Image); removal.Mask.Dispose();
             }
             if (request.Task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand)
             {
-                // The local insertion support, not the conditioning blur or seam width,
-                // determines the crop. Padding is genuine surrounding context only.
-                var bounds = SelectionMask.Bounds(mask, 1);
-                bounds.Inflate(grow, grow);
-                var margin = request.Settings.Values.TryGetValue("gptContextPadding", out var context)
-                    ? Math.Clamp(Convert.ToInt32(context), 0, MaximumContextPadding) : DefaultContextPadding;
-                crop = SKRectI.Intersect(crop, new SKRectI(bounds.Left - margin, bounds.Top - margin, bounds.Right + margin, bounds.Bottom + margin));
+                crop = plan.Bounds;
             }
         }
         if (request.Task != AiTaskKind.GenerateImage) Images["apiSource"] = Own(Crop(source, crop));
@@ -114,42 +110,30 @@ internal sealed class PartnerImageInputs : IDisposable
         {
             using (generated) return Resize(generated, original.CanvasWidth, original.CanvasHeight);
         }
-        using (generated)
-        {
-            using var fitted = Resize(generated, crop.Width, crop.Height);
-            if (request.Task == AiTaskKind.GenerativeExpand)
-            {
-                if (request.ExpansionMode == AiExpansionMode.WholeImage) return Pixels.Clone(fitted);
-                var expanded = original.ExpandedContext();
-                using var coverage = AiResultPostprocessor.ExpansionEditMask(original.OutputMask ?? original.PreprocessedMask!, expanded,
-                    Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 32));
-                Blend(expanded, fitted, coverage, crop); return expanded;
-            }
-            if (request.Task == AiTaskKind.ChangeBackground) return Pixels.Clone(fitted);
-            var composite = Pixels.Clone(original.ContextImage);
-            Blend(composite, fitted, blendMask, crop);
-            return composite;
-        }
+        var raw = FinishUnmasked(generated);
+        if (blendMask == null || request.Task == AiTaskKind.ChangeBackground) return raw;
+        using (raw)
+        using (var context = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage))
+            return AiResultPostprocessor.Constrain(raw, context, blendMask);
     }
-
     internal SKBitmap? OutputMask()
     {
-        if (request.Task != AiTaskKind.GenerativeExpand) return blendMask == null ? null : Pixels.Clone(blendMask);
-        if (request.ExpansionMode == AiExpansionMode.WholeImage) return null;
-        using var context = original.ExpandedContext();
-        return AiResultPostprocessor.ExpansionEditMask(original.OutputMask ?? original.PreprocessedMask!, context,
-            Convert.ToInt32(request.Settings.Values.GetValueOrDefault("maskBlend") ?? 8));
+        return blendMask == null ? null : Pixels.Clone(blendMask);
     }
 
     internal SKBitmap FinishUnmasked(SKBitmap generated)
     {
-        if (request.Task is AiTaskKind.GenerateImage or AiTaskKind.ChangeBackground) return Finish(generated);
+        if (request.Task == AiTaskKind.GenerateImage) return Finish(generated);
         using (generated)
         using (var fitted = Resize(generated, crop.Width, crop.Height))
         {
             var result = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage);
             Blend(result, fitted, null, crop);
-            return result;
+            if (blendMask == null) return result;
+            using (result)
+            using (var context = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage))
+                return AiSeamlessFinisher.Match(result, context, blendMask, crop, plan!.SeamWidth,
+                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground));
         }
     }
 
