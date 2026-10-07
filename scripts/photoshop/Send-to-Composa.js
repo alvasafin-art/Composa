@@ -3,7 +3,7 @@
     if ($.os.toLowerCase().indexOf('windows') < 0) { alert('This exchange helper currently supports Windows.'); return; }
     if (!app.documents.length) { alert('Open an image in Photoshop first.'); return; }
     var helper = new File(new File($.fileName).parent.fsName + '/Exchange.ps1');
-    if (!helper.exists) { alert('Keep Exchange.ps1 beside Send-to-Composa.jsx.'); return; }
+    if (!helper.exists) { alert('Keep Exchange.ps1 beside Send-to-Composa.js.'); return; }
     var source = app.activeDocument;
     var dialogs = app.displayDialogs;
     var copy = null;

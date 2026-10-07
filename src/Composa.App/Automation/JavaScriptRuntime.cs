@@ -9,7 +9,7 @@ using SkiaSharp;
 
 namespace Composa.App.Automation;
 
-public sealed record ScriptResult(string? ExportedPath = null, int ExportQuality = 90, string Output = "");
+public sealed record ScriptResult(string? ExportedPath = null, int ExportQuality = 90, string Output = "", bool SendToPhotoshop = false);
 
 /// <summary>A constrained JavaScript host. Scripts only receive explicit editor delegates; CLR access is not enabled.</summary>
 public sealed partial class JavaScriptRuntime : IScriptRuntime
@@ -105,6 +105,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     {
         if (string.IsNullOrWhiteSpace(script)) throw new ArgumentException("The script is empty.", nameof(script));
         string? exportPath = null;
+        var sendToPhotoshop = false;
         var output = new System.Text.StringBuilder();
         var exportQuality = 90;
         using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -200,6 +201,11 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             exportPath = Path.GetFullPath(path);
             exportQuality = Math.Clamp(quality, 1, 100);
         }));
+        engine.SetValue("__sendToPhotoshop", (Action)(() =>
+        {
+            if (!allowExport) throw new InvalidOperationException("This plugin has no export permission.");
+            sendToPhotoshop = true;
+        }));
         engine.SetValue("__queueAi", (Action<string, string, string>)((task, prompt, json) =>
         {
             if (!allowAi) throw new InvalidOperationException("AI tasks require asynchronous script execution.");
@@ -214,7 +220,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             else raw.Execute(script);
             if (pendingInputs != 0) throw new InvalidOperationException("A script returned before its input dialog. Use await ui.form(...) or await prompt(...).");
             cancellationToken.ThrowIfCancellationRequested();
-            return new ScriptResult(exportPath, exportQuality, output.ToString());
+            return new ScriptResult(exportPath, exportQuality, output.ToString(), sendToPhotoshop);
         }
         finally { inputCancellation.Cancel(); }
     }
@@ -433,7 +439,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         deselect() { __deselect(); },
         export(path, quality = 90) { __export(String(path), Number(quality)); }
       };
-      globalThis.app = Object.freeze({ get activeDocument() { return doc; }, get documents() { return [doc]; } });
+      globalThis.app = Object.freeze({ get activeDocument() { return doc; }, get documents() { return [doc]; }, sendToPhotoshop() { __sendToPhotoshop(); } });
       const queue = (task, prompt = '', options = {}) => __queueAi(task, String(prompt ?? ''), JSON.stringify(options ?? {}));
       globalThis.ai = Object.freeze({
         generateImage: (prompt, options) => queue('GenerateImage', prompt, options),

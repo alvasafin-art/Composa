@@ -24,11 +24,12 @@ namespace Composa.App.Mcp;
 /// </summary>
 public sealed partial class ComposaTools(MainWindow window, EditorSession? automationSession = null)
 {
-    public McpServerPrimitiveCollection<McpServerTool> Collection()
+    public McpServerPrimitiveCollection<McpServerTool> Collection(bool exchangeOnly = false)
     {
         var tools = new McpServerPrimitiveCollection<McpServerTool>();
         foreach (var method in typeof(ComposaTools).GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            if (method.GetCustomAttribute<McpServerToolAttribute>() != null) tools.Add(EditorOperationCatalog.Create(method, this));
+            if (method.GetCustomAttribute<McpServerToolAttribute>() is { } attribute &&
+                (!exchangeOnly || attribute.Name is "open_document" or "export_image")) tools.Add(EditorOperationCatalog.Create(method, this));
         return tools;
     }
 

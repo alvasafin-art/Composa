@@ -81,7 +81,12 @@ public sealed partial class MainWindow
         automationCancellation = cancellation; automationRunning = true;
         var content = Content as Control;
         if (content != null) content.IsEnabled = false;
-        try { return await scriptRuntime.ExecuteAsync(target, script, aiTasks, settings, title, cancellation.Token, allowExport: allowExport, dialogs: new ScriptDialogs(dialogOwner ?? this)); }
+        try
+        {
+            var result = await scriptRuntime.ExecuteAsync(target, script, aiTasks, settings, title, cancellation.Token, allowExport: allowExport, dialogs: new ScriptDialogs(dialogOwner ?? this));
+            if (result.SendToPhotoshop) await SendDocumentToPhotoshop(target, cancellation.Token);
+            return result;
+        }
         finally
         {
             automationRunning = false; automationCancellation = null;

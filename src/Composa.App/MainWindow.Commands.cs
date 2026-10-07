@@ -79,6 +79,7 @@ public sealed partial class MainWindow
             Item("Export PNG…", () => _ = Export(ExportFormat.Png), Key.E, ctrl | shift),
             Item("Export JPEG…", () => _ = Export(ExportFormat.Jpeg), Key.S, ctrl | shift | alt),
             Item("Export WebP…", () => _ = Export(ExportFormat.Webp)),
+            Item("Send Image to Photoshop", () => _ = SendToPhotoshop(), enabled: () => OperatingSystem.IsWindows()),
             Line(),
             Item("Close Project", () => _ = CloseSession(session!), Key.W, ctrl),
             Item("Quit", Close, Key.Q, ctrl, needsDocument: false));

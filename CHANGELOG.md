@@ -4,6 +4,25 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.20] - 2026-10-07 · TEST
+
+### Changed
+
+- EfficientSAM S is the default local object-selection model; MobileSAM and EfficientSAM Ti remain available as faster alternatives. Legacy SAM preferences migrate once. MobileSAM reconstructs its mask from logits with the actual image geometry instead of stretching the exporter's fixed crop; all local SAM models reconstruct before thresholding and refine boundaries against image detail.
+- Spot Healing prefers a coherent clean donor with structural matching and boundary adaptation. Excluded damage cannot contaminate the correction tone. Sample All Layers supports healing onto an empty retouch layer while preserving source layers and undo.
+- Alignment controls are separated from the reference selector and flip controls, with filled alignment/distribution icons. Tool-folder choices survive document changes, closing all tabs and restarting the application.
+
+### Fixed
+
+- Photoshop exchange has a dedicated local image bridge that works without enabling general AI control and stays connected when window closing is cancelled. Export uses the complete visible composite, independently of the selection.
+- Windows packages include ordinary `.js` entry points as well as the Photoshop `.jsx` script. Photoshop sends a merged duplicate, restoring the original document and dialog settings even when exchange fails. Composa offers File > Send Image to Photoshop and a compatible automation script.
+
+### Added
+
+- Comparative research on Photoshop healing, PatchMatch, exemplar inpainting, diffusion/PDE filling and modern learned alternatives: `docs/spot-healing-research.md`, included in Windows packages.
+
+Validation: 983 automated tests passed (468 core, 515 headless app). Real bundled SAM models and retouching were also checked on a local photo, including source preservation and undo/redo. The actual Windows PowerShell helper exchanged images with the running test editor. Photoshop scripting contracts were checked with a simulated host; live Photoshop COM/ExtendScript exchange remains unverified because Photoshop is unavailable on this machine. This is an experimental TEST pre-release.
+
 ## [1.2.1-preview.19] - 2026-10-07 · TEST
 
 ### Changed

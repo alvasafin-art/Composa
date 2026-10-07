@@ -48,3 +48,10 @@ models/efficient_sam_vitt_encoder.onnx: 24,799,761 bytes; SHA-256 7a73ee65aa2c37
 models/efficient_sam_vitt_decoder.onnx: 16,565,728 bytes; SHA-256 e1afe46232c3bfa3470a6a81c7d3181836a94ea89528aff4e0f2d2c611989efd
 
 Both encoder/decoder adapters are independently implemented in C# from the published tensor contracts.
+
+EfficientSAM S, Copyright (c) 2023 Meta Platforms, Inc. and affiliates, Apache-2.0.
+Source: https://github.com/yformer/EfficientSAM
+ONNX conversion by Kentaro Wada: https://github.com/wkentaro/efficient-sam/releases/tag/onnx-models-20231225
+models/efficient_sam_vits_encoder.onnx: 89,558,337 bytes; SHA-256 4cacbb23c6903b1acf87f1d77ed806b840800c5fcd4ac8f650cbffed474b8896
+models/efficient_sam_vits_decoder.onnx: 16,565,728 bytes; SHA-256 4727baf23dacfb51d4c16795b2ac382c403505556d0284e84c6ff3d4e8e36f22
+The license text in model-licenses/Apache-2.0.txt covers Ti and S weights.

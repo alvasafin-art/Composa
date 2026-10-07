@@ -72,8 +72,9 @@ public class ProfessionalToolsUiTests
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show(); window.AddSession(EditorSession.NewCanvas(160, 100, SKColors.White));
         window.Session!.WandMode = WandMode.Object; window.SelectTool(Tool.Wand); Dispatcher.UIThread.RunJobs();
         var choice = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
-        Assert.Contains(choice.Items.Cast<string>(), s => s == "MobileSAM · Local"); Assert.Contains(choice.Items.Cast<string>(), s => s == "EfficientSAM Ti · Local");
-        choice.SelectedIndex = choice.Items.Cast<string>().ToList().IndexOf("EfficientSAM Ti · Local");
+        Assert.Contains(choice.Items.Cast<string>(), s => s == "EfficientSAM S · Quality · Local");
+        Assert.Contains(choice.Items.Cast<string>(), s => s == "MobileSAM · Fast · Local"); Assert.Contains(choice.Items.Cast<string>(), s => s == "EfficientSAM Ti · Fast · Local");
+        choice.SelectedIndex = choice.Items.Cast<string>().ToList().IndexOf("EfficientSAM Ti · Fast · Local");
         Assert.Equal(ObjectSelectionSource.EfficientSamTi, window.Settings.ObjectSelectionModel);
         Screenshots.Save(window, "professional-object-selection-models"); window.Close();
     }

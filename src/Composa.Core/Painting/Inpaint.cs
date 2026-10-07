@@ -16,7 +16,7 @@ public static unsafe class Inpaint
     public const long MaxArea = DocumentLimits.MaxRetouchPixels;
 
     /// <summary>Returns a copy of <paramref name="source"/> (RGBA premultiplied) with the masked area replaced.</summary>
-    public static SKBitmap Fill(SKBitmap source, SKBitmap mask, SKBitmap? donorExclusion = null, CancellationToken cancellation = default)
+    public static SKBitmap Fill(SKBitmap source, SKBitmap mask, SKBitmap? donorExclusion = null, CancellationToken cancellation = default, bool coherentSpot = false)
     {
         cancellation.ThrowIfCancellationRequested();
         using var combinedExclusion = donorExclusion == null ? null : SelectionMask.Combine(mask, donorExclusion, SelectionMode.Add);
@@ -48,8 +48,13 @@ public static unsafe class Inpaint
 
         if (border.Count == 0) return Pixels.Clone(source); // No evidence: never turn a fully selected layer into black.
         var error = double.MaxValue;
-        var offset = border.Count >= 8 ? BestOffset(source, donorExclusion ?? mask, area, border, out error, cancellation) : null;
+        var offset = border.Count >= 8 ? BestOffset(source, donorExclusion ?? mask, area, border, out error, cancellation, coherentSpot) : null;
         if (offset is { } candidate && !CleanDonor(donorExclusion ?? mask, area, candidate)) offset = null;
+        // A small repair should carry one continuous piece of real texture, rather than
+        // switching donors pixel by pixel and amplifying their grain. Match structure
+        // independently of local tone, then harmonically adapt the donor to the boundary.
+        if (coherentSpot && offset is { } spot)
+            return PatchBlend.Blend(source, source, mask, spot, iterations: 96, preserveAlpha: false, cancellation: cancellation, boundaryExclusion: donorExclusion);
         if ((offset == null || error > 64) && ExemplarFill.TryFill(source, mask, hole, donorExclusion, cancellation) is { } texture)
         {
             using (texture)
@@ -110,7 +115,7 @@ public static unsafe class Inpaint
         return true;
     }
 
-    private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border, out double error, CancellationToken cancellation)
+    private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border, out double error, CancellationToken cancellation, bool structureMatch)
     {
         var src = (byte*)source.GetPixels();
         var m = (byte*)mask.GetPixels();
@@ -135,12 +140,16 @@ public static unsafe class Inpaint
                 if (src[(long)(y + oy) * stride + (x + ox) * 4 + 3] < 250 && src[(long)y * stride + x * 4 + 3] >= 250) return double.MaxValue;
             }
             double sum = 0;
+            Span<double> shift = stackalloc double[4];
+            shift.Clear();
             foreach (var (bx, by) in border)
             {
                 var a = src + (long)(by + area.Top) * stride + (bx + area.Left) * 4;
                 var b = src + (long)(by + area.Top + oy) * stride + (bx + area.Left + ox) * 4;
-                for (var c = 0; c < 4; c++) { double d = a[c] - b[c]; sum += d * d; }
+                for (var c = 0; c < 4; c++) { double d = a[c] - b[c]; sum += d * d; shift[c] += d; }
             }
+            if (structureMatch)
+                for (var c = 0; c < 3; c++) sum -= .94 * shift[c] * shift[c] / border.Count;
             // Prefer nearby patches when several match equally well.
             return sum / border.Count + 0.002 * (ox * ox + oy * oy) / Math.Max(1, area.Width * area.Height) * 255;
         }

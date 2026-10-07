@@ -8,6 +8,7 @@
 
 ## Conventional retouching
 
+- **Spot Healing Brush**: transfers a coherent nearby donor patch for small repairs, matching structure separately from overall tone and adapting boundary color. Sample all layers snapshots the visible composite before the stroke and writes only the repair onto the active layer, including an empty retouch layer. Broad strokes without a complete valid donor fall back to the existing exemplar fill. [Research and checks](spot-healing-research.md).
 - **Healing Brush**: Alt-click a clean source, then paint. Source texture is adapted to destination boundary color. Aligned keeps the offset across strokes; Sample all layers reads the composite on an untransformed target.
 - **Patch**: make a selection, choose Patch and drag inside it to a clean donor. Releasing applies the preview; Escape cancels. Clicking outside starts a new rectangular selection.
 - **Edit > Content-Aware Fill** opens a resizable sampling workspace. Green is available sampling, red is excluded sampling and purple is the repair area. Paint exclusions, or choose Include sampling to erase them. **Fast preview** works at up to 960 pixels on the long side; OK always computes the full-resolution fill before committing. Disable Fast preview to preview the full result. Pointer feedback uses direct bitmap copies instead of PNG encoding. Output to new layer keeps the original and creates a transparent repair layer; untick it to edit the target directly.
@@ -16,11 +17,11 @@ These tools use conventional texture search rather than generative AI. The fill 
 
 ## Local object selection
 
-The model menu includes **MobileSAM** and **EfficientSAM Ti**, alongside U²-Net lite, MODNet and Plain backdrop. Choose a model, then click an object or use Object Selection AI's rectangle tool. Select > Subject prompts the full canvas. Shift adds and Alt subtracts.
+The model menu includes **EfficientSAM S** (the default quality choice), **MobileSAM** and **EfficientSAM Ti** (fast), alongside U²-Net lite, MODNet and Plain backdrop. Choose a model, then click an object or use Object Selection AI's rectangle tool. Select > Subject prompts the full canvas. Shift adds and Alt subtracts.
 
-Both models use the existing ONNX Runtime locally. They require no Python, PyTorch, ComfyUI, runtime download or GPU. Each has an encoder and decoder; together the four weight files occupy 86,022,854 bytes (about 82 MiB). Sessions load on first use and remain cached; one image embedding per document speeds repeated prompts. Selection consumes additional CPU/RAM while running; idle selection performs no inference. Different photographs favor different models, so the existing default is retained for manual comparison.
+These models use ONNX Runtime locally and require no Python, PyTorch, ComfyUI, runtime download or GPU. S adds about 101 MiB of weights. Sessions load on first use and remain cached; one image embedding speeds repeated prompts. Selection consumes additional CPU/RAM while running; idle selection performs no inference. MobileSAM reconstructs its low-resolution logits using the actual aspect ratio, avoiding the crop frozen into the old export. Thresholding and image-guided refinement remove confidence haze and improve edges.
 
-SAM selections receive their own committed mask; inference temporaries are disposed separately. Both models are checked through selection, rendering, undo and redo with positive, negative and zero edge offsets.
+SAM selections receive their own committed mask; inference temporaries are disposed separately. Real encoder/decoder tests cover portrait and landscape object geometry, and selection history survives inference cleanup. Folder choices (including Bucket instead of Gradient, Eraser, marquee and lasso variants) follow document tabs, survive closing all documents, and are saved between launches.
 
 The floating AI selection panel collapses to its draggable header. This preference survives new selections, document tabs and relaunch, until its arrow is clicked again. Selection Brush and Object Selection AI expose Expand, Contract and Feather through **Modify**. Layer flip buttons sit after the alignment group. Foreground/background swatches follow the tool buttons, whose height adapts to ordinary window heights.
 

@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
     private readonly LlamaServerHost assistantServer;
     private readonly JavaScriptRuntime scriptRuntime = new();
     private Mcp.McpHost? aiControl;
+    private Mcp.McpHost? imageExchange;
     private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
     private readonly Border backgroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
     private readonly Panel welcome;
@@ -57,6 +58,9 @@ public sealed partial class MainWindow : Window
 
     internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory)
     {
+        magicShowsSelectionBrush = settings.ToolPalette?.SelectionBrush ?? false;
+        magicShowsAi = settings.ToolPalette?.ObjectAi ?? false;
+        gradientShowsBucket = settings.ToolPalette?.Bucket ?? false;
         automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), comfyClientFactory)
         {
@@ -156,7 +160,7 @@ public sealed partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         DragDrop.SetAllowDrop(this, true);
         Closing += OnClosing;
-        Closed += (_, _) => { automationCancellation?.Cancel(); assistantServer.Dispose(); };
+        Closed += (_, _) => { automationCancellation?.Cancel(); assistantServer.Dispose(); aiControl?.Dispose(); imageExchange?.Dispose(); };
         if (Settings.Persist)
             Opened += async (_, _) =>
             {
@@ -166,6 +170,8 @@ public sealed partial class MainWindow : Window
 
         SetSession(null);
         if (settings.AllowAiControl) _ = SetAiControl(true);
+        // Image exchange is independent of full AI control. Headless tests use isolated hosts.
+        if (Settings.Persist) _ = StartImageExchange(Mcp.McpPipe.ExchangeName);
 
         if (recovery != null)
         {
@@ -233,7 +239,21 @@ public sealed partial class MainWindow : Window
     public void AddSession(EditorSession added)
     {
         // The first document starts from the remembered view options; later ones inherit them from the current tab.
-        if (lastToolSource == null) { added.View = settings.View; added.Brush = settings.Brush; }
+        if (lastToolSource == null)
+        {
+            added.View = settings.View; added.Brush = settings.Brush;
+            if (settings.ToolPalette is { } palette)
+            {
+                added.Tool = Enum.IsDefined(palette.Active) ? palette.Active : Tool.Move;
+                if (Enum.IsDefined(palette.Marquee)) added.MarqueeKind = palette.Marquee;
+                if (Enum.IsDefined(palette.Lasso)) added.LassoKind = palette.Lasso;
+                if (Enum.IsDefined(palette.Wand)) added.WandMode = palette.Wand;
+                if (Enum.IsDefined(palette.Smear)) added.SmearMode = palette.Smear;
+                if (Enum.IsDefined(palette.Shape)) added.ShapeKind = palette.Shape;
+                added.EraserMode = palette.Eraser;
+                magicShowsSelectionBrush = palette.SelectionBrush; magicShowsAi = palette.ObjectAi; gradientShowsBucket = palette.Bucket;
+            }
+        }
         sessions.Add(added);
         added.HistoryChanged += RebuildTabs;
         added.Problem += message => { if (added == session) ShowProblem(message); };
@@ -417,12 +437,20 @@ public sealed partial class MainWindow : Window
         settings.ShowPixelGrid = canvas.ShowPixelGrid;
         settings.ShowTransformControls = canvas.ShowTransformControls;
         settings.AutoSelect = canvas.AutoSelect;
-        if (session != null) { settings.View = session.View; settings.Brush = session.Brush; }
+        if (session != null) { settings.View = session.View; settings.Brush = session.Brush; RememberToolPalette(); }
         settings.Save();
     }
 
     /// <summary>Whether the MCP server is running, so an AI agent can connect and drive the editor.</summary>
     public bool AiControl => aiControl != null;
+
+    internal async Task<bool> StartImageExchange(string pipeName)
+    {
+        if (imageExchange != null) return true;
+        var host = new Mcp.McpHost(this, pipeName, exchangeOnly: true);
+        if (!await host.StartAsync()) { host.Dispose(); return false; }
+        imageExchange = host; return true;
+    }
 
     public async Task SetAiControl(bool on)
     {
@@ -459,7 +487,6 @@ public sealed partial class MainWindow : Window
             ShowProblem("Stop the running script before closing the editor."); return;
         }
         RememberWindow();
-        aiControl?.Dispose();
         if (session?.IsEditingText == true) session.FinishText();
         if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified))) return;
         e.Cancel = true;
@@ -521,7 +548,8 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<ToolChoice> ToolGroup(Tool tool)
     {
         ToolChoice Choice(string name, Icons.Icon icon, string key, Func<EditorSession, bool> isCurrent, Action<EditorSession> apply) => new(
-            name, icon, () => toolKeys.FirstOrDefault(k => k.Id == key)?.Gesture, () => session != null && isCurrent(session),
+            name, icon, () => toolKeys.FirstOrDefault(k => k.Id == key)?.Gesture,
+            () => (session ?? lastToolSource) is { } current ? isCurrent(current) : settings.ToolPalette?.Choices?.GetValueOrDefault(tool.ToString()) == name,
             () =>
             {
                 if (session == null) return;
@@ -580,6 +608,7 @@ public sealed partial class MainWindow : Window
             var button = new ToolButton(icon, tip, ToolGroup(tool));
             button.Click += (_, _) => { if (button.Current is { } current) current.Choose(); else SelectTool(tool); };
             toolButtons[tool] = button;
+            button.Refresh();
             rail.Children.Add(button);
         }
 
@@ -724,6 +753,21 @@ public sealed partial class MainWindow : Window
             button.IsChecked = key == tool || key == Tool.Wand && tool is Tool.SelectionBrush or Tool.ObjectSelectionAi || key == Tool.Gradient && tool == Tool.Bucket;
             button.Refresh();
         }
+        RememberToolPalette();
+        settings.Save();
+    }
+
+    private void RememberToolPalette()
+    {
+        if ((session ?? lastToolSource) is not { } s) return;
+        settings.ToolPalette = new()
+        {
+            Active = s.Tool, Marquee = s.MarqueeKind, Lasso = s.LassoKind, Wand = s.WandMode,
+            Smear = s.SmearMode, Shape = s.ShapeKind, Eraser = s.EraserMode,
+            SelectionBrush = magicShowsSelectionBrush, ObjectAi = magicShowsAi, Bucket = gradientShowsBucket,
+            Choices = toolButtons.Where(pair => pair.Value.Current != null)
+                .ToDictionary(pair => pair.Key.ToString(), pair => pair.Value.Current!.Name)
+        };
     }
 
     private void UpdateStatus()

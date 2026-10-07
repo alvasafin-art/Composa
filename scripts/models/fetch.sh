@@ -10,12 +10,12 @@
 # and the workflows run this so every package carries every model; a developer checkout that has not
 # run it works without the Person choice, which falls back to the plain backdrop and says so.
 #
-# Both pins are the community ONNX conversions Lolly uses, hashed on 2026-10-01 against Lolly's pins:
+# The subject pins are the community ONNX conversions Lolly uses, hashed on 2026-10-01 against Lolly's pins:
 #   u2netp.onnx  is in git (4.6 MB), from rembg's release page; upstream xuebinqin/U-2-Net, Apache-2.0.
 #   modnet.onnx  26 MB, from Xenova/modnet on Hugging Face; upstream ZHKKKe/MODNet, Apache-2.0.
 # This is a new subject-only packaging script in this fork (no Models or scripts/models
-# files existed at HEAD). Real-ESRGAN is not bundled. The two promptable SAM encoder/decoder
-# pairs are committed and verified below; provenance and licenses travel with the application.
+# files existed at HEAD). Real-ESRGAN is not bundled. MobileSAM and EfficientSAM Ti are
+# committed; EfficientSAM S is fetched with fixed hashes. Provenance and licenses travel with the application.
 # A new model goes here, into SubjectModels.cs and into packaging/THIRD-PARTY-NOTICES.txt in one change,
 # and only with weights under a permissive licence (Apache-2.0, MIT or BSD): BRIA's RMBG models are
 # non-commercial and never ship.
@@ -47,6 +47,13 @@ fetch() {
 fetch modnet.onnx \
   "https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx" \
   07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9 25888640
+
+fetch efficient_sam_vits_encoder.onnx \
+  "https://github.com/wkentaro/efficient-sam/releases/download/onnx-models-20231225/efficient_sam_vits_encoder.onnx" \
+  4cacbb23c6903b1acf87f1d77ed806b840800c5fcd4ac8f650cbffed474b8896 89558337
+fetch efficient_sam_vits_decoder.onnx \
+  "https://github.com/wkentaro/efficient-sam/releases/download/onnx-models-20231225/efficient_sam_vits_decoder.onnx" \
+  4727baf23dacfb51d4c16795b2ac382c403505556d0284e84c6ff3d4e8e36f22 16565728
 
 # These are committed; this only confirms the checkout still carries the right files.
 check() {

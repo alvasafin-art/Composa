@@ -69,6 +69,7 @@ public sealed partial class MainWindow
                 }
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
                     Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v), Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
+                if (s.Tool == Tool.SpotHealing) Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
                 refreshOptions += () =>
                 {
                     size.Value = Math.Min(500, s.Brush.Size);

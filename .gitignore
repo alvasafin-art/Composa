@@ -9,4 +9,6 @@ plan-*.md
 artifacts/
 TestResults/
 src/Composa.Core/Models/modnet.onnx
+src/Composa.Core/Models/efficient_sam_vits_encoder.onnx
+src/Composa.Core/Models/efficient_sam_vits_decoder.onnx
 .tools/

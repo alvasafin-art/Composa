@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Composa.App;
 
-public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, MobileSam = 5, EfficientSamTi = 6 }
+public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, MobileSam = 5, EfficientSamTi = 6, EfficientSamS = 7 }
 
 /// <summary>Preferences remembered between launches, stored in the platform's config directory (<see cref="AppPaths.Config"/>).</summary>
 public sealed class Settings
@@ -16,7 +16,9 @@ public sealed class Settings
     /// <summary>Toggles that belong to the person rather than to a document, kept the way Photoshop keeps its tool options.</summary>
     public bool ShowTransformControls { get; set; } = true;
     public bool AutoSelect { get; set; } = true;
-    public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.AnySubject;
+    public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.EfficientSamS;
+    public ToolPaletteSettings? ToolPalette { get; set; }
+    public int PromptSelectionRevision { get; set; } = 1;
     public string? ObjectSelectionComfyModel { get; set; }
     public Composa.Editing.ViewOptions View { get; set; } = new();
     public Composa.Painting.BrushSettings Brush { get; set; } = new();
@@ -175,6 +177,12 @@ public sealed class Settings
         // Preview 16's optional native model was removed. Keep all other preferences intact.
         if (!Enum.IsDefined(value.ObjectSelectionModel)) value.ObjectSelectionModel = ObjectSelectionSource.AnySubject;
         using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty(nameof(PromptSelectionRevision), out _))
+        {
+            if (value.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi)
+                value.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
+            value.PromptSelectionRevision = 1;
+        }
         if (!document.RootElement.TryGetProperty(nameof(AiDefaultsRevision), out _))
         {
             // One-time adoption of the requested preview defaults. Afterwards keep all custom values.

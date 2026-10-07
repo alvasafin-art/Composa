@@ -20,6 +20,65 @@ namespace Composa.App.Tests;
 /// </summary>
 public class McpTests
 {
+    [AvaloniaFact]
+    public async Task Cancelling_window_close_keeps_its_image_exchange_available()
+    {
+        var window = new MainWindow(); window.Show(); var pipe = PipeName(); Assert.True(await window.StartImageExchange(pipe));
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "exchange-close", Command = "dotnet", Arguments = [App, "--exchange"],
+            EnvironmentVariables = new Dictionary<string, string?> { ["COMPOSA_EXCHANGE_PIPE"] = pipe }
+        });
+        await using var client = await Pumped(McpClient.CreateAsync(transport));
+        Assert.Equal(2, (await client.ListToolsAsync()).Count);
+        void Cancel(object? sender, Avalonia.Controls.WindowClosingEventArgs e) => e.Cancel = true;
+        window.Closing += Cancel;
+        try { window.Close(); Assert.True(window.IsVisible); Assert.Equal(2, (await client.ListToolsAsync()).Count); }
+        finally { window.Closing -= Cancel; window.Close(); }
+    }
+    [AvaloniaFact]
+    public async Task Image_exchange_works_with_AI_control_off_and_exports_the_full_visible_composite()
+    {
+        var window = new MainWindow(); window.Show(); var session = EditorSession.NewCanvas(96, 64, SKColors.CornflowerBlue);
+        window.AddSession(session);
+        session.AddShape(new ShapeStyle(ShapeKind.Rectangle, (uint)SKColors.Orange, 0), new SKRect(24, 16, 65, 45));
+        session.SelectRect(new SKRect(30, 20, 40, 30));
+        var state = session.History.CurrentId; using var expected = session.Flatten();
+        using var host = new McpHost(window, PipeName(), exchangeOnly: true); Assert.True(await host.StartAsync()); Assert.False(window.AiControl);
+        var bridge = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "image-exchange", Command = "dotnet", Arguments = [App, "--exchange"],
+            EnvironmentVariables = new Dictionary<string, string?> { ["COMPOSA_EXCHANGE_PIPE"] = host.PipeName }
+        });
+        await using var client = await Pumped(McpClient.CreateAsync(bridge)); await Pumped(() => host.Connections == 1);
+        Assert.Equal(["export_image", "open_document"], (await client.ListToolsAsync()).Select(t => t.Name).Order());
+        Assert.Empty((await client.ListResourcesAsync()).Select(r => r.Uri));
+        var image = Path.Combine(Path.GetTempPath(), "composa-exchange-test-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            var exported = await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = image }));
+            Assert.Null(exported.IsError); using var actual = ImageFiles.Load(image);
+            Assert.Equal(expected.GetPixelSpan().ToArray(), actual.GetPixelSpan().ToArray());
+            Assert.Equal(state, session.History.CurrentId); Assert.NotNull(session.Selection);
+            if (OperatingSystem.IsWindows())
+            {
+                // Execute the actual shipped PowerShell helper, not a mocked bridge.
+                var start = new System.Diagnostics.ProcessStartInfo("powershell.exe")
+                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Exchange.ps1"),
+                    "-Direction", "ToComposa", "-ImagePath", image, "-ComposaExe", Path.ChangeExtension(App, ".exe") }) start.ArgumentList.Add(arg);
+                start.Environment["COMPOSA_EXCHANGE_PIPE"] = host.PipeName;
+                using var process = System.Diagnostics.Process.Start(start)!;
+                var errors = process.StandardError.ReadToEndAsync(); var output = process.StandardOutput.ReadToEndAsync();
+                await Pumped(() => process.HasExited);
+                if (!process.HasExited) { process.Kill(entireProcessTree: true); Assert.Fail("Photoshop helper timed out."); }
+                Assert.True(process.ExitCode == 0, await errors); await output;
+                Assert.Equal(2, window.Sessions.Count); Assert.NotSame(session, window.Session);
+                using var opened = window.Session!.Flatten(); Assert.Equal(expected.GetPixelSpan().ToArray(), opened.GetPixelSpan().ToArray());
+            }
+        }
+        finally { File.Delete(image); }
+    }
     private static readonly string App = Path.Combine(AppContext.BaseDirectory, "composa.dll");
 
     private static string PipeName() => OperatingSystem.IsWindows()

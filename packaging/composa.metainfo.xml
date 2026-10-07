@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.20" date="2026-10-07">
+      <description>
+        <p>TEST: improved local SAM geometry and image-guided edges, EfficientSAM S as the quality default, coherent Spot Healing and retouch layers. Adds a dedicated Photoshop image bridge, visible JavaScript entry points and merged-image exchange. Separates filled alignment controls and remembers tool-folder choices across tabs and restarts. Verified by 983 automated tests; live Photoshop exchange remains unverified.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.19" date="2026-10-07">
       <description>
         <p>TEST: automatic AI context, conditioning overlap and seam matching. Removes manual edge controls and ignores legacy selection softness and AI edge settings during generation. Keeps one editable output mask, source pixels outside its finite support, and undo. Includes comparative research on Photoshop and open inpainting workflows.</p>

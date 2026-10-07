@@ -10,6 +10,7 @@ public sealed partial class EditorSession
     private BrushStroke? stroke;
     private Layer? strokeLayer;
     private SKBitmap? strokeOriginal;
+    private SKBitmap? strokeHealingSample;
     private SKMatrix strokeToLayer;
     private BrushMode strokeMode;
     private SKPoint? cloneSource;
@@ -146,6 +147,15 @@ public sealed partial class EditorSession
         };
         strokeLayer = layer;
         strokeOriginal = target;
+        if (mode == BrushMode.Heal && SampleAllLayers)
+        {
+            // Snapshot before the dark drag overlay, mapping the visible document into
+            // the active layer's local grid (including transformed retouch layers).
+            strokeHealingSample = Pixels.NewColor(target.Width, target.Height);
+            using var sampleCanvas = new SKCanvas(strokeHealingSample);
+            sampleCanvas.SetMatrix(strokeToLayer);
+            sampleCanvas.DrawImage(Pixels.ImageOf(Composite()), 0, 0);
+        }
         strokeMode = mode.Value;
         SetTarget(layer, stroke.Working);
         Pixels.SetLive(stroke.Working, true);
@@ -242,9 +252,20 @@ public sealed partial class EditorSession
                     if (allowed[y * selection.RowBytes + x] == 0) coverage[y * mask.RowBytes + x] = 0;
                 Pixels.Invalidate(mask);
             }
-            var repair = strokeMode == BrushMode.Healing
-                ? PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset)
-                : Inpaint.Fill(strokeOriginal!, mask, donorExclusion);
+            SKBitmap repair;
+            if (strokeMode == BrushMode.Healing) repair = PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset);
+            else if (strokeHealingSample is { } sample)
+            {
+                using var hard = Pixels.Clone(mask);
+                var coverage = hard.GetPixelSpan();
+                for (var i = 0; i < coverage.Length; i++) if (coverage[i] > 0) coverage[i] = 255;
+                Pixels.Invalidate(hard);
+                repair = Inpaint.Fill(sample, hard, donorExclusion, coherentSpot: true);
+                // Write only the stroke onto the retouch layer. Coverage is applied once,
+                // not first to the composite and then again when transferring its pixels.
+                repair = MixBySelection(strokeOriginal!, repair, mask);
+            }
+            else repair = Inpaint.Fill(strokeOriginal!, mask, donorExclusion, coherentSpot: true);
             var healed = MixBySelection(strokeOriginal!, repair, selection);
             if (EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
             {
@@ -274,6 +295,7 @@ public sealed partial class EditorSession
         stroke = null;
         strokeLayer = null;
         strokeOriginal = null;
+        strokeHealingSample?.Dispose(); strokeHealingSample = null;
         smoothingAnchor = smoothingPointer = null;
     }
 }

@@ -1,12 +1,15 @@
 namespace Composa.Vision;
 
-public enum PromptModelKind { MobileSam, EfficientSamTi }
+public enum PromptModelKind { MobileSam, EfficientSamTi, EfficientSamS }
 public sealed record PromptModelFile(string Id, string Name, string File, string Sha256, long Bytes, string Source, string Url)
     : OnnxModel(Id, Name, File, Sha256, Bytes, "Apache-2.0", Name + " authors", Source, Url);
 public sealed record PromptModel(PromptModelKind Kind, string Name, PromptModelFile Encoder, PromptModelFile Decoder);
 
 public static class PromptModels
 {
+    public static PromptModel EfficientSamS { get; } = new(PromptModelKind.EfficientSamS, "EfficientSAM S",
+        new("efficient-sam-s-encoder", "EfficientSAM S encoder", "efficient_sam_vits_encoder.onnx", "4cacbb23c6903b1acf87f1d77ed806b840800c5fcd4ac8f650cbffed474b8896", 89558337, "https://github.com/yformer/EfficientSAM", "https://github.com/wkentaro/efficient-sam/releases/download/onnx-models-20231225/efficient_sam_vits_encoder.onnx"),
+        new("efficient-sam-s-decoder", "EfficientSAM S decoder", "efficient_sam_vits_decoder.onnx", "4727baf23dacfb51d4c16795b2ac382c403505556d0284e84c6ff3d4e8e36f22", 16565728, "https://github.com/yformer/EfficientSAM", "https://github.com/wkentaro/efficient-sam/releases/download/onnx-models-20231225/efficient_sam_vits_decoder.onnx"));
     public static PromptModel MobileSam { get; } = new(PromptModelKind.MobileSam, "MobileSAM",
         new("mobile-sam-encoder", "MobileSAM encoder", "mobile_sam_encoder.onnx", "20deef402855b31222b528f52b04807e41ebe47216ac0e39a0729f43491a0209", 28157093, "https://github.com/ChaoningZhang/MobileSAM", "https://huggingface.co/vietanhdev/segment-anything-onnx-models/resolve/main/mobile_sam_20230629.zip"),
         new("mobile-sam-decoder", "MobileSAM decoder", "mobile_sam_decoder.onnx", "22cf85e35d14182f4b4712364264c06b22edbef63f065189586f080ef4e2f325", 16500272, "https://github.com/facebookresearch/segment-anything", "https://huggingface.co/vietanhdev/segment-anything-onnx-models/resolve/main/mobile_sam_20230629.zip"));

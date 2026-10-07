@@ -8,7 +8,7 @@ namespace Composa.Painting;
 /// <summary>Transfers donor texture, solving the boundary color correction over the repair region.</summary>
 public static unsafe class PatchBlend
 {
-    public static SKBitmap Blend(SKBitmap original, SKBitmap donor, SKBitmap mask, SKPointI offset, int iterations = 48, bool preserveAlpha = true, CancellationToken cancellation = default)
+    public static SKBitmap Blend(SKBitmap original, SKBitmap donor, SKBitmap mask, SKPointI offset, int iterations = 48, bool preserveAlpha = true, CancellationToken cancellation = default, SKBitmap? boundaryExclusion = null)
     {
         var bounds = SelectionMask.Bounds(mask, 1); bounds.Inflate(2, 2);
         bounds = Geometry.Intersect(bounds, new SKRectI(0, 0, original.Width, original.Height));
@@ -16,10 +16,14 @@ public static unsafe class PatchBlend
         if ((long)bounds.Width * bounds.Height > DocumentLimits.MaxRetouchPixels) throw new InvalidOperationException("Repair area exceeds the retouching limit.");
         var w = bounds.Width; var h = bounds.Height; var correction = new float[w * h * 3]; var weights = new float[w * h];
         var src = (byte*)original.GetPixels(); var sample = (byte*)donor.GetPixels(); var selected = (byte*)mask.GetPixels();
+        var excluded = boundaryExclusion == null ? null : (byte*)boundaryExclusion.GetPixels();
         bool Valid(int x, int y) => x + offset.X >= 0 && x + offset.X < donor.Width && y + offset.Y >= 0 && y + offset.Y < donor.Height;
         for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
         {
             var xx = x + bounds.Left; var yy = y + bounds.Top; var i = y * w + x;
+            // A blemish outside an active selection stays untouched, but must not pull
+            // its dark color into the repaired portion as a boundary constraint.
+            if (excluded != null && excluded[(long)yy * boundaryExclusion!.RowBytes + xx] > 0) continue;
             if (!Valid(xx, yy) || selected[(long)yy * mask.RowBytes + xx] > 0 && x > 0 && y > 0 && x < w - 1 && y < h - 1) continue;
             var a = src + (long)yy * original.RowBytes + xx * 4; var b = sample + (long)(yy + offset.Y) * donor.RowBytes + (xx + offset.X) * 4;
             if (a[3] == 0 || b[3] == 0) continue;

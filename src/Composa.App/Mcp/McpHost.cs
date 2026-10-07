@@ -15,11 +15,13 @@ public sealed class McpHost : IDisposable
     private readonly MainWindow window;
     private readonly CancellationTokenSource stop = new();
     private int connections;
+    private readonly bool exchangeOnly;
 
-    public McpHost(MainWindow window, string? pipeName = null)
+    public McpHost(MainWindow window, string? pipeName = null, bool exchangeOnly = false)
     {
         this.window = window;
         PipeName = pipeName ?? McpPipe.Name;
+        this.exchangeOnly = exchangeOnly;
     }
 
     public string PipeName { get; }
@@ -105,8 +107,8 @@ public sealed class McpHost : IDisposable
             ServerInstructions = "Composa is a layer-based image editor. The tools act on the documents open in its window; " +
                                  "every change is an undoable step the person can see and undo. Coordinates are canvas pixels " +
                                  "with the origin at the top left. Call render to see the result of your changes.",
-            ToolCollection = tools.Collection(),
-            ResourceCollection = tools.Resources()
+            ToolCollection = tools.Collection(exchangeOnly),
+            ResourceCollection = exchangeOnly ? new McpServerResourceCollection() : tools.Resources()
         };
     }
 

@@ -40,8 +40,8 @@ public class LocalSubjectUiTests
         var window = new MainWindow(); window.Settings.CheckForUpdates = false; window.Show();
         var first = EditorSession.NewCanvas(320, 240); window.AddSession(first); window.SelectTool(Tool.ObjectSelectionAi);
         ComboBox Menu() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
-        Assert.Equal(ObjectSelectionSource.AnySubject, window.Settings.ObjectSelectionModel);
-        Assert.Equal(0, Menu().SelectedIndex); Assert.True(window.Canvas.ObjectSelectionAvailable!());
+        Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
+        Assert.Equal(3, Menu().SelectedIndex); Assert.True(window.Canvas.ObjectSelectionAvailable!());
         Menu().SelectedIndex = 1;
         Assert.Equal(ObjectSelectionSource.Person, window.Settings.ObjectSelectionModel); Assert.Equal(SubjectDetect.Person, first.Detect);
         var second = EditorSession.NewCanvas(400, 300); window.AddSession(second);

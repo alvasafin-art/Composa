@@ -13,4 +13,7 @@ public static class McpPipe
     public static string Name => Environment.GetEnvironmentVariable(Variable) is { Length: > 0 } name ? name : Default;
 
     public static string Default => OperatingSystem.IsWindows() ? "composa-mcp" : Path.Combine(AppPaths.Cache, "mcp.sock");
+
+    public static string ExchangeName => Environment.GetEnvironmentVariable("COMPOSA_EXCHANGE_PIPE") is { Length: > 0 } name ? name :
+        OperatingSystem.IsWindows() ? "composa-image-exchange" : Path.Combine(AppPaths.Cache, "image-exchange.sock");
 }

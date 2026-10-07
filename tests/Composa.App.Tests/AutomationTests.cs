@@ -15,6 +15,18 @@ namespace Composa.App.Tests;
 public class AutomationTests
 {
     [Fact]
+    public void Packaged_Photoshop_script_is_a_Composa_JavaScript_export_request()
+    {
+        var folder = Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop");
+        var script = AutomationCatalog.ReadScript(Path.Combine(folder, "Send-to-Photoshop.js"));
+        var session = EditorSession.NewCanvas(50, 40, SKColors.Blue); using var before = session.Flatten();
+        var result = new JavaScriptRuntime().Execute(session, script);
+        Assert.True(result.SendToPhotoshop); Assert.Null(result.ExportedPath);
+        using var after = session.Flatten(); Assert.Equal(before.GetPixelSpan().ToArray(), after.GetPixelSpan().ToArray());
+        var error = Assert.Throws<InvalidDataException>(() => AutomationCatalog.ReadScript(Path.Combine(folder, "Send-to-Composa.js")));
+        Assert.Contains("in Photoshop", error.Message);
+    }
+    [Fact]
     public void Reusable_square_script_supports_console_output_without_rolling_back_edits()
     {
         var session = EditorSession.NewCanvas(1200, 600, SKColors.White);

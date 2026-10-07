@@ -13,14 +13,17 @@ public sealed partial class EditorSession
         if (point is { } p && !document.Bounds.Contains(p.X, p.Y)) return;
         if (point == null && box == null) return;
         var state = History.CurrentId; var layerId = document.ActiveLayerId;
-        object key = SampleAllLayers || ActiveLayer == null ? state : (object)(ActiveLayer.Pixels!, ActiveLayer.Transform, ActiveLayer.VectorMask!, ActiveLayer.VectorMaskEnabled, ActiveLayer.FillOpacity);
+        object key = SampleAllLayers || ActiveLayer == null ? state : (object)(document.Width, document.Height,
+            ActiveLayer.Pixels!, ActiveLayer.Transform, ActiveLayer.VectorMask!, ActiveLayer.VectorMaskEnabled, ActiveLayer.FillOpacity);
         var (source, owned) = SelectionSample();
         using var copy = owned ? source : Pixels.Clone(source);
         var cached = promptEmbedding is { } previous && previous.Key.Equals(key) && previous.Model == model.Kind ? previous.Image : null;
         var found = await Task.Run(() =>
         {
             var embedding = cached ?? PromptSegmentation.Encode(copy, model, cancellation);
-            var mask = PromptSegmentation.Decode(embedding, model, copy.Width, copy.Height, point is { } pt ? new SKPoint(pt.X, pt.Y) : null, box, cancellation);
+            using var decoded = PromptSegmentation.Decode(embedding, model, copy.Width, copy.Height, point is { } pt ? new SKPoint(pt.X, pt.Y) : null, box, cancellation);
+            using var piece = point is { } seed ? ObjectSelection.FromMatte(decoded, seed.X, seed.Y, 0) : null;
+            var mask = PromptSegmentation.Refine(piece ?? decoded, copy, cancellation);
             return (embedding, mask);
         }, cancellation);
         using var result = found.mask;

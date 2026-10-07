@@ -31,7 +31,8 @@ public sealed partial class MainWindow
         {
             new(ObjectSelectionSource.AnySubject, "U²-Net lite · Local"), new(ObjectSelectionSource.Person, "MODNet · Local"),
             new(ObjectSelectionSource.PlainBackdrop, "Plain backdrop"),
-            new(ObjectSelectionSource.MobileSam, "MobileSAM · Local"), new(ObjectSelectionSource.EfficientSamTi, "EfficientSAM Ti · Local")
+            new(ObjectSelectionSource.EfficientSamS, "EfficientSAM S · Quality · Local"),
+            new(ObjectSelectionSource.MobileSam, "MobileSAM · Fast · Local"), new(ObjectSelectionSource.EfficientSamTi, "EfficientSAM Ti · Fast · Local")
         };
         var engine = aiTasks.EngineFor(AiTaskKind.ObjectSelection);
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
@@ -92,12 +93,13 @@ public sealed partial class MainWindow
     {
         var target = session;
         if (target == null || localSelectionBusy || canvas.IsDragging || target.IsInteracting) return;
-        if (settings.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi)
+        if (settings.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi or ObjectSelectionSource.EfficientSamS)
         {
             localSelectionBusy = true;
             try
             {
-                var model = settings.ObjectSelectionModel == ObjectSelectionSource.MobileSam ? PromptModels.MobileSam : PromptModels.EfficientSamTi;
+                var model = settings.ObjectSelectionModel switch { ObjectSelectionSource.MobileSam => PromptModels.MobileSam,
+                    ObjectSelectionSource.EfficientSamTi => PromptModels.EfficientSamTi, _ => PromptModels.EfficientSamS };
                 await ProgressWindow.Run(this, "Selecting with " + model.Name + "…", async c => { await target.SelectPromptObjectAsync(model, point, region ?? (point == null ? target.Document.Bounds : null), mode, c); return true; });
             }
             catch (OperationCanceledException) { }

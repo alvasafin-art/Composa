@@ -204,6 +204,8 @@ public sealed partial class AutomationCatalog(string? root) : IPluginCommandProv
             throw new InvalidDataException("Choose a JavaScript file smaller than 256 KB.");
         var text = File.ReadAllText(path);
         if (text.Contains('\0')) throw new InvalidDataException("The script is not a text file.");
+        if (text.TrimStart().StartsWith("#target photoshop", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Run Send-to-Composa.js in Photoshop (File > Scripts > Browse). In Composa use Send-to-Photoshop.js or File > Send Image to Photoshop.");
         return text;
     }
 
