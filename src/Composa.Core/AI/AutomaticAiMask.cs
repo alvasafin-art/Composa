@@ -70,7 +70,9 @@ public static class AutomaticAiMask
     public static AiMaskPlan Analyze(SKBitmap core, SKBitmap reference)
     {
         if (core.Width != reference.Width || core.Height != reference.Height) throw new ArgumentException("Mask and context must share coordinates.");
-        var geometry = Geometry(SelectionMask.Bounds(core, 128), reference.Info.Rect);
+        // Selection contours are already binary; expansion coverage represents
+        // physical transparency and may contain only values below half opacity.
+        var geometry = Geometry(SelectionMask.Bounds(core, 1), reference.Info.Rect);
         if (geometry.Bounds.IsEmpty) return geometry;
         // Narrow the seam in detailed surroundings; use a wider transition on smooth
         // skies/walls. Sample source pixels only, never the object being replaced.

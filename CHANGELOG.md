@@ -12,6 +12,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 - Generation uses the selection contour at full strength, independently of selection-tool opacity and feather. The current selection remains unchanged; a preserved background subject retains its separate original cutout matte.
 - Generated pixels receive conservative local registration and a screened regional color correction before one editable layer mask is applied. Nearly uniform backgrounds receive an additional small neutral tone-drift correction; Relight, Harmonize and background replacement preserve independent interior color. Pixels outside the finite insertion support are restored exactly.
 - Runtime FLUX graphs use stock nodes regardless of whether Pixaroma is installed. CPU result finishing runs away from the editor thread.
+- Expansion context includes partially transparent pixels even when the canvas contains no completely empty pixels.
 
 ### Added
 
@@ -19,7 +20,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 This is an experimental TEST pre-release. Automatic seam treatment cannot repair arbitrary model hallucinations or large geometric changes. Paid GPT generation and Photoshop's closed internals are not part of live validation.
 
-Validation: 965 automated tests (457 core, 508 headless app), plus opt-in runs on Intel Arc B580 with FLUX.2 Klein 9B and full FLUX VAE. Six photo-edit scenarios checked output support and undo/redo. Live stock-node checks covered image/mask alignment and tiny low-opacity selections; the uniform-background tone drift improved from 187.85 to 199.78 against a source level of 200.
+Validation: 966 automated tests (458 core, 508 headless app), plus opt-in runs on Intel Arc B580 with FLUX.2 Klein 9B and full FLUX VAE. Six photo-edit scenarios checked output support and undo/redo. Live stock-node checks covered image/mask alignment and tiny low-opacity selections; the uniform-background tone drift improved from 187.85 to 199.78 against a source level of 200.
 
 ## [1.2.1-preview.18] - 2026-10-07
 
