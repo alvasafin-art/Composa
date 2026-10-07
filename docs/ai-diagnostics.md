@@ -1,5 +1,11 @@
 # AI correctness checks
 
+## Current masked workflow
+
+The supplied 9B workflow was inspected separately for whole-image and masked edits. Masked edits use ReferenceLatent → InpaintModelConditioning → KSampler, Euler/simple, with source-pixel mask growth, nearest resize, model-pixel Gaussian blur and outward seam coverage. Composa now follows that path using stock nodes and a local editable output mask, without requiring Pixaroma. MP measures the total context crop; explicit pixel targets refer to its longest side. A synthetic padding-color regression verifies that the resampler cannot pull technical padding into the output seam.
+
+The investigation below describes the previous implementation and is historical. Its binary latent mask, source-space blur and selected-area MP semantics have been superseded. The current change has automated graph, geometry, mask and UI checks; a live noise/quality comparison still requires the configured ComfyUI server to be running.
+
 ## FLUX masked edits: preview.15 investigation
 
 The masked execution code was identical in previews .12, .13 and .14. Preview .15 addresses defects present in the earlier path; the local-selection release did not change it.

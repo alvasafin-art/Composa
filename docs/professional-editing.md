@@ -10,7 +10,7 @@
 
 - **Healing Brush**: Alt-click a clean source, then paint. Source texture is adapted to destination boundary color. Aligned keeps the offset across strokes; Sample all layers reads the composite on an untransformed target.
 - **Patch**: make a selection, choose Patch and drag inside it to a clean donor. Releasing applies the preview; Escape cancels. Clicking outside starts a new rectangular selection.
-- **Edit > Content-Aware Fill** opens the sampling workspace. Green is available sampling, red is excluded sampling and purple is the repair area. Paint exclusions, or choose Include sampling to erase them. **Preview** calculates the result. Output to new layer keeps the original and creates a transparent repair layer; untick it to edit the target directly.
+- **Edit > Content-Aware Fill** opens a resizable sampling workspace. Green is available sampling, red is excluded sampling and purple is the repair area. Paint exclusions, or choose Include sampling to erase them. **Fast preview** works at up to 960 pixels on the long side; OK always computes the full-resolution fill before committing. Disable Fast preview to preview the full result. Pointer feedback uses direct bitmap copies instead of PNG encoding. Output to new layer keeps the original and creates a transparent repair layer; untick it to edit the target directly.
 
 These tools use conventional texture search rather than generative AI. The fill searches at several resolutions, samples original-resolution detail and adapts the boundary. It cannot invent missing scene structure; large objects and repetitive textures may require another donor or manual retouching. Feathered repair-layer extraction is exact on an opaque backdrop; overlapping translucent content can composite differently, so use direct output when that matters.
 
@@ -19,6 +19,12 @@ These tools use conventional texture search rather than generative AI. The fill 
 The model menu includes **MobileSAM** and **EfficientSAM Ti**, alongside U²-Net lite, MODNet and Plain backdrop. Choose a model, then click an object or use Object Selection AI's rectangle tool. Select > Subject prompts the full canvas. Shift adds and Alt subtracts.
 
 Both models use the existing ONNX Runtime locally. They require no Python, PyTorch, ComfyUI, runtime download or GPU. Each has an encoder and decoder; together the four weight files occupy 86,022,854 bytes (about 82 MiB). Sessions load on first use and remain cached; one image embedding per document speeds repeated prompts. Selection consumes additional CPU/RAM while running; idle selection performs no inference. Different photographs favor different models, so the existing default is retained for manual comparison.
+
+SAM selections receive their own committed mask; inference temporaries are disposed separately. Both models are checked through selection, rendering, undo and redo with positive, negative and zero edge offsets.
+
+The floating AI selection panel collapses to its draggable header. This preference survives new selections, document tabs and relaunch, until its arrow is clicked again. Selection Brush and Object Selection AI expose Expand, Contract and Feather through **Modify**. Layer flip buttons sit after the alignment group. Foreground/background swatches follow the tool buttons, whose height adapts to ordinary window heights.
+
+Tone curves use a natural cubic spline and allow the black/white endpoint handles to move in both axes. The value outside the endpoints is constant. Dragging from near a handle preserves the grab offset. Existing curve points remain saved in the same format; their interpolation follows the updated curve behavior.
 
 ## Refined masks and saved selections
 

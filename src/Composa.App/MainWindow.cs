@@ -239,7 +239,7 @@ public sealed partial class MainWindow : Window
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
-        added.SelectionChanged += () => { if (added == session) { aiFloatingDismissed = false; refreshOptions?.Invoke(); RefreshAiUi(); } };
+        added.SelectionChanged += () => { if (added == session) { refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
     }
 
@@ -254,7 +254,6 @@ public sealed partial class MainWindow : Window
         }
         var tool = session?.Tool ?? Tool.Move;
         session = next;
-        aiFloatingDismissed = false;
         aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;
@@ -505,7 +504,7 @@ public sealed partial class MainWindow : Window
         (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B) · Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.SpotHealing, Icons.Heal, "Spot Healing Brush (J)"), (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
-        (Tool.HealingBrush, Icons.Heal, "Healing Brush · Alt-click sets the texture source"), (Tool.Patch, Icons.Marquee, "Patch · select an area and drag to the donor"),
+        (Tool.HealingBrush, Icons.HealingBrush, "Healing Brush · Alt-click sets the texture source"), (Tool.Patch, Icons.Marquee, "Patch · select an area and drag to the donor"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
         (Tool.Pen, Icons.Line, "Pen (P) · click adds a corner, drag creates curve handles · Enter finishes · click first node closes"),
@@ -599,14 +598,20 @@ public sealed partial class MainWindow : Window
         swap.HorizontalAlignment = HorizontalAlignment.Center;
         colors.Children.Add(swap);
 
+        rail.Children.Add(colors);
         var tools = new ScrollViewer
         {
             Content = rail, Width = 56, Background = Palette.Panel, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
-        var dock = new DockPanel { Width = 56, Background = Palette.Panel };
-        DockPanel.SetDock(colors, Dock.Bottom); dock.Children.Add(colors); dock.Children.Add(tools);
-        return dock;
+        // Keep all tools and the swatches together on ordinary-height windows.
+        // Very small windows can still scroll the complete rail.
+        tools.SizeChanged += (_, e) =>
+        {
+            var height = Math.Clamp((e.NewSize.Height - 92) / ToolList.Length - rail.Spacing, 22, 33);
+            foreach (var button in rail.Children.OfType<ToolButton>()) button.Height = height;
+        };
+        return tools;
     }
 
     private Control BuildStatusBar()

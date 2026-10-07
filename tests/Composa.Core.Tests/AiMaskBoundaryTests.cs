@@ -40,5 +40,8 @@ public class AiMaskBoundaryTests
         Assert.NotEqual(original.GetPixel(10, 10), result.GetPixel(10, 10));
         Assert.Throws<ArgumentOutOfRangeException>(() => AiDimensions.FromMinimumSide(-1, 30, 20));
         Assert.Equal((1536, 1024), AiDimensions.FromMinimumSide(1024, 300, 200));
+        Assert.Equal((1024, 688), AiDimensions.FromMaximumSide(1024, 300, 200));
+        Assert.Equal((688, 1024), AiDimensions.FromMaximumSide(1024, 200, 300));
+        Assert.Equal((300, 200), AiDimensions.FromMaximumSide(0, 300, 200));
     }
 }

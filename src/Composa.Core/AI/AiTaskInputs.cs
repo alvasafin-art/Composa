@@ -47,7 +47,7 @@ public sealed record AiTaskRequest
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
     public AiExpansionMode ExpansionMode { get; init; } = AiExpansionMode.MaskedRegion;
-    /// <summary>Zero preserves the expanded canvas dimensions; otherwise the generation's minimum side.</summary>
+    /// <summary>Zero preserves the expanded canvas dimensions; otherwise the generation's longest side. Legacy property name retained for scripts.</summary>
     public int ExpansionMinimumSide { get; init; } = 1024;
     public RemoveObjectSettings RemoveObject { get; init; } = new();
     /// <summary>An optional user-supplied visual reference. Kept for Engine Pack backwards compatibility.</summary>
@@ -75,6 +75,17 @@ public static class AiDimensions
         if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("Canvas exceeds document limits.");
         if (minimum == 0) return (width, height);
         var scale = (double)minimum / Math.Min(width, height);
+        var w = Round(width * scale, multiple); var h = Round(height * scale, multiple);
+        if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException($"Generation exceeds the {DocumentLimits.MaxSide} px / {DocumentLimits.MaxSurfaceMegapixels} MP limit.");
+        return (w, h);
+    }
+
+    public static (int Width, int Height) FromMaximumSide(int maximum, int width, int height, int multiple = 16)
+    {
+        if (maximum < 0 || width <= 0 || height <= 0 || multiple <= 0) throw new ArgumentOutOfRangeException(nameof(maximum));
+        if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("Canvas exceeds document limits.");
+        if (maximum == 0) return (width, height);
+        var scale = (double)maximum / Math.Max(width, height);
         var w = Round(width * scale, multiple); var h = Round(height * scale, multiple);
         if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException($"Generation exceeds the {DocumentLimits.MaxSide} px / {DocumentLimits.MaxSurfaceMegapixels} MP limit.");
         return (w, h);
@@ -210,7 +221,7 @@ public static class AiTaskInputPreparer
             if (searchBounds.Value.IsEmpty) throw new InvalidOperationException("Draw an AI selection rectangle inside the canvas.");
         }
         var expansionSize = request.Task == AiTaskKind.GenerativeExpand
-            ? AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, (request.ExpansionBounds ?? session.Document.Bounds).Width, (request.ExpansionBounds ?? session.Document.Bounds).Height)
+            ? AiDimensions.FromMaximumSide(request.ExpansionMinimumSide, (request.ExpansionBounds ?? session.Document.Bounds).Width, (request.ExpansionBounds ?? session.Document.Bounds).Height)
             : (Width: 0, Height: 0);
 
         var flattened = session.Flatten();

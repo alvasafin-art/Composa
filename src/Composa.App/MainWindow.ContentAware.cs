@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Composa.App.Dialogs;
 using Composa.Painting;
 using Composa.Rendering;
@@ -26,19 +28,23 @@ public sealed partial class MainWindow
         using var excluded = Pixels.NewMask(original.Width, original.Height);
         var previewScale = Math.Min(1, 960.0 / Math.Max(original.Width, original.Height));
         using var previewImage = Pixels.NewColor(Math.Max(1, (int)Math.Round(original.Width * previewScale)), Math.Max(1, (int)Math.Round(original.Height * previewScale)));
-        var sample = new Image { Width = 460, Height = 360, Stretch = Stretch.Uniform, Cursor = new Cursor(StandardCursorType.Cross) };
-        var resultView = new Image { Width = 460, Height = 360, Stretch = Stretch.Uniform };
+        var sample = new Image { Stretch = Stretch.Uniform, Cursor = new Cursor(StandardCursorType.Cross) };
+        var resultView = new Image { Stretch = Stretch.Uniform };
         Avalonia.Media.Imaging.Bitmap? samplingBitmap = null, resultBitmap = null;
         var erase = false; var outputLayer = true; var ready = false; var painting = false; var filling = false; SKPoint? lastPoint = null;
         using var workspaceCancellation = new CancellationTokenSource();
         DialogWindow? dialog = null; Task? previewTask = null;
-        var radius = 30.0;
-        static Avalonia.Media.Imaging.Bitmap Display(SKBitmap pixels)
+        var radius = 30.0; var draft = true;
+        static unsafe WriteableBitmap Display(SKBitmap pixels)
         {
             var scale = Math.Min(1, 960.0 / Math.Max(pixels.Width, pixels.Height));
             using var small = Pixels.NewColor(Math.Max(1, (int)Math.Round(pixels.Width * scale)), Math.Max(1, (int)Math.Round(pixels.Height * scale)));
             using (var canvas = new SKCanvas(small)) canvas.DrawBitmap(pixels, new SKRect(0, 0, small.Width, small.Height));
-            using var image = SKImage.FromBitmap(small); using var png = image.Encode(SKEncodedImageFormat.Png, 100); using var stream = png.AsStream(); return new(stream);
+            var bitmap = new WriteableBitmap(new PixelSize(small.Width, small.Height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Premul);
+            using var frame = bitmap.Lock();
+            for (var y = 0; y < small.Height; y++)
+                Buffer.MemoryCopy((byte*)small.GetPixels() + (long)y * small.RowBytes, (byte*)frame.Address + (long)y * frame.RowBytes, frame.RowBytes, small.Width * 4L);
+            return bitmap;
         }
         void RefreshSampling(SKPoint? pointer = null)
         {
@@ -69,23 +75,35 @@ public sealed partial class MainWindow
         sample.PointerPressed += (_, e) => { if (!e.GetCurrentPoint(sample).Properties.IsLeftButtonPressed || Position(e.GetPosition(sample)) is not { } p) return; painting = true; lastPoint = null; Paint(p); e.Pointer.Capture(sample); };
         sample.PointerMoved += (_, e) => { if (Position(e.GetPosition(sample)) is { } p) { if (painting) Paint(p); else RefreshSampling(p); } };
         sample.PointerReleased += (_, e) => { painting = false; lastPoint = null; e.Pointer.Capture(null); };
-        async Task Preview()
+        async Task Preview(bool final = false)
         {
             if (filling) { if (previewTask != null) await previewTask; return; }
             filling = true; sample.IsEnabled = false; if (dialog != null) dialog.CanAccept = false;
             try
             {
                 using var sampling = Pixels.Clone(excluded);
+                var scale = !final && draft ? previewScale : 1;
+                SKBitmap Resize(SKBitmap image, bool alpha)
+                {
+                    var w = Math.Max(1, (int)Math.Round(image.Width * scale)); var h = Math.Max(1, (int)Math.Round(image.Height * scale));
+                    var resized = alpha ? Pixels.NewMask(w, h) : Pixels.NewColor(w, h);
+                    using var draw = new SKCanvas(resized); draw.DrawBitmap(image, new SKRect(0, 0, w, h));
+                    return resized;
+                }
+                using var inputImage = scale < 1 ? Resize(original, false) : null;
+                using var inputMask = scale < 1 ? Resize(mask, true) : null;
+                using var inputSampling = scale < 1 ? Resize(sampling, true) : null;
                 var filled = await ProgressWindow.Run(dialog?.IsVisible == true ? dialog : this, "Filling from the sampling area…", async c =>
                 {
                     using var linked = CancellationTokenSource.CreateLinkedTokenSource(c, workspaceCancellation.Token);
-                    return await Task.Run(() => Inpaint.Fill(original, mask, sampling, linked.Token), linked.Token);
+                    return await Task.Run(() => Inpaint.Fill(inputImage ?? original, inputMask ?? mask, inputSampling ?? sampling, linked.Token), linked.Token);
                 });
                 if (filled == null) return;
                 using (filled)
                 {
                     if (workspaceCancellation.IsCancellationRequested || !target.IsPreviewing) return;
-                    target.PreviewComputedFill(filled); var next = Display(filled); resultView.Source = next; resultBitmap?.Dispose(); resultBitmap = next; ready = true;
+                    if (scale == 1) target.PreviewComputedFill(filled);
+                    var next = Display(filled); resultView.Source = next; resultBitmap?.Dispose(); resultBitmap = next; ready = scale == 1;
                 }
             }
             catch (OperationCanceledException) { }
@@ -95,12 +113,26 @@ public sealed partial class MainWindow
         RefreshSampling(); resultBitmap = Display(original); resultView.Source = resultBitmap;
         var tools = Ui.Row(10, Ui.Combo(new[] { "Exclude sampling", "Include sampling" }, "Exclude sampling", s => s, s => erase = s == "Include sampling", 170),
             Ui.SliderField("Brush size", radius * 2, 4, 500, v => radius = v / 2, width: 140), Ui.TextButton("Reset sampling", () => { if (filling) return; excluded.Erase(SKColors.Transparent); ready = false; RefreshSampling(); }),
+            Ui.Check("Fast preview", true, v => { draft = v; ready = false; }),
             Ui.Check("Output to new layer", true, v => outputLayer = v), Ui.TextButton("Preview", () => { if (!filling) previewTask = Preview(); }, accent: true));
-        dialog = new DialogWindow("Content-Aware Fill", Ui.Column(12, Ui.Label("Green: sampling area · Red: excluded · Purple: repair area", Palette.Secondary), tools, Ui.Row(14, sample, resultView)));
+        var toolWrap = new WrapPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
+        var toolItems = tools.Children.ToArray(); tools.Children.Clear();
+        foreach (var control in toolItems) { control.Margin = new Thickness(0, 0, 10, 6); toolWrap.Children.Add(control); }
+        var views = new Grid { ColumnDefinitions = new ColumnDefinitions("*,14,*") };
+        views.Children.Add(sample); Grid.SetColumn(resultView, 2); views.Children.Add(resultView);
+        var body = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
+        body.Children.Add(Ui.Label("Green: sampling area · Red: excluded · Purple: repair area · Final fill uses full resolution", Palette.Secondary));
+        Grid.SetRow(toolWrap, 1); toolWrap.Margin = new Thickness(0, 10, 0, 10); body.Children.Add(toolWrap);
+        Grid.SetRow(views, 2); body.Children.Add(views);
+        dialog = new DialogWindow("Content-Aware Fill", body) { CanResize = true, SizeToContent = SizeToContent.Manual,
+            Width = Math.Max(900, Math.Min(1500, Width * .92)), Height = Math.Max(560, Math.Min(1000, Height * .9)), MinWidth = 900, MinHeight = 560 };
+        var layout = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), Margin = new Thickness(20) };
+        var oldLayout = (StackPanel)dialog.Content!; var buttons = oldLayout.Children[1];
+        oldLayout.Children.Clear(); layout.Children.Add(body); Grid.SetRow(buttons, 1); layout.Children.Add(buttons); dialog.Content = layout;
         try
         {
             if (!await dialog.Ask(this)) { target.CancelPreview(); return; }
-            if (!ready) await Preview();
+            if (!ready) await Preview(final: true);
             if (!ready) { target.CancelPreview(); return; }
             if (outputLayer)
             {

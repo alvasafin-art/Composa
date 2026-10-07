@@ -38,7 +38,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             Mask = AiResultPostprocessor.ExpansionEditMask(inputs.OutputMask ?? sourceMask, context, blend);
         }
         else if (request.Task == AiTaskKind.RemoveObject && inputs.OutputMask != null) Mask = Pixels.Clone(inputs.OutputMask);
-        else Mask = AiResultPostprocessor.EditMask(sourceMask, request.Task == AiTaskKind.GenerativeFill ? 0 : grow, blend);
+        else Mask = AiResultPostprocessor.OutwardEditMask(sourceMask, grow, blend);
     }
 
     private int Value(string name, int fallback) => Math.Clamp(Convert.ToInt32(request.Settings.Values.GetValueOrDefault(name) ?? fallback), 0, 64);
@@ -64,25 +64,26 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         graph["composa_edit_mask_crop"] = Node("CropMask", new() { ["mask"] = new JsonArray("composa_edit_mask_grow", 0), ["x"] = Bounds.Left, ["y"] = Bounds.Top, ["width"] = Bounds.Width, ["height"] = Bounds.Height });
         graph["composa_edit_mask_image"] = Node("MaskToImage", new() { ["mask"] = new JsonArray("composa_edit_mask_crop", 0) });
         var last = "composa_edit_mask_image";
-        if (blur > 0 && Math.Min(Bounds.Width,Bounds.Height) > 1)
+        if (!nativePixels)
         {
-            // Blur is in source pixels, BEFORE resizing. Multiple Gaussian passes preserve
+            graph["composa_edit_mask_size"] = Node("ImageScale", new() { ["image"] = new JsonArray(last,0),
+                ["width"] = ContentSize.Width, ["height"] = ContentSize.Height, ["upscale_method"] = "nearest-exact", ["crop"] = "disabled" });
+            last = "composa_edit_mask_size";
+        }
+        if (blur > 0 && Math.Min(ContentSize.Width,ContentSize.Height) > 1)
+        {
+            // Like Pixaroma, blur is in MODEL pixels, AFTER nearest-neighbour resizing.
+            // Multiple Gaussian passes preserve
             // the requested variance without silently clipping ImageBlur's sigma/radius limits.
-            var sigma = blur / 3.0; var passes = (int)Math.Ceiling(sigma * sigma / 100);
+            var sigma = (double)blur; var passes = (int)Math.Ceiling(sigma * sigma / 100);
             sigma /= Math.Sqrt(passes);
             for (var i = 0; i < passes; i++)
             {
                 var id = i == 0 ? "composa_edit_mask_blur" : $"composa_edit_mask_blur_{i}";
                 graph[id] = Node("ImageBlur", new() { ["image"] = new JsonArray(last,0),
-                    ["blur_radius"] = Math.Clamp((int)Math.Ceiling(3 * sigma), 1, Math.Min(31, Math.Min(Bounds.Width,Bounds.Height)-1)), ["sigma"] = sigma });
+                    ["blur_radius"] = Math.Clamp((int)Math.Ceiling(3 * sigma), 1, Math.Min(31, Math.Min(ContentSize.Width,ContentSize.Height)-1)), ["sigma"] = sigma });
                 last = id;
             }
-        }
-        if (!nativePixels)
-        {
-            graph["composa_edit_mask_size"] = Node("ImageScale", new() { ["image"] = new JsonArray(last,0),
-                ["width"] = ContentSize.Width, ["height"] = ContentSize.Height, ["upscale_method"] = "bilinear", ["crop"] = "disabled" });
-            last = "composa_edit_mask_size";
         }
         graph["composa_edit_mask"] = Node("ImageToMask", new() { ["image"] = new JsonArray(last,0), ["channel"] = "red" });
         graph["composa_edit_empty_mask"] = Node("SolidMask", new() { ["value"] = 0.0, ["width"] = width, ["height"] = height });
@@ -96,42 +97,11 @@ internal sealed class EditableMaskedWorkflow : IDisposable
                         var slot = link[1]!.GetValue<int>();
                         fields[key] = new JsonArray(slot == (pixaroma ? 0 : 1) ? "composa_edit_size" : "composa_edit_padded_mask", 0);
                     }
-        // Denoising coverage starts from positive source selection support, not blurred
-        // amplitude: even a faint/tiny selection must receive a fully finished latent.
-        graph["composa_noise_source"] = Node("ThresholdMask", new() { ["mask"] = new JsonArray("composa_edit_mask_crop",0), ["value"] = 0.001 });
-        graph["composa_noise_image"] = Node("MaskToImage", new() { ["mask"] = new JsonArray("composa_noise_source",0) });
-        var noiseImage = "composa_noise_image";
-        if (!nativePixels)
-        {
-            graph["composa_noise_resize"] = Node("ImageScale", new() { ["image"] = new JsonArray(noiseImage,0),
-                ["width"] = ContentSize.Width, ["height"] = ContentSize.Height, ["upscale_method"] = "nearest-exact", ["crop"] = "disabled" });
-            noiseImage = "composa_noise_resize";
-        }
-        graph["composa_noise_mask"] = Node("ImageToMask", new() { ["image"] = new JsonArray(noiseImage,0), ["channel"] = "red" });
-        graph["composa_noise_padded"] = Node("MaskComposite", new() { ["destination"] = new JsonArray("composa_edit_empty_mask",0),
-            ["source"] = new JsonArray("composa_noise_mask",0), ["x"] = 0, ["y"] = 0, ["operation"] = "add" });
-        graph["composa_sampling_mask"]!["inputs"]!["mask"] = new JsonArray("composa_noise_padded",0);
-        // Sampling is larger than final coverage. Its halo/conditioning never becomes layer alpha.
-        graph["composa_sampling_mask"]!["inputs"]!["expand"] = (int)Math.Ceiling((blend + 3 * blur)
-            * Math.Max((double)ContentSize.Width / Bounds.Width, (double)ContentSize.Height / Bounds.Height));
-        // Soft noise masks repeatedly mix unfinished noisy latents into a four-step edit.
-        // Fully denoise its halo; only the independent source-space layer mask feathers once.
-        // Comfy resizes noise masks to latent resolution. Binarizing only image pixels
-        // would leave partially noisy cells at a thin edge or at technical padding.
-        // Area pooling followed by threshold acts as max pooling over each 16x16 cell.
-        graph["composa_sampling_image"] = Node("MaskToImage", new() { ["mask"] = new JsonArray("composa_sampling_mask",0) });
-        graph["composa_latent_mask_image"] = Node("ImageScale", new() { ["image"] = new JsonArray("composa_sampling_image",0),
-            ["width"] = width/16, ["height"] = height/16, ["upscale_method"] = "area", ["crop"] = "disabled" });
-        graph["composa_latent_mask"] = Node("ImageToMask", new() { ["image"] = new JsonArray("composa_latent_mask_image",0), ["channel"] = "red" });
-        graph["composa_denoise_mask"] = Node("ThresholdMask", new() { ["mask"] = new JsonArray("composa_latent_mask",0), ["value"] = 0.001 });
-        // Klein edits use reference latents, not inpainting's extra concat channels.
-        // Reuse the already encoded source instead of encoding it twice more.
-        var conditioning = graph["composa_condition"]!["inputs"]!;
-        graph["sampler"]!["inputs"]!["positive"] = conditioning["positive"]!.DeepClone();
-        graph["sampler"]!["inputs"]!["negative"] = conditioning["negative"]!.DeepClone();
-        graph.Remove("composa_condition");
-        graph["composa_noise_latent"] = Node("SetLatentNoiseMask", new() { ["samples"] = new JsonArray("sourceEncode",0), ["mask"] = new JsonArray("composa_denoise_mask",0) });
-        graph["latent"]!["inputs"]!["samples"] = new JsonArray("composa_noise_latent",0);
+        // Preserve the user's ReferenceLatent -> InpaintModelConditioning -> KSampler
+        // pipeline. The previous override discarded conditioning and expanded a binary
+        // noise halo unrelated to the model-space mask.
+        graph["composa_condition"]!["inputs"]!["mask"] = new JsonArray("composa_edit_padded_mask",0);
+        graph.Remove("composa_sampling_mask");
         graph["save"]!["inputs"]!["images"] = new JsonArray("decode", 0);
         graph.Remove("stitch"); graph.Remove("crop");
     }
@@ -151,8 +121,17 @@ internal sealed class EditableMaskedWorkflow : IDisposable
                     canvas.ClipRect(new SKRect(Bounds.Left,Bounds.Top,Bounds.Right,Bounds.Bottom));
                     canvas.DrawImage(Pixels.ImageOf(decoded),Bounds.Left,Bounds.Top,paint);
                 }
-                else canvas.DrawImage(Pixels.ImageOf(decoded), SKRect.Create(ContentSize.Width,ContentSize.Height), new SKRect(Bounds.Left, Bounds.Top, Bounds.Right, Bounds.Bottom),
-                    new SKSamplingOptions(SKCubicResampler.Mitchell), paint);
+                else
+                {
+                    // A source rectangle alone can still sample technical padding through
+                    // a cubic kernel. Give it an image whose edge is the content edge.
+                    using var content = new SKBitmap();
+                    if (!decoded.ExtractSubset(content, SKRectI.Create(ContentSize.Width, ContentSize.Height)))
+                        throw new InvalidDataException("The generated content crop could not be read.");
+                    using var image = SKImage.FromBitmap(content);
+                    canvas.DrawImage(image, new SKRect(Bounds.Left, Bounds.Top, Bounds.Right, Bounds.Bottom),
+                        new SKSamplingOptions(SKCubicResampler.Mitchell), paint);
+                }
             }
             Pixels.Invalidate(result);
             if (request.Settings.Values.GetValueOrDefault("colorMatch")?.ToString() is "subtle" or "strong"

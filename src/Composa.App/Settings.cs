@@ -36,6 +36,7 @@ public sealed class Settings
     public string AiApiSize { get; set; } = "auto";
     public bool AiLorasEnabled { get; set; }
     public bool AiShowContextBounds { get; set; } = true;
+    public bool AiFloatingCollapsed { get; set; }
     public int AiDefaultsRevision { get; set; } = 1;
     /// <summary>Server-side loader identifiers per normalized endpoint; never filesystem paths on the client.</summary>
     public Dictionary<string, Dictionary<string, string>> ComfyModelSelections { get; set; } = [];

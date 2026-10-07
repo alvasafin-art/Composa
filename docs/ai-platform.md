@@ -35,7 +35,7 @@ FLUX Generative Fill now keeps independent defaults of 4 px grow / 8 px blend / 
 
 All Advanced and generation preferences now belong to a **workflow + task** profile: dimensions, reference resizing, masks/context, color match, seed, variants/execution, LoRAs, paid quality and expansion/upscale sizes. Existing preferences seed every other profile unchanged. FLUX Expand starts with Original size, 1 MP references, List execution, 16/48/16 px, context 2, Color match subtle and seed −1. Switching workflows restores that task's values; cancelling a generation dialog does not save its unaccepted drafts. Advanced identifies its operation in the title.
 
-Original-size FLUX masked crops no longer undergo two inverse resizes to fit the VAE. Stock padding nodes add only technical right/bottom pixels, and the decoded crop is clipped into its saved source coordinates without scaling. Unexpected output dimensions are rejected. MP budgets and explicit Expand minimum-side requests still intentionally resize. This prevents host-side subpixel drift but cannot prevent a generative model from redrawing or moving details.
+Original-size FLUX masked crops use only technical right/bottom padding. Unexpected output dimensions are rejected. MP specifies the total request including context; explicit Expand pixel requests specify the longest side. Technical padding is removed before resampling. The masked graph follows ReferenceLatent → InpaintModelConditioning → Euler/simple KSampler, matching the supplied Pixaroma workflow's node order without requiring that node pack. Mask resize precedes model-space blur, and the editable final mask uses an outward seam. See the current [engine notes](../ai/engines/flux2-klein-intel-xpu/README.md).
 
 ## Engine Packs and task bindings
 

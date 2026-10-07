@@ -126,12 +126,12 @@ public sealed partial class MainWindow
                     Ui.Label(s.Tool == Tool.RemoveObject ? "Release to remove with AI" : "Shift adds · Alt subtracts", Palette.Secondary));
                 if (s.Tool == Tool.SelectionBrush) Add(Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
                     value => value.ToString(), value => s.SelectionBrushMode = value, 100));
-                Add(Ui.Separator(), Flat("Deselect", s.Deselect));
+                Add(Ui.Separator(), SelectionModifyMenu(), Flat("Deselect", s.Deselect));
                 break;
             case Tool.ObjectSelectionAi:
                 Add(Title("Object Selection AI"), ObjectSelectionModelMenu(),
                     Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v),
-                    Ui.Label("Click or draw a rectangle · Shift adds · Alt subtracts", Palette.Secondary));
+                    SelectionModifyMenu(), Ui.Label("Click or draw a rectangle · Shift adds · Alt subtracts", Palette.Secondary));
                 break;
             case Tool.Bucket:
                 Add(Title("Paint Bucket"), Ui.SliderField("Tolerance", s.WandTolerance, 0, 255, value => s.WandTolerance = (int)value),
@@ -385,6 +385,29 @@ public sealed partial class MainWindow
     {
         var button = Ui.TextButton(text, action);
         button.MinWidth = 0;
+        return button;
+    }
+
+    private Control SelectionModifyMenu()
+    {
+        var s = session!;
+        var button = Ui.TextButton("Modify ▾", () => { });
+        button.Name = "SelectionModify"; button.MinWidth = 0;
+        button.Click += (_, _) =>
+        {
+            var flyout = new MenuFlyout();
+            void Item(string label, Func<Task> apply)
+            {
+                var item = new MenuItem { Header = label };
+                item.Click += (_, _) => _ = apply(); flyout.Items.Add(item);
+            }
+            Item("Expand…", () => ModifySelection("Expand Selection", "Expand by", () => s.SelectionExpandAmount, 500, v => { s.SelectionExpandAmount = v; s.ExpandSelection(v); }));
+            Item("Contract…", () => ModifySelection("Contract Selection", "Contract by", () => s.SelectionContractAmount, 500, v => { s.SelectionContractAmount = v; s.ContractSelection(v); }));
+            Item("Feather…", () => ModifySelection("Feather Selection", "Feather by", () => s.SelectionFeatherAmount, 250, v => { s.SelectionFeatherAmount = v; s.FeatherSelection(v); }));
+            flyout.ShowAt(button);
+        };
+        refreshOptions += () => button.IsEnabled = s.Selection != null;
+        button.IsEnabled = s.Selection != null;
         return button;
     }
 

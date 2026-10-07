@@ -11,7 +11,7 @@ namespace Composa.App.Tests;
 public class AiOperationSettingsTests
 {
     [AvaloniaFact]
-    public async Task Fill_dialog_shows_selected_resolution_and_actual_context_dimensions_in_both_size_modes()
+    public async Task Fill_dialog_shows_total_request_resolution_in_both_size_modes()
     {
         var window=new MainWindow(); window.Settings.CheckForUpdates=false; window.Show();
         try
@@ -22,11 +22,11 @@ public class AiOperationSettingsTests
             var pending=AiDialogs.Prompt(window,AiTaskKind.GenerativeFill,window.Settings,264,176,service:window.AiTasks,
                 hasSelection:true,sourceCanvas:new(0,0,1537,991),selectionBounds:new(600,350,864,526));
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
-            var label=Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("Selected area:")==true);
-            Assert.Contains("FLUX request with context:",label.Text);
+            var label=Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("FLUX request including context:")==true);
+            Assert.Contains("MP",label.Text); Assert.Contains("848 × 608 px",label.Text);
             var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.Cast<string>().Contains("Original size"));
             size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
-            Assert.Equal("Selected area: 264 × 176 px\nFLUX request with context: 336 × 256 px",label.Text);
+            Assert.Equal($"FLUX request including context: 384 × 272 px · {0.1:0.##} MP",label.Text);
             size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog,"flux-selection-resolution-and-context"));
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(window.Settings));

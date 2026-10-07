@@ -50,7 +50,8 @@ public sealed partial class MainWindow
     private readonly List<AiReferenceItem> aiReferences = [];
     private AiReferenceEditor? aiDialogReferences;
     private bool refreshingAiEngine;
-    private bool aiFloatingDismissed;
+    private StackPanel? aiFloatingBody;
+    private Button? aiFloatingCollapse, aiFloatingAdvanced;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingRemove, aiFloatingMore;
     private ComboBox? aiVariantsCombo;
@@ -206,12 +207,13 @@ public sealed partial class MainWindow
         header.PointerReleased += (_, e) =>
         { if (aiFloatingDragStart == null) return; aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
         header.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
-        var advanced = Ui.TextButton("Advanced…", () => _ = ShowAiAdvanced());
+        var advanced = aiFloatingAdvanced = Ui.TextButton("Advanced…", () => _ = ShowAiAdvanced());
         advanced.MinWidth = 0;
         AddAt(header, advanced, 1).Margin = new Thickness(0, 0, 5, 0);
-        var close = Ui.TextButton("×", () => { aiFloatingDismissed = true; aiFloatingPinnedPosition = null; RefreshAiFloatingUi(); });
+        var close = aiFloatingCollapse = Ui.TextButton("▾", () => { settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed; settings.Save(); RefreshAiFloatingUi(); });
+        close.Name = "AiFloatingCollapse";
         close.MinWidth = 32;
-        ToolTip.SetTip(close, "Close until the selection changes");
+        ToolTip.SetTip(close, "Collapse panel until you expand it");
         AddAt(header, close, 2);
 
         aiFloatingGenerate = Ui.TextButton("Generate", () => _ = RunAi(AiTaskKind.GenerativeFill, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
@@ -254,7 +256,8 @@ public sealed partial class MainWindow
         Grid.SetRow(aiEngineCombo, 1); footer.Children.Add(aiEngineCombo);
         Grid.SetRow(actions, 1); AddAt(footer, actions, 1);
         RefreshAiReferenceUi();
-        return Ui.Column(9, header, aiFloatingPrompt, aiReferenceHost, footer);
+        aiFloatingBody = Ui.Column(9, aiFloatingPrompt, aiReferenceHost, footer);
+        return Ui.Column(9, header, aiFloatingBody);
     }
 
     private void OpenAiFloatingTaskMenu()
@@ -281,8 +284,16 @@ public sealed partial class MainWindow
     {
         var visible = session?.Selection != null && session.IsPaintingSelection == false
             && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
-            && aiTasks.ConnectionState == ComfyConnectionState.Connected && !aiFloatingDismissed;
+            && aiTasks.ConnectionState == ComfyConnectionState.Connected;
         aiFloatingHost.IsVisible = visible;
+        aiFloatingHost.Width = settings.AiFloatingCollapsed ? 210 : 520;
+        if (aiFloatingBody != null) aiFloatingBody.IsVisible = !settings.AiFloatingCollapsed;
+        if (aiFloatingAdvanced != null) aiFloatingAdvanced.IsVisible = !settings.AiFloatingCollapsed;
+        if (aiFloatingCollapse != null)
+        {
+            aiFloatingCollapse.Content = settings.AiFloatingCollapsed ? "▸" : "▾";
+            ToolTip.SetTip(aiFloatingCollapse, settings.AiFloatingCollapsed ? "Expand panel" : "Collapse panel until you expand it");
+        }
         if (!visible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
         var fillEngine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
@@ -335,7 +346,7 @@ public sealed partial class MainWindow
         if (bounds.IsEmpty) return;
         var topLeft = canvas.ToScreen(new SKPoint(bounds.Left, bounds.Top));
         var bottomRight = canvas.ToScreen(new SKPoint(bounds.Right, bounds.Bottom));
-        var width = Math.Max(340, Math.Min(520, canvas.Bounds.Width - 16));
+        var width = settings.AiFloatingCollapsed ? 210 : Math.Max(340, Math.Min(520, canvas.Bounds.Width - 16));
         aiFloatingHost.Width = width;
         if (aiFloatingFooter != null && aiFloatingActions != null)
         {
@@ -343,7 +354,7 @@ public sealed partial class MainWindow
             Grid.SetRow(aiFloatingActions, narrow ? 2 : 1); Grid.SetColumn(aiFloatingActions, narrow ? 0 : 1); Grid.SetColumnSpan(aiFloatingActions, narrow ? 2 : 1);
             aiFloatingActions.Margin = new Thickness(0, narrow ? 7 : 0, 0, 0);
         }
-        var height = Math.Max(190, aiFloatingHost.Bounds.Height);
+        var height = Math.Max(settings.AiFloatingCollapsed ? 54 : 190, aiFloatingHost.Bounds.Height);
         var maxLeft = Math.Max(8, canvas.Bounds.Width - width - 8);
         var left = Math.Clamp((topLeft.X + bottomRight.X - width) / 2, 8, maxLeft);
         var below = bottomRight.Y + 10;

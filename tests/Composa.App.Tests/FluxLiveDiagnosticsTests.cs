@@ -53,8 +53,8 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
             if (name.Contains("binary"))
             {
                 graph["diagnostic_binary_mask"] = new JsonObject { ["class_type"] = "ThresholdMask", ["inputs"] = new JsonObject
-                    { ["mask"] = new JsonArray("composa_sampling_mask", 0), ["value"] = 0.001 } };
-                graph["composa_noise_latent"]!["inputs"]!["mask"] = new JsonArray("diagnostic_binary_mask", 0);
+                    { ["mask"] = new JsonArray("composa_edit_padded_mask", 0), ["value"] = 0.001 } };
+                graph["composa_condition"]!["inputs"]!["mask"] = new JsonArray("diagnostic_binary_mask", 0);
             }
             if (name.Contains("roundtrip")) graph["decode"]!["inputs"]!["samples"] = new JsonArray("sourceEncode", 0);
             if (name.Contains("match")) request.Settings.Values["colorMatch"] = "strong";
@@ -214,7 +214,7 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
     [Theory]
     [InlineData(255)]
     [InlineData(1)]
-    public async Task A_single_edge_pixel_fully_denoises_its_latent_cell_even_with_large_technical_padding(byte coverage)
+    public async Task A_single_edge_pixel_preserves_its_conditioning_coverage_and_zero_technical_padding(byte coverage)
     {
         var url=Environment.GetEnvironmentVariable("COMPOSA_FLUX_DIAGNOSTIC_URL"); if(string.IsNullOrWhiteSpace(url)) return;
         using var client=new ComfyClient(url); var (_,caps)=await client.TestConnectionAsync(TestContext.Current.CancellationToken);
@@ -229,14 +229,14 @@ public class FluxLiveDiagnosticsTests(ITestOutputHelper output)
         var values=inputs.Values(files); foreach(var (key,value) in request.Settings.Values) values[key]=value;
         var graph=WorkflowBinder.Bind(catalog.ReadWorkflow(engine,engine.Workflow(binding.Workflow)),binding,values);
         WorkflowExecution.MaskedEdit(graph,inputs,request,caps); using var edit=new EditableMaskedWorkflow(inputs,request); edit.Bind(graph);
-        graph["diagnostic_noise"]=new JsonObject { ["class_type"]="MaskToImage",["inputs"]=new JsonObject { ["mask"]=new JsonArray("composa_denoise_mask",0) } };
+        graph["diagnostic_noise"]=new JsonObject { ["class_type"]="MaskToImage",["inputs"]=new JsonObject { ["mask"]=new JsonArray("composa_edit_padded_mask",0) } };
         graph["save"]!["inputs"]!["images"]=new JsonArray("diagnostic_noise",0);
         var execution=await client.ExecuteAsync(graph,cancellationToken:TestContext.Current.CancellationToken);
         using(execution.History)
         using(var noise=await client.DownloadAsync(Assert.Single(execution.Images),TestContext.Current.CancellationToken))
         {
-            Assert.Equal((4,4),(noise.Width,noise.Height)); Assert.Equal(255,noise.GetPixel(0,0).Red);
-            for(var y=0;y<4;y++) for(var x=0;x<4;x++) if(x!=0 || y!=0) Assert.Equal(0,noise.GetPixel(x,y).Red);
+            Assert.Equal((64,64),(noise.Width,noise.Height)); Assert.Equal(coverage,noise.GetPixel(0,0).Red);
+            for(var y=0;y<64;y++) for(var x=0;x<64;x++) if(x!=0 || y!=0) Assert.Equal(0,noise.GetPixel(x,y).Red);
         }
         Assert.Equal(coverage,edit.Mask.GetPixel(0,0).Alpha); // denoising never changes editable coverage
     }

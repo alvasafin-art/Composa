@@ -58,6 +58,7 @@ public class ProfessionalToolsUiTests
         session.SelectRect(new SKRect(30, 25, 70, 65)); var original = session.ActiveLayer!.Pixels; var state = session.History.CurrentId;
         var fill = Invoke(window, "ContentAwareFillWorkspace"); Dispatcher.UIThread.RunJobs();
         var dialog = window.OwnedWindows.OfType<DialogWindow>().Single(); Assert.Equal("Content-Aware Fill", dialog.Title); Assert.True(session.IsPreviewing);
+        Assert.True(dialog.CanResize); Assert.True(dialog.Width >= 900); Assert.True(dialog.Height >= 560);
         Screenshots.Save(dialog, "professional-content-aware-workspace"); dialog.Close(false); await fill;
         Assert.False(session.IsInteracting); Assert.Same(original, session.ActiveLayer!.Pixels); Assert.Equal(state, session.History.CurrentId);
         var refine = Invoke(window, "RefineSelection"); Dispatcher.UIThread.RunJobs();

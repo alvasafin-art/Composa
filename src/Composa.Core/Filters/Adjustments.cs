@@ -243,7 +243,7 @@ public sealed record CurvesAdjustment : Adjustment
         return sorted.ToArray();
     }
 
-    /// <summary>Shape-preserving cubic Hermite interpolation, so the curve never overshoots its handles.</summary>
+    /// <summary>Natural cubic spline through the control points, clipped to the output range.</summary>
     public double Value(double x, int channel)
     {
         var p = Channels[channel];
@@ -251,19 +251,24 @@ public sealed record CurvesAdjustment : Adjustment
         if (x >= p[^1].X) return p[^1].Y;
         var i = 0;
         while (i < p.Length - 2 && p[i + 1].X <= x) i++;
-        double Secant(int j) => (p[j + 1].Y - p[j].Y) / (p[j + 1].X - p[j].X);
-        double Slope(int j)
+        // Solve the tridiagonal system for the spline's second derivatives.
+        // Natural endpoints let a moved point influence the neighbouring segments smoothly.
+        Span<double> second = p.Length <= 16 ? stackalloc double[p.Length] : new double[p.Length];
+        Span<double> rhs = p.Length <= 16 ? stackalloc double[p.Length] : new double[p.Length];
+        second.Clear(); rhs.Clear();
+        for (var j = 1; j < p.Length - 1; j++)
         {
-            if (j == 0) return Secant(0);
-            if (j == p.Length - 1) return Secant(p.Length - 2);
-            double a = Secant(j - 1), b = Secant(j);
-            return a * b <= 0 ? 0 : 2 / (1 / a + 1 / b);
+            var left = p[j].X - p[j - 1].X; var right = p[j + 1].X - p[j].X;
+            var sigma = left / (left + right); var pivot = sigma * second[j - 1] + 2;
+            second[j] = (sigma - 1) / pivot;
+            var delta = (p[j + 1].Y - p[j].Y) / right - (p[j].Y - p[j - 1].Y) / left;
+            rhs[j] = (6 * delta / (left + right) - sigma * rhs[j - 1]) / pivot;
         }
+        for (var j = p.Length - 2; j >= 0; j--) second[j] = second[j] * second[j + 1] + rhs[j];
         var h = p[i + 1].X - p[i].X;
-        var t = Math.Clamp((x - p[i].X) / h, 0, 1);
-        double t2 = t * t, t3 = t2 * t;
-        var y = (2 * t3 - 3 * t2 + 1) * p[i].Y + (t3 - 2 * t2 + t) * h * Slope(i)
-              + (-2 * t3 + 3 * t2) * p[i + 1].Y + (t3 - t2) * h * Slope(i + 1);
+        var a = (p[i + 1].X - x) / h; var b = (x - p[i].X) / h;
+        var y = a * p[i].Y + b * p[i + 1].Y
+            + ((a * a * a - a) * second[i] + (b * b * b - b) * second[i + 1]) * h * h / 6;
         return Math.Clamp(y, 0, 255);
     }
 

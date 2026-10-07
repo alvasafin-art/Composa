@@ -7,6 +7,19 @@ namespace Composa.App.AI;
 /// <summary>Execution-only graph changes; the engine's output ids remain stable.</summary>
 internal static class WorkflowExecution
 {
+    internal static void NativeFluxSchedule(JsonObject graph)
+    {
+        if (graph["sampler"]?["class_type"]?.GetValue<string>() != "KSampler") return;
+        var sampler = graph["sampler"]!["inputs"]!;
+        if (graph["sampling"]?["class_type"]?.GetValue<string>() == "ModelSamplingAuraFlow")
+        {
+            sampler["model"] = graph["sampling"]!["inputs"]!["model"]!.DeepClone();
+            graph.Remove("sampling");
+        }
+        sampler["sampler_name"] = "euler";
+        sampler["scheduler"] = "simple";
+    }
+
     /// <summary>Match the user's mask-aware edit pipeline, keeping crop metadata tied to the ORIGINAL image.</summary>
     public static void MaskedEdit(JsonObject graph, AiTaskInputs inputs, AiTaskRequest request, ComfyServerCapabilities capabilities)
     {
@@ -32,7 +45,7 @@ internal static class WorkflowExecution
             var pixels = (long)crop["output_target_width"]!.GetValue<int>() * crop["output_target_height"]!.GetValue<int>();
             var target = Math.Clamp((int)Math.Round(Math.Max(width, height) * Math.Sqrt((double)pixels / width / height) / 16) * 16, 64, 8192);
             if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMinimumSide > 0)
-                target = Math.Clamp((int)Math.Round((double)Math.Max(width, height) * request.ExpansionMinimumSide / Math.Min(width, height) / 16) * 16, 64, 8192);
+                target = request.ExpansionMinimumSide;
             // Pixaroma also ensures a 256 px short side. Cover the stitch's SOURCE-pixel
             // feather in model pixels, including the blur tail, without growing its final mask.
             var scale = Math.Max((double)target / Math.Max(width, height), 256.0 / Math.Min(width, height));
@@ -68,7 +81,7 @@ internal static class WorkflowExecution
             var factor = crop["context_from_mask_extend_factor"]!.GetValue<double>();
             if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMinimumSide > 0)
             {
-                var dimensions = AiDimensions.FromMinimumSide(request.ExpansionMinimumSide,
+                var dimensions = AiDimensions.FromMaximumSide(request.ExpansionMinimumSide,
                     Math.Max(1, (int)Math.Min(inputs.ContextImage.Width, bounds.Width * factor)),
                     Math.Max(1, (int)Math.Min(inputs.ContextImage.Height, bounds.Height * factor)));
                 crop["output_target_width"] = dimensions.Width; crop["output_target_height"] = dimensions.Height;

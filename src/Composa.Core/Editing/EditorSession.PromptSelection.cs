@@ -30,9 +30,11 @@ public sealed partial class EditorSession
         if (ObjectEdgeOffset > 0)
         {
             using var contracted = SelectionMask.Contract(result, ObjectEdgeOffset);
-            if (contracted != null) Select(contracted, mode, "Object Selection");
+            if (contracted != null) Select(Pixels.Clone(contracted), mode, "Object Selection");
         }
-        else if (ObjectEdgeOffset < 0) { using var expanded = SelectionMask.Expand(result, -ObjectEdgeOffset); Select(expanded, mode, "Object Selection"); }
-        else Select(result, mode, "Object Selection");
+        else if (ObjectEdgeOffset < 0) { using var expanded = SelectionMask.Expand(result, -ObjectEdgeOffset); Select(Pixels.Clone(expanded), mode, "Object Selection"); }
+        // Replace adopts its mask. The inference temporaries below are disposed on return,
+        // so history and the live document must receive a separate, committed bitmap.
+        else Select(Pixels.Clone(result), mode, "Object Selection");
     }
 }

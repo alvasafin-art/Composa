@@ -40,6 +40,10 @@ mkdir -p "$TREE/docs"
 cp "$ROOT/docs/ai-models.md" "$TREE/docs/"
 cp "$ROOT/docs/assistant-agent.md" "$TREE/docs/"
 cp "$ROOT/docs/professional-editing.md" "$ROOT/docs/object-selection-models.md" "$TREE/docs/"
+cp "$ROOT/docs/photoshop-exchange.md" "$TREE/docs/"
+mkdir -p "$TREE/scripts/photoshop"
+cp "$ROOT/scripts/photoshop/Exchange.ps1" "$ROOT/scripts/photoshop/Send-to-Composa.jsx" \
+   "$ROOT/scripts/photoshop/Send-to-Photoshop.cmd" "$TREE/scripts/photoshop/"
 
 # Bundling ImageMagick redistributes LGPL libraries, and the notices are what makes that allowed.
 # The project file adds them; this makes sure no change there can ship a build without them.

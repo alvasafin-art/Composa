@@ -4,6 +4,27 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.18] - 2026-10-07
+
+### Fixed
+
+- Local MobileSAM and EfficientSAM selection masks survive inference cleanup, rendering, undo and redo instead of leaving the document with a disposed bitmap.
+- FLUX uses the reference-latent and inpaint-conditioning chain from the supplied Klein workflow, with native Euler/simple sampling. Mask blur follows nearest-neighbour resizing in model pixels; final coverage has an opaque core and an outward seam. Technical padding is removed before result resampling, preventing edge contamination. Runtime graphs use stock nodes without requiring Pixaroma.
+- FLUX MP sizes describe the complete request including context. Explicit pixel sizes use the longest side, with preserved proportions and shared image/mask geometry.
+- The floating selection panel can collapse and stays collapsed across selections, documents and relaunches until reopened. Alignment has spacing and adjacent horizontal/vertical flip buttons; color swatches sit directly below the tools. Object Selection and Selection Brush expose Contract alongside Expand and Feather.
+
+### Changed
+
+- Content-Aware Fill has a larger resizable workspace, direct pixel display and an optional reduced-resolution fast preview. Accepting computes the final fill at full resolution.
+- Curves retain the pointer's grab offset, allow horizontal endpoint movement and use a natural cubic spline. Existing curve points remain readable; their interpolated appearance can differ from earlier builds.
+- Healing Brush has its own brush-and-cross icon in the toolbar and history. Healing Brush and Patch remain separate tools because their interactions differ.
+
+### Added
+
+- Experimental Windows scripts exchange flattened images between running Composa and Photoshop. The Windows packages include the scripts and instructions; real Photoshop exchange and live FLUX quality were not validated in this development session.
+
+Verification: 957 automated tests passed locally (449 core and 508 headless UI), followed by 14 targeted icon/toolbar/history checks. Interface screenshots were inspected and the Photoshop helper's actual MCP handshake was checked.
+
 ## [1.2.1-preview.17] - 2026-10-06
 
 ### Added

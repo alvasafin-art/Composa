@@ -65,10 +65,11 @@ public class AiUiTests
         var pinned = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
         session.SelectRect(new SKRect(320, 210, 400, 290)); Dispatcher.UIThread.RunJobs();
         Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
-        var close = header.GetVisualDescendants().OfType<Button>().Single(button => button.Content as string == "×");
+        var close = header.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiFloatingCollapse");
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         session.SelectRect(new SKRect(100, 10, 200, 70)); Dispatcher.UIThread.RunJobs();
-        Assert.Equal(window.Canvas.ToScreen(new SKPoint(200, 70)).Y + 10, Canvas.GetTop(panel), 1);
+        Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
+        Assert.True(window.Settings.AiFloatingCollapsed);
         Assert.True(Screenshots.Save(window, "ai-panel-dragged")); window.Close();
     }
 

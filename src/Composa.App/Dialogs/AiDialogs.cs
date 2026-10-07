@@ -345,7 +345,7 @@ public static class AiDialogs
         void RefreshExpandChoices()
         {
             var choices = expansionMode == AiExpansionMode.WholeImage ? new[] { 0 }.Concat(AiDimensions.ExpansionSides).ToArray() : AiDimensions.ExpansionSides;
-            expandSize.ItemsSource = choices.Select(value => value == 0 ? "Original expanded size" : value + " px · minimum side").ToArray();
+            expandSize.ItemsSource = choices.Select(value => value == 0 ? "Original expanded size" : value + " px · longest side").ToArray();
             var selected = expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide;
             expandSize.SelectedIndex = Array.IndexOf(choices, selected);
             if (expandSize.SelectedIndex < 0) expandSize.SelectedIndex = Array.IndexOf(choices, 1024);
@@ -405,7 +405,7 @@ public static class AiDialogs
             try
             {
                 (width, height) = task == AiTaskKind.GenerativeExpand
-                    ? AiDimensions.FromMinimumSide(expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide, documentWidth, documentHeight)
+                    ? AiDimensions.FromMaximumSide(expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide, documentWidth, documentHeight)
                     : originalSize ? (documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
                 var api = paid ? PartnerImageSize.Plan(width, height) : (width, height);
                 dimensions.Text = $"{width} × {height} px · proportions preserved" + (paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
@@ -414,7 +414,7 @@ public static class AiDialogs
                 {
                     var contextBounds = AiContextGeometry.Flux(selection,canvas,profile.MaskGrow,profile.MaskBlend,profile.MaskContext,profile.MaskBlur);
                     var generated = AiContextGeometry.FluxSize(contextBounds,selection,width,height,originalSize).Padded;
-                    dimensions.Text = $"Selected area: {width} × {height} px\nFLUX request with context: {generated.Width} × {generated.Height} px";
+                    dimensions.Text = $"FLUX request including context: {generated.Width} × {generated.Height} px · {generated.Width * (double)generated.Height / 1_000_000:0.##} MP";
                 }
                 if (dialog != null) dialog.CanAccept = true;
             }
@@ -426,7 +426,7 @@ public static class AiDialogs
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
                     ? "Fill only the selection with surrounding context. Existing canvas size is preserved; the expansion instruction is automatic."
                     : "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
-                : hasSelection ? "Original size keeps source pixels. MP sizes the selected area; surrounding context uses the same scale and adds pixels. Seed and execution mode are in Advanced."
+                : hasSelection ? "Original size keeps source pixels. For FLUX, MP sets the total request area including surrounding context. Seed and execution mode are in Advanced."
                     : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
             ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
         }

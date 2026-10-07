@@ -12,7 +12,7 @@ public class FluxMaskGeometryTests
     [InlineData(0.5)]
     [InlineData(1)]
     [InlineData(2)]
-    public void MP_applies_to_selected_area_independently_of_context_and_never_stretches_the_aspect(double mp)
+    public void MP_applies_to_the_total_context_crop_and_never_stretches_the_aspect(double mp)
     {
         var session=EditorSession.NewCanvas(1537,991,SKColors.White); session.SelectRect(new SKRect(600,350,864,526));
         var requested=AiDimensions.FromMegapixels(mp,264,176);
@@ -26,12 +26,13 @@ public class FluxMaskGeometryTests
             Bind(edit,inputs,request);
             var sx=(double)edit.ContentSize.Width/edit.Bounds.Width; var sy=(double)edit.ContentSize.Height/edit.Bounds.Height;
             Assert.InRange(Math.Abs(sx/sy-1),0,0.003);
-            Assert.InRange(264*176*sx*sy/(requested.Width*(double)requested.Height),0.997,1.003);
+            Assert.InRange(edit.ContentSize.Width*(double)edit.ContentSize.Height/(requested.Width*(double)requested.Height),0.997,1.003);
             Assert.InRange(edit.GenerationSize.Width-edit.ContentSize.Width,0,15);
             Assert.InRange(edit.GenerationSize.Height-edit.ContentSize.Height,0,15);
             var pixels=edit.Mask.GetPixelSpan().ToArray();
             if(finalMask != null) Assert.Equal(finalMask,pixels); finalMask=pixels;
-            Assert.Equal(0,edit.Mask.GetPixel(598,430).Alpha); // conditioning grow never leaks into Fill coverage
+            Assert.Equal(255,edit.Mask.GetPixel(600,430).Alpha); // core opaque, seam outside
+            Assert.Equal(0,edit.Mask.GetPixel(585,430).Alpha);
         }
     }
 
@@ -61,7 +62,9 @@ public class FluxMaskGeometryTests
         Pixels.Invalidate(decoded);
         using var raw=edit.Finish(decoded);
         Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(80,92)); Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(50,40));
-        Assert.Equal(SKColors.White,raw.GetPixel(81,92)); Assert.Equal(SKColors.White,raw.GetPixel(80,93));
+        Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom-1));
+        Assert.Equal(SKColors.White,raw.GetPixel(edit.Bounds.Right,edit.Bounds.Bottom-1));
+        Assert.Equal(SKColors.White,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom));
     }
 
     [Fact]

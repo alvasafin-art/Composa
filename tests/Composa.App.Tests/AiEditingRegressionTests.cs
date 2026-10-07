@@ -124,7 +124,7 @@ public class AiEditingRegressionTests
         using var inputs = AiTaskInputPreparer.Prepare(session, request); using var api = new PartnerImageInputs(inputs, request);
         Assert.Equal(SKColors.Black, inputs.PreprocessedImage!.GetPixel(0, 0));
         Assert.DoesNotContain("apiMask", api.Images.Keys); // expansion mask is local in both GPT modes
-        Assert.Equal(mode == AiExpansionMode.WholeImage ? 76 : 1024, Math.Min(inputs.CanvasWidth, inputs.CanvasHeight));
+        Assert.Equal(mode == AiExpansionMode.WholeImage ? 102 : 1024, Math.Max(inputs.CanvasWidth, inputs.CanvasHeight));
         var source = api.Images["apiSource"]; var generated = Pixels.NewColor(source.Width * 2, source.Height * 2); generated.Erase(SKColors.CornflowerBlue);
         var result = api.Finish(generated);
         Assert.Equal((102, 76), (result.Width, result.Height));

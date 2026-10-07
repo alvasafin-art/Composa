@@ -26,6 +26,7 @@ public static class Icons
     public static readonly Icon SelectionBrush = new("M8 10 A6 6 0 1 1 8 22 A6 6 0 1 1 8 10 Z", "M20 2 L22 4 L12 15 L9 12 Z M8 13 L11 16 C10 19 7 19 5 19 C7 17 6 15 8 13 Z", true);
     public static readonly Icon Eraser = new("M9 20 L3.5 14.5 L13.5 4.5 L20.5 11.5 L12 20 Z M9 20 H21 M8 10 L15 17");
     public static readonly Icon Heal = new("M3.8 14.2 L14.2 3.8 A4.2 4.2 0 0 1 20.2 9.8 L9.8 20.2 A4.2 4.2 0 0 1 3.8 14.2 Z M8.5 9.5 L14.5 15.5 M9.5 8.5 L15.5 14.5", "M11.2 12 A0.8 0.8 0 1 1 12.8 12 A0.8 0.8 0 1 1 11.2 12 Z");
+    public static readonly Icon HealingBrush = new("M6 3 V9 M3 6 H9", Brush.Fill);
     public static readonly Icon Stamp = new(null, "M9.5 2.5 H14.5 C15.5 5 14 7.5 14 10.5 H19 C20 10.5 20.5 11 20.5 12 V15.5 H3.5 V12 C3.5 11 4 10.5 5 10.5 H10 C10 7.5 8.5 5 9.5 2.5 Z M4 17.5 H20 V21 H4 Z");
     public static readonly Icon Drop = new("M12 3 C12 3 5.5 10.5 5.5 15 A6.5 6.5 0 0 0 18.5 15 C18.5 10.5 12 3 12 3 Z");
     public static readonly Icon Liquify = new("M12 12 C12 10.5 14 10.5 14 12 C14 14 11 14.5 10 12.5 C8.5 10 11 7.5 13.5 8 C17 8.5 18 12.5 16.5 15 C14.5 18.5 9 18.5 7 15.5 C4.5 12 6 6.5 10 5 C13 4 17 4.5 19.5 7");

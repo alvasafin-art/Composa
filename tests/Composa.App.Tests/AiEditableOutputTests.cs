@@ -103,6 +103,10 @@ public class AiEditableOutputTests
         var server = new ComfyServerCapabilities { NodeTypes = pixaroma ? new() { "PixaromaInpaintCrop", "PixaromaInpaintStitch" } : [] };
         WorkflowExecution.MaskedEdit(graph, inputs, request, server);
         using var editable = new EditableMaskedWorkflow(inputs, request); editable.Bind(graph);
+        Assert.Equal("composa_edit_padded_mask", graph["composa_condition"]!["inputs"]!["mask"]![0]!.GetValue<string>());
+        Assert.Equal("composa_condition", graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.False(graph.ContainsKey("composa_noise_latent"));
+        Assert.DoesNotContain(graph, pair => pair.Value?["class_type"]?.GetValue<string>()?.StartsWith("Pixaroma") == true);
         Assert.Equal(AiContextGeometry.Flux(new(250,160,330,240), s.Document.Bounds, 16,16,2,16), editable.Bounds);
         Assert.False(graph.ContainsKey("stitch")); Assert.False(graph.ContainsKey("crop"));
         Assert.Equal("decode", graph["save"]!["inputs"]!["images"]![0]!.GetValue<string>());
@@ -113,7 +117,8 @@ public class AiEditableOutputTests
         var raw = editable.Finish(decoded);
         AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [raw], inputs.TargetBounds, inputs, true, localOutputMask: editable.Mask);
         Assert.Equal(SKColors.Blue, s.ActiveLayer!.Pixels!.GetPixel(220, 200));
-        using var composite = s.Flatten(); Assert.Equal(SKColors.White, composite.GetPixel(220, 200));
+        using var composite = s.Flatten(); Assert.Equal(SKColors.White, composite.GetPixel(210, 200));
+        Assert.InRange(s.ActiveLayer.Mask!.GetPixel(220,200).Alpha, (byte)1, (byte)254);
         Assert.Equal(SKColors.Blue, composite.GetPixel(290, 200));
     }
 

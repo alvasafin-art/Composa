@@ -11,7 +11,7 @@ public sealed partial class MainWindow
     private void BuildAlignmentFields(StackPanel row)
     {
         var s = session!;
-        var group = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 1 };
+        var group = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 1, Margin = new Avalonia.Thickness(10, 0, 0, 0) };
         var reference = Ui.Combo(Enum.GetValues<AlignmentReference>(), alignmentReference,
             v => v == AlignmentReference.Canvas ? "Canvas" : "2nd object", v => { alignmentReference = v; refreshOptions?.Invoke(); }, 100);
         reference.Name = "AlignmentReference";
@@ -44,6 +44,17 @@ public sealed partial class MainWindow
             group.Children.Add(button);
         }
         row.Children.Add(group);
+        var flips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Avalonia.Thickness(10, 0, 0, 0) };
+        foreach (var horizontal in new[] { true, false })
+        {
+            var button = new Button { Classes = { "tool" }, Width = 28, Name = horizontal ? "FlipHorizontal" : "FlipVertical",
+                Content = Icons.Create(new Icons.Icon(horizontal ? "M12 3 V21 M3 7 L9 12 L3 17 Z M21 7 L15 12 L21 17 Z" : "M3 12 H21 M7 3 L12 9 L17 3 Z M7 21 L12 15 L17 21 Z"), 16) };
+            ToolTip.SetTip(button, horizontal ? "Flip Layer Horizontal" : "Flip Layer Vertical");
+            button.Click += (_, _) => { s.FlipLayers(horizontal); refreshOptions?.Invoke(); };
+            refreshOptions += () => button.IsEnabled = s.ActiveLayer != null && !s.IsInteracting;
+            flips.Children.Add(button);
+        }
+        row.Children.Add(flips);
         refreshOptions?.Invoke();
     }
 }

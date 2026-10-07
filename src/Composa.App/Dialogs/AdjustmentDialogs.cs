@@ -408,6 +408,7 @@ public sealed class CurveEditor : Control
     private CurvesAdjustment curves = new();
     private int channel;
     private int dragging = -1;
+    private Point grabOffset;
 
     public event Action<CurvesAdjustment>? Changed;
     public Histogram? Histogram { get; set; }
@@ -450,9 +451,11 @@ public sealed class CurveEditor : Control
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         var position = e.GetPosition(this);
         var points = curves.Channels[channel].ToList();
         dragging = points.FindIndex(p => Math.Abs(ToScreen(p).X - position.X) < 9 && Math.Abs(ToScreen(p).Y - position.Y) < 9);
+        grabOffset = dragging >= 0 ? position - ToScreen(points[dragging]) : default;
         if (dragging < 0 && points.Count < 16)
         {
             var added = ToCurve(position);
@@ -481,14 +484,11 @@ public sealed class CurveEditor : Control
             Set(points);
             return;
         }
-        var moved = ToCurve(position);
-        // End points only move vertically; interior points stay between their neighbours.
-        var x = points[dragging].X;
-        if (interior)
-        {
-            double low = points[dragging - 1].X + 2, high = points[dragging + 1].X - 2;
-            if (low <= high) x = Math.Clamp(moved.X, low, high); // Squeezed between close neighbours, it only moves vertically.
-        }
+        var moved = ToCurve(position - grabOffset);
+        // Photoshop's black/white points move in both axes too. Keep neighbours ordered.
+        double low = dragging == 0 ? 0 : points[dragging - 1].X + 1;
+        double high = dragging == points.Count - 1 ? 255 : points[dragging + 1].X - 1;
+        var x = low <= high ? Math.Clamp(moved.X, low, high) : points[dragging].X;
         points[dragging] = new CurvePoint(x, moved.Y);
         Set(points);
     }

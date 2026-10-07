@@ -6,6 +6,49 @@ namespace Composa.AI;
 /// <summary>Small deterministic finishing passes that make generated pixels agree with their immediate surroundings.</summary>
 public static class AiResultPostprocessor
 {
+    /// <summary>Mask-aware outward seam: opaque core, smooth falloff into the surroundings.
+    /// Independent C# implementation of Pixaroma's mask-mode seam geometry.</summary>
+    public static SKBitmap OutwardEditMask(SKBitmap selection, int grow, int blend)
+    {
+        using var support = grow > 0 ? Composa.Selections.SelectionMask.Expand(selection, grow) : Pixels.Clone(selection);
+        var result = Pixels.Clone(support);
+        if (blend <= 0) return result;
+        var source = support.GetPixelSpan(); var output = result.GetPixelSpan();
+        var w = support.Width; var h = support.Height; const int far = 1_000_000;
+        var distance = new int[checked(w * h)]; var core = false;
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
+        {
+            var inside = source[y * support.RowBytes + x] >= 128;
+            distance[y * w + x] = inside ? 0 : far; core |= inside;
+        }
+        if (!core) return result; // A faint brush stays faint; never replace the whole crop.
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
+        {
+            var i = y * w + x;
+            if (x > 0) distance[i] = Math.Min(distance[i], distance[i - 1] + 3);
+            if (y > 0)
+            {
+                distance[i] = Math.Min(distance[i], distance[i - w] + 3);
+                if (x > 0) distance[i] = Math.Min(distance[i], distance[i - w - 1] + 4);
+                if (x + 1 < w) distance[i] = Math.Min(distance[i], distance[i - w + 1] + 4);
+            }
+        }
+        for (var y = h - 1; y >= 0; y--) for (var x = w - 1; x >= 0; x--)
+        {
+            var i = y * w + x;
+            if (x + 1 < w) distance[i] = Math.Min(distance[i], distance[i + 1] + 3);
+            if (y + 1 < h)
+            {
+                distance[i] = Math.Min(distance[i], distance[i + w] + 3);
+                if (x > 0) distance[i] = Math.Min(distance[i], distance[i + w - 1] + 4);
+                if (x + 1 < w) distance[i] = Math.Min(distance[i], distance[i + w + 1] + 4);
+            }
+            var t = Math.Clamp(1 - distance[i] / (3.0 * blend), 0, 1);
+            output[y * result.RowBytes + x] = Math.Max(source[y * support.RowBytes + x], (byte)Math.Round(255 * t * t * (3 - 2 * t)));
+        }
+        Pixels.Invalidate(result); return result;
+    }
+
     /// <summary>Final edit coverage, distinct from the larger context/sampling mask. Never leaks beyond its allowed support.</summary>
     public static SKBitmap EditMask(SKBitmap selection, int grow, int blend)
     {

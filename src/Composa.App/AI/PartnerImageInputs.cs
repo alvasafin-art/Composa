@@ -55,7 +55,7 @@ internal sealed class PartnerImageInputs : IDisposable
         for (var i = 0; i < inputs.ReferenceImages.Count; i++) Images[$"referenceImage{i + 1}"] = inputs.ReferenceImages[i];
         var desired = (Width: crop.Width, Height: crop.Height);
         if (request.Task == AiTaskKind.GenerateImage) desired = (inputs.CanvasWidth, inputs.CanvasHeight);
-        else if (request.Task == AiTaskKind.GenerativeExpand) desired = AiDimensions.FromMinimumSide(request.ExpansionMinimumSide, crop.Width, crop.Height);
+        else if (request.Task == AiTaskKind.GenerativeExpand) desired = AiDimensions.FromMaximumSide(request.ExpansionMinimumSide, crop.Width, crop.Height);
         else if (!Convert.ToBoolean(request.Settings.Values.GetValueOrDefault("imageOriginalSize") ?? false) && request.Settings.Width > 0 && request.Settings.Height > 0)
         {
             var scale = Math.Sqrt((double)request.Settings.Width * request.Settings.Height / crop.Width / crop.Height);

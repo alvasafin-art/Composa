@@ -237,7 +237,10 @@ public sealed class AiTaskService : IAiTaskRunner
                     WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
                 editable?.Bind(boundGraph);
                 if (engine.Id == "flux2-klein-intel-xpu")
+                {
+                    WorkflowExecution.NativeFluxSchedule(boundGraph);
                     WorkflowMemory.Apply(boundGraph, request.Settings.Values.GetValueOrDefault("fluxMemory")?.ToString() ?? "auto", ServerInfo, capabilities);
+                }
                 if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
                 if (request.Task == AiTaskKind.Upscale)
                     WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);

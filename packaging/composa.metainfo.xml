@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.18" date="2026-10-07">
+      <description>
+        <p>Fixes local SAM selection crashes and FLUX mask conditioning, context sizing and padding seams. Adds a persistent collapsed selection panel, adjacent flip controls and selection contraction. Content-Aware Fill has a larger resizable workspace and fast preview; curves use smoother interpolation. Includes experimental Windows Photoshop exchange scripts.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.17" date="2026-10-06">
       <description>
         <p>Improved brush controls and retouching, a Content-Aware Fill workspace, Select and Mask, editable Bezier paths, vector masks, non-destructive filters, selection channels, layer locks and multi-stop gradients. MobileSAM and EfficientSAM Ti run locally for comparison. Alignment uses the second selected object; AI settings are clearer. Verified by 948 automated tests.</p>
