@@ -17,6 +17,12 @@ public class SeedVr2Tests
         var info = ComfyClient.ParseInfo(stats.RootElement);
         Assert.Equal("xpu", info.Memory[0].Type); Assert.Equal(1, info.Memory[0].Index); Assert.Equal(512, SeedVr2Upscaler.TileLimit(info));
         Assert.Equal(256, SeedVr2Upscaler.TileLimit(info with { Memory = [info.Memory[0] with { Free = 0 }] }));
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines")); var pack = catalog.Find("seedvr2-native")!;
+        var graph = catalog.ReadWorkflow(pack, pack.Workflows.Single());
+        var capabilities = new ComfyServerCapabilities { NodeDefinitions = new()
+            { ["SeedVR2PostProcessing"] = System.Text.Json.Nodes.JsonNode.Parse("""{"input":{"required":{"color_correction_method":[["lab","wavelet","adain","none"]]}}}""")!.AsObject() } };
+        SeedVr2Upscaler.Configure(graph, 96, 144, 4, info, capabilities, 512);
+        Assert.Equal("adain", graph["postprocess"]!["inputs"]!["color_correction_method"]!.GetValue<string>());
         Assert.True(ComfyClient.AssetKind("model", "SeedVR2LoadDiTModel", out var dit)); Assert.Equal(EngineAssetKind.DiffusionModel, dit);
         Assert.True(ComfyClient.AssetKind("model", "SeedVR2LoadVAEModel", out var vae)); Assert.Equal(EngineAssetKind.Vae, vae);
     }

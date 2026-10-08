@@ -29,6 +29,16 @@ internal static class SeedVr2Upscaler
     {
         if (graph["model"]?["class_type"]?.GetValue<string>() == "UNETLoader")
         {
+            // Intel XPU's histogram sort can lose the device in native Lab color
+            // transfer. AdaIN uses reductions instead, keeping automatic color
+            // matching without a driver-dependent sorting kernel.
+            if (info?.Memory.Any(device => device.Type == "xpu") == true)
+            {
+                var methods = Choices(capabilities, "SeedVR2PostProcessing", "color_correction_method");
+                if (methods.Contains("adain")) graph["postprocess"]!["inputs"]!["color_correction_method"] = "adain";
+                else if (methods.Contains("none")) graph["postprocess"]!["inputs"]!["color_correction_method"] = "none";
+                else throw new InvalidOperationException("Update ComfyUI: native SeedVR2 on Intel XPU requires AdaIN color correction support.");
+            }
             graph["upscale"]!["inputs"]!["width"] = width * factor; graph["upscale"]!["inputs"]!["height"] = height * factor;
             foreach (var id in new[] { "encode", "decode" })
             { graph[id]!["inputs"]!["tile_size"] = Math.Min(512, Math.Max(128, limit / 2 / 32 * 32)); graph[id]!["inputs"]!["overlap"] = 64; }

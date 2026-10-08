@@ -16,6 +16,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 ### Added
 
 - SeedVR2 upscale workflows for native ComfyUI nodes and ComfyUI-SeedVR2_VideoUpscaler. Output tiles, overlap, VAE tiling and compatible devices are automatic. Available VRAM controls tile size; out-of-memory retries use smaller tiles, and cancellation leaves the document unchanged. Models and custom nodes must already be installed in ComfyUI.
+- Native SeedVR2 automatically uses AdaIN color correction on Intel XPU to avoid the histogram-sorting driver failure found during live validation; other devices retain Lab correction. Native 3B FP16 ×4 was checked on Intel Arc B580 with overlapping tiles, alpha preservation and undo/redo.
 - SeedVR2 setup and primary-source research in `docs/seedvr2-upscale.md`, included in Windows packages.
 
 Validation: 1,000 automated tests passed (471 core, 529 headless app). The actual Windows PowerShell helper exchanged merged images with the test editor and restored its minimized window. Opt-in FLUX GPU checks and replay of recorded model output cover thin expansion, insertion support and undo/redo.
