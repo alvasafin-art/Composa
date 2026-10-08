@@ -8,6 +8,7 @@ public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, 
 public sealed class Settings
 {
     public List<string> RecentFiles { get; set; } = [];
+    public string GenerateImagePrompt { get; set; } = "";
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }

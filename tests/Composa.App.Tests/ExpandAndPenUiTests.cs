@@ -18,7 +18,7 @@ public class ExpandAndPenUiTests
     {
         var w = new MainWindow { Width = 1280, Height = 850 }; w.Show(); w.AddSession(EditorSession.NewCanvas(300, 200)); w.SelectTool(Tool.Crop);
         w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs();
-        Assert.Contains(w.GetVisualDescendants().OfType<Button>(), b => b.Content as string == "Gen Expand" && b.IsEnabled);
+        Assert.Contains(w.GetVisualDescendants().OfType<Button>(), b => b.Content as string == "Generative expand" && b.IsEnabled);
         Assert.DoesNotContain(w.GetVisualDescendants().OfType<MenuItem>(), m => m.Header as string == "Send Image to Photoshop");
         Screenshots.Save(w, "crop-restored-gen-expand"); w.Close();
     }

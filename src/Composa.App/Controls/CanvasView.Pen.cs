@@ -13,6 +13,7 @@ public sealed partial class CanvasView
     private int penSelectedNode = -1;
     private bool penDraftDrag;
     private bool penDraftEditing;
+    private bool penConverted;
     public bool EditVectorMask { get; set; }
     private VectorPath? CurrentPenPath => EditVectorMask ? session?.ActiveLayer?.VectorMask : session?.ActiveLayer?.Shape?.Path;
     public void FinishPen(bool closed = false)
@@ -23,7 +24,8 @@ public sealed partial class CanvasView
     private void PenPress(bool alt, bool editPoints, bool insert, int clicks)
     {
         penDraftEditing = false;
-        if (editPoints && penDraft.Count > 0)
+        penConverted = false;
+        if ((editPoints || alt) && penDraft.Count > 0)
         {
             var nearest = 9.0; var found = -1; var which = 0;
             for (var i = 0; i < penDraft.Count; i++)
@@ -37,14 +39,18 @@ public sealed partial class CanvasView
                 }
             }
             if (found >= 0)
-            { penNode = found; penHandle = alt && which == 0 ? 2 : which; penOriginal = new() { Nodes = penDraft.ToArray() }; penDraftEditing = penDraftDrag = true; drag = Drag.PenNode; }
+            {
+                penNode = found; penHandle = alt && which == 0 ? 2 : which;
+                if (alt && which == 0) { penDraft[found] = ConvertedNode(penDraft.ToArray(), found, false, 1, 1); penConverted = true; }
+                penOriginal = new() { Nodes = penDraft.ToArray() }; penDraftEditing = penDraftDrag = true; drag = Drag.PenNode;
+            }
             return;
         }
         if (!editPoints && clicks >= 2 && penDraft.Count >= 3)
         { FinishPen(closed: true); return; }
         if (penDraft.Count > 2 && SKPoint.Distance(new SKPoint((float)penDraft[0].X, (float)penDraft[0].Y), pressDocument) * UnitsPerPixel < 9)
         { FinishPen(closed: true); return; }
-        if (editPoints && penDraft.Count == 0 && CurrentPenPath is { } path && session?.ActiveLayer is { Pixels: { } pixels } layer && !session.PixelsLocked(layer))
+        if ((editPoints || alt) && penDraft.Count == 0 && CurrentPenPath is { } path && session?.ActiveLayer is { Pixels: { } pixels } layer && !session.PixelsLocked(layer))
         {
             var nearest = 9.0; var found = -1; var which = 0;
             for (var i = 0; i < path.Nodes.Length; i++)
@@ -61,6 +67,11 @@ public sealed partial class CanvasView
             {
                 penSelectedLayer = layer.Id; penSelectedNode = found;
                 session.Begin("Edit Path"); penLayer = layer; penOriginal = path; penNode = found; penHandle = alt && which == 0 ? 2 : which;
+                if (alt && which == 0)
+                {
+                    var nodes = path.Nodes.ToArray(); nodes[found] = ConvertedNode(nodes, found, path.Closed, pixels.Width, pixels.Height);
+                    penOriginal = path with { Nodes = nodes }; session.PreviewVectorPath(layer, penOriginal, EditVectorMask); penConverted = true;
+                }
                 penDraftDrag = false; drag = Drag.PenNode; return;
             }
             if (insert)
@@ -86,7 +97,7 @@ public sealed partial class CanvasView
                 return;
             }
         }
-        if (editPoints) return;
+        if (editPoints || alt) return;
         penSelectedLayer = null; penSelectedNode = -1;
         penDraft.Add(BezierNode.Corner(pressDocument.X, pressDocument.Y)); penDraftDrag = true; drag = Drag.PenNode;
     }
@@ -99,6 +110,7 @@ public sealed partial class CanvasView
     }
     private void PenMove(bool alt)
     {
+        if (penConverted) alt = false;
         if (penDraftDrag)
         {
             if (penDraftEditing && penOriginal != null)
@@ -111,6 +123,21 @@ public sealed partial class CanvasView
         double x = p.X / penLayer.Pixels.Width, y = p.Y / penLayer.Pixels.Height;
         nodes[penNode] = MovedNode(node, x, y, penHandle, alt);
         session!.PreviewVectorPath(penLayer, penOriginal with { Nodes = nodes }, EditVectorMask);
+    }
+    private static BezierNode ConvertedNode(BezierNode[] nodes, int index, bool closed, double width, double height)
+    {
+        var node = nodes[index];
+        if (node.InX != node.X || node.InY != node.Y || node.OutX != node.X || node.OutY != node.Y) return BezierNode.Corner(node.X, node.Y);
+        var before = nodes[index > 0 ? index - 1 : closed ? nodes.Length - 1 : index];
+        var after = nodes[index < nodes.Length - 1 ? index + 1 : closed ? 0 : index];
+        var dx = (after.X - before.X) * width; var dy = (after.Y - before.Y) * height;
+        var length = Math.Sqrt(dx * dx + dy * dy);
+        var previous = Math.Sqrt(Math.Pow((node.X - before.X) * width, 2) + Math.Pow((node.Y - before.Y) * height, 2));
+        var next = Math.Sqrt(Math.Pow((after.X - node.X) * width, 2) + Math.Pow((after.Y - node.Y) * height, 2));
+        var arm = previous > 0 && next > 0 ? Math.Min(previous, next) / 3 : Math.Max(previous, next) / 3;
+        if (length < .0001) { dx = 1; dy = 0; length = 1; } if (arm < .0001) arm = 16;
+        dx = dx / length * arm / width; dy = dy / length * arm / height;
+        return node with { InX = node.X - dx, InY = node.Y - dy, OutX = node.X + dx, OutY = node.Y + dy };
     }
     private static BezierNode MovedNode(BezierNode node, double x, double y, int handle, bool alt) => handle switch
         {

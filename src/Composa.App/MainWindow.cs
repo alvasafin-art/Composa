@@ -116,7 +116,10 @@ public sealed partial class MainWindow : Window
         var assistantButton = Ui.TextButton("Assistant", ShowAssistant);
         assistantButton.MinWidth = 0;
         ToolTip.SetTip(assistantButton, "Open the local editing Assistant");
-        var intelligentTools = Ui.Row(8, aiContextHost, assistantButton);
+        generativeExpandButton = Ui.TextButton("Generative expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
+        generativeExpandButton.IsVisible = false;
+        ToolTip.SetTip(generativeExpandButton, "Generate image content inside the extended crop frame");
+        var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, assistantButton);
         AddAt(combinedOptions, intelligentTools, 1);
         optionsHost.Child = combinedOptions;
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
@@ -534,7 +537,7 @@ public sealed partial class MainWindow : Window
         (Tool.HealingBrush, Icons.HealingBrush, "Healing Brush · Alt-click sets the texture source"), (Tool.Patch, Icons.Marquee, "Patch · select an area and drag to the donor"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
-        (Tool.Pen, Icons.Line, "Pen (P) · click adds a corner, drag creates curve handles · Enter finishes · click first node closes"),
+        (Tool.Pen, Icons.Pen, "Pen (P) · click adds a corner, drag creates curve handles · Alt-click converts a point · Ctrl edits points · Enter finishes · double-click closes"),
         (Tool.Hand, Icons.Hand, "Hand (H) · hold Space with any tool"), (Tool.Zoom, Icons.Zoom, "Zoom (Z)")
     ];
 

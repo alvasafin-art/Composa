@@ -93,6 +93,7 @@ public sealed partial class MainWindow
 
     private void RefreshAiUi()
     {
+        if (generativeExpandButton != null) generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         RefreshObjectModelChoices();
         RefreshAiContextBounds();
         if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;

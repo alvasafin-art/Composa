@@ -9,6 +9,20 @@ namespace Composa.Core.Tests;
 public class AutomaticAiSeamsTests
 {
     [Fact]
+    public void Continuation_corrects_small_color_drift_but_normal_fill_keeps_colored_content()
+    {
+        using var source = Pixels.NewColor(192, 192); source.Erase(new SKColor(90, 165, 205));
+        using var core = SelectionMask.FromRect(192, 192, new SKRect(40, 40, 152, 152));
+        using var mask = AutomaticAiMask.OutputMask(core, source, new(source.Info.Rect, 3, 32));
+        using var generated = Pixels.Clone(source);
+        for (var y = 40; y < 152; y++) for (var x = 40; x < 152; x++)
+            generated.SetPixel(x, y, new SKColor((byte)(78 + (x + y) % 5), 159, 201));
+        using var result = AiSeamlessFinisher.Match(generated, source, mask, source.Info.Rect, 3, continuationOnly: true);
+        using var fill = AiSeamlessFinisher.Match(generated, source, mask, source.Info.Rect, 3);
+        Assert.Equal(source.GetPixel(96, 96), result.GetPixel(96, 96));
+        Assert.InRange(fill.GetPixel(96, 96).Red, 77, 83); Assert.Equal(source.GetPixel(0, 0), result.GetPixel(0, 0));
+    }
+    [Fact]
     public void Flat_background_drift_is_corrected_without_erasing_real_relighting()
     {
         using var source = Pixels.NewColor(192, 192); source.Erase(new SKColor(200, 200, 200));

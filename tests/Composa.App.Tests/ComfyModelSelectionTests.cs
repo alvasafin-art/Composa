@@ -241,8 +241,8 @@ public class ComfyModelSelectionTests
         {
             Dispatcher.UIThread.RunJobs();
             var combos = picker.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-            Assert.Equal(5, combos.Length);
-            Assert.All(combos, combo => Assert.True(combo.IsEnabled));
+            Assert.Equal(9, combos.Length);
+            Assert.All(combos.Take(5), combo => Assert.True(combo.IsEnabled));
             var selected = combos[0].Items.Cast<object>().Single(item => item.ToString() == "shared/flux-2-klein-9b_int8_convrot.safetensors");
             combos[0].SelectedItem = selected;
             Assert.Empty(settings.ComfyModelSelections); // Closing without Save is Cancel.

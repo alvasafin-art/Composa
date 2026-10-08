@@ -16,6 +16,7 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     private bool optionsHaveShape;
+    private Button generativeExpandButton = null!;
 
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
     private void RebuildOptions()
@@ -23,6 +24,8 @@ public sealed partial class MainWindow
         refreshOptions = null;
         optionsHost.Height = 40;
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
+        generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
+        generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
@@ -175,13 +178,11 @@ public sealed partial class MainWindow
                 var readout = Ui.Label("Drag on the canvas to choose the area to keep", Palette.Secondary);
                 var apply = Ui.TextButton("Apply", canvas.ApplyCrop, accent: true);
                 var cancel = Ui.TextButton("Cancel", canvas.CancelCrop);
-                var expand = Ui.TextButton("Gen Expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
-                ToolTip.SetTip(expand, "Generate image content inside the extended crop frame");
-                Add(readout, apply, cancel, expand, Ui.Separator(), Flat("Trim transparent edges", () => { if (!s.Trim()) ShowProblem("Nothing to trim: no edge is transparent."); else canvas.Fit(); }));
+                Add(readout, apply, cancel, Ui.Separator(), Flat("Trim transparent edges", () => { if (!s.Trim()) ShowProblem("Nothing to trim: no edge is transparent."); else canvas.Fit(); }));
                 refreshOptions = () =>
                 {
                     apply.IsEnabled = cancel.IsEnabled = canvas.HasCrop;
-                    expand.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
+                    generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
                     readout.Text = canvas.CropRect is { } crop ? $"{Math.Round(crop.Width)} × {Math.Round(crop.Height)} px" : "Drag on the canvas to choose the area to keep";
                 };
                 refreshOptions();

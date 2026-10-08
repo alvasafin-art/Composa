@@ -85,6 +85,7 @@ public sealed partial class MainWindow
         {
             var result = await scriptRuntime.ExecuteAsync(target, script, aiTasks, settings, title, cancellation.Token, allowExport: allowExport, dialogs: new ScriptDialogs(dialogOwner ?? this));
             if (result.SendToPhotoshop) await SendDocumentToPhotoshop(target, cancellation.Token);
+            if (result.SendLayersToPhotoshop) await SendDocumentToPhotoshop(target, cancellation.Token, layers: true);
             return result;
         }
         finally

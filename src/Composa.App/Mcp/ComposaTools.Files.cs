@@ -96,6 +96,28 @@ public sealed partial class ComposaTools
         finally { flat.Dispose(); }
     }
 
+    [McpServerTool(Name = "export_psd")]
+    [Description("Exports a layered PSD copy with groups, masks, text and vector shapes. Unsupported effects and adjustments retain their rendered appearance and are listed in the result. Does not change the document's file path or saved state.")]
+    public async Task<string> ExportPsd(string path, bool overwrite = false, int? document = null)
+    {
+        path = Absolute(path);
+        if (!path.EndsWith(PsdExport.Extension, StringComparison.OrdinalIgnoreCase)) throw new McpException("The path must end in .psd.");
+        Fresh(path, null, overwrite);
+        var (title, snapshot) = await OnUi(() =>
+        {
+            var s = Session(document);
+            if (window.IsDragging || s.IsInteracting) throw new McpException("Finish the current edit before exporting the PSD.");
+            return (s.Title, s.Document.Clone());
+        });
+        try
+        {
+            var conversions = PsdExport.Conversions(snapshot);
+            await Task.Run(() => PsdExport.Save(snapshot, path));
+            return $"Exported layered PSD \"{title}\" to {path}." + (conversions.Count == 0 ? "" : "\n" + string.Join("\n", conversions.Select(c => c.LayerName + ": " + c.Message)));
+        }
+        catch (Exception error) when (error is not McpException) { throw new McpException($"Couldn't export {Path.GetFileName(path)}: {error.Message}"); }
+    }
+
     private static string Absolute(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path)) throw new McpException("Give an absolute path.");

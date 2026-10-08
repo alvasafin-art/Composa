@@ -4,6 +4,27 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.22] - 2026-10-08 · TEST
+
+### Fixed
+
+- Windows image exchange and MCP channels include the current Windows user SID, avoiding the machine-wide pipe collision between different RDP users. Protected ACLs grant only that SID access, deny network connections and identify the owner to clients. Exchange.ps1 derives the same name; Photoshop detection and activation stay within the current Windows session. Neither application needs elevation.
+- Generate Image retains its prompt across dialog openings and settings reloads, including a cancelled draft.
+- Curves keeps the selected control point, exposes Input/Output values, supports arrow-key adjustment (Shift: ten units), Ctrl-click/Delete removal and visible endpoint handles. Existing spline interpolation and pointer grab offsets are retained.
+- Automatic FLUX expansion recognizes the default continuation prompt. Verified constant backgrounds with low-contrast model noise/tint drift are reconstructed during removal/automatic expansion; ordinary prompted fills and textured backgrounds retain synthesized content.
+- Crop's **Generative expand** button is on the right, beside AI. Pen uses a nib icon; Alt-click toggles corner/smooth points and Alt-drag creates paired handles, with undo support.
+- Ctrl+T preserves a selected group while moving/resizing its contents instead of auto-selecting the clicked child.
+
+### Added
+
+- Upscale selects actual model filenames reported by the connected ComfyUI server, with compatible native/custom SeedVR2 routing. Models on ComfyUI includes separate SeedVR2 DiT/VAE choices; incompatible FLUX files are filtered out.
+- **Send-layers-to-Photoshop.js** exports a layered PSD copy including groups and supported masks, text, vectors and effects. Unsupported live content retains its compatibility appearance and conversions are reported. The existing merged PNG exchange is retained; exporting does not alter the original saved path or history.
+- Documented Windows Server/RDP validation steps in `docs/photoshop-exchange.md`.
+
+Validation: 1,008 automated tests passed (472 core, 536 headless app). Checks include protected pipe ACLs, parallel SID-specific names, two-way messages, the actual Windows PowerShell helper, layered PSD groups, UI gestures, model routing and replay of recorded FLUX GPU output. Windows Server with simultaneous different RDP users and live Photoshop COM/ExtendScript remain unverified: the local test machine is Windows 11 Home without Photoshop.
+
+This is an experimental TEST pre-release. Update Exchange.ps1 together with Composa; a shared COMPOSA_EXCHANGE_PIPE override defeats SID isolation. Automatic FLUX correction is conservative and does not guarantee artifact-free generation for every scene/model.
+
 ## [1.2.1-preview.21] - 2026-10-08 · TEST
 
 ### Fixed

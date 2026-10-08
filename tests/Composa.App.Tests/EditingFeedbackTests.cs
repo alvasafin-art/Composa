@@ -60,7 +60,7 @@ public class EditingFeedbackTests
         Point At(double x, double y) => curve.TranslatePoint(new Point(x, y), window)!.Value;
         window.MouseDown(At(3, curve.Bounds.Height - 3), MouseButton.Left);
         window.MouseMove(At(53, curve.Bounds.Height - 3)); window.MouseUp(At(53, curve.Bounds.Height - 3), MouseButton.Left);
-        Assert.InRange(curve.Curves.Channels[0][0].X, 41, 44); Assert.Equal(0, curve.Curves.Channels[0][0].Y);
+        Assert.InRange(curve.Curves.Channels[0][0].X, 44, 46); Assert.Equal(0, curve.Curves.Channels[0][0].Y);
         var right = curve.Curves.Channels[0][1];
         window.MouseDown(At(curve.Bounds.Width - 3, 3), MouseButton.Left);
         window.MouseMove(At(curve.Bounds.Width - 53, 3)); window.MouseUp(At(curve.Bounds.Width - 53, 3), MouseButton.Left);

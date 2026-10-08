@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.22" date="2026-10-08">
+      <description>
+        <p>TEST: SID-isolated Windows RDP exchange, layered Photoshop transfer, Photoshop-style curve controls, group transforms, Pen point conversion, actual upscale model selection and conservative FLUX background restoration.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.21" date="2026-10-08">
       <description>
         <p>TEST: clean FLUX conditioning for removal and expansion, with more context for thin selections. Restores Crop Gen Expand, Ctrl vector-point editing and double-click path closure. Photoshop scripts exchange merged images through a direct local pipe and activate the receiving application. Adds native and custom-node SeedVR2 upscale with automatic output tiles, VAE tiling and smaller-tile memory retries.</p>

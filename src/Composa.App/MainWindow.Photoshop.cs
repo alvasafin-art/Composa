@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Composa.Editing;
 using Composa.IO;
+using Composa.IO.Psd;
 
 namespace Composa.App;
 
@@ -13,14 +14,21 @@ public sealed partial class MainWindow
         catch (Exception error) { ShowProblem(error.Message); }
     }
 
-    internal async Task SendDocumentToPhotoshop(EditorSession target, CancellationToken cancellation)
+    internal async Task SendDocumentToPhotoshop(EditorSession target, CancellationToken cancellation, bool layers = false)
     {
         if (!OperatingSystem.IsWindows()) throw new InvalidOperationException("Photoshop exchange currently requires Windows.");
         if (target.IsInteracting || canvas.IsDragging) throw new InvalidOperationException("Finish the current edit before sending the image.");
         var helper = Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Exchange.ps1");
         if (!File.Exists(helper)) throw new FileNotFoundException("The Photoshop exchange helper is missing. Reinstall the complete Composa package.", helper);
-        var image = Path.Combine(Path.GetTempPath(), "Composa-to-Photoshop-" + Guid.NewGuid().ToString("N") + ".png");
-        using (var flat = target.Flatten()) await Task.Run(() => ImageFiles.Save(flat, image, ExportFormat.Png, 100), cancellation);
+        var image = Path.Combine(Path.GetTempPath(), "Composa-to-Photoshop-" + Guid.NewGuid().ToString("N") + (layers ? ".psd" : ".png"));
+        if (layers)
+        {
+            var snapshot = target.Document.Clone();
+            var conversions = PsdExport.Conversions(snapshot);
+            await Task.Run(() => PsdExport.Save(snapshot, image), cancellation);
+            if (conversions.Count > 0) ShowNote("PSD appearance conversion: " + string.Join("; ", conversions.Select(c => c.LayerName + ": " + c.Message)));
+        }
+        else using (var flat = target.Flatten()) await Task.Run(() => ImageFiles.Save(flat, image, ExportFormat.Png, 100), cancellation);
         var start = new ProcessStartInfo("powershell.exe")
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true

@@ -141,7 +141,8 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan.SeamWidth,
                     request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground),
-                    request.Task == AiTaskKind.GenerativeExpand && string.IsNullOrWhiteSpace(request.Prompt) || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand);
+                    request.Task == AiTaskKind.GenerativeExpand && (string.IsNullOrWhiteSpace(request.Prompt) || request.Prompt == AiPromptDefaults.Expand) || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand,
+                    request.Task == AiTaskKind.RemoveObject || request.Prompt == AiPromptDefaults.Expand || request.Task == AiTaskKind.GenerativeExpand && string.IsNullOrWhiteSpace(request.Prompt));
         }
     }
     public void Dispose() { Mask.Dispose(); ConditioningImage?.Dispose(); }

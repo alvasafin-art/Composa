@@ -19,7 +19,7 @@ internal sealed class AssistantEditorTools(MainWindow owner, EditorSession sessi
     private readonly List<string> discovered = [];
     private static readonly string[] Common = ["add_shape", "add_text", "set_shape", "set_text", "measure_text", "set_layer", "transform_layer", "guides", "get_document_state", "verify_document", "query_layers", "batch_set_layers"];
     private IEnumerable<string> OperationNames => catalog.Names.Where(name => name is not
-        ("undo" or "new_document" or "open_document" or "save_document" or "export_image" or "place_image"));
+        ("undo" or "new_document" or "open_document" or "save_document" or "export_image" or "export_psd" or "place_image"));
     internal bool VerificationFailed { get; private set; }
     internal string TaskIntent { get; private set; } = "edit";
     private EditorExpectation[] requiredChecks = [];

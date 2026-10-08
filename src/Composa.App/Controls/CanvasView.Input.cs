@@ -436,7 +436,7 @@ public sealed partial class CanvasView
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
             case Drag.PenNode:
-                if (!penDraftDrag && penLayer != null) { if (moved) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
+                if (!penDraftDrag && penLayer != null) { if (moved || penConverted) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
                 penLayer = null; penOriginal = null; break;
             case Drag.Patch:
                 if (moved) { session.PreviewPatch(currentDocument - pressDocument, final: true); session.CommitPreview(); }
@@ -875,13 +875,14 @@ public sealed partial class CanvasView
         if (!onHandle)
         {
             var hit = LayerAt(pressDocument);
-            if (!session.Document.Bounds.Contains((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y))
-                || hit == null && (AutoSelect || control || clicks >= 2))
+            var keepGroup = handle == TransformHandle.Move && session.ActiveLayer?.IsGroup == true && !dragModifiers.HasFlag(KeyModifiers.Shift);
+            if (!keepGroup && (!session.Document.Bounds.Contains((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y))
+                || hit == null && (AutoSelect || control || clicks >= 2)))
             {
                 session.ClearLayerSelection();
                 return;
             }
-            if (hit != null && (AutoSelect || control || clicks >= 2)
+            if (!keepGroup && hit != null && (AutoSelect || control || clicks >= 2)
                 && (!session.Document.SelectedLayerIds.Contains(hit.Id) || dragModifiers.HasFlag(KeyModifiers.Shift)))
                 session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
             handle = TransformHandle.Move;

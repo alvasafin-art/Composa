@@ -30,10 +30,10 @@ public class McpTests
             EnvironmentVariables = new Dictionary<string, string?> { ["COMPOSA_EXCHANGE_PIPE"] = pipe }
         });
         await using var client = await Pumped(McpClient.CreateAsync(transport));
-        Assert.Equal(2, (await client.ListToolsAsync()).Count);
+        Assert.Equal(3, (await client.ListToolsAsync()).Count);
         void Cancel(object? sender, Avalonia.Controls.WindowClosingEventArgs e) => e.Cancel = true;
         window.Closing += Cancel;
-        try { window.Close(); Assert.True(window.IsVisible); Assert.Equal(2, (await client.ListToolsAsync()).Count); }
+        try { window.Close(); Assert.True(window.IsVisible); Assert.Equal(3, (await client.ListToolsAsync()).Count); }
         finally { window.Closing -= Cancel; window.Close(); }
     }
     [AvaloniaFact]
@@ -42,6 +42,7 @@ public class McpTests
         var window = new MainWindow(); window.Show(); var session = EditorSession.NewCanvas(96, 64, SKColors.CornflowerBlue);
         window.AddSession(session);
         session.AddShape(new ShapeStyle(ShapeKind.Rectangle, (uint)SKColors.Orange, 0), new SKRect(24, 16, 65, 45));
+        session.SelectLayer(session.Document.Layers[0].Id, extend: true); session.GroupSelectedLayers();
         session.SelectRect(new SKRect(30, 20, 40, 30));
         var state = session.History.CurrentId; using var expected = session.Flatten();
         using var host = new McpHost(window, PipeName(), exchangeOnly: true); Assert.True(await host.StartAsync()); Assert.False(window.AiControl);
@@ -51,13 +52,22 @@ public class McpTests
             EnvironmentVariables = new Dictionary<string, string?> { ["COMPOSA_EXCHANGE_PIPE"] = host.PipeName }
         });
         await using var client = await Pumped(McpClient.CreateAsync(bridge)); await Pumped(() => host.Connections == 1);
-        Assert.Equal(["export_image", "open_document"], (await client.ListToolsAsync()).Select(t => t.Name).Order());
+        Assert.Equal(["export_image", "export_psd", "open_document"], (await client.ListToolsAsync()).Select(t => t.Name).Order());
         Assert.Empty((await client.ListResourcesAsync()).Select(r => r.Uri));
         var image = Path.Combine(Path.GetTempPath(), "composa-exchange-test-" + Guid.NewGuid().ToString("N") + ".png");
         try
         {
             var exported = await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = image }));
             Assert.Null(exported.IsError); using var actual = ImageFiles.Load(image);
+            var psd = Path.ChangeExtension(image, ".psd");
+            try
+            {
+                var layered = await Pumped(client.CallToolAsync("export_psd", new Dictionary<string, object?> { ["path"] = psd }));
+                Assert.Null(layered.IsError); Assert.True(File.Exists(psd));
+                Assert.Equal(state, session.History.CurrentId); Assert.Null(session.FilePath);
+                var imported = Composa.IO.Psd.PsdImport.Load(psd); var group = Assert.Single(imported.Layers); Assert.True(group.IsGroup); Assert.Equal(2, group.Children.Count); imported.Discard();
+            }
+            finally { File.Delete(psd); }
             Assert.Equal(expected.GetPixelSpan().ToArray(), actual.GetPixelSpan().ToArray());
             Assert.Equal(state, session.History.CurrentId); Assert.NotNull(session.Selection);
             if (OperatingSystem.IsWindows())
@@ -124,7 +134,7 @@ public class McpTests
         var tools = await client.ListToolsAsync();
         Assert.Equal(
             ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
-             "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "export_image", "fill_layer", "filter_add_noise",
+             "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "group_layers", "guides", "layer_mask", "list_documents",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
              "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_shape", "set_text", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],

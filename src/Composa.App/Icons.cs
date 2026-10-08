@@ -57,6 +57,7 @@ public static class Icons
     public static readonly Icon EyeOff = new("M3 3 L21 21 M10.6 5.3 C11 5.1 11.5 5 12 5 C15.5 5 19 6.5 22 12 C21.2 13.5 20.3 14.7 19.3 15.6 M6.6 6.6 C4.8 7.8 3.3 9.6 2 12 C5 17.5 8.5 19 12 19 C13.9 19 15.7 18.6 17.4 17.4 M9.9 9.9 A3 3 0 0 0 14.1 14.1");
     public static readonly Icon ObjectSelect = new("M3 8 V3 H8 M16 3 H21 V8 M21 16 V21 H16 M8 21 H3 V16", "M10 7 L10 17 L12.7 14.4 L14.5 18.2 L16.4 17.3 L14.6 13.5 L18 13.5 Z");
     public static readonly Icon Line = new("M4 20 L20 4");
+    public static readonly Icon Pen = new("M12 3 L20 13 L16 20 L8 20 L4 13 Z M12 3 V11 M12 15 V20", "M12 10 A2 2 0 1 0 12 14 A2 2 0 1 0 12 10 Z");
     public static readonly Icon Rectangle = new("M3.5 6 H20.5 V18 H3.5 Z");
     public static readonly Icon RoundedRectangle = new("M8 6 H16 A4.5 4.5 0 0 1 20.5 10.5 V13.5 A4.5 4.5 0 0 1 16 18 H8 A4.5 4.5 0 0 1 3.5 13.5 V10.5 A4.5 4.5 0 0 1 8 6 Z");
     public static readonly Icon Ellipse = new("M12 6 A8.5 6 0 1 1 12 18 A8.5 6 0 1 1 12 6 Z");

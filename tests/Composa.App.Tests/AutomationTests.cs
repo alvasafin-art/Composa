@@ -22,6 +22,8 @@ public class AutomationTests
         var session = EditorSession.NewCanvas(50, 40, SKColors.Blue); using var before = session.Flatten();
         var result = new JavaScriptRuntime().Execute(session, script);
         Assert.True(result.SendToPhotoshop); Assert.Null(result.ExportedPath);
+        var layered = new JavaScriptRuntime().Execute(session, AutomationCatalog.ReadScript(Path.Combine(folder, "Send-layers-to-Photoshop.js")));
+        Assert.True(layered.SendLayersToPhotoshop); Assert.False(layered.SendToPhotoshop); Assert.Null(layered.ExportedPath);
         using var after = session.Flatten(); Assert.Equal(before.GetPixelSpan().ToArray(), after.GetPixelSpan().ToArray());
         var error = Assert.Throws<InvalidDataException>(() => AutomationCatalog.ReadScript(Path.Combine(folder, "Send-to-Composa.js")));
         Assert.Contains("in Photoshop", error.Message);
@@ -210,6 +212,8 @@ public class AutomationTests
             "app.activeDocument.addLayer('Temporary'); app.activeDocument.export(" + JsonSerializer.Serialize(target) + ");",
             new NoAi(), new Settings(), cancellationToken: TestContext.Current.CancellationToken, allowExport: false));
         Assert.Single(session.Document.Layers); Assert.False(File.Exists(target));
+        await Assert.ThrowsAnyAsync<Exception>(() => new JavaScriptRuntime().ExecuteAsync(session, "app.sendLayersToPhotoshop();",
+            new NoAi(), new Settings(), cancellationToken: TestContext.Current.CancellationToken, allowExport: false));
     }
 
     [Fact]

@@ -298,10 +298,21 @@ public static class AiDialogs
             ? "SeedVR2 processes overlapping tiles sequentially. Tile size and VAE memory use are automatic; insufficient VRAM retries with smaller tiles. Native uses the server's built-in SeedVR2 nodes; Custom nodes requires ComfyUI-SeedVR2_VideoUpscaler. Select its models in ComfyUI Settings."
             : "Inference is tiled. A ×4 model still computes its native scale for a ×2 result; the input is not reduced, so source details are preserved. For lowest memory use a native ×2 model in ComfyUI Settings.";
         EngineNote();
-        Control picker = service == null ? Ui.Label(engine?.DisplayName ?? "Assigned workflow") : Ui.Combo(service.Engines.Profiles.Where(p => p.Binding(AiTaskKind.Upscale) != null).ToArray(), engine,
-            p => p.DisplayName, p => { engine = p; EngineNote(); }, 260);
+        var models = service == null ? [] : UpscaleModels.Choices(service);
+        var savedModels = settings.ComfyModelsFor(settings.ComfyServerUrl);
+        var selected = models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == savedModels.GetValueOrDefault(choice.Slot.Key))
+            ?? models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == choice.Slot.Default) ?? models.FirstOrDefault();
+        if (selected != null) { engine = selected.Engine; EngineNote(); }
+        Control picker = selected == null ? Ui.Label("Refresh Models on ComfyUI to read available upscale models.") : Ui.Combo(models.ToArray(), selected,
+            choice => choice.ToString(), choice => { selected = choice; engine = choice.Engine; EngineNote(); }, 430);
         note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        if (!await new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Workflow", picker), ("Scale", scale)), dimensions, note), "Upscale").Ask(owner)) return false;
+        var upscaleDialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", picker), ("Scale", scale)), dimensions, note), "Upscale") { CanAccept = selected != null };
+        if (!await upscaleDialog.Ask(owner)) return false;
+        if (selected != null)
+        {
+            var choices = new Dictionary<string, string>(savedModels, StringComparer.Ordinal) { [selected.Slot.Key] = selected.Model };
+            settings.SetComfyModels(settings.ComfyServerUrl, choices);
+        }
         if (engine != null) settings.AiTaskEngineIds[nameof(AiTaskKind.Upscale)] = engine.Id;
         profile = settings.OperationFor(engine?.Id, AiTaskKind.Upscale, engine?.PaidApi == true);
         settings.SetOperation(engine?.Id, AiTaskKind.Upscale, profile with { UpscaleFactor = factor }); settings.Save(); return true;
@@ -314,7 +325,8 @@ public static class AiDialogs
         if (service != null) service.SelectedEngine = service.EngineFor(task);
         var profile = settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true);
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
-        var prompt = new TextBox { Text = initialPrompt, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
+        var prompt = new TextBox { Text = task == AiTaskKind.GenerateImage && string.IsNullOrEmpty(initialPrompt) ? settings.GenerateImagePrompt : initialPrompt,
+            AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
         var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
         var variants = Math.Clamp(profile.Variants, 1, 3); var quality = profile.ApiQuality;
         var expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : profile.ExpansionMode;
@@ -452,6 +464,7 @@ public static class AiDialogs
             if (references != null) { references.Changed -= Refresh; references.Owner = null; }
             if (service != null) service.SelectedEngine = previousEngine;
         }
+        if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = prompt.Text ?? ""; settings.Save(); }
         if (!accepted) return null;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         if (chosenEngine != null) settings.AiTaskEngineIds[task.ToString()] = chosenEngine.Id;

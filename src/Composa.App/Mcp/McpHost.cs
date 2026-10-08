@@ -51,8 +51,8 @@ public sealed class McpHost : IDisposable
     private async Task<bool> SomeoneListens()
     {
         if (!OperatingSystem.IsWindows() && !File.Exists(PipeName)) return false;
-        using var probe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-        try { await probe.ConnectAsync(300); return true; }
+        using var probe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, McpPipe.ClientOptions);
+        try { await probe.ConnectAsync(300); McpPipe.VerifyOwner(probe); return true; }
         catch (Exception) { return false; }
     }
 
@@ -60,14 +60,18 @@ public sealed class McpHost : IDisposable
     {
         while (!stop.IsCancellationRequested)
         {
-            var pipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
-                                                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            try { await pipe.WaitForConnectionAsync(stop.Token); }
-            catch (Exception)
+            NamedPipeServerStream? pipe = null;
+            try
             {
-                pipe.Dispose();
+                pipe = McpPipe.CreateServer(PipeName);
+                await pipe.WaitForConnectionAsync(stop.Token);
+            }
+            catch (Exception error)
+            {
+                pipe?.Dispose();
                 if (stop.IsCancellationRequested) return;
-                await Task.Delay(500);
+                Console.Error.WriteLine(error.Message);
+                try { await Task.Delay(500, stop.Token); } catch (OperationCanceledException) { return; }
                 continue;
             }
             _ = ServeAsync(pipe);

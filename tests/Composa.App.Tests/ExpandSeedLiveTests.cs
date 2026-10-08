@@ -12,11 +12,37 @@ namespace Composa.App.Tests;
 public class ExpandSeedLiveTests
 {
     [Fact]
+    public void Recorded_flux_removal_restores_constant_color_without_noise_or_source_changes()
+    {
+        var path = Environment.GetEnvironmentVariable("COMPOSA_REMOVAL_TEST_REPLAY"); if (string.IsNullOrWhiteSpace(path)) return;
+        var blue = new SKColor(90, 165, 205); var s = EditorSession.NewCanvas(320, 240, blue);
+        s.AddShape(new(Composa.Model.ShapeKind.Rectangle, (uint)SKColors.Black, 0), new SKRect(45, 30, 275, 210)); s.SelectRect(new(45, 30, 275, 210));
+        using var before = s.Flatten(); var state = s.History.CurrentId;
+        var request = new AiTaskRequest { Task = AiTaskKind.RemoveObject, Prompt = "Continue the same smooth blue wall, no objects, preserve its blue color.",
+            Settings = new() { Width = 512, Height = 512, Values = new() { ["imageOriginalSize"] = false } } };
+        using var inputs = AiTaskInputPreparer.Prepare(s, request);
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines")); var pack = catalog.Find("flux2-klein-intel-xpu")!; var binding = pack.Binding(request.Task)!;
+        var values = inputs.Values(inputs.Images().ToDictionary(pair => pair.Key, pair => pair.Key + ".png"));
+        foreach (var (key, value) in request.Settings.Values) values[key] = value;
+        var graph = WorkflowBinder.Bind(catalog.ReadWorkflow(pack, pack.Workflow(binding.Workflow)), binding, values);
+        WorkflowExecution.MaskedEdit(graph, inputs, request, new()); using var edit = new EditableMaskedWorkflow(inputs, request); edit.Bind(graph);
+        var result = edit.Finish(ImageFiles.Load(path));
+        AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [result], inputs.TargetBounds, inputs, true, localOutputMask: edit.Mask);
+        using var after = s.Flatten(); ImageFiles.Save(after, Path.Combine(Environment.GetEnvironmentVariable("COMPOSA_EXPAND_TEST_OUTPUT")!, "large-black-finished.png"), ExportFormat.Png);
+        for (var y = 0; y < after.Height; y++) for (var x = 0; x < after.Width; x++)
+        {
+            var pixel = after.GetPixel(x, y);
+            if (edit.Mask.GetPixel(x, y).Alpha == 0) Assert.Equal(before.GetPixel(x, y), pixel);
+            else { Assert.InRange(pixel.Red, 89, 91); Assert.InRange(pixel.Green, 164, 166); Assert.InRange(pixel.Blue, 204, 206); }
+        }
+        s.Undo(); Assert.Equal(state, s.History.CurrentId); s.Redo(); using var redo = s.Flatten(); Assert.Equal(after.GetPixelSpan().ToArray(), redo.GetPixelSpan().ToArray());
+    }
+    [Fact]
     public void Recorded_flux_strip_is_finished_without_resampling_the_model()
     {
         var path = Environment.GetEnvironmentVariable("COMPOSA_EXPAND_TEST_REPLAY"); if (string.IsNullOrWhiteSpace(path)) return;
         var blue = new SKColor(90, 165, 205); var s = EditorSession.NewCanvas(320, 240, blue); var state = s.History.CurrentId;
-        var request = new AiTaskRequest { Task = AiTaskKind.GenerativeExpand, ExpansionBounds = new(0, 0, 328, 240), ExpansionMinimumSide = 640,
+        var request = new AiTaskRequest { Task = AiTaskKind.GenerativeExpand, Prompt = AiPromptDefaults.Expand, ExpansionBounds = new(0, 0, 328, 240), ExpansionMinimumSide = 640,
             Settings = new() { Width = 512, Height = 512, Values = new() { ["imageOriginalSize"] = false } } };
         using var inputs = AiTaskInputPreparer.Prepare(s, request);
         var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines")); var pack = catalog.Find("flux2-klein-intel-xpu")!; var binding = pack.Binding(request.Task)!;

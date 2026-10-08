@@ -95,8 +95,8 @@ public sealed class McpBridge
         var said = false;
         while (!stop.IsCancellationRequested)
         {
-            var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            try { await pipe.ConnectAsync(1000, stop.Token); }
+            var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, McpPipe.ClientOptions);
+            try { await pipe.ConnectAsync(1000, stop.Token); McpPipe.VerifyOwner(pipe); }
             catch (OperationCanceledException) { pipe.Dispose(); return; }
             catch (Exception)
             {

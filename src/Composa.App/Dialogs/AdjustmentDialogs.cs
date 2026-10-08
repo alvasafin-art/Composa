@@ -125,8 +125,17 @@ public static class AdjustmentDialogs
         editor.Changed += value => update(curves = value);
         var picker = Ui.Combo(Channels, "RGB", c => c, c => editor.Channel = Array.IndexOf(Channels, c));
         var reset = Ui.TextButton("Reset", () => { editor.Curves = curves = new CurvesAdjustment(); update(curves); });
+        var input = Ui.SliderField("Input", 0, 0, 255, v => editor.MoveSelected(v, null), width: 145);
+        var output = Ui.SliderField("Output", 0, 0, 255, v => editor.MoveSelected(null, v), width: 145);
+        void RefreshPoint()
+        {
+            input.IsEnabled = output.IsEnabled = editor.SelectedPoint != null;
+            if (editor.SelectedPoint is { } point) { input.Value = point.X; output.Value = point.Y; }
+        }
+        editor.SelectionChanged += RefreshPoint; editor.Changed += _ => RefreshPoint(); RefreshPoint();
         return Ui.Column(10, Ui.Row(10, Ui.Label("Channel", Palette.Secondary), picker, reset), editor,
-            Ui.Label("Click to add a point, drag to move it, drag it off the graph to remove it.", Palette.Secondary));
+            Ui.Row(10, input, output),
+            Ui.Label("Drag a point · arrows adjust (Shift: 10) · Ctrl-click or Delete removes it.", Palette.Secondary));
     }
 
     private static Control HueEditor(HueSaturationAdjustment hue, Action<Adjustment> update)
@@ -408,30 +417,39 @@ public sealed class CurveEditor : Control
     private CurvesAdjustment curves = new();
     private int channel;
     private int dragging = -1;
+    private int selected = -1;
     private Point grabOffset;
 
     public event Action<CurvesAdjustment>? Changed;
+    public event Action? SelectionChanged;
+    public CurvePoint? SelectedPoint => selected >= 0 && selected < curves.Channels[channel].Length ? curves.Channels[channel][selected] : null;
     public Histogram? Histogram { get; set; }
-    public CurvesAdjustment Curves { get => curves; set { curves = value; InvalidateVisual(); } }
-    public int Channel { get => channel; set { channel = value; dragging = -1; InvalidateVisual(); } }
+    public CurvesAdjustment Curves { get => curves; set { curves = value; selected = dragging = -1; SelectionChanged?.Invoke(); InvalidateVisual(); } }
+    public int Channel { get => channel; set { channel = value; selected = dragging = -1; SelectionChanged?.Invoke(); InvalidateVisual(); } }
 
-    public CurveEditor() => ClipToBounds = true;
+    public CurveEditor() { ClipToBounds = true; Focusable = true; }
 
-    private Point ToScreen(CurvePoint p) => new(p.X / 255 * Bounds.Width, (1 - p.Y / 255) * Bounds.Height);
-    private CurvePoint ToCurve(Point p) => new(Math.Clamp(p.X / Bounds.Width * 255, 0, 255), Math.Clamp((1 - p.Y / Bounds.Height) * 255, 0, 255));
+    private Rect Graph => new Rect(Bounds.Size).Deflate(8);
+    private Point ToScreen(CurvePoint p) => new(Graph.Left + p.X / 255 * Graph.Width, Graph.Top + (1 - p.Y / 255) * Graph.Height);
+    private CurvePoint ToCurve(Point p) => new(Math.Round(Math.Clamp((p.X - Graph.Left) / Graph.Width * 255, 0, 255)), Math.Round(Math.Clamp((1 - (p.Y - Graph.Top) / Graph.Height) * 255, 0, 255)));
 
     public override void Render(DrawingContext context)
     {
-        var bounds = new Rect(Bounds.Size);
-        context.FillRectangle(new SolidColorBrush(Color.Parse("#1C1C1C")), bounds);
+        var bounds = Graph;
+        context.FillRectangle(new SolidColorBrush(Color.Parse("#1C1C1C")), new Rect(Bounds.Size));
         if (Histogram != null) HistogramView.Draw(context, Histogram.Channel(channel == 0 ? 3 : channel - 1), bounds, Color.Parse("#555555"));
         var grid = new Pen(new SolidColorBrush(Color.Parse("#3A3A3A")));
         for (var i = 1; i < 4; i++)
         {
-            context.DrawLine(grid, new Point(bounds.Width * i / 4, 0), new Point(bounds.Width * i / 4, bounds.Height));
-            context.DrawLine(grid, new Point(0, bounds.Height * i / 4), new Point(bounds.Width, bounds.Height * i / 4));
+            context.DrawLine(grid, new Point(bounds.Left + bounds.Width * i / 4, bounds.Top), new Point(bounds.Left + bounds.Width * i / 4, bounds.Bottom));
+            context.DrawLine(grid, new Point(bounds.Left, bounds.Top + bounds.Height * i / 4), new Point(bounds.Right, bounds.Top + bounds.Height * i / 4));
         }
-        context.DrawLine(grid, new Point(0, bounds.Height), new Point(bounds.Width, 0));
+        context.DrawLine(grid, bounds.BottomLeft, bounds.TopRight);
+        if (SelectedPoint is { } point)
+        {
+            var p = ToScreen(point); context.DrawLine(grid, new(bounds.Left, p.Y), new(bounds.Right, p.Y));
+            context.DrawLine(grid, new(p.X, bounds.Top), new(p.X, bounds.Bottom));
+        }
         var color = channel switch { 1 => Color.Parse("#FF6B6B"), 2 => Color.Parse("#6BDB7F"), 3 => Color.Parse("#6BA5FF"), _ => Colors.White };
         var geometry = new StreamGeometry();
         using (var g = geometry.Open())
@@ -445,17 +463,21 @@ public sealed class CurveEditor : Control
         for (var i = 0; i < points.Length; i++)
         {
             var p = ToScreen(points[i]);
-            context.DrawEllipse(i == dragging ? new SolidColorBrush(color) : Brushes.Black, new Pen(new SolidColorBrush(color), 1.5), p, 4, 4);
+            context.DrawEllipse(i == selected ? new SolidColorBrush(color) : Brushes.Black, new Pen(new SolidColorBrush(color), 1.5), p, 4, 4);
         }
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        Focus();
         var position = e.GetPosition(this);
         var points = curves.Channels[channel].ToList();
         dragging = points.FindIndex(p => Math.Abs(ToScreen(p).X - position.X) < 9 && Math.Abs(ToScreen(p).Y - position.Y) < 9);
         grabOffset = dragging >= 0 ? position - ToScreen(points[dragging]) : default;
+        selected = dragging;
+        if (dragging > 0 && dragging < points.Count - 1 && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        { RemoveSelected(); dragging = -1; e.Handled = true; return; }
         if (dragging < 0 && points.Count < 16)
         {
             var added = ToCurve(position);
@@ -464,9 +486,11 @@ public sealed class CurveEditor : Control
             points.Add(added);
             points.Sort((a, b) => a.X.CompareTo(b.X));
             dragging = points.IndexOf(added);
+            selected = dragging;
             Set(points);
         }
         e.Pointer.Capture(this);
+        SelectionChanged?.Invoke(); e.Handled = true;
         InvalidateVisual();
     }
 
@@ -481,6 +505,7 @@ public sealed class CurveEditor : Control
         {
             points.RemoveAt(dragging);
             dragging = -1;
+            selected = -1; SelectionChanged?.Invoke();
             Set(points);
             return;
         }
@@ -505,5 +530,35 @@ public sealed class CurveEditor : Control
         curves = curves.WithChannel(channel, points);
         InvalidateVisual();
         Changed?.Invoke(curves);
+    }
+    public void MoveSelected(double? input, double? output)
+    {
+        if (SelectedPoint is not { } point) return;
+        var points = curves.Channels[channel].ToList();
+        var low = selected == 0 ? 0 : points[selected - 1].X + 1;
+        var high = selected == points.Count - 1 ? 255 : points[selected + 1].X - 1;
+        points[selected] = new CurvePoint(Math.Clamp(Math.Round(input ?? point.X), low, high), Math.Clamp(Math.Round(output ?? point.Y), 0, 255));
+        Set(points);
+    }
+    private void RemoveSelected()
+    {
+        if (selected <= 0 || selected >= curves.Channels[channel].Length - 1) return;
+        var points = curves.Channels[channel].ToList(); points.RemoveAt(selected); selected = -1;
+        Set(points); SelectionChanged?.Invoke();
+    }
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (SelectedPoint is not { } point) return;
+        var step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : 1;
+        switch (e.Key)
+        {
+            case Key.Left: MoveSelected(point.X - step, null); break;
+            case Key.Right: MoveSelected(point.X + step, null); break;
+            case Key.Up: MoveSelected(null, point.Y + step); break;
+            case Key.Down: MoveSelected(null, point.Y - step); break;
+            case Key.Delete or Key.Back: RemoveSelected(); break;
+            default: return;
+        }
+        e.Handled = true;
     }
 }
