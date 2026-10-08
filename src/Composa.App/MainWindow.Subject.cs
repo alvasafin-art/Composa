@@ -29,10 +29,7 @@ public sealed partial class MainWindow
     {
         var choices = new List<ObjectModelChoice>
         {
-            new(ObjectSelectionSource.AnySubject, "U²-Net lite · Local"), new(ObjectSelectionSource.Person, "MODNet · Local"),
-            new(ObjectSelectionSource.PlainBackdrop, "Plain backdrop"),
-            new(ObjectSelectionSource.EfficientSamS, "EfficientSAM S · Quality · Local"),
-            new(ObjectSelectionSource.MobileSam, "MobileSAM · Fast · Local"), new(ObjectSelectionSource.EfficientSamTi, "EfficientSAM Ti · Fast · Local")
+            new(ObjectSelectionSource.EfficientSamS, "SAM Quality · Local")
         };
         var engine = aiTasks.EngineFor(AiTaskKind.ObjectSelection);
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
@@ -42,7 +39,7 @@ public sealed partial class MainWindow
                 if (ComfyServerAddress.Parse(settings.ComfyServerUrl).ToString() != aiTasks.ConnectedServerUrl) return choices;
                 var graph = aiTasks.Engines.ReadWorkflow(engine, engine.Workflow(binding.Workflow));
                 foreach (var slot in WorkflowModels.Slots(graph, engine.Id).Where(s => s.Kind == EngineAssetKind.BackgroundRemoval))
-                    foreach (var model in server.ModelChoices.GetValueOrDefault(slot.LoaderKey, []).Order(StringComparer.OrdinalIgnoreCase))
+                    foreach (var model in server.ModelChoices.GetValueOrDefault(slot.LoaderKey, []).Where(name => name.Contains("birefnet", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.OrdinalIgnoreCase))
                         choices.Add(new(ObjectSelectionSource.ComfyUI, model + " · ComfyUI", model, slot.Key));
             }
             catch (Exception error) when (error is IOException or FormatException or System.Text.Json.JsonException) { }
@@ -53,6 +50,8 @@ public sealed partial class MainWindow
     private void RefreshObjectModelChoices()
     {
         if (objectModelsCombo == null) return;
+        if (settings.ObjectSelectionModel is not (ObjectSelectionSource.EfficientSamS or ObjectSelectionSource.ComfyUI))
+        { settings.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS; settings.Save(); }
         var choices = AvailableObjectModels();
         var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + settings.ObjectSelectionModel + settings.ObjectSelectionComfyModel;
         if (objectModelChoicesStamp == stamp) return;

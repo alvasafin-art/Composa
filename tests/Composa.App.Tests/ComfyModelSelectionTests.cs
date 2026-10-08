@@ -241,7 +241,7 @@ public class ComfyModelSelectionTests
         {
             Dispatcher.UIThread.RunJobs();
             var combos = picker.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-            Assert.Equal(9, combos.Length);
+            Assert.Equal(7, combos.Length);
             Assert.All(combos.Take(5), combo => Assert.True(combo.IsEnabled));
             var selected = combos[0].Items.Cast<object>().Single(item => item.ToString() == "shared/flux-2-klein-9b_int8_convrot.safetensors");
             combos[0].SelectedItem = selected;
@@ -266,7 +266,7 @@ public class ComfyModelSelectionTests
     {
         using var handler = new Server();
         handler.Objects["LoadBackgroundRemovalModel"]!["input"]!["required"]!["bg_removal_name"] =
-            new JsonArray(new JsonArray("birefnet.safetensors", "shared/birefnet-hr.safetensors", "birefnet-matting.safetensors"), new JsonObject());
+            new JsonArray(new JsonArray("birefnet.safetensors", "shared/birefnet-hr.safetensors", "birefnet-matting.safetensors", "isnet-general.safetensors"), new JsonObject());
         using var http = new HttpClient(handler);
         var window = new MainWindow(null, url => new ComfyClient(url, http)); window.Settings.CheckForUpdates = false;
         window.Settings.ComfyServerUrl = Lan; window.Show();
@@ -276,6 +276,8 @@ public class ComfyModelSelectionTests
         Assert.Contains("birefnet.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("shared/birefnet-hr.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("birefnet-matting.safetensors · ComfyUI", Menu().Items.Cast<string>());
+        Assert.Equal(4, Menu().Items.Count);
+        Assert.DoesNotContain(Menu().Items.Cast<string>(), name => name.Contains("isnet", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("ComfyUI", Menu().Items.Cast<string>());
         Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
         Assert.Equal(ObjectSelectionSource.ComfyUI, window.Settings.ObjectSelectionModel);

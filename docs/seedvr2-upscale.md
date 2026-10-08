@@ -1,25 +1,19 @@
-# SeedVR2 и автоматические тайлы
+# SeedVR2: официальный workflow ComfyUI
 
-В **AI → Upscale** выбирается конкретное **имя модели**, полученное с подключённого сервера ComfyUI, а не название workflow. В списке только установленные обычные апскейлеры и SeedVR2 с доступным набором нод; модель FLUX не является апскейлером и сюда не попадает. Размер результата — ×2 или ×4. В **AI → ComfyUI Settings → Workflows & models → Models on ComfyUI** есть отдельные поля SeedVR2 Native / Custom nodes для модели DiT и VAE, независимо от выбранного генератора изображения. Выбор модели сохраняется только для соответствующего адреса сервера.
+В AI → Upscale выбирается имя установленной модели, а не workflow. Доступны обычные апскейлеры и SeedVR2; FLUX в список апскейлеров не попадает. DiT и VAE SeedVR2 выбираются также в AI → ComfyUI Settings → Models on ComfyUI. Выбор сохраняется отдельно для каждого сервера.
 
-Нативный вариант использует встроенные SeedVR2Preprocess, SeedVR2Conditioning и SeedVR2PostProcessing в актуальном ComfyUI. Начальные имена моделей: seedvr2_3b_fp16.safetensors и ema_vae_fp16.safetensors; другие совместимые SeedVR2-файлы выбираются из списка сервера. Официальный пример ComfyUI использует 7B INT8 и один шаг Euler/simple с CFG 1. В Composa сохранены этот порядок стадий и параметры; исходное изображение равномерно увеличивается перед VAE, альфа восстанавливается после обработки.
+Preview.23 использует официальный нативный workflow ComfyUI: LoadImage → JoinImageWithAlpha → ResizeImageMaskNode → SeedVR2Preprocess → VAEEncodeTiled → SeedVR2Conditioning → KSampler → VAEDecodeTiled → SeedVR2PostProcessing. Начальные модели — seedvr2_7b_int8_convrot.safetensors и seedvr2_ema_vae_fp16.safetensors, как в официальном шаблоне. Другие совместимые установленные DiT/VAE выбираются в настройках сервера.
 
-На Intel XPU нативная коррекция цвета автоматически использует AdaIN: в локальной проверке сортировка гистограмм Lab завершилась ошибкой UR_RESULT_ERROR_OUT_OF_RESOURCES и потерей GPU-устройства. AdaIN сопоставляет средние и дисперсии каналов без этой сортировки. Для остальных устройств сохранён Lab. Нужен актуальный ComfyUI, сообщающий поддерживаемые методы коррекции.
+Изображение передаётся целиком в одном запросе, увеличивается ×2 или ×4 с Lanczos. Один шаг Euler/simple, CFG 1, denoise 1. Тайлы остаются только внутри VAE: 512 пикселей с перекрытием 128, temporal_size 4096 и temporal_overlap 8. Коррекция цвета — none, как в официальном шаблоне. Альфа LoadImage передаётся непосредственно в JoinImageWithAlpha, который сам преобразует маску в прозрачность.
 
-Вариант Custom nodes использует пакет **ComfyUI-SeedVR2_VideoUpscaler** с SeedVR2LoadDiTModel, SeedVR2LoadVAEModel и SeedVR2VideoUpscaler. Его модели и устройства также читаются с сервера. Сам пакет и веса Composa не устанавливает. Для маленькой VRAM авторы рекомендуют GGUF Q4 и BlockSwap; для 12–16 ГБ — FP8. Эти рекомендации относятся к этому пакету, а не к совместимости нативного UNETLoader с GGUF.
+Внешнее разбиение Composa, повторные запуски с меньшими тайлами и отдельный workflow Custom nodes удалены. Сохранённый идентификатор seedvr2 перенаправляется на официальный seedvr2-native. Памятью модели управляет ComfyUI. Актуальный сервер должен предоставлять встроенные SeedVR2-ноды и ResizeImageMaskNode; Composa не устанавливает веса или ноды.
 
-Composa обрабатывает весь SeedVR2-процесс по перекрывающимся тайлам, последовательно, по одному изображению. Ограничивается размер **выходного тайла вместе с перекрытием**, а не только VAE. Изображение перед апскейлом не уменьшается. Размер определяется по свежим vram_total/vram_free из system_stats, с резервом; если информация отсутствует, применяется консервативный вариант. Дополнительно включён VAE tiling. В Custom nodes блоки DiT и промежуточные тензоры выгружаются в RAM, без постоянного GPU-кэша; нативный вариант использует управление весами ComfyUI.
+При отмене или ошибке документ остаётся прежним. Результат применяется одной отменяемой операцией после завершения запроса. Наличие VAE-тайлов не гарантирует, что любая модель поместится в VRAM: при нехватке памяти нужно выбрать совместимую меньшую модель.
 
-При сообщении out-of-memory обработка начинает заново с меньшими тайлами, до ограниченного минимального размера. Другие ошибки не маскируются повторными попытками. Отмена и ошибки оставляют документ без изменений; результат добавляется одной отменяемой операцией после завершения всех тайлов. Перекрытия смешиваются по плавным весам на CPU.
-
-Автоматика уменьшает риск нехватки памяти, но не гарантирует запуск любой модели на любой видеокарте: весам тоже нужна память, соседние запросы меняют её доступность. Если минимального тайла недостаточно, выберите меньшую/квантованную совместимую модель или освободите память сервера. Стык тайлов на сложной фактуре может остаться заметным.
-
-Локальная проверка: нативные SeedVR2 3B FP16 и VAE FP16 на Intel Arc B580 12 ГБ, ×4, два перекрывающихся тайла, AdaIN. Проверены размер 384 × 576, восстановление альфа и undo/redo. Ошибка нехватки памяти и отмена между тайлами отдельно проверены с управляемым тестовым сервером. Живой запуск варианта Custom nodes не проверен: этот нодпак на тестовом сервере не установлен.
+Живая проверка: Intel Arc B580 12 ГБ, установленная SeedVR2 3B FP16 и VAE ema_vae_fp16, фото 96 × 144 → 384 × 576. Один запрос выполнен за 18,73 секунды; альфа и Undo/Redo проверены. Выходное изображение осмотрено. Шаблон 7B INT8 в этой проверке не запускался: на тестовом сервере установлена 3B. Ошибка памяти и отмена отдельно проверены тестовым соединением.
 
 ## Первичные источники
 
-- [Официальный нативный шаблон ComfyUI](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/utility_seedvr2_7b_int8_upscale_image.json)
-- [Нативные SeedVR2-ноды ComfyUI](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_seedvr.py)
-- [Документация ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)
-- [Схема загрузчика DiT](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/blob/main/src/interfaces/dit_model_loader.py)
-- [Схема загрузчика VAE](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/blob/main/src/interfaces/vae_model_loader.py)
+- [Официальный шаблон ComfyUI](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/utility_seedvr2_7b_int8_upscale_image.json)
+- [Нативные SeedVR2-ноды](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_seedvr.py)
+- [Обработка альфа-канала](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_compositing.py)

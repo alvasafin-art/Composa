@@ -295,7 +295,7 @@ public static class AiDialogs
         Refresh();
         var note = Ui.Label("", Palette.Secondary);
         void EngineNote() => note.Text = engine?.Id.StartsWith("seedvr2", StringComparison.Ordinal) == true
-            ? "SeedVR2 processes overlapping tiles sequentially. Tile size and VAE memory use are automatic; insufficient VRAM retries with smaller tiles. Native uses the server's built-in SeedVR2 nodes; Custom nodes requires ComfyUI-SeedVR2_VideoUpscaler. Select its models in ComfyUI Settings."
+            ? "Official ComfyUI SeedVR2 workflow: the whole image in one run, one Euler/simple step. Only VAE uses the official 512 px tiles with 128 px overlap. ComfyUI manages memory; no extra Composa image tiles. Select its models in ComfyUI Settings."
             : "Inference is tiled. A ×4 model still computes its native scale for a ×2 result; the input is not reduced, so source details are preserved. For lowest memory use a native ×2 model in ComfyUI Settings.";
         EngineNote();
         var models = service == null ? [] : UpscaleModels.Choices(service);
@@ -413,8 +413,12 @@ public static class AiDialogs
             {
                 (width, height) = task == AiTaskKind.GenerativeExpand
                     ? AiDimensions.FromMaximumSide(expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide, documentWidth, documentHeight)
-                    : originalSize ? (documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
-                var api = paid ? PartnerImageSize.Plan(width, height) : (width, height);
+                    : originalSize ? AiDimensions.OriginalGenerationSize(documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
+                if (task == AiTaskKind.GenerativeExpand && (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0)
+                    (width, height) = AiDimensions.OriginalGenerationSize(width, height);
+                var api = paid ? PartnerImageSize.Plan(width, height,
+                    (task == AiTaskKind.GenerativeExpand ? (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0 : originalSize)
+                        ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels) : (width, height);
                 dimensions.Text = $"{width} × {height} px · proportions preserved" + (paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
                 if (!paid && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu" && sourceCanvas is { } canvas && selectionBounds is { } selection
                     && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight)

@@ -17,7 +17,7 @@ public class LocalSubjectUiTests
     public void Removed_native_model_preferences_migrate_without_losing_server_choices()
     {
         var settings = Settings.FromJson("""{"AiDefaultsRevision":1,"ObjectSelectionModel":4,"NativeBiRefNetPath":"old/model.onnx","ObjectSelectionComfyModel":"BiRefNet-HR","ComfyServerUrl":"http://192.168.1.10:8188"}""");
-        Assert.Equal(ObjectSelectionSource.AnySubject, settings.ObjectSelectionModel);
+        Assert.Equal(ObjectSelectionSource.EfficientSamS, settings.ObjectSelectionModel);
         Assert.Equal("BiRefNet-HR", settings.ObjectSelectionComfyModel);
         Assert.Equal("http://192.168.1.10:8188", settings.ComfyServerUrl);
     }
@@ -41,13 +41,12 @@ public class LocalSubjectUiTests
         var first = EditorSession.NewCanvas(320, 240); window.AddSession(first); window.SelectTool(Tool.ObjectSelectionAi);
         ComboBox Menu() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
         Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
-        Assert.Equal(3, Menu().SelectedIndex); Assert.True(window.Canvas.ObjectSelectionAvailable!());
-        Menu().SelectedIndex = 1;
-        Assert.Equal(ObjectSelectionSource.Person, window.Settings.ObjectSelectionModel); Assert.Equal(SubjectDetect.Person, first.Detect);
+        Assert.Equal(0, Menu().SelectedIndex); Assert.True(window.Canvas.ObjectSelectionAvailable!());
+        Assert.Equal("SAM Quality · Local", Assert.Single(Menu().Items.Cast<string>()));
         var second = EditorSession.NewCanvas(400, 300); window.AddSession(second);
-        Assert.Equal(1, Menu().SelectedIndex); Assert.Equal(SubjectDetect.Person, second.Detect);
+        Assert.Equal(0, Menu().SelectedIndex); Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         window.SelectTool(Tool.Wand); second.WandMode = WandMode.Object; window.SelectTool(Tool.Wand);
-        Assert.Equal(1, Menu().SelectedIndex);
+        Assert.Equal(0, Menu().SelectedIndex);
         Assert.DoesNotContain(Menu().Items.OfType<string>(), name => name.Contains("ComfyUI")); // No invented server model while disconnected.
         window.Settings.ObjectSelectionModel = ObjectSelectionSource.ComfyUI;
         window.SelectTool(Tool.ObjectSelectionAi);

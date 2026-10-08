@@ -43,6 +43,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         nativePixels = request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide == 0 : original;
         (ContentSize, GenerationSize) = AiContextGeometry.FluxSize(Bounds, inputs.TargetBounds, inputs.CanvasWidth, inputs.CanvasHeight,
             nativePixels, request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide : null);
+        nativePixels = nativePixels && ContentSize == (Bounds.Width, Bounds.Height);
         var (width,height) = GenerationSize;
         var grow = plan.ConditioningGrow(Math.Min((double)ContentSize.Width / Bounds.Width, (double)ContentSize.Height / Bounds.Height));
         const int blur = AiMaskPlan.ModelBlur;
@@ -141,8 +142,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan.SeamWidth,
                     request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground),
-                    request.Task == AiTaskKind.GenerativeExpand && (string.IsNullOrWhiteSpace(request.Prompt) || request.Prompt == AiPromptDefaults.Expand) || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand,
-                    request.Task == AiTaskKind.RemoveObject || request.Prompt == AiPromptDefaults.Expand || request.Task == AiTaskKind.GenerativeExpand && string.IsNullOrWhiteSpace(request.Prompt));
+                    request.Task == AiTaskKind.GenerativeExpand && string.IsNullOrWhiteSpace(request.Prompt) || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand);
         }
     }
     public void Dispose() { Mask.Dispose(); ConditioningImage?.Dispose(); }

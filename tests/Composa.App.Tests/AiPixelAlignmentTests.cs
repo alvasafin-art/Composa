@@ -16,17 +16,17 @@ public class AiPixelAlignmentTests
     [InlineData(true,false,false)]
     public void Original_size_pads_without_scaling_and_preserves_every_source_pixel_at_saved_coordinates(bool expand, bool tinyEdge, bool originalSetting)
     {
-        var source=Pixels.NewColor(641,423);
+        var source=Pixels.NewColor(1401,1003);
         for(var y=0;y<source.Height;y++) for(var x=0;x<source.Width;x++)
             source.SetPixel(x,y,new SKColor((byte)(x%251),(byte)(y%251),(byte)((x+3*y)%251)));
         Pixels.Invalidate(source);
         var document=new Document(source.Width,source.Height); var layer=Layer.Raster("Coordinate pattern",source);
         document.Layers.Add(layer); document.SetActive(layer.Id); var session=new EditorSession(document);
-        if(!expand) session.SelectRect(tinyEdge ? new SKRect(0,1,11,29) : new SKRect(250,160,331,239));
+        if(!expand) session.SelectRect(tinyEdge ? new SKRect(0,1,1381,979) : new SKRect(80,80,1321,923));
         var request=new AiTaskRequest
         {
             Task=expand ? AiTaskKind.GenerativeExpand : AiTaskKind.GenerativeFill,
-            ExpansionBounds=expand ? new SKRectI(-17,-19,699,437) : null, ExpansionMinimumSide=0,
+            ExpansionBounds=expand ? new SKRectI(-17,-19,1459,1017) : null, ExpansionMinimumSide=0,
             Settings=new() { Values=new() { ["imageOriginalSize"]=originalSetting,["maskGrow"]=expand?16:4,["maskBlend"]=tinyEdge?0:expand?48:8,
                 ["maskBlur"]=expand?16:4,["maskContext"]=expand?2:1.2,["colorMatch"]=expand?"subtle":"off" } }
         };

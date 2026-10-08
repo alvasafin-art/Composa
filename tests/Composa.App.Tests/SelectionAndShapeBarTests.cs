@@ -29,9 +29,9 @@ public class SelectionAndShapeBarTests
     private Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
 
     [AvaloniaFact]
-    public void Tab_switches_the_magic_tool_to_object_mode_and_a_click_selects_the_object()
+    public async Task Tab_switches_the_magic_tool_to_object_mode_and_a_click_selects_the_object()
     {
-        window.Settings.ObjectSelectionModel = ObjectSelectionSource.PlainBackdrop;
+        window.Settings.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
         session.AddImageLayer("box", Rendering.Pixels.NewColor(80, 60), new SKPoint(300, 200));
         session.ActiveLayer!.Pixels!.Erase(SKColors.Red);
         session.InvalidateAll();
@@ -44,7 +44,11 @@ public class SelectionAndShapeBarTests
         window.MouseDown(At(300, 200), MouseButton.Left);
         window.MouseUp(At(300, 200), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(new SKRectI(260, 170, 340, 230), SelectionMask.Bounds(session.Selection!, 128));
+        for (var i=0;i<1000 && session.Selection == null;i++) { await Task.Delay(20,TestContext.Current.CancellationToken); Dispatcher.UIThread.RunJobs(); }
+        Assert.NotNull(session.Selection);
+        var bounds=SelectionMask.Bounds(session.Selection,128);
+        Assert.InRange(bounds.Left,257,263); Assert.InRange(bounds.Top,167,173);
+        Assert.InRange(bounds.Right,337,343); Assert.InRange(bounds.Bottom,227,233);
 
         // The bar's Expand button works by its amount field.
         var buttons = window.GetVisualDescendants().OfType<Button>().ToList();
@@ -56,13 +60,14 @@ public class SelectionAndShapeBarTests
         window.MouseDown(point, MouseButton.Left);
         window.MouseUp(point, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(new SKRectI(255, 165, 345, 235), SelectionMask.Bounds(session.Selection!, 128));
+        Assert.Equal(new SKRectI(bounds.Left-5,bounds.Top-5,bounds.Right+5,bounds.Bottom+5), SelectionMask.Bounds(session.Selection!, 128));
 
         window.KeyPressQwerty(PhysicalKey.D, RawInputModifiers.Control);
         window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control | RawInputModifiers.Alt);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal("Select Subject", session.History.UndoName);
-        Assert.True(session.Selection!.GetPixel(300, 200).Alpha > 200);
+        for (var i=0;i<1000 && session.Selection == null;i++) { await Task.Delay(20,TestContext.Current.CancellationToken); Dispatcher.UIThread.RunJobs(); }
+        Assert.Equal("Object Selection", session.History.UndoName);
+        Assert.False(SelectionMask.IsEmpty(session.Selection!));
     }
 
     [AvaloniaFact]

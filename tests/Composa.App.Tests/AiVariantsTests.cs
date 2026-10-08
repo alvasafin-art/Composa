@@ -12,6 +12,38 @@ namespace Composa.App.Tests;
 public class AiVariantsTests
 {
     [Theory]
+    [InlineData(0)]
+    [InlineData(640)]
+    public async Task Selected_expansion_uses_its_own_original_or_explicit_size_mode(int side)
+    {
+        var session=EditorSession.NewCanvas(320,240,SKColors.White); session.SelectRect(new SKRect(120,80,170,130));
+        var fake=new Connection();
+        await Service(fake).RunAsync(new EditorCommandService(session),new() { Task=AiTaskKind.GenerativeExpand,ExpansionMinimumSide=side,
+            Settings=new() { Width=640,Height=640,Values=new() { ["imageOriginalSize"]=side!=0 } } },TestContext.Current.CancellationToken);
+        var size=fake.Graphs[0]["composa_edit_empty_mask"]!["inputs"]!;
+        var pixels=(long)size["width"]!.GetValue<int>()*size["height"]!.GetValue<int>();
+        if(side==0) Assert.True(pixels >= DocumentLimits.MinimumGenerationPixels);
+        else Assert.True(pixels < DocumentLimits.MinimumGenerationPixels);
+        Assert.Equal((320,240),(session.Document.Width,session.Document.Height));
+    }
+
+    [Theory]
+    [InlineData(true,320,240)]
+    [InlineData(true,2048,1536)]
+    [InlineData(false,320,240)]
+    public async Task Generation_original_size_reaches_one_MP_without_affecting_explicit_dimensions(bool original,int width,int height)
+    {
+        var session=EditorSession.NewCanvas(width,height); var fake=new Connection { UseGenerationDimensions=true };
+        await Service(fake).RunAsync(new EditorCommandService(session),new() { Task=AiTaskKind.GenerateImage,
+            Settings=new() { Width=width,Height=height,Values=new() { ["imageOriginalSize"]=original } } },TestContext.Current.CancellationToken);
+        var dimensions=fake.Graphs[0]["latent"]!["inputs"]!;
+        var w=dimensions["width"]!.GetValue<int>(); var h=dimensions["height"]!.GetValue<int>();
+        if(original) Assert.True((long)w*h >= DocumentLimits.MinimumGenerationPixels);
+        if(!original || (long)width*height >= DocumentLimits.MinimumGenerationPixels) Assert.Equal((width,height),(w,h));
+        Assert.Equal((w,h),(session.ActiveLayer!.Pixels!.Width,session.ActiveLayer.Pixels.Height));
+    }
+
+    [Theory]
     [InlineData(AiVariantMode.List)]
     [InlineData(AiVariantMode.Batch)]
     public async Task Two_local_variants_also_work_in_list_and_native_batch(AiVariantMode mode)
@@ -136,6 +168,7 @@ public class AiVariantsTests
         public List<string> Uploads { get; } = [];
         public int FailAt { get; init; }
         public bool Cancel { get; init; }
+        public bool UseGenerationDimensions { get; init; }
         public Action? DuringExecute { get; init; }
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
@@ -161,8 +194,9 @@ public class AiVariantsTests
         {
             var resize = Graphs[^1]["composa_upscale_size"]?["inputs"];
             var masked = Graphs[^1]["composa_edit_empty_mask"]?["inputs"];
-            var bitmap = Pixels.NewColor(resize?["width"]?.GetValue<int>() ?? masked?["width"]?.GetValue<int>() ?? 48,
-                resize?["height"]?.GetValue<int>() ?? masked?["height"]?.GetValue<int>() ?? 32);
+            var generated = UseGenerationDimensions ? Graphs[^1]["latent"]?["inputs"] : null;
+            var bitmap = Pixels.NewColor(resize?["width"]?.GetValue<int>() ?? masked?["width"]?.GetValue<int>() ?? generated?["width"]?.GetValue<int>() ?? 48,
+                resize?["height"]?.GetValue<int>() ?? masked?["height"]?.GetValue<int>() ?? generated?["height"]?.GetValue<int>() ?? 32);
             bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap);
         }
         public void Dispose() { }

@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.23" date="2026-10-08">
+      <description>
+        <p>TEST: SAM Quality and BiRefNet selection, minimum 1 MP for Original size generation, restored preview.21 FLUX finishing, and the official whole-image SeedVR2 workflow with standard VAE tiles.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.22" date="2026-10-08">
       <description>
         <p>TEST: SID-isolated Windows RDP exchange, layered Photoshop transfer, Photoshop-style curve controls, group transforms, Pen point conversion, actual upscale model selection and conservative FLUX background restoration.</p>

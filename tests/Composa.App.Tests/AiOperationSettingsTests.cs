@@ -26,7 +26,7 @@ public class AiOperationSettingsTests
             Assert.Contains("MP",label.Text); Assert.Contains("816 × 624 px",label.Text);
             var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.Cast<string>().Contains("Original size"));
             size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
-            Assert.Equal($"FLUX request including context: 368 × 272 px · {0.1:0.##} MP",label.Text);
+            Assert.Equal($"FLUX request including context: 1168 × 880 px · {1.03:0.##} MP",label.Text);
             size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog,"flux-selection-resolution-and-context"));
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(window.Settings));

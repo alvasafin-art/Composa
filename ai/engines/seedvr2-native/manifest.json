@@ -1,8 +1,8 @@
 {
   "id":"seedvr2-native",
-  "displayName":"SeedVR2 · Native · Auto tiles",
+  "displayName":"SeedVR2 · Official ComfyUI",
   "manifestVersion":1,
-  "requiredNodeTypes":["LoadImage","SaveImage","ImageScale","InvertMask","JoinImageWithAlpha","UNETLoader","VAELoader","VAEEncodeTiled","VAEDecodeTiled","KSampler","SeedVR2Preprocess","SeedVR2Conditioning","SeedVR2PostProcessing"],
+  "requiredNodeTypes":["LoadImage","SaveImage","ImageScale","ResizeImageMaskNode","JoinImageWithAlpha","UNETLoader","VAELoader","VAEEncodeTiled","VAEDecodeTiled","KSampler","SeedVR2Preprocess","SeedVR2Conditioning","SeedVR2PostProcessing"],
   "requiredAssets":[],
   "workflows":[{"id":"upscale","version":1,"file":"workflows/upscale.json","outputNodes":["save"]}],
   "tasks":[{"task":"upscale","version":1,"workflow":"upscale","outputMode":"newLayer","inputs":{"sourceImage":{"nodeId":"source","input":"image"},"seed":{"nodeId":"sampler","input":"seed"}}}],

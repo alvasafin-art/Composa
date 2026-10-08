@@ -69,6 +69,17 @@ public static class AiDimensions
     public static readonly double[] MegapixelOptions = [0.5, 0.75, 1, 1.5, 2, 3, 4];
     public static readonly int[] ExpansionSides = [768, 1024, 1280, 1536, 1792, 2048];
 
+    /// <summary>Original generation keeps larger inputs intact and uniformly enlarges smaller ones to at least one MP.</summary>
+    public static (int Width, int Height) OriginalGenerationSize(int width, int height)
+    {
+        if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+        if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("Canvas exceeds document limits.");
+        var scale = Math.Max(1, Math.Sqrt((double)DocumentLimits.MinimumGenerationPixels / ((long)width * height)));
+        var w = checked((int)Math.Ceiling(width * scale)); var h = checked((int)Math.Ceiling(height * scale));
+        if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException("Generation including context exceeds document limits.");
+        return (w, h);
+    }
+
     public static (int Width, int Height) FromMinimumSide(int minimum, int width, int height, int multiple = 16)
     {
         if (minimum < 0 || width <= 0 || height <= 0 || multiple <= 0) throw new ArgumentOutOfRangeException(nameof(minimum));

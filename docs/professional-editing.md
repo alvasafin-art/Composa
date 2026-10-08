@@ -17,9 +17,9 @@ These tools use conventional texture search rather than generative AI. The fill 
 
 ## Local object selection
 
-The model menu includes **EfficientSAM S** (the default quality choice), **MobileSAM** and **EfficientSAM Ti** (fast), alongside U²-Net lite, MODNet and Plain backdrop. Choose a model, then click an object or use Object Selection AI's rectangle tool. Select > Subject prompts the full canvas. Shift adds and Alt subtracts.
+The model menu offers **SAM Quality** (local EfficientSAM S) and installed **BiRefNet** variants from ComfyUI. Choose a model, then click an object or use Object Selection AI's rectangle tool. Select > Subject prompts the full canvas. Shift adds and Alt subtracts.
 
-These models use ONNX Runtime locally and require no Python, PyTorch, ComfyUI, runtime download or GPU. S adds about 101 MiB of weights. Sessions load on first use and remain cached; one image embedding speeds repeated prompts. Selection consumes additional CPU/RAM while running; idle selection performs no inference. MobileSAM reconstructs its low-resolution logits using the actual aspect ratio, avoiding the crop frozen into the old export. Thresholding and image-guided refinement remove confidence haze and improve edges.
+SAM Quality uses ONNX Runtime locally and requires no Python, PyTorch, ComfyUI, runtime download or GPU. S adds about 101 MiB of weights. Sessions load on first use and remain cached; one image embedding speeds repeated prompts. Selection consumes additional CPU/RAM while running; idle selection performs no inference. BiRefNet runs on the configured ComfyUI server.
 
 SAM selections receive their own committed mask; inference temporaries are disposed separately. Real encoder/decoder tests cover portrait and landscape object geometry, and selection history survives inference cleanup. Folder choices (including Bucket instead of Gradient, Eraser, marquee and lasso variants) follow document tabs, survive closing all documents, and are saved between launches.
 

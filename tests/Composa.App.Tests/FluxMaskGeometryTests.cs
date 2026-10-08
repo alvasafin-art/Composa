@@ -9,6 +9,27 @@ namespace Composa.App.Tests;
 public class FluxMaskGeometryTests
 {
     [Theory]
+    [InlineData(320, 240, 80)]
+    [InlineData(2048, 1537, 100)]
+    [InlineData(2048, 1537, 1000)]
+    public void Original_size_floor_applies_to_context_and_keeps_the_source_document_size(int width, int height, int selected)
+    {
+        var session = EditorSession.NewCanvas(width,height,SKColors.White);
+        session.SelectRect(new SKRect(20,20,20+selected,20+selected));
+        var request = new AiTaskRequest { Task=AiTaskKind.GenerativeFill,Settings=new() { Values=new() { ["imageOriginalSize"]=true } } };
+        using var inputs=AiTaskInputPreparer.Prepare(session,request); using var edit=new EditableMaskedWorkflow(inputs,request); Bind(edit,inputs,request);
+        Assert.True((long)edit.ContentSize.Width*edit.ContentSize.Height >= Composa.Model.DocumentLimits.MinimumGenerationPixels);
+        if ((long)edit.Bounds.Width*edit.Bounds.Height >= Composa.Model.DocumentLimits.MinimumGenerationPixels)
+            Assert.Equal((edit.Bounds.Width,edit.Bounds.Height),edit.ContentSize);
+        var decoded=Pixels.NewColor(edit.GenerationSize.Width,edit.GenerationSize.Height); decoded.Erase(SKColors.Blue);
+        using var raw=edit.Finish(decoded);
+        Assert.Equal((width,height),(raw.Width,raw.Height));
+        var center=raw.GetPixel(20+selected/2,20+selected/2);
+        Assert.True(center.Blue > center.Red + 100 && center.Blue > center.Green + 100);
+        Assert.Equal((width,height),(session.Document.Width,session.Document.Height));
+    }
+
+    [Theory]
     [InlineData(0.5)]
     [InlineData(1)]
     [InlineData(2)]
@@ -74,8 +95,9 @@ public class FluxMaskGeometryTests
         var session=EditorSession.NewCanvas(1,1,SKColors.White); session.SelectRect(new SKRect(0,0,1,1));
         var request=new AiTaskRequest { Task=AiTaskKind.GenerativeFill,Settings=new() { Values=new() { ["imageOriginalSize"]=true,["maskBlur"]=64 } } };
         using var inputs=AiTaskInputPreparer.Prepare(session,request); using var edit=new EditableMaskedWorkflow(inputs,request); Bind(edit,inputs,request);
-        Assert.Equal((64,64),edit.GenerationSize);
-        var decoded=Pixels.NewColor(64,64); decoded.Erase(SKColors.Blue);
+        Assert.Equal((1000,1000),edit.ContentSize);
+        Assert.Equal((1008,1008),edit.GenerationSize);
+        var decoded=Pixels.NewColor(edit.GenerationSize.Width,edit.GenerationSize.Height); decoded.Erase(SKColors.Blue);
         using var raw=edit.Finish(decoded); Assert.Equal(SKColors.Blue,raw.GetPixel(0,0));
     }
 

@@ -7,7 +7,7 @@ namespace Composa.AI;
 /// <summary>Automatic registration and a screened harmonic color residual. No texture synthesis or contrast gain.</summary>
 public static class AiSeamlessFinisher
 {
-    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false, bool continuationOnly = false)
+    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false)
     {
         if (generated.Width != reference.Width || generated.Height != reference.Height
             || coverage.Width != reference.Width || coverage.Height != reference.Height)
@@ -31,15 +31,7 @@ public static class AiSeamlessFinisher
                 source.Slice(sy * generated.RowBytes + sx * 4, 4).CopyTo(target.Slice(y * result.RowBytes + x * 4, 4));
             }
         }
-        var flat = matchFlatBackground && IsFlatContinuation(result, reference, coverage, area, continuationOnly);
-        if (flat && continuationOnly && UniformStrip(reference, coverage, area, requireStrip: false) is { } background)
-        {
-            // A low-contrast model residual on a demonstrably constant wall is
-            // noise, not new background detail. Reconstruct its known tone.
-            for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
-                result.SetPixel(x, y, coverage.GetPixel(x, y).Alpha == 0 ? reference.GetPixel(x, y) : background);
-            Pixels.Invalidate(result); return result;
-        }
+        var flat = matchFlatBackground && IsFlatContinuation(result, reference, coverage, area);
         var field = Residual.Build(result, reference, coverage, area, seamWidth, flat);
         var pixels = result.GetPixelSpan(); var original = reference.GetPixelSpan(); var mask = coverage.GetPixelSpan();
         for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
@@ -66,13 +58,12 @@ public static class AiSeamlessFinisher
 
     // A narrow automatic continuation of a verified constant background has no
     // new subject to synthesize. Never apply this to an ordinary prompted fill,
-    // textured/transparent surroundings. Larger areas additionally require the
-    // model's interior to pass the low-contrast continuation check above.
-    private static SKColor? UniformStrip(SKBitmap reference, SKBitmap coverage, SKRectI area, bool requireStrip = true)
+    // a large extension, or textured/transparent surroundings.
+    private static SKColor? UniformStrip(SKBitmap reference, SKBitmap coverage, SKRectI area)
     {
         var core = SelectionMask.Bounds(coverage, 255);
         var shorter = Math.Min(core.Width, core.Height); var longer = Math.Max(core.Width, core.Height);
-        if (core.IsEmpty || requireStrip && (shorter > 32 || shorter >= longer * .2)) return null;
+        if (core.IsEmpty || shorter > 32 || shorter >= longer * .2) return null;
         var min = new[] { 255, 255, 255 }; var max = new int[3]; var sum = new long[3]; var count = 0;
         for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
         {
@@ -85,7 +76,7 @@ public static class AiSeamlessFinisher
         return count < 64 ? null : new SKColor((byte)((sum[0] + count / 2) / count), (byte)((sum[1] + count / 2) / count), (byte)((sum[2] + count / 2) / count));
     }
 
-    private static bool IsFlatContinuation(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area, bool continuationOnly)
+    private static bool IsFlatContinuation(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area)
     {
         var sum = new double[6]; var squares = new double[6]; var counts = new int[2];
         var step = Math.Max(1, Math.Max(area.Width, area.Height) / 96);
@@ -110,10 +101,9 @@ public static class AiSeamlessFinisher
             delta[c] = sourceMean - generatedMean;
             if (Math.Abs(delta[c]) > 24) return false;
         }
-        // A removal/automatic expansion can also restore a small tint drift on
-        // an already uniform background. Ordinary fills only correct neutral
-        // exposure drift, so low-contrast colored content remains independent.
-        return continuationOnly || delta.Max() - delta.Min() < 4;
+        // Only low-contrast, nearly neutral exposure drift on an already flat
+        // background. Colored objects and intentional relighting stay independent.
+        return delta.Max() - delta.Min() < 4;
     }
 
     private static (int X, int Y) Registration(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area)

@@ -1,9 +1,0 @@
-{
-  "source":{"class_type":"LoadImage","inputs":{"image":"placeholder.png"}},
-  "alpha":{"class_type":"InvertMask","inputs":{"mask":["source",1]}},
-  "rgba":{"class_type":"JoinImageWithAlpha","inputs":{"image":["source",0],"alpha":["alpha",0]}},
-  "dit":{"class_type":"SeedVR2LoadDiTModel","inputs":{"model":"seedvr2_ema_3b_fp8_e4m3fn.safetensors","device":"cuda:0","blocks_to_swap":32,"swap_io_components":true,"offload_device":"cpu","cache_model":false,"attention_mode":"sdpa"}},
-  "vae":{"class_type":"SeedVR2LoadVAEModel","inputs":{"model":"ema_vae_fp16.safetensors","device":"cuda:0","encode_tiled":true,"encode_tile_size":256,"encode_tile_overlap":64,"decode_tiled":true,"decode_tile_size":256,"decode_tile_overlap":64,"tile_debug":"false","offload_device":"cpu","cache_model":false}},
-  "upscale":{"class_type":"SeedVR2VideoUpscaler","inputs":{"image":["rgba",0],"dit":["dit",0],"vae":["vae",0],"seed":0,"resolution":512,"max_resolution":512,"batch_size":1,"uniform_batch_size":false,"temporal_overlap":0,"prepend_frames":0,"color_correction":"lab","input_noise_scale":0,"latent_noise_scale":0,"offload_device":"cpu","enable_debug":false}},
-  "save":{"class_type":"SaveImage","inputs":{"images":["upscale",0],"filename_prefix":"Composa/seedvr2"}}
-}

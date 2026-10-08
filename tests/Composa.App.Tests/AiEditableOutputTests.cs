@@ -116,7 +116,10 @@ public class AiEditableOutputTests
             field.Value is System.Text.Json.Nodes.JsonArray link && link.Count == 2 && link[0]?.GetValue<string>() is "crop" or "stitch"));
         var decoded = Pixels.NewColor(editable.GenerationSize.Width, editable.GenerationSize.Height); decoded.Erase(SKColors.White);
         using (var draw = new SKCanvas(decoded)) using (var paint = new SKPaint { Color = SKColors.Blue })
+        {
+            draw.Scale((float)editable.ContentSize.Width/editable.Bounds.Width, (float)editable.ContentSize.Height/editable.Bounds.Height);
             draw.DrawRect(new SKRect(248-editable.Bounds.Left,158-editable.Bounds.Top,332-editable.Bounds.Left,242-editable.Bounds.Top),paint);
+        }
         var raw = editable.Finish(decoded);
         AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [raw], inputs.TargetBounds, inputs, true, localOutputMask: editable.Mask);
         Assert.Equal(SKColors.Blue, s.ActiveLayer!.Pixels!.GetPixel(249, 200));

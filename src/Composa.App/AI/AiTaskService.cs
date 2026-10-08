@@ -19,6 +19,7 @@ public sealed class AiTaskService : IAiTaskRunner
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
     {
         var id = overrideId ?? EngineIdForTask(task);
+        if (id == "seedvr2") id = "seedvr2-native";
         var engine = id == null ? SelectedEngine : Engines.Profiles.FirstOrDefault(pack => pack.Id == id);
         if (id == null && task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.Upscale && engine?.Binding(task) == null)
             engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
@@ -128,7 +129,7 @@ public sealed class AiTaskService : IAiTaskRunner
         // An explicit selection is an edit, not a transparent-canvas expansion. Crop bounds take precedence.
         if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds == null && editor.Session.Selection != null)
             request = request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
-                Settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = false } } };
+                Settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = request.ExpansionMinimumSide == 0 } } };
         if (request.Task == AiTaskKind.MatchToScene)
         {
             Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
@@ -218,8 +219,12 @@ public sealed class AiTaskService : IAiTaskRunner
                         var contextBounds = inputs.MaskPlan?.Bounds ?? editor.Session.Document.Bounds;
                         width = Math.Max(64, contextBounds.Width); height = Math.Max(64, contextBounds.Height);
                     }
-                    values["width"] = Math.Max(16, (int)Math.Round(width / 16.0) * 16);
-                    values["height"] = Math.Max(16, (int)Math.Round(height / 16.0) * 16);
+                    var original = request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide == 0
+                        : Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false);
+                    if (original && request.Task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject))
+                        (width, height) = AiDimensions.OriginalGenerationSize(width, height);
+                    values["width"] = Math.Max(16, (int)(original ? Math.Ceiling(width / 16.0) : Math.Round(width / 16.0)) * 16);
+                    values["height"] = Math.Max(16, (int)(original ? Math.Ceiling(height / 16.0) : Math.Round(height / 16.0)) * 16);
                 }
                 values["seed"] = (seed + index) & long.MaxValue;
                 if (editable == null && request.Task is (AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand)) values["maskGrow"] = 0;
@@ -245,9 +250,7 @@ public sealed class AiTaskService : IAiTaskRunner
                     WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);
                 if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
                 {
-                    var limit = SeedVr2Upscaler.TileLimit(ServerInfo);
-                    SeedVr2Upscaler.Configure(boundGraph, Math.Min(inputs.SourceImage.Width, limit / request.Settings.UpscaleFactor),
-                        Math.Min(inputs.SourceImage.Height, limit / request.Settings.UpscaleFactor), request.Settings.UpscaleFactor, ServerInfo, capabilities, limit);
+                    boundGraph["upscale"]!["inputs"]!["resize_type.multiplier"] = request.Settings.UpscaleFactor;
                 }
                 WorkflowModels.ResolvePaths(boundGraph, capabilities);
                 var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
@@ -264,7 +267,6 @@ public sealed class AiTaskService : IAiTaskRunner
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (semantic, bitmap) in imagesToUpload)
             {
-                if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal)) continue; // Only bounded tiles are uploaded by its runner.
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
             }
             var images = new List<SKBitmap>();
@@ -288,9 +290,6 @@ public sealed class AiTaskService : IAiTaskRunner
                     {
                         if (editor.Session.Document.RasterPixels() + (long)inputs.SourceImage.Width * inputs.SourceImage.Height * request.Settings.UpscaleFactor * request.Settings.UpscaleFactor > DocumentLimits.DocumentPixelBudget)
                             throw new InvalidOperationException($"Upscale exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
-                        var graphForTiles = Bind(new Dictionary<string, string> { ["sourceImage"] = "seedvr2-preflight.png" });
-                        images.Add(await SeedVr2Upscaler.RunAsync(client, graphForTiles, inputs.SourceImage, request.Settings.UpscaleFactor, seed, ServerInfo, capabilities, progress, linked.Token));
-                        continue;
                     }
                     var result = await client.ExecuteAsync(Bind(uploaded, index), progress, linked.Token);
                     using (result.History)

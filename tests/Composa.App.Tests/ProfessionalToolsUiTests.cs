@@ -69,15 +69,13 @@ public class ProfessionalToolsUiTests
         Assert.Equal(state, session.History.CurrentId); Assert.Same(original, session.ActiveLayer.Pixels); window.Close();
     }
     [AvaloniaFact]
-    public void Object_selection_lists_both_real_local_models_and_keeps_the_current_choice()
+    public void Object_selection_offers_only_SAM_Quality_while_disconnected()
     {
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show(); window.AddSession(EditorSession.NewCanvas(160, 100, SKColors.White));
         window.Session!.WandMode = WandMode.Object; window.SelectTool(Tool.Wand); Dispatcher.UIThread.RunJobs();
         var choice = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
-        Assert.Contains(choice.Items.Cast<string>(), s => s == "EfficientSAM S · Quality · Local");
-        Assert.Contains(choice.Items.Cast<string>(), s => s == "MobileSAM · Fast · Local"); Assert.Contains(choice.Items.Cast<string>(), s => s == "EfficientSAM Ti · Fast · Local");
-        choice.SelectedIndex = choice.Items.Cast<string>().ToList().IndexOf("EfficientSAM Ti · Fast · Local");
-        Assert.Equal(ObjectSelectionSource.EfficientSamTi, window.Settings.ObjectSelectionModel);
+        Assert.Equal("SAM Quality · Local", Assert.Single(choice.Items.Cast<string>()));
+        Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         Screenshots.Save(window, "professional-object-selection-models"); window.Close();
     }
     [AvaloniaFact]

@@ -566,7 +566,9 @@ public sealed partial class MainWindow
         }
         var aspect = AiAspect(task);
         var profile = AiOptions(task);
-        var fallback = profile.OriginalSize ? aspect : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
+        var fallback = profile.OriginalSize
+            ? task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject ? aspect : AiDimensions.OriginalGenerationSize(aspect.Width, aspect.Height)
+            : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
         if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene))
             options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed);

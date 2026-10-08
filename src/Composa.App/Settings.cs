@@ -175,8 +175,23 @@ public sealed class Settings
     internal static Settings FromJson(string json)
     {
         var value = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
-        // Preview 16's optional native model was removed. Keep all other preferences intact.
-        if (!Enum.IsDefined(value.ObjectSelectionModel)) value.ObjectSelectionModel = ObjectSelectionSource.AnySubject;
+        // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
+        foreach (var choices in value.ComfyModelSelections.Values)
+        foreach (var (node, type, input, oldDefault, newDefault) in new[]
+        {
+            ("model", "UNETLoader", "unet_name", "seedvr2_3b_fp16.safetensors", "seedvr2_7b_int8_convrot.safetensors"),
+            ("vae", "VAELoader", "vae_name", "ema_vae_fp16.safetensors", "seedvr2_ema_vae_fp16.safetensors")
+        })
+        {
+            var oldKey = JsonSerializer.Serialize(new[] { "seedvr2-native", type, node, input, oldDefault });
+            if (choices.Remove(oldKey, out var selected))
+                choices.TryAdd(JsonSerializer.Serialize(new[] { "seedvr2-native", type, node, input, newDefault }), selected);
+        }
+        // Only SAM Quality and installed BiRefNet models are offered now.
+        if (value.ObjectSelectionModel is not (ObjectSelectionSource.EfficientSamS or ObjectSelectionSource.ComfyUI)
+            || value.ObjectSelectionModel == ObjectSelectionSource.ComfyUI && value.ObjectSelectionComfyModel is { } model
+                && !model.Contains("birefnet", StringComparison.OrdinalIgnoreCase))
+            value.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
         using var document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty(nameof(PromptSelectionRevision), out _))
         {

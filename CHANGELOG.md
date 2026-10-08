@@ -4,6 +4,20 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.23] - 2026-10-08 · TEST
+
+### Changed
+
+- Object Selection offers only local SAM Quality and installed BiRefNet variants from ComfyUI. Removed choices in saved preferences migrate to SAM Quality.
+- Original size enlarges generation inputs smaller than 1 MP uniformly to at least 1 MP. For selected edits this means the automatic context crop, with the conditioning mask scaled identically; results return to the original document coordinates. Inputs at or above 1 MP keep their dimensions, apart from existing model padding. Explicit megapixel/long-side choices and selection/upscale inference remain independent.
+- FLUX conditioning and seamless finishing return to preview.21. Preview.22's broad constant-background reconstruction and default expansion-prompt recognition are reverted. Generation continues to ignore legacy selection grow/blend/blur/context controls.
+- SeedVR2 uses the official native ComfyUI workflow on the whole image in one request: one Euler/simple step, CFG 1, VAE tiles 512 px with 128 px overlap, and no color correction. Composa's external tiles and custom-node variant are removed. The template defaults to 7B INT8 and the official SeedVR2 VAE; previously selected native model files are preserved per server. The legacy seedvr2 identifier routes to the native workflow.
+- SeedVR2 alpha is passed directly from LoadImage to JoinImageWithAlpha, removing an extra inversion. Errors and cancellation leave the document unchanged.
+
+Validation: 1,018 automated tests passed (476 core, 542 headless app), including an actual whole-image SeedVR2 3B FP16 ×4 run on Intel Arc B580, alpha and undo/redo. The GPU request completed in 18.73 seconds. Tests cover the 1 MP floor, larger original contexts, explicit sizes, API rounding, model preferences and failed/cancelled upscale without partial edits.
+
+This is an experimental TEST pre-release. SeedVR2 requires current built-in ComfyUI nodes and compatible installed models. Model memory is managed by ComfyUI; higher resolution does not guarantee artifact-free FLUX output.
+
 ## [1.2.1-preview.22] - 2026-10-08 · TEST
 
 ### Fixed

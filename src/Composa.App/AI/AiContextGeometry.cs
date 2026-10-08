@@ -25,10 +25,12 @@ internal static class AiContextGeometry
     internal static ((int Width, int Height) Content, (int Width, int Height) Padded) FluxSize(
         SKRectI bounds, SKRectI target, int width, int height, bool original, int? minimumSide = null)
     {
-        var scale = original ? 1 : minimumSide is > 0 ? (double)minimumSide.Value / Math.Max(bounds.Width, bounds.Height)
+        var native = original ? AiDimensions.OriginalGenerationSize(bounds.Width, bounds.Height) : (bounds.Width, bounds.Height);
+        var scale = original ? Math.Max((double)native.Width / bounds.Width, (double)native.Height / bounds.Height) : minimumSide is > 0 ? (double)minimumSide.Value / Math.Max(bounds.Width, bounds.Height)
             : Math.Sqrt((double)width * height / Math.Max(1L, (long)bounds.Width * bounds.Height));
         if (!original) scale = Math.Max(scale, 64.0 / Math.Min(bounds.Width, bounds.Height));
-        var w = checked((int)Math.Round(bounds.Width * scale)); var h = checked((int)Math.Round(bounds.Height * scale));
+        var w = checked((int)(original ? Math.Ceiling(bounds.Width * scale) : Math.Round(bounds.Width * scale)));
+        var h = checked((int)(original ? Math.Ceiling(bounds.Height * scale) : Math.Round(bounds.Height * scale)));
         var padded = (Width: Math.Max(64, checked((w + 15) / 16 * 16)), Height: Math.Max(64, checked((h + 15) / 16 * 16)));
         if (!Composa.Model.DocumentLimits.FitsSurface(padded.Width, padded.Height))
             throw new InvalidOperationException($"Generation including context exceeds the {Composa.Model.DocumentLimits.MaxSide} px / {Composa.Model.DocumentLimits.MaxSurfaceMegapixels} MP limit. Reduce image size.");

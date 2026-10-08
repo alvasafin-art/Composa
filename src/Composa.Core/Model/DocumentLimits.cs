@@ -10,6 +10,7 @@ namespace Composa.Model;
 /// </summary>
 public static class DocumentLimits
 {
+    public const long MinimumGenerationPixels = 1_000_000;
     public const long MaxRetouchPixels = 16_000_000;
     /// <summary>Longest side, in pixels, of any canvas, layer, mask or generated surface.</summary>
     public const int MaxSide = 30_000;

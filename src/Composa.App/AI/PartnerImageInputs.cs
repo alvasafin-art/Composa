@@ -57,7 +57,16 @@ internal sealed class PartnerImageInputs : IDisposable
             var scale = Math.Sqrt((double)request.Settings.Width * request.Settings.Height / crop.Width / crop.Height);
             desired = ((int)Math.Round(crop.Width * scale), (int)Math.Round(crop.Height * scale));
         }
-        try { generationSize = PartnerImageSize.Plan(desired.Width, desired.Height); }
+        var originalSize = request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide == 0
+            : Convert.ToBoolean(request.Settings.Values.GetValueOrDefault("imageOriginalSize") ?? false);
+        if (originalSize)
+        {
+            desired = AiDimensions.OriginalGenerationSize(desired.Width, desired.Height);
+            if (Images.TryGetValue("apiSource", out var input) && (long)input.Width * input.Height < Composa.Model.DocumentLimits.MinimumGenerationPixels)
+                Images["apiSource"] = Own(Resize(input, desired.Width, desired.Height));
+        }
+        try { generationSize = PartnerImageSize.Plan(desired.Width, desired.Height,
+            originalSize ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels); }
         catch { Dispose(); throw; }
     }
 

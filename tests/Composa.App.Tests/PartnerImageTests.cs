@@ -14,6 +14,20 @@ namespace Composa.App.Tests;
 
 public class PartnerImageTests
 {
+    [Fact]
+    public void Original_size_enlarges_the_API_context_image_and_generation_request_together()
+    {
+        var session=EditorSession.NewCanvas(320,240,SKColors.White); session.SelectRect(new SKRect(60,50,120,110));
+        var request=new AiTaskRequest { Task=AiTaskKind.GenerativeFill,Settings=new() { Values=new() { ["imageOriginalSize"]=true } } };
+        using var inputs=AiTaskInputPreparer.Prepare(session,request); using var api=new PartnerImageInputs(inputs,request);
+        var source=api.Images["apiSource"]; Assert.True((long)source.Width*source.Height >= Composa.Model.DocumentLimits.MinimumGenerationPixels);
+        var files=api.Images.ToDictionary(p=>p.Key,p=>p.Key+".png");
+        var graph=api.Bind(Catalog().ReadWorkflow(Pack(),Pack().Workflows[0]),Pack(),files,17); var node=graph["gpt"]!["inputs"]!;
+        Assert.True((long)node["model.custom_width"]!.GetValue<int>()*node["model.custom_height"]!.GetValue<int>() >= Composa.Model.DocumentLimits.MinimumGenerationPixels);
+        using var result=api.Finish(GeneratedPatch(inputs,api,SKColors.CornflowerBlue));
+        Assert.Equal((320,240),(result.Width,result.Height));
+    }
+
     // A masked model preserves its source context. This fixture distinguishes local
     // insertion from the separate tests which deliberately corrupt that context.
     internal static SKBitmap GeneratedPatch(AiTaskInputs inputs, PartnerImageInputs api, SKColor color)
@@ -60,7 +74,7 @@ public class PartnerImageTests
     [Fact]
     public void Api_pack_has_one_official_node_no_local_weights_and_local_pack_stays_default()
     {
-        var catalog = Catalog(); Assert.Equal(4, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
+        var catalog = Catalog(); Assert.Equal(3, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
         var engine = Pack(); Assert.True(engine.PaidApi); Assert.Equal("gpt-image-2.5-sunburst", engine.ApiModel);
         Assert.Empty(engine.RequiredAssets); Assert.Empty(catalog.ModelSlots(engine)); Assert.False(engine.Lora.Supported);
         Assert.DoesNotContain("ImageToMask", engine.RequiredNodeTypes);
