@@ -19,6 +19,15 @@ mkdir -p "$WORK/$NAME"
 dotnet publish "$ROOT/src/Composa.App" -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none \
   -p:UpdateChannel=github -o "$WORK/$NAME"
+for model in "$WORK/$NAME"/models/*.onnx; do
+  case "$(basename "$model")" in
+    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx) ;;
+    *) echo "tarball.sh: obsolete model in published build: $model" >&2; exit 1 ;;
+  esac
+done
+test -f "$WORK/$NAME/models/efficient_sam_vits_encoder.onnx" && test -f "$WORK/$NAME/models/efficient_sam_vits_decoder.onnx"
+mkdir -p "$WORK/$NAME/docs"
+cp "$ROOT/docs/nano-banana.md" "$ROOT/docs/scene-matching.md" "$WORK/$NAME/docs/"
 
 cp "$ROOT/packaging/$APP.desktop" "$ROOT/packaging/$APP.svg" "$ROOT/packaging/$APP-mime.xml" \
    "$ROOT/packaging/$APP.metainfo.xml" "$ROOT/scripts/install.sh" \

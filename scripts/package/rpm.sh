@@ -79,6 +79,8 @@ exit 0
 /usr/share/icons/hicolor/*/apps/$APP.*
 %doc /usr/share/doc/$APP/README.md
 %doc /usr/share/doc/$APP/CHANGELOG.md
+%doc /usr/share/doc/$APP/nano-banana.md
+%doc /usr/share/doc/$APP/scene-matching.md
 %license /usr/share/doc/$APP/copyright
 
 %changelog
