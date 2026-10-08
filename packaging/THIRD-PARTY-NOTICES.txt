@@ -20,6 +20,8 @@ Every build includes ONNX Runtime, two subject models and two promptable segment
 ONNX Runtime 1.30.0, Copyright (c) Microsoft Corporation, MIT licence.
 Source: https://github.com/microsoft/onnxruntime
 
+Legacy development/test weights below are not included in release packages (U²-Net, MODNet, MobileSAM and EfficientSAM Ti).
+
 models/u2netp.onnx: U²-Net lite, Copyright (c) 2020 Xuebin Qin et al., Apache-2.0.
 Source: https://github.com/xuebinqin/U-2-Net
 ONNX conversion: https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
@@ -48,6 +50,8 @@ models/efficient_sam_vitt_encoder.onnx: 24,799,761 bytes; SHA-256 7a73ee65aa2c37
 models/efficient_sam_vitt_decoder.onnx: 16,565,728 bytes; SHA-256 e1afe46232c3bfa3470a6a81c7d3181836a94ea89528aff4e0f2d2c611989efd
 
 Both encoder/decoder adapters are independently implemented in C# from the published tensor contracts.
+
+Release packages bundle only the following SAM Quality encoder/decoder weights.
 
 EfficientSAM S, Copyright (c) 2023 Meta Platforms, Inc. and affiliates, Apache-2.0.
 Source: https://github.com/yformer/EfficientSAM

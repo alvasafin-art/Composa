@@ -155,6 +155,10 @@ public sealed class AiTaskService : IAiTaskRunner
         if (fullEdit) binding = engine.Binding(AiTaskKind.ImageEdit) ?? throw new InvalidOperationException("This pack has no full-image edit workflow.");
         var workflow = engine.Workflow(binding.Workflow);
         var graph = Engines.ReadWorkflow(engine, workflow);
+        if (NanoBanana.IsModel(engine.ApiModel) && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > 14)
+            throw new InvalidOperationException("Nano Banana accepts up to 14 input images, including the source.");
+        if(NanoBanana.IsModel(engine.ApiModel) && request.Settings.VariantMode==AiVariantMode.Batch)
+            request=request with { Settings=request.Settings with { VariantMode=AiVariantMode.List } };
         var variants = binding.OutputMode == AiOutputMode.Selection || request.Task == AiTaskKind.Upscale ? 1 : request.Settings.Variants;
         if (variants is < 1 or > 3) throw new ArgumentException("Choose one, two or three variants.");
         var initialState = editor.Session.History.CurrentId;
@@ -172,8 +176,8 @@ public sealed class AiTaskService : IAiTaskRunner
             var preparedRequest = request.Task == AiTaskKind.RemoveObject && (binding.Preprocess == "remove-object-in-workflow" || engine.PaidApi)
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
-            using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest);
-            using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, preparedRequest) : null;
+            using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest, NanoBanana.IsModel(engine.ApiModel) ? 14 : 6);
+            using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel) : null;
             using var editable = engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
                 && (inputs.SelectionMask != null || request.Task == AiTaskKind.GenerativeExpand && !fullEdit || inputs.BackgroundMask != null)
                 ? new EditableMaskedWorkflow(inputs, preparedRequest) : null;
@@ -197,10 +201,12 @@ public sealed class AiTaskService : IAiTaskRunner
                 if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.");
                 if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
                     throw new InvalidOperationException($"The connected ComfyUI does not offer {engine.ApiModel}. Update ComfyUI and refresh its models.");
-                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, "size").Contains("Custom"))
+                if (!NanoBanana.IsModel(engine.ApiModel) && !PartnerPricing.Choices(capabilities, engine.ApiModel, "size").Contains("Custom"))
                     throw new InvalidOperationException("Update ComfyUI: this GPT pack needs Custom dimensions to preserve image/mask proportions.");
-                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, "quality").Contains(request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low"))
-                    throw new InvalidOperationException("The connected server does not support this GPT quality. Choose an available value in Advanced.");
+                var quality=request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low";
+                if(NanoBanana.IsModel(engine.ApiModel)) quality=NanoBanana.Resolution(quality);
+                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
+                    throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
             WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)

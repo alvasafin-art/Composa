@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.24" date="2026-10-08">
+      <description>
+        <p>TEST: smaller packages with only SAM Quality weights, automatic scene matching through editable curves, and official Nano Banana 2 / Gemini 3.1 Flash Image integration.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.23" date="2026-10-08">
       <description>
         <p>TEST: SAM Quality and BiRefNet selection, minimum 1 MP for Original size generation, restored preview.21 FLUX finishing, and the official whole-image SeedVR2 workflow with standard VAE tiles.</p>

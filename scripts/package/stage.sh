@@ -28,6 +28,15 @@ fi
 PUBLISH_ARGS+=("-p:UpdateChannel=${UPDATE_CHANNEL:-github}")
 
 dotnet publish "$ROOT/src/Composa.App" "${PUBLISH_ARGS[@]}" -o "$STAGE/usr/lib/$APP"
+for model in "$STAGE/usr/lib/$APP"/models/*.onnx; do
+  case "$(basename "$model")" in
+    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx) ;;
+    *) echo "stage.sh: obsolete model in published build: $model" >&2; exit 1 ;;
+  esac
+done
+test -f "$STAGE/usr/lib/$APP/models/efficient_sam_vits_encoder.onnx" && test -f "$STAGE/usr/lib/$APP/models/efficient_sam_vits_decoder.onnx"
+install -Dm644 "$ROOT/docs/scene-matching.md" "$STAGE/usr/share/doc/$APP/scene-matching.md"
+install -Dm644 "$ROOT/docs/nano-banana.md" "$STAGE/usr/share/doc/$APP/nano-banana.md"
 
 ln -sf "../lib/$APP/$APP" "$STAGE/usr/bin/$APP"
 

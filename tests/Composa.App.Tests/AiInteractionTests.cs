@@ -158,7 +158,7 @@ public class AiInteractionTests
         var dialog = Assert.Single(w.OwnedWindows);
         var picker = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),
             combo => combo.Items.Cast<object>().Contains("CHAT GPT 2.5"));
-        var gpt = w.AiTasks.Engines.Profiles.Single(pack => pack.PaidApi);
+        var gpt = w.AiTasks.Engines.Find("chatgpt-image-2.5")!;
         picker.SelectedItem = gpt.DisplayName; dialog.Close(true); var result = await pending;
         Assert.Equal(gpt.Id, result!.EngineId); Assert.Equal(gpt.Id, settings.EngineForTask(task));
         Assert.Single(settings.AiTaskEngineIds); Assert.Same(original, w.AiTasks.SelectedEngine); w.Close();

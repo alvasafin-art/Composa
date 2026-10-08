@@ -17,13 +17,16 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly SKBitmap? blendMask;
     private readonly AiMaskPlan? plan;
     private readonly (int Width, int Height) generationSize;
+    private readonly bool nano;
+    private readonly SKRectI nanoContent;
+    private readonly SKSizeI nanoPadded;
     internal const int DefaultContextPadding = 0;
     internal const int MaximumContextPadding = 1024;
     internal SKRectI SourceBounds => crop;
 
-    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request)
+    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null)
     {
-        original = inputs; this.request = request;
+        original = inputs; this.request = request; nano = NanoBanana.IsModel(apiModel);
         var source = request.Task is AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.GenerativeExpand
             ? inputs.PreprocessedImage ?? inputs.SourceImage : inputs.SourceImage;
         var mask = request.Task == AiTaskKind.ChangeBackground ? inputs.BackgroundMask
@@ -65,8 +68,28 @@ internal sealed class PartnerImageInputs : IDisposable
             if (Images.TryGetValue("apiSource", out var input) && (long)input.Width * input.Height < Composa.Model.DocumentLimits.MinimumGenerationPixels)
                 Images["apiSource"] = Own(Resize(input, desired.Width, desired.Height));
         }
-        try { generationSize = PartnerImageSize.Plan(desired.Width, desired.Height,
-            originalSize ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels); }
+        try
+        {
+            if(nano)
+            {
+                generationSize=desired;
+                if(Images.TryGetValue("apiSource",out var input))
+                {
+                    var padded=Own(NanoBanana.Pad(input,out nanoContent)); Images["apiSource"]=padded;
+                    nanoPadded=new(padded.Width,padded.Height);
+                }
+                else
+                {
+                    var ratio=NanoBanana.Ratio(desired.Width,desired.Height);
+                    var units=(int)Math.Ceiling(Math.Max((double)desired.Width/ratio.W,(double)desired.Height/ratio.H));
+                    nanoPadded=new(ratio.W*units,ratio.H*units);
+                    var x=(nanoPadded.Width-desired.Width)/2; var y=(nanoPadded.Height-desired.Height)/2;
+                    nanoContent=new(x,y,x+desired.Width,y+desired.Height);
+                }
+            }
+            else generationSize = PartnerImageSize.Plan(desired.Width, desired.Height,
+                originalSize ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels);
+        }
         catch { Dispose(); throw; }
     }
 
@@ -74,10 +97,21 @@ internal sealed class PartnerImageInputs : IDisposable
     {
         var result = (JsonObject)graph.DeepClone(); var node = result["gpt"]!["inputs"]!.AsObject();
         node["model"] = engine.ApiModel; node["seed"] = seed % int.MaxValue;
-        node["model.quality"] = request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low";
-        node["model.size"] = "Custom";
-        node["model.custom_width"] = generationSize.Width;
-        node["model.custom_height"] = generationSize.Height;
+        if(nano)
+        {
+            var quality=request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString();
+            node["model.resolution"]=NanoBanana.Resolution(quality);
+            node["model.aspect_ratio"]=NanoBanana.Aspect(nanoPadded.Width,nanoPadded.Height);
+            node["model.thinking_level"]="MINIMAL";
+            if(Images.Count>14) throw new InvalidOperationException("Nano Banana accepts up to 14 input images, including the source.");
+        }
+        else
+        {
+            node["model.quality"] = request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low";
+            node["model.size"] = "Custom";
+            node["model.custom_width"] = generationSize.Width;
+            node["model.custom_height"] = generationSize.Height;
+        }
         // Masks stay local. Do not let template image ports or upload enumeration order
         // change source/reference numbering, or accidentally add a mask as a reference.
         foreach (var key in node.Select(pair => pair.Key).Where(key => key == "model.mask" || key.StartsWith("model.images.image_", StringComparison.Ordinal)).ToArray())
@@ -117,7 +151,7 @@ internal sealed class PartnerImageInputs : IDisposable
     {
         if (request.Task == AiTaskKind.GenerateImage)
         {
-            using (generated) return Resize(generated, original.CanvasWidth, original.CanvasHeight);
+            return FinishUnmasked(generated);
         }
         var raw = FinishUnmasked(generated);
         if (blendMask == null || request.Task == AiTaskKind.ChangeBackground) return raw;
@@ -132,7 +166,8 @@ internal sealed class PartnerImageInputs : IDisposable
 
     internal SKBitmap FinishUnmasked(SKBitmap generated)
     {
-        if (request.Task == AiTaskKind.GenerateImage) return Finish(generated);
+        if(nano) generated=NanoBanana.Unpad(generated,nanoContent,nanoPadded);
+        if (request.Task == AiTaskKind.GenerateImage) { using(generated) return Resize(generated,original.CanvasWidth,original.CanvasHeight); }
         using (generated)
         using (var fitted = Resize(generated, crop.Width, crop.Height))
         {
@@ -157,7 +192,7 @@ internal sealed class PartnerImageInputs : IDisposable
     {
         if (source.Width == width && source.Height == height) return Pixels.Clone(source);
         var mismatch = Math.Abs((double)source.Width / source.Height / ((double)width / height) - 1);
-        if (mismatch > 0.025) throw new InvalidDataException($"GPT returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
+        if (mismatch > 0.025) throw new InvalidDataException($"The image model returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
         var result = Pixels.NewColor(width, height); using var canvas = new SKCanvas(result);
         var scale = Math.Max((double)width / source.Width, (double)height / source.Height);
         var w = (float)(source.Width * scale); var h = (float)(source.Height * scale);

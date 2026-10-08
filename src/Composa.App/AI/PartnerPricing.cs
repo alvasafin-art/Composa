@@ -10,7 +10,7 @@ internal sealed record PartnerPriceEstimate(double MinimumUsd, double MaximumUsd
     public string Label => $"≈ {(MinimumUsd * PartnerPricing.CreditsPerDollar).ToString("0.0", CultureInfo.InvariantCulture)}–{(MaximumUsd * PartnerPricing.CreditsPerDollar).ToString("0.0", CultureInfo.InvariantCulture)} cr / ${MinimumUsd.ToString("0.000", CultureInfo.InvariantCulture)}–{MaximumUsd.ToString("0.000", CultureInfo.InvariantCulture)}";
 }
 
-/// <summary>Reads data tables from the server's official GPT price badge. Never evaluates remote code/JSONata.</summary>
+/// <summary>Reads data tables from official partner price badges. Never evaluates remote code/JSONata.</summary>
 internal static class PartnerPricing
 {
     // Official Comfy rate, verified 2026-10-01: https://support.comfy.org/articles/1982697177-partner-nodes-pricing
@@ -18,7 +18,7 @@ internal static class PartnerPricing
     public static string Reported(double credits) => $"{credits.ToString("0.##", CultureInfo.InvariantCulture)} cr / ${(credits / CreditsPerDollar).ToString("0.000", CultureInfo.InvariantCulture)}";
     public static PartnerPriceEstimate? Estimate(ComfyServerCapabilities? capabilities, string model, string quality, string size, int images, int variants)
     {
-        var expression = capabilities?.NodeDefinitions.GetValueOrDefault("OpenAIGPTImageNodeV2")?["price_badge"]?["expr"]?.GetValue<string>();
+        var expression = capabilities?.NodeDefinitions.GetValueOrDefault(NanoBanana.IsModel(model) ? "GeminiNanoBanana2V2" : "OpenAIGPTImageNodeV2")?["price_badge"]?["expr"]?.GetValue<string>();
         if (expression == null || variants is < 1 or > 3 || images is < 0 or > 16) return null;
         JsonObject? Table(string name)
         {
@@ -27,6 +27,11 @@ internal static class PartnerPricing
         }
         try
         {
+            if(NanoBanana.IsModel(model))
+            {
+                var price=Table("prices")?[quality.ToLowerInvariant()]?.GetValue<double>();
+                return price is { } p && double.IsFinite(p) && p>=0 ? new(p*variants,p*variants) : null;
+            }
             var range = Table("ranges")?[model]?[quality] as JsonArray;
             var perImage = Table("perImage")?[model] as JsonArray;
             if (range?.Count != 2 || perImage?.Count != 2) return null;
@@ -38,14 +43,18 @@ internal static class PartnerPricing
         catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or RegexMatchTimeoutException) { return null; }
     }
 
-    public static bool SupportsModel(ComfyServerCapabilities server, string model) =>
-        server.NodeDefinitions.GetValueOrDefault("OpenAIGPTImageNodeV2")?["input"]?["required"]?["model"]?[1]?["options"] is JsonArray choices
-            && choices.Any(choice => choice?["key"]?.GetValue<string>() == model);
+    public static bool SupportsModel(ComfyServerCapabilities server, string model) => ModelChoice(server,model)!=null;
+
+    private static JsonNode? ModelChoice(ComfyServerCapabilities? server,string model)
+    {
+        var node=NanoBanana.IsModel(model) ? "GeminiNanoBanana2V2" : "OpenAIGPTImageNodeV2";
+        return server?.NodeDefinitions.GetValueOrDefault(node)?["input"]?["required"]?["model"]?[1]?["options"] is JsonArray choices
+            ? choices.FirstOrDefault(value=>value?["key"]?.GetValue<string>()==model) : null;
+    }
 
     public static IReadOnlyList<string> Choices(ComfyServerCapabilities? server, string model, string input)
     {
-        if (server?.NodeDefinitions.GetValueOrDefault("OpenAIGPTImageNodeV2")?["input"]?["required"]?["model"]?[1]?["options"] is not JsonArray models) return [];
-        var selected = models.FirstOrDefault(value => value?["key"]?.GetValue<string>() == model);
+        var selected = ModelChoice(server,model);
         return selected?["inputs"]?["required"]?[input]?[1]?["options"] is JsonArray choices
             ? choices.Select(value => value!.GetValue<string>()).ToArray() : [];
     }

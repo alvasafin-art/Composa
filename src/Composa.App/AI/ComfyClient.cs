@@ -93,7 +93,7 @@ public sealed class ComfyClient : IComfyConnection
     public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)
     {
         var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = clientId.ToString("N") };
-        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() == "OpenAIGPTImageNodeV2"))
+        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2"))
         {
             var key = apiKey()?.Trim();
             if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone does not authorize external requests.");
@@ -226,7 +226,7 @@ public sealed class ComfyClient : IComfyConnection
             foreach (var device in list.EnumerateArray())
             {
                 var name = device.TryGetProperty("name", out var n) ? n.GetString() ?? "Device" : "Device"; devices.Add(name);
-                long Number(string key) => device.TryGetProperty(key, out var f) && f.TryGetInt64(out var v) ? Math.Max(0, v) : 0;
+                long Number(string key) => device.TryGetProperty(key, out var f) && f.ValueKind == JsonValueKind.Number && f.TryGetInt64(out var v) ? Math.Max(0, v) : 0;
                 memory.Add(new(name, device.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "", (int)Number("index"), Number("vram_total"), Number("vram_free")));
             }
         return new(Field("comfyui_version"), Field("os"), Field("python_version"), devices) { Memory = memory };
@@ -242,7 +242,7 @@ public sealed class ComfyClient : IComfyConnection
         foreach (var node in root.EnumerateObject())
         {
             nodes.Add(node.Name);
-            if ((node.Name == "OpenAIGPTImageNodeV2" || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
+            if ((node.Name is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
                 && JsonNode.Parse(node.Value.GetRawText()) is JsonObject definition) definitions[node.Name] = definition;
             if (!node.Value.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object) continue;
             foreach (var sectionName in new[] { "required", "optional" })

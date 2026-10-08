@@ -74,7 +74,7 @@ public class PartnerImageTests
     [Fact]
     public void Api_pack_has_one_official_node_no_local_weights_and_local_pack_stays_default()
     {
-        var catalog = Catalog(); Assert.Equal(3, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
+        var catalog = Catalog(); Assert.Equal(4, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
         var engine = Pack(); Assert.True(engine.PaidApi); Assert.Equal("gpt-image-2.5-sunburst", engine.ApiModel);
         Assert.Empty(engine.RequiredAssets); Assert.Empty(catalog.ModelSlots(engine)); Assert.False(engine.Lora.Supported);
         Assert.DoesNotContain("ImageToMask", engine.RequiredNodeTypes);
@@ -355,18 +355,21 @@ public class PartnerImageTests
         BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(4), uint.MaxValue); Assert.Equal(state, ComfyEventParser.ParseBinary(frame, state));
     }
 
-    [Fact]
-    public async Task Comfy_key_is_sent_only_in_sensitive_extra_data_for_api_nodes_and_redacted_on_error()
+    [Theory]
+    [InlineData("chatgpt-image-2.5")]
+    [InlineData("nano-banana-2")]
+    public async Task Comfy_key_is_sent_only_in_sensitive_extra_data_for_api_nodes_and_redacted_on_error(string engineId)
     {
+        var pack = Catalog().Find(engineId)!;
         using var handler = new Handler(); using var http = new HttpClient(handler);
         using var client = new ComfyClient("http://localhost:8188", http, () => "test-private-key");
-        await client.SubmitAsync(Catalog().ReadWorkflow(Pack(), Pack().Workflows[0]), Guid.NewGuid(), TestContext.Current.CancellationToken);
+        await client.SubmitAsync(Catalog().ReadWorkflow(pack, pack.Workflows[0]), Guid.NewGuid(), TestContext.Current.CancellationToken);
         var payload = JsonNode.Parse(handler.Body!)!; Assert.Equal("test-private-key", payload["extra_data"]!["api_key_comfy_org"]!.GetValue<string>());
         Assert.DoesNotContain("test-private-key", payload["prompt"]!.ToJsonString());
         await client.SubmitAsync(new JsonObject { ["save"] = new JsonObject { ["class_type"] = "SaveImage" } }, Guid.NewGuid(), TestContext.Current.CancellationToken);
         Assert.Null(JsonNode.Parse(handler.Body!)!["extra_data"]);
         handler.Fail = true;
-        var error = await Assert.ThrowsAsync<HttpRequestException>(() => client.SubmitAsync(Catalog().ReadWorkflow(Pack(), Pack().Workflows[0]), Guid.NewGuid(), TestContext.Current.CancellationToken));
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => client.SubmitAsync(Catalog().ReadWorkflow(pack, pack.Workflows[0]), Guid.NewGuid(), TestContext.Current.CancellationToken));
         Assert.DoesNotContain("test-private-key", error.Message); Assert.Contains("[redacted]", error.Message);
     }
 
@@ -393,11 +396,16 @@ public class PartnerImageTests
         public Task<ComfyExecutionResult> ExecuteAsync(JsonObject graph, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
             Graphs.Add((JsonObject)graph.DeepClone()); if (Graphs.Count == FailAt) throw new InvalidOperationException("API unavailable");
-            var count = graph["gpt"]!["inputs"]!["n"]!.GetValue<int>();
+            var count = graph["gpt"]!["inputs"]!["n"]?.GetValue<int>() ?? 1;
             return Task.FromResult(new ComfyExecutionResult("job", JsonDocument.Parse("{}"), Enumerable.Range(0, count).Select(i => new ComfyImageReference(i + ".png", "", "output", "save")).ToArray()) { CreditsUsed = count * 2 });
         }
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
-        { var node = Graphs[^1]["gpt"]!["inputs"]!; var bitmap = Pixels.NewColor(node["model.custom_width"]!.GetValue<int>(), node["model.custom_height"]!.GetValue<int>()); bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap); }
+        {
+            var node = Graphs[^1]["gpt"]!["inputs"]!;
+            var ratio = node["model.aspect_ratio"]?.GetValue<string>().Split(':').Select(int.Parse).ToArray();
+            var bitmap = ratio == null ? Pixels.NewColor(node["model.custom_width"]!.GetValue<int>(),node["model.custom_height"]!.GetValue<int>()) : Pixels.NewColor(ratio[0]*128,ratio[1]*128);
+            bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap);
+        }
         public void Dispose() { }
     }
 }

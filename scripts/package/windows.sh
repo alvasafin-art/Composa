@@ -34,6 +34,13 @@ echo "Building Composa $VERSION for $RID"
 # Nothing manages a Windows install, so this build announces new releases itself.
 dotnet publish "$ROOT/src/Composa.App" -c Release -r "$RID" --self-contained true \
   -p:DebugType=none -p:UpdateChannel=github -o "$TREE"
+for model in "$TREE"/models/*.onnx; do
+  case "$(basename "$model")" in
+    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx) ;;
+    *) echo "windows.sh: obsolete model in published build: $model" >&2; exit 1 ;;
+  esac
+done
+test -f "$TREE/models/efficient_sam_vits_encoder.onnx" && test -f "$TREE/models/efficient_sam_vits_decoder.onnx"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$TREE/"
 cp "$ROOT/run-composa.bat" "$TREE/"
 mkdir -p "$TREE/docs"
@@ -44,6 +51,7 @@ cp "$ROOT/docs/photoshop-exchange.md" "$TREE/docs/"
 cp "$ROOT/docs/automatic-seams-research.md" "$TREE/docs/"
 cp "$ROOT/docs/spot-healing-research.md" "$TREE/docs/"
 cp "$ROOT/docs/seedvr2-upscale.md" "$TREE/docs/"
+cp "$ROOT/docs/scene-matching.md" "$ROOT/docs/nano-banana.md" "$ROOT/docs/original-generation-size.md" "$TREE/docs/"
 mkdir -p "$TREE/scripts/photoshop"
 cp "$ROOT/scripts/photoshop/Exchange.ps1" "$ROOT/scripts/photoshop/Send-to-Composa.jsx" \
    "$ROOT/scripts/photoshop/Send-to-Photoshop.cmd" "$TREE/scripts/photoshop/"

@@ -176,8 +176,9 @@ public class AiEditingRegressionTests
             var split = dialog.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "AiGenerateSplit");
             Assert.Equal(26, split.Height);
             var packs = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
-            Assert.Equal(2, packs.ItemCount);
-            packs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.Equal(3, packs.ItemCount);
+            Assert.Contains("Nano Banana 2 · Gemini 3.1",packs.Items.Cast<string>());
+            packs.SelectedItem = "CHAT GPT 2.5"; Dispatcher.UIThread.RunJobs();
             Assert.True(window.AiTasks.SelectedEngine!.PaidApi);
             Assert.True(Screenshots.Save(dialog, task == AiTaskKind.GenerateImage ? "gpt-generate-preview6" : "gpt-expand-preview6"));
             if (task == AiTaskKind.GenerativeExpand)

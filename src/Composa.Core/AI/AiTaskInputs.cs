@@ -225,7 +225,7 @@ public sealed class AiTaskInputs : IDisposable
 
 public static class AiTaskInputPreparer
 {
-    public static AiTaskInputs Prepare(EditorSession session, AiTaskRequest request)
+    public static AiTaskInputs Prepare(EditorSession session, AiTaskRequest request, int maximumReferences = 6)
     {
         if (request.Task.RequiresSelection() && session.Selection == null)
             throw new InvalidOperationException($"{request.Task.DisplayName()} requires a selection.");
@@ -294,7 +294,7 @@ public static class AiTaskInputPreparer
             var overlap = maskPlan?.SeamWidth ?? 0;
             preprocessedMask = SelectionMask.Expand(expansionEmpty, overlap);
         }
-        var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(6).ToList()
+        var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(maximumReferences).ToList()
             : request.ReferenceImage == null ? [] : [request.ReferenceImage];
         var references = requestedReferences.Select(image => PrepareReference(image, request.ReferenceMegapixels)).ToList();
         return new AiTaskInputs

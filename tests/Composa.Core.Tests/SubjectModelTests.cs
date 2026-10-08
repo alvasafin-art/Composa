@@ -214,10 +214,18 @@ public class SubjectModelTests
     {
         if (!SubjectModels.ModNet.IsInstalled)
         {
+            if (ModelRunner.CanRun(PromptModels.EfficientSamS.Encoder) && ModelRunner.CanRun(PromptModels.EfficientSamS.Decoder))
+            {
+                Assert.Equal(SubjectDetect.Person,SubjectFinder.Resolve(SubjectDetect.Person));
+                Assert.Null(SubjectFinder.FallbackReason(SubjectDetect.Person));
+                using var fallbackScene=Scene(300,400); using var found=SubjectFinder.Matte(fallbackScene,SubjectDetect.Person);
+                Assert.NotNull(found); Assert.True(found!.GetPixel(150,130).Alpha>128); Assert.Equal(0,found.GetPixel(150,395).Alpha);
+                return;
+            }
             Assert.Equal(SubjectDetect.Backdrop, SubjectFinder.Resolve(SubjectDetect.Person));
             Assert.Contains("not installed", SubjectFinder.FallbackReason(SubjectDetect.Person));
             Assert.Contains("modnet.onnx", SubjectFinder.FallbackReason(SubjectDetect.Person));
-            return; // Run scripts/models/fetch.sh to exercise the model itself.
+            return; // Run scripts/models/fetch.sh --all to exercise the legacy model itself.
         }
         Assert.True(SubjectModels.ModNet.Verify());
         using var scene = Scene(300, 400);

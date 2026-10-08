@@ -207,8 +207,9 @@ public static class AiDialogs
         var seed = profile.Seed; var mode = profile.VariantMode;
         var quality = profile.ApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
-        var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, "quality");
-        if (qualities.Count == 0) qualities = ["low", "medium", "high", "xhigh", "max"];
+        var nano=NanoBanana.IsModel(model);
+        var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, nano ? "resolution" : "quality");
+        if (qualities.Count == 0) qualities = nano ? ["1K","2K","4K"] : ["low", "medium", "high", "xhigh", "max"];
         if (!qualities.Contains(quality)) quality = qualities[0];
         var sizes = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
         (string, Control)[] fields = [
@@ -216,7 +217,7 @@ public static class AiDialogs
                 value => { originalSize = value == sizes[0]; if (!originalSize) mp = AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value); }, 150)),
             ("Reference images", Ui.Combo(sizes, reference is { } r ? AiDimensions.Label(ClosestMegapixels(r)) : sizes[0], value => value,
                 value => reference = value == sizes[0] ? null : AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value), 150)),
-            ("Execution", Ui.Combo(new[] { AiVariantMode.List, AiVariantMode.Batch }, mode,
+            ("Execution", Ui.Combo(nano ? new[] { AiVariantMode.List } : new[] { AiVariantMode.List, AiVariantMode.Batch }, nano ? AiVariantMode.List : mode,
                 value => paid ? value == AiVariantMode.List ? "List · separate API requests" : "Batch · one API request"
                     : value == AiVariantMode.List ? "List · lower VRAM" : "Batch · faster, more VRAM", value => mode = value, 250)),
             ("Memory use", Ui.Combo(new[] { "auto", "reduced", "standard" }, fluxMemory,
@@ -227,7 +228,7 @@ public static class AiDialogs
         var note = Ui.Label(task == AiTaskKind.GenerateImage
             ? "Generate a new image using the prompt and optional references. Image size preserves proportions. List runs variants separately; Batch groups them. Paid variants are billed individually."
             : paid
-            ? "Context, edge matching and the insertion mask are automatic. Selection softness and saved edge settings do not control generation. GPT receives an image crop and references; Composa restores placement and applies its own mask once. Each variant is billed; Undo does not refund charges."
+            ? "Context, edge matching and the insertion mask are automatic. Selection softness and saved edge settings do not control generation. The image model receives a crop and references; Composa restores placement and applies its own mask once. Each variant is billed; Undo does not refund charges."
             : "Context, conditioning overlap and the insertion edge are automatic. Selection softness and saved edge settings do not control generation. Local color matching uses unchanged surroundings and fades inside the edit. List runs variants separately; Batch needs more memory. Undo restores the original.", Palette.Secondary);
         note.MaxWidth = 470; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         if (service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
@@ -236,7 +237,7 @@ public static class AiDialogs
         var lorasEnabled = profile.LorasEnabled;
         var loras = profile.Loras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
         if (paid)
-            extra.Children.Add(CanvasDialogs.Form(("GPT quality", Ui.Combo(qualities, qualities.Contains(quality) ? quality : "low", value => value, value => quality = value, 150))));
+            extra.Children.Add(CanvasDialogs.Form((nano ? "Resolution" : "GPT quality", Ui.Combo(qualities, quality, value => value, value => quality = value, 150))));
         else if (service?.SelectedEngine?.Lora.Supported == true)
         {
             var rows = new StackPanel { Spacing = 9, IsEnabled = lorasEnabled };
@@ -339,9 +340,9 @@ public static class AiDialogs
         DialogWindow? dialog = null;
         var qualityHost = new StackPanel();
         var qualityOptions = new[] { "low", "medium", "high", "xhigh", "max" };
-        var qualityCombo = Ui.Combo(qualityOptions, qualityOptions.Contains(quality) ? quality : "low", value => value,
-            value => { quality = value; Refresh(); }, 150);
-        qualityHost.Children.Add(CanvasDialogs.Form(("GPT quality", qualityCombo)));
+        var qualityCombo = new ComboBox { ItemsSource = qualityOptions, SelectedItem = qualityOptions.Contains(quality) ? quality : "low", Width = 150 };
+        qualityCombo.SelectionChanged += (_, _) => { if (qualityCombo.SelectedItem is string value) { quality = value; Refresh(); } };
+        qualityHost.Children.Add(CanvasDialogs.Form(("Quality / resolution", qualityCombo)));
         var size = Ui.Combo(sizeOptions, originalSize ? sizeOptions[0] : AiDimensions.Label(mp), value => value, value =>
         {
             originalSize = value == sizeOptions[0];
@@ -380,7 +381,10 @@ public static class AiDialogs
             variants = Math.Clamp(next.Variants, 1, 3); quality = next.ApiQuality;
             expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : next.ExpansionMode;
             regionSide = next.ExpansionMinimumSide; wholeSide = next.WholeExpansionMinimumSide;
-            qualityCombo.SelectedItem = qualityOptions.Contains(quality) ? quality : "low";
+            qualityOptions = NanoBanana.IsModel(service?.SelectedEngine?.ApiModel) ? ["1K", "2K", "4K"] : ["low", "medium", "high", "xhigh", "max"];
+            if (!qualityOptions.Contains(quality)) quality = qualityOptions[0];
+            qualityCombo.ItemsSource = qualityOptions;
+            qualityCombo.SelectedItem = quality;
             size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);
             variantsCombo.SelectedItem = variants.ToString(); mode.SelectedIndex = expansionMode == AiExpansionMode.WholeImage ? 1 : 0;
             RefreshExpandChoices(); Refresh();
@@ -409,6 +413,11 @@ public static class AiDialogs
         void Refresh()
         {
             var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid;
+            var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
+            qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
+            if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];
+            if(!qualityCombo.Items.Cast<string>().SequenceEqual(qualityOptions)) qualityCombo.ItemsSource=qualityOptions;
+            if(!Equals(qualityCombo.SelectedItem,quality)) qualityCombo.SelectedItem=quality;
             try
             {
                 (width, height) = task == AiTaskKind.GenerativeExpand
@@ -416,10 +425,10 @@ public static class AiDialogs
                     : originalSize ? AiDimensions.OriginalGenerationSize(documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
                 if (task == AiTaskKind.GenerativeExpand && (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0)
                     (width, height) = AiDimensions.OriginalGenerationSize(width, height);
-                var api = paid ? PartnerImageSize.Plan(width, height,
+                var api = paid && !nano ? PartnerImageSize.Plan(width, height,
                     (task == AiTaskKind.GenerativeExpand ? (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0 : originalSize)
                         ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels) : (width, height);
-                dimensions.Text = $"{width} × {height} px · proportions preserved" + (paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
+                dimensions.Text = $"{width} × {height} px · proportions preserved" + (nano ? $"\nNano Banana: {quality} · {NanoBanana.Aspect(width,height)}; technical padding removed on insertion." : paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
                 if (!paid && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu" && sourceCanvas is { } canvas && selectionBounds is { } selection
                     && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight)
                 {
@@ -433,7 +442,8 @@ public static class AiDialogs
             var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
             var count = sourceCount + (references?.Count ?? referenceCount);
             cost.Text = paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
-            note.Text = paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
+            note.Text = nano ? "Nano Banana 2 · Gemini 3.1: 1K / 2K / 4K. Variants run sequentially and are billed individually. Undo does not refund credits."
+                : paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
                     ? "Fill only the selection with surrounding context. Existing canvas size is preserved; the expansion instruction is automatic."
                     : "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."

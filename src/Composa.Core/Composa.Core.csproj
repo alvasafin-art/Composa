@@ -6,7 +6,8 @@
     <PackageReference Include="SkiaSharp" Version="$(SkiaSharpVersion)" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaSharpVersion)" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
-    <Content Include="Models/*.onnx" Link="models/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Models/efficient_sam_vits_*.onnx" Link="models/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Models/*.onnx" Exclude="Models/efficient_sam_vits_*.onnx" Link="models/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <Content Include="../../packaging/model-licenses/*" Link="model-licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="Composa.Core.Tests" />
     <EmbeddedResource Include="IO/Psd/sRGB2014.icc" />

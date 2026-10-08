@@ -1,0 +1,4 @@
+{
+  "gpt":{"class_type":"GeminiNanoBanana2V2","inputs":{"prompt":"","model":"Nano Banana 2 (Gemini 3.1 Flash Image)","model.aspect_ratio":"1:1","model.resolution":"1K","model.thinking_level":"MINIMAL","seed":0,"response_modalities":"IMAGE","system_prompt":"Produce the requested image and preserve all explicitly requested image details."}},
+  "save":{"class_type":"SaveImage","inputs":{"images":["gpt",0],"filename_prefix":"Composa/nano-banana-2"}}
+}

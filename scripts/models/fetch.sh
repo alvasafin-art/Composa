@@ -4,11 +4,11 @@
 # copies them from (src/Composa.Core/Models/). A file that already matches is left alone, so this is
 # cheap to run before every build; a download that does not match is deleted and the script fails.
 #
-#   usage: scripts/models/fetch.sh
+#   usage: scripts/models/fetch.sh [--all]
 #
 # Nothing here runs at application run time: Composa never downloads a model. The packaging scripts
-# and the workflows run this so every package carries every model; a developer checkout that has not
-# run it works without the Person choice, which falls back to the plain backdrop and says so.
+# and the workflows fetch SAM Quality only. --all also verifies legacy development fixtures;
+# those weights never ship in release packages. BiRefNet runs on the connected ComfyUI server.
 #
 # The subject pins are the community ONNX conversions Lolly uses, hashed on 2026-10-01 against Lolly's pins:
 #   u2netp.onnx  is in git (4.6 MB), from rembg's release page; upstream xuebinqin/U-2-Net, Apache-2.0.
@@ -44,9 +44,11 @@ fetch() {
   echo "fetch.sh: $file verified"
 }
 
+if [ "${1:-}" = "--all" ]; then
 fetch modnet.onnx \
   "https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx" \
   07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9 25888640
+fi
 
 fetch efficient_sam_vits_encoder.onnx \
   "https://github.com/wkentaro/efficient-sam/releases/download/onnx-models-20231225/efficient_sam_vits_encoder.onnx" \
@@ -63,8 +65,10 @@ check() {
   fi
   echo "fetch.sh: $1 is present and verified"
 }
+if [ "${1:-}" = "--all" ]; then
 check u2netp.onnx 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
 check mobile_sam_encoder.onnx 20deef402855b31222b528f52b04807e41ebe47216ac0e39a0729f43491a0209
 check mobile_sam_decoder.onnx 22cf85e35d14182f4b4712364264c06b22edbef63f065189586f080ef4e2f325
 check efficient_sam_vitt_encoder.onnx 7a73ee65aa2c37237c89b4b18e73082f757ffb173899609c5d97a2bbd4ebb02d
 check efficient_sam_vitt_decoder.onnx e1afe46232c3bfa3470a6a81c7d3181836a94ea89528aff4e0f2d2c611989efd
+fi

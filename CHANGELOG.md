@@ -4,6 +4,23 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.24] - 2026-10-08 · TEST
+
+### Fixed
+
+- Release packages contain only the two SAM Quality ONNX files. MobileSAM, EfficientSAM Ti, U²-Net and MODNet weights are excluded from every Windows/Linux publish; packaging rejects unexpected ONNX files. Default model fetching downloads only SAM Quality; legacy development fixtures remain available through `--all`. This removes 116,486,355 bytes of unpacked weights. Internal legacy subject commands fall back to SAM Quality when their previous weights are absent.
+- Match to Scene measures the visible masked/transformed subject and nearby scene, using robust luminance and neutral-mid-tone color estimates. Two editable clipped Curves layers preserve texture, black/white endpoints and source pixels in one undo step. Background detail no longer becomes added noise or blur; selections limit the correction and saturated materials cannot supply a false white balance cast.
+- ComfyUI connections accept null CPU device indices and memory fields, allowing partner API nodes to work without a GPU device entry.
+
+### Added
+
+- Nano Banana 2 / Gemini 3.1 Flash Image through the official built-in GeminiNanoBanana2V2 workflow, alongside GPT. Supports generation, image editing, fill, removal, expansion, background replacement, harmonization and relighting, with 1K/2K/4K output and ordered references. Technical aspect padding is removed before restoring image placement; masks remain local and legacy selection/edge controls do not affect generation.
+- Separate sequential API variants reuse uploads, report server pricing/usage, and insert together in one undo step. Missing keys, unsupported models/resolutions, excessive references, cancellation and errors do not create partial edits. GPT and Nano Banana retain independent quality/resolution preferences.
+
+Validation: 1,043 automated tests passed (481 core, 562 headless app), including real ComfyUI schema discovery, visual before/after Match to Scene checks and SAM Quality fallback with MODNet absent. The official ComfyUI validator accepted nine offline Nano Banana workflows covering 1K/2K/4K with 0/1/14 references. A clean Windows publish contained exactly the two verified SAM Quality files.
+
+This is an experimental TEST pre-release. No paid Nano Banana provider generation was executed during validation. Local Match to Scene corrects tone/color; it does not synthesize missing shadows or alter light direction. Nano Banana requires a compatible current ComfyUI and a Comfy.org API key.
+
 ## [1.2.1-preview.23] - 2026-10-08 · TEST
 
 ### Changed
