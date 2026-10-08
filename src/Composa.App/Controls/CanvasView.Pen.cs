@@ -12,6 +12,7 @@ public sealed partial class CanvasView
     private Guid? penSelectedLayer;
     private int penSelectedNode = -1;
     private bool penDraftDrag;
+    private bool penDraftEditing;
     public bool EditVectorMask { get; set; }
     private VectorPath? CurrentPenPath => EditVectorMask ? session?.ActiveLayer?.VectorMask : session?.ActiveLayer?.Shape?.Path;
     public void FinishPen(bool closed = false)
@@ -19,11 +20,31 @@ public sealed partial class CanvasView
         if (penDraft.Count >= 2 && session != null) session.AddPath(new VectorPath { Nodes = penDraft.ToArray(), Closed = closed && penDraft.Count >= 3 });
         penDraft.Clear(); InvalidateVisual(); ToolStateChanged?.Invoke();
     }
-    private void PenPress(bool alt, bool newPath, bool insert)
+    private void PenPress(bool alt, bool editPoints, bool insert, int clicks)
     {
+        penDraftEditing = false;
+        if (editPoints && penDraft.Count > 0)
+        {
+            var nearest = 9.0; var found = -1; var which = 0;
+            for (var i = 0; i < penDraft.Count; i++)
+            {
+                var node = penDraft[i]; var handles = new[] { new SKPoint((float)node.X, (float)node.Y), new SKPoint((float)node.InX, (float)node.InY), new SKPoint((float)node.OutX, (float)node.OutY) };
+                for (var h = 0; h < handles.Length; h++)
+                {
+                    if (h > 0 && handles[h] == handles[0]) continue;
+                    var distance = SKPoint.Distance(handles[h], pressDocument) * UnitsPerPixel;
+                    if (distance < nearest) { nearest = distance; found = i; which = h; }
+                }
+            }
+            if (found >= 0)
+            { penNode = found; penHandle = alt && which == 0 ? 2 : which; penOriginal = new() { Nodes = penDraft.ToArray() }; penDraftEditing = penDraftDrag = true; drag = Drag.PenNode; }
+            return;
+        }
+        if (!editPoints && clicks >= 2 && penDraft.Count >= 3)
+        { FinishPen(closed: true); return; }
         if (penDraft.Count > 2 && SKPoint.Distance(new SKPoint((float)penDraft[0].X, (float)penDraft[0].Y), pressDocument) * UnitsPerPixel < 9)
         { FinishPen(closed: true); return; }
-        if (penDraft.Count == 0 && !newPath && CurrentPenPath is { } path && session?.ActiveLayer is { Pixels: { } pixels } layer && !session.PixelsLocked(layer))
+        if (editPoints && penDraft.Count == 0 && CurrentPenPath is { } path && session?.ActiveLayer is { Pixels: { } pixels } layer && !session.PixelsLocked(layer))
         {
             var nearest = 9.0; var found = -1; var which = 0;
             for (var i = 0; i < path.Nodes.Length; i++)
@@ -65,6 +86,7 @@ public sealed partial class CanvasView
                 return;
             }
         }
+        if (editPoints) return;
         penSelectedLayer = null; penSelectedNode = -1;
         penDraft.Add(BezierNode.Corner(pressDocument.X, pressDocument.Y)); penDraftDrag = true; drag = Drag.PenNode;
     }
@@ -79,20 +101,23 @@ public sealed partial class CanvasView
     {
         if (penDraftDrag)
         {
+            if (penDraftEditing && penOriginal != null)
+            { penDraft[penNode] = MovedNode(penOriginal.Nodes[penNode], currentDocument.X, currentDocument.Y, penHandle, alt); return; }
             if (penDraft.Count == 0) return; var n = penDraft[^1];
             penDraft[^1] = n with { OutX = currentDocument.X, OutY = currentDocument.Y, InX = 2 * n.X - currentDocument.X, InY = 2 * n.Y - currentDocument.Y }; return;
         }
         if (penLayer?.Pixels == null || penOriginal == null || !penLayer.Matrix.TryInvert(out var inverse)) return;
         var p = inverse.MapPoint(currentDocument); var nodes = penOriginal.Nodes.ToArray(); var node = nodes[penNode];
         double x = p.X / penLayer.Pixels.Width, y = p.Y / penLayer.Pixels.Height;
-        nodes[penNode] = penHandle switch
+        nodes[penNode] = MovedNode(node, x, y, penHandle, alt);
+        session!.PreviewVectorPath(penLayer, penOriginal with { Nodes = nodes }, EditVectorMask);
+    }
+    private static BezierNode MovedNode(BezierNode node, double x, double y, int handle, bool alt) => handle switch
         {
             1 => node with { InX = x, InY = y, OutX = alt ? node.OutX : 2 * node.X - x, OutY = alt ? node.OutY : 2 * node.Y - y },
             2 => node with { OutX = x, OutY = y, InX = alt ? node.InX : 2 * node.X - x, InY = alt ? node.InY : 2 * node.Y - y },
             _ => node with { X = x, Y = y, InX = node.InX + x - node.X, InY = node.InY + y - node.Y, OutX = node.OutX + x - node.X, OutY = node.OutY + y - node.Y }
         };
-        session!.PreviewVectorPath(penLayer, penOriginal with { Nodes = nodes }, EditVectorMask);
-    }
     private void CapturePenOverlay(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
         if (session?.Tool != Composa.Editing.Tool.Pen) return;

@@ -238,7 +238,7 @@ public sealed partial class MainWindow
         aiFloatingRemove.Padding = aiFloatingMore.Padding = new Thickness(8, 0);
         aiFloatingRemove.VerticalContentAlignment = aiFloatingMore.VerticalContentAlignment = VerticalAlignment.Center;
         actions.Children.Add(AiGenerationControls.Split(aiFloatingGenerate, aiVariantsCombo));
-        aiEngineCombo = Ui.Combo(aiTasks.Engines.Profiles, aiTasks.SelectedEngine!, value => value.DisplayName, value =>
+        aiEngineCombo = Ui.Combo(aiTasks.Engines.Profiles.Where(profile => profile.Binding(AiTaskKind.GenerativeFill) != null).ToArray(), aiTasks.EngineFor(AiTaskKind.GenerativeFill)!, value => value.DisplayName, value =>
         {
             if (refreshingAiEngine) return;
             settings.AiTaskEngineIds[AiTaskKind.GenerativeFill.ToString()] = value.Id; settings.Save(); RefreshAiUi();
@@ -304,7 +304,7 @@ public sealed partial class MainWindow
         }
         if (aiEngineCombo != null)
         {
-            var index = aiTasks.Engines.Profiles.ToList().FindIndex(profile => profile.Id == aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id);
+            var index = aiTasks.Engines.Profiles.Where(profile => profile.Binding(AiTaskKind.GenerativeFill) != null).ToList().FindIndex(profile => profile.Id == aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id);
             refreshingAiEngine = true;
             try { if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index; }
             finally { refreshingAiEngine = false; }
@@ -561,7 +561,7 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.Upscale && session is { } upscaleSession)
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
-            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, aiTasks.EngineFor(task))) return;
+            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, aiTasks.EngineFor(task), aiTasks)) return;
         }
         var aspect = AiAspect(task);
         var profile = AiOptions(task);

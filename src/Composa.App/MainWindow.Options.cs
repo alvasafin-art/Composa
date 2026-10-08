@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Composa.Editing;
+using Composa.AI;
 using Composa.Model;
 using Composa.Selections;
 using SkiaSharp;
@@ -174,10 +175,13 @@ public sealed partial class MainWindow
                 var readout = Ui.Label("Drag on the canvas to choose the area to keep", Palette.Secondary);
                 var apply = Ui.TextButton("Apply", canvas.ApplyCrop, accent: true);
                 var cancel = Ui.TextButton("Cancel", canvas.CancelCrop);
-                Add(readout, apply, cancel, Ui.Separator(), Flat("Trim transparent edges", () => { if (!s.Trim()) ShowProblem("Nothing to trim: no edge is transparent."); else canvas.Fit(); }));
+                var expand = Ui.TextButton("Gen Expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
+                ToolTip.SetTip(expand, "Generate image content inside the extended crop frame");
+                Add(readout, apply, cancel, expand, Ui.Separator(), Flat("Trim transparent edges", () => { if (!s.Trim()) ShowProblem("Nothing to trim: no edge is transparent."); else canvas.Fit(); }));
                 refreshOptions = () =>
                 {
                     apply.IsEnabled = cancel.IsEnabled = canvas.HasCrop;
+                    expand.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
                     readout.Text = canvas.CropRect is { } crop ? $"{Math.Round(crop.Width)} × {Math.Round(crop.Height)} px" : "Drag on the canvas to choose the area to keep";
                 };
                 refreshOptions();

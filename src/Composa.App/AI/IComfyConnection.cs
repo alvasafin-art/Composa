@@ -12,4 +12,5 @@ internal interface IComfyConnection : IDisposable
     Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default);
     Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default);
     Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default);
+    Task<ComfyServerInfo?> MemoryInfoAsync(CancellationToken cancellationToken = default) => Task.FromResult<ComfyServerInfo?>(null);
 }

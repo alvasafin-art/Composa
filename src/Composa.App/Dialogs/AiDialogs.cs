@@ -285,7 +285,7 @@ public static class AiDialogs
         return key.Text?.Trim();
     }
 
-    public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection, EngineProfile? engine = null)
+    public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection, EngineProfile? engine = null, AiTaskService? service = null)
     {
         var profile = settings.OperationFor(engine?.Id, AiTaskKind.Upscale, engine?.PaidApi == true);
         var factor = profile.UpscaleFactor == 4 ? 4 : 2;
@@ -293,9 +293,17 @@ public static class AiDialogs
         void Refresh() => dimensions.Text = $"{width * (long)factor} × {height * (long)factor} px" + (selection ? " · fitted back into your selection" : " · resizes the canvas");
         var scale = Ui.Combo(new[] { 2, 4 }, factor, value => "×" + value, value => { factor = value; Refresh(); }, 100);
         Refresh();
-        var note = Ui.Label("Inference is tiled. A ×4 model still computes its native scale for a ×2 result; the input is not reduced, so source details are preserved. For lowest memory use a native ×2 model in ComfyUI Settings.", Palette.Secondary);
+        var note = Ui.Label("", Palette.Secondary);
+        void EngineNote() => note.Text = engine?.Id.StartsWith("seedvr2", StringComparison.Ordinal) == true
+            ? "SeedVR2 processes overlapping tiles sequentially. Tile size and VAE memory use are automatic; insufficient VRAM retries with smaller tiles. Native uses the server's built-in SeedVR2 nodes; Custom nodes requires ComfyUI-SeedVR2_VideoUpscaler. Select its models in ComfyUI Settings."
+            : "Inference is tiled. A ×4 model still computes its native scale for a ×2 result; the input is not reduced, so source details are preserved. For lowest memory use a native ×2 model in ComfyUI Settings.";
+        EngineNote();
+        Control picker = service == null ? Ui.Label(engine?.DisplayName ?? "Assigned workflow") : Ui.Combo(service.Engines.Profiles.Where(p => p.Binding(AiTaskKind.Upscale) != null).ToArray(), engine,
+            p => p.DisplayName, p => { engine = p; EngineNote(); }, 260);
         note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        if (!await new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Scale", scale)), dimensions, note), "Upscale").Ask(owner)) return false;
+        if (!await new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Workflow", picker), ("Scale", scale)), dimensions, note), "Upscale").Ask(owner)) return false;
+        if (engine != null) settings.AiTaskEngineIds[nameof(AiTaskKind.Upscale)] = engine.Id;
+        profile = settings.OperationFor(engine?.Id, AiTaskKind.Upscale, engine?.PaidApi == true);
         settings.SetOperation(engine?.Id, AiTaskKind.Upscale, profile with { UpscaleFactor = factor }); settings.Save(); return true;
     }
 

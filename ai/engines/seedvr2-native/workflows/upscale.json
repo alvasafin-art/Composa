@@ -1,0 +1,15 @@
+{
+  "source":{"class_type":"LoadImage","inputs":{"image":"placeholder.png"}},
+  "alpha":{"class_type":"InvertMask","inputs":{"mask":["source",1]}},
+  "rgba":{"class_type":"JoinImageWithAlpha","inputs":{"image":["source",0],"alpha":["alpha",0]}},
+  "upscale":{"class_type":"ImageScale","inputs":{"image":["rgba",0],"upscale_method":"lanczos","width":512,"height":512,"crop":"disabled"}},
+  "model":{"class_type":"UNETLoader","inputs":{"unet_name":"seedvr2_3b_fp16.safetensors","weight_dtype":"default"}},
+  "vae":{"class_type":"VAELoader","inputs":{"vae_name":"ema_vae_fp16.safetensors"}},
+  "preprocess":{"class_type":"SeedVR2Preprocess","inputs":{"resized_images":["upscale",0]}},
+  "encode":{"class_type":"VAEEncodeTiled","inputs":{"pixels":["preprocess",0],"vae":["vae",0],"tile_size":256,"overlap":64,"temporal_size":64,"temporal_overlap":8}},
+  "condition":{"class_type":"SeedVR2Conditioning","inputs":{"model":["model",0],"vae_conditioning":["encode",0]}},
+  "sampler":{"class_type":"KSampler","inputs":{"model":["model",0],"seed":0,"steps":1,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":1,"positive":["condition",0],"negative":["condition",1],"latent_image":["encode",0]}},
+  "decode":{"class_type":"VAEDecodeTiled","inputs":{"samples":["sampler",0],"vae":["vae",0],"tile_size":256,"overlap":64,"temporal_size":64,"temporal_overlap":8}},
+  "postprocess":{"class_type":"SeedVR2PostProcessing","inputs":{"images":["decode",0],"original_resized_images":["upscale",0],"color_correction_method":"lab"}},
+  "save":{"class_type":"SaveImage","inputs":{"images":["postprocess",0],"filename_prefix":"Composa/seedvr2-native"}}
+}

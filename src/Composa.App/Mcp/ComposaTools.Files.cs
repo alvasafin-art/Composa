@@ -29,6 +29,7 @@ public sealed partial class ComposaTools
             try { s = await window.OpenPath(path) ?? throw new McpException($"{Path.GetFileName(path)} was not opened."); }
             catch (Exception error) when (error is not McpException) { throw new McpException($"Couldn't open {Path.GetFileName(path)}: {error.Message}"); }
             var number = window.Sessions.ToList().IndexOf(s) + 1;
+            if (imageExchange) WindowActivation.Show(window);
             return window.Sessions.Count == before
                 ? $"Document {number} \"{s.Title}\" was already open, now active."
                 : $"Opened document {number}: \"{s.Title}\" {s.Document.Width}×{s.Document.Height} px, {s.Document.AllLayers().Count()} layers, now active.";

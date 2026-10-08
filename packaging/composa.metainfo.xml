@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.21" date="2026-10-08">
+      <description>
+        <p>TEST: clean FLUX conditioning for removal and expansion, with more context for thin selections. Restores Crop Gen Expand, Ctrl vector-point editing and double-click path closure. Photoshop scripts exchange merged images through a direct local pipe and activate the receiving application. Adds native and custom-node SeedVR2 upscale with automatic output tiles, VAE tiling and smaller-tile memory retries.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.20" date="2026-10-07">
       <description>
         <p>TEST: improved local SAM geometry and image-guided edges, EfficientSAM S as the quality default, coherent Spot Healing and retouch layers. Adds a dedicated Photoshop image bridge, visible JavaScript entry points and merged-image exchange. Separates filled alignment controls and remembers tool-folder choices across tabs and restarts. Verified by 983 automated tests; live Photoshop exchange remains unverified.</p>

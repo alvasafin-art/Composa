@@ -100,7 +100,7 @@ public sealed class McpHost : IDisposable
 
     private McpServerOptions Options()
     {
-        var tools = new ComposaTools(window);
+        var tools = new ComposaTools(window, imageExchange: exchangeOnly);
         return new McpServerOptions
         {
             ServerInfo = new Implementation { Name = "composa", Title = "Composa", Version = AppInfo.Version },

@@ -22,7 +22,7 @@ namespace Composa.App.Mcp;
 /// agent does is one undoable step, refreshes the window through the session's events and can be taken back with
 /// Ctrl+Z like anything else. Documents are addressed by their tab number, the way <c>list_documents</c> reports them.
 /// </summary>
-public sealed partial class ComposaTools(MainWindow window, EditorSession? automationSession = null)
+public sealed partial class ComposaTools(MainWindow window, EditorSession? automationSession = null, bool imageExchange = false)
 {
     public McpServerPrimitiveCollection<McpServerTool> Collection(bool exchangeOnly = false)
     {

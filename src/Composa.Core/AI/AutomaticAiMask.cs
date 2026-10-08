@@ -55,7 +55,11 @@ public static class AutomaticAiMask
         if (selection.IsEmpty) return new(SKRectI.Empty, 0, 0);
         var shortSide = Math.Min(selection.Width, selection.Height);
         var seam = Math.Clamp((int)Math.Round(shortSide * .04), 3, 32);
+        // A stripe must retain scene context, not become a huge magnification of a
+        // few pixels. Base context on the longer dimension as well as the contour.
         var padding = Math.Max(32, (int)Math.Ceiling(shortSide * .22)) + seam;
+        if (shortSide < Math.Max(selection.Width, selection.Height) * .2)
+            padding = Math.Max(padding, Math.Max(64, (int)Math.Ceiling(Math.Max(selection.Width, selection.Height) * .16)) + seam);
         var w = Math.Min(canvas.Width, selection.Width + 2 * padding);
         var h = Math.Min(canvas.Height, selection.Height + 2 * padding);
         // Thin edits still need a useful two-dimensional neighbourhood; this also

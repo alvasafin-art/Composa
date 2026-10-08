@@ -284,7 +284,7 @@ public sealed partial class CanvasView
                 else { drag = Drag.Marquee; dragMode = Composa.Selections.SelectionMode.Replace; snapFrom = snapTo = pressDocument; }
                 break;
             case Tool.Pen:
-                PenPress(alt, e.KeyModifiers.HasFlag(KeyModifiers.Control), shift);
+                PenPress(alt, control, shift, e.ClickCount);
                 break;
             case Tool.SelectionBrush or Tool.RemoveObject:
                 var selectionMode = session.Tool == Tool.RemoveObject ? SelectionMode.Replace : alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : session.SelectionBrushMode;

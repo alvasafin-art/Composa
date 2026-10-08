@@ -58,6 +58,12 @@ public sealed class ComfyClient : IComfyConnection
         return new ComfyQueueState(running, pending, position);
     }
 
+    public async Task<ComfyServerInfo?> MemoryInfoAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); timeout.CancelAfter(ConnectionTimeout);
+        using var stats = await GetJson("system_stats", timeout.Token); return ParseInfo(stats.RootElement);
+    }
+
     public async Task<string> UploadPngAsync(string semanticName, SKBitmap bitmap, CancellationToken cancellationToken = default)
     {
         var filename = $"composa-{semanticName}-{Guid.NewGuid():N}.png";
@@ -215,10 +221,15 @@ public sealed class ComfyClient : IComfyConnection
         var system = root.TryGetProperty("system", out var value) ? value : default;
         string? Field(string name) => system.ValueKind == JsonValueKind.Object && system.TryGetProperty(name, out var field) ? field.GetString() : null;
         var devices = new List<string>();
+        var memory = new List<ComfyDeviceMemory>();
         if (root.TryGetProperty("devices", out var list) && list.ValueKind == JsonValueKind.Array)
             foreach (var device in list.EnumerateArray())
-                devices.Add(device.TryGetProperty("name", out var name) ? name.GetString() ?? "Device" : "Device");
-        return new(Field("comfyui_version"), Field("os"), Field("python_version"), devices);
+            {
+                var name = device.TryGetProperty("name", out var n) ? n.GetString() ?? "Device" : "Device"; devices.Add(name);
+                long Number(string key) => device.TryGetProperty(key, out var f) && f.TryGetInt64(out var v) ? Math.Max(0, v) : 0;
+                memory.Add(new(name, device.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "", (int)Number("index"), Number("vram_total"), Number("vram_free")));
+            }
+        return new(Field("comfyui_version"), Field("os"), Field("python_version"), devices) { Memory = memory };
     }
 
     internal static ComfyServerCapabilities ParseCapabilities(JsonElement root)
@@ -231,7 +242,8 @@ public sealed class ComfyClient : IComfyConnection
         foreach (var node in root.EnumerateObject())
         {
             nodes.Add(node.Name);
-            if (node.Name == "OpenAIGPTImageNodeV2" && JsonNode.Parse(node.Value.GetRawText()) is JsonObject definition) definitions[node.Name] = definition;
+            if ((node.Name == "OpenAIGPTImageNodeV2" || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
+                && JsonNode.Parse(node.Value.GetRawText()) is JsonObject definition) definitions[node.Name] = definition;
             if (!node.Value.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object) continue;
             foreach (var sectionName in new[] { "required", "optional" })
             {
@@ -260,7 +272,9 @@ public sealed class ComfyClient : IComfyConnection
     internal static bool AssetKind(string input, string node, out EngineAssetKind kind)
     {
         var key = input.ToLowerInvariant();
-        if (key.Contains("bg_removal") || key.Contains("background_removal")) kind = EngineAssetKind.BackgroundRemoval;
+        if (input == "model" && node == "SeedVR2LoadDiTModel") kind = EngineAssetKind.DiffusionModel;
+        else if (input == "model" && node == "SeedVR2LoadVAEModel") kind = EngineAssetKind.Vae;
+        else if (key.Contains("bg_removal") || key.Contains("background_removal")) kind = EngineAssetKind.BackgroundRemoval;
         else if (key.Contains("lora")) kind = EngineAssetKind.Lora;
         else if (key.Contains("vae")) kind = EngineAssetKind.Vae;
         else if (key.Contains("clip") || key.Contains("text_encoder")) kind = EngineAssetKind.TextEncoder;

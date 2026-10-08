@@ -103,7 +103,7 @@ public class AiEditingRegressionTests
     public void Image_tasks_are_available_without_selection_and_full_edits_do_not_invent_a_mask(AiTaskKind task)
     {
         var session = EditorSession.NewCanvas(79, 61, SKColors.White);
-        foreach (var pack in Catalog().Profiles) Assert.True(AiTaskAvailability.Resolve(session, pack, task).Available);
+        foreach (var pack in Catalog().Profiles) Assert.Equal(pack.Binding(task) != null, AiTaskAvailability.Resolve(session, pack, task).Available);
         Assert.False(AiTaskAvailability.Resolve(session, Catalog().Profiles[0], AiTaskKind.GenerativeFill).Available);
         if (task == AiTaskKind.GenerativeExpand) return;
         var request = new AiTaskRequest { Task = task, Prompt = "a red cup" };

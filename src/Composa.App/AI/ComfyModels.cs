@@ -10,7 +10,11 @@ namespace Composa.App.AI;
 public enum ComfyConnectionState { Disconnected, Connecting, Connected, Error }
 public enum AiOperationStatus { Queued, Running, Completed, Failed, Cancelled }
 
-public sealed record ComfyServerInfo(string? Version, string? OperatingSystem, string? PythonVersion, IReadOnlyList<string> Devices);
+public sealed record ComfyDeviceMemory(string Name, string Type, int Index, long Total, long Free);
+public sealed record ComfyServerInfo(string? Version, string? OperatingSystem, string? PythonVersion, IReadOnlyList<string> Devices)
+{
+    public IReadOnlyList<ComfyDeviceMemory> Memory { get; init; } = [];
+}
 public sealed record ComfyQueueState(int Running, int Pending, int? Position = null);
 public sealed record ComfyImageReference(string Filename, string Subfolder, string Type, string? NodeId = null);
 

@@ -60,7 +60,7 @@ public class PartnerImageTests
     [Fact]
     public void Api_pack_has_one_official_node_no_local_weights_and_local_pack_stays_default()
     {
-        var catalog = Catalog(); Assert.Equal(2, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
+        var catalog = Catalog(); Assert.Equal(4, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
         var engine = Pack(); Assert.True(engine.PaidApi); Assert.Equal("gpt-image-2.5-sunburst", engine.ApiModel);
         Assert.Empty(engine.RequiredAssets); Assert.Empty(catalog.ModelSlots(engine)); Assert.False(engine.Lora.Supported);
         Assert.DoesNotContain("ImageToMask", engine.RequiredNodeTypes);

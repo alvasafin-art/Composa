@@ -234,7 +234,7 @@ public sealed class AiTaskService : IAiTaskRunner
                 WorkflowExecution.Loras(boundGraph, engine, request.Settings.Loras, capabilities);
                 if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
                     WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
-                editable?.Bind(boundGraph);
+                editable?.Bind(boundGraph, files.GetValueOrDefault("conditioningImage"));
                 if (engine.Id == "flux2-klein-intel-xpu")
                 {
                     WorkflowExecution.NativeFluxSchedule(boundGraph);
@@ -243,6 +243,12 @@ public sealed class AiTaskService : IAiTaskRunner
                 if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
                 if (request.Task == AiTaskKind.Upscale)
                     WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);
+                if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
+                {
+                    var limit = SeedVr2Upscaler.TileLimit(ServerInfo);
+                    SeedVr2Upscaler.Configure(boundGraph, Math.Min(inputs.SourceImage.Width, limit / request.Settings.UpscaleFactor),
+                        Math.Min(inputs.SourceImage.Height, limit / request.Settings.UpscaleFactor), request.Settings.UpscaleFactor, ServerInfo, capabilities, limit);
+                }
                 WorkflowModels.ResolvePaths(boundGraph, capabilities);
                 var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
                 if (!compatibility.IsCompatible) throw new InvalidOperationException(CompatibilityMessage(engine, compatibility)
@@ -251,12 +257,14 @@ public sealed class AiTaskService : IAiTaskRunner
             }
             // Validate before sending source/reference pictures or submitting a generation.
             var imagesToUpload = apiInputs?.Images ?? inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+            if (editable?.ConditioningImage is { } conditioning) imagesToUpload["conditioningImage"] = conditioning;
             if (request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
             _ = Bind(imagesToUpload
                 .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (semantic, bitmap) in imagesToUpload)
             {
+                if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal)) continue; // Only bounded tiles are uploaded by its runner.
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
             }
             var images = new List<SKBitmap>();
@@ -276,6 +284,14 @@ public sealed class AiTaskService : IAiTaskRunner
                             CreditsUsed = state.CreditsUsed is { } cost ? (reportedCredits ?? 0) + cost : reportedCredits };
                         StateChanged?.Invoke();
                     });
+                    if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
+                    {
+                        if (editor.Session.Document.RasterPixels() + (long)inputs.SourceImage.Width * inputs.SourceImage.Height * request.Settings.UpscaleFactor * request.Settings.UpscaleFactor > DocumentLimits.DocumentPixelBudget)
+                            throw new InvalidOperationException($"Upscale exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
+                        var graphForTiles = Bind(new Dictionary<string, string> { ["sourceImage"] = "seedvr2-preflight.png" });
+                        images.Add(await SeedVr2Upscaler.RunAsync(client, graphForTiles, inputs.SourceImage, request.Settings.UpscaleFactor, seed, ServerInfo, capabilities, progress, linked.Token));
+                        continue;
+                    }
                     var result = await client.ExecuteAsync(Bind(uploaded, index), progress, linked.Token);
                     using (result.History)
                     {

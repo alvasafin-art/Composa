@@ -68,12 +68,14 @@ public class McpTests
                 foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Exchange.ps1"),
                     "-Direction", "ToComposa", "-ImagePath", image, "-ComposaExe", Path.ChangeExtension(App, ".exe") }) start.ArgumentList.Add(arg);
                 start.Environment["COMPOSA_EXCHANGE_PIPE"] = host.PipeName;
+                window.WindowState = Avalonia.Controls.WindowState.Minimized;
                 using var process = System.Diagnostics.Process.Start(start)!;
                 var errors = process.StandardError.ReadToEndAsync(); var output = process.StandardOutput.ReadToEndAsync();
                 await Pumped(() => process.HasExited);
                 if (!process.HasExited) { process.Kill(entireProcessTree: true); Assert.Fail("Photoshop helper timed out."); }
                 Assert.True(process.ExitCode == 0, await errors); await output;
                 Assert.Equal(2, window.Sessions.Count); Assert.NotSame(session, window.Session);
+                Assert.Equal(Avalonia.Controls.WindowState.Normal, window.WindowState);
                 using var opened = window.Session!.Flatten(); Assert.Equal(expected.GetPixelSpan().ToArray(), opened.GetPixelSpan().ToArray());
             }
         }

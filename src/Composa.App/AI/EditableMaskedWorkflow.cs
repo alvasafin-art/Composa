@@ -11,6 +11,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
 {
     internal SKRectI Bounds { get; }
     internal SKBitmap Mask { get; }
+    internal SKBitmap? ConditioningImage { get; }
     private readonly AiTaskInputs inputs;
     private readonly AiTaskRequest request;
     private readonly AiMaskPlan plan;
@@ -29,9 +30,11 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         Bounds = plan.Bounds;
         if (Bounds.IsEmpty) throw new InvalidOperationException("The edit mask is empty.");
         Mask = AutomaticAiMask.OutputMask(core, context, plan, request.Task == AiTaskKind.GenerativeExpand);
+        if (request.Task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand || request.BlackEditRegion)
+            ConditioningImage = AiConditioningImage.Continue(context, core);
     }
 
-    internal void Bind(JsonObject graph)
+    internal void Bind(JsonObject graph, string? conditioningFile = null)
     {
         var pixaroma = graph["crop"]!["class_type"]!.GetValue<string>() == "PixaromaInpaintCrop";
         var crop = graph["crop"]!["inputs"]!.AsObject();
@@ -44,6 +47,11 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         var grow = plan.ConditioningGrow(Math.Min((double)ContentSize.Width / Bounds.Width, (double)ContentSize.Height / Bounds.Height));
         const int blur = AiMaskPlan.ModelBlur;
         JsonObject Node(string type, JsonObject values) => new() { ["class_type"] = type, ["inputs"] = values };
+        if (ConditioningImage != null)
+        {
+            graph["composa_edit_source"] = Node("LoadImage", new() { ["image"] = conditioningFile ?? "composa-conditioning-preflight.png" });
+            image = new JsonArray("composa_edit_source", 0);
+        }
         graph["composa_edit_crop"] = Node("ImageCrop", new() { ["image"] = image, ["x"] = Bounds.Left, ["y"] = Bounds.Top, ["width"] = Bounds.Width, ["height"] = Bounds.Height });
         if (!nativePixels)
             graph["composa_edit_resize"] = Node("ImageScale", new() { ["image"] = new JsonArray("composa_edit_crop", 0),
@@ -91,6 +99,11 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         // pipeline. The previous override discarded conditioning and expanded a binary
         // noise halo unrelated to the model-space mask.
         graph["composa_condition"]!["inputs"]!["mask"] = new JsonArray("composa_edit_padded_mask",0);
+        // Both the reference latent and inpaint conditioning see the same clean
+        // context. A black patch must never become an independent FLUX reference.
+        graph["sourceEncode"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
+        graph["composa_condition"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
+        foreach (var id in new[] { "blackPatch", "black", "blackSize", "composa_black_mask" }) graph.Remove(id);
         graph.Remove("composa_sampling_mask");
         graph["save"]!["inputs"]!["images"] = new JsonArray("decode", 0);
         graph.Remove("stitch"); graph.Remove("crop");
@@ -127,8 +140,9 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             using (result)
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan.SeamWidth,
-                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground));
+                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground),
+                    request.Task == AiTaskKind.GenerativeExpand && string.IsNullOrWhiteSpace(request.Prompt) || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand);
         }
     }
-    public void Dispose() => Mask.Dispose();
+    public void Dispose() { Mask.Dispose(); ConditioningImage?.Dispose(); }
 }

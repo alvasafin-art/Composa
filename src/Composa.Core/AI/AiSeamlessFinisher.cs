@@ -1,4 +1,5 @@
 using Composa.Rendering;
+using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.AI;
@@ -6,7 +7,7 @@ namespace Composa.AI;
 /// <summary>Automatic registration and a screened harmonic color residual. No texture synthesis or contrast gain.</summary>
 public static class AiSeamlessFinisher
 {
-    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true)
+    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false)
     {
         if (generated.Width != reference.Width || generated.Height != reference.Height
             || coverage.Width != reference.Width || coverage.Height != reference.Height)
@@ -14,6 +15,12 @@ public static class AiSeamlessFinisher
         var area = SKRectI.Intersect(decodedArea, reference.Info.Rect);
         var result = Pixels.Clone(generated);
         if (area.IsEmpty) return result;
+        if (continueUniformStrip && UniformStrip(reference, coverage, area) is { } tone)
+        {
+            for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
+                result.SetPixel(x, y, coverage.GetPixel(x, y).Alpha == 0 ? reference.GetPixel(x, y) : tone);
+            Pixels.Invalidate(result); return result;
+        }
         var (dx, dy) = Registration(generated, reference, coverage, area);
         if (dx != 0 || dy != 0)
         {
@@ -48,6 +55,26 @@ public static class AiSeamlessFinisher
     }
 
     private static double Luma(SKColor c) => (54 * c.Red + 183 * c.Green + 19 * c.Blue) / 256.0;
+
+    // A narrow automatic continuation of a verified constant background has no
+    // new subject to synthesize. Never apply this to an ordinary prompted fill,
+    // a large extension, or textured/transparent surroundings.
+    private static SKColor? UniformStrip(SKBitmap reference, SKBitmap coverage, SKRectI area)
+    {
+        var core = SelectionMask.Bounds(coverage, 255);
+        var shorter = Math.Min(core.Width, core.Height); var longer = Math.Max(core.Width, core.Height);
+        if (core.IsEmpty || shorter > 32 || shorter >= longer * .2) return null;
+        var min = new[] { 255, 255, 255 }; var max = new int[3]; var sum = new long[3]; var count = 0;
+        for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
+        {
+            if (coverage.GetPixel(x, y).Alpha != 0) continue;
+            var pixel = reference.GetPixel(x, y); if (pixel.Alpha != 255) return null;
+            for (var c = 0; c < 3; c++)
+            { var value = c == 0 ? pixel.Red : c == 1 ? pixel.Green : pixel.Blue; min[c] = Math.Min(min[c], value); max[c] = Math.Max(max[c], value); sum[c] += value; if (max[c] - min[c] > 1) return null; }
+            count++;
+        }
+        return count < 64 ? null : new SKColor((byte)((sum[0] + count / 2) / count), (byte)((sum[1] + count / 2) / count), (byte)((sum[2] + count / 2) / count));
+    }
 
     private static bool IsFlatContinuation(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area)
     {

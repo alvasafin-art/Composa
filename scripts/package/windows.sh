@@ -43,6 +43,7 @@ cp "$ROOT/docs/professional-editing.md" "$ROOT/docs/object-selection-models.md" 
 cp "$ROOT/docs/photoshop-exchange.md" "$TREE/docs/"
 cp "$ROOT/docs/automatic-seams-research.md" "$TREE/docs/"
 cp "$ROOT/docs/spot-healing-research.md" "$TREE/docs/"
+cp "$ROOT/docs/seedvr2-upscale.md" "$TREE/docs/"
 mkdir -p "$TREE/scripts/photoshop"
 cp "$ROOT/scripts/photoshop/Exchange.ps1" "$ROOT/scripts/photoshop/Send-to-Composa.jsx" \
    "$ROOT/scripts/photoshop/Send-to-Photoshop.cmd" "$TREE/scripts/photoshop/"

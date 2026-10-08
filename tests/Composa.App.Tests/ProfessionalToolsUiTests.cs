@@ -47,7 +47,9 @@ public class ProfessionalToolsUiTests
         Assert.False(session.IsInteracting); Screenshots.Save(window, "professional-pen-curve");
         var shape = session.ActiveLayer.Shape; var node = shape.Path.Nodes[0];
         var point = session.ActiveLayer.Matrix.MapPoint((float)node.X * session.ActiveLayer.Pixels!.Width, (float)node.Y * session.ActiveLayer.Pixels.Height);
-        Click(window, canvas, point.X, point.Y); window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+        window.MouseDown(At(window, canvas, point.X, point.Y), MouseButton.Left, RawInputModifiers.Control);
+        window.MouseUp(At(window, canvas, point.X, point.Y), MouseButton.Left, RawInputModifiers.Control);
+        window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
         Assert.Equal(2, session.ActiveLayer.Shape!.Path!.Nodes.Length); session.Undo(); Assert.Equal(3, session.ActiveLayer!.Shape!.Path!.Nodes.Length);
         session.Undo(); Assert.Null(session.ActiveLayer!.Shape); window.Close();
     }
@@ -118,12 +120,13 @@ public class ProfessionalToolsUiTests
         Screenshots.Save(window, "professional-healing-brush"); window.Close();
     }
     [AvaloniaFact]
-    public void Ctrl_pen_starts_a_new_path_instead_of_moving_the_active_layer_and_draft_stays_in_its_document()
+    public void Pen_draft_stays_in_its_document_and_ctrl_does_not_start_an_extra_path()
     {
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show(); var first = EditorSession.NewCanvas(100, 80, SKColors.White); window.AddSession(first);
         window.SelectTool(Tool.Pen); Dispatcher.UIThread.RunJobs(); var canvas = window.GetVisualDescendants().OfType<CanvasView>().Single();
         var transform = first.ActiveLayer!.Transform; var p = At(window, canvas, 20, 20);
-        window.MouseDown(p, MouseButton.Left, RawInputModifiers.Control); window.MouseUp(p, MouseButton.Left, RawInputModifiers.Control); Click(window, canvas, 70, 50);
+        window.MouseDown(p, MouseButton.Left, RawInputModifiers.Control); window.MouseUp(p, MouseButton.Left, RawInputModifiers.Control);
+        Click(window, canvas, 20, 20); Click(window, canvas, 70, 50);
         Assert.Equal(transform, first.ActiveLayer.Transform); Assert.Single(first.Document.Layers);
         var second = EditorSession.NewCanvas(120, 90, SKColors.Black); window.AddSession(second); Dispatcher.UIThread.RunJobs();
         Assert.Equal(2, first.Document.Layers.Count); Assert.NotNull(first.ActiveLayer!.Shape?.Path); Assert.Single(second.Document.Layers); window.Close();

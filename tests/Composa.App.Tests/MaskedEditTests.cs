@@ -76,7 +76,12 @@ public class MaskedEditTests
         Assert.Equal("composa_edit_padded_mask", graph["composa_condition"]!["inputs"]!["mask"]![0]!.GetValue<string>());
         Assert.True(graph["composa_edit_mask_grow"]!["inputs"]!["expand"]!.GetValue<int>() > 0);
         if (task == AiTaskKind.RemoveObject)
-            Assert.Equal("composa_edit_padded_mask", graph["composa_black_mask"]!["inputs"]!["mask"]![0]!.GetValue<string>());
+        {
+            Assert.False(graph.ContainsKey("composa_black_mask")); Assert.False(graph.ContainsKey("blackPatch"));
+            Assert.Equal("composa_edit_source", graph["composa_edit_crop"]!["inputs"]!["image"]![0]!.GetValue<string>());
+            Assert.Equal("composa_edit_size", graph["sourceEncode"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
+            Assert.Equal("composa_edit_size", graph["composa_condition"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
+        }
         WorkflowExecution.Batch(graph, 3);
         Assert.Equal(3, graph["latent"]!["inputs"]!["amount"]!.GetValue<int>());
     }

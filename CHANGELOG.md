@@ -4,6 +4,24 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.21] - 2026-10-08 · TEST
+
+### Fixed
+
+- FLUX removal and expansion use clean color continuation for reference and inpaint conditioning, rather than encoding a black patch as an independent reference. Thin selections receive enough surrounding context; ordinary selected generation retains its established context behavior. Generated output keeps automatic insertion coverage and exact source pixels outside its support.
+- Narrow automatic expansions of a verified uniform background continue its tone without retaining hallucinated details. Textured surroundings, large expansions and ordinary prompted fills retain model synthesis.
+- Crop options again expose Gen Expand. Vector anchors and handles are edited while Ctrl is held; double-click closes the current path without adding a duplicate anchor.
+- Photoshop exchange uses the local image pipe directly, avoiding a second editor process. Receiving applications are restored and activated; exports still use the whole visible merged image. Send to Photoshop remains in Scripts and is removed from File.
+
+### Added
+
+- SeedVR2 upscale workflows for native ComfyUI nodes and ComfyUI-SeedVR2_VideoUpscaler. Output tiles, overlap, VAE tiling and compatible devices are automatic. Available VRAM controls tile size; out-of-memory retries use smaller tiles, and cancellation leaves the document unchanged. Models and custom nodes must already be installed in ComfyUI.
+- SeedVR2 setup and primary-source research in `docs/seedvr2-upscale.md`, included in Windows packages.
+
+Validation: 1,000 automated tests passed (471 core, 529 headless app). The actual Windows PowerShell helper exchanged merged images with the test editor and restored its minimized window. Opt-in FLUX GPU checks and replay of recorded model output cover thin expansion, insertion support and undo/redo.
+
+This is an experimental TEST pre-release. Automatic tiling cannot guarantee that every model fits every GPU. Live Photoshop COM/ExtendScript exchange remains unverified because Photoshop is unavailable on the test machine.
+
 ## [1.2.1-preview.20] - 2026-10-07 · TEST
 
 ### Changed
