@@ -16,6 +16,7 @@ public sealed record AssistantChatEntry(string Role, string Text, string Script 
     public string AttachmentContext { get; init; } = "";
     public string ActionLog { get; init; } = "";
     public bool IsScriptArtifact { get; init; }
+    public string ScriptTarget { get; init; } = "composa";
 }
 
 /// <summary>Only files explicitly attached in the chat become available to the assistant.</summary>
@@ -31,7 +32,7 @@ internal sealed record AssistantFile(string Path, AssistantAttachment Content)
             using var image = ImageFiles.Load(path);
             return new(path, new AssistantAttachment(file.Name, ImageDataUrl: Preview(image)));
         }
-        if (extension is not (".js" or ".ts" or ".txt" or ".md" or ".json" or ".csv" or ".yaml" or ".yml" or ".svg"))
+        if (extension is not (".js" or ".jsx" or ".ts" or ".txt" or ".md" or ".json" or ".csv" or ".yaml" or ".yml" or ".svg"))
             throw new InvalidDataException("Attach a JavaScript, text/data file, or PNG/JPEG/WebP image.");
         if (file.Length > 256_000) throw new InvalidDataException("Text attachments must be smaller than 256 KB.");
         var text = await File.ReadAllTextAsync(path, cancellationToken);

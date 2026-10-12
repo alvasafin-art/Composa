@@ -4,6 +4,24 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.25] - 2026-10-12 · TEST
+
+### Added
+
+- Built-in agent reads explicitly granted folders, opens images/projects, uses paged text/JSON input and prepares reusable Composa JavaScript or Photoshop JSX. Script syntax and supported Photoshop DOM patterns are checked before delivery; Composa scripts run in a bounded sandbox with rollback and one-step Undo.
+- MCP tools `list_read_folders`, `list_files`, `read_file`, `get_script_api` and `execute_script`, sharing the same folder grants and editor commands as the built-in agent.
+- Packaged Assistant setup guide with local PrismML/llama.cpp configuration, API mode, model/tool checks, portable server launchers and Vision setup. Vision sends actual canvas previews, attached images and the latest native render to compatible local/API models when enabled.
+
+### Fixed
+
+- Agent operation search, multi-step task continuity when opening a document, repeated-read detection and final document verification. Failed edits roll back instead of reporting success; generated scripts support the documented `doc` shortcut.
+- Local server startup waits for an existing loading server, checks model/context compatibility, serializes startup and restarts only its own process when configuration changes. Diagnostics expose server failures; transport retry cannot repeat editor actions.
+- Vision configuration participates in the model/tool connection test. Servers explicitly reporting no image support receive an actionable error; missing projector files are caught before launch. Portable launchers retain relative projector paths.
+
+Validation: 1,073 automated tests passed (481 Core, 592 headless App); eight opt-in live-model tests were skipped. Covers the real MCP stdio bridge, native PNG render delivery, local/API image payloads, disabled Vision, server capabilities, folder boundaries and rollback/Undo/Redo. Earlier live Bonsai agent evaluations are documented in `docs/assistant-rework-report.md`.
+
+This is an experimental TEST pre-release. Model/runtime/projector files are installed separately. Image understanding by a live Vision model and scripts inside an installed Photoshop were not validated for this release; JSX checks use a limited DOM fixture.
+
 ## [1.2.1-preview.24] - 2026-10-08 · TEST
 
 ### Fixed

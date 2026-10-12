@@ -35,9 +35,22 @@ internal sealed class EditorOperationCatalog(ComposaTools target)
     public bool ReadOnly(string name) => Method(name).GetCustomAttribute<McpServerToolAttribute>()!.ReadOnly;
     public IEnumerable<Tool> Search(string query, IEnumerable<string> allowed, int count)
     {
-        var words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return allowed.Select(Schema).Select(tool => (tool, score: words.Sum(word => tool.Name.Contains(word, StringComparison.OrdinalIgnoreCase) ? 5
-            : (tool.Description ?? "").Contains(word, StringComparison.OrdinalIgnoreCase) ? 1 : 0)))
-            .Where(item => words.Length == 0 || item.score > 0).OrderByDescending(item => item.score).ThenBy(item => item.tool.Name).Take(count).Select(item => item.tool);
+        // Token matching avoids substring accidents ("layer" used to drown out "rectangle").
+        // Rare capability words carry more weight than ubiquitous words such as layer/selection.
+        static string Stem(string word) => word switch
+        {
+            "selects" or "selected" or "selection" => "select",
+            "rectangular" or "marquee" => "rectangle",
+            "elliptical" => "ellipse",
+            _ => word.Length > 4 && word.EndsWith('s') ? word[..^1] : word
+        };
+        static HashSet<string> Words(string value) => System.Text.RegularExpressions.Regex.Matches(value.ToLowerInvariant(), @"[\p{L}\p{N}]+")
+            .Select(match => Stem(match.Value)).ToHashSet(StringComparer.Ordinal);
+        var words = Words(query);
+        var entries = allowed.Select(Schema).Select(tool => new { tool, names = Words(tool.Name), text = Words(tool.Name + " " + tool.Description) }).ToArray();
+        var weights = words.ToDictionary(word => word, word => Math.Log(1 + (double)entries.Length / (1 + entries.Count(entry => entry.text.Contains(word)))));
+        return entries.Select(entry => (entry.tool, score: (entry.tool.Name.Equals(query.Trim(), StringComparison.OrdinalIgnoreCase) ? 100 : 0)
+                + words.Sum(word => weights[word] * (entry.names.Contains(word) ? 2 : entry.text.Contains(word) ? 1 : 0))))
+            .Where(item => words.Count == 0 || item.score > 0).OrderByDescending(item => item.score).ThenBy(item => item.tool.Name).Take(count).Select(item => item.tool);
     }
 }

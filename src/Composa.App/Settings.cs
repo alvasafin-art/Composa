@@ -138,7 +138,13 @@ public sealed class Settings
     public string AssistantServerExecutable { get; set; } = Environment.GetEnvironmentVariable("COMPOSA_LLAMA_SERVER") ?? "";
     public string AssistantModelPath { get; set; } = Environment.GetEnvironmentVariable("COMPOSA_LLAMA_MODEL") ?? "";
     public int AssistantContextSize { get; set; } = 16384;
-    public int AssistantMaxTokens { get; set; } = 1536;
+    public int AssistantMaxTokens { get; set; } = 4096;
+    public string AssistantReasoning { get; set; } = "medium";
+    public double AssistantTemperature { get; set; } = 0.15;
+    public int AssistantGpuLayers { get; set; } = -1;
+    public string AssistantProjectorPath { get; set; } = "";
+    public List<string> AssistantReadFolders { get; set; } = [];
+    public string AssistantMode { get; set; } = "auto";
     public bool AssistantAutoStart { get; set; } = true;
     public string AssistantProvider { get; set; } = "local";
     public string AssistantApiUrl { get; set; } = "";
@@ -168,7 +174,15 @@ public sealed class Settings
     public static Settings Load()
     {
         if (!Persist) return new Settings();
-        try { return File.Exists(FilePath) ? FromJson(File.ReadAllText(FilePath)) : new Settings(); }
+        try
+        {
+            var settings = File.Exists(FilePath) ? FromJson(File.ReadAllText(FilePath)) : new Settings();
+            // Explicit launch overrides must win over paths remembered on another computer.
+            if (Environment.GetEnvironmentVariable("COMPOSA_LLAMA_SERVER") is { Length: > 0 } server) settings.AssistantServerExecutable = server;
+            if (Environment.GetEnvironmentVariable("COMPOSA_LLAMA_MODEL") is { Length: > 0 } model) settings.AssistantModelPath = model;
+            if (Environment.GetEnvironmentVariable("COMPOSA_LLAMA_URL") is { Length: > 0 } url) settings.AssistantServerUrl = url;
+            return settings;
+        }
         catch { return new Settings(); } // A damaged settings file only costs the remembered preferences.
     }
 

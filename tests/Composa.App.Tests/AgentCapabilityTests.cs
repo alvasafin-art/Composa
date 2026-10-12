@@ -206,7 +206,8 @@ public class AgentCapabilityTests
         {
             var provider = new Provider(Act(Call("search_operations", new { query = "group_layers" })),
                 Act(Call("add_shape", new { kind = "rectangle", x = 20, y = 20, width = 40, height = 40, name = "Tile" })),
-                Act(Call("group_layers", new { layers = new[] { "Tile" }, name = "Container" })), new("Done", ""));
+                Act(Call("group_layers", new { layers = new[] { "Tile" }, name = "Container" })),
+                Act(Call("verify_document", new { checks = new[] { new { layer = "Container", property = "kind", expected = "group" } } })), new("Done", ""));
             var result = await Run(w, provider);
             Assert.Contains(provider.Requests[1].Tools, tool => tool.Name == "group_layers");
             Assert.All(provider.Requests, request => Assert.Equal(request.Tools.Count, request.Tools.Select(tool => tool.Name).Distinct().Count()));

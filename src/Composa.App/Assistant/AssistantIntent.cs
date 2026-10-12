@@ -7,10 +7,13 @@ namespace Composa.App.Assistant;
 internal static class AssistantIntent
 {
     private const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+    public static string ScriptTarget(string text) => Regex.IsMatch(text, @"\b(?:photoshop|фотошоп\p{L}*|ps|jsx|extendscript)\b", Options) ? "photoshop" : "composa";
 
     public static bool RequestsScript(string text)
     {
         if (!Regex.IsMatch(text, @"\b(?:скрипт\p{L}*|script\p{L}*|код(?:а|ом)?|code)\b", Options)) return false;
+        // Photoshop is an authoring target, not a connected execution host.
+        if (ScriptTarget(text) == "photoshop") return true;
         if (Regex.IsMatch(text, @"\b(?:не\s+(?:запускай|выполняй|применяй)|do\s+not\s+(?:run|execute|apply)|don't\s+(?:run|execute|apply))\b", Options)) return true;
         // 'Write a script that draws…' is not permission to run it. Only an explicit second action is.
         if (Regex.IsMatch(text, @"\b(?:и|затем|потом|and|then)\s+(?:сразу\s+)?(?:запусти(?:те)?|выполни(?:те)?|примени(?:те)?|run|execute|apply)\b", Options)) return false;

@@ -36,6 +36,8 @@ public sealed record AssistantRequest(string UserText, string DocumentContext, s
     public string? PreviewDataUrl { get; init; }
     /// <summary>Return reusable code for review; never automatically execute tools or the returned script.</summary>
     public bool ScriptOnly { get; init; }
+    public string ScriptTarget { get; init; } = "composa";
+    public bool AllowAuthoringReads { get; init; }
     public IReadOnlyList<AssistantToolDefinition> Tools { get; init; } = [];
     public IReadOnlyList<AssistantToolMessage> ToolMessages { get; init; } = [];
 }

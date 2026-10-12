@@ -12,6 +12,15 @@ internal sealed class AssistantCommandGuard
     private readonly Dictionary<string, Applied> completed = [];
     private readonly Dictionary<string, int> failures = [];
     private int replays;
+    private readonly Dictionary<string, int> observations = [];
+
+    public void Observe(AssistantToolCall call, string state)
+    {
+        var key = Key(call) + state;
+        var count = observations.GetValueOrDefault(key) + 1;
+        observations[key] = count;
+        if (count > 3) throw new InvalidOperationException("The agent repeated the same read/search without progress. Inspect another tool or change the query. Pending document edits were rolled back.");
+    }
 
     public bool AlreadyApplied(AssistantToolCall call, string state)
     {

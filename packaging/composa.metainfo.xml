@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.25" date="2026-10-12">
+      <description>
+        <p>TEST: built-in agent folder access, reusable Composa and Photoshop scripts, verified editor tasks, robust local server startup, MCP workspace tools and documented Vision support with projector and server capability checks.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.24" date="2026-10-08">
       <description>
         <p>TEST: smaller packages with only SAM Quality weights, automatic scene matching through editable curves, and official Nano Banana 2 / Gemini 3.1 Flash Image integration.</p>

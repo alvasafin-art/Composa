@@ -18,11 +18,11 @@ public class AssistantAgentTests
     {
         var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
         var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
-        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) { Assert.Skip("Real model is not configured."); return; }
         var owner = new MainWindow(); var session = EditorSession.NewCanvas(600, 400); owner.AddSession(session); owner.Show();
         for (var i = 0; i < 5; i++) session.AddShape(new Composa.Model.ShapeStyle(Composa.Model.ShapeKind.Rectangle, (uint)SKColors.Blue, 0), SKRect.Create(20 + i * 60, 20, 40, 40));
         var settings = new Settings { AssistantServerExecutable = executable, AssistantModelPath = model, AssistantServerUrl = "http://127.0.0.1:18080",
-            AssistantContextSize = 16384, AssistantMaxTokens = 2048, AssistantApplyEdits = true };
+            AssistantContextSize = 16384, AssistantMaxTokens = 4096, AssistantApplyEdits = true };
         using var host = new LlamaServerHost(settings); var conversation = new AssistantConversation();
         var chat = new AssistantWindow(owner, () => session, settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation); chat.Show(owner);
         try
@@ -45,10 +45,10 @@ public class AssistantAgentTests
     {
         var executable=Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
         var model=Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
-        if(string.IsNullOrWhiteSpace(executable)||string.IsNullOrWhiteSpace(model)) return;
+        if(string.IsNullOrWhiteSpace(executable)||string.IsNullOrWhiteSpace(model)) { Assert.Skip("Real model is not configured."); return; }
         var owner=new MainWindow(); var session=EditorSession.NewCanvas(600,400,SKColors.White); owner.AddSession(session); owner.Show();
         var settings=new Settings { AssistantServerExecutable=executable,AssistantModelPath=model,AssistantServerUrl="http://127.0.0.1:18080",
-            AssistantContextSize=16384,AssistantMaxTokens=2048,AssistantApplyEdits=true };
+            AssistantContextSize=16384,AssistantMaxTokens=4096,AssistantApplyEdits=true };
         using var host=new LlamaServerHost(settings); var runtime=new JavaScriptRuntime(); var conversation=new AssistantConversation();
         var chat=new AssistantWindow(owner,()=>session,settings,host,runtime,owner.AiTasks,conversation); chat.Show(owner);
         try
@@ -81,10 +81,10 @@ public class AssistantAgentTests
     {
         var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
         var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
-        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) { Assert.Skip("Real model is not configured."); return; }
         var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(300, 200, SKColors.White)); owner.Show();
         var settings = new Settings { AssistantServerExecutable = executable, AssistantModelPath = model, AssistantServerUrl = "http://127.0.0.1:18080",
-            AssistantContextSize = 16384, AssistantMaxTokens = 2048, AssistantApplyEdits = true };
+            AssistantContextSize = 16384, AssistantMaxTokens = 4096, AssistantApplyEdits = true };
         using var host = new LlamaServerHost(settings); var conversation = new AssistantConversation();
         var runtime = new JavaScriptRuntime();
         var chat = new AssistantWindow(owner, () => owner.Session, settings, host, runtime, owner.AiTasks, conversation); chat.Show(owner);
@@ -147,7 +147,7 @@ public class AssistantAgentTests
     {
         var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
         var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
-        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) { Assert.Skip("Real model is not configured."); return; }
         var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(640,420,SKColors.White)); owner.Show();
         var runtime = new JavaScriptRuntime();
         runtime.Execute(owner.Session!, """
@@ -158,7 +158,7 @@ public class AssistantAgentTests
             doc.addText('Не меняй меня',50,330,{size:16,color:'#000000',name:'Footer'});
             """);
         var settings = new Settings { AssistantServerExecutable=executable, AssistantModelPath=model,
-            AssistantServerUrl="http://127.0.0.1:18080", AssistantContextSize=16384, AssistantMaxTokens=1536, AssistantApplyEdits=true };
+            AssistantServerUrl="http://127.0.0.1:18080", AssistantContextSize=16384, AssistantMaxTokens=4096, AssistantApplyEdits=true };
         using var host = new LlamaServerHost(settings); var conversation=new AssistantConversation();
         var chat=new AssistantWindow(owner,()=>owner.Session,settings,host,runtime,owner.AiTasks,conversation); chat.Show(owner);
         try
@@ -189,6 +189,7 @@ public class AssistantAgentTests
 
     private static AssistantToolCall Call(string name, object args) => new(Guid.NewGuid().ToString("N"), name, JsonSerializer.SerializeToElement(args));
     private static AssistantPlan Actions(params AssistantToolCall[] calls) => new("", "") { Calls = calls };
+    private static AssistantPlan Check(string layer, string property, object expected) => Actions(Call("verify_document", new { checks = new[] { new { layer, property, expected } } }));
     private sealed class Provider(params AssistantPlan[] replies) : IAssistantProvider
     {
         public string Id => "native-test";
@@ -218,7 +219,7 @@ public class AssistantAgentTests
             await chat.SendAsync("Создай скрипт, который нарисует квадрат");
             await chat.SendAsync("Я просил создать скрипт. Пришли именно скрипт, чтобы я мог его сохранить и использовать повторно");
             Assert.Equal(2, provider.Requests.Count);
-            Assert.All(provider.Requests, request => { Assert.True(request.ScriptOnly); Assert.Empty(request.Tools); });
+            Assert.All(provider.Requests, request => { Assert.True(request.ScriptOnly); Assert.All(request.Tools, tool => Assert.Contains(tool.Name, new[] { "read_file", "read_attachment", "list_files", "list_read_folders", "return_script" })); });
             var drafts = conversation.Entries.Where(entry => entry.Role == "assistant").ToArray();
             Assert.Equal(2, drafts.Length);
             Assert.All(drafts, draft => { Assert.Equal(code, draft.Script); Assert.True(draft.IsScriptArtifact); Assert.Null(draft.Outcome); });
@@ -241,7 +242,7 @@ public class AssistantAgentTests
             var provider = new Provider(Actions(Call("add_shape", args)),
                 Actions(Call("execute_script", new { code = "app.activeDocument.addRectangle(40,10,20,20,'#FF0000','Other');" })),
                 Actions(Call("editor_operation", new { name = "add_shape", arguments = new { color = "#0088FF", name = "Box", height = 20.0, width = 20.0, y = 10, x = 10, kind = "rectangle" } })),
-                new("Done", ""));
+                Check("Box", "shape.fill", "#0088FF"), new("Done", ""));
             var result = await Run(owner, provider);
             Assert.True(result.Changed); Assert.Equal(3, owner.Session!.Document.Layers.Count);
             Assert.Single(owner.Session.Document.Layers, layer => layer.Name == "Box");
@@ -279,7 +280,7 @@ public class AssistantAgentTests
                 Actions(Call("add_shape", new { kind = "rectangle", x = 10, y = 10, width = 20, height = 20, name = "Second" })),
                 Actions(Call("set_layer", new { layer = "First", opacity = 0.5 })),
                 Actions(Call("set_layer", new { layer = "First", opacity = 1.0 })),
-                Actions(Call("set_layer", new { layer = "First", opacity = 0.5 })), new("Done", ""));
+                Actions(Call("set_layer", new { layer = "First", opacity = 0.5 })), Check("First", "opacity", 0.5), new("Done", ""));
             var result = await Run(owner, provider);
             Assert.True(result.Changed); Assert.Equal(3, owner.Session!.Document.Layers.Count);
             Assert.Equal(0.5, owner.Session.Document.Layers.Single(layer => layer.Name == "First").Opacity);
@@ -301,10 +302,10 @@ public class AssistantAgentTests
                 Actions(Call("editor_operation", new { name = "layer_mask", arguments = new { layer = "New", action = "add" } })),
                 Actions(Call("editor_operation", new { name = "group_layers", arguments = new { layers = new[] { "New" }, name = "Titles" } })),
                 Actions(Call("editor_operation", new { name = "resize_document", arguments = new { width = 120, height = 100, mode = "canvas" } })),
-                Actions(Call("get_document", new { })), new("Done", ""));
+                Actions(Call("get_document", new { })), Check("New", "text.value", "New"), new("Done", ""));
             var before = owner.Session!.History.Count;
             var result = await Run(owner, provider);
-            Assert.True(result.Changed); Assert.Equal(7, result.ToolCount);
+            Assert.True(result.Changed); Assert.Equal(8, result.ToolCount);
             Assert.Equal(before + 1, owner.Session.History.Count);
             Assert.Equal(120, owner.Session.Document.Width);
             var folder = Assert.Single(owner.Session.Document.Layers, layer => layer.IsGroup);
@@ -327,7 +328,7 @@ public class AssistantAgentTests
             var provider = new Provider(
                 Actions(Call("editor_operation", new { name = "set_layer", arguments = new { layer = name, name = "Wrong", opacity = 3 } })),
                 Actions(Call("editor_operation", new { name = "set_layer", arguments = new { layer = name, name = "Repaired", opacity = 0.5 } })),
-                Actions(Call("get_document", new { })), new("Done", ""));
+                Actions(Call("get_document", new { })), Check("Repaired", "opacity", 0.5), new("Done", ""));
             var result = await Run(owner, provider);
             Assert.True(result.Changed); Assert.Equal("Repaired", owner.Session.ActiveLayer!.Name);
             Assert.Contains("ERROR", provider.Requests[1].ToolMessages.Last().Text);
@@ -359,7 +360,7 @@ public class AssistantAgentTests
         try
         {
             var provider = new Provider(Actions(Call("execute_script", new { code = "app.activeDocument.addRectangle(10,10,20,20,'#0088FF','Box');" })),
-                new("Done", ""));
+                Check("Box", "shape.fill", "#0088FF"), new("Done", ""));
             var result = await Run(owner, provider);
             Assert.True(result.Changed); Assert.Equal("Done", result.Summary);
             Assert.Contains("ACTUAL DOCUMENT", provider.Requests[1].ToolMessages.Last().Text);

@@ -18,7 +18,7 @@ public sealed partial class ComposaTools
     private const string FeatherEdge = "Softens the edge by this many pixels";
 
     [McpServerTool(Name = "select_shape")]
-    [Description("Selects a rectangle or ellipse given by x, y, width and height, or a polygon given by points, in canvas pixels.")]
+    [Description("Creates a rectangular or elliptical marquee selection (rectangle/ellipse) given by x, y, width and height, or a polygon selection given by points, in canvas pixels. Use layer_mask add afterwards to turn this selection into a persistent layer mask.")]
     public Task<string> SelectShape(
         [Description("rectangle, ellipse or polygon")] string kind,
         double? x = null, double? y = null, double? width = null, double? height = null,

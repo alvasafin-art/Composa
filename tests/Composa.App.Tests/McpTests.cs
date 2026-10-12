@@ -134,9 +134,9 @@ public class McpTests
         var tools = await client.ListToolsAsync();
         Assert.Equal(
             ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
-             "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "export_image", "export_psd", "fill_layer", "filter_add_noise",
-             "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "group_layers", "guides", "layer_mask", "list_documents",
-             "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
+             "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
+             "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "list_documents", "list_files", "list_read_folders",
+             "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
              "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_layer", "set_shape", "set_text", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
             tools.Select(t => t.Name).Order());
 
@@ -153,6 +153,19 @@ public class McpTests
         Assert.Equal("Created document 1: \"Untitled\" 400×300 px, now active.", Text(created));
         var session = window.Session!;
         Assert.Equal("Background", session.ActiveLayer!.Name);
+        var readFolder = Path.Combine(AppContext.BaseDirectory, "mcp-workspace", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(readFolder);
+        var source = Path.Combine(readFolder, "layers.json"); File.WriteAllText(source, "[{\"name\":\"Imported title\",\"x\":12}]");
+        window.Settings.AssistantReadFolders = [readFolder];
+        Assert.Contains(readFolder.Replace("\\", "\\\\"), Text(await Pumped(client.CallToolAsync("list_read_folders"))));
+        Assert.Contains("layers.json", Text(await Pumped(client.CallToolAsync("list_files", new Dictionary<string, object?> { ["path"] = readFolder }))));
+        Assert.Contains("Imported title", Text(await Pumped(client.CallToolAsync("read_file", new Dictionary<string, object?> { ["path"] = source }))));
+        Assert.Contains("files.readText", Text(await Pumped(client.CallToolAsync("get_script_api"))));
+        var script = "const rows=JSON.parse((await files.readText(" + System.Text.Json.JsonSerializer.Serialize(source) + ")).text); for(const row of rows)app.activeDocument.addText(row.name,row.x,20,{size:18});";
+        var scripted = await Pumped(client.CallToolAsync("execute_script", new Dictionary<string, object?> { ["code"] = script }));
+        Assert.Null(scripted.IsError); Assert.Contains(session.Document.Layers, layer => layer.Text?.Text == "Imported title");
+        session.Undo(); Assert.Single(session.Document.Layers);
+        window.Settings.AssistantReadFolders.Clear();
+        Assert.True((await Pumped(client.CallToolAsync("read_file", new Dictionary<string, object?> { ["path"] = source }))).IsError);
         var state = await Pumped(client.CallToolAsync("get_document_state", new Dictionary<string, object?>()));
         Assert.Null(state.IsError);
         using (var parsed = System.Text.Json.JsonDocument.Parse(Text(state))) Assert.Equal(400, parsed.RootElement.GetProperty("width").GetInt32());

@@ -17,6 +17,35 @@ namespace Composa.App.Tests;
 
 public class AssistantTests
 {
+    [Fact]
+    public async Task Truncated_tool_reply_never_executes_partial_commands()
+    {
+        using var client = new HttpClient(new ApiHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent("""{"choices":[{"finish_reason":"length","message":{"content":null,"tool_calls":[{"id":"partial","type":"function","function":{"name":"execute_script","arguments":"{\"code\":\"doc.addLayer('Partial')\"}"}}]}}]}""") })));
+        var provider = new ChatCompletionAssistantProvider(new Settings { AssistantApiUrl = "https://example.test", AssistantApiModel = "test" }, transport: client);
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => provider.PlanAsync(new("Edit", "{}", ""), TestContext.Current.CancellationToken));
+        Assert.Contains("No partial commands", error.Message);
+    }
+
+    [Fact]
+    public async Task Local_tool_loop_keeps_system_prefix_stable()
+    {
+        var payloads = new List<JsonElement>();
+        using var client = new HttpClient(new ApiHandler(async request =>
+        {
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()); payloads.Add(json.RootElement.Clone());
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"choices":[{"message":{"content":"Done"}}]}""") };
+        }));
+        var provider = new ChatCompletionAssistantProvider(new Settings { AssistantReasoning = "medium", AssistantTemperature = 0.3 }, local: true, transport: client);
+        var schema = JsonSerializer.SerializeToElement(new { type = "object", properties = new { } });
+        var request = new AssistantRequest("Inspect", "{\"width\":100}", "") { Tools = [new("get_document", "Read", schema)] };
+        await provider.PlanAsync(request, TestContext.Current.CancellationToken);
+        await provider.PlanAsync(request with { DocumentContext = "{\"width\":200}", ScriptTarget = "photoshop" }, TestContext.Current.CancellationToken);
+        Assert.Equal(payloads[0].GetProperty("messages")[0].GetProperty("content").GetString(), payloads[1].GetProperty("messages")[0].GetProperty("content").GetString());
+        var messages = payloads[1].GetProperty("messages"); Assert.Contains("200", messages[messages.GetArrayLength()-1].GetProperty("content").GetString());
+        Assert.Equal("medium", payloads[1].GetProperty("reasoning_effort").GetString()); Assert.True(payloads[1].GetProperty("chat_template_kwargs").GetProperty("enable_thinking").GetBoolean());
+    }
+
     [Theory]
     [InlineData("Создай скрипт, который нарисует три квадрата", true)]
     [InlineData("Я просил создать скрипт. Пришли именно скрипт, чтобы я мог его сохранить и использовать повторно", true)]
@@ -56,7 +85,7 @@ public class AssistantTests
         Assert.Equal("console.log('ready');", reply.Script);
         Assert.False(payload.TryGetProperty("tools", out _));
         var messages = payload.GetProperty("messages");
-        Assert.Equal(2, messages.GetArrayLength());
+        Assert.Equal(3, messages.GetArrayLength());
         Assert.Contains("not an edit to execute", messages[0].GetProperty("content").GetString());
         Assert.DoesNotContain("AGENT WORKFLOW", messages[0].GetProperty("content").GetString());
     }
@@ -79,8 +108,10 @@ public class AssistantTests
         Assert.Equal("get_document",Assert.Single(plan.Calls).Name);
         Assert.Equal("function",payload.GetProperty("tools")[0].GetProperty("type").GetString());
         Assert.False(payload.TryGetProperty("response_format",out _)); Assert.False(payload.GetProperty("parallel_tool_calls").GetBoolean());
-        var messages=payload.GetProperty("messages"); Assert.Equal("tool",messages[messages.GetArrayLength()-1].GetProperty("role").GetString());
-        Assert.Equal("call1",messages[messages.GetArrayLength()-1].GetProperty("tool_call_id").GetString());
+        var messages=payload.GetProperty("messages"); var result=Assert.Single(messages.EnumerateArray(), m => m.GetProperty("role").GetString() == "tool");
+        Assert.Equal("call1",result.GetProperty("tool_call_id").GetString());
+        Assert.Equal("tool", messages[messages.GetArrayLength()-1].GetProperty("role").GetString());
+        Assert.Contains("CURRENT HOST STATE", messages[2].GetProperty("content").GetString());
     }
     [Theory]
     [InlineData(true)]
@@ -136,10 +167,43 @@ public class AssistantTests
         Assert.Equal("https://example.test/custom/v1/chat/completions", address!.ToString());
         Assert.Equal("test-session-key", bearer);
         Assert.Equal("any-model", payload.GetProperty("model").GetString());
-        Assert.Equal(4, payload.GetProperty("messages").GetArrayLength());
+        Assert.Equal(5, payload.GetProperty("messages").GetArrayLength());
         Assert.Contains("edit.js", payload.GetProperty("messages")[3].GetProperty("content").GetString());
         Assert.False(payload.TryGetProperty("chat_template_kwargs", out _));
         Assert.DoesNotContain("test-session-key", JsonSerializer.Serialize(settings));
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task Vision_transmits_preview_attachments_and_only_the_latest_render(bool vision, bool local)
+    {
+        JsonElement payload = default;
+        using var client = new HttpClient(new ApiHandler(async request =>
+        {
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()); payload = json.RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"Done\"}}]}") };
+        }));
+        var provider = new ChatCompletionAssistantProvider(new Settings { AssistantApiUrl = "https://example.test", AssistantApiModel = "vision-test", AssistantVision = vision }, local: local, transport: client);
+        var arguments = JsonSerializer.SerializeToElement(new { });
+        var first = new AssistantToolCall("old-render", "render", arguments);
+        var latest = new AssistantToolCall("new-render", "render", arguments);
+        await provider.PlanAsync(new AssistantRequest("Inspect", "{}", "")
+        {
+            PreviewDataUrl = "data:image/png;base64,cHJldmlldw==",
+            Attachments = [new("reference.png", ImageDataUrl: "data:image/png;base64,cmVmZXJlbmNl")],
+            ToolMessages = [new("assistant", "", Calls: [first]), new("tool", "Old", first.Id) { ImageDataUrl = "data:image/png;base64,b2xk" },
+                new("assistant", "", Calls: [latest]), new("tool", "Latest", latest.Id) { ImageDataUrl = "data:image/png;base64,bGF0ZXN0" }]
+        }, TestContext.Current.CancellationToken);
+        var images = payload.GetProperty("messages").EnumerateArray().Select(message => message.GetProperty("content"))
+            .Where(content => content.ValueKind == JsonValueKind.Array).SelectMany(content => content.EnumerateArray())
+            .Where(part => part.GetProperty("type").GetString() == "image_url")
+            .Select(part => part.GetProperty("image_url").GetProperty("url").GetString()).ToArray();
+        if (vision) Assert.Equal(new[] { "data:image/png;base64,cmVmZXJlbmNl", "data:image/png;base64,cHJldmlldw==", "data:image/png;base64,bGF0ZXN0" }, images);
+        else Assert.Empty(images);
+        Assert.DoesNotContain("data:image/png;base64,b2xk", payload.GetRawText());
     }
 
     [Theory]
@@ -165,10 +229,10 @@ public class AssistantTests
             History = Enumerable.Range(0, 20).Select(_ => new AssistantMessage("user", new string('x', 8000))).ToArray(),
             Attachments = Enumerable.Range(0, 6).Select(index => new AssistantAttachment(index + ".js", new string('y', 20000))).ToArray()
         }, TestContext.Current.CancellationToken);
-        Assert.Equal(2048, payload.GetProperty("max_tokens").GetInt32());
+        Assert.Equal(4096, payload.GetProperty("max_tokens").GetInt32());
         var messages = payload.GetProperty("messages").EnumerateArray().Select(message => message.GetProperty("content").GetString()!).ToArray();
         Assert.True(messages.Sum(text => text.Length) < 13000);
-        Assert.Contains("truncated", messages[^1]);
+        Assert.Contains(messages, message => message.Contains("truncated"));
     }
 
     [Fact]
@@ -299,10 +363,10 @@ public class AssistantTests
     {
         var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
         var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
-        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) { Assert.Skip("Real model is not configured."); return; }
         var owner = new MainWindow(); owner.AddSession(EditorSession.NewCanvas(640, 420, SKColors.White)); owner.Show();
         var settings = new Settings { AssistantServerExecutable = executable, AssistantModelPath = model,
-            AssistantServerUrl = "http://127.0.0.1:18080", AssistantContextSize = 8192, AssistantMaxTokens = 1024, AssistantAutoStart = true, AssistantApplyEdits = true };
+            AssistantServerUrl = "http://127.0.0.1:18080", AssistantContextSize = 16384, AssistantMaxTokens = 4096, AssistantAutoStart = true, AssistantApplyEdits = true };
         using var host = new LlamaServerHost(settings); var conversation = new AssistantConversation();
         var chat = new AssistantWindow(owner, () => owner.Session, settings, host, new JavaScriptRuntime(), owner.AiTasks, conversation);
         chat.Show(owner);
@@ -377,11 +441,11 @@ public class AssistantTests
     {
         var executable = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_SERVER");
         var model = Environment.GetEnvironmentVariable("COMPOSA_LIVE_LLAMA_MODEL");
-        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) return;
+        if (string.IsNullOrWhiteSpace(executable) || string.IsNullOrWhiteSpace(model)) { Assert.Skip("Real model is not configured."); return; }
         var settings = new Settings
         {
             AssistantServerExecutable = executable, AssistantModelPath = model, AssistantServerUrl = "http://127.0.0.1:18080",
-            AssistantContextSize = 8192, AssistantMaxTokens = 512, AssistantAutoStart = true
+            AssistantContextSize = 16384, AssistantMaxTokens = 4096, AssistantAutoStart = true
         };
         using var host = new LlamaServerHost(settings);
         var provider = new LlamaAssistantProvider(settings, host);
