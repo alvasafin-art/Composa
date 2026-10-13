@@ -4,6 +4,21 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.27] - 2026-10-13 · TEST
+
+### Fixed
+
+- Match to Scene / Relight use an actual VAE reconstruction baseline and normalized floating-point lighting gains. Codec blur/tone drift and background-contaminated low-alpha edges no longer define the subject's lighting map. Prompts use surface illumination instead of adding generic rim glow or guessing a physical light from the brightest pixel.
+- Shadow extraction recovers ground change beneath antialiased PNG bases without squaring foreground coverage. Support geometry accounts for translucent product bases; significant cast components undergo bounded support registration, while unrelated darkening is rejected. Source PNG geometry/alpha remain unchanged.
+- Change Background now sees the actual PNG through a protected foreground mask, arranges the environment around its scale and support, then removes the temporary object in a second masked model edit. The cleanup reference is the arranged scene, not approximate hole filling, and cleanup does not repeat object-placement instructions. Feathered cleanup and VAE compensation preserve the surrounding layout.
+- Both background passes commit atomically; the dialog estimates both paid requests. Cancellation/failure or changed documents cannot apply a partial scene or submit subsequent generation requests against a stale document.
+
+Validation: photographic PNG product on a real forest path, fractional placement, odd 1003 × 731 and aligned 1008 × 736 documents; compared original and SAM-cleaned cutouts, saved separate layers and checked contact, source pixels, alpha, protected background and Undo/Redo. Regression coverage includes codec-only changes, edge glow, translucent alpha contact, glass-product support, detached main shadow components and cleanup boundaries. See `docs/scene-edit-validation.md`.
+
+Full validation passed 1,098 tests (496 Core, 602 headless App); ten opt-in tests were skipped in that ordinary run, with product model checks run separately.
+
+TEST pre-release. Corrected contact does not establish physically calibrated shadow shape or Photoshop parity; difficult scenes and source matting still need visual review. Paid providers use simulated tests, without live paid image-quality validation.
+
 ## [1.2.1-preview.26] - 2026-10-13 · TEST
 
 ### Added

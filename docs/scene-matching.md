@@ -10,9 +10,9 @@ Default **Match light + separate shadow** adapts illumination, exposure, color t
 
 **Preserve source detail using a lighting map** transfers smooth lighting changes onto the original subject pixels. It retains the original silhouette and fine texture. Turn it off to accept the generated subject within the original alpha mask; identity and details may then change.
 
-The separate **Contact and Cast Shadow** layer extracts model darkening on the permitted floor, discounting background exposure drift. It excludes the subject and keeps connected darkening near its base. It does not copy a regenerated background into the document. If no connected shadow is detected, the operation reports that and omits it.
+The separate **Contact and Cast Shadow** layer extracts ground darkening against the input's VAE reconstruction, discounting background drift and foreground lighting. PNG alpha attenuates an underlaid shadow once: its antialiased base is not cut out a second time. Significant cast components are registered to the original support; weak specks cannot certify a detached main lobe. Strongly displaced or unrelated darkening is rejected. This corrects the shadow, never the PNG, and does not copy a regenerated background into the document. Shape and physical perspective remain model-dependent.
 
-**Infer light direction** uses a bright-region cue from the background or the Relight preset. Broad ambient light does not impose a direction. This is an image-space hint, not reconstructed depth or normals; clouds, reflections or multiple lights can mislead it. Disable inference to set **Light from** manually: degrees counterclockwise from image right, shadow falling the other way. **Floor reach** limits the permitted area; it does not guarantee a shadow of that length.
+**Use scene / preset light direction** lets the model interpret the complete scene or uses the Relight preset. Bright pixels are no longer treated as calibrated light coordinates. Disable it to set **Light from** manually: degrees counterclockwise from image right, shadow falling the other way. **Floor reach** limits the permitted area; it does not guarantee a shadow of that length.
 
 **Match light only** disables the shadow area. **Local tone and color · no AI** keeps the previous offline operation: two editable clipped Curves layers, Match Light and Match Color. This mode cannot create directional lighting or shadows.
 
@@ -35,15 +35,15 @@ Presets guide an image-editing model. They are not draggable physical lights or 
 
 ## Change Background
 
-Describe the new environment. Composa removes the subject from the conditioning image, generates a clean background, then inserts **New Background** below **Original Subject**. The original cutout pixels and alpha are preserved; an opaque photo uses the selected or SAM-derived matte. Refine hair and translucent edges first if the matte is poor.
+Describe the new environment. The first pass sees the actual PNG and replaces the background around its protected mask, accounting for scale, placement, material and support. The second sees the arranged scene and removes its temporary subject through an expanded, feathered mask. It does not repeat instructions that place the subject back. Cleanup is a model edit rather than approximate hole filling; VAE compensation and bounded insertion protect the surrounding layout. **New Background** and **Original Subject** are inserted together. Original cutout pixels and alpha are preserved; an opaque photo uses its selection or SAM matte. Refine poor hair/translucent masks first.
 
-Replacement does not automatically relight the subject or guarantee matching perspective, scale or contact shadows. Run Match to Scene on Original Subject afterwards to integrate it into the new environment.
+Replacement can arrange a support and shadow around the supplied object but does not relight the original subject or guarantee physical perspective. Run Match to Scene on Original Subject for further integration. There are **two generation requests per variant**, including paid providers; the dialog estimates both. Failure or cancellation in pass two applies nothing.
 
 ## Local FLUX workflow
 
 Use FLUX.2 Klein on ComfyUI 0.37 or newer, with the model, Qwen encoder and FLUX.2 VAE selected in AI Settings. Refresh Models after configuring another model folder. Weights can stay in another ComfyUI installation: point the running server's extra-model-paths configuration to its models directory rather than duplicating them.
 
-The bundled `scene-edit.json` uses **VAEEncode → SetLatentNoiseMask → KSampler** plus ReferenceLatent conditioning. It starts from the encoded image, rather than an empty latent or an encoder that blanks the object. Default denoise is **0.80** for lighting and **0.95** for background replacement. Denoise alone cannot preserve identity; the separate lighting-map insertion provides detail preservation.
+The bundled `scene-edit.json` uses **VAEEncode → SetLatentNoiseMask → KSampler** and ReferenceLatent. It also decodes the unchanged encoded source as a control. Lighting/shadow comparisons against this reconstruction discount codec blur, ringing and tone drift. Floating-point normalized gains come from reliable subject interiors; boundary/background pixels cannot amplify a lighting halo. A small model-space opaque-contour anchor limits silhouette changes. Default denoise is **0.80** for lighting and **0.95** for background layout; cleanup uses 1.0 inside its mask. Denoise alone cannot preserve identity.
 
 Requests preserve proportions, pad only technical edges to multiples of 16 and remove padding before insertion. References upload once; variants run sequentially to limit memory. MP changes generation resolution without resizing the document. Original size observes the minimum generation area. Intel Auto mode uses CPU text encoding and tiled VAE; the first run may take several minutes.
 

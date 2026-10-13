@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.Rendering;
+using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.App.AI;
@@ -14,9 +15,10 @@ internal sealed class SceneEditingWorkflow : IDisposable
     private readonly SceneEditInput scene;
     internal List<SKBitmap> ReferenceImages { get; } = [];
 
-    internal SceneEditingWorkflow(SceneEditInput scene,AiTaskRequest request)
+    internal SceneEditingWorkflow(SceneEditInput scene,AiTaskRequest request,SKBitmap? imageOverride=null,SKBitmap? maskOverride=null)
     {
         this.scene=scene;
+        var initial=imageOverride??scene.InitialImage;
         var original=Convert.ToBoolean(request.Settings.Values.GetValueOrDefault("imageOriginalSize")??true);
         var native=original ? AiDimensions.OriginalGenerationSize(scene.Before.Width,scene.Before.Height)
             : (Math.Max(64,request.Settings.Width),Math.Max(64,request.Settings.Height));
@@ -31,17 +33,32 @@ internal sealed class SceneEditingWorkflow : IDisposable
         Source=Pixels.NewColor(PaddedSize.Width,PaddedSize.Height); Source.Erase(SKColors.White);
         using(var draw=new SKCanvas(Source))
         {
-            draw.DrawImage(Pixels.ImageOf(scene.InitialImage),new SKRect(0,0,ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKCubicResampler.Mitchell));
+            draw.DrawImage(Pixels.ImageOf(initial),new SKRect(0,0,ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKCubicResampler.Mitchell));
             if(PaddedSize.Width>ContentSize.Width)
-                draw.DrawImage(Pixels.ImageOf(scene.InitialImage),new SKRect(scene.InitialImage.Width-1,0,scene.InitialImage.Width,scene.InitialImage.Height),
+                draw.DrawImage(Pixels.ImageOf(initial),new SKRect(initial.Width-1,0,initial.Width,initial.Height),
                     new SKRect(ContentSize.Width,0,PaddedSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Nearest));
             if(PaddedSize.Height>ContentSize.Height)
-                draw.DrawImage(Pixels.ImageOf(scene.InitialImage),new SKRect(0,scene.InitialImage.Height-1,scene.InitialImage.Width,scene.InitialImage.Height),
+                draw.DrawImage(Pixels.ImageOf(initial),new SKRect(0,initial.Height-1,initial.Width,initial.Height),
                     new SKRect(0,ContentSize.Height,PaddedSize.Width,PaddedSize.Height),new SKSamplingOptions(SKFilterMode.Nearest));
         }
         Pixels.Invalidate(Source);
         Mask=Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
-        using(var draw=new SKCanvas(Mask)) draw.DrawImage(Pixels.ImageOf(scene.GenerationMask),new SKRect(0,0,ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Linear));
+        using(var draw=new SKCanvas(Mask)) draw.DrawImage(Pixels.ImageOf(maskOverride??scene.GenerationMask),new SKRect(0,0,ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Linear));
+        if(maskOverride==null && request.Task!=AiTaskKind.ChangeBackground && !scene.WholeImage)
+        {
+            // Preserve a model-space contour anchor; the model may change lighting, not the silhouette/support.
+            using var subject=Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
+            using(var draw=new SKCanvas(subject)) draw.DrawImage(Pixels.ImageOf(scene.ObjectAlpha),SKRect.Create(ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Linear));
+            Pixels.Invalidate(subject);
+            using var opaque=Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
+            var opaquePixels=opaque.GetPixelSpan();
+            for(var y=0;y<ContentSize.Height;y++) for(var x=0;x<ContentSize.Width;x++) opaquePixels[y*opaque.RowBytes+x]=subject.GetPixel(x,y).Alpha>=scene.SupportAlpha?(byte)255:(byte)0;
+            Pixels.Invalidate(opaque);
+            using var interior=SelectionMask.Contract(opaque,Math.Clamp(Math.Min(ContentSize.Width,ContentSize.Height)/200,2,4))??Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
+            var mask=Mask.GetPixelSpan();
+            for(var y=0;y<ContentSize.Height;y++) for(var x=0;x<ContentSize.Width;x++)
+                if(opaque.GetPixel(x,y).Alpha>0) mask[y*Mask.RowBytes+x]=Math.Min(mask[y*Mask.RowBytes+x],interior.GetPixel(x,y).Alpha);
+        }
         Pixels.Invalidate(Mask);
         foreach(var reference in request.ReferenceImages)
         {
@@ -50,12 +67,12 @@ internal sealed class SceneEditingWorkflow : IDisposable
         }
         catch {Source?.Dispose();Mask?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();throw;}
     }
-    internal void Bind(JsonObject graph,string source,string mask,AiTaskRequest request,int variant=0)
+    internal void Bind(JsonObject graph,string source,string mask,AiTaskRequest request,int variant=0,bool cleanup=false)
     {
         graph["source"]!["inputs"]!["image"]=source;
         graph["maskImage"]!["inputs"]!["image"]=mask;
-        graph["prompt"]!["inputs"]!["text"]=Prompt(request)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
-        graph["sampler"]!["inputs"]!["denoise"]=request.Scene.Normalized().Denoise;
+        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) : Prompt(request)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
+        graph["sampler"]!["inputs"]!["denoise"]=cleanup ? 1 : request.Scene.Normalized().Denoise;
         graph["sampler"]!["inputs"]!["seed"]=request.Settings.Seed<0 ? Random.Shared.NextInt64(long.MaxValue) : (request.Settings.Seed+variant)&long.MaxValue;
     }
     internal SKBitmap Finish(SKBitmap decoded)
@@ -95,16 +112,17 @@ internal sealed class SceneEditingWorkflow : IDisposable
     {
         var settings=request.Scene.Normalized();
         var operation=request.Task==AiTaskKind.ChangeBackground
-            ? "Produce only a clean photographic background environment for the scene described below. Remove the foreground subject completely. No person, duplicate subject, silhouette or empty cutout shape: reconstruct the environment where the subject was. The original subject will be composited separately without changes."
+            ? "Replace the background around the existing foreground subject with the requested environment. Use the subject's actual scale, material, position and support points to compose a believable scene. Keep the subject in exactly the same position and shape. Build the support surface directly against its base, with a soft grounded contact shadow."
             : request.Task==AiTaskKind.Relight
                 ? "Change the lighting of "+(settings.Scope==RelightScope.WholeImage ? "the image" : "the foreground subject")+". "+settings.LightingInstruction
-                : "Replace the original studio illumination on the foreground subject with the lighting of this exact background. The subject must receive the scene's warm or cool ambient cast, dominant light direction, new highlights, reflected light and exposure. In backlit scenes use natural edge light and subdued frontal illumination. Keep the background unchanged. Integrate the subject physically with the existing support surface.";
+                : "Match the existing foreground subject's illumination to the visible background: light direction, exposure, color temperature and reflected light. Keep its exact position, dimensions and support points. Preserve the surrounding scene. Lighting changes belong on its surfaces.";
         var shadow=request.Task==AiTaskKind.ChangeBackground ? "" : settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows
             ? " Generate a realistic contact and cast shadow from the subject onto the ground, consistent with scene lighting and surface perspective."
             : " Do not add a new shadow outside the subject.";
-        return operation+shadow+" Preserve the subject's exact silhouette, pose, face, identity, clothing, logos, text and material texture unless the operation explicitly removes it. No new objects, duplicated limbs, halos or fog. User guidance: "+request.Prompt+
+        return operation+shadow+" Preserve identity, material texture, labels and colors. Use photographic surface shading, without luminous outlines, bloom, haze or light leaking outside the silhouette. Do not move, resize or duplicate the object, add a platform, or leave a gap under its base. User guidance: "+request.Prompt+
             (string.IsNullOrWhiteSpace(request.AdditionalPrompt) ? "" : "\nWorkflow guidance: "+request.AdditionalPrompt);
     }
+    internal static string CleanupPrompt(AiTaskRequest request)=>"Erase the foreground product/person inside the edit mask completely. Reconstruct the unobstructed background and continuous support surface behind it, matching the surrounding photographic texture. Keep the existing cast shadow, camera framing, perspective, lighting and every unmasked pixel unchanged. Return an empty background plate without the removed subject, a duplicate, silhouette, cutout hole, platform or luminous outline.";
     internal static SKBitmap CopyReference(SKBitmap reference,double? megapixels)
     {
         var scale=megapixels is { } mp ? Math.Min(1,Math.Sqrt(Math.Clamp(mp,.1,4)*1_000_000/(reference.Width*(double)reference.Height))) : 1;

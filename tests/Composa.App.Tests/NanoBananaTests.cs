@@ -90,10 +90,14 @@ public class NanoBananaTests
         if(task is not (AiTaskKind.GenerateImage or AiTaskKind.ImageEdit)) s.SelectRect(new(25,20,45,40));
         var before=s.History.Count; var connection=new PartnerImageTests.Connection {Server=Capabilities()};
         await Service(connection).RunAsync(new EditorCommandService(s),new(){Task=task,Prompt="make it blue",Settings=new(){Values=new(){["apiQuality"]="2K"}}},TestContext.Current.CancellationToken);
-        var graph=Assert.Single(connection.Graphs); var node=graph["gpt"]!["inputs"]!;
+        Assert.Equal(task==AiTaskKind.ChangeBackground?2:1,connection.Graphs.Count);
+        foreach(var graph in connection.Graphs)
+        {
+        var node=graph["gpt"]!["inputs"]!;
         Assert.Equal("GeminiNanoBanana2V2",graph["gpt"]!["class_type"]!.GetValue<string>());
         Assert.Equal(NanoBanana.Model,node["model"]!.GetValue<string>()); Assert.Equal("2K",node["model.resolution"]!.GetValue<string>());
         Assert.Null(node["model.custom_width"]); Assert.Null(node["model.mask"]); Assert.Null(node["n"]);
+        }
         Assert.Equal(before+1,s.History.Count); Assert.Equal((79,61),(s.Document.Width,s.Document.Height));
         if(task==AiTaskKind.GenerativeFill) Assert.Equal(SKColors.White,s.Flatten().GetPixel(0,0));
         s.Undo(); Assert.Single(s.Document.Layers);

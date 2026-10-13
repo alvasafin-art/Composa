@@ -23,6 +23,9 @@ public sealed class SceneEditInput : IDisposable
     public SKBitmap GenerationMask { get; private set; } = null!;
     public SKBitmap InitialImage { get; private set; } = null!;
     public SKRectI SubjectBounds { get; private set; }
+    public SKRectI SupportBounds {get;private set;}
+    public byte SupportAlpha {get;private set;}
+    public int[] SupportY {get;private set;} = [];
     public SceneLightHint LightHint { get; private set; } = null!;
 
     public static SceneEditInput Prepare(Document document, AiTaskRequest request, CancellationToken token = default)
@@ -78,11 +81,22 @@ public sealed class SceneEditInput : IDisposable
         SubjectBounds=SelectionMask.Bounds(SubjectMask,16);
         if(SubjectBounds.IsEmpty || !WholeImage && HasNearFullCoverage(SubjectMask))
             throw new InvalidOperationException("The subject fills the image. Make a subject selection or use a transparent PNG.");
+        byte maximum=0; foreach(var value in ObjectAlpha.GetPixelSpan()) maximum=Math.Max(maximum,value);
+        // A glass product may have an opaque cap and a translucent base. Use the base's coverage, not its cap.
+        var objectBounds=SelectionMask.Bounds(ObjectAlpha,16); byte baseMaximum=0;
+        for(var y=Math.Max(objectBounds.Top,objectBounds.Bottom-objectBounds.Height/4);y<objectBounds.Bottom;y++)
+            for(var x=objectBounds.Left;x<objectBounds.Right;x++) baseMaximum=Math.Max(baseMaximum,ObjectAlpha.GetPixel(x,y).Alpha);
+        if(baseMaximum>16) maximum=baseMaximum;
+        SupportAlpha=(byte)Math.Max(1,(int)Math.Round(maximum*.94));
+        SupportBounds=SelectionMask.Bounds(ObjectAlpha,SupportAlpha);
+        SupportY=Enumerable.Repeat(-1,document.Width).ToArray();
+        for(var x=SupportBounds.Left;x<SupportBounds.Right;x++) for(var y=SupportBounds.Bottom-1;y>=SupportBounds.Top;y--)
+            if(ObjectAlpha.GetPixel(x,y).Alpha>=SupportAlpha) {SupportY[x]=y;break;}
         LightHint=SceneLightHint.Measure(IsCutout ? Background : Before,ObjectAlpha,SubjectBounds,settings,request.Task);
         ShadowMask=Own(Pixels.NewMask(document.Width,document.Height));
         if(!WholeImage && request.Task!=AiTaskKind.ChangeBackground && settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows)
         {
-            var b=SubjectBounds;
+            var b=SupportBounds;
             var reach=Math.Max(12,(int)Math.Round(b.Height*settings.ShadowReach));
             var floor=new SKRectI(Math.Max(0,b.Left-reach),Math.Max(0,b.Bottom-Math.Max(8,b.Height/8)),
                 Math.Min(document.Width,b.Right+reach),Math.Min(document.Height,b.Bottom+reach));
@@ -91,6 +105,11 @@ public sealed class SceneEditInput : IDisposable
             {
                 // A smooth permission region is not a manufactured shadow. Only model darkening is extracted later.
                 var edge=Math.Min(Math.Min(x-floor.Left,floor.Right-1-x),Math.Min(y-floor.Top,floor.Bottom-1-y));
+                var alpha=objectMask[y*ObjectAlpha.RowBytes+x];
+                if(alpha>=SupportAlpha) continue;
+                // The foreground's alpha already attenuates an underlaid shadow. Never cut out its AA fringe twice.
+                var support=SupportY[x]>=0?SupportY[x]:b.Bottom-1;
+                if(alpha>0 && y<=support) continue;
                 if(LightHint.Directional)
                 {
                     var dx=x-(b.Left+b.Right)/2d; var dy=y-b.Bottom;
@@ -99,17 +118,18 @@ public sealed class SceneEditInput : IDisposable
                     var contact=Math.Max(8,b.Width*.4);
                     if(along < -contact*.5 || across>contact+Math.Max(0,along)*.65) continue;
                 }
-                mask[y*ShadowMask.RowBytes+x]=(byte)(Math.Min(1,edge/8d)*(255-objectMask[y*ObjectAlpha.RowBytes+x]));
+                mask[y*ShadowMask.RowBytes+x]=(byte)(Math.Min(1,edge/8d)*255);
             }
             Pixels.Invalidate(ShadowMask);
         }
         GenerationMask=Own(Pixels.NewMask(document.Width,document.Height));
         var generation=GenerationMask.GetPixelSpan(); var subject=SubjectMask.GetPixelSpan(); var shadow=ShadowMask.GetPixelSpan();
         for(var y=0;y<document.Height;y++) for(var x=0;x<document.Width;x++)
-            generation[y*GenerationMask.RowBytes+x]=request.Task==AiTaskKind.ChangeBackground ? (byte)255
+            generation[y*GenerationMask.RowBytes+x]=request.Task==AiTaskKind.ChangeBackground ? (byte)(255-ObjectAlpha.GetPixel(x,y).Alpha)
                 : (byte)Math.Max(subject[y*SubjectMask.RowBytes+x],shadow[y*ShadowMask.RowBytes+x]);
         Pixels.Invalidate(GenerationMask);
-        InitialImage=request.Task==AiTaskKind.ChangeBackground ? IsCutout ? Background : Own(AiConditioningImage.Continue(Before,ObjectAlpha)) : Before;
+        // Background layout must see the actual object and its placement. A separate cleanup pass removes its cache.
+        InitialImage=Before;
     }
 
     public static bool HasTransparency(SKBitmap image)

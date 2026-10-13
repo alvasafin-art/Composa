@@ -109,10 +109,10 @@
     },
     {
       "id": "sceneEdit",
-      "version": 1,
+      "version": 2,
       "file": "workflows/scene-edit.json",
       "outputNodes": [
-        "save"
+        "save", "baseline"
       ]
     }
   ],

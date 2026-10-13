@@ -36,6 +36,7 @@ public class SceneEditingTests
         Assert.Equal("sourceEncode",graph["noiseMask"]!["inputs"]!["samples"]![0]!.GetValue<string>());
         Assert.Equal("noiseMask",graph["latent"]!["inputs"]!["samples"]![0]!.GetValue<string>());
         Assert.Equal(.8,graph["sampler"]!["inputs"]!["denoise"]!.GetValue<double>());
+        Assert.Equal("sourceEncode",graph["baselineDecode"]!["inputs"]!["samples"]![0]!.GetValue<string>());
         if(native.PaddedSize.Width>native.ContentSize.Width) Assert.Equal(0,native.Mask.GetPixel(native.PaddedSize.Width-1,native.PaddedSize.Height/2).Alpha);
     }
     [Theory]
@@ -50,6 +51,14 @@ public class SceneEditingTests
         if(cancel) await Assert.ThrowsAsync<OperationCanceledException>(()=>task);
         else await Assert.ThrowsAsync<InvalidOperationException>(()=>task);
         Assert.Equal(state,s.History.CurrentId); Assert.True(source.Visible); Assert.Equal(2,s.Document.Layers.Count); Assert.Equal(before.Bytes,s.Flatten().Bytes);
+    }
+    [Fact]
+    public async Task Failure_of_the_second_background_pass_cannot_commit_the_first_pass()
+    {
+        var s=Scene();var source=s.ActiveLayer!;var state=s.History.CurrentId;using var before=s.Flatten();
+        var connection=new Connection {Fail=true,FailAt=2};var service=Service(connection);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>service.RunAsync(new EditorCommandService(s),new() {Task=AiTaskKind.ChangeBackground},TestContext.Current.CancellationToken));
+        Assert.Equal(2,connection.Executions);Assert.True(source.Visible);Assert.Equal(state,s.History.CurrentId);Assert.Equal(before.Bytes,s.Flatten().Bytes);
     }
     [Fact]
     public async Task Scene_variants_use_one_atomic_commit_and_reuse_uploads()
@@ -99,7 +108,7 @@ public class SceneEditingTests
     {
         public ComfyServerAddress Address=>ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout {get;set;}
-        public bool Fail,Cancel; public int Uploads,Executions; private SKBitmap? source;
+        public bool Fail,Cancel; public int FailAt,Uploads,Executions; private SKBitmap? source;
         public Task<(ComfyServerInfo,ComfyServerCapabilities)> TestConnectionAsync(CancellationToken token=default)
         {
             var catalog=new EngineCatalog(Engines); var pack=catalog.Find("flux2-klein-intel-xpu")!;
@@ -107,12 +116,12 @@ public class SceneEditingTests
             return Task.FromResult((new ComfyServerInfo("0.37.0","test","test",["CPU"]),new ComfyServerCapabilities {NodeTypes=graph.Select(node=>node.Value!["class_type"]!.GetValue<string>()).ToHashSet()}));
         }
         public Task<string> UploadPngAsync(string semantic,SKBitmap image,CancellationToken token=default)
-        {Uploads++;if(semantic=="sourceImage") source=Pixels.Clone(image);return Task.FromResult(semantic+".png");}
+        {Uploads++;if(semantic=="sourceImage") {source?.Dispose();source=Pixels.Clone(image);}return Task.FromResult(semantic+".png");}
         public Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow,IProgress<AiOperationState>? progress=null,CancellationToken token=default)
         {
-            Executions++; if(Cancel) throw new OperationCanceledException(token);if(Fail) throw new InvalidOperationException("fixture failure");
+            Executions++; if(FailAt==0||Executions==FailAt) {if(Cancel) throw new OperationCanceledException(token);if(Fail) throw new InvalidOperationException("fixture failure");}
             Assert.Equal("sourceEncode",workflow["noiseMask"]!["inputs"]!["samples"]![0]!.GetValue<string>());
-            return Task.FromResult(new ComfyExecutionResult("fixture",JsonDocument.Parse("{}"),[new("fixture.png","","output","save")]));
+            return Task.FromResult(new ComfyExecutionResult("fixture",JsonDocument.Parse("{}"),[new("fixture.png","","output","save"),new("baseline.png","","output","baseline")]));
         }
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image,CancellationToken token=default)=>Task.FromResult(Pixels.Clone(source!));
         public void Dispose() {source?.Dispose();source=null;}

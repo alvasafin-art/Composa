@@ -1,5 +1,21 @@
 # Scene editing validation — 13 October 2026
 
+## Preview.27 follow-up: contact, halos and conditioning
+
+The prior checks protected pixels and alpha but inadequately tested product grounding. A photographic transparent shoe reproduced a detached shadow and a second shoe generated beneath the original in Change Background. A second cutout used real SAM Quality intersected with original alpha, without white detection-backdrop contamination. Source: [Worn Shoe](https://commons.wikimedia.org/wiki/File:Worn_Shoe.png), Aupajo, CC0. Both PNGs were tested on a photographic forest path at fractional placement, with 1003 × 731 and 1008 × 736 documents. The defect occurred at divisible-by-16 dimensions too: padding already cropped correctly; shape drift and compositing required separate fixes.
+
+Shadow permission now uses support geometry and permits an underlay at the antialiased base without applying foreground coverage twice. Ground changes are recovered from mixed pixels with foreground lighting discounted. Significant cast components, not a minimum-gap speck, drive bounded support registration. It moves the shadow only and rejects unrelated/strongly displaced darkening. The source PNG geometry and alpha are unchanged. A calibrated physical shadow solution is still not established.
+
+Lighting uses an actual source VAE encode/decode control, normalized floating-point log gains and reliable interior samples. The former brightest-region direction guess and generic added-rim-light instruction were removed. Background layout now sees the actual object and protects its foreground. A second masked image edit removes its cache from the arranged scene, with feathered expansion and codec compensation. It no longer uses approximate filled pixels as the cleanup reference or repeats placement instructions that can reintroduce a shoe.
+
+Live runs save separate layers and contact metrics at both visible and opaque contours, plus source/alpha/protected-pixel and Undo/Redo checks. Regressions cover codec-only change, outer glow, alpha-fringe contact, translucent product bases, detached dominant components and cleanup boundaries. Photographic inspection remains necessary: a tiny touching fragment does not prove that the main cast shape is plausible. Paid-provider paths are tested without spending credits; real paid image quality is not claimed.
+
+Final product contact checks reported an opaque-contour gap of one neighboring pixel for Match to Scene and Relight, with zero changed protected background pixels. Odd/aligned size comparisons showed that non-multiple dimensions alone did not explain the defect. Background replacement no longer inserted a second shoe. These metrics confirm contact/protection for these cases, not universal photographic realism: the generic model can still choose an imperfect cast shape or perspective, and the source product pose/placement affects the result.
+
+Preview.27 ordinary full validation passed **496 Core + 602 App = 1,098** tests, with ten opt-in tests skipped. Product-model checks above ran separately. The two-pass Nano Banana/GPT contract and second-pass failure rollback are included in the ordinary suite.
+
+The preview.26 report below remains an audit trail; its single-pass background and bright-region inference descriptions refer to the earlier implementation.
+
 This is an experimental scene-compositing implementation, not a measured claim of Photoshop parity. The intended behavior follows Adobe Harmonize: use the background to change the object's lighting and grounding, rather than only matching global color statistics. See [scene editing](scene-matching.md) for controls, setup, research links and limits.
 
 ## Actual photographic checks
@@ -35,4 +51,4 @@ To reproduce the opt-in photographic test, provide `sunset-before.cmps` and `day
 
 Higher priorities are photo-quality matting for hair/translucent edges; a clear per-task readiness display for models and nodes; real-image regression coverage for Fill/Expand/Remove across engines; reference/provider limits visible before submission; and repeatable lighting/shadow controls beyond prompt presets. Dedicated IC-Light or shadow-generation backends need their own model licensing, runtime and photographic evaluation.
 
-For everyday Photoshop-like editing, remaining gaps include brush-based object removal/refinement, perspective/warp and Liquify workflows, independent smart-filter masks, linked smart-object source replacement, useful batch-export/action presets and additional PSD interchange fixtures authored by Photoshop. These were researched as follow-up work; they are not claimed as implemented in this scene release.
+Higher editor priorities include document/display ICC workflows, 16-bit editing and Blend If. Existing affine/perspective transforms and basic pixel-push Liquify would benefit from editable meshes, freeze masks and more deformation controls. Independent smart-filter masks, linked smart-object sources, useful batch-export/actions and Photoshop-authored PSD fixtures remain follow-up work.

@@ -14,5 +14,7 @@
   "latent":{"class_type":"RepeatLatentBatch","inputs":{"samples":["noiseMask",0],"amount":1}},
   "sampler":{"class_type":"KSampler","inputs":{"model":["model",0],"positive":["positive",0],"negative":["negativeReference",0],"latent_image":["latent",0],"seed":0,"steps":8,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":0.8}},
   "decode":{"class_type":"VAEDecode","inputs":{"samples":["sampler",0],"vae":["vae",0]}},
+  "baselineDecode":{"class_type":"VAEDecode","inputs":{"samples":["sourceEncode",0],"vae":["vae",0]}},
+  "baseline":{"class_type":"SaveImage","inputs":{"images":["baselineDecode",0],"filename_prefix":"Composa/scene-reconstruction"}},
   "save":{"class_type":"SaveImage","inputs":{"images":["decode",0],"filename_prefix":"Composa/scene-edit"}}
 }

@@ -315,7 +315,7 @@ public class PartnerImageTests
         var state=session.History.CurrentId; var pixels=png.Bytes; var connection=new Connection(); var service=Service(connection);
         service.AdditionalPromptForPack=_=>"PACK INSTRUCTION";
         await service.RunAsync(new EditorCommandService(session),new() {Task=task,Prompt="make the cup blue"},TestContext.Current.CancellationToken);
-        Assert.Single(connection.Graphs); Assert.Equal(new[]{"apiSource"},connection.Uploads);
+        Assert.Equal(task==AiTaskKind.ChangeBackground?2:1,connection.Graphs.Count); Assert.Equal(task==AiTaskKind.ChangeBackground?new[]{"apiSource","apiSource"}:new[]{"apiSource"},connection.Uploads);
         Assert.Contains("PACK INSTRUCTION",connection.Graphs[0]["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
         Assert.Equal(pixels,png.Bytes); Assert.Null(session.Selection);
         var group=Assert.Single(session.Document.Layers,layer=>layer.IsGroup);

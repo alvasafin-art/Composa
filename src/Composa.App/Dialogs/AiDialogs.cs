@@ -341,7 +341,7 @@ public static class AiDialogs
         preserve.IsCheckedChanged+=(_,_)=>scene=scene with {PreserveDetails=preserve.IsChecked==true};
         var shadows=new CheckBox {Content="Extract a separate contact / cast shadow",IsChecked=scene.AddShadows};
         shadows.IsCheckedChanged+=(_,_)=>scene=scene with {AddShadows=shadows.IsChecked==true};
-        var autoAngle=new CheckBox {Content="Infer light direction from scene / preset",IsChecked=scene.LightAngle==null};
+        var autoAngle=new CheckBox {Content="Use scene / preset light direction",IsChecked=scene.LightAngle==null};
         var angle=Ui.AngleField("Light from",scene.LightAngle??135,0,360,value=>scene=scene with {LightAngle=value},300);
         angle.IsEnabled=scene.LightAngle!=null;
         autoAngle.IsCheckedChanged+=(_,_)=>{angle.IsEnabled=autoAngle.IsChecked!=true;scene=scene with {LightAngle=autoAngle.IsChecked==true ? null : ((StackPanel)angle).Children.OfType<Composa.App.Controls.AngleDial>().Single().Value};};
@@ -351,7 +351,7 @@ public static class AiDialogs
         if(task!=AiTaskKind.ChangeBackground) sceneControls.Children.Add(Ui.Column(8,CanvasDialogs.Form(("Effect",strength)),preserve,shadows,autoAngle,CanvasDialogs.Form(("Direction",angle),("Shadow area",reach))));
         sceneControls.Children.Add(CanvasDialogs.Form(("Local FLUX",denoise)));
         sceneControls.Children.Add(new TextBlock {Text=task==AiTaskKind.ChangeBackground
-            ? "A PNG supplies its own subject mask. Otherwise use a subject selection or automatic SAM. The clean background and original subject remain separate layers. Describe the new environment below."
+            ? "A PNG supplies its own subject mask; otherwise use a selection or SAM. Two passes: arrange the new scene around the visible subject, then clean its temporary copy from the background. The original subject remains separate. Paid workflows bill both requests per variant."
             : "PNG alpha supplies the object mask; a selection can limit it. Otherwise SAM finds the subject. Only permitted floor darkening becomes a shadow layer. Lighting presets guide the model; they are not physical 3D light controls.",TextWrapping=Avalonia.Media.TextWrapping.Wrap,MaxWidth=430,Foreground=Palette.Secondary});
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
         var prompt = new TextBox { Text = task == AiTaskKind.GenerateImage && string.IsNullOrEmpty(initialPrompt) ? settings.GenerateImagePrompt : initialPrompt,
@@ -484,7 +484,13 @@ public static class AiDialogs
             catch (Exception error) { dimensions.Text = error.Message; if (dialog != null) dialog.CanAccept = false; }
             var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
             var count = sourceCount + (references?.Count ?? referenceCount);
-            cost.Text = toneOnly ? "Local Curves correction · no generation or Comfy credits" : paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
+            var estimate=paid?PartnerPricing.Estimate(service?.ServerCapabilities,service!.SelectedEngine!.ApiModel!,quality,"Custom",count,variants):null;
+            if(task==AiTaskKind.ChangeBackground && estimate!=null)
+            {
+                var cleanupEstimate=PartnerPricing.Estimate(service?.ServerCapabilities,service!.SelectedEngine!.ApiModel!,quality,"Custom",1,variants);
+                estimate=cleanupEstimate==null?null:new(estimate.MinimumUsd+cleanupEstimate.MinimumUsd,estimate.MaximumUsd+cleanupEstimate.MaximumUsd);
+            }
+            cost.Text = toneOnly ? "Local Curves correction · no generation or Comfy credits" : paid ? estimate?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
             note.Text = nano ? "Nano Banana 2 · Gemini 3.1: 1K / 2K / 4K. Variants run sequentially and are billed individually. Undo does not refund credits."
                 : paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
                 : task == AiTaskKind.GenerativeExpand ? hasSelection

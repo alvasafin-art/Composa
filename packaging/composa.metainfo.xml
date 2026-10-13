@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.27" date="2026-10-13">
+      <description>
+        <p>TEST: reconstruction-aware lighting transfer, PNG fringe/contact fixes, bounded shadow registration and two-pass object-aware background replacement, checked on photographic products.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.26" date="2026-10-13">
       <description>
         <p>TEST: encoded-image scene harmonization, preserved PNG details, separate shadows, practical Relight presets and clean background replacement, validated on photographic backgrounds with undoable layers.</p>
