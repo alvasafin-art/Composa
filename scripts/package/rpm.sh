@@ -81,6 +81,7 @@ exit 0
 %doc /usr/share/doc/$APP/CHANGELOG.md
 %doc /usr/share/doc/$APP/nano-banana.md
 %doc /usr/share/doc/$APP/scene-matching.md
+%doc /usr/share/doc/$APP/scene-edit-validation.md
 %doc /usr/share/doc/$APP/assistant-agent.md
 %doc /usr/share/doc/$APP/assistant-setup.md
 %doc /usr/share/doc/$APP/assistant-rework-report.md

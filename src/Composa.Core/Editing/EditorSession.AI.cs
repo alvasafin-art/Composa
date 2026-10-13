@@ -11,6 +11,35 @@ public sealed record AiOutput(string Name, SKBitmap Pixels, SKBitmap? Mask = nul
 
 public sealed partial class EditorSession
 {
+    /// <summary>Commits all scene variants and source visibility together. Original layers remain recoverable.</summary>
+    public void InsertSceneEdit(AiTaskKind task, Guid? sourceLayer, IReadOnlyList<SceneEditResult> results, bool cutout, bool wholeImage)
+    {
+        if(results.Count==0) throw new ArgumentException("No scene results.");
+        var incoming=results.SelectMany(result=>result.Layers).SelectMany(output=>output.Mask==null ? new[] {output.Pixels} : new[] {output.Pixels,output.Mask}).Distinct<SKBitmap>(ReferenceEqualityComparer.Instance);
+        if(document.RasterPixels()+incoming.Sum(bitmap=>(long)bitmap.Width*bitmap.Height)>DocumentLimits.DocumentPixelBudget)
+            throw new InvalidOperationException($"Scene results exceed the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
+        var roots=document.Layers.ToArray();
+        RunTransaction("AI "+task.DisplayName(),_=>
+        {
+            if(wholeImage && roots.Length>0) document.SetActive(roots[^1].Id);
+            if(results.Count==1) InsertAiOutput(task,results[0].Layers,group:true);
+            else
+            {
+                var folder=Layer.Group("AI "+task.DisplayName()+" Variants"); folder.Tags.Add("ai-variants");
+                document.InsertAboveActive(folder);
+                for(var index=0;index<results.Count;index++)
+                {
+                    document.SetActive(folder.Id);
+                    var variant=Layer.Group("Variant "+(index+1)); variant.Visible=index==0; folder.Children.Add(variant);
+                    document.SetActive(variant.Id); InsertAiOutput(task,results[index].Layers);
+                }
+                document.SetActive(folder.Id);
+            }
+            if(wholeImage) foreach(var layer in roots) layer.Visible=false;
+            else if((cutout || task==AiTaskKind.ChangeBackground) && sourceLayer is { } id && document.Find(id) is { } source) source.Visible=false;
+        });
+        InvalidateAll(); LayersChanged?.Invoke();
+    }
     /// <summary>Matches visible masked layer pixels to their local scene with editable, noise-free curves.</summary>
     public IReadOnlyList<Layer> MatchActiveLayerToScene()
     {

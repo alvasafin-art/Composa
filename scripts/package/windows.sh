@@ -53,6 +53,7 @@ cp "$ROOT/docs/automatic-seams-research.md" "$TREE/docs/"
 cp "$ROOT/docs/spot-healing-research.md" "$TREE/docs/"
 cp "$ROOT/docs/seedvr2-upscale.md" "$TREE/docs/"
 cp "$ROOT/docs/scene-matching.md" "$ROOT/docs/nano-banana.md" "$ROOT/docs/original-generation-size.md" "$TREE/docs/"
+cp "$ROOT/docs/scene-edit-validation.md" "$TREE/docs/"
 mkdir -p "$TREE/scripts/photoshop"
 cp "$ROOT/scripts/photoshop/Exchange.ps1" "$ROOT/scripts/photoshop/Send-to-Composa.jsx" \
    "$ROOT/scripts/photoshop/Send-to-Photoshop.cmd" "$TREE/scripts/photoshop/"

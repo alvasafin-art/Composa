@@ -70,6 +70,8 @@ AI calls are queued in script order after all local document edits. Prepare loca
 
 Available AI functions are `generateImage`, `generativeFill`, `removeObject`, `generativeExpand`, `changeBackground`, `harmonize`, `matchToScene`, `relight`, `upscale`, `selectSubject`, and `objectSelection`. Optional `{ width, height, seed }` overrides are accepted; Generative Expand also accepts `{ x, y }` for its output origin.
 
+Scene operations also accept the typed lighting controls, for example `ai.relight("", { scene: { preset: "SoftboxLeft", scope: "Subject", denoise: 0.8, preserveDetails: true } });`. `ai.matchToScene({ scene: { matchMode: "LightOnly" } })` changes subject light without a new shadow. See [Scene editing](scene-matching.md) for all modes and their limits.
+
 Scripts cannot load assemblies, start processes, access the network, or read arbitrary files. A failed command, failed AI task, cancellation, timeout, or script exception restores the document to its state before the script.
 
 Native text and brush commands participate in the same enclosing transaction, including strokes that touch nothing. One Ctrl+Z undoes the complete successful script. JavaScript execution is bounded to eight seconds, 100,000 statements and 24 MB of engine allocations; editor raster limits also apply. During asynchronous application the target document is locked against competing edits. Scripts are never run automatically at startup.

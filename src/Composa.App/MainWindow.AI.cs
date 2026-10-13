@@ -570,7 +570,7 @@ public sealed partial class MainWindow
             ? task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject ? aspect : AiDimensions.OriginalGenerationSize(aspect.Width, aspect.Height)
             : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
-        if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale or AiTaskKind.MatchToScene))
+        if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale))
             options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed);
         else
         {
@@ -600,6 +600,7 @@ public sealed partial class MainWindow
             var request = new AiTaskRequest
             {
                 Task = task,
+                Scene=profile.Scene.Normalized(),
                 EngineId = engine?.Id,
                 SelectionRegion = selectionRegion, SelectionOperation = selectionOperation,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : options.Prompt,
@@ -636,6 +637,8 @@ public sealed partial class MainWindow
 
     private (int Width, int Height) AiAspect(AiTaskKind task)
     {
+        if(task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground && session!=null)
+            return (session.Document.Width,session.Document.Height);
         if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop && canvas.CropRect is { Width: > 0, Height: > 0 } crop)
             return (Math.Max(1, (int)Math.Round(crop.Width)), Math.Max(1, (int)Math.Round(crop.Height)));
         if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand

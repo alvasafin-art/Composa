@@ -28,6 +28,7 @@ done
 test -f "$WORK/$NAME/models/efficient_sam_vits_encoder.onnx" && test -f "$WORK/$NAME/models/efficient_sam_vits_decoder.onnx"
 mkdir -p "$WORK/$NAME/docs"
 cp "$ROOT/docs/nano-banana.md" "$ROOT/docs/scene-matching.md" "$WORK/$NAME/docs/"
+cp "$ROOT/docs/scene-edit-validation.md" "$WORK/$NAME/docs/"
 cp "$ROOT/docs/assistant-agent.md" "$ROOT/docs/assistant-setup.md" "$ROOT/docs/assistant-rework-report.md" "$WORK/$NAME/docs/"
 
 cp "$ROOT/packaging/$APP.desktop" "$ROOT/packaging/$APP.svg" "$ROOT/packaging/$APP-mime.xml" \

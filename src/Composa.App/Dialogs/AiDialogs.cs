@@ -208,6 +208,8 @@ public static class AiDialogs
         var quality = profile.ApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var nano=NanoBanana.IsModel(model);
+        var sequential=nano || task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+        if(sequential) mode=AiVariantMode.List;
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, nano ? "resolution" : "quality");
         if (qualities.Count == 0) qualities = nano ? ["1K","2K","4K"] : ["low", "medium", "high", "xhigh", "max"];
         if (!qualities.Contains(quality)) quality = qualities[0];
@@ -217,7 +219,7 @@ public static class AiDialogs
                 value => { originalSize = value == sizes[0]; if (!originalSize) mp = AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value); }, 150)),
             ("Reference images", Ui.Combo(sizes, reference is { } r ? AiDimensions.Label(ClosestMegapixels(r)) : sizes[0], value => value,
                 value => reference = value == sizes[0] ? null : AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value), 150)),
-            ("Execution", Ui.Combo(nano ? new[] { AiVariantMode.List } : new[] { AiVariantMode.List, AiVariantMode.Batch }, nano ? AiVariantMode.List : mode,
+            ("Execution", Ui.Combo(sequential ? new[] { AiVariantMode.List } : new[] { AiVariantMode.List, AiVariantMode.Batch }, sequential ? AiVariantMode.List : mode,
                 value => paid ? value == AiVariantMode.List ? "List · separate API requests" : "Batch · one API request"
                     : value == AiVariantMode.List ? "List · lower VRAM" : "Batch · faster, more VRAM", value => mode = value, 250)),
             ("Memory use", Ui.Combo(new[] { "auto", "reduced", "standard" }, fluxMemory,
@@ -325,6 +327,32 @@ public static class AiDialogs
         var previousEngine = service?.SelectedEngine;
         if (service != null) service.SelectedEngine = service.EngineFor(task);
         var profile = settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true);
+        var sceneTask=task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+        var scene=profile.Scene.Normalized();
+        Action? sceneRefresh=null;
+        var sceneMode=Ui.Combo(Enum.GetValues<SceneMatchMode>(),scene.MatchMode,value=>value switch
+            {SceneMatchMode.LightAndShadows=>"Match light + separate shadow",SceneMatchMode.LightOnly=>"Match light only",_=>"Local tone and color · no AI"},value=>{scene=scene with {MatchMode=value};sceneRefresh?.Invoke();},300);
+        var lighting=Ui.Combo(Enum.GetValues<RelightPreset>(),scene.Preset,SceneEditSettings.Name,value=>scene=scene with {Preset=value},300);
+        var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject · PNG / selection / SAM" : "Whole visible image",value=>scene=scene with {Scope=value},300);
+        var denoise=Ui.SliderField("Denoise",scene.Denoise,.1,1,value=>scene=scene with {Denoise=value},.01,"0.00",300);
+        var strength=Ui.SliderField("Strength",scene.Strength*100,0,100,value=>scene=scene with {Strength=value/100},1,"0",300,reset:100);
+        var reach=Ui.SliderField("Floor reach",scene.ShadowReach*100,10,200,value=>scene=scene with {ShadowReach=value/100},1,"0",300,reset:100);
+        var preserve=new CheckBox {Content="Preserve source detail using a lighting map",IsChecked=scene.PreserveDetails};
+        preserve.IsCheckedChanged+=(_,_)=>scene=scene with {PreserveDetails=preserve.IsChecked==true};
+        var shadows=new CheckBox {Content="Extract a separate contact / cast shadow",IsChecked=scene.AddShadows};
+        shadows.IsCheckedChanged+=(_,_)=>scene=scene with {AddShadows=shadows.IsChecked==true};
+        var autoAngle=new CheckBox {Content="Infer light direction from scene / preset",IsChecked=scene.LightAngle==null};
+        var angle=Ui.AngleField("Light from",scene.LightAngle??135,0,360,value=>scene=scene with {LightAngle=value},300);
+        angle.IsEnabled=scene.LightAngle!=null;
+        autoAngle.IsCheckedChanged+=(_,_)=>{angle.IsEnabled=autoAngle.IsChecked!=true;scene=scene with {LightAngle=autoAngle.IsChecked==true ? null : ((StackPanel)angle).Children.OfType<Composa.App.Controls.AngleDial>().Single().Value};};
+        var sceneControls=Ui.Column(8);
+        if(task==AiTaskKind.MatchToScene) sceneControls.Children.Add(CanvasDialogs.Form(("Mode",sceneMode)));
+        if(task==AiTaskKind.Relight) sceneControls.Children.Add(CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope)));
+        if(task!=AiTaskKind.ChangeBackground) sceneControls.Children.Add(Ui.Column(8,CanvasDialogs.Form(("Effect",strength)),preserve,shadows,autoAngle,CanvasDialogs.Form(("Direction",angle),("Shadow area",reach))));
+        sceneControls.Children.Add(CanvasDialogs.Form(("Local FLUX",denoise)));
+        sceneControls.Children.Add(new TextBlock {Text=task==AiTaskKind.ChangeBackground
+            ? "A PNG supplies its own subject mask. Otherwise use a subject selection or automatic SAM. The clean background and original subject remain separate layers. Describe the new environment below."
+            : "PNG alpha supplies the object mask; a selection can limit it. Otherwise SAM finds the subject. Only permitted floor darkening becomes a shadow layer. Lighting presets guide the model; they are not physical 3D light controls.",TextWrapping=Avalonia.Media.TextWrapping.Wrap,MaxWidth=430,Foreground=Palette.Secondary});
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
         var prompt = new TextBox { Text = task == AiTaskKind.GenerateImage && string.IsNullOrEmpty(initialPrompt) ? settings.GenerateImagePrompt : initialPrompt,
             AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
@@ -371,12 +399,22 @@ public static class AiDialogs
         var variantsCombo = Ui.Combo(new[] { 1, 2, 3 }, variants, value => value.ToString(), value => { variants = value; Refresh(); }, 60);
         AiOperationSettings CaptureProfile() => profile with
         {
+            Scene=scene.Normalized(),
             OriginalSize = originalSize, Megapixels = mp, Variants = variants, ApiQuality = quality,
             ExpansionMode = task == AiTaskKind.GenerativeExpand ? expansionMode : profile.ExpansionMode,
             ExpansionMinimumSide = regionSide, WholeExpansionMinimumSide = wholeSide
         };
         void LoadProfile(AiOperationSettings next)
         {
+            var loadedScene=next.Scene.Normalized(); scene=loadedScene; sceneMode.SelectedIndex=(int)scene.MatchMode; lighting.SelectedIndex=(int)scene.Preset; scope.SelectedIndex=(int)scene.Scope;
+            denoise.Value=scene.Denoise; strength.Value=scene.Strength*100; reach.Value=scene.ShadowReach*100;
+            preserve.IsChecked=scene.PreserveDetails; shadows.IsChecked=scene.AddShadows;
+            foreach(var control in ((StackPanel)angle).Children)
+            {
+                if(control is Composa.App.Controls.AngleDial dial) dial.Value=loadedScene.LightAngle??135;
+                if(control is Composa.App.Controls.SliderField field) field.Value=loadedScene.LightAngle??135;
+            }
+            autoAngle.IsChecked=loadedScene.LightAngle==null; angle.IsEnabled=loadedScene.LightAngle!=null; scene=loadedScene;
             profile = next; originalSize = next.OriginalSize; mp = ClosestMegapixels(next.Megapixels);
             variants = Math.Clamp(next.Variants, 1, 3); quality = next.ApiQuality;
             expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : next.ExpansionMode;
@@ -396,7 +434,7 @@ public static class AiDialogs
             LoadProfile(settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true));
         };
         var modelHost = new StackPanel();
-        if (service != null && service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray() is { Length: > 0 } packs)
+        if (service != null && service.Engines.Profiles.Where(pack => pack.Binding(task==AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task) != null).ToArray() is { Length: > 0 } packs)
         {
             var picker = Ui.Combo(packs, service.SelectedEngine ?? packs[0], pack => pack.DisplayName, pack =>
             {
@@ -412,7 +450,12 @@ public static class AiDialogs
             : CanvasDialogs.Form(("Image size", size));
         void Refresh()
         {
-            var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid;
+            var toneOnly=task==AiTaskKind.MatchToScene && scene.MatchMode==SceneMatchMode.ToneAndColor;
+            var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid && !toneOnly;
+            prompt.IsEnabled=!toneOnly;
+            strength.IsEnabled=preserve.IsEnabled=shadows.IsEnabled=autoAngle.IsEnabled=reach.IsEnabled=!toneOnly;
+            angle.IsEnabled=!toneOnly && scene.LightAngle!=null;
+            denoise.IsEnabled=!paid && !toneOnly;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];
@@ -430,7 +473,7 @@ public static class AiDialogs
                         ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels) : (width, height);
                 dimensions.Text = $"{width} × {height} px · proportions preserved" + (nano ? $"\nNano Banana: {quality} · {NanoBanana.Aspect(width,height)}; technical padding removed on insertion." : paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
                 if (!paid && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu" && sourceCanvas is { } canvas && selectionBounds is { } selection
-                    && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight)
+                    && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject)
                 {
                     var contextBounds = AutomaticAiMask.Geometry(selection,canvas).Bounds;
                     var generated = AiContextGeometry.FluxSize(contextBounds,selection,width,height,originalSize).Padded;
@@ -441,7 +484,7 @@ public static class AiDialogs
             catch (Exception error) { dimensions.Text = error.Message; if (dialog != null) dialog.CanAccept = false; }
             var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
             var count = sourceCount + (references?.Count ?? referenceCount);
-            cost.Text = paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
+            cost.Text = toneOnly ? "Local Curves correction · no generation or Comfy credits" : paid ? PartnerPricing.Estimate(service?.ServerCapabilities, service!.SelectedEngine!.ApiModel!, quality, "Custom", count, variants)?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
             note.Text = nano ? "Nano Banana 2 · Gemini 3.1: 1K / 2K / 4K. Variants run sequentially and are billed individually. Undo does not refund credits."
                 : paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
@@ -450,10 +493,12 @@ public static class AiDialogs
                 : hasSelection ? "Original size keeps source pixels. For FLUX, MP sets the total request area including surrounding context. Seed and execution mode are in Advanced."
                     : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
             ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
+            if(toneOnly) {dimensions.Text="Editable Match Light and Match Color curves";note.Text="Matches tone and neutral color balance locally. It does not generate lighting or shadows.";}
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
         var promptSection = Section("Describe the result", prompt); promptSection.IsVisible = prompt.IsVisible;
         var content = Ui.Column(10, Section("Workflow", modelHost), promptSection);
+        if(sceneTask) content.Children.Insert(1,Section(task==AiTaskKind.ChangeBackground ? "Preserve subject" : "Lighting and scene",sceneControls));
         if (references != null) content.Children.Add(Section("Optional references", references.View));
         content.Children.Add(Section("Output", resolution, dimensions, qualityHost, cost));
         content.Children.Add(note);
@@ -469,6 +514,7 @@ public static class AiDialogs
                 { e.Handled = true; await references.Paste(prompt.IsVisible ? prompt : null); }
             }, RoutingStrategies.Tunnel);
         }
+        sceneRefresh=Refresh;
         RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => { if (prompt.IsVisible) prompt.Focus(); };
         bool accepted;
         EngineProfile? chosenEngine = null;

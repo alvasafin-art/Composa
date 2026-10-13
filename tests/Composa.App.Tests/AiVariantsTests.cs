@@ -66,7 +66,7 @@ public class AiVariantsTests
         using var reference = Pixels.NewColor(8, 8);
         await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
         {
-            Task = AiTaskKind.Harmonize, ReferenceImages = [reference],
+            Task = AiTaskKind.ImageEdit, ReferenceImages = [reference],
             Settings = new AiGenerationSettings { Width = 48, Height = 32, Seed = 17, Variants = 3, VariantMode = mode }
         }, TestContext.Current.CancellationToken);
         Assert.Equal(runs, fake.Graphs.Count);
@@ -76,7 +76,7 @@ public class AiVariantsTests
         Assert.Single(session.AiVariantGroup.Children, layer => layer.Visible);
         Assert.Equal(history + 1, session.History.Count);
         if (mode == AiVariantMode.List) Assert.Equal(new long[] { 17, 18, 19 }, fake.Graphs.Select(graph => graph["sampler"]!["inputs"]!["seed"]!.GetValue<long>()));
-        else Assert.Equal(3, fake.Graphs[0]["latent"]!["inputs"]!["amount"]!.GetValue<int>());
+        else Assert.Equal(3, fake.Graphs[0]["latent"]!["inputs"]!["batch_size"]!.GetValue<int>());
         session.SelectAiVariant(session.AiVariantGroup, 2);
         Assert.True(session.AiVariantGroup!.Children[2].Visible); session.Undo(); Assert.True(session.AiVariantGroup!.Children[0].Visible);
         session.Undo(); Assert.Single(session.Document.Layers);

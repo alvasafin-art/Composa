@@ -106,6 +106,14 @@
       "outputNodes": [
         "save"
       ]
+    },
+    {
+      "id": "sceneEdit",
+      "version": 1,
+      "file": "workflows/scene-edit.json",
+      "outputNodes": [
+        "save"
+      ]
     }
   ],
   "tasks": [

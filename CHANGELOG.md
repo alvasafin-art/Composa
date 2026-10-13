@@ -4,6 +4,25 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.26] - 2026-10-13 · TEST
+
+### Added
+
+- Match to Scene / Harmonize uses full-scene FLUX editing from an encoded image latent at default denoise 0.8, PNG/selection/SAM subject masks, source-detail lighting transfer and a separate extracted contact/cast shadow. Offline editable tone/color curves remain an explicit mode.
+- Relight offers nine practical lighting presets, subject or whole-image scope, strength, source-detail preservation and automatic/manual light direction with a bounded shadow area. Settings are remembered per workflow/task and available to scripts and the agent.
+- Change Background creates a clean generated environment below a separate original-subject layer. PNG conditioning uses the actual backdrop without the subject; original PNG pixels and alpha remain intact.
+- Packaged scene editing guide and photographic validation/research report, including remaining AI/editor gaps and model-quality limits.
+
+### Fixed
+
+- Scene operations preserve protected background pixels, reject incorrect result dimensions, use sequential variants and commit output/source visibility in one undo step. Cancellation, failure or a changed document cannot insert partial results.
+- Shadow extraction converts linear-light darkening to encoded-RGB alpha, discounts background exposure drift and constrains connected shadows to the permitted floor/direction. No detected shadow is reported explicitly.
+- Scene requests retain custom workflow instructions while omitting the generic default exposure/white-balance lock that contradicts relighting. Scripted scene edits work inside their enclosing undo transaction.
+
+Validation: 1,091 automated tests passed (490 Core, 601 headless App); nine opt-in tests were skipped in the ordinary run. Photographic FLUX checks were run separately and are recorded in `docs/scene-edit-validation.md`. Real PNG/person scenes used sunset/daylight photographic backgrounds, soft studio, Neon/Golden Hour relighting and gray-studio background replacement; source bytes, alpha, protected pixels and Undo/Redo were checked.
+
+This is an experimental TEST pre-release. Lighting presets and image-space shadow cues do not guarantee physically correct lighting or Photoshop parity. Paid providers use simulated contract tests; live paid-provider image quality was not evaluated. Model files are installed separately.
+
 ## [1.2.1-preview.25] - 2026-10-12 · TEST
 
 ### Added

@@ -165,6 +165,8 @@ public sealed partial class EditorSession
 
     /// <summary>True while a drag, preview or other uncommitted edit is open.</summary>
     public bool IsInteracting => pendingBefore != null;
+    /// <summary>Automation owns the open edit and awaits its AI work with the document locked.</summary>
+    public bool IsInTransaction => transactionDepth > 0;
 
     public void Commit()
     {

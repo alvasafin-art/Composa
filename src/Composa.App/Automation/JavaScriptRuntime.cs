@@ -79,6 +79,8 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     // AI calls are queued after local edits and use the selected Engine Pack. Do local edits FIRST.
     ai.generativeFill("replace with flowers"); ai.removeObject(); ai.upscale();
     ai.changeBackground("sunset studio"); ai.harmonize("match the scene lighting");
+    // Scene options: {scene:{Preset:'SoftboxLeft',Scope:'Subject',Denoise:0.8,Strength:1,AddShadows:true,PreserveDetails:true}}.
+    // ai.matchToScene defaults to model-based lighting plus a separate shadow. scene.MatchMode:'ToneAndColor' uses local curves only.
     // Optional settings: { width, height, seed, x, y } (x/y are expansion origin).
     """;
 
@@ -279,6 +281,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         return new AiTaskRequest
         {
             Task = call.Task, Prompt = call.Prompt, ExpansionBounds = expansion,
+            Scene=(call.Options.Scene ?? settings.OperationFor(settings.EngineForTask(call.Task),call.Task).Scene).Normalized(),
             ReferenceMegapixels = settings.AiReferenceMegapixels,
             Settings = new AiGenerationSettings
             {
@@ -294,6 +297,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
     private sealed record QueuedAiTask(AiTaskKind Task, string Prompt, ScriptAiOptions Options);
     private sealed record ScriptAiOptions
     {
+        public SceneEditSettings? Scene { get; init; }
         public int? Width { get; init; }
         public int? Height { get; init; }
         public long? Seed { get; init; }

@@ -8,7 +8,7 @@ using SkiaSharp;
 
 namespace Composa.App.AI;
 
-public sealed class AiTaskService : IAiTaskRunner
+public sealed partial class AiTaskService : IAiTaskRunner
 {
     private readonly Func<string> serverUrl;
     private readonly Func<string, IComfyConnection> clientFactory;
@@ -18,6 +18,7 @@ public sealed class AiTaskService : IAiTaskRunner
     public Func<AiTaskKind, string?> EngineIdForTask { get; set; } = _ => null;
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
     {
+        if(task==AiTaskKind.MatchToScene && overrideId==null && EngineIdForTask(task)==null) task=AiTaskKind.Harmonize;
         var id = overrideId ?? EngineIdForTask(task);
         if (id == "seedvr2") id = "seedvr2-native";
         var engine = id == null ? SelectedEngine : Engines.Profiles.FirstOrDefault(pack => pack.Id == id);
@@ -130,7 +131,7 @@ public sealed class AiTaskService : IAiTaskRunner
         if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds == null && editor.Session.Selection != null)
             request = request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
                 Settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = request.ExpansionMinimumSide == 0 } } };
-        if (request.Task == AiTaskKind.MatchToScene)
+        if (request.Task == AiTaskKind.MatchToScene && request.Scene.MatchMode == SceneMatchMode.ToneAndColor)
         {
             Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
             StateChanged?.Invoke();
@@ -147,6 +148,11 @@ public sealed class AiTaskService : IAiTaskRunner
                 StateChanged?.Invoke();
                 throw;
             }
+        }
+        if (request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground)
+        {
+            await RunSceneAsync(editor,request,cancellationToken);
+            return;
         }
         var engine = EngineFor(requestedTask, request.EngineId) ?? throw new InvalidOperationException("The workflow pack assigned to this task is unavailable. Choose one in ComfyUI Settings.");
         var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");

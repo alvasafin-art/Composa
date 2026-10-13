@@ -130,6 +130,17 @@ interface LayerTransform {
 }
 
 interface AIOptions {
+  scene?: {
+    matchMode?: "LightAndShadows" | "LightOnly" | "ToneAndColor";
+    preset?: "MatchScene" | "SoftboxLeft" | "SoftboxRight" | "WindowLight" | "Overcast" | "GoldenHour" | "Backlight" | "StudioProduct" | "Neon";
+    scope?: "Subject" | "WholeImage";
+    denoise?: number;
+    strength?: number;
+    shadowReach?: number;
+    preserveDetails?: boolean;
+    addShadows?: boolean;
+    lightAngle?: number | null;
+  };
   width?: number;
   height?: number;
   seed?: number;

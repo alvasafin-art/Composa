@@ -22,7 +22,7 @@ public class SceneMatchingUiTests
             session.AddImageLayer("Subject",subject,new(300,220),fit:false);
             var original=subject.Bytes; using var before=Pixels.Clone(session.Flatten());
             Assert.True(Screenshots.Save(window,"match-scene-before"));
-            await window.AiTasks.RunAsync(new EditorCommandService(session),new(){Task=AiTaskKind.MatchToScene},TestContext.Current.CancellationToken);
+            await window.AiTasks.RunAsync(new EditorCommandService(session),new(){Task=AiTaskKind.MatchToScene,Scene=new() {MatchMode=SceneMatchMode.ToneAndColor}},TestContext.Current.CancellationToken);
             Assert.Equal(original,subject.Bytes); Assert.Equal(4,session.Document.Layers.Count);
             Assert.True(Screenshots.Save(window,"match-scene-after"));
             Assert.Equal(before.GetPixel(0,0),session.Flatten().GetPixel(0,0));

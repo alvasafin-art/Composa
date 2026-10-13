@@ -290,9 +290,6 @@ public class PartnerImageTests
     [Theory]
     [InlineData(AiTaskKind.ImageEdit)]
     [InlineData(AiTaskKind.RemoveObject)]
-    [InlineData(AiTaskKind.ChangeBackground)]
-    [InlineData(AiTaskKind.Harmonize)]
-    [InlineData(AiTaskKind.Relight)]
     public async Task Full_image_operations_without_selection_run_a_real_edit_workflow(AiTaskKind task)
     {
         var session = EditorSession.NewCanvas(79, 61, SKColors.White); var connection = new Connection();
@@ -304,6 +301,26 @@ public class PartnerImageTests
         Assert.Equal(SKColors.CornflowerBlue, session.ActiveLayer!.Pixels!.GetPixel(0, 0));
         Assert.Equal(1, session.History.Count); Assert.Null(session.Selection);
         session.Undo(); Assert.Single(session.Document.Layers);
+    }
+
+    [Theory]
+    [InlineData(AiTaskKind.ChangeBackground)]
+    [InlineData(AiTaskKind.Harmonize)]
+    [InlineData(AiTaskKind.Relight)]
+    public async Task Scene_operations_without_selection_use_PNG_alpha_and_keep_the_source(AiTaskKind task)
+    {
+        var session=EditorSession.NewCanvas(79,61,SKColors.White);
+        var png=Pixels.NewColor(79,61); using(var draw=new SKCanvas(png)) using(var paint=new SKPaint {Color=SKColors.Coral}) draw.DrawRect(new SKRect(25,15,45,50),paint);
+        Pixels.Invalidate(png); var subject=Composa.Model.Layer.Raster("PNG subject",png); session.Document.Layers.Add(subject); session.Document.SetActive(subject.Id);
+        var state=session.History.CurrentId; var pixels=png.Bytes; var connection=new Connection(); var service=Service(connection);
+        service.AdditionalPromptForPack=_=>"PACK INSTRUCTION";
+        await service.RunAsync(new EditorCommandService(session),new() {Task=task,Prompt="make the cup blue"},TestContext.Current.CancellationToken);
+        Assert.Single(connection.Graphs); Assert.Equal(new[]{"apiSource"},connection.Uploads);
+        Assert.Contains("PACK INSTRUCTION",connection.Graphs[0]["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
+        Assert.Equal(pixels,png.Bytes); Assert.Null(session.Selection);
+        var group=Assert.Single(session.Document.Layers,layer=>layer.IsGroup);
+        Assert.Contains(group.Children,layer=>layer.Tags.Contains("scene-object"));
+        session.Undo(); Assert.Equal(state,session.History.CurrentId); Assert.True(session.ActiveLayer!.Visible);
     }
 
     [Theory]

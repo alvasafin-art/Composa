@@ -36,6 +36,7 @@ for model in "$STAGE/usr/lib/$APP"/models/*.onnx; do
 done
 test -f "$STAGE/usr/lib/$APP/models/efficient_sam_vits_encoder.onnx" && test -f "$STAGE/usr/lib/$APP/models/efficient_sam_vits_decoder.onnx"
 install -Dm644 "$ROOT/docs/scene-matching.md" "$STAGE/usr/share/doc/$APP/scene-matching.md"
+install -Dm644 "$ROOT/docs/scene-edit-validation.md" "$STAGE/usr/share/doc/$APP/scene-edit-validation.md"
 install -Dm644 "$ROOT/docs/nano-banana.md" "$STAGE/usr/share/doc/$APP/nano-banana.md"
 install -Dm644 "$ROOT/docs/assistant-agent.md" "$STAGE/usr/share/doc/$APP/assistant-agent.md"
 install -Dm644 "$ROOT/docs/assistant-setup.md" "$STAGE/usr/share/doc/$APP/assistant-setup.md"

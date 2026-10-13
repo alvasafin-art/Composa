@@ -19,6 +19,8 @@ This guide describes what Composa can do and how to do it. It is written for peo
 - [View, rulers and guides](view-and-guides.md): zooming, rulers, guides, the grid, snapping and the pixel grid.
 - [AI control](ai-control.md): letting an AI agent work in Composa, connecting a client and what an agent can do.
 - [AI platform](ai-platform.md): ComfyUI connection, Engine Packs, contextual AI tasks, progress, Selection Brush and layer tags.
+- [Scene editing](scene-matching.md): Match to Scene, Relight presets, Change Background, PNG detail preservation and separate shadows.
+- [Scene validation](scene-edit-validation.md): real photographic FLUX checks, rejected defects, regression coverage and remaining editor/AI work.
 - [Assistant chat](assistant.md): conversation, attachments and applied edits through local llama.cpp or a compatible API.
 - [Scripting](scripting.md): the JavaScript automation API, AI tasks, examples and safety limits.
 - [Scripts and plugins](plugins.md): the reusable command library, package installation, permissions and shortcuts.

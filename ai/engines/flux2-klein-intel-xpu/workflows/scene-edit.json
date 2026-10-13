@@ -1,0 +1,18 @@
+{
+  "model":{"class_type":"UNETLoader","inputs":{"unet_name":"flux-2-klein-9b_int8_convrot.safetensors","weight_dtype":"default"}},
+  "clip":{"class_type":"CLIPLoader","inputs":{"clip_name":"qwen_3_8b_fp8mixed.safetensors","type":"flux2","device":"default"}},
+  "vae":{"class_type":"VAELoader","inputs":{"vae_name":"flux2-vae.safetensors"}},
+  "prompt":{"class_type":"CLIPTextEncode","inputs":{"text":"Harmonize the foreground subject with the surrounding scene, retaining its identity and silhouette.","clip":["clip",0]}},
+  "negative":{"class_type":"CLIPTextEncode","inputs":{"text":"changed identity, changed pose, duplicate subject, damaged text, halo, floating subject","clip":["clip",0]}},
+  "source":{"class_type":"LoadImage","inputs":{"image":"scene.png"}},
+  "maskImage":{"class_type":"LoadImage","inputs":{"image":"scene-mask.png"}},
+  "mask":{"class_type":"ImageToMask","inputs":{"image":["maskImage",0],"channel":"red"}},
+  "sourceEncode":{"class_type":"VAEEncode","inputs":{"pixels":["source",0],"vae":["vae",0]}},
+  "positive":{"class_type":"ReferenceLatent","inputs":{"conditioning":["prompt",0],"latent":["sourceEncode",0]}},
+  "negativeReference":{"class_type":"ReferenceLatent","inputs":{"conditioning":["negative",0],"latent":["sourceEncode",0]}},
+  "noiseMask":{"class_type":"SetLatentNoiseMask","inputs":{"samples":["sourceEncode",0],"mask":["mask",0]}},
+  "latent":{"class_type":"RepeatLatentBatch","inputs":{"samples":["noiseMask",0],"amount":1}},
+  "sampler":{"class_type":"KSampler","inputs":{"model":["model",0],"positive":["positive",0],"negative":["negativeReference",0],"latent_image":["latent",0],"seed":0,"steps":8,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":0.8}},
+  "decode":{"class_type":"VAEDecode","inputs":{"samples":["sampler",0],"vae":["vae",0]}},
+  "save":{"class_type":"SaveImage","inputs":{"images":["decode",0],"filename_prefix":"Composa/scene-edit"}}
+}

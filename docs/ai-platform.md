@@ -45,6 +45,8 @@ Tasks are stable editor concepts; bindings are explicit and versioned. Several t
 
 Execution validates the actual bound workflow and its selected loader/model choices. An upscaler does not require unrelated segmentation or diffusion models from the same pack. See [AI diagnostics](ai-diagnostics.md) for the mask, alignment and finishing issues addressed and the remaining model-quality limits.
 
+Match to Scene / Harmonize, Relight and Change Background now use a dedicated scene pipeline. PNG alpha, a selection or automatic SAM supplies the object mask. Lighting presets, source detail preservation, direction hints and separate shadows are described in [Scene editing](scene-matching.md). These operations use full-scene context and sequential variants rather than the older cropped-inpaint path.
+
 ## Layer tags and automation foundation
 
 Layers can carry multiple optional tags such as `title`, `logo`, `product`, `background`, or a custom tag. Tags survive `.cmps` save/load and are available through `FindLayersByTag`. The shared command service batches ordinary editor commands, scripts, Assistant edits, and queued AI tasks into one undo transaction rather than mutating view models.

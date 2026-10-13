@@ -35,6 +35,7 @@ public enum AiExpansionMode { MaskedRegion, WholeImage }
 
 public sealed record AiTaskRequest
 {
+    public SceneEditSettings Scene { get; init; } = new();
     public AiTaskKind Task { get; init; }
     public string? EngineId { get; init; }
     /// <summary>Independent AI-selection search rectangle; does not replace the current document selection.</summary>

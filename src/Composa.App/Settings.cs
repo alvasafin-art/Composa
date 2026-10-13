@@ -115,6 +115,7 @@ public sealed class Settings
         var fill = engineId == "flux2-klein-intel-xpu" && task == Composa.AI.AiTaskKind.GenerativeFill;
         var profile = new AiOperationSettings
         {
+            Scene = task==Composa.AI.AiTaskKind.ChangeBackground ? new() {Denoise=.95} : new(),
             OriginalSize = AiOriginalSize, Megapixels = AiMegapixels, ReferenceMegapixels = AiReferenceMegapixels,
             MaskGrow = paid ? AiGptMaskGrow : fill ? AiFluxFillMaskGrow : AiMaskGrow,
             MaskBlend = paid ? AiGptMaskBlend : fill ? AiFluxFillMaskBlend : AiMaskBlend,
@@ -255,6 +256,7 @@ public sealed record AiPromptSetting(bool Enabled, string Text);
 
 public sealed record AiOperationSettings
 {
+    public Composa.AI.SceneEditSettings Scene { get; init; } = new();
     public bool OriginalSize { get; init; } = true;
     public double Megapixels { get; init; } = 1;
     public double? ReferenceMegapixels { get; init; } = 1;
