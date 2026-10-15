@@ -78,7 +78,7 @@ public static class ImageFiles
         if (format == ExportFormat.Jpeg)
         {
             // JPEG has no transparency: composite over the matte (white by default).
-            flattened = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Rgba8888, SKAlphaType.Opaque));
+            flattened = new SKBitmap(Pixels.ColorInfo(bitmap.Width, bitmap.Height).WithAlphaType(SKAlphaType.Opaque));
             using var canvas = new SKCanvas(flattened);
             canvas.Clear(matte ?? SKColors.White);
             canvas.DrawBitmap(bitmap, 0, 0);
@@ -92,7 +92,7 @@ public static class ImageFiles
                 ExportFormat.Webp => SKEncodedImageFormat.Webp,
                 _ => SKEncodedImageFormat.Png
             }, Math.Clamp(quality, 1, 100)) ?? throw new IOException("The image could not be encoded.");
-            return data.ToArray();
+            return ImageProfiles.Embed(data.ToArray(), format, source.Width, source.Height);
         }
         finally { flattened?.Dispose(); }
     }

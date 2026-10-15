@@ -52,6 +52,8 @@ public sealed class LayersPanel : UserControl
     /// <summary>The footer's effects menu: add an effect to the active layer.</summary>
     public event Action<LayerEffectKind>? NewEffectRequested;
     public event Action<Layer>? EditTagsRequested;
+    public event Action<Layer>? EditBlendingRequested;
+    public event Action<Layer>? EditMaskPropertiesRequested;
 
     /// <summary>The blend mode at each index of the blend menu; null for the lines between groups.</summary>
     private readonly List<BlendMode?> blendAt = [];
@@ -224,6 +226,7 @@ public sealed class LayersPanel : UserControl
         var active = session?.ActiveLayer;
         blend.IsEnabled = opacity.IsEnabled = active != null;
         blend.SelectedIndex = blendAt.IndexOf(active?.Blend ?? BlendMode.Normal);
+        if(blend.Items[blendAt.IndexOf(BlendMode.PassThrough)] is ComboBoxItem passThrough)passThrough.IsEnabled=active?.IsGroup==true;
         if (!opacityDragging) opacity.Value = (active?.Opacity ?? 1) * 100;
         opacityText.Text = $"{Math.Round(opacity.Value)}%";
         updating = false;
@@ -518,6 +521,7 @@ public sealed class LayersPanel : UserControl
         Add(targetsMask ? "Delete Mask" : several ? "Delete Selected Layers" : "Delete Layer", () => { if (targetsMask) current.DeleteMask(layer); else current.DeleteSelectedLayers(); });
         menu.Items.Add(locks);
         Add("Tags…", () => EditTagsRequested?.Invoke(layer), !several);
+        Add("Blending Options…", () => EditBlendingRequested?.Invoke(layer), !several);
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
         if (layer.Shape != null) Add("Shape Properties…", () => EditShapeRequested?.Invoke(layer));
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
@@ -554,6 +558,7 @@ public sealed class LayersPanel : UserControl
         Add("Hide All (Black)", () => current.AddMask(layer, hideAll: true), parent: addMask);
         menu.Items.Add(addMask);
         Add(layer.Mask is { } && !layer.MaskEnabled ? "Enable Mask" : "Disable Mask", () => current.SetMaskEnabled(layer, !layer.MaskEnabled), layer.Mask != null);
+        Add("Mask Properties…", () => EditMaskPropertiesRequested?.Invoke(layer), layer.Mask != null);
         Add("Delete Mask", () => current.DeleteMask(layer), layer.Mask != null);
         Add("Apply Mask", () => current.ApplyMask(layer), layer.Mask != null && layer.Pixels != null && !layer.IsSmartObject);
         Add("Select Mask", () => current.SelectLayerMask(layer), layer.Mask != null);

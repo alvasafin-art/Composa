@@ -215,7 +215,7 @@ public sealed partial class EditorSession
 
     public void SetBlend(Layer layer, BlendMode blend)
     {
-        if (IsLocked(layer) || layer.Blend == blend) return;
+        if (IsLocked(layer) || layer.Blend == blend || blend == BlendMode.PassThrough && !layer.IsGroup) return;
         Apply("Blend Mode", () => layer.Blend = blend);
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
@@ -509,6 +509,7 @@ public sealed partial class EditorSession
             else if (document.Selection != null) layer.Mask = SelectionInLayerSpace(layer)!;
             else layer.Mask = Pixels.NewMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
             layer.MaskEnabled = true;
+            layer.MaskDensity = 1; layer.MaskFeather = 0;
         });
         EditingMask = true;
         Invalidate(AffectedArea(layer));
@@ -535,7 +536,7 @@ public sealed partial class EditorSession
             var pixels = Pixels.Clone(layer.Pixels);
             using (var canvas = new SKCanvas(pixels))
             using (var paint = new SKPaint { BlendMode = SKBlendMode.DstIn })
-                canvas.DrawBitmap(layer.Mask, new SKRect(0, 0, pixels.Width, pixels.Height), paint);
+                canvas.DrawBitmap(layer.RenderRasterMask(ignoreDisabled: true)!, new SKRect(0, 0, pixels.Width, pixels.Height), paint);
             layer.Pixels = pixels;
             layer.Mask = null;
         });

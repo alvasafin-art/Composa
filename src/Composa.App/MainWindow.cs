@@ -153,6 +153,8 @@ public sealed partial class MainWindow : Window
         layers.EditEffectRequested += (layer, kind) => _ = EditEffect(layer, kind);
         layers.NewEffectRequested += kind => _ = NewEffect(kind);
         layers.EditTagsRequested += layer => _ = EditLayerTags(layer);
+        layers.EditBlendingRequested += layer => _ = EditBlending(layer);
+        layers.EditMaskPropertiesRequested += layer => _ = EditMaskProperties(layer);
         layers.EditSmartObjectRequested += layer => OpenSmartObject(layer);
         layers.EditSmartFilterRequested += (layer, filter) => _ = SmartFilter(filter.Settings.Kind, layer, filter);
 

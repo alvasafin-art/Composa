@@ -200,6 +200,7 @@ internal static class PsdReader
 
         var maskLength = cursor.U32();
         var maskEnd = cursor.Offset + maskLength;
+        if (maskEnd > extraEnd) throw PsdException.Truncated();
         if (maskLength >= 20)
         {
             layer.HasMask = true;
@@ -213,9 +214,31 @@ internal static class PsdReader
             layer.MaskLinked = (maskFlags & 1) == 0;
             layer.MaskDisabled = (maskFlags & 2) != 0;
             layer.MaskFromRender = (maskFlags & 8) != 0;
+            if ((maskFlags & 16) != 0)
+            {
+                var parameters = cursor.U8();
+                if ((parameters & 1) != 0) layer.MaskDensity = cursor.U8() / 255.0;
+                if ((parameters & 2) != 0) layer.MaskFeather = cursor.F64();
+                if ((parameters & 4) != 0) cursor.Skip(1);
+                if ((parameters & 8) != 0) cursor.Skip(8);
+                if (cursor.Offset > maskEnd) throw PsdException.Truncated();
+            }
         }
         cursor.Seek(maskEnd);
-        cursor.Skip(cursor.U32()); // blending ranges
+        var rangesLength = cursor.U32();
+        if (rangesLength > extraEnd - cursor.Offset) throw PsdException.Truncated();
+        var rangesEnd = cursor.Offset + rangesLength;
+        if (rangesLength >= 8)
+        {
+            BlendRange Range(ref PsdCursor input) => new BlendRange(input.U8(), input.U8(), input.U8(), input.U8()).Normalized();
+            BlendChannelRanges Pair(ref PsdCursor input) => new() { ThisLayer = Range(ref input), Underlying = Range(ref input) };
+            var gray = Pair(ref cursor);
+            var red = rangesLength >= 16 ? Pair(ref cursor) : new();
+            var green = rangesLength >= 24 ? Pair(ref cursor) : new();
+            var blue = rangesLength >= 32 ? Pair(ref cursor) : new();
+            layer.BlendIf = new() { Gray = gray, Red = red, Green = green, Blue = blue };
+        }
+        cursor.Seek(rangesEnd);
         var nameLength = cursor.U8();
         layer.Name = System.Text.Encoding.Latin1.GetString(cursor.Bytes(nameLength));
         cursor.Skip((4 - (nameLength + 1) % 4) % 4);

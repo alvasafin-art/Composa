@@ -169,21 +169,21 @@ public static class DocumentRenderer
         // Effects are drawn from an image that already has the mask applied, so the mask is not applied again.
         var effects = EffectsOf(layer);
         var hasMask = layer.RenderMask() != null && effects == null;
-        if (layer.IsGroup && !hasMask && layer.Opacity >= 1 && layer.Blend == BlendMode.Normal && clipped.Count == 0)
+        if (layer.IsGroup && !hasMask && layer.Opacity >= 1 && layer.BlendIf.IsIdentity && layer.Blend == BlendMode.PassThrough && clipped.Count == 0)
         {
             RenderNodes(layer.Children, tile, options); // Pass-through folder.
             return;
         }
-        if (layer.Kind == LayerKind.Raster && !hasMask && clipped.Count == 0 && !layer.Blend.IsCustom())
+        if (layer.Kind == LayerKind.Raster && !hasMask && layer.BlendIf.IsIdentity && clipped.Count == 0 && !layer.Blend.IsCustom())
         {
             DrawPixels(layer, tile.Canvas, layer.Opacity, layer.Blend, effects);
             return;
         }
 
-        // A Normal folder is rendered over a copy of what lies beneath it and then mixed back in by its mask and
+        // A Pass Through folder is rendered over a copy of what lies beneath it and then mixed back in by its mask and
         // opacity. For ordinary layers that equals compositing the folder on its own, and it is what lets adjustment
         // layers inside the folder see (and change) the picture below them.
-        if (layer.IsGroup && layer.Blend == BlendMode.Normal && clipped.Count == 0)
+        if (layer.IsGroup && layer.Blend == BlendMode.PassThrough && clipped.Count == 0)
         {
             tile.Canvas.Flush();
             using var seeded = tile.Sibling();
@@ -216,7 +216,18 @@ public static class DocumentRenderer
                 else DrawPixels(top, over.Canvas, 1, BlendMode.Normal, topEffects);
                 if (top.RenderMask() != null && topEffects == null) MultiplyByMask(top, over);
                 over.Canvas.Flush();
-                if (top.Blend.IsCustom()) { content.Canvas.Flush(); SeparableBlend.Composite(content.Bitmap, over.Bitmap, top.Blend, top.Opacity); continue; }
+                if (!top.BlendIf.IsIdentity)
+                {
+                    content.Canvas.Flush();
+                    BlendIfPixels.Apply(over.Bitmap, over.Bitmap, content.Bitmap, top.BlendIf);
+                }
+                if (top.Blend.IsCustom())
+                {
+                    content.Canvas.Flush();
+                    var grid = tile.DocumentGrid;
+                    SeparableBlend.Composite(content.Bitmap, over.Bitmap, top.Blend, top.Opacity, new((float)grid.X, (float)grid.Y), grid.Step);
+                    continue;
+                }
                 using var blend = new SKPaint { BlendMode = top.Blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(top.Opacity)) };
                 content.DrawRaw(over.Bitmap, blend);
             }
@@ -225,11 +236,17 @@ public static class DocumentRenderer
         }
 
         content.Canvas.Flush();
+        if (!layer.BlendIf.IsIdentity)
+        {
+            tile.Canvas.Flush();
+            BlendIfPixels.Apply(content.Bitmap, content.Bitmap, tile.Bitmap, layer.BlendIf);
+        }
         if (layer.Blend.IsCustom())
         {
             // Skia has no equivalent for these modes, so the layer's finished content is combined by hand.
             tile.Canvas.Flush();
-            SeparableBlend.Composite(tile.Bitmap, content.Bitmap, layer.Blend, layer.Opacity);
+            var grid = tile.DocumentGrid;
+            SeparableBlend.Composite(tile.Bitmap, content.Bitmap, layer.Blend, layer.Opacity, new((float)grid.X, (float)grid.Y), grid.Step);
             return;
         }
         using var paint = new SKPaint { BlendMode = layer.Blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(layer.Opacity)) };
@@ -260,7 +277,7 @@ public static class DocumentRenderer
     /// <summary>tile = tile × (1 - m) + replacement × m, where m is the layer's mask times its opacity.</summary>
     private static void Mix(Tile tile, SKBitmap replacement, Layer layer, bool hasMask)
     {
-        if (!hasMask && layer.Opacity >= 1)
+        if (!hasMask && layer.Opacity >= 1 && layer.BlendIf.IsIdentity)
         {
             tile.DrawRaw(replacement, Replace);
             return;
@@ -269,6 +286,7 @@ public static class DocumentRenderer
         coverage.Canvas.Clear(SKColors.Black.WithAlpha(ToByte(layer.Opacity)));
         if (hasMask) MultiplyByMask(layer, coverage);
         coverage.Canvas.Flush();
+        BlendIfPixels.Apply(coverage.Bitmap, replacement, tile.Bitmap, layer.BlendIf);
         using (var canvas = new SKCanvas(replacement))
         using (var keep = new SKPaint { BlendMode = SKBlendMode.DstIn })
             canvas.DrawBitmap(coverage.Bitmap, 0, 0, keep);
@@ -395,6 +413,6 @@ public static class DocumentRenderer
         var (originX, originY, step) = tile.DocumentGrid;
         // Bands already run side by side, so the adjustment itself stays on this thread.
         layer.Adjustment.Apply(adjusted, new SKRectI(0, 0, adjusted.Width, adjusted.Height), originX, originY, step, parallel: tile.Area.Height * (long)tile.Area.Width > 2_000_000);
-        Mix(tile, adjusted, layer, layer.Mask != null && layer.MaskEnabled);
+        Mix(tile, adjusted, layer, layer.RenderMask() != null);
     }
 }

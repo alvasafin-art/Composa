@@ -405,13 +405,17 @@ public sealed partial class Layer
     public bool Visible { get; set; } = true;
     public double Opacity { get; set; } = 1;
     public double FillOpacity { get; set; } = 1;
-    public BlendMode Blend { get; set; } = BlendMode.Normal;
+    public BlendIfSettings BlendIf { get; set; } = new();
+    private BlendMode? blend;
+    public BlendMode Blend { get => blend ?? (IsGroup ? BlendMode.PassThrough : BlendMode.Normal); set => blend = value; }
     /// <summary>RGBA8888 premultiplied source pixels; null for groups and adjustments.</summary>
     public SKBitmap? Pixels { get; set; }
     public LayerTransform Transform { get; set; } = new();
     /// <summary>Alpha8 coverage (white reveals). For raster layers it matches <see cref="Pixels"/>; otherwise the document.</summary>
     public SKBitmap? Mask { get; set; }
     public bool MaskEnabled { get; set; } = true;
+    public double MaskDensity { get; set; } = 1;
+    public double MaskFeather { get; set; }
     /// <summary>A clipping mask: this layer only shows where the nearest unclipped sibling below it has coverage.</summary>
     public bool Clipped { get; set; }
     public Adjustment? Adjustment { get; set; }
@@ -527,7 +531,7 @@ public sealed partial class Layer
         var copy = new Layer
         {
             Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, FillOpacity = FillOpacity, Blend = Blend,
-            Pixels = Pixels, Transform = Transform, Mask = Mask, MaskEnabled = MaskEnabled, Clipped = Clipped,
+            Pixels = Pixels, Transform = Transform, Mask = Mask, MaskEnabled = MaskEnabled, MaskDensity = MaskDensity, MaskFeather = MaskFeather, Clipped = Clipped, BlendIf = BlendIf,
             Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed, Locks = Locks,
             FilterSource = FilterSource, SmartFilters = SmartFilters, FilterPaddingX = FilterPaddingX, FilterPaddingY = FilterPaddingY,
             VectorMask = VectorMask, VectorMaskEnabled = VectorMaskEnabled

@@ -188,6 +188,7 @@ public sealed class HistoryPanel : UserControl
         "Magic Wand" => Icons.Wand,
         "Selection Brush" => Icons.SelectionBrush,
         "Assistant edit" or "Run Script" => Icons.Effects,
+        "Blending Options" => Icons.Layers,
         "Object Selection" or "Select Subject" => Icons.ObjectSelect,
         "Move Selection Pixels" or "Duplicate Selection" => Icons.Move,
         "Deselect" or "Color Range" => Icons.Marquee,

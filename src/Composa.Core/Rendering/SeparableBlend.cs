@@ -13,7 +13,7 @@ namespace Composa.Rendering;
 public static class SeparableBlend
 {
     /// <summary>Composites <paramref name="source"/> onto <paramref name="destination"/> in place; both premultiplied RGBA8888 of the same size.</summary>
-    public static unsafe void Composite(SKBitmap destination, SKBitmap source, BlendMode mode, double opacity)
+    public static unsafe void Composite(SKBitmap destination, SKBitmap source, BlendMode mode, double opacity, SKPoint origin = default, double step = 1)
     {
         if (destination.Width != source.Width || destination.Height != source.Height) throw new ArgumentException("The bitmaps must be the same size.");
         var blend = FunctionFor(mode);
@@ -37,10 +37,21 @@ public static class SeparableBlend
                 float cs0 = sr / sa, cs1 = sg / sa, cs2 = sb / sa;
                 float cb0 = 0, cb1 = 0, cb2 = 0;
                 if (da > 0) { cb0 = dr / da; cb1 = dg / da; cb2 = db / da; }
+                if (mode == BlendMode.Dissolve)
+                {
+                    // Fixed document/sample coordinates: never frame-random and never reset at a render band.
+                    var hash = unchecked((uint)(int)Math.Floor(origin.X + x * step) * 0x1f123bb5u ^ (uint)(int)Math.Floor(origin.Y + y * step) * 0x5f356495u);
+                    hash ^= hash >> 16; hash *= 0x7feb352du; hash ^= hash >> 15;
+                    if ((hash & 0xffffff) / 16777216f >= sa) continue;
+                    sa = 1; sr = cs0; sg = cs1; sb = cs2;
+                }
                 var both = sa * da;
-                var r = sr * (1 - da) + dr * (1 - sa) + both * blend(Math.Min(1, cb0), Math.Min(1, cs0));
-                var g = sg * (1 - da) + dg * (1 - sa) + both * blend(Math.Min(1, cb1), Math.Min(1, cs1));
-                var b = sb * (1 - da) + db * (1 - sa) + both * blend(Math.Min(1, cb2), Math.Min(1, cs2));
+                var selectBackdrop = mode == BlendMode.DarkerColor ? cb0 + cb1 + cb2 <= cs0 + cs1 + cs2
+                    : mode == BlendMode.LighterColor && cb0 + cb1 + cb2 >= cs0 + cs1 + cs2;
+                float B(float cb, float cs) => mode is BlendMode.DarkerColor or BlendMode.LighterColor ? selectBackdrop ? cb : cs : blend(Math.Min(1, cb), Math.Min(1, cs));
+                var r = sr * (1 - da) + dr * (1 - sa) + both * B(cb0, cs0);
+                var g = sg * (1 - da) + dg * (1 - sa) + both * B(cb1, cs1);
+                var b = sb * (1 - da) + db * (1 - sa) + both * B(cb2, cs2);
                 var a = sa + da - both;
                 d[3] = ToByte(a);
                 d[0] = (byte)Math.Min(d[3], ToByte(r));
@@ -66,6 +77,7 @@ public static class SeparableBlend
         BlendMode.HardMix => static (cb, cs) => cb + cs < 1 ? 0 : 1,
         BlendMode.Subtract => static (cb, cs) => Math.Max(0, cb - cs),
         BlendMode.Divide => static (cb, cs) => cb <= 0 ? 0 : cs <= 0 ? 1 : Math.Min(1, cb / cs),
+        BlendMode.DarkerColor or BlendMode.LighterColor or BlendMode.Dissolve => static (_, cs) => cs,
         _ => throw new ArgumentException($"{mode} is drawn by Skia, not here.", nameof(mode))
     };
 

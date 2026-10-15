@@ -21,9 +21,10 @@ public static class ProjectFile
     /// 2 added guides, 3 added the Gaussian Blur, Motion Blur and Add Noise adjustment layers and the Inner Glow effect,
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
-    /// 9 character size runs and separate fill opacity for imported Photoshop effects.
+    /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
+    /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties.
     /// </summary>
-    public const int Version = 10;
+    public const int Version = 11;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -64,11 +65,14 @@ public static class ProjectFile
         public bool Visible { get; set; } = true;
         public double Opacity { get; set; } = 1;
         public double FillOpacity { get; set; } = 1;
+        public BlendIfSettings? BlendIf { get; set; }
         public BlendMode Blend { get; set; }
         public LayerTransform? Transform { get; set; }
         public string? ImageFile { get; set; }
         public string? MaskFile { get; set; }
         public bool? MaskEnabled { get; set; }
+        public double MaskDensity { get; set; } = 1;
+        public double MaskFeather { get; set; }
         public bool? Clipped { get; set; }
         public bool? Collapsed { get; set; }
         public LayerLocks Locks { get; set; }
@@ -128,6 +132,7 @@ public static class ProjectFile
         {
             Id = layer.Id, Name = layer.Name, Tags = layer.Tags.Count > 0 ? layer.Tags.Order().ToList() : null,
             Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, FillOpacity = layer.FillOpacity, Blend = layer.Blend,
+            BlendIf = layer.BlendIf.IsIdentity ? null : layer.BlendIf,
             Transform = layer.Pixels != null ? layer.Transform : null,
             ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null) ? Store(layer.Pixels, $"{written.Count}.png") : null,
             FilterSourceFile = layer.FilterSource != null ? Store(layer.FilterSource, $"{written.Count}.filter-source.png") : null,
@@ -136,6 +141,7 @@ public static class ProjectFile
             VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
             MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null, Locks = layer.Locks,
+            MaskDensity = layer.MaskDensity, MaskFeather = layer.MaskFeather,
             Clipped = layer.Clipped ? true : null,
             Collapsed = layer.Collapsed ? true : null,
             Adjustment = layer.Adjustment, Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
@@ -211,14 +217,18 @@ public static class ProjectFile
             return source;
         }
 
-        Layer Build(LayerRecord record, int depth)
+        Layer Build(LayerRecord record, int depth, int version)
         {
             if (++count > 10_000 || depth > 64) throw new InvalidDataException("The project has too many layers.");
             var layer = new Layer
             {
                 Id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, Name = record.Name, Kind = record.Kind, Visible = record.Visible,
-                Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, FillOpacity = double.IsFinite(record.FillOpacity) ? Math.Clamp(record.FillOpacity, 0, 1) : 1, Blend = record.Blend,
+                Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, FillOpacity = double.IsFinite(record.FillOpacity) ? Math.Clamp(record.FillOpacity, 0, 1) : 1,
+                Blend = version <= 10 && record.Kind == LayerKind.Group && record.Blend == BlendMode.Normal ? BlendMode.PassThrough : record.Blend,
+                BlendIf = record.BlendIf?.Normalized() ?? new(),
                 MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false, Locks = record.Locks & LayerLocks.All,
+                MaskDensity = double.IsFinite(record.MaskDensity) ? Math.Clamp(record.MaskDensity, 0, 1) : 1,
+                MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0,
                 Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
                 VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true
             };
@@ -250,7 +260,7 @@ public static class ProjectFile
                 if (record.ImageFile != null) layer.Pixels = Fetch(record.ImageFile, mask: false);
             }
             if (record.Kind == LayerKind.Group && record.Children != null)
-                foreach (var child in record.Children) layer.Children.Add(Build(child, depth + 1));
+                foreach (var child in record.Children) layer.Children.Add(Build(child, depth + 1, version));
             return layer;
         }
 
@@ -259,7 +269,7 @@ public static class ProjectFile
             if (!DocumentLimits.FitsSurface(value.Width, value.Height) || value.Format != Format || value.Version > Version)
                 throw new InvalidDataException("Invalid embedded document size or format.");
             var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72 };
-            foreach (var record in value.Layers) result.Layers.Add(Build(record, 0));
+            foreach (var record in value.Layers) result.Layers.Add(Build(record, 0, value.Version));
             if (value.AlphaChannels != null)
                 foreach (var pair in value.AlphaChannels.Take(64))
                     if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Key.Length <= 200) result.AlphaChannels[pair.Key] = Fetch(pair.Value, mask: true);

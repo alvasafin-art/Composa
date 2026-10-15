@@ -112,8 +112,8 @@ public sealed class PsdImport
         ["idiv"] = BlendMode.ColorBurn, ["sLit"] = BlendMode.SoftLight, ["hLit"] = BlendMode.HardLight, ["smud"] = BlendMode.Exclusion,
         ["hue "] = BlendMode.Hue, ["sat "] = BlendMode.Saturation, ["colr"] = BlendMode.Color, ["lum "] = BlendMode.Luminosity,
         ["lbrn"] = BlendMode.LinearBurn, ["lddg"] = BlendMode.LinearDodge, ["vLit"] = BlendMode.VividLight, ["lLit"] = BlendMode.LinearLight,
-        ["pLit"] = BlendMode.PinLight, ["hMix"] = BlendMode.HardMix, ["fsub"] = BlendMode.Subtract, ["fdiv"] = BlendMode.Divide
-        // Dissolve, Darker Color and Lighter Color have no equivalent here and fall through to Normal with a conversion listed.
+        ["pLit"] = BlendMode.PinLight, ["hMix"] = BlendMode.HardMix, ["fsub"] = BlendMode.Subtract, ["fdiv"] = BlendMode.Divide,
+        ["pass"] = BlendMode.PassThrough, ["dkCl"] = BlendMode.DarkerColor, ["lgCl"] = BlendMode.LighterColor, ["diss"] = BlendMode.Dissolve
     };
 
     internal static string BlendKey(BlendMode mode) => Blends.First(pair => pair.Value == mode).Key;
@@ -172,7 +172,7 @@ public sealed class PsdImport
                 if (pending.TryGetValue(id, out var children)) layer.Children.AddRange(children);
                 target = openGroups.Count > 0 ? pending[openGroups.Peek()] : roots;
                 if (record.BlendKey != "pass" && !Blends.ContainsKey(record.BlendKey)) conversions.Add(new PsdConversion(name, $"Folder blend mode \"{record.BlendKey.Trim()}\" isn't supported. The folder will be pass-through."));
-                layer.Blend = Blends.GetValueOrDefault(record.BlendKey, BlendMode.Normal);
+                layer.Blend = record.BlendKey == "pass" ? BlendMode.PassThrough : Blends.GetValueOrDefault(record.BlendKey, BlendMode.PassThrough);
                 record.Image?.Dispose();
             }
             else
@@ -190,6 +190,7 @@ public sealed class PsdImport
             if (layer.Pixels != null) layer.Effects = PsdEffects.Read(record, file.GlobalLightAngle, conversions);
             else if (EffectKeys.Any(record.Extra.ContainsKey)) conversions.Add(new(name, "Effects on folders/adjustments are not supported."));
             layer.Opacity = Opacity(record);
+            layer.BlendIf = record.BlendIf;
             if (EffectKeys.Any(record.Extra.ContainsKey)) layer.FillOpacity = record.Fill / 255.0;
             ApplyMask(record, layer, canvas, conversions);
             target.Add(layer);
@@ -401,6 +402,8 @@ public sealed class PsdImport
         }
         layer.Mask = mask;
         layer.MaskEnabled = !record.MaskDisabled;
+        layer.MaskDensity = record.MaskDensity;
+        layer.MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0;
         if (!record.MaskLinked) conversions.Add(new PsdConversion(layer.Name, "The mask was unlinked from its layer in Photoshop; here it moves with the layer."));
     }
 

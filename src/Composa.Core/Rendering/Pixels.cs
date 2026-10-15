@@ -30,7 +30,10 @@ public static partial class Pixels
         }
         return right <= left ? SKRectI.Empty : new(left, top, right, bottom);
     }
-    public static SKImageInfo ColorInfo(int width, int height) => new(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+    // An explicit destination space is essential: a null space makes SKCodec retain
+    // Adobe RGB / Display P3 channel values without converting their appearance.
+    private static readonly SKColorSpace workingSpace = SKColorSpace.CreateSrgb();
+    public static SKImageInfo ColorInfo(int width, int height) => new(width, height, SKColorType.Rgba8888, SKAlphaType.Premul, workingSpace);
     public static SKImageInfo MaskInfo(int width, int height) => new(width, height, SKColorType.Alpha8, SKAlphaType.Premul);
 
     public static SKBitmap NewColor(int width, int height)

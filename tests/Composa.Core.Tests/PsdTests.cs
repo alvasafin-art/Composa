@@ -56,10 +56,8 @@ public class PsdTests
         AssertColor(SKColors.Blue, child.Pixels!.GetPixel(0, 0));
         var top = import.Layers[2];
         Assert.False(top.Visible);
-        Assert.Equal(BlendMode.Normal, top.Blend);
-        var conversion = Assert.Single(import.Conversions);
-        Assert.Equal("Ünïcode ✓", conversion.LayerName);
-        Assert.Contains("diss", conversion.Message);
+        Assert.Equal(BlendMode.Dissolve, top.Blend);
+        Assert.Empty(import.Conversions);
 
         var document = import.ToDocument();
         Assert.Equal(top.Id, document.ActiveLayerId);

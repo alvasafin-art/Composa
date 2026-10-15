@@ -27,6 +27,9 @@ public static partial class PsdExport
         if (NeedsAppearance(document)) notes.Add(new("Document", "Adjustments are applied to a merged appearance layer. Source layers are kept in a hidden folder; adjustment settings stay in the Composa project."));
         foreach (var layer in document.AllLayers())
         {
+            if (layer.Mask != null && (layer.MaskDensity < 1 || layer.MaskFeather > 0)
+                && (layer.Effects?.Visible() is { IsEmpty: false } || layer.Pixels is { } masked && !layer.Transform.IsPureTranslation(masked.Width, masked.Height)))
+                notes.Add(new(layer.Name, "Mask density and feather are applied to the exported appearance; their original values stay in the Composa project."));
             if (layer.FilterSource != null) notes.Add(new(layer.Name, "Smart filters are exported as the rendered appearance; their editable source and settings stay in the Composa project."));
             if (layer.VectorMask != null) notes.Add(new(layer.Name, "Vector masks are applied to the exported appearance; their editable paths stay in the Composa project."));
             if (layer.IsAdjustment) { notes.Add(new(layer.Name, "Adjustment settings cannot be represented exactly in Photoshop and are not exported as editable adjustments.")); continue; }
@@ -63,6 +66,7 @@ public static partial class PsdExport
     {
         public bool HasEffects => Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
         public bool HasMask => Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
+        public bool NativeMaskProperties => Layer.Pixels == null || Layer.Transform.IsPureTranslation(Layer.Pixels.Width, Layer.Pixels.Height);
         public List<(short Id, long Position)> Channels { get; } = [];
         public SKRectI MaskBounds => Layer.IsGroup ? new(0, 0, Layer.Mask!.Width, Layer.Mask.Height) : Bounds;
     }
@@ -187,7 +191,7 @@ public static partial class PsdExport
         {
             output.U16(unchecked((ushort)id)); record.Channels.Add((id, output.Position)); output.U32(0);
         }
-        var blend = layer.IsGroup && layer.Blend == BlendMode.Normal && record.Section is 1 or 2 ? "pass" : PsdImport.BlendKey(layer.Blend);
+        var blend = layer.IsGroup && layer.Blend == BlendMode.PassThrough && record.Section is 1 or 2 ? "pass" : PsdImport.BlendKey(layer.Blend);
         output.Id("8BIM"); output.Id(blend);
         output.U8((byte)Math.Clamp(Math.Round(layer.Opacity * 255), 0, 255));
         output.U8(layer.Clipped ? (byte)1 : (byte)0); output.U8(layer.Visible ? (byte)0 : (byte)2); output.U8(0);
@@ -195,11 +199,29 @@ public static partial class PsdExport
         {
             if (record.HasMask)
             {
-                output.U32(20); output.Rect(record.MaskBounds); output.U8(0);
-                output.U8(layer.MaskEnabled ? (byte)0 : (byte)2); output.U16(0);
+                var properties = record.NativeMaskProperties && (layer.MaskDensity < 1 || layer.MaskFeather > 0);
+                output.Block(() =>
+                {
+                    output.Rect(record.MaskBounds); output.U8(0);
+                    output.U8((byte)((layer.MaskEnabled ? 0 : 2) | (properties ? 16 : 0)));
+                    if (properties)
+                    {
+                        output.U8(3); output.U8((byte)Math.Clamp(Math.Round(layer.MaskDensity * 255), 0, 255)); output.F64(layer.MaskFeather);
+                        output.U8(layer.MaskEnabled ? (byte)0 : (byte)2); output.U8(0); output.Rect(record.MaskBounds);
+                    }
+                    else output.U16(0);
+                });
             }
             else output.U32(0);
-            output.U32(0); // default blending ranges
+            if (layer.BlendIf.IsIdentity) output.U32(0);
+            else
+            {
+                output.U32(32);
+                foreach (var pair in new[] { layer.BlendIf.Gray, layer.BlendIf.Red, layer.BlendIf.Green, layer.BlendIf.Blue })
+                foreach (var range in new[] { pair.ThisLayer, pair.Underlying })
+                foreach (var value in new[] { range.Black, range.BlackEnd, range.WhiteStart, range.White })
+                    output.U8((byte)Math.Clamp(Math.Round(value), 0, 255));
+            }
             var name = Encoding.Latin1.GetBytes(layer.Name[..Math.Min(255, layer.Name.Length)]);
             output.U8((byte)name.Length); output.Bytes(name); output.Zeros((4 - (name.Length + 1) % 4) % 4);
             output.Additional("luni", () => output.Unicode(layer.Name));
@@ -240,6 +262,7 @@ public static partial class PsdExport
             {
                 var shown = layer.Clone();
                 shown.Visible = true; shown.Opacity = 1; shown.Blend = BlendMode.Normal; shown.Clipped = false;
+                shown.BlendIf = new(); // Photoshop evaluates the native ranges against its real backdrop.
                 if (!record.HasEffects) shown.Mask = null;
                 result.Image = DocumentRenderer.RenderLayers(document, [shown], record.Bounds); result.OwnImage = true;
             }
@@ -254,6 +277,8 @@ public static partial class PsdExport
                     var maskedLayer = layer.Clone();
                     maskedLayer.Visible = true; maskedLayer.Opacity = 1; maskedLayer.Blend = BlendMode.Normal;
                     maskedLayer.Clipped = false; maskedLayer.Effects = null; maskedLayer.MaskEnabled = true;
+                    maskedLayer.BlendIf = new();
+                    if (record.NativeMaskProperties) { maskedLayer.MaskDensity = 1; maskedLayer.MaskFeather = 0; }
                     using var masked = DocumentRenderer.RenderLayers(document, [maskedLayer], record.Bounds);
                     for (var y = 0; y < result.Mask.Height; y++)
                     {

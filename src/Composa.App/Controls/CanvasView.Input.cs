@@ -798,11 +798,11 @@ public sealed partial class CanvasView
             // Live text is picked by its editable box, including spaces and thin glyphs. Keep stack order:
             // an opaque layer above the text still wins, and layer/group masks still constrain the hit.
             var alpha = (layer.Text != null ? 255 : layer.Pixels.GetPixel(x, y).Alpha) * layer.Opacity;
-            if (layer.MaskEnabled && layer.Mask is { } mask) alpha *= mask.GetPixel(x, y).Alpha / 255.0;
+            if (layer.RenderMask() is { } mask) alpha *= mask.GetPixel(x, y).Alpha / 255.0;
             for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
             {
                 alpha *= parent.Opacity;
-                if (parent.MaskEnabled && parent.Mask is { } parentMask)
+                if (parent.RenderMask() is { } parentMask)
                 {
                     int px = (int)Math.Floor(p.X), py = (int)Math.Floor(p.Y);
                     alpha *= px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha / 255.0 : 0;
