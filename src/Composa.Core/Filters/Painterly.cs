@@ -78,6 +78,20 @@ public static unsafe class Painterly
             Width = softened.Width; Height = softened.Height;
             var count = Width * Height;
             Red = new float[count]; Green = new float[count]; Blue = new float[count]; Alpha = new float[count]; Luminance = new float[count];
+            if (softened.ColorType == SKColorType.RgbaF32)
+            {
+                var pixels = new PixelBuffer(softened);
+                Parallel.For(0, Height, y =>
+                {
+                    for (var x = 0; x < Width; x++)
+                    {
+                        var p = pixels.Read(x, y).Straight; var i = y * Width + x;
+                        Red[i] = p.R * 255; Green[i] = p.G * 255; Blue[i] = p.B * 255; Alpha[i] = p.A;
+                        Luminance[i] = (.2126f * Red[i] + .7152f * Green[i] + .0722f * Blue[i]) * p.A;
+                    }
+                });
+                return;
+            }
             var src = (byte*)softened.GetPixels();
             var stride = softened.RowBytes;
             Parallel.For(0, Height, y =>
@@ -114,7 +128,7 @@ public static unsafe class Painterly
     {
         settings = settings.Normalized();
         int w = source.Width, h = source.Height;
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         if (w == 0 || h == 0) return result;
         var style = Parameters(settings.Style);
         var largest = settings.BrushSize > 0 ? settings.BrushSize / 2 : Math.Max(2, Math.Min(w, h) / 100.0);
@@ -150,6 +164,8 @@ public static unsafe class Painterly
         var perRow = new List<Stroke>[rows];
         var dst = (byte*)canvas.GetPixels();
         var stride = canvas.RowBytes;
+        var floating = canvas.ColorType == SKColorType.RgbaF32;
+        var colors = new PixelBuffer(canvas);
         Parallel.For(0, rows, row =>
         {
             var found = new List<Stroke>();
@@ -162,7 +178,7 @@ public static unsafe class Painterly
                     {
                         var i = y * w + x;
                         if (reference.Alpha[i] <= 0.01f) continue;
-                        var error = Error(reference, i, dst + (long)y * stride + x * 4);
+                        var error = floating ? Error(reference, i, colors.Read(x, y)) : Error(reference, i, dst + (long)y * stride + x * 4);
                         sum += error;
                         count++;
                         if (error > worst) { worst = error; worstX = x; worstY = y; }
@@ -186,6 +202,13 @@ public static unsafe class Painterly
         return Distance(reference.Red[i], reference.Green[i], reference.Blue[i], r, g, b) * a + MaxDistance * (1 - a);
     }
 
+    private static float Error(Reference reference, int i, PixelValue pixel)
+    {
+        if (pixel.A <= 0) return MaxDistance;
+        var c = pixel.Straight;
+        return Distance(reference.Red[i], reference.Green[i], reference.Blue[i], c.R * 255, c.G * 255, c.B * 255) * c.A + MaxDistance * (1 - c.A);
+    }
+
     private static float Distance(float r1, float g1, float b1, float r2, float g2, float b2)
     {
         float dr = r1 - r2, dg = g1 - g2, db = b1 - b2;
@@ -205,16 +228,27 @@ public static unsafe class Painterly
         var points = new List<SKPoint> { new(x0 + 0.5f, y0 + 0.5f) };
         float x = x0 + 0.5f, y = y0 + 0.5f, lastDx = 0, lastDy = 0;
         var dst = (byte*)canvas.GetPixels();
+        var floating = canvas.ColorType == SKColorType.RgbaF32;
+        var colors = new PixelBuffer(canvas);
         for (var i = 1; i <= style.MaxLength; i++)
         {
             int px = (int)x, py = (int)y;
             var at = py * w + px;
             if (i > style.MinLength)
             {
-                var pixel = dst + (long)py * canvas.RowBytes + px * 4;
-                var painted = pixel[3] / 255f;
-                var canvasDistance = painted <= 0 ? MaxDistance
-                    : Distance(reference.Red[at], reference.Green[at], reference.Blue[at], pixel[0] / painted, pixel[1] / painted, pixel[2] / painted);
+                float canvasDistance;
+                if (floating)
+                {
+                    var pixel = colors.Read(px, py).Straight;
+                    canvasDistance = pixel.A <= 0 ? MaxDistance : Distance(reference.Red[at], reference.Green[at], reference.Blue[at], pixel.R * 255, pixel.G * 255, pixel.B * 255);
+                }
+                else
+                {
+                    var pixel = dst + (long)py * canvas.RowBytes + px * 4;
+                    var painted = pixel[3] / 255f;
+                    canvasDistance = painted <= 0 ? MaxDistance
+                        : Distance(reference.Red[at], reference.Green[at], reference.Blue[at], pixel[0] / painted, pixel[1] / painted, pixel[2] / painted);
+                }
                 if (canvasDistance < Distance(reference.Red[at], reference.Green[at], reference.Blue[at], red, green, blue)) break;
             }
             var (gx, gy) = reference.Gradient(px, py);
@@ -291,7 +325,7 @@ public static unsafe class Painterly
     private static void PaintAll(SKBitmap canvas, List<Stroke> strokes, Brush brush, Style style, Random random)
     {
         var colors = new (float, float, float)[strokes.Count];
-        for (var i = 0; i < strokes.Count; i++) colors[i] = Jitter(strokes[i], style, random);
+        for (var i = 0; i < strokes.Count; i++) colors[i] = Jitter(strokes[i], style, random, canvas.ColorType == SKColorType.RgbaF32);
         var bandHeight = Math.Max(64, (int)Math.Ceiling(brush.Radius * (style.MaxLength + 2) + 4));
         var bands = (canvas.Height + bandHeight - 1) / bandHeight;
         var perBand = new List<int>[bands];
@@ -347,6 +381,18 @@ public static unsafe class Painterly
             residual = length - (travelled - spacing);
         }
         var opacity = (float)style.Opacity;
+        if (canvas.ColorType == SKColorType.RgbaF32)
+        {
+            var colors = new PixelBuffer(canvas);
+            var strokeColor = new PixelValue(red / 255, green / 255, blue / 255, 1);
+            for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+            {
+                var a = coverage[y * width + x] * opacity;
+                if (a > 0) colors.Write(left + x, top + y, strokeColor * a + colors.Read(left + x, top + y) * (1 - a));
+            }
+            return;
+        }
         var dst = (byte*)canvas.GetPixels();
         for (var y = 0; y < height; y++)
         {
@@ -385,9 +431,18 @@ public static unsafe class Painterly
     }
 
     /// <summary>The stroke's color, wandered by the style's jitter: up to a quarter turn of hue, half the range of saturation and value.</summary>
-    private static (float, float, float) Jitter(Stroke stroke, Style style, Random random)
+    private static (float, float, float) Jitter(Stroke stroke, Style style, Random random, bool floating)
     {
         if (style.HueJitter <= 0 && style.SaturationJitter <= 0 && style.ValueJitter <= 0) return (stroke.Red, stroke.Green, stroke.Blue);
+        if (floating)
+        {
+            ColorMath.RgbToHsv(stroke.Red / 255.0, stroke.Green / 255.0, stroke.Blue / 255.0, out var h, out var s, out var v);
+            h = (h + (random.NextDouble() * 2 - 1) * style.HueJitter * 90 + 360) % 360;
+            s = Math.Clamp(s + (random.NextDouble() * 2 - 1) * style.SaturationJitter * .5, 0, 1);
+            v = Math.Clamp(v + (random.NextDouble() * 2 - 1) * style.ValueJitter * .5, 0, 1);
+            ColorMath.HsvToRgb(h, s, v, out var r, out var g, out var b);
+            return ((float)r * 255, (float)g * 255, (float)b * 255);
+        }
         var color = new SKColor((byte)Math.Clamp(stroke.Red + 0.5f, 0, 255), (byte)Math.Clamp(stroke.Green + 0.5f, 0, 255), (byte)Math.Clamp(stroke.Blue + 0.5f, 0, 255));
         color.ToHsv(out var hue, out var saturation, out var value);
         hue = (hue + (float)((random.NextDouble() * 2 - 1) * style.HueJitter * 90) + 360) % 360;

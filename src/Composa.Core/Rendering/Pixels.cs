@@ -15,6 +15,7 @@ public static partial class Pixels
 
     private static unsafe SKRectI ScanContent(SKBitmap image)
     {
+        if (image.ColorType == SKColorType.RgbaF32) return ScanHighPrecisionContent(image);
         if (image.ColorType != SKColorType.Rgba8888) return new(0, 0, image.Width, image.Height);
         int left = image.Width, top = image.Height, right = 0, bottom = 0;
         var pixels = (byte*)image.GetPixels();
@@ -33,12 +34,13 @@ public static partial class Pixels
     // An explicit destination space is essential: a null space makes SKCodec retain
     // Adobe RGB / Display P3 channel values without converting their appearance.
     private static readonly SKColorSpace workingSpace = SKColorSpace.CreateSrgb();
-    public static SKImageInfo ColorInfo(int width, int height) => new(width, height, SKColorType.Rgba8888, SKAlphaType.Premul, workingSpace);
+    public static SKImageInfo ColorInfo(int width, int height, ColorDepth depth = ColorDepth.Eight, SKColorSpace? space = null) =>
+        new(width, height, depth == ColorDepth.Sixteen ? SKColorType.RgbaF32 : SKColorType.Rgba8888, SKAlphaType.Premul, space ?? workingSpace);
     public static SKImageInfo MaskInfo(int width, int height) => new(width, height, SKColorType.Alpha8, SKAlphaType.Premul);
 
-    public static SKBitmap NewColor(int width, int height)
+    public static SKBitmap NewColor(int width, int height, ColorDepth depth = ColorDepth.Eight, SKColorSpace? space = null)
     {
-        var bitmap = new SKBitmap(ColorInfo(Math.Max(1, width), Math.Max(1, height)));
+        var bitmap = new SKBitmap(ColorInfo(Math.Max(1, width), Math.Max(1, height), depth, space));
         Fill(bitmap, 0);
         return bitmap;
     }
@@ -221,6 +223,20 @@ public static partial class Pixels
     {
         int width = Math.Max(1, source.Width / 2), height = Math.Max(1, source.Height / 2), bpp = source.BytesPerPixel;
         var half = new SKBitmap(source.Info.WithSize(width, height));
+        if (source.ColorType == SKColorType.RgbaF32)
+        {
+            var input = new PixelBuffer(source); var output = new PixelBuffer(half);
+            Parallel.For(0, height, y =>
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    int x0 = Math.Min(x * 2, source.Width - 1), x1 = Math.Min(x * 2 + 1, source.Width - 1);
+                    int y0 = Math.Min(y * 2, source.Height - 1), y1 = Math.Min(y * 2 + 1, source.Height - 1);
+                    output.Write(x, y, (input.Read(x0, y0) + input.Read(x1, y0) + input.Read(x0, y1) + input.Read(x1, y1)) * .25f);
+                }
+            });
+            return half;
+        }
         byte* from = (byte*)source.GetPixels(), to = (byte*)half.GetPixels();
         int fromStride = source.RowBytes, toStride = half.RowBytes;
         int lastX = source.Width - 1, lastY = source.Height - 1;

@@ -10,6 +10,8 @@ public sealed class Document
     public int Width { get; set; }
     public int Height { get; set; }
     public double Resolution { get; set; } = 72;
+    public ColorDepth Depth { get; set; } = ColorDepth.Eight;
+    public ColorDepth WorkingDepth => Depth == ColorDepth.Sixteen || AllLayers().Any(l => l.Pixels?.ColorType == SKColorType.RgbaF32) ? ColorDepth.Sixteen : ColorDepth.Eight;
     /// <summary>Root layers, bottom to top.</summary>
     public List<Layer> Layers { get; init; } = [];
     public Guid? ActiveLayerId { get; set; }
@@ -32,18 +34,18 @@ public sealed class Document
 
     public SKRectI Bounds => new(0, 0, Width, Height);
 
-    /// <summary>The raster the document holds: every layer's pixels and mask, counted against <see cref="DocumentLimits.DocumentPixelBudget"/> when more is imported.</summary>
+    /// <summary>Distinct raster memory in four-byte pixel units, counted against the import budget; float channels cost four units per pixel.</summary>
     public long RasterPixels()
     {
         var bitmaps = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
         CollectBitmaps(bitmaps, new(), includeSelection: false);
-        return bitmaps.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
+        return bitmaps.Sum(bitmap => ((long)bitmap.ByteCount + 3) / 4);
     }
     public Layer? ActiveLayer => ActiveLayerId is { } id ? Find(id) : null;
 
     public Document Clone()
     {
-        var copy = new Document(Width, Height) { Resolution = Resolution, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
+        var copy = new Document(Width, Height) { Resolution = Resolution, Depth = Depth, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
         foreach (var layer in Layers) copy.Layers.Add(layer.Clone());
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.SelectionOrder.AddRange(SelectionOrder);

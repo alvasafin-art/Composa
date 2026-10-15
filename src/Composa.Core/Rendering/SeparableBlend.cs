@@ -10,12 +10,17 @@ namespace Composa.Rendering;
 /// combined the way the PDF compositing model (and Photoshop) does: the blended color where both layers cover the
 /// pixel, the plain source where only it does, and the backdrop where only it does.
 /// </summary>
-public static class SeparableBlend
+public static partial class SeparableBlend
 {
     /// <summary>Composites <paramref name="source"/> onto <paramref name="destination"/> in place; both premultiplied RGBA8888 of the same size.</summary>
     public static unsafe void Composite(SKBitmap destination, SKBitmap source, BlendMode mode, double opacity, SKPoint origin = default, double step = 1)
     {
         if (destination.Width != source.Width || destination.Height != source.Height) throw new ArgumentException("The bitmaps must be the same size.");
+        if (destination.ColorType == SKColorType.RgbaF32 || source.ColorType == SKColorType.RgbaF32)
+        {
+            CompositeHighPrecision(destination, source, mode, opacity, origin, step);
+            return;
+        }
         var blend = FunctionFor(mode);
         var scale = (float)Math.Clamp(opacity, 0, 1);
         var dst = (byte*)destination.GetPixels();

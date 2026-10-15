@@ -23,7 +23,7 @@ public enum AdjustmentKind { HueSaturation, Levels, Curves, Exposure, GradientMa
 [JsonDerivedType(typeof(GaussianBlurAdjustment), "gaussianBlur")]
 [JsonDerivedType(typeof(MotionBlurAdjustment), "motionBlur")]
 [JsonDerivedType(typeof(AddNoiseAdjustment), "addNoise")]
-public abstract record Adjustment
+public abstract partial record Adjustment
 {
     [JsonIgnore] public abstract AdjustmentKind Kind { get; }
     [JsonIgnore] public abstract string DisplayName { get; }
@@ -53,6 +53,7 @@ public abstract record Adjustment
         if (IsIdentity) return;
         area = Model.Geometry.Intersect(area, new SKRectI(0, 0, bitmap.Width, bitmap.Height));
         if (area.IsEmpty) return;
+        if (bitmap.ColorType == SKColorType.RgbaF32) { ApplyHighPrecision(bitmap, area, originX, originY, step, parallel); return; }
         // Settings are immutable, so the per-pixel operation (often a lookup table) is built once per instance.
         var op = step > 1.01 && CreateOp(step) is { } reduced ? reduced : Ops.GetValue(this, static adjustment => adjustment.CreateOp());
         var pixels = (byte*)bitmap.GetPixels();
@@ -360,7 +361,7 @@ public sealed record GrainAdjustment : Adjustment
         }
     }
 
-    private static float Smooth(float x, float y, uint seed)
+    internal static float Smooth(float x, float y, uint seed)
     {
         int x0 = (int)MathF.Floor(x), y0 = (int)MathF.Floor(y);
         float fx = x - x0, fy = y - y0;
@@ -693,7 +694,7 @@ public sealed record HueSaturationAdjustment : Adjustment
         return a >= 1 ? (s > 0 ? 1 : 0) : Math.Min(1, s / (1 - a));
     }
 
-    private static double ApplyLightness(double l, double amount) =>
+    internal static double ApplyLightness(double l, double amount) =>
         amount >= 0 ? l + (1 - l) * amount / 100 : l * (1 + amount / 100);
 }
 

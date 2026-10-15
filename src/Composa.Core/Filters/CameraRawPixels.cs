@@ -19,18 +19,19 @@ public static unsafe class CameraRawPixels
         var s = settings.Normalized();
         if (s.IsIdentity) return result;
         int width = result.Width, height = result.Height, stride = result.RowBytes;
+        var floating = result.ColorType == SKColorType.RgbaF32;
         var pixels = (byte*)result.GetPixels();
         if (scale <= 0) scale = 1;
-        if (s.Calibration.Adjusts) Calibration(pixels, width, height, stride, s.Calibration);
+        if (s.Calibration.Adjusts) Calibration(pixels, width, height, stride, s.Calibration, floating);
         if (s.AdjustsLight || s.AdjustsColor)
         {
             var gains = s.Gains;
-            Basic(pixels, width, height, stride, gains.Red, gains.Green, gains.Blue, s.Exposure, s.Contrast, s.Highlights, s.Shadows, s.Whites, s.Blacks, s.Vibrance, s.Saturation);
+            Basic(pixels, width, height, stride, gains.Red, gains.Green, gains.Blue, s.Exposure, s.Contrast, s.Highlights, s.Shadows, s.Whites, s.Blacks, s.Vibrance, s.Saturation, floating);
         }
-        if (s.Curve.Adjusts || s.Mixer.Adjusts || s.Grading.Adjusts) CurveColor(pixels, width, height, stride, s.Curve, s.Mixer, s.Grading);
+        if (s.Curve.Adjusts || s.Mixer.Adjusts || s.Grading.Adjusts) CurveColor(pixels, width, height, stride, s.Curve, s.Mixer, s.Grading, floating);
         if (s.Texture != 0 || s.Clarity != 0 || s.Dehaze != 0 || s.Glow > 0 || s.VignetteAmount != 0)
             Effects(pixels, width, height, stride, s.Texture, s.Clarity, s.Dehaze, s.Glow, s.GlowStyle, s.GlowRange, s.GlowSpread, s.GlowWarmth,
-                s.VignetteAmount, s.VignetteMidpoint, s.VignetteRoundness, s.VignetteFeather, s.VignetteHighlights, s.VignetteStyle, scale);
+                s.VignetteAmount, s.VignetteMidpoint, s.VignetteRoundness, s.VignetteFeather, s.VignetteHighlights, s.VignetteStyle, scale, floating);
         if (s.GrainAmount > 0)
         {
             // The Grain adjustment's own field, at Camera Raw's size scale, fixed to the layer by the seed.
@@ -38,7 +39,7 @@ public static unsafe class CameraRawPixels
             grain.Apply(result, new SKRectI(0, 0, width, height), 0, 0, 1 / scale);
         }
         if (s.Optics.Adjusts) Optics(result, s.Optics, scale);
-        if (s.Detail.Adjusts) Detail(pixels, width, height, stride, s.Detail, scale);
+        if (s.Detail.Adjusts) Detail(pixels, width, height, stride, s.Detail, scale, floating);
         Pixels.Invalidate(result);
         return result;
     }
@@ -46,6 +47,7 @@ public static unsafe class CameraRawPixels
     /// <summary>Gray-world balance of the opaque pixels: the Temperature and Tint that make their average neutral. Null when there is nothing to read.</summary>
     public static (double Temperature, double Tint)? AutoBalance(SKBitmap image)
     {
+        var floating = image.ColorType == SKColorType.RgbaF32;
         var pixels = (byte*)image.GetPixels();
         double red = 0, green = 0, blue = 0, count = 0;
         var step = Math.Max(1, (int)Math.Sqrt((double)image.Width * image.Height / 250_000));
@@ -54,10 +56,11 @@ public static unsafe class CameraRawPixels
             var row = pixels + (long)y * image.RowBytes;
             for (var x = 0; x < image.Width; x += step)
             {
-                var p = row + x * 4;
-                double alpha = p[3];
+                var p = row + x * (floating ? 16 : 4);
+                double alpha = Alpha(p, floating);
                 if (alpha == 0) continue;
-                red += SrgbToLinear(Math.Min(1, p[0] / alpha)); green += SrgbToLinear(Math.Min(1, p[1] / alpha)); blue += SrgbToLinear(Math.Min(1, p[2] / alpha));
+                Read(p, floating, out var r, out var g, out var b);
+                red += SrgbToLinear(r); green += SrgbToLinear(g); blue += SrgbToLinear(b);
                 count++;
             }
         }
@@ -68,10 +71,12 @@ public static unsafe class CameraRawPixels
     public static (double Red, double Green, double Blue)? StraightColor(SKBitmap image, int x, int y)
     {
         if (x < 0 || y < 0 || x >= image.Width || y >= image.Height) return null;
-        var p = (byte*)image.GetPixels() + (long)y * image.RowBytes + x * 4;
-        if (p[3] == 0) return null;
-        double alpha = p[3];
-        return (Math.Min(1, p[0] / alpha), Math.Min(1, p[1] / alpha), Math.Min(1, p[2] / alpha));
+        var floating = image.ColorType == SKColorType.RgbaF32;
+        var p = (byte*)image.GetPixels() + (long)y * image.RowBytes + x * image.BytesPerPixel;
+        if (Alpha(p, floating) == 0) return null;
+        double alpha = Alpha(p, floating);
+        Read(p, floating, out var r, out var g, out var b);
+        return (r, g, b);
     }
 
     // ---- Shared math --------------------------------------------------------------------------------------------
@@ -95,15 +100,20 @@ public static unsafe class CameraRawPixels
         r = Clamp01(r * scale); g = Clamp01(g * scale); b = Clamp01(b * scale);
     }
 
-    private static void Read(byte* p, out double r, out double g, out double b)
+    private static double Alpha(byte* p, bool floating) => floating ? ((float*)p)[3] : p[3];
+
+    private static void Read(byte* p, bool floating, out double r, out double g, out double b)
     {
-        double alpha = p[3];
+        double alpha = Alpha(p, floating);
+        if (alpha == 0) { r = g = b = 0; return; }
+        if (floating) { var f = (float*)p; r = Clamp01(f[0] / alpha); g = Clamp01(f[1] / alpha); b = Clamp01(f[2] / alpha); return; }
         r = Math.Min(1, p[0] / alpha); g = Math.Min(1, p[1] / alpha); b = Math.Min(1, p[2] / alpha);
     }
 
-    private static void Write(byte* p, double r, double g, double b)
+    private static void Write(byte* p, double r, double g, double b, bool floating)
     {
-        double alpha = p[3];
+        double alpha = Alpha(p, floating);
+        if (floating) { var f = (float*)p; f[0] = (float)(Clamp01(r) * alpha); f[1] = (float)(Clamp01(g) * alpha); f[2] = (float)(Clamp01(b) * alpha); return; }
         p[0] = (byte)Math.Min(alpha, Math.Max(0, Math.Round(r * alpha)));
         p[1] = (byte)Math.Min(alpha, Math.Max(0, Math.Round(g * alpha)));
         p[2] = (byte)Math.Min(alpha, Math.Max(0, Math.Round(b * alpha)));
@@ -187,7 +197,7 @@ public static unsafe class CameraRawPixels
 
     private static int EffectsRadius(double radius, double scale) => (int)Math.Round(Math.Clamp(radius * (scale > 0 ? scale : 1), 1, 64));
 
-    private static float[] LumaPlane(byte* pixels, int width, int height, int stride)
+    private static float[] LumaPlane(byte* pixels, int width, int height, int stride, bool floating = false)
     {
         var luma = new float[width * height];
         ForRows(height, y =>
@@ -195,9 +205,9 @@ public static unsafe class CameraRawPixels
             var row = pixels + (long)y * stride;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) { luma[y * width + x] = 0; continue; }
-                Read(p, out var r, out var g, out var b);
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) { luma[y * width + x] = 0; continue; }
+                Read(p, floating, out var r, out var g, out var b);
                 luma[y * width + x] = (float)Rec709(r, g, b);
             }
         });
@@ -249,7 +259,7 @@ public static unsafe class CameraRawPixels
 
     /// <summary>White balance, exposure in stops of linear light, contrast about mid gray, highlights, shadows, whites, blacks, vibrance, saturation.</summary>
     internal static void Basic(byte* pixels, int width, int height, int stride, double redGain, double greenGain, double blueGain, double exposure, double contrast,
-        double highlights, double shadows, double whites, double blacks, double vibrance, double saturation)
+        double highlights, double shadows, double whites, double blacks, double vibrance, double saturation, bool floating = false)
     {
         var light = Math.Pow(2, exposure);
         var contrastScale = 1 + contrast / 100;
@@ -260,9 +270,9 @@ public static unsafe class CameraRawPixels
             var row = pixels + (long)y * stride;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) continue;
-                Read(p, out var r, out var g, out var b);
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) continue;
+                Read(p, floating, out var r, out var g, out var b);
                 r = Clamp01(SrgbToLinear(r) * redGain * light); g = Clamp01(SrgbToLinear(g) * greenGain * light); b = Clamp01(SrgbToLinear(b) * blueGain * light);
                 r = Clamp01(0.5 + (LinearToSrgb(r) - 0.5) * contrastScale);
                 g = Clamp01(0.5 + (LinearToSrgb(g) - 0.5) * contrastScale);
@@ -272,7 +282,7 @@ public static unsafe class CameraRawPixels
                 ScaleLuminance(ref r, ref g, ref b, ToneWhites(Rec709(r, g, b), whiteAmount));
                 ScaleLuminance(ref r, ref g, ref b, ToneBlacks(Rec709(r, g, b), blackAmount));
                 VibranceAndSaturation(ref r, ref g, ref b, vibranceAmount, saturationAmount);
-                Write(p, r, g, b);
+                Write(p, r, g, b, floating);
             }
         });
     }
@@ -295,7 +305,7 @@ public static unsafe class CameraRawPixels
 
     private static readonly double[] MixerCenters = CameraRawMixer.Centers.Select(c => c / 360).ToArray();
 
-    internal static void CurveColor(byte* pixels, int width, int height, int stride, CameraRawCurve curve, CameraRawMixer mixer, CameraRawGrading grading)
+    internal static void CurveColor(byte* pixels, int width, int height, int stride, CameraRawCurve curve, CameraRawMixer mixer, CameraRawGrading grading, bool floating = false)
     {
         var luma = curve.LumaTable();
         float[] redLut = curve.ChannelTable(curve.Red), greenLut = curve.ChannelTable(curve.Green), blueLut = curve.ChannelTable(curve.Blue);
@@ -308,9 +318,9 @@ public static unsafe class CameraRawPixels
             var row = pixels + (long)y * stride;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) continue;
-                Read(p, out var r, out var g, out var b);
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) continue;
+                Read(p, floating, out var r, out var g, out var b);
                 var tone = Rec709(r, g, b);
                 var mapped = LutAt(luma, tone);
                 ScaleLuminance(ref r, ref g, ref b, mapped);
@@ -358,7 +368,7 @@ public static unsafe class CameraRawPixels
                     r = Clamp01(r + (cr - 0.5) * ws * w * 0.85); g = Clamp01(g + (cg - 0.5) * ws * w * 0.85); b = Clamp01(b + (cb - 0.5) * ws * w * 0.85);
                     if (wl != 0) ScaleLuminance(ref r, ref g, ref b, Clamp01(Rec709(r, g, b) + wl * 0.25 * w));
                 }
-                Write(p, r, g, b);
+                Write(p, r, g, b, floating);
             }
         });
     }
@@ -400,12 +410,12 @@ public static unsafe class CameraRawPixels
 
     internal static void Effects(byte* pixels, int width, int height, int stride, double texture, double clarity, double dehaze, double glow, CameraRawGlowStyle glowStyle,
         double glowRange, double glowSpread, double glowWarmth, double vignetteAmount, double vignetteMidpoint, double vignetteRoundness, double vignetteFeather,
-        double vignetteHighlights, CameraRawVignetteStyle vignetteStyle, double scale)
+        double vignetteHighlights, CameraRawVignetteStyle vignetteStyle, double scale, bool floating = false)
     {
         float[]? luma = null, fine = null, coarse = null, glowPlane = null;
         if (texture != 0 || clarity != 0 || glow > 0)
         {
-            luma = LumaPlane(pixels, width, height, stride);
+            luma = LumaPlane(pixels, width, height, stride, floating);
             if (texture != 0) { fine = new float[luma.Length]; BoxBlur(luma, fine, width, height, EffectsRadius(1, scale)); }
             if (clarity != 0) { coarse = new float[luma.Length]; BoxBlur(luma, coarse, width, height, EffectsRadius(4, scale)); }
             if (glow > 0)
@@ -437,10 +447,10 @@ public static unsafe class CameraRawPixels
             var row = pixels + (long)y * stride;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) continue;
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) continue;
                 var index = y * width + x;
-                Read(p, out var r, out var g, out var b);
+                Read(p, floating, out var r, out var g, out var b);
                 if (fine != null || coarse != null)
                 {
                     var tone = Rec709(r, g, b);
@@ -456,7 +466,7 @@ public static unsafe class CameraRawPixels
                     r = Clamp01(r + add * glowRed); g = Clamp01(g + add * glowGreen); b = Clamp01(b + add * glowBlue);
                 }
                 EffectsVignette(ref r, ref g, ref b, x, y, width, height, vignetteAmount, vignetteMidpoint, vignetteRoundness, vignetteFeather, vignetteHighlights, vignetteStyle);
-                Write(p, r, g, b);
+                Write(p, r, g, b, floating);
             }
         });
     }
@@ -485,6 +495,7 @@ public static unsafe class CameraRawPixels
     {
         using var copy = Pixels.Clone(bitmap);
         int width = bitmap.Width, height = bitmap.Height, stride = bitmap.RowBytes;
+        var floating = bitmap.ColorType == SKColorType.RgbaF32;
         byte* pixels = (byte*)bitmap.GetPixels(), source = (byte*)copy.GetPixels();
         double cx = width * 0.5, cy = height * 0.5, maxR = Math.Sqrt(cx * cx + cy * cy);
         ForRows(height, y =>
@@ -493,16 +504,16 @@ public static unsafe class CameraRawPixels
             var from = source + (long)y * copy.RowBytes;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) continue;
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) continue;
                 double dx = x + 0.5 - cx, dy = y + 0.5 - cy, radial = Math.Sqrt(dx * dx + dy * dy) / maxR;
                 var shift = strength * radial * radial * 2.5;
-                byte* pr = from + ClampedIndex((int)Math.Round(x - shift), width) * 4, pb = from + ClampedIndex((int)Math.Round(x + shift), width) * 4;
-                double alpha = p[3];
-                var g = Math.Min(1, from[x * 4 + 1] / alpha);
-                var r = Math.Min(1, pr[0] / Math.Max(1.0, pr[3]));
-                var b = Math.Min(1, pb[2] / Math.Max(1.0, pb[3]));
-                Write(p, r, g, b);
+                var bpp = floating ? 16 : 4;
+                byte* pr = from + ClampedIndex((int)Math.Round(x - shift), width) * bpp, pb = from + ClampedIndex((int)Math.Round(x + shift), width) * bpp;
+                Read(from + x * bpp, floating, out _, out var g, out _);
+                Read(pr, floating, out var r, out _, out _);
+                Read(pb, floating, out _, out _, out var b);
+                Write(p, r, g, b, floating);
             }
         });
     }
@@ -529,18 +540,19 @@ public static unsafe class CameraRawPixels
         var vignette = optics.VignetteAmount + (optics.EnableLensProfile ? optics.ProfileVignetting / 100 * 35 : 0);
         if (optics.PurpleAmount == 0 && optics.GreenAmount == 0 && vignette == 0) return;
         int width = bitmap.Width, height = bitmap.Height, stride = bitmap.RowBytes;
+        var floating = bitmap.ColorType == SKColorType.RgbaF32;
         var pixels = (byte*)bitmap.GetPixels();
         ForRows(height, y =>
         {
             var row = pixels + (long)y * stride;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) continue;
-                Read(p, out var r, out var g, out var b);
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) continue;
+                Read(p, floating, out var r, out var g, out var b);
                 Defringe(ref r, ref g, ref b, optics);
                 VignetteCorrect(ref r, ref g, ref b, x, y, width, height, vignette, optics.VignetteMidpoint);
-                Write(p, r, g, b);
+                Write(p, r, g, b, floating);
             }
         });
     }
@@ -568,9 +580,9 @@ public static unsafe class CameraRawPixels
         return count == 0 ? 0 : sum / count;
     }
 
-    internal static void Detail(byte* pixels, int width, int height, int stride, CameraRawDetail detail, double scale)
+    internal static void Detail(byte* pixels, int width, int height, int stride, CameraRawDetail detail, double scale, bool floating = false)
     {
-        var luma = LumaPlane(pixels, width, height, stride);
+        var luma = LumaPlane(pixels, width, height, stride, floating);
         var work = new float[luma.Length];
         if (detail.NoiseLuminance > 0)
         {
@@ -582,17 +594,17 @@ public static unsafe class CameraRawPixels
                 var row = pixels + (long)y * stride;
                 for (var x = 0; x < width; x++)
                 {
-                    var p = row + x * 4;
-                    if (p[3] == 0) continue;
+                    var p = row + x * (floating ? 16 : 4);
+                    if (Alpha(p, floating) == 0) continue;
                     var index = y * width + x;
                     var edge = EdgeAt(luma, width, height, x, y, 1);
                     var local = strength * (1 - preserve * Math.Min(1, edge * 6));
                     var target = (float)(luma[index] * (1 - local) + work[index] * local);
                     if (contrast != 0) target = (float)(target + contrast * 0.25 * (luma[index] - work[index]));
                     smoothed[index] = target;
-                    Read(p, out var r, out var g, out var b);
+                    Read(p, floating, out var r, out var g, out var b);
                     ScaleLuminance(ref r, ref g, ref b, target);
-                    Write(p, r, g, b);
+                    Write(p, r, g, b, floating);
                 }
             });
             luma = smoothed;
@@ -605,9 +617,9 @@ public static unsafe class CameraRawPixels
                 var row = pixels + (long)y * stride;
                 for (var x = 0; x < width; x++)
                 {
-                    var p = row + x * 4;
-                    if (p[3] == 0) continue;
-                    Read(p, out var r, out var g, out var b);
+                    var p = row + x * (floating ? 16 : 4);
+                    if (Alpha(p, floating) == 0) continue;
+                    Read(p, floating, out var r, out var g, out var b);
                     RgbToHsl(r, g, b, out _, out var s, out _);
                     chroma[y * width + x] = (float)s;
                 }
@@ -620,22 +632,22 @@ public static unsafe class CameraRawPixels
                 var row = pixels + (long)y * stride;
                 for (var x = 0; x < width; x++)
                 {
-                    var p = row + x * 4;
-                    if (p[3] == 0) continue;
+                    var p = row + x * (floating ? 16 : 4);
+                    if (Alpha(p, floating) == 0) continue;
                     var index = y * width + x;
                     var edge = Math.Abs(chroma[index] - chromaBlur[index]);
                     var local = strength * (1 - preserve * Math.Min(1, edge * 4));
                     var sat = chroma[index] * (1 - local) + chromaBlur[index] * local;
-                    Read(p, out var r, out var g, out var b);
+                    Read(p, floating, out var r, out var g, out var b);
                     RgbToHsl(r, g, b, out var h, out _, out var l);
                     HslToRgb(h, sat, l, out r, out g, out b);
-                    Write(p, r, g, b);
+                    Write(p, r, g, b, floating);
                 }
             });
         }
         if (detail.SharpenAmount > 0)
         {
-            luma = LumaPlane(pixels, width, height, stride);
+            luma = LumaPlane(pixels, width, height, stride, floating);
             var radius = EffectsRadius(DetailRadius(detail.SharpenRadius, scale), 1);
             BoxBlur(luma, work, width, height, radius);
             double amount = detail.SharpenAmount / 100, detailMix = detail.SharpenDetail / 100, threshold = detail.SharpenMasking / 100 * 0.35;
@@ -644,15 +656,15 @@ public static unsafe class CameraRawPixels
                 var row = pixels + (long)y * stride;
                 for (var x = 0; x < width; x++)
                 {
-                    var p = row + x * 4;
-                    if (p[3] == 0) continue;
+                    var p = row + x * (floating ? 16 : 4);
+                    if (Alpha(p, floating) == 0) continue;
                     var index = y * width + x;
                     var edge = EdgeAt(luma, width, height, x, y, radius);
                     var mask = Clamp01((edge * (0.5 + detailMix) - threshold) / Math.Max(0.04, 0.35 - threshold * 0.5));
                     var sharpened = Clamp01(luma[index] + (luma[index] - work[index]) * amount * mask * (0.5 + detailMix));
-                    Read(p, out var r, out var g, out var b);
+                    Read(p, floating, out var r, out var g, out var b);
                     ScaleLuminance(ref r, ref g, ref b, sharpened);
-                    Write(p, r, g, b);
+                    Write(p, r, g, b, floating);
                 }
             });
         }
@@ -660,7 +672,7 @@ public static unsafe class CameraRawPixels
 
     // ---- Calibration --------------------------------------------------------------------------------------------
 
-    internal static void Calibration(byte* pixels, int width, int height, int stride, CameraRawCalibration calibration)
+    internal static void Calibration(byte* pixels, int width, int height, int stride, CameraRawCalibration calibration, bool floating = false)
     {
         var versionScale = calibration.Process switch { <= 1 => 0.55, 2 => 0.65, 3 => 0.75, 4 => 0.85, 5 => 0.92, _ => 1.0 };
         var tint = calibration.ShadowTint / 100 * versionScale;
@@ -672,9 +684,9 @@ public static unsafe class CameraRawPixels
             var row = pixels + (long)y * stride;
             for (var x = 0; x < width; x++)
             {
-                var p = row + x * 4;
-                if (p[3] == 0) continue;
-                Read(p, out var r, out var g, out var b);
+                var p = row + x * (floating ? 16 : 4);
+                if (Alpha(p, floating) == 0) continue;
+                Read(p, floating, out var r, out var g, out var b);
                 RgbToHsl(r, g, b, out var h, out var s, out var l);
                 if (l < 0.35 && tint != 0)
                 {
@@ -692,7 +704,7 @@ public static unsafe class CameraRawPixels
                     if (h >= 1) h -= 1;
                 }
                 HslToRgb(h, s, l, out r, out g, out b);
-                Write(p, r, g, b);
+                Write(p, r, g, b, floating);
             }
         });
     }

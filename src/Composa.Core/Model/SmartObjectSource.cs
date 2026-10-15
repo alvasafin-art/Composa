@@ -22,7 +22,7 @@ public sealed class SmartObjectSource
         if (!DocumentLimits.FitsSurface(document.Width, document.Height)) throw new ArgumentException("Invalid smart object size.");
         var identity = id ?? Guid.NewGuid();
         Validate(document, identity, 0);
-        if (document.RasterPixels() + (long)document.Width * document.Height > DocumentLimits.DocumentPixelBudget)
+        if (document.RasterPixels() + (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1) > DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException($"The smart object exceeds the {DocumentLimits.DocumentBudgetMegapixels} MP document budget.");
         var snapshot = document.Clone(); snapshot.Selection = null;
         var preview = DocumentRenderer.Flatten(snapshot);

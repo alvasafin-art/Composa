@@ -72,11 +72,11 @@ public static class LayerEffectsRenderer
         if (inset == 0) inset = 2;
         long width = pixels.Width + inset * 2L, height = pixels.Height + inset * 2L;
         if (width * height > MaxPixels || width > Document.MaxSide * 2 || height > Document.MaxSide * 2) return null;
-        var result = Pixels.NewColor((int)width, (int)height);
+        var result = Pixels.NewLike(pixels, (int)width, (int)height);
         using var canvas = new SKCanvas(result);
 
         // The layer as it is shown: its pixels through its mask, with room around them for the effects.
-        using var shown = Pixels.NewColor((int)width, (int)height);
+        using var shown = Pixels.NewLike(pixels, (int)width, (int)height);
         using (var shownCanvas = new SKCanvas(shown))
         {
             shownCanvas.DrawBitmap(pixels, inset, inset);
@@ -175,6 +175,18 @@ public static class LayerEffectsRenderer
     {
         var color = new SKColor(overlay.Color); var amount = (float)Math.Clamp(overlay.Opacity, 0, 1);
         var keep = (float)Math.Clamp(fillOpacity, 0, 1) * (1 - amount); var data = (byte*)image.GetPixels();
+        if (image.ColorType == SKColorType.RgbaF32)
+        {
+            var pixels = new PixelBuffer(image);
+            for (var y = 0; y < image.Height; y++)
+            for (var x = 0; x < image.Width; x++)
+            {
+                var p = pixels.Read(x, y);
+                pixels.Write(x, y, new(p.R * keep + color.Red / 255f * p.A * amount,
+                    p.G * keep + color.Green / 255f * p.A * amount, p.B * keep + color.Blue / 255f * p.A * amount, p.A * (keep + amount)));
+            }
+            return;
+        }
         for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++)
         {
             var p = data + (long)y * image.RowBytes + x * 4; var alpha = p[3];

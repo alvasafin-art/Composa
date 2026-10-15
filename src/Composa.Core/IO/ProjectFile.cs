@@ -39,6 +39,7 @@ public static class ProjectFile
         public string Format { get; set; } = ProjectFile.Format;
         public int Version { get; set; } = ProjectFile.Version;
         public string ColorSpace { get; set; } = "sRGB";
+        public ColorDepth BitDepth { get; set; } = ColorDepth.Eight;
         public int Width { get; set; }
         public int Height { get; set; }
         public double Resolution { get; set; } = 72;
@@ -152,6 +153,7 @@ public static class ProjectFile
         Manifest RecordDocument(Document value) => new()
         {
             Width = value.Width, Height = value.Height, Resolution = value.Resolution,
+            BitDepth = value.WorkingDepth,
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
             Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null,
             AlphaChannels = value.AlphaChannels.Count == 0 ? null : value.AlphaChannels.ToDictionary(p => p.Key, p => Store(p.Value, $"{written.Count}.channel.png"))
@@ -195,8 +197,8 @@ public static class ProjectFile
             using var buffer = new MemoryStream();
             using (var input = image.Open()) input.CopyTo(buffer);
             buffer.Position = 0;
-            var bitmap = mask ? DecodeMask(buffer) : ImageFiles.Load(buffer, name);
-            allocatedPixels += (long)bitmap.Width * bitmap.Height;
+            var bitmap = mask ? DecodeMask(buffer) : Png16Codec.TryDecode(buffer, name) ?? ImageFiles.Load(buffer, name);
+            allocatedPixels += ((long)bitmap.ByteCount + 3) / 4;
             cache[name] = bitmap;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
             return bitmap;
@@ -212,7 +214,7 @@ public static class ProjectFile
             var value = BuildDocument(record.Content);
             var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id);
             sources.Add(key, source); visiting.Remove(key);
-            allocatedPixels += (long)source.Width * source.Height;
+            allocatedPixels += ((long)source.Preview.ByteCount + 3) / 4;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
             return source;
         }
@@ -268,7 +270,8 @@ public static class ProjectFile
         {
             if (!DocumentLimits.FitsSurface(value.Width, value.Height) || value.Format != Format || value.Version > Version)
                 throw new InvalidDataException("Invalid embedded document size or format.");
-            var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72 };
+            var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72,
+                Depth = value.BitDepth == ColorDepth.Sixteen ? ColorDepth.Sixteen : ColorDepth.Eight };
             foreach (var record in value.Layers) result.Layers.Add(Build(record, 0, value.Version));
             if (value.AlphaChannels != null)
                 foreach (var pair in value.AlphaChannels.Take(64))

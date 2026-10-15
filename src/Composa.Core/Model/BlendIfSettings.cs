@@ -3,6 +3,7 @@ namespace Composa.Model;
 /// <summary>Split black and white handles in the 0–255 display range. Equal handles make a hard cutoff.</summary>
 public sealed record BlendRange(double Black = 0, double BlackEnd = 0, double WhiteStart = 255, double White = 255)
 {
+    [System.Text.Json.Serialization.JsonIgnore] public bool IsIdentity => Black == 0 && BlackEnd == 0 && WhiteStart == 255 && White == 255;
     public BlendRange Normalized()
     {
         static double Clamp(double value, double fallback) => double.IsFinite(value) ? Math.Clamp(value, 0, 255) : fallback;
@@ -26,7 +27,7 @@ public sealed record BlendChannelRanges
     public BlendRange ThisLayer { get; init; } = new();
     public BlendRange Underlying { get; init; } = new();
     public BlendChannelRanges Normalized() => new() { ThisLayer = (ThisLayer ?? new()).Normalized(), Underlying = (Underlying ?? new()).Normalized() };
-    public bool IsIdentity => ThisLayer == new BlendRange() && Underlying == new BlendRange();
+    public bool IsIdentity => ThisLayer.IsIdentity && Underlying.IsIdentity;
 }
 
 /// <summary>Independent gray and RGB intersections, evaluated from straight colors before layer compositing.</summary>

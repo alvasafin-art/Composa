@@ -13,6 +13,18 @@ public static unsafe partial class Pixels
     public static SKBitmap WithAlphaOf(SKBitmap edited, SKBitmap original)
     {
         var result = Clone(edited);
+        if (edited.ColorType == SKColorType.RgbaF32 || original.ColorType == SKColorType.RgbaF32)
+        {
+            var output = new PixelBuffer(result); var input = new PixelBuffer(original);
+            for (var y = 0; y < result.Height; y++)
+            for (var x = 0; x < result.Width; x++)
+            {
+                var alpha = x < original.Width && y < original.Height ? input.Read(x, y).A : 0;
+                var value = output.Read(x, y).Straight;
+                output.Write(x, y, (value with { A = alpha }).Premultiplied);
+            }
+            Invalidate(result); return result;
+        }
         var dst = (byte*)result.GetPixels(); var src = (byte*)original.GetPixels();
         for (var y = 0; y < result.Height; y++)
             for (var x = 0; x < result.Width; x++)

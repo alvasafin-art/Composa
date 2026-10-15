@@ -5,10 +5,42 @@ namespace Composa.Rendering;
 
 internal static class BlendIfPixels
 {
+    internal static float Coverage(PixelValue source, PixelValue backdrop, BlendIfSettings settings)
+    {
+        if (settings.IsIdentity) return 1;
+        var s = source.Straight; var d = backdrop.Straight;
+        static double Weight(BlendChannelRanges range, double source, double backdrop, float alpha) => range.IsIdentity ? 1
+            : Math.Min(range.ThisLayer.Coverage(source * 255), 1 - alpha * (1 - range.Underlying.Coverage(backdrop * 255)));
+        var gray = Weight(settings.Gray, .3 * s.R + .59 * s.G + .11 * s.B, .3 * d.R + .59 * d.G + .11 * d.B, d.A);
+        return (float)Math.Min(gray, Math.Min(Weight(settings.Red, s.R, d.R, d.A), Math.Min(Weight(settings.Green, s.G, d.G, d.A), Weight(settings.Blue, s.B, d.B, d.A))));
+    }
+
     /// <summary>Multiplies an uncommitted source or Alpha8 mixing coverage; the two color inputs stay unchanged otherwise.</summary>
     internal static unsafe void Apply(SKBitmap target, SKBitmap source, SKBitmap backdrop, BlendIfSettings settings)
     {
         if (settings.IsIdentity) return;
+        if (target.ColorType == SKColorType.RgbaF32 || source.ColorType == SKColorType.RgbaF32 || backdrop.ColorType == SKColorType.RgbaF32)
+        {
+            var colors = new PixelBuffer(source); var below = new PixelBuffer(backdrop);
+            if (target.ColorType == SKColorType.Alpha8)
+            {
+                var data = target.GetPixelSpan();
+                for (var y = 0; y < target.Height; y++)
+                for (var x = 0; x < target.Width; x++)
+                {
+                    var at = y * target.RowBytes + x;
+                    data[at] = (byte)MathF.Round(data[at] * Coverage(colors.Read(x, y), below.Read(x, y), settings));
+                }
+            }
+            else
+            {
+                var output = new PixelBuffer(target);
+                for (var y = 0; y < target.Height; y++)
+                for (var x = 0; x < target.Width; x++)
+                    output.Write(x, y, output.Read(x, y) * Coverage(colors.Read(x, y), below.Read(x, y), settings));
+            }
+            return;
+        }
         var active = new[] { settings.Gray, settings.Red, settings.Green, settings.Blue }
             .Select((range, index) => (Range: range, Channel: index)).Where(x => !x.Range.IsIdentity).ToArray();
         var mask = target.ColorType == SKColorType.Alpha8;
