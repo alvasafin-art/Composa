@@ -46,7 +46,7 @@ internal static class SceneShadowContact
             {
                 var x=p%w;var y=p/w;if(x<b.Left||x>=b.Right)continue;
                 var foot=input.SupportY[x];var alpha=shadow.GetPixel(x,y).Alpha;
-                if(foot>=b.Bottom-Math.Max(8,b.Height/8)&&y>foot&&y<=foot+2&&alpha>=Math.Max(threshold,component.Peak*.4))contactMass+=alpha;
+                if(foot>=b.Bottom-Math.Max(8,b.Height/4)&&y>foot&&y<=foot+2&&alpha>=Math.Max(threshold,component.Peak*.4))contactMass+=alpha;
             }
             if(contactMass>=Math.Max(threshold*3,component.Mass*.005)) {shifts[index]=default(SKPointI);continue;}
             var best=double.PositiveInfinity;var offset=default(SKPointI);
@@ -55,10 +55,10 @@ internal static class SceneShadowContact
                 var x=p%w;var y=p/w;
                 // A faint/contact sliver must not certify a detached dominant cast lobe.
                 if(shadow.GetPixel(x,y).Alpha<Math.Max(threshold,component.Peak*.4)||input.ObjectAlpha.GetPixel(x,y).Alpha>8)continue;
-                if(y<b.Bottom-radius-Math.Max(8,b.Height/8)||y>b.Bottom+radius)continue;
+                if(y<b.Bottom-radius-Math.Max(8,b.Height/4)||y>b.Bottom+radius)continue;
                 for(var sx=Math.Max(b.Left,x-radius);sx<Math.Min(b.Right,x+radius+1);sx++)
                 {
-                    var foot=input.SupportY[sx];if(foot<b.Bottom-Math.Max(8,b.Height/8))continue;
+                    var foot=input.SupportY[sx];if(foot<b.Bottom-Math.Max(8,b.Height/4))continue;
                     var distance=Math.Sqrt((x-sx)*(x-sx)+(y-foot)*(y-foot));
                     if(distance<best){best=distance;offset=new(sx-x,foot+1-y);}
                 }
@@ -66,6 +66,19 @@ internal static class SceneShadowContact
             if(best>radius)continue; // Unrelated or strongly displaced model darkening is rejected.
             shifts[index]=best>2?offset:default(SKPointI);
             if(component.Mass>largest){largest=component.Mass;correction=shifts[index]!.Value;}
+        }
+        // Propagate component ownership through its full soft penumbra, rather than chopping it after three pixels.
+        queue.Clear();
+        for(var p=0;p<labels.Length;p++) if(labels[p]>0&&shifts[labels[p]-1]!=null)queue.Enqueue(p);
+        while(queue.Count>0)
+        {
+            var p=queue.Dequeue();var x=p%w;var y=p/w;
+            for(var dy=-1;dy<=1;dy++)for(var dx=-1;dx<=1;dx++)
+            {
+                var nx=x+dx;var ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h)continue;
+                var next=ny*w+nx;if(labels[next]!=0||shadow.GetPixel(nx,ny).Alpha==0)continue;
+                labels[next]=labels[p];queue.Enqueue(next);
+            }
         }
         var result=Pixels.NewColor(w,h);
         try
@@ -77,13 +90,6 @@ internal static class SceneShadowContact
                 {
                     var alpha=shadow.GetPixel(x,y).Alpha;if(alpha==0)continue;
                     var label=labels[y*w+x];
-                    // Assign only a small soft skirt to a significant core; weak noise cannot bridge detached components.
-                    if(label==0)
-                    {
-                        var nearest=double.PositiveInfinity;
-                        for(var dy=-3;dy<=3;dy++)for(var dx=-3;dx<=3;dx++)
-                        {var nx=x+dx;var ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h)continue;var candidate=labels[ny*w+nx];var distance=dx*dx+dy*dy;if(candidate>0&&distance<nearest){nearest=distance;label=candidate;}}
-                    }
                     if(label==0||shifts[label-1] is not { } shift)continue;
                     var tx=x+shift.X;var ty=y+shift.Y;if(tx<0||ty<0||tx>=w||ty>=h)continue;
                     var coverage=Math.Min(alpha,input.ShadowMask.GetPixel(tx,ty).Alpha);

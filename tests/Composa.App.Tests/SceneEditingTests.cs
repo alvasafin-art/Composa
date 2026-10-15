@@ -39,6 +39,24 @@ public class SceneEditingTests
         Assert.Equal("sourceEncode",graph["baselineDecode"]!["inputs"]!["samples"]![0]!.GetValue<string>());
         if(native.PaddedSize.Width>native.ContentSize.Width) Assert.Equal(0,native.Mask.GetPixel(native.PaddedSize.Width-1,native.PaddedSize.Height/2).Alpha);
     }
+    [Fact]
+    public void Harmonize_sends_the_complete_background_separately_and_cleanup_encodes_an_erased_reference()
+    {
+        var s=Scene();var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene,Settings=new() {Width=100,Height=80,Values=new() {["imageOriginalSize"]=false}}};
+        using var input=SceneEditInput.Prepare(s.Document.Clone(),request);using var native=new SceneEditingWorkflow(input,request);
+        Assert.NotNull(native.BackgroundReference);Assert.Equal(input.Background.GetPixel(50,40),native.BackgroundReference.GetPixel(50,40));
+        var catalog=new EngineCatalog(Engines);var engine=catalog.Find("flux2-klein-intel-xpu")!;var graph=catalog.ReadWorkflow(engine,engine.Workflow("sceneEdit"));
+        native.Bind(graph,"source.png","mask.png",request);SceneEditingWorkflow.References(graph,new Dictionary<string,string> {{"sceneBackground","background.png"}});
+        Assert.Equal("scene_background_positive",graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.Contains("Reference image 2",graph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
+        using var plate=new SceneBackgroundPlate(input,input.Before,20);
+        var cleanup=request with {Task=AiTaskKind.ChangeBackground};using var cleanupNative=new SceneEditingWorkflow(input,cleanup,plate.Image,plate.Mask);
+        var cleanupGraph=catalog.ReadWorkflow(engine,engine.Workflow("sceneEdit"));cleanupNative.Bind(cleanupGraph,"plate.png","mask.png",cleanup,cleanup:true);
+        Assert.Null(cleanupNative.BackgroundReference);Assert.Equal("VAEEncodeForInpaint",cleanupGraph["sourceEncode"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("removal",cleanupGraph["sourceEncode"]!["inputs"]!["mask"]![0]!.GetValue<string>());
+        Assert.NotNull(cleanupNative.RemovalMask);Assert.Equal(255,cleanupNative.Mask.GetPixel(0,0).Alpha);
+        Assert.Equal(1,cleanupGraph["sampler"]!["inputs"]!["denoise"]!.GetValue<double>());
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -66,7 +84,7 @@ public class SceneEditingTests
         var s=Scene(); var state=s.History.CurrentId; using var before=s.Flatten();
         var connection=new Connection(); var service=Service(connection);
         await service.RunAsync(new EditorCommandService(s),new() {Task=AiTaskKind.Relight,Scene=new() {Preset=RelightPreset.SoftboxLeft},Settings=new() {Variants=3,Width=100,Height=80,Values=new() {["imageOriginalSize"]=false}}},TestContext.Current.CancellationToken);
-        Assert.Equal(3,connection.Executions); Assert.Equal(2,connection.Uploads); Assert.True(s.ActiveLayer!.Tags.Contains("ai-variants"));
+        Assert.Equal(3,connection.Executions); Assert.Equal(3,connection.Uploads); Assert.True(s.ActiveLayer!.Tags.Contains("ai-variants"));
         Assert.Equal(3,s.ActiveLayer.Children.Count); Assert.Single(s.ActiveLayer.Children,layer=>layer.Visible);
         s.Undo(); Assert.Equal(state,s.History.CurrentId); Assert.Equal(before.Bytes,s.Flatten().Bytes);
     }
@@ -113,7 +131,7 @@ public class SceneEditingTests
         {
             var catalog=new EngineCatalog(Engines); var pack=catalog.Find("flux2-klein-intel-xpu")!;
             var graph=catalog.ReadWorkflow(pack,pack.Workflow("sceneEdit"));
-            return Task.FromResult((new ComfyServerInfo("0.37.0","test","test",["CPU"]),new ComfyServerCapabilities {NodeTypes=graph.Select(node=>node.Value!["class_type"]!.GetValue<string>()).ToHashSet()}));
+            return Task.FromResult((new ComfyServerInfo("0.37.0","test","test",["CPU"]),new ComfyServerCapabilities {NodeTypes=graph.Select(node=>node.Value!["class_type"]!.GetValue<string>()).Append("VAEEncodeForInpaint").ToHashSet()}));
         }
         public Task<string> UploadPngAsync(string semantic,SKBitmap image,CancellationToken token=default)
         {Uploads++;if(semantic=="sourceImage") {source?.Dispose();source=Pixels.Clone(image);}return Task.FromResult(semantic+".png");}

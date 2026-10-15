@@ -155,13 +155,13 @@ public class SceneEditingTests
         finally {foreach(var layer in result.Layers) layer.Pixels.Dispose();}
     }
     [Fact]
-    public void Background_cleanup_changes_only_its_object_hole_and_keeps_layout_pixels()
+    public void Background_cleanup_returns_one_complete_plate_instead_of_pasting_a_rectangle()
     {
         var session=Scene(); using var input=SceneEditInput.Prepare(session.Document.Clone(),new() {Task=AiTaskKind.ChangeBackground});
         using var layout=Pixels.Clone(input.Before); using var plate=new SceneBackgroundPlate(input,layout,4);
         using var generated=Pixels.NewColor(100,80); generated.Erase(SKColors.Blue);
         using var clean=plate.Finish(generated,layout);
-        Assert.Equal(SKColors.Blue,clean.GetPixel(50,40)); Assert.Equal(layout.GetPixel(0,0),clean.GetPixel(0,0));
+        Assert.Equal(SKColors.Blue,clean.GetPixel(50,40)); Assert.Equal(SKColors.Blue,clean.GetPixel(0,0));
         Assert.Equal(0,plate.Mask.GetPixel(0,0).Alpha); Assert.Equal(255,plate.Mask.GetPixel(50,40).Alpha);
     }
     [Fact]

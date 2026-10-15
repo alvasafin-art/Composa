@@ -12,16 +12,23 @@ public sealed record AiOutput(string Name, SKBitmap Pixels, SKBitmap? Mask = nul
 public sealed partial class EditorSession
 {
     /// <summary>Commits all scene variants and source visibility together. Original layers remain recoverable.</summary>
-    public void InsertSceneEdit(AiTaskKind task, Guid? sourceLayer, IReadOnlyList<SceneEditResult> results, bool cutout, bool wholeImage)
+    public void InsertSceneEdit(AiTaskKind task, Guid? sourceLayer, IReadOnlyList<SceneEditResult> results, bool cutout, bool wholeImage,IReadOnlyList<Guid>? previousResults=null,SKMatrix? sourceFrame=null)
     {
         if(results.Count==0) throw new ArgumentException("No scene results.");
         var incoming=results.SelectMany(result=>result.Layers).SelectMany(output=>output.Mask==null ? new[] {output.Pixels} : new[] {output.Pixels,output.Mask}).Distinct<SKBitmap>(ReferenceEqualityComparer.Instance);
         if(document.RasterPixels()+incoming.Sum(bitmap=>(long)bitmap.Width*bitmap.Height)>DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException($"Scene results exceed the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
         var roots=document.Layers.ToArray();
+        var anchor=document.ActiveLayer;
+        while(anchor!=null&&document.ParentOf(anchor.Id) is { } parent&&(parent.Tags.Contains("ai-generated")||parent.Tags.Contains("ai-variants"))) anchor=parent;
+        if(sourceLayer is { } originalId&&!wholeImage)
+            results=results.Select(result=>result with {Layers=result.Layers.Select(output=>output with {Tags=(output.Tags??[]).Append(SceneSource.Tag(originalId)).Concat(SceneSource.FrameTags(sourceFrame??document.Find(originalId)?.Matrix??SKMatrix.Identity)).ToArray()}).ToArray()}).ToArray();
         RunTransaction("AI "+task.DisplayName(),_=>
         {
             if(wholeImage && roots.Length>0) document.SetActive(roots[^1].Id);
+            else if(anchor!=null) document.SetActive(anchor.Id);
+            var collapsed=anchor?.Collapsed;
+            if(anchor?.IsGroup==true) anchor.Collapsed=true; // Insert beside the previous result, never inside it.
             if(results.Count==1) InsertAiOutput(task,results[0].Layers,group:true);
             else
             {
@@ -35,6 +42,8 @@ public sealed partial class EditorSession
                 }
                 document.SetActive(folder.Id);
             }
+            if(anchor!=null&&collapsed is { } wasCollapsed) anchor.Collapsed=wasCollapsed;
+            if(previousResults!=null) foreach(var id in previousResults) if(document.Find(id) is { } previous) previous.Visible=false;
             if(wholeImage) foreach(var layer in roots) layer.Visible=false;
             else if((cutout || task==AiTaskKind.ChangeBackground) && sourceLayer is { } id && document.Find(id) is { } source) source.Visible=false;
         });

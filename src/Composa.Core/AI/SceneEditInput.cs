@@ -12,6 +12,8 @@ public sealed class SceneEditInput : IDisposable
     private readonly List<SKBitmap> owned = [];
     private SKBitmap Own(SKBitmap bitmap) { owned.Add(bitmap); return bitmap; }
     public Guid? SourceLayerId { get; private set; }
+    public IReadOnlyList<Guid> PreviousResultIds { get; private set; } = [];
+    public SKMatrix SourceFrame {get;private set;}=SKMatrix.Identity;
     public bool IsCutout { get; private set; }
     public bool WholeImage { get; private set; }
     public SKBitmap Before { get; private set; } = null!;
@@ -39,8 +41,9 @@ public sealed class SceneEditInput : IDisposable
     {
         var settings=request.Scene.Normalized();
         WholeImage=request.Task==AiTaskKind.Relight && settings.Scope==RelightScope.WholeImage;
-        var active=document.ActiveLayer;
-        if (!WholeImage && (active?.Pixels==null || active.IsAdjustment || active.IsGroup || !document.IsEffectivelyVisible(active)))
+        var selected=SceneSource.SelectedObject(document);
+        var active=WholeImage?document.ActiveLayer:SceneSource.Original(document,selected);
+        if (!WholeImage && (active?.Pixels==null || active.IsAdjustment || active.IsGroup || selected==null || !document.IsEffectivelyVisible(selected)))
             throw new InvalidOperationException("Select a visible image layer, a transparent PNG, or choose Whole image for Relight.");
         if (!WholeImage && active!.Blend!=BlendMode.Normal)
             throw new InvalidOperationException("Scene editing needs a Normal image layer. Keep a copy of the original blend before converting it.");
@@ -48,15 +51,20 @@ public sealed class SceneEditInput : IDisposable
         if (document.RasterPixels()+10L*document.Width*document.Height>DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException($"Scene editing exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget. Use a smaller document.");
         SourceLayerId=active?.Id;
-        Before=Own(DocumentRenderer.Flatten(document));
-        var backdrop=document.Clone();
+        if(!WholeImage) PreviousResultIds=SceneSource.PreviousResults(document,selected!,active!);
+        if(!WholeImage)SourceFrame=SceneSource.Placement(selected!,active!);
+        var clean=document.Clone();
+        foreach(var id in PreviousResultIds) clean.Find(id)!.Visible=false;
+        if(!WholeImage&&active!=null) {var source=clean.Find(active.Id)!;source.Visible=true;source.Effects=null;source.Transform=SceneSource.Transform(SourceFrame,source.Pixels!.Width,source.Pixels.Height);}
+        Before=Own(DocumentRenderer.Flatten(clean));
+        var backdrop=clean.Clone();
         if(active!=null) backdrop.Find(active.Id)!.Visible=false;
         Background=Own(DocumentRenderer.Flatten(backdrop));
         IsCutout=!WholeImage && (active!.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
         if(IsCutout)
         {
             var isolated=new Document(document.Width,document.Height);
-            var copy=active!.Clone(); copy.Effects=null; copy.Clipped=false;
+            var copy=clean.Find(active!.Id)!.Clone(); copy.Effects=null; copy.Clipped=false; copy.Visible=true;
             isolated.Layers.Add(copy);
             Foreground=Own(DocumentRenderer.Flatten(isolated));
             ObjectAlpha=Own(Alpha(Foreground));
@@ -66,6 +74,8 @@ public sealed class SceneEditInput : IDisposable
         else
         {
             Foreground=Before;
+            // In an opaque photograph the ground belongs to that same raster, not the layers underneath it.
+            if(!WholeImage) Background=Before;
             if(WholeImage) SubjectMask=Own(Alpha(Before));
             else if(document.Selection!=null) SubjectMask=Own(Pixels.Clone(document.Selection));
             else
@@ -97,28 +107,20 @@ public sealed class SceneEditInput : IDisposable
         if(!WholeImage && request.Task!=AiTaskKind.ChangeBackground && settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows)
         {
             var b=SupportBounds;
-            var reach=Math.Max(12,(int)Math.Round(b.Height*settings.ShadowReach));
-            var floor=new SKRectI(Math.Max(0,b.Left-reach),Math.Max(0,b.Bottom-Math.Max(8,b.Height/8)),
+            // A cast shadow may extend toward the background or to a canvas edge. Do not invent a floor crop.
+            var reach=Math.Max(12,(int)Math.Ceiling(Math.Max(document.Width,document.Height)*settings.ShadowReach));
+            var floor=new SKRectI(Math.Max(0,b.Left-reach),Math.Max(0,b.Top-reach),
                 Math.Min(document.Width,b.Right+reach),Math.Min(document.Height,b.Bottom+reach));
             var mask=ShadowMask.GetPixelSpan(); var objectMask=ObjectAlpha.GetPixelSpan();
             for(var y=floor.Top;y<floor.Bottom;y++) for(var x=floor.Left;x<floor.Right;x++)
             {
                 // A smooth permission region is not a manufactured shadow. Only model darkening is extracted later.
-                var edge=Math.Min(Math.Min(x-floor.Left,floor.Right-1-x),Math.Min(y-floor.Top,floor.Bottom-1-y));
                 var alpha=objectMask[y*ObjectAlpha.RowBytes+x];
                 if(alpha>=SupportAlpha) continue;
                 // The foreground's alpha already attenuates an underlaid shadow. Never cut out its AA fringe twice.
                 var support=SupportY[x]>=0?SupportY[x]:b.Bottom-1;
                 if(alpha>0 && y<=support) continue;
-                if(LightHint.Directional)
-                {
-                    var dx=x-(b.Left+b.Right)/2d; var dy=y-b.Bottom;
-                    var along=dx*LightHint.Direction.X+dy*LightHint.Direction.Y;
-                    var across=Math.Abs(dx*LightHint.Direction.Y-dy*LightHint.Direction.X);
-                    var contact=Math.Max(8,b.Width*.4);
-                    if(along < -contact*.5 || across>contact+Math.Max(0,along)*.65) continue;
-                }
-                mask[y*ShadowMask.RowBytes+x]=(byte)(Math.Min(1,edge/8d)*255);
+                mask[y*ShadowMask.RowBytes+x]=255;
             }
             Pixels.Invalidate(ShadowMask);
         }

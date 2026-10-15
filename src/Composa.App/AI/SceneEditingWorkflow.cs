@@ -10,6 +10,8 @@ internal sealed class SceneEditingWorkflow : IDisposable
 {
     internal SKBitmap Source { get; }
     internal SKBitmap Mask { get; }
+    internal SKBitmap? BackgroundReference { get; }
+    internal SKBitmap? RemovalMask { get; }
     internal (int Width,int Height) ContentSize { get; }
     internal (int Width,int Height) PaddedSize { get; }
     private readonly SceneEditInput scene;
@@ -60,19 +62,59 @@ internal sealed class SceneEditingWorkflow : IDisposable
                 if(opaque.GetPixel(x,y).Alpha>0) mask[y*Mask.RowBytes+x]=Math.Min(mask[y*Mask.RowBytes+x],interior.GetPixel(x,y).Alpha);
         }
         Pixels.Invalidate(Mask);
+        if(maskOverride!=null&&request.Task==AiTaskKind.ChangeBackground)
+        {
+            RemovalMask=Pixels.Clone(Mask);
+            Mask.Erase(SKColors.Transparent);
+            using(var draw=new SKCanvas(Mask))using(var paint=new SKPaint {Color=SKColors.White})draw.DrawRect(SKRect.Create(ContentSize.Width,ContentSize.Height),paint);
+            Pixels.Invalidate(Mask);
+        }
+        if(maskOverride==null&&request.Task!=AiTaskKind.ChangeBackground&&!scene.WholeImage)
+        {
+            var backgroundScale=Math.Min(.5,512d/Math.Max(ContentSize.Width,ContentSize.Height));
+            var bw=Math.Max(16,(int)Math.Round(ContentSize.Width*backgroundScale));var bh=Math.Max(16,(int)Math.Round(ContentSize.Height*backgroundScale));
+            BackgroundReference=Pixels.NewColor((bw+15)/16*16,(bh+15)/16*16);BackgroundReference.Erase(SKColors.White);
+            using(var draw=new SKCanvas(BackgroundReference))
+            {
+                draw.DrawImage(Pixels.ImageOf(scene.Background),SKRect.Create(bw,bh),new SKSamplingOptions(SKCubicResampler.Mitchell));
+                if(BackgroundReference.Width>bw)draw.DrawImage(Pixels.ImageOf(scene.Background),new SKRect(scene.Background.Width-1,0,scene.Background.Width,scene.Background.Height),new SKRect(bw,0,BackgroundReference.Width,bh),new SKSamplingOptions(SKFilterMode.Nearest));
+                if(BackgroundReference.Height>bh)draw.DrawImage(Pixels.ImageOf(scene.Background),new SKRect(0,scene.Background.Height-1,scene.Background.Width,scene.Background.Height),new SKRect(0,bh,BackgroundReference.Width,BackgroundReference.Height),new SKSamplingOptions(SKFilterMode.Nearest));
+            }
+            if(!scene.IsCutout)
+            {
+                using var subject=Pixels.NewMask(BackgroundReference.Width,BackgroundReference.Height);
+                using(var draw=new SKCanvas(subject)) draw.DrawImage(Pixels.ImageOf(scene.ObjectAlpha),SKRect.Create(bw,bh),new SKSamplingOptions(SKFilterMode.Linear));
+                for(var y=0;y<bh;y++)for(var x=0;x<bw;x++)
+                    if(subject.GetPixel(x,y).Alpha>0)BackgroundReference.SetPixel(x,y,new(128,128,128));
+            }
+            Pixels.Invalidate(BackgroundReference);
+        }
         foreach(var reference in request.ReferenceImages)
         {
             ReferenceImages.Add(CopyReference(reference,request.ReferenceMegapixels));
         }
         }
-        catch {Source?.Dispose();Mask?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();throw;}
+        catch {Source?.Dispose();Mask?.Dispose();BackgroundReference?.Dispose();RemovalMask?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();throw;}
     }
     internal void Bind(JsonObject graph,string source,string mask,AiTaskRequest request,int variant=0,bool cleanup=false)
     {
         graph["source"]!["inputs"]!["image"]=source;
         graph["maskImage"]!["inputs"]!["image"]=mask;
-        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) : Prompt(request)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
+        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) : Prompt(request)+LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
+        if(cleanup)
+        {
+            // Erase subject pixels BEFORE encoding both the initial latent and its reference conditioning.
+            graph["sourceEncode"]!["class_type"]="VAEEncodeForInpaint";
+            graph["sourceEncode"]!["inputs"]!["mask"]=new JsonArray("removal",0);
+            graph["sourceEncode"]!["inputs"]!["grow_mask_by"]=0;
+        }
         graph["sampler"]!["inputs"]!["denoise"]=cleanup ? 1 : request.Scene.Normalized().Denoise;
+        if(BackgroundReference!=null)
+        {
+            var explicitLight=request.Scene.LightAngle!=null||request.Task==AiTaskKind.Relight&&request.Scene.Preset!=RelightPreset.MatchScene;
+            graph["prompt"]!["inputs"]!["text"]=graph["prompt"]!["inputs"]!["text"]!.GetValue<string>()+
+                (explicitLight?"\nReference image 1 shows the foreground placement. Reference image 2 shows the full background and support-surface perspective. Apply the requested lighting direction and preset to the foreground and its shadow.":"\nReference image 1 shows the object placement. Reference image 2 shows the complete background alone: use its existing illumination and cast shadows as the lighting reference. Adapt the subject to that background's light, rather than imposing the subject's original studio lighting on the scene.");
+        }
         graph["sampler"]!["inputs"]!["seed"]=request.Settings.Seed<0 ? Random.Shared.NextInt64(long.MaxValue) : (request.Settings.Seed+variant)&long.MaxValue;
     }
     internal SKBitmap Finish(SKBitmap decoded)
@@ -95,6 +137,14 @@ internal sealed class SceneEditingWorkflow : IDisposable
     internal static void References(JsonObject graph,IReadOnlyDictionary<string,string> files)
     {
         var positive="positive"; var negative="negativeReference";
+        if(files.TryGetValue("sceneBackground",out var background))
+        {
+            graph["scene_background"]=new JsonObject {["class_type"]="LoadImage",["inputs"]=new JsonObject {["image"]=background}};
+            graph["scene_background_encode"]=new JsonObject {["class_type"]="VAEEncode",["inputs"]=new JsonObject {["pixels"]=new JsonArray("scene_background",0),["vae"]=new JsonArray("vae",0)}};
+            foreach(var pair in new[] {(Name:"scene_background_positive",Previous:positive),(Name:"scene_background_negative",Previous:negative)})
+                graph[pair.Name]=new JsonObject {["class_type"]="ReferenceLatent",["inputs"]=new JsonObject {["conditioning"]=new JsonArray(pair.Previous,0),["latent"]=new JsonArray("scene_background_encode",0)}};
+            positive="scene_background_positive";negative="scene_background_negative";
+        }
         for(var index=1;index<=6;index++)
         {
             if(!files.TryGetValue("referenceImage"+index,out var file)) continue;
@@ -117,12 +167,17 @@ internal sealed class SceneEditingWorkflow : IDisposable
                 ? "Change the lighting of "+(settings.Scope==RelightScope.WholeImage ? "the image" : "the foreground subject")+". "+settings.LightingInstruction
                 : "Match the existing foreground subject's illumination to the visible background: light direction, exposure, color temperature and reflected light. Keep its exact position, dimensions and support points. Preserve the surrounding scene. Lighting changes belong on its surfaces.";
         var shadow=request.Task==AiTaskKind.ChangeBackground ? "" : settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows
-            ? " Generate a realistic contact and cast shadow from the subject onto the ground, consistent with scene lighting and surface perspective."
+            ? " Generate one continuous, filled, soft-edged cast shadow starting at the subject's ground-contact points, consistent with "+(settings.LightAngle!=null||request.Task==AiTaskKind.Relight&&settings.Preset!=RelightPreset.MatchScene?"the requested lighting":"the background's existing dominant light")+" and support-surface perspective. Opaque surfaces cast filled shade; respect material translucency."
             : " Do not add a new shadow outside the subject.";
-        return operation+shadow+" Preserve identity, material texture, labels and colors. Use photographic surface shading, without luminous outlines, bloom, haze or light leaking outside the silhouette. Do not move, resize or duplicate the object, add a platform, or leave a gap under its base. User guidance: "+request.Prompt+
+        return operation+shadow+" Preserve identity, material texture, labels and colors. Render ordinary photographic surface shading and a continuous natural background. Keep the object's silhouette and support in their original image coordinates. User guidance: "+request.Prompt+
             (string.IsNullOrWhiteSpace(request.AdditionalPrompt) ? "" : "\nWorkflow guidance: "+request.AdditionalPrompt);
     }
-    internal static string CleanupPrompt(AiTaskRequest request)=>"Erase the foreground product/person inside the edit mask completely. Reconstruct the unobstructed background and continuous support surface behind it, matching the surrounding photographic texture. Keep the existing cast shadow, camera framing, perspective, lighting and every unmasked pixel unchanged. Return an empty background plate without the removed subject, a duplicate, silhouette, cutout hole, platform or luminous outline.";
+    internal static string CleanupPrompt(AiTaskRequest request)=>"Produce one continuous unobstructed photograph of the same empty environment. Extend the surrounding background and support surface seamlessly through the central region. Match its texture, color, perspective and illumination throughout the complete image. Retain the camera framing and support-surface geometry.";
+    internal static string LayoutInstruction(SceneEditInput scene)
+    {
+        var b=scene.SubjectBounds;var w=scene.Before.Width;var h=scene.Before.Height;
+        return FormattableString.Invariant($"\nThe foreground occupies x={100d*b.Left/w:0.#}% to {100d*b.Right/w:0.#}%, y={100d*b.Top/h:0.#}% to {100d*b.Bottom/h:0.#}% of the complete image. Its support is at y={100d*scene.SupportBounds.Bottom/h:0.#}%. Keep that placement and construct the support surface through that support point; retain the camera perspective.");
+    }
     internal static SKBitmap CopyReference(SKBitmap reference,double? megapixels)
     {
         var scale=megapixels is { } mp ? Math.Min(1,Math.Sqrt(Math.Clamp(mp,.1,4)*1_000_000/(reference.Width*(double)reference.Height))) : 1;
@@ -138,5 +193,5 @@ internal sealed class SceneEditingWorkflow : IDisposable
         }
         catch {copy.Dispose();throw;}
     }
-    public void Dispose() {Source.Dispose();Mask.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();}
+    public void Dispose() {Source.Dispose();Mask.Dispose();BackgroundReference?.Dispose();RemovalMask?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();}
 }

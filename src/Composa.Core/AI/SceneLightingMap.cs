@@ -13,7 +13,8 @@ internal sealed class SceneLightingMap
     internal SceneLightingMap(SceneEditInput input,SKBitmap generated,SKBitmap baseline,CancellationToken token)
     {
         var bounds=input.SubjectBounds;
-        var sigma=Math.Clamp(Math.Min(bounds.Width,bounds.Height)/100d,1,6);
+        // Transfer illumination, not the model's high-frequency outlines, texture or ringing.
+        var sigma=Math.Clamp(Math.Min(bounds.Width,bounds.Height)/24d,3,24);
         var margin=(int)Math.Ceiling(sigma*3)+2;
         area=SKRectI.Intersect(new(bounds.Left-margin,bounds.Top-margin,bounds.Right+margin,bounds.Bottom+margin),input.Before.Info.Rect);
         scale=Math.Min(1,384d/Math.Max(area.Width,area.Height));
@@ -22,7 +23,7 @@ internal sealed class SceneLightingMap
         byte maximum=0;
         for(var y=bounds.Top;y<bounds.Bottom;y++) for(var x=bounds.Left;x<bounds.Right;x++) maximum=Math.Max(maximum,input.ObjectAlpha.GetPixel(x,y).Alpha);
         var threshold=Math.Max(32,Math.Min(224,maximum*.85));
-        var guard=Math.Clamp((int)Math.Ceiling(1/scale),1,4);
+        var guard=Math.Clamp((int)Math.Ceiling(Math.Min(bounds.Width,bounds.Height)*.12),4,24);
         for(var row=0;row<height;row++)
         {
             token.ThrowIfCancellationRequested();
@@ -46,6 +47,21 @@ internal sealed class SceneLightingMap
             }
         }
         values=Blur(Blur(raw,Math.Max(.8,sigma*scale),true,token),Math.Max(.8,sigma*scale),false,token);
+        // Carry reliable interior illumination to thin/transparent edges. Leaving their gain at 1 produces a bright rim.
+        var queue=new Queue<int>();var known=new bool[width*height];
+        for(var p=0;p<known.Length;p++) if(values[p*4+3]>.05) {known[p]=true;queue.Enqueue(p);}
+        while(queue.Count>0)
+        {
+            var p=queue.Dequeue();var x=p%width;var y=p/width;
+            if((p&4095)==0) token.ThrowIfCancellationRequested();
+            foreach(var (dx,dy) in new[] {(1,0),(-1,0),(0,1),(0,-1)})
+            {
+                var nx=x+dx;var ny=y+dy;if(nx<0||ny<0||nx>=width||ny>=height)continue;
+                var next=ny*width+nx;if(known[next])continue;
+                for(var c=0;c<4;c++)values[next*4+c]=values[p*4+c];
+                known[next]=true;queue.Enqueue(next);
+            }
+        }
     }
 
     internal (double R,double G,double B) At(int x,int y)

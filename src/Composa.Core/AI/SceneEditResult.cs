@@ -77,7 +77,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
         var samples=new List<double>(); var step=Math.Max(1,(int)Math.Sqrt(generated.Width*(double)generated.Height/8192));
         for(var y=0;y<generated.Height;y+=step) for(var x=0;x<generated.Width;x+=step)
         {
-            if(input.ObjectAlpha.GetPixel(x,y).Alpha>0 || input.ShadowMask.GetPixel(x,y).Alpha>0) continue;
+            if(input.ObjectAlpha.GetPixel(x,y).Alpha>0) continue;
             var source=baseline.GetPixel(x,y); var target=generated.GetPixel(x,y);
             var l=Luma(source); if(source.Alpha<250 || l<.03 || l>.85) continue;
             samples.Add(Luma(target)/l);

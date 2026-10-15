@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.28" date="2026-10-15">
+      <description>
+        <p>TEST: complete-background lighting conditioning, isolated repeat generations, contour lighting and full penumbra preservation, plus continuous object-free background plates without silhouette residuals or patch seams.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.27" date="2026-10-13">
       <description>
         <p>TEST: reconstruction-aware lighting transfer, PNG fringe/contact fixes, bounded shadow registration and two-pass object-aware background replacement, checked on photographic products.</p>

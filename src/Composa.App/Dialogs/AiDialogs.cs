@@ -336,7 +336,7 @@ public static class AiDialogs
         var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject · PNG / selection / SAM" : "Whole visible image",value=>scene=scene with {Scope=value},300);
         var denoise=Ui.SliderField("Denoise",scene.Denoise,.1,1,value=>scene=scene with {Denoise=value},.01,"0.00",300);
         var strength=Ui.SliderField("Strength",scene.Strength*100,0,100,value=>scene=scene with {Strength=value/100},1,"0",300,reset:100);
-        var reach=Ui.SliderField("Floor reach",scene.ShadowReach*100,10,200,value=>scene=scene with {ShadowReach=value/100},1,"0",300,reset:100);
+        var reach=Ui.SliderField("Canvas reach",scene.ShadowReach*100,10,200,value=>scene=scene with {ShadowReach=value/100},1,"0",300,reset:100);
         var preserve=new CheckBox {Content="Preserve source detail using a lighting map",IsChecked=scene.PreserveDetails};
         preserve.IsCheckedChanged+=(_,_)=>scene=scene with {PreserveDetails=preserve.IsChecked==true};
         var shadows=new CheckBox {Content="Extract a separate contact / cast shadow",IsChecked=scene.AddShadows};
@@ -351,7 +351,7 @@ public static class AiDialogs
         if(task!=AiTaskKind.ChangeBackground) sceneControls.Children.Add(Ui.Column(8,CanvasDialogs.Form(("Effect",strength)),preserve,shadows,autoAngle,CanvasDialogs.Form(("Direction",angle),("Shadow area",reach))));
         sceneControls.Children.Add(CanvasDialogs.Form(("Local FLUX",denoise)));
         sceneControls.Children.Add(new TextBlock {Text=task==AiTaskKind.ChangeBackground
-            ? "A PNG supplies its own subject mask; otherwise use a selection or SAM. Two passes: arrange the new scene around the visible subject, then clean its temporary copy from the background. The original subject remains separate. Paid workflows bill both requests per variant."
+            ? "Describe the environment, support surface and lighting: for example, a beige studio with a matte stone tabletop and soft window light. The editor supplies the object's placement. Two passes create the scene and its empty background plate. The original PNG stays separate; paid models bill both passes."
             : "PNG alpha supplies the object mask; a selection can limit it. Otherwise SAM finds the subject. Only permitted floor darkening becomes a shadow layer. Lighting presets guide the model; they are not physical 3D light controls.",TextWrapping=Avalonia.Media.TextWrapping.Wrap,MaxWidth=430,Foreground=Palette.Secondary});
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
         var prompt = new TextBox { Text = task == AiTaskKind.GenerateImage && string.IsNullOrEmpty(initialPrompt) ? settings.GenerateImagePrompt : initialPrompt,

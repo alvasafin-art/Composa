@@ -39,7 +39,11 @@ public class SceneProductLiveTests
             using var photograph=ImageFiles.Load(Path.Combine(input,"background-sunset.jpg"));
             var background=Pixels.NewColor(w,h);
             var scale=Math.Max(w/(double)photograph.Width,h/(double)photograph.Height);
-            using(var draw=new SKCanvas(background)) draw.DrawImage(Pixels.ImageOf(photograph),new SKRect((float)(w-photograph.Width*scale)/2,0,(float)(w+photograph.Width*scale)/2,(float)(photograph.Height*scale)),new SKSamplingOptions(SKCubicResampler.Mitchell));
+            using(var draw=new SKCanvas(background))
+            {
+                if(item.Contains("mirrored")) {draw.Translate(w,0);draw.Scale(-1,1);}
+                draw.DrawImage(Pixels.ImageOf(photograph),new SKRect((float)(w-photograph.Width*scale)/2,0,(float)(w+photograph.Width*scale)/2,(float)(photograph.Height*scale)),new SKSamplingOptions(SKCubicResampler.Mitchell));
+            }
             Pixels.Invalidate(background); document.Layers.Add(Layer.Raster("Photographic background",background));
             var product=ImageFiles.Load(Environment.GetEnvironmentVariable("COMPOSA_PRODUCT_CLEAN")=="1"?cleanPath:Path.Combine(input,"product-shoe.png")); var layer=Layer.Raster("Photographic PNG product",product);
             layer.Transform=new() {X=240.25,Y=207.5,Width=530,Height=530*product.Height/(double)product.Width};
@@ -52,11 +56,23 @@ public class SceneProductLiveTests
             using var prepared=SceneEditInput.Prepare(document.Clone(),request);
             var service=new AiTaskService(()=>Environment.GetEnvironmentVariable("COMPOSA_PRODUCT_TEST_URL")!,Path.Combine(AppContext.BaseDirectory,"ai/engines")); service.SelectedEngine=service.Engines.Find("flux2-klein-intel-xpu");
             var started=System.Diagnostics.Stopwatch.StartNew(); await service.RunAsync(new EditorCommandService(session),request,TestContext.Current.CancellationToken);
+            var operations=1;
+            if(item.Contains("repeat"))
+            {
+                for(var iteration=1;iteration<3;iteration++)
+                {
+                    using var again=SceneEditInput.Prepare(document.Clone(),request);
+                    Assert.Equal(prepared.Before.Bytes,again.Before.Bytes);Assert.Equal(prepared.Background.Bytes,again.Background.Bytes);
+                    ImageFiles.Save(again.Before,Path.Combine(output,item+"-input-"+(iteration+1)+".png"),ExportFormat.Png);
+                    await service.RunAsync(new EditorCommandService(session),request with {Settings=request.Settings with {Seed=73+iteration}},TestContext.Current.CancellationToken);
+                    operations++;
+                }
+            }
             using var after=session.Flatten(); ImageFiles.Save(after,Path.Combine(output,item+"-after.png"),ExportFormat.Png);
             using(var project=File.Create(Path.Combine(output,item+"-after.cmps"))) ProjectFile.Write(document.Clone(),project);
-            var subject=document.AllLayers().Single(candidate=>candidate.Tags.Contains("scene-object"));
-            var shadow=document.AllLayers().FirstOrDefault(candidate=>candidate.Tags.Contains("scene-shadow"));
-            foreach(var result in document.AllLayers().Where(candidate=>candidate.Tags.Contains("ai-generated") && candidate.Pixels!=null)) ImageFiles.Save(result.Pixels!,Path.Combine(output,item+"-"+(result.Tags.Contains("scene-shadow")?"shadow":result.Tags.Contains("scene-background")?"background":"subject")+".png"),ExportFormat.Png);
+            var subject=document.AllLayers().Single(candidate=>candidate.Tags.Contains("scene-object")&&document.IsEffectivelyVisible(candidate));
+            var shadow=document.AllLayers().FirstOrDefault(candidate=>candidate.Tags.Contains("scene-shadow")&&document.IsEffectivelyVisible(candidate));
+            foreach(var result in document.AllLayers().Where(candidate=>candidate.Tags.Contains("ai-generated") && candidate.Pixels!=null&&document.IsEffectivelyVisible(candidate))) ImageFiles.Save(result.Pixels!,Path.Combine(output,item+"-"+(result.Tags.Contains("scene-shadow")?"shadow":result.Tags.Contains("scene-background")?"background":"subject")+".png"),ExportFormat.Png);
             var changedOutside=0; for(var y=0;y<h;y++) for(var x=0;x<w;x++)
             {
                 Assert.Equal(prepared.ObjectAlpha.GetPixel(x,y).Alpha,subject.Pixels!.GetPixel(x,y).Alpha);
@@ -64,8 +80,8 @@ public class SceneProductLiveTests
                 else if(prepared.ObjectAlpha.GetPixel(x,y).Alpha==0 && prepared.ShadowMask.GetPixel(x,y).Alpha==0 && before.GetPixel(x,y)!=after.GetPixel(x,y)) changedOutside++;
             }
             Assert.Equal(0,changedOutside); Assert.Equal(original,product.Bytes);
-            session.Undo(); using(var undone=session.Flatten()) Assert.Equal(before.Bytes,undone.Bytes);
-            session.Redo(); using(var redone=session.Flatten()) Assert.Equal(after.Bytes,redone.Bytes);
+            for(var step=0;step<operations;step++)session.Undo(); using(var undone=session.Flatten()) Assert.Equal(before.Bytes,undone.Bytes);
+            for(var step=0;step<operations;step++)session.Redo(); using(var redone=session.Flatten()) Assert.Equal(after.Bytes,redone.Bytes);
             var gap=shadow==null?-1:ContactGap(prepared.ObjectAlpha,shadow.Pixels!,prepared.SubjectBounds,16);
             var opaqueGap=shadow==null?-1:ContactGap(prepared.ObjectAlpha,shadow.Pixels!,prepared.SubjectBounds,128);
             metrics.Add(new {item,w,h,seconds=started.Elapsed.TotalSeconds,contactGap=gap,opaqueGap,changedOutside,stage=service.Operation!.Stage});

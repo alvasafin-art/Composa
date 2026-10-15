@@ -4,6 +4,19 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.28] - 2026-10-15 · TEST
+
+### Fixed
+
+- Harmonize / subject Relight receive the complete composition and a separate complete-background lighting reference. Placement/support instructions distinguish the background's illumination from the source PNG; explicit Relight presets and manual angles retain priority.
+- Repeated scene edits recover original source pixels at the current placement and exclude previous lighting/shadows. Legacy nested results are recovered where their source is available; hidden layers and variants remain excluded. Results are inserted beside their predecessors, with source and placement links retained in saved projects.
+- Lighting gains reject contaminated boundary samples and extend reliable surface changes to the original contour, avoiding an unchanged bright rim. Shadow permission covers the canvas at default reach, recognizes slanted support and retains the connected soft penumbra instead of clipping it to a local floor region.
+- Change Background removes object details from both reference conditioning and its encoded latent, then uses one complete generated empty plate. It no longer reapplies subject-shaped reconstruction residuals or joins a regenerated rectangle into a different-colored background. The original PNG remains a separate unchanged layer; both passes remain atomic.
+
+Validation: **504 Core + 603 headless App = 1,107** tests passed; ten opt-in tests skipped in the ordinary run. Separate model checks used a photographic PNG shoe on a real forest path, mirrored lighting context, fractional placement, odd canvas dimensions, separate empty-plate inspection and three consecutive generations with byte-identical original scene/background inputs. Source pixels, alpha, protected pixels and Undo/Redo checked. Details and photographic limitations are recorded in `docs/scene-edit-validation.md`.
+
+TEST pre-release. Generic model inference still does not guarantee physically accurate lighting/shadow shape or Photoshop parity; paid-provider image quality was not tested live.
+
 ## [1.2.1-preview.27] - 2026-10-13 · TEST
 
 ### Fixed

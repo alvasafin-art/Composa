@@ -16,7 +16,7 @@ public sealed record SceneLightHint(SKPoint Direction, bool Directional, string 
             return Create(new((float)-Math.Cos(radians),(float)Math.Sin(radians)),true,$"The dominant light comes from angle {degrees:0} degrees counterclockwise from image right. ");
         }
         // A bright pixel is not a calibrated light source: reflections/clouds cannot determine ground perspective.
-        return new(new(0,1),false,"Infer illumination and grounded shadows from the complete scene; do not add an external light or luminous outline.");
+        return new(new(0,1),false,"Read the key-light side from the existing background objects, their illuminated faces and their cast shadows. Use that same light and ground-shadow direction for the foreground subject.");
     }
     private static SceneLightHint Create(SKPoint direction,bool directional,string prefix)
     {
