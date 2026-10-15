@@ -40,22 +40,39 @@ public class SceneEditingTests
         if(native.PaddedSize.Width>native.ContentSize.Width) Assert.Equal(0,native.Mask.GetPixel(native.PaddedSize.Width-1,native.PaddedSize.Height/2).Alpha);
     }
     [Fact]
-    public void Harmonize_sends_the_complete_background_separately_and_cleanup_encodes_an_erased_reference()
+    public void Harmonize_uses_the_exact_integration_prompt_and_cleanup_keeps_surrounding_latent_context()
     {
         var s=Scene();var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene,Settings=new() {Width=100,Height=80,Values=new() {["imageOriginalSize"]=false}}};
         using var input=SceneEditInput.Prepare(s.Document.Clone(),request);using var native=new SceneEditingWorkflow(input,request);
-        Assert.NotNull(native.BackgroundReference);Assert.Equal(input.Background.GetPixel(50,40),native.BackgroundReference.GetPixel(50,40));
+        Assert.Null(native.BackgroundReference);
         var catalog=new EngineCatalog(Engines);var engine=catalog.Find("flux2-klein-intel-xpu")!;var graph=catalog.ReadWorkflow(engine,engine.Workflow("sceneEdit"));
-        native.Bind(graph,"source.png","mask.png",request);SceneEditingWorkflow.References(graph,new Dictionary<string,string> {{"sceneBackground","background.png"}});
-        Assert.Equal("scene_background_positive",graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
-        Assert.Contains("Reference image 2",graph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
-        using var plate=new SceneBackgroundPlate(input,input.Before,20);
+        native.Bind(graph,"source.png","mask.png",request with {AdditionalPrompt="generic instructions must not override this edit"});SceneEditingWorkflow.References(graph,new Dictionary<string,string>());
+        Assert.Equal("positive",graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.Equal("integrate object into scene",graph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
+        Assert.Equal("",graph["negative"]!["inputs"]!["text"]!.GetValue<string>());
+        using var plate=new SceneBackgroundPlate(input,input.Before,8);
         var cleanup=request with {Task=AiTaskKind.ChangeBackground};using var cleanupNative=new SceneEditingWorkflow(input,cleanup,plate.Image,plate.Mask);
         var cleanupGraph=catalog.ReadWorkflow(engine,engine.Workflow("sceneEdit"));cleanupNative.Bind(cleanupGraph,"plate.png","mask.png",cleanup,cleanup:true);
-        Assert.Null(cleanupNative.BackgroundReference);Assert.Equal("VAEEncodeForInpaint",cleanupGraph["sourceEncode"]!["class_type"]!.GetValue<string>());
-        Assert.Equal("removal",cleanupGraph["sourceEncode"]!["inputs"]!["mask"]![0]!.GetValue<string>());
-        Assert.NotNull(cleanupNative.RemovalMask);Assert.Equal(255,cleanupNative.Mask.GetPixel(0,0).Alpha);
+        Assert.Null(cleanupNative.BackgroundReference);Assert.Equal("VAEEncode",cleanupGraph["sourceEncode"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("sourceEncode",cleanupGraph["positive"]!["inputs"]!["latent"]![0]!.GetValue<string>());
+        Assert.DoesNotContain("mask",cleanupGraph["sourceEncode"]!["inputs"]!.AsObject().Select(value=>value.Key));
+        Assert.Equal(0,cleanupNative.Mask.GetPixel(0,0).Alpha);
+        Assert.Equal(255,cleanupNative.Mask.GetPixel(cleanupNative.ContentSize.Width/2,cleanupNative.ContentSize.Height/2).Alpha);
         Assert.Equal(1,cleanupGraph["sampler"]!["inputs"]!["denoise"]!.GetValue<double>());
+        Assert.Equal("Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.",cleanupGraph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
+    }
+    [Fact]
+    public void Scene_input_keeps_every_canvas_edge_without_stretching_objects_or_cropping_the_context()
+    {
+        var s=Scene();var background=s.Document.Layers[0];var pixels=Pixels.Clone(background.Pixels!);
+        pixels.SetPixel(0,0,SKColors.Red);pixels.SetPixel(99,0,SKColors.Lime);pixels.SetPixel(0,79,SKColors.Blue);pixels.SetPixel(99,79,SKColors.Yellow);Pixels.Invalidate(pixels);background.Pixels=pixels;
+        using var input=SceneEditInput.Prepare(s.Document.Clone(),new() {Task=AiTaskKind.MatchToScene});
+        using var native=new SceneEditingWorkflow(input,new() {Task=AiTaskKind.MatchToScene,Settings=new() {Width=100,Height=80,Values=new() {["imageOriginalSize"]=false}}});
+        Assert.Equal((100,80),native.ContentSize);Assert.Equal((112,80),native.PaddedSize);
+        Assert.Equal(input.Before.GetPixel(0,0),native.Source.GetPixel(0,0));Assert.Equal(input.Before.GetPixel(99,0),native.Source.GetPixel(99,0));
+        Assert.Equal(input.Before.GetPixel(0,79),native.Source.GetPixel(0,79));Assert.Equal(input.Before.GetPixel(99,79),native.Source.GetPixel(99,79));
+        using var returned=native.Finish(Pixels.Clone(native.Source));
+        Assert.Equal(input.Before.Bytes,returned.Bytes);
     }
     [Theory]
     [InlineData(false)]
@@ -131,7 +148,7 @@ public class SceneEditingTests
         {
             var catalog=new EngineCatalog(Engines); var pack=catalog.Find("flux2-klein-intel-xpu")!;
             var graph=catalog.ReadWorkflow(pack,pack.Workflow("sceneEdit"));
-            return Task.FromResult((new ComfyServerInfo("0.37.0","test","test",["CPU"]),new ComfyServerCapabilities {NodeTypes=graph.Select(node=>node.Value!["class_type"]!.GetValue<string>()).Append("VAEEncodeForInpaint").ToHashSet()}));
+            return Task.FromResult((new ComfyServerInfo("0.37.0","test","test",["CPU"]),new ComfyServerCapabilities {NodeTypes=graph.Select(node=>node.Value!["class_type"]!.GetValue<string>()).ToHashSet()}));
         }
         public Task<string> UploadPngAsync(string semantic,SKBitmap image,CancellationToken token=default)
         {Uploads++;if(semantic=="sourceImage") {source?.Dispose();source=Pixels.Clone(image);}return Task.FromResult(semantic+".png");}

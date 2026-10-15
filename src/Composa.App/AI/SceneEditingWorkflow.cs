@@ -11,7 +11,6 @@ internal sealed class SceneEditingWorkflow : IDisposable
     internal SKBitmap Source { get; }
     internal SKBitmap Mask { get; }
     internal SKBitmap? BackgroundReference { get; }
-    internal SKBitmap? RemovalMask { get; }
     internal (int Width,int Height) ContentSize { get; }
     internal (int Width,int Height) PaddedSize { get; }
     private readonly SceneEditInput scene;
@@ -35,7 +34,8 @@ internal sealed class SceneEditingWorkflow : IDisposable
         Source=Pixels.NewColor(PaddedSize.Width,PaddedSize.Height); Source.Erase(SKColors.White);
         using(var draw=new SKCanvas(Source))
         {
-            draw.DrawImage(Pixels.ImageOf(initial),new SKRect(0,0,ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKCubicResampler.Mitchell));
+            var sampling=ContentSize==(initial.Width,initial.Height) ? new SKSamplingOptions(SKFilterMode.Nearest) : new SKSamplingOptions(SKCubicResampler.Mitchell);
+            draw.DrawImage(Pixels.ImageOf(initial),new SKRect(0,0,ContentSize.Width,ContentSize.Height),sampling);
             if(PaddedSize.Width>ContentSize.Width)
                 draw.DrawImage(Pixels.ImageOf(initial),new SKRect(initial.Width-1,0,initial.Width,initial.Height),
                     new SKRect(ContentSize.Width,0,PaddedSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Nearest));
@@ -62,14 +62,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
                 if(opaque.GetPixel(x,y).Alpha>0) mask[y*Mask.RowBytes+x]=Math.Min(mask[y*Mask.RowBytes+x],interior.GetPixel(x,y).Alpha);
         }
         Pixels.Invalidate(Mask);
-        if(maskOverride!=null&&request.Task==AiTaskKind.ChangeBackground)
-        {
-            RemovalMask=Pixels.Clone(Mask);
-            Mask.Erase(SKColors.Transparent);
-            using(var draw=new SKCanvas(Mask))using(var paint=new SKPaint {Color=SKColors.White})draw.DrawRect(SKRect.Create(ContentSize.Width,ContentSize.Height),paint);
-            Pixels.Invalidate(Mask);
-        }
-        if(maskOverride==null&&request.Task!=AiTaskKind.ChangeBackground&&!scene.WholeImage)
+        if(maskOverride==null&&request.Task==AiTaskKind.Relight&&!scene.WholeImage)
         {
             var backgroundScale=Math.Min(.5,512d/Math.Max(ContentSize.Width,ContentSize.Height));
             var bw=Math.Max(16,(int)Math.Round(ContentSize.Width*backgroundScale));var bh=Math.Max(16,(int)Math.Round(ContentSize.Height*backgroundScale));
@@ -94,20 +87,17 @@ internal sealed class SceneEditingWorkflow : IDisposable
             ReferenceImages.Add(CopyReference(reference,request.ReferenceMegapixels));
         }
         }
-        catch {Source?.Dispose();Mask?.Dispose();BackgroundReference?.Dispose();RemovalMask?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();throw;}
+        catch {Source?.Dispose();Mask?.Dispose();BackgroundReference?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();throw;}
     }
     internal void Bind(JsonObject graph,string source,string mask,AiTaskRequest request,int variant=0,bool cleanup=false)
     {
         graph["source"]!["inputs"]!["image"]=source;
         graph["maskImage"]!["inputs"]!["image"]=mask;
-        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) : Prompt(request)+LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
-        if(cleanup)
-        {
-            // Erase subject pixels BEFORE encoding both the initial latent and its reference conditioning.
-            graph["sourceEncode"]!["class_type"]="VAEEncodeForInpaint";
-            graph["sourceEncode"]!["inputs"]!["mask"]=new JsonArray("removal",0);
-            graph["sourceEncode"]!["inputs"]!["grow_mask_by"]=0;
-        }
+        var harmonize=request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize;
+        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) : harmonize ? HarmonizePrompt(request)
+            : Prompt(request)+LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
+        // Cleanup is an image edit: its reference identifies the actual object to remove.
+        // At denoise 1 the target mask is fully resampled; the surrounding encoded latent stays context.
         graph["sampler"]!["inputs"]!["denoise"]=cleanup ? 1 : request.Scene.Normalized().Denoise;
         if(BackgroundReference!=null)
         {
@@ -125,6 +115,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
                 throw new InvalidDataException($"Scene workflow returned {decoded.Width} × {decoded.Height}; expected {PaddedSize.Width} × {PaddedSize.Height}. No edit was applied.");
             using var content=new SKBitmap();
             if(!decoded.ExtractSubset(content,SKRectI.Create(ContentSize.Width,ContentSize.Height))) throw new InvalidDataException("Cannot remove technical scene padding.");
+            if((content.Width,content.Height)==(scene.Before.Width,scene.Before.Height)) return Pixels.Clone(content);
             var image=Pixels.NewColor(scene.Before.Width,scene.Before.Height);
             try
             {
@@ -172,7 +163,16 @@ internal sealed class SceneEditingWorkflow : IDisposable
         return operation+shadow+" Preserve identity, material texture, labels and colors. Render ordinary photographic surface shading and a continuous natural background. Keep the object's silhouette and support in their original image coordinates. User guidance: "+request.Prompt+
             (string.IsNullOrWhiteSpace(request.AdditionalPrompt) ? "" : "\nWorkflow guidance: "+request.AdditionalPrompt);
     }
-    internal static string CleanupPrompt(AiTaskRequest request)=>"Produce one continuous unobstructed photograph of the same empty environment. Extend the surrounding background and support surface seamlessly through the central region. Match its texture, color, perspective and illumination throughout the complete image. Retain the camera framing and support-surface geometry.";
+    internal static string HarmonizePrompt(AiTaskRequest request)
+    {
+        // The complete composited image supplies the scene. Do not turn this targeted edit into
+        // a second scene description or append generic workflow locks/negative instructions.
+        var prompt="integrate object into scene";
+        if(!string.IsNullOrWhiteSpace(request.Prompt)&&!request.Prompt.Trim().Equals(prompt,StringComparison.OrdinalIgnoreCase)) prompt+=". "+request.Prompt.Trim();
+        if(request.Scene.LightAngle is { } angle) prompt+=FormattableString.Invariant($". Light from {angle:0} degrees counterclockwise from image right.");
+        return prompt;
+    }
+    internal static string CleanupPrompt(AiTaskRequest request)=>"Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.";
     internal static string LayoutInstruction(SceneEditInput scene)
     {
         var b=scene.SubjectBounds;var w=scene.Before.Width;var h=scene.Before.Height;
@@ -193,5 +193,5 @@ internal sealed class SceneEditingWorkflow : IDisposable
         }
         catch {copy.Dispose();throw;}
     }
-    public void Dispose() {Source.Dispose();Mask.Dispose();BackgroundReference?.Dispose();RemovalMask?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();}
+    public void Dispose() {Source.Dispose();Mask.Dispose();BackgroundReference?.Dispose();foreach(var reference in ReferenceImages) reference.Dispose();}
 }

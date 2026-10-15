@@ -19,23 +19,17 @@ public sealed class SceneBackgroundPlate : IDisposable
             for(var x=0;x<layout.Width;x++) pixels[y*binary.RowBytes+x]=input.ObjectAlpha.GetPixel(x,y).Alpha>0?(byte)255:(byte)0;
         }
         Pixels.Invalidate(binary);
-        // A rectangular removal area gives no silhouette-shaped edge for the model to copy into the plate.
-        var bounds=SelectionMask.Bounds(binary,1);var pad=Math.Clamp(margin,16,128);
-        using var expanded=Pixels.NewMask(layout.Width,layout.Height);
-        using(var canvas=new SKCanvas(expanded)) using(var paint=new SKPaint {Color=SKColors.White})
-            canvas.DrawRect(SKRectI.Intersect(new(bounds.Left-pad,bounds.Top-pad,bounds.Right+pad,bounds.Bottom+pad),layout.Info.Rect),paint);
-        Pixels.Invalidate(expanded);
-        Mask=SelectionMask.Feather(expanded,Math.Clamp(pad/4,4,16));
-        // Explicit missing-image region: neither the latent nor reference conditioning may contain object details.
+        // Remove the object with a padded silhouette, not its entire bounding rectangle:
+        // scenery between limbs/handles and beside a diagonal product is useful context.
+        var pad=Math.Clamp(margin,8,64);
+        using var expanded=SelectionMask.Expand(binary,pad);
+        Mask=SelectionMask.Feather(expanded,Math.Clamp(pad/3,3,12));
+        // Keep the actual arranged scene as the editing reference. Gray-filled silhouettes can be
+        // interpreted as real scene content and survive as a color patch after masked generation.
         try
         {
             Image=Pixels.Clone(layout);
-            for(var y=0;y<Image.Height;y++)
-            {
-                token.ThrowIfCancellationRequested();
-                for(var x=0;x<Image.Width;x++) if(Mask.GetPixel(x,y).Alpha>=128) Image.SetPixel(x,y,new(128,128,128,255));
-            }
-            Pixels.Invalidate(Image);
+            token.ThrowIfCancellationRequested();
         }
         catch {Image?.Dispose();Mask.Dispose();throw;}
     }

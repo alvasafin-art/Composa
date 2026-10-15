@@ -354,7 +354,8 @@ public static class AiDialogs
             ? "Describe the environment, support surface and lighting: for example, a beige studio with a matte stone tabletop and soft window light. The editor supplies the object's placement. Two passes create the scene and its empty background plate. The original PNG stays separate; paid models bill both passes."
             : "PNG alpha supplies the object mask; a selection can limit it. Otherwise SAM finds the subject. Only permitted floor darkening becomes a shadow layer. Lighting presets guide the model; they are not physical 3D light controls.",TextWrapping=Avalonia.Media.TextWrapping.Wrap,MaxWidth=430,Foreground=Palette.Secondary});
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
-        var prompt = new TextBox { Text = task == AiTaskKind.GenerateImage && string.IsNullOrEmpty(initialPrompt) ? settings.GenerateImagePrompt : initialPrompt,
+        var rememberedPrompt = task switch { AiTaskKind.GenerateImage => settings.GenerateImagePrompt, AiTaskKind.ImageEdit => settings.ImageEditPrompt, _ => "" };
+        var prompt = new TextBox { Text = string.IsNullOrEmpty(initialPrompt) ? rememberedPrompt : initialPrompt,
             AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, Height = 100, PlaceholderText = "Describe the result" };
         var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
         var variants = Math.Clamp(profile.Variants, 1, 3); var quality = profile.ApiQuality;
@@ -531,6 +532,7 @@ public static class AiDialogs
             if (service != null) service.SelectedEngine = previousEngine;
         }
         if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = prompt.Text ?? ""; settings.Save(); }
+        if (task == AiTaskKind.ImageEdit) { settings.ImageEditPrompt = prompt.Text ?? ""; settings.Save(); }
         if (!accepted) return null;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         if (chosenEngine != null) settings.AiTaskEngineIds[task.ToString()] = chosenEngine.Id;

@@ -99,8 +99,10 @@ public static unsafe class PromptSegmentation
         for (var y = 0; y < refined.Height; y++) for (var x = 0; x < refined.Width; x++)
         {
             var p = dst + (long)y * refined.RowBytes + x;
-            // Leave only a genuine boundary fringe, not confidence haze or ghost islands.
-            if (*p < 16) *p = 0; else if (*p > 239) *p = 255;
+            // SAM predicts membership, not a photographic opacity matte. The guided pass snaps
+            // the contour to image edges; threshold it again instead of committing its blur as coverage.
+            // Otherwise deleting the selection leaves a translucent 1px strip and several soft pixels.
+            *p = *p >= 128 ? (byte)255 : (byte)0;
         }
         Pixels.Invalidate(refined);
         return refined;

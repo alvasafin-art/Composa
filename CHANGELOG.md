@@ -4,6 +4,18 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.29] - 2026-10-15 · TEST
+
+### Fixed
+
+- Local Harmonize uses the requested `integrate object into scene` instruction with one complete composited image. Automatic scene narration, second-background conditioning and generic workflow locks no longer expand that edit; negative conditioning text is empty. Explicit dialog guidance/manual angles remain available. Equal-size scene transfers avoid another cubic resampling pass.
+- Shadow extraction compensates robust per-channel background color/contrast changes and filters signed differences before accepting coherent darkening. Texture movement is no longer rectified into a large dark layer. Regression checks retain known cast geometry/contact and reject texture-only and global-grade changes.
+- Change Background cleanup uses the actual arranged scene, a direct foreground-removal instruction, an encoded image latent and a local padded-silhouette noise mask. It preserves neighboring-object context and avoids gray placeholder silhouettes, broad rectangular erasure and full-canvas noise. Both passes remain atomic; the original PNG is unchanged.
+- SAM edge refinement commits object membership as a crisp selection instead of a feathered opacity ramp. Deleting selected pixels leaves no partially erased strip inside the selection. Explicit selection feathering and photographic matting tools remain separate.
+- Image Edit and Generate Image keep independent prompt drafts after closing/cancelling their dialogs and after settings reload; inline generation also saves the accepted prompt.
+
+Validation passed **510 Core + 605 headless App = 1,115** tests; thirteen opt-in tests skipped in that ordinary run. Separate photographic checks include same-input/seed prompt comparisons, workflow variants, raw/shadow/composite inspection, a product between a plant and cup, real person/background scenes, SAM segmentation and repeat generations. See `docs/scene-edit-validation.md` for evidence and remaining model limitations. This remains a TEST pre-release; prompt choice does not guarantee a physically accurate shadow.
+
 ## [1.2.1-preview.28] - 2026-10-15 · TEST
 
 ### Fixed

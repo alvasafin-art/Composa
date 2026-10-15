@@ -11,6 +11,25 @@ public class PromptSegmentationTests
     private static PromptModel Model(PromptModelKind kind) => kind switch
     { PromptModelKind.MobileSam => PromptModels.MobileSam, PromptModelKind.EfficientSamTi => PromptModels.EfficientSamTi, _ => PromptModels.EfficientSamS };
 
+    [Fact]
+    public void SAM_refinement_returns_a_crisp_selection_without_feathered_strips_including_canvas_edges()
+    {
+        using var guide=Pixels.NewColor(101,79);guide.Erase(SKColors.White);
+        using(var draw=new SKCanvas(guide))using(var paint=new SKPaint {Color=SKColors.DarkRed})draw.DrawRect(0,0,61,55,paint);
+        Pixels.Invalidate(guide);
+        using var coarse=SelectionMask.FromRect(101,79,new(0,0,61,55));
+        using var refined=PromptSegmentation.Refine(coarse,guide,default);
+        for(var y=0;y<79;y++)for(var x=0;x<101;x++)
+        {
+            Assert.True(refined.GetPixel(x,y).Alpha is 0 or 255);
+            Assert.Equal(coarse.GetPixel(x,y),refined.GetPixel(x,y));
+        }
+        var session=EditorSession.NewCanvas(101,79);session.AddImageLayer("SAM source",Pixels.Clone(guide),new(50.5f,39.5f),fit:false);
+        session.ApplyAiSelection(Composa.AI.AiTaskKind.SelectSubject,Pixels.Clone(refined));session.ClearSelection();
+        for(var y=0;y<55;y++)for(var x=0;x<61;x++)Assert.Equal(0,session.ActiveLayer!.Pixels!.GetPixel(x,y).Alpha);
+        session.Undo();Assert.Equal(SKColors.DarkRed,session.ActiveLayer!.Pixels!.GetPixel(60,54));
+    }
+
     [Theory]
     [InlineData(PromptModelKind.MobileSam, 240, 96)]
     [InlineData(PromptModelKind.MobileSam, 96, 240)]

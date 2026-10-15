@@ -29,6 +29,25 @@ public class RdpToolsUiTests
         Assert.Equal("previous landscape", prompt.Text); prompt.Text = "новый пейзаж"; dialog.Close(false); Assert.Null(await pending);
         var loaded = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!; Assert.Equal("новый пейзаж", loaded.GenerateImagePrompt); owner.Close();
     }
+    [AvaloniaFact]
+    public async Task Image_edit_and_generate_keep_separate_drafts_across_reopening_and_settings_reload()
+    {
+        var settings=new Settings {ImageEditPrompt="previous edit",GenerateImagePrompt="previous generation"};
+        var owner=new Window();owner.Show();
+        async Task Draft(AiTaskKind task,string expected,string next,string initial="")
+        {
+            var pending=AiDialogs.Prompt(owner,task,settings,640,480,initial);
+            var dialog=owner.OwnedWindows.Single();Dispatcher.UIThread.RunJobs();
+            var prompt=dialog.GetVisualDescendants().OfType<TextBox>().Single(box=>box.AcceptsReturn);
+            Assert.Equal(expected,prompt.Text);prompt.Text=next;dialog.Close(false);Assert.Null(await pending);
+        }
+        await Draft(AiTaskKind.ImageEdit,"previous edit","новая правка");
+        settings=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
+        await Draft(AiTaskKind.ImageEdit,"новая правка","исправить свет");
+        await Draft(AiTaskKind.GenerateImage,"previous generation","новая генерация");
+        await Draft(AiTaskKind.ImageEdit,"explicit instruction","final edit","explicit instruction");
+        Assert.Equal("новая генерация",settings.GenerateImagePrompt);Assert.Equal("final edit",settings.ImageEditPrompt);owner.Close();
+    }
 
     [AvaloniaFact]
     public void Curves_keep_point_selection_and_support_numeric_input_arrows_and_delete()

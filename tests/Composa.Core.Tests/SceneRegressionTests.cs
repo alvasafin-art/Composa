@@ -86,13 +86,92 @@ public class SceneRegressionTests
     {
         var session=Scene();using var input=SceneEditInput.Prepare(session.Document.Clone(),new() {Task=AiTaskKind.ChangeBackground});
         using var plate=new SceneBackgroundPlate(input,input.Before,20);
-        Assert.Equal(new SKColor(128,128,128),plate.Image.GetPixel(100,80));
+        Assert.Equal(input.Before.GetPixel(100,80),plate.Image.GetPixel(100,80));
         using var baseline=Pixels.Clone(plate.Image);using var generated=Pixels.NewColor(200,160);generated.Erase(new SKColor(160,170,180));
         generated.SetPixel(98,80,new(165,171,181));Pixels.Invalidate(generated);
         for(var y=55;y<105;y++)for(var x=80;x<120;x++)baseline.SetPixel(x,y,new((byte)(x%2==0?20:220),40,60));
         Pixels.Invalidate(baseline);using var clean=plate.Finish(generated,input.Before,baseline);
         Assert.Equal(new SKColor(160,170,180),clean.GetPixel(100,80));Assert.Equal(clean.GetPixel(100,80),clean.GetPixel(101,80));
         Assert.Equal(new SKColor(165,171,181),clean.GetPixel(98,80)); // Keep model texture; neither old object nor ROI seam is pasted back.
+    }
+    [Fact]
+    public void Cleanup_preserves_scenery_between_parts_of_the_subject_instead_of_erasing_its_bounding_rectangle()
+    {
+        var session=EditorSession.NewCanvas(300,220,SKColors.Beige);var png=Pixels.NewColor(180,160);
+        using(var draw=new SKCanvas(png))using(var paint=new SKPaint {Color=SKColors.Red})
+        {draw.DrawRect(0,0,20,160,paint);draw.DrawRect(160,0,20,160,paint);draw.DrawRect(0,140,180,20,paint);}
+        Pixels.Invalidate(png);session.AddImageLayer("Open product",png,new(150,110),fit:false);
+        using var input=SceneEditInput.Prepare(session.Document.Clone(),new() {Task=AiTaskKind.ChangeBackground});
+        using var layout=Pixels.Clone(input.Before);layout.SetPixel(150,70,SKColors.Green);Pixels.Invalidate(layout);
+        using var plate=new SceneBackgroundPlate(input,layout,16);
+        Assert.Equal(0,plate.Mask.GetPixel(150,70).Alpha);Assert.Equal(SKColors.Green,plate.Image.GetPixel(150,70));
+        Assert.Equal(255,plate.Mask.GetPixel(70,70).Alpha);Assert.Equal(layout.GetPixel(70,70),plate.Image.GetPixel(70,70));
+    }
+    [Fact]
+    public void Shadow_extraction_preserves_a_known_cast_on_textured_ground_without_stretching_or_rotating_it()
+    {
+        var session=Scene();var background=session.Document.Layers[0];var texture=Pixels.Clone(background.Pixels!);
+        for(var y=0;y<texture.Height;y++)for(var x=0;x<texture.Width;x++)texture.SetPixel(x,y,new((byte)(170+x%11*3),(byte)(175+y%7*3),160));
+        Pixels.Invalidate(texture);background.Pixels=texture;
+        var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene};using var input=SceneEditInput.Prepare(session.Document.Clone(),request);
+        using var generated=Pixels.Clone(input.Before);var foot=input.SupportBounds.Bottom;
+        bool Cast(int x,int y)=>y>=foot&&y<155&&x>=90+(y-foot)/2&&x<125+(y-foot);
+        for(var y=foot;y<155;y++)for(var x=0;x<200;x++)if(Cast(x,y))
+        {var p=generated.GetPixel(x,y);generated.SetPixel(x,y,new((byte)(p.Red*.65),(byte)(p.Green*.65),(byte)(p.Blue*.65)));}
+        Pixels.Invalidate(generated);var result=SceneEditResult.Extract(input,generated,request,reconstruction:input.Before);
+        try
+        {
+            var shadow=Assert.Single(result.Layers,layer=>layer.Tags!.Contains("scene-shadow")).Pixels;
+            Assert.Equal(0,result.ContactCorrectionX);Assert.Equal(0,result.ContactCorrectionY);
+            var intersection=0;var union=0;
+            for(var y=0;y<160;y++)for(var x=0;x<200;x++)
+            {var expected=Cast(x,y);var actual=shadow.GetPixel(x,y).Alpha>=40;if(expected&&actual)intersection++;if(expected||actual)union++;}
+            Assert.True(intersection/(double)union>.94,$"Shadow geometry IoU {intersection/(double)union:0.000}");
+        }
+        finally{foreach(var layer in result.Layers)layer.Pixels.Dispose();}
+    }
+    [Fact]
+    public void A_shifted_background_texture_is_not_rectified_into_a_canvas_wide_shadow()
+    {
+        var session=Scene();var background=session.Document.Layers[0];var texture=Pixels.Clone(background.Pixels!);
+        for(var y=0;y<texture.Height;y++)for(var x=0;x<texture.Width;x++)texture.SetPixel(x,y,x%2==0?new SKColor(140,140,140):new SKColor(200,200,200));
+        Pixels.Invalidate(texture);background.Pixels=texture;
+        var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene};using var input=SceneEditInput.Prepare(session.Document.Clone(),request);
+        using var shifted=Pixels.Clone(input.Before);
+        for(var y=0;y<shifted.Height;y++)for(var x=0;x<shifted.Width;x++)if(input.ObjectAlpha.GetPixel(x,y).Alpha==0)
+            shifted.SetPixel(x,y,x%2==0?new SKColor(200,200,200):new SKColor(140,140,140));
+        Pixels.Invalidate(shifted);var result=SceneEditResult.Extract(input,shifted,request,reconstruction:input.Before);
+        try{Assert.True(result.ShadowPixels==0,$"pixels={result.ShadowPixels}; before={input.Before.GetPixel(10,10)}/{input.Before.GetPixel(11,10)}; background={input.Background.GetPixel(10,10)}/{input.Background.GetPixel(11,10)}; target={shifted.GetPixel(10,10)}/{shifted.GetPixel(11,10)}");}
+        finally{foreach(var layer in result.Layers)layer.Pixels.Dispose();}
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Global_background_color_and_contrast_drift_is_removed_while_a_local_cast_is_retained(bool cast)
+    {
+        var session=Scene();var background=session.Document.Layers[0];var texture=Pixels.Clone(background.Pixels!);
+        for(var y=0;y<texture.Height;y++)for(var x=0;x<texture.Width;x++)texture.SetPixel(x,y,new((byte)(80+x/2),(byte)(190-x/3),(byte)(90+y/2)));
+        Pixels.Invalidate(texture);background.Pixels=texture;
+        var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene};using var input=SceneEditInput.Prepare(session.Document.Clone(),request);
+        using var generated=Pixels.Clone(input.Before);var foot=input.SupportBounds.Bottom;
+        static double Linear(byte v){var s=v/255d;return s<=.04045?s/12.92:Math.Pow((s+.055)/1.055,2.4);}
+        static byte Encode(double l)=>(byte)Math.Round(255*(l<=.0031308?l*12.92:1.055*Math.Pow(l,1/2.4)-.055));
+        for(var y=0;y<generated.Height;y++)for(var x=0;x<generated.Width;x++)if(input.ObjectAlpha.GetPixel(x,y).Alpha==0)
+        {
+            var p=input.Before.GetPixel(x,y);var attenuation=cast&&y>=foot&&y<foot+25&&x>=95&&x<130?.65:1;
+            generated.SetPixel(x,y,new(Encode(.8*Linear(p.Red)*attenuation+.025),Encode(.9*Linear(p.Green)*attenuation+.015),Encode(.75*Linear(p.Blue)*attenuation+.03)));
+        }
+        Pixels.Invalidate(generated);var result=SceneEditResult.Extract(input,generated,request,reconstruction:input.Before);
+        try
+        {
+            if(!cast)Assert.Equal(0,result.ShadowPixels);
+            else
+            {
+                var shadow=Assert.Single(result.Layers,layer=>layer.Tags!.Contains("scene-shadow")).Pixels;
+                Assert.True(shadow.GetPixel(110,foot+12).Alpha>30);Assert.Equal(0,shadow.GetPixel(160,30).Alpha);
+            }
+        }
+        finally{foreach(var layer in result.Layers)layer.Pixels.Dispose();}
     }
     [Fact]
     public void Interior_dimming_reaches_antialiased_edges_instead_of_leaving_a_bright_original_rim()

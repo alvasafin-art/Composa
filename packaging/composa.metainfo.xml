@@ -50,6 +50,11 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.29" date="2026-10-15">
+      <description>
+        <p>TEST: concise FLUX Harmonize instructions, texture-safe shadow extraction, object-aware local background cleanup, crisp SAM selections and independent saved image-edit/generation prompt drafts.</p>
+      </description>
+    </release>
     <release version="1.2.1-preview.28" date="2026-10-15">
       <description>
         <p>TEST: complete-background lighting conditioning, isolated repeat generations, contour lighting and full penumbra preservation, plus continuous object-free background plates without silhouette residuals or patch seams.</p>

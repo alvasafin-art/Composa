@@ -51,7 +51,9 @@ public class SceneProductLiveTests
             var original=product.Bytes; using var before=session.Flatten(); ImageFiles.Save(before,Path.Combine(output,item+"-before.png"),ExportFormat.Png);
             using(var project=File.Create(Path.Combine(output,item+"-before.cmps"))) ProjectFile.Write(document.Clone(),project);
             var task=item.StartsWith("background")?AiTaskKind.ChangeBackground:item.StartsWith("relight")?AiTaskKind.Relight:AiTaskKind.MatchToScene;
-            var request=new AiTaskRequest {Task=task,Prompt=task==AiTaskKind.ChangeBackground ? "A clean warm beige product photography studio with a matte stone tabletop, soft window light from the upper left. The shoe rests directly on the tabletop at its existing position." : "",
+            var request=new AiTaskRequest {Task=task,Prompt=task==AiTaskKind.ChangeBackground ? item.Contains("neighbors")
+                    ? "A warm beige product photography studio, matte stone tabletop, a complete small potted plant to the left of the shoe and a complete ceramic cup to its right, soft window light from the upper left."
+                    : "A clean warm beige product photography studio with a matte stone tabletop, soft window light from the upper left. The shoe rests directly on the tabletop at its existing position." : "",
                 Scene=new() {Denoise=task==AiTaskKind.ChangeBackground?.95:.8,Preset=RelightPreset.SoftboxRight},Settings=new() {Width=1008,Height=736,Seed=73,Values=new() {["imageOriginalSize"]=false}}};
             using var prepared=SceneEditInput.Prepare(document.Clone(),request);
             var service=new AiTaskService(()=>Environment.GetEnvironmentVariable("COMPOSA_PRODUCT_TEST_URL")!,Path.Combine(AppContext.BaseDirectory,"ai/engines")); service.SelectedEngine=service.Engines.Find("flux2-klein-intel-xpu");

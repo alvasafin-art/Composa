@@ -587,6 +587,8 @@ public sealed partial class MainWindow
         }
         RefreshAiUi();
         if (options == null) return;
+        if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = options.Prompt; settings.Save(); }
+        if (task == AiTaskKind.ImageEdit) { settings.ImageEditPrompt = options.Prompt; settings.Save(); }
         if (session == null)
         {
             if (task != AiTaskKind.GenerateImage) return;

@@ -51,7 +51,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
             }
             Pixels.Invalidate(objectPixels);
             if(input.WholeImage) return new(layers,0);
-            using var rawShadow=ExtractShadow(input,generated,baseline,settings,ratios,token,out var count);
+            using var rawShadow=ExtractShadow(input,generated,baseline,settings,ratios,modelToDocument,token,out var count);
             var shadow=SceneShadowContact.Anchor(rawShadow,input,modelToDocument,token,out count,out var correction);
             if(count>0) layers.Insert(0,new("Contact and Cast Shadow",shadow,Tags:["scene-shadow","editable"]));
             else shadow.Dispose();
@@ -70,21 +70,14 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
         }
         return result;
     }
-    private static SKBitmap ExtractShadow(SceneEditInput input,SKBitmap generated,SKBitmap baseline,SceneEditSettings settings,SceneLightingMap? lighting,CancellationToken token,out int count)
+    private static SKBitmap ExtractShadow(SceneEditInput input,SKBitmap generated,SKBitmap baseline,SceneEditSettings settings,SceneLightingMap? lighting,double modelToDocument,CancellationToken token,out int count)
     {
         count=0;
-        // Estimate unchanged-background exposure drift before classifying a difference as a shadow.
-        var samples=new List<double>(); var step=Math.Max(1,(int)Math.Sqrt(generated.Width*(double)generated.Height/8192));
-        for(var y=0;y<generated.Height;y+=step) for(var x=0;x<generated.Width;x+=step)
-        {
-            if(input.ObjectAlpha.GetPixel(x,y).Alpha>0) continue;
-            var source=baseline.GetPixel(x,y); var target=generated.GetPixel(x,y);
-            var l=Luma(source); if(source.Alpha<250 || l<.03 || l>.85) continue;
-            samples.Add(Luma(target)/l);
-        }
-        samples.Sort(); var exposure=samples.Count==0 ? 1 : Math.Clamp(samples[samples.Count/2],.7,1.4);
+        if(Composa.Selections.SelectionMask.IsEmpty(input.ShadowMask))return Pixels.NewColor(generated.Width,generated.Height);
+        var calibration=new SceneBackgroundCalibration(input,generated,baseline,token);
         var w=generated.Width; var h=generated.Height;
         var coverage=new byte[checked(w*h)];
+        var differences=new float[checked(w*h)];var weights=new float[differences.Length];var energy=new float[differences.Length];
         for(var y=0;y<h;y++)
         {
             token.ThrowIfCancellationRequested();
@@ -97,18 +90,38 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 var l=Luma(background); if(l<.01) continue;
                 var model=generated.GetPixel(x,y); var foreground=input.Foreground.GetPixel(x,y); var a=input.ObjectAlpha.GetPixel(x,y).Alpha/255d;
                 var gains=lighting?.At(x,y)??(1d,1d,1d);
-                byte Background(byte observed,byte rebuilt,byte backdrop,byte original,double gain)
+                byte Background(byte observed,byte rebuilt,byte backdrop,byte original,double gain,int channel)
                 {
                     // Recover the ground change from an encoded-RGB composite; PNG alpha applies exactly once later.
-                    var calibrated=Encode(Linear(observed)/exposure);
-                    var relit=Encode(Linear(original)*gain/exposure);
+                    var calibrated=Encode(calibration.Correct(observed,channel));
+                    var relit=Encode(calibration.Correct(Encode(Linear(original)*gain),channel));
                     var difference=(calibrated-rebuilt-a*(relit-original))/Math.Max(.06,1-a);
                     return (byte)Math.Round(Math.Clamp(backdrop+difference,0,255));
                 }
-                var desiredBackground=new SKColor(Background(model.Red,source.Red,background.Red,foreground.Red,gains.Item1),
-                    Background(model.Green,source.Green,background.Green,foreground.Green,gains.Item2),Background(model.Blue,source.Blue,background.Blue,foreground.Blue,gains.Item3));
-                var darkness=1-Luma(desiredBackground)/l;
-                if(darkness<.04) continue;
+                var desiredBackground=new SKColor(Background(model.Red,source.Red,background.Red,foreground.Red,gains.Item1,0),
+                    Background(model.Green,source.Green,background.Green,foreground.Green,gains.Item2,1),Background(model.Blue,source.Blue,background.Blue,foreground.Blue,gains.Item3,2));
+                differences[y*w+x]=(float)(l-Luma(desiredBackground));weights[y*w+x]=(float)l;energy[y*w+x]=Math.Abs(differences[y*w+x]);
+            }
+        }
+        // Filter SIGNED differences before clamping to a shadow. Rectifying first gives every
+        // zero-mean texture/codec fluctuation a dark bias and joins it to the real cast shadow.
+        var radius=Math.Clamp((int)Math.Ceiling(2*modelToDocument),1,32);
+        differences=Composa.Vision.GuidedFilter.Box(differences,w,h,radius);
+        weights=Composa.Vision.GuidedFilter.Box(weights,w,h,radius);
+        energy=Composa.Vision.GuidedFilter.Box(energy,w,h,radius);
+        differences=Composa.Vision.GuidedFilter.Box(differences,w,h,radius);
+        weights=Composa.Vision.GuidedFilter.Box(weights,w,h,radius);
+        energy=Composa.Vision.GuidedFilter.Box(energy,w,h,radius);
+        for(var y=0;y<h;y++)
+        {
+            token.ThrowIfCancellationRequested();
+            for(var x=0;x<w;x++)
+            {
+                var permission=input.ShadowMask.GetPixel(x,y).Alpha;if(permission==0||weights[y*w+x]<.001)continue;
+                var darkness=differences[y*w+x]/weights[y*w+x];
+                // A cast is predominantly darkening; alternating bright/dark repaint edges are not.
+                if(darkness<.04||differences[y*w+x]<energy[y*w+x]*.5f)continue;
+                var l=Luma(input.Background.GetPixel(x,y));if(l<.01)continue;
                 // Normal-over compositing attenuates encoded RGB, whereas the estimate is linear-light.
                 // Using linear darkness directly as alpha would make a legitimate shadow nearly black.
                 var attenuation=1-Srgb(l*(1-Math.Clamp(darkness,0,.9)))/Srgb(l);
@@ -121,7 +134,8 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
         Pixels.Invalidate(result);
         if(count==0) return result;
         using var soft=Pixels.NewColor(w,h);
-        using(var draw=new SKCanvas(soft)) using(var blur=SKImageFilter.CreateBlur(.8f,.8f)) using(var paint=new SKPaint {ImageFilter=blur}) draw.DrawImage(Pixels.ImageOf(result),0,0,paint);
+        var sigma=.8f*(float)Math.Clamp(modelToDocument,.5,16);
+        using(var draw=new SKCanvas(soft)) using(var blur=SKImageFilter.CreateBlur(sigma,sigma)) using(var paint=new SKPaint {ImageFilter=blur}) draw.DrawImage(Pixels.ImageOf(result),0,0,paint);
         Pixels.Invalidate(soft); count=0;
         for(var y=0;y<h;y++) for(var x=0;x<w;x++)
         {

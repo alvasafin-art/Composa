@@ -65,11 +65,6 @@ public sealed partial class AiTaskService
                 WorkflowModels.ApplyChoices(graph,engine.Id,ModelSelections(client.Address.ToString()));
                 if(stageNative!=null)
                 {
-                    if(cleanup)
-                    {
-                        graph["removalImage"]=new JsonObject {["class_type"]="LoadImage",["inputs"]=new JsonObject {["image"]=files["sceneRemoval"]}};
-                        graph["removal"]=new JsonObject {["class_type"]="ImageToMask",["inputs"]=new JsonObject {["image"]=new JsonArray("removalImage",0),["channel"]="red"}};
-                    }
                     stageNative.Bind(graph,files["sourceImage"],files["sceneMask"],request,variant,cleanup);
                     SceneEditingWorkflow.References(graph,files);
                     WorkflowExecution.Loras(graph,engine,request.Settings.Loras,capabilities);
@@ -138,14 +133,13 @@ public sealed partial class AiTaskService
                 if(request.Task==AiTaskKind.ChangeBackground)
                 {
                     // First the model arranges the environment around the actual PNG. Only then remove its cache.
-                    var margin=native==null?48:(int)Math.Ceiling(48*scene.Before.Width/(double)native.ContentSize.Width);
+                    var margin=native==null?16:(int)Math.Ceiling(16*scene.Before.Width/(double)native.ContentSize.Width);
                     using var plate=await Task.Run(()=>new SceneBackgroundPlate(scene,generated.Image,margin,linked.Token),linked.Token);
-                    var cleanupRequest=request with {ReferenceImages=[],ReferenceImage=null,Prompt=SceneEditingWorkflow.CleanupPrompt(request)};
+                    var cleanupRequest=request with {ReferenceImages=[],ReferenceImage=null,Prompt=SceneEditingWorkflow.CleanupPrompt(request),AdditionalPrompt=""};
                     using var cleanupNative=engine.PaidApi?null:new SceneEditingWorkflow(scene,cleanupRequest,plate.Image,plate.Mask);
                     using var cleanupInputs=engine.PaidApi?new AiTaskInputs {SourceImage=Pixels.Clone(plate.Image),ContextImage=Pixels.Clone(plate.Image),CanvasWidth=scene.Before.Width,CanvasHeight=scene.Before.Height,TargetBounds=scene.Before.Info.Rect,Prompt=cleanupRequest.Prompt}:null;
                     using var cleanupPartner=cleanupInputs==null?null:new PartnerImageInputs(cleanupInputs,cleanupRequest with {Task=AiTaskKind.ImageEdit},engine.ApiModel);
                     var cleanupImages=cleanupNative==null?cleanupPartner!.Images:new Dictionary<string,SKBitmap> {{"sourceImage",cleanupNative.Source},{"sceneMask",cleanupNative.Mask}};
-                    if(cleanupNative?.RemovalMask is { } eraseMask)cleanupImages["sceneRemoval"]=eraseMask;
                     _=Bind(cleanupImages.ToDictionary(item=>item.Key,_=>"plate-preflight.png"),index,cleanupNative,cleanupPartner,true);
                     var cleanupFiles=new Dictionary<string,string>(); foreach(var (key,image) in cleanupImages) cleanupFiles[key]=await client.UploadPngAsync(key,image,linked.Token);
                     using var clean=await Generate(cleanupNative,cleanupPartner,cleanupFiles,index,true);
