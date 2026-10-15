@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.2.1-preview.30" date="2026-10-15">
+      <description><p>Preserve faint contact shadows in Harmonize without changing its prompt or workflow. Restore Photoshop script dialog preferences on cleanup errors and release image-exchange COM references.</p></description>
+    </release>
     <release version="1.2.1-preview.29" date="2026-10-15">
       <description>
         <p>TEST: concise FLUX Harmonize instructions, texture-safe shadow extraction, object-aware local background cleanup, crisp SAM selections and independent saved image-edit/generation prompt drafts.</p>

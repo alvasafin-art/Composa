@@ -77,7 +77,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
         var calibration=new SceneBackgroundCalibration(input,generated,baseline,token);
         var w=generated.Width; var h=generated.Height;
         var coverage=new byte[checked(w*h)];
-        var differences=new float[checked(w*h)];var weights=new float[differences.Length];var energy=new float[differences.Length];
+        var differences=new float[checked(w*h)];var darkness=new float[differences.Length];var energy=new float[differences.Length];
         for(var y=0;y<h;y++)
         {
             token.ThrowIfCancellationRequested();
@@ -100,31 +100,32 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 }
                 var desiredBackground=new SKColor(Background(model.Red,source.Red,background.Red,foreground.Red,gains.Item1,0),
                     Background(model.Green,source.Green,background.Green,foreground.Green,gains.Item2,1),Background(model.Blue,source.Blue,background.Blue,foreground.Blue,gains.Item3,2));
-                differences[y*w+x]=(float)(l-Luma(desiredBackground));weights[y*w+x]=(float)l;energy[y*w+x]=Math.Abs(differences[y*w+x]);
+                differences[y*w+x]=(float)(l-Luma(desiredBackground));
+                darkness[y*w+x]=differences[y*w+x]/(float)l;energy[y*w+x]=Math.Abs(differences[y*w+x]);
             }
         }
         // Filter SIGNED differences before clamping to a shadow. Rectifying first gives every
         // zero-mean texture/codec fluctuation a dark bias and joins it to the real cast shadow.
         var radius=Math.Clamp((int)Math.Ceiling(2*modelToDocument),1,32);
         differences=Composa.Vision.GuidedFilter.Box(differences,w,h,radius);
-        weights=Composa.Vision.GuidedFilter.Box(weights,w,h,radius);
         energy=Composa.Vision.GuidedFilter.Box(energy,w,h,radius);
         differences=Composa.Vision.GuidedFilter.Box(differences,w,h,radius);
-        weights=Composa.Vision.GuidedFilter.Box(weights,w,h,radius);
         energy=Composa.Vision.GuidedFilter.Box(energy,w,h,radius);
         for(var y=0;y<h;y++)
         {
             token.ThrowIfCancellationRequested();
             for(var x=0;x<w;x++)
             {
-                var permission=input.ShadowMask.GetPixel(x,y).Alpha;if(permission==0||weights[y*w+x]<.001)continue;
-                var darkness=differences[y*w+x]/weights[y*w+x];
+                var permission=input.ShadowMask.GetPixel(x,y).Alpha;if(permission==0)continue;
                 // A cast is predominantly darkening; alternating bright/dark repaint edges are not.
-                if(darkness<.04||differences[y*w+x]<energy[y*w+x]*.5f)continue;
+                // Use the neighborhood only to reject incoherent texture. Thresholding its
+                // average erased narrow/faint contact and soft penumbrae in preview.29.
+                var localDarkness=darkness[y*w+x];
+                if(localDarkness<.04||differences[y*w+x]<energy[y*w+x]*.5f)continue;
                 var l=Luma(input.Background.GetPixel(x,y));if(l<.01)continue;
                 // Normal-over compositing attenuates encoded RGB, whereas the estimate is linear-light.
                 // Using linear darkness directly as alpha would make a legitimate shadow nearly black.
-                var attenuation=1-Srgb(l*(1-Math.Clamp(darkness,0,.9)))/Srgb(l);
+                var attenuation=1-Srgb(l*(1-Math.Clamp(localDarkness,0,.9)))/Srgb(l);
                 coverage[y*w+x]=(byte)Math.Round(Math.Clamp(attenuation,0,1)*permission*settings.Strength);
             }
         }

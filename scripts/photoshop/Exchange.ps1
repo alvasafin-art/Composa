@@ -11,6 +11,7 @@ function Fail([string]$message) { throw $message }
 # Direct per-user pipe: no second Composa process, startup handshake race or polling.
 $needsBridge = $Direction -eq 'ToComposa' -or -not $ImagePath
 $pipe = $null; $writer = $null; $reader = $null
+$photoshop = $null; $openedDocument = $null
 try {
     $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
     $photoshopProcesses = @(Get-Process Photoshop -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId })
@@ -74,7 +75,9 @@ public static class ComposaExchangeWindows {
         if (-not (Test-Path -LiteralPath $temporary -PathType Leaf)) { throw 'The image exchange file is missing.' }
         try { $photoshop = [Runtime.InteropServices.Marshal]::GetActiveObject('Photoshop.Application') }
         catch { $photoshop = New-Object -ComObject Photoshop.Application }
-        $null = $photoshop.Open($temporary); $photoshop.Visible = $true
+        # Retain and explicitly release both COM wrappers. Never close the user's newly
+        # opened document or change Photoshop's dialog mode, tools or workspace.
+        $openedDocument = $photoshop.Open($temporary); $photoshop.Visible = $true
         foreach ($process in $photoshopProcesses) {
             if ($process.MainWindowHandle -eq [IntPtr]::Zero) { continue }
             if ([ComposaExchangeWindows]::IsIconic($process.MainWindowHandle)) { [void][ComposaExchangeWindows]::ShowWindow($process.MainWindowHandle, 9) }
@@ -89,5 +92,10 @@ public static class ComposaExchangeWindows {
     if ($ReportPath) { [IO.File]::WriteAllText($ReportPath, ('ERROR: ' + $_.Exception.Message), (New-Object Text.UTF8Encoding($false))) }
     throw
 } finally {
+    foreach ($comReference in @($openedDocument, $photoshop)) {
+        if ($null -ne $comReference -and [Runtime.InteropServices.Marshal]::IsComObject($comReference)) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($comReference)
+        }
+    }
     if ($writer) { $writer.Dispose() }; if ($reader) { $reader.Dispose() }; if ($pipe) { $pipe.Dispose() }
 }

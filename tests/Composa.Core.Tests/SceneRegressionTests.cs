@@ -131,6 +131,24 @@ public class SceneRegressionTests
         finally{foreach(var layer in result.Layers)layer.Pixels.Dispose();}
     }
     [Fact]
+    public void A_faint_narrow_contact_shadow_is_not_averaged_away()
+    {
+        var session=Scene();var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene};
+        using var input=SceneEditInput.Prepare(session.Document.Clone(),request);
+        using var generated=Pixels.Clone(input.Before);var foot=input.SupportBounds.Bottom;
+        // Real contact shadows can be only two document pixels deep. Their darkening is
+        // visible but falls below the classifier's cutoff if averaged with unchanged floor.
+        for(var y=foot;y<foot+2;y++)for(var x=80;x<120;x++)generated.SetPixel(x,y,new(194,194,194));
+        Pixels.Invalidate(generated);var result=SceneEditResult.Extract(input,generated,request);
+        try
+        {
+            var shadow=Assert.Single(result.Layers,layer=>layer.Tags!.Contains("scene-shadow")).Pixels;
+            Assert.True(shadow.GetPixel(100,foot).Alpha>=3);
+            Assert.Equal(0,result.ContactCorrectionX);Assert.Equal(0,result.ContactCorrectionY);
+        }
+        finally{foreach(var layer in result.Layers)layer.Pixels.Dispose();}
+    }
+    [Fact]
     public void A_shifted_background_texture_is_not_rectified_into_a_canvas_wide_shadow()
     {
         var session=Scene();var background=session.Document.Layers[0];var texture=Pixels.Clone(background.Pixels!);

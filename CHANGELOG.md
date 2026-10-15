@@ -4,6 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.2.1-preview.30] - 2026-10-15 · TEST
+
+### Fixed
+
+- Harmonize no longer thresholds shadow strength after averaging it with unchanged ground. Narrow, faint contact shadows and penumbrae retain their local darkening; neighborhood evidence still rejects alternating texture noise. The requested `integrate object into scene` prompt and the model workflow are unchanged.
+- Photoshop exchange explicitly releases its document/application COM wrappers. The reverse Photoshop-to-Composa script restores dialog preferences before waiting for the helper, including when closing the temporary copy or restoring the original document fails. Neither direction changes Photoshop panels or workspace settings. The reported one-off panel freeze has not been reproduced in Photoshop.
+
+Validation: failing-before/passing-after narrow-contact regression, existing shadow geometry/background-drift checks, re-extraction of the same saved photographic PNG/scene generations, and injected Photoshop-script export/cleanup failures. Full-suite results and practical limitations are recorded in `docs/scene-edit-validation.md` and `docs/photoshop-exchange.md`.
+
 ## [1.2.1-preview.29] - 2026-10-15 · TEST
 
 ### Fixed

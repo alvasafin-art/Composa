@@ -46,7 +46,9 @@ public class SceneProductLiveTests
             }
             Pixels.Invalidate(background); document.Layers.Add(Layer.Raster("Photographic background",background));
             var product=ImageFiles.Load(Environment.GetEnvironmentVariable("COMPOSA_PRODUCT_CLEAN")=="1"?cleanPath:Path.Combine(input,"product-shoe.png")); var layer=Layer.Raster("Photographic PNG product",product);
-            layer.Transform=new() {X=240.25,Y=207.5,Width=530,Height=530*product.Height/(double)product.Width};
+            layer.Transform=item.Contains("grounded")
+                ? new() {X=350.25,Y=345.5,Width=320,Height=320*product.Height/(double)product.Width}
+                : new() {X=240.25,Y=207.5,Width=530,Height=530*product.Height/(double)product.Width};
             document.Layers.Add(layer); document.SetActive(layer.Id); var session=new EditorSession(document);
             var original=product.Bytes; using var before=session.Flatten(); ImageFiles.Save(before,Path.Combine(output,item+"-before.png"),ExportFormat.Png);
             using(var project=File.Create(Path.Combine(output,item+"-before.cmps"))) ProjectFile.Write(document.Clone(),project);

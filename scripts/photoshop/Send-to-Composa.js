@@ -18,6 +18,7 @@
         var options = new PNGSaveOptions(); options.interlaced = false;
         copy.saveAs(image, options, true, Extension.LOWERCASE);
         copy.close(SaveOptions.DONOTSAVECHANGES); copy = null; app.activeDocument = source;
+        app.displayDialogs = dialogs;
         var command = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + helper.fsName + '" -Direction ToComposa -ImagePath "' + image.fsName + '" -ReportPath "' + report.fsName + '"';
         app.system(command);
         // app.system does not capture stdout. Read the helper's explicit result file.
@@ -27,5 +28,8 @@
         report.encoding = 'UTF-8'; report.open('r'); var result = report.read(); report.close(); report.remove();
         if (result.indexOf('ERROR:') === 0) { alert(result); }
     } catch (error) { alert('Send to Composa failed: ' + error.message); }
-    finally { if (copy) { copy.close(SaveOptions.DONOTSAVECHANGES); } app.activeDocument = source; app.displayDialogs = dialogs; }
+    finally {
+        try { if (copy) { copy.close(SaveOptions.DONOTSAVECHANGES); } }
+        finally { try { app.activeDocument = source; } finally { app.displayDialogs = dialogs; } }
+    }
 }());
