@@ -410,8 +410,9 @@ public class PsdTests
     [InlineData(3, 1)]
     public void A_file_over_budget_crops_its_layers_and_masks_to_the_canvas_and_says_so(int compression, int version)
     {
-        // 6 x 3 pixels plus a 6 x 3 mask is 36; cropped to the canvas, 4 x 3 twice is 24. The budget sits between.
-        var import = PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 24);
+        // Budget units are four bytes: RGBA costs 18, Alpha8 costs ceil(18/4).
+        // Cropped to the canvas: 12 RGBA units + 3 mask units.
+        var import = PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 15);
         var layer = Assert.Single(import.Layers);
         Assert.Equal((0d, 1d, 4d, 3d), (layer.Transform.X, layer.Transform.Y, layer.Transform.Width, layer.Transform.Height));
         using var source = Gradient(6, 3);
@@ -423,8 +424,7 @@ public class PsdTests
             }
         var note = Assert.Single(import.Conversions);
         Assert.Equal(("Overhang", PsdImport.CroppedNote), (note.LayerName, note.Message));
-        // Cropped, the file still needs 24 pixels: one less and it is refused.
-        Assert.Throws<PsdException>(() => PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 23));
+        Assert.Throws<PsdException>(() => PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 14));
     }
 
     [Fact]

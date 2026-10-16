@@ -71,8 +71,8 @@ internal static class PsdChannels
         }
     }
 
-    /// <summary>Converts an 8- or 16-bit sample plane to the editor's 8-bit channels, retaining crop savings.</summary>
-    public static byte[] Decode(int compression, int width, int height, ReadOnlySpan<byte> data, bool largeDocument = false, PsdCrop? crop = null, int depth = 8)
+    /// <summary>Decodes sample planes, optionally retaining big-endian 16-bit color samples. Masks use reduced Alpha8 coverage.</summary>
+    public static byte[] Decode(int compression, int width, int height, ReadOnlySpan<byte> data, bool largeDocument = false, PsdCrop? crop = null, int depth = 8, bool preserve16 = false)
     {
         if (depth == 8) return DecodeBytes(compression, width, height, data, largeDocument, crop);
         if (depth != 16) throw new PsdException("Only 8-bit or 16-bit RGB Photoshop files can be imported.");
@@ -82,21 +82,30 @@ internal static class PsdChannels
         if (compression == ZipWithPrediction)
         {
             samples = DecodeBytes(Zip, byteWidth, height, data, largeDocument);
-            // Prediction in a 16-bit file adds unsigned big-endian samples, not the individual bytes.
-            for (var y = 0; y < height; y++)
-            {
-                var previous = 0;
-                for (var x = 0; x < width; x++)
-                {
-                    var i = y * byteWidth + x * 2;
-                    previous = (previous + (samples[i] << 8 | samples[i + 1])) & 65535;
-                    samples[i] = (byte)(previous >> 8); samples[i + 1] = (byte)previous;
-                }
-            }
+            UndoPrediction(samples, width, height, depth);
             if (byteCrop is { } cut) samples = Slice(samples, byteWidth, cut);
         }
         else samples = DecodeBytes(compression, byteWidth, height, data, largeDocument, byteCrop);
-        return Reduce16(samples);
+        return preserve16 ? samples : Reduce16(samples);
+    }
+
+    internal static void UndoPrediction(byte[] samples, int width, int height, int depth)
+    {
+        // Prediction in a 16-bit file adds unsigned big-endian samples, not individual bytes.
+        for (var y = 0; y < height; y++)
+        {
+            var previous = 0;
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width + x) * (depth / 8);
+                if (depth == 16)
+                {
+                    previous = (previous + (samples[i] << 8 | samples[i + 1])) & 65535;
+                    samples[i] = (byte)(previous >> 8); samples[i + 1] = (byte)previous;
+                }
+                else { previous = (previous + samples[i]) & 255; samples[i] = (byte)previous; }
+            }
+        }
     }
 
     internal static byte[] Reduce16(ReadOnlySpan<byte> samples)
@@ -198,11 +207,28 @@ internal static class PsdChannels
     }
 
     /// <summary>Premultiplied RGBA pixels from straight planes; a missing alpha means opaque.</summary>
-    public static SKBitmap ColorImage(int width, int height, byte[]? red, byte[]? green, byte[]? blue, byte[]? alpha, bool whiteMatte = false)
+    public static SKBitmap ColorImage(int width, int height, byte[]? red, byte[]? green, byte[]? blue, byte[]? alpha, bool whiteMatte = false, int depth = 8)
     {
-        var count = (long)width * height;
+        var count = (long)width * height * (depth / 8);
         if ((red != null && red.Length < count) || (green != null && green.Length < count) || (blue != null && blue.Length < count) || (alpha != null && alpha.Length < count))
             throw PsdException.Truncated();
+        if (depth == 16)
+        {
+            var high = Pixels.NewColor(width, height, Model.ColorDepth.Sixteen);
+            var target = new PixelBuffer(high);
+            static float Sample(byte[]? plane, int i, float missing) => plane == null ? missing : (plane[i] * 256 + plane[i + 1]) / 65535f;
+            for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width + x) * 2;
+                var a = Sample(alpha, i, 1);
+                float Color(byte[]? plane) => whiteMatte ? Math.Clamp(Sample(plane, i, 0) - (1 - a), 0, a) : Sample(plane, i, 0) * a;
+                target.Write(x, y, new(Color(red), Color(green), Color(blue), a));
+            }
+            Pixels.Invalidate(high);
+            return high;
+        }
+        count = (long)width * height;
         var bitmap = Pixels.NewColor(width, height);
         var pixels = bitmap.GetPixelSpan();
         for (long i = 0, p = 0; i < count; i++, p += 4)

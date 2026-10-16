@@ -143,7 +143,7 @@ internal static class PsdReader
         if (file.Layers.Count == 0)
         {
             if (cursor.Remaining < 2) throw new PsdException("This Photoshop file has no merged compatibility image to open.");
-            if ((long)width * height > pixelBudget) throw PsdException.TooLarge();
+            if (!FitsBudget(width, height, 0, 0, false, pixelBudget, depth)) throw PsdException.TooLarge();
             file.Composite = ReadComposite(ref cursor, data, width, height, largeDocument, depth);
         }
         return file;
@@ -154,10 +154,10 @@ internal static class PsdReader
         var count = Math.Abs((int)cursor.I16());
         if (count > MaxLayers) throw PsdException.TooLarge();
         for (var i = 0; i < count; i++) file.Layers.Add(ReadRecord(ref cursor, file.LargeDocument));
-        if (!FitsBudget(file.Layers, pixelBudget))
+        if (!FitsBudget(file.Layers, pixelBudget, file.Depth))
         {
             foreach (var layer in file.Layers) CropToCanvas(layer, file.Width, file.Height);
-            if (!FitsBudget(file.Layers, pixelBudget)) throw PsdException.TooLarge();
+            if (!FitsBudget(file.Layers, pixelBudget, file.Depth)) throw PsdException.TooLarge();
         }
         var used = 0L;
         try
@@ -165,8 +165,8 @@ internal static class PsdReader
             foreach (var layer in file.Layers)
             {
                 DecodeChannels(ref cursor, layer, pixelBudget - used, file.LargeDocument, file.Depth);
-                if (layer.Image != null) used += (long)layer.Image.Width * layer.Image.Height;
-                if (layer.MaskImage != null) used += (long)layer.MaskImage.Width * layer.MaskImage.Height;
+                if (layer.Image != null) used += ((long)layer.Image.ByteCount + 3) / 4;
+                if (layer.MaskImage != null) used += ((long)layer.MaskImage.ByteCount + 3) / 4;
             }
         }
         catch
@@ -275,7 +275,7 @@ internal static class PsdReader
     private static void DecodeChannels(ref PsdCursor cursor, PsdLayer layer, long remainingPixels, bool largeDocument, int depth)
     {
         int width = layer.Width, height = layer.Height, maskWidth = layer.MaskWidth, maskHeight = layer.MaskHeight;
-        if (!FitsBudget(width, height, maskWidth, maskHeight, layer.HasMask, remainingPixels)) throw PsdException.TooLarge();
+        if (!FitsBudget(width, height, maskWidth, maskHeight, layer.HasMask, remainingPixels, depth)) throw PsdException.TooLarge();
         var planes = new Dictionary<short, byte[]>();
         foreach (var (id, length) in layer.Channels)
         {
@@ -288,24 +288,24 @@ internal static class PsdReader
                 // The plane is laid out at the size the file gives; the crop picks the imported part out of it.
                 int sourceW = isMask ? layer.SourceMaskWidth : layer.SourceWidth, sourceH = isMask ? layer.SourceMaskHeight : layer.SourceHeight;
                 int w = isMask ? maskWidth : width, h = isMask ? maskHeight : height;
-                if (w > 0 && h > 0) planes[id] = PsdChannels.Decode(compression, sourceW, sourceH, payload, largeDocument, isMask ? layer.MaskCrop : layer.ImageCrop, depth);
+                if (w > 0 && h > 0) planes[id] = PsdChannels.Decode(compression, sourceW, sourceH, payload, largeDocument, isMask ? layer.MaskCrop : layer.ImageCrop, depth, preserve16: !isMask);
             }
             cursor.Seek(start + (long)Math.Max(0, length));
         }
         if (layer.HasMask && maskWidth > 0 && maskHeight > 0 && planes.TryGetValue(-2, out var gray))
             layer.MaskImage = PsdChannels.MaskImage(maskWidth, maskHeight, gray);
         if (width <= 0 || height <= 0) return;
-        layer.Image = PsdChannels.ColorImage(width, height, Plane(planes, 0), Plane(planes, 1), Plane(planes, 2), Plane(planes, -1));
+        layer.Image = PsdChannels.ColorImage(width, height, Plane(planes, 0), Plane(planes, 1), Plane(planes, 2), Plane(planes, -1), depth: depth);
     }
 
-    private static bool FitsBudget(List<PsdLayer> layers, long pixelBudget)
+    private static bool FitsBudget(List<PsdLayer> layers, long pixelBudget, int depth)
     {
         var used = 0L;
         foreach (var layer in layers)
         {
-            if (!FitsBudget(layer.Width, layer.Height, layer.MaskWidth, layer.MaskHeight, layer.HasMask, pixelBudget)) return false;
-            used += (long)layer.Width * layer.Height;
-            if (layer.HasMask) used += (long)layer.MaskWidth * layer.MaskHeight;
+            if (!FitsBudget(layer.Width, layer.Height, layer.MaskWidth, layer.MaskHeight, layer.HasMask, pixelBudget - used, depth)) return false;
+            used += (long)layer.Width * layer.Height * (depth == 16 ? 4 : 1);
+            if (layer.HasMask) used += ((long)layer.MaskWidth * layer.MaskHeight + 3) / 4;
         }
         return true;
     }
@@ -347,18 +347,20 @@ internal static class PsdReader
     }
 
     /// <summary>Whether a layer's pixels and mask each fit one surface and, added together, what is left of the budget.</summary>
-    private static bool FitsBudget(int width, int height, int maskWidth, int maskHeight, bool hasMask, long remainingPixels)
+    private static bool FitsBudget(int width, int height, int maskWidth, int maskHeight, bool hasMask, long remainingPixels, int depth)
     {
         var needed = 0L;
         if (width > 0 && height > 0)
         {
             if (!DocumentLimits.FitsSurface(width, height)) return false;
-            needed += (long)width * height;
+            var bytes = (long)width * height * (depth == 16 ? 16 : 4);
+            if (bytes > DocumentLimits.MaxSurfaceBytes) return false;
+            needed += bytes / 4;
         }
         if (hasMask && maskWidth > 0 && maskHeight > 0)
         {
             if (!DocumentLimits.FitsSurface(maskWidth, maskHeight)) return false;
-            needed += (long)maskWidth * maskHeight;
+            needed += ((long)maskWidth * maskHeight + 3) / 4;
         }
         return needed <= Math.Max(0, remainingPixels);
     }
@@ -393,10 +395,26 @@ internal static class PsdReader
                 }
                 break;
             }
+            case PsdChannels.Zip:
+            case PsdChannels.ZipWithPrediction:
+            {
+                using var input = new MemoryStream(data[cursor.Offset..].ToArray(), writable: false);
+                using var zip = new System.IO.Compression.ZLibStream(input, System.IO.Compression.CompressionMode.Decompress);
+                try
+                {
+                    for (var c = 0; c < planes.Length; c++)
+                    {
+                        planes[c] = new byte[count];
+                        zip.ReadExactly(planes[c]);
+                        if (compression == PsdChannels.ZipWithPrediction) PsdChannels.UndoPrediction(planes[c], width, height, depth);
+                    }
+                }
+                catch (IOException) { throw PsdException.Truncated(); }
+                break;
+            }
             default:
                 throw new PsdException("This Photoshop file uses an image compression method that isn't supported.");
         }
-        if (depth == 16) for (var c = 0; c < planes.Length; c++) planes[c] = PsdChannels.Reduce16(planes[c]);
-        return PsdChannels.ColorImage(width, height, planes[0], planes[1], planes[2], planes.Length > 3 ? planes[3] : null, whiteMatte: planes.Length > 3);
+        return PsdChannels.ColorImage(width, height, planes[0], planes[1], planes[2], planes.Length > 3 ? planes[3] : null, whiteMatte: planes.Length > 3, depth: depth);
     }
 }

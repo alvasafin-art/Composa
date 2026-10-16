@@ -7,7 +7,7 @@ using SkiaSharp;
 namespace Composa.IO.Psd;
 
 /// <summary>
-/// Layered 8-bit RGB Photoshop interchange, written from Adobe's published specification. Channel rows go straight
+/// Layered 8/16-bit RGB Photoshop interchange, written from Adobe's published specification. Channel rows go straight
 /// to a seekable stream: saving does not hold a second copy of every layer or an entire compressed file in memory.
 /// Native horizontal type and vector shapes carry editable descriptors alongside their raster caches. Unsupported
 /// live features and effects are rendered into their own layers. Corrections that depend on the backdrop need a
@@ -119,33 +119,39 @@ public static partial class PsdExport
         if (!stream.CanWrite || !stream.CanSeek) throw new ArgumentException("Photoshop export needs a writable, seekable stream.", nameof(stream));
         if (!DocumentLimits.FitsSurface(document.Width, document.Height)) throw PsdException.TooLarge();
         var records = Records(document);
+        var depth = (int)document.WorkingDepth;
+        if ((long)document.Width * document.Height * (depth == 16 ? 16 : 4) > DocumentLimits.MaxSurfaceBytes) throw PsdException.TooLarge();
+        if (records.Any(r => (long)r.Bounds.Width * r.Bounds.Height * (depth == 16 ? 16 : 4) > DocumentLimits.MaxSurfaceBytes)) throw PsdException.TooLarge();
         var output = new Output(stream);
         using var merged = new MergedImage(document);
         output.Id("8BPS"); output.U16(1); output.Zeros(6); output.U16(4);
-        output.I32(document.Height); output.I32(document.Width); output.U16(8); output.U16(3); output.U32(0);
+        output.I32(document.Height); output.I32(document.Width); output.U16((ushort)depth); output.U16(3); output.U32(0);
         output.Block(() => Resources(output, document));
+        void LayerInfo()
+        {
+            output.U16(unchecked((ushort)-records.Count));
+            foreach (var record in records) WriteRecord(output, record, document);
+            foreach (var record in records)
+            {
+                using var prepared = Prepare(document, record, merged);
+                foreach (var (id, position) in record.Channels)
+                {
+                    var start = output.Position;
+                    var bitmap = id == -2 ? prepared.Mask : prepared.Image;
+                    if (bitmap == null) output.U16(0);
+                    else WritePlanes(output, bitmap, [id], depth: depth);
+                    output.Patch(position, output.Position - start);
+                }
+            }
+        }
         output.Block(() =>
         {
-            output.Block(() =>
-            {
-                output.U16(unchecked((ushort)-records.Count));
-                foreach (var record in records) WriteRecord(output, record, document);
-                foreach (var record in records)
-                {
-                    using var prepared = Prepare(document, record, merged);
-                    foreach (var (id, position) in record.Channels)
-                    {
-                        var start = output.Position;
-                        var bitmap = id == -2 ? prepared.Mask : prepared.Image;
-                        if (bitmap == null) output.U16(0);
-                        else WritePlanes(output, bitmap, [id]);
-                        output.Patch(position, output.Position - start);
-                    }
-                }
-            }, even: true);
+            if (depth == 16) output.U32(0); // High-depth records live in the Lr16 additional-info block.
+            else output.Block(LayerInfo, even: true);
             output.U32(0); // global layer mask
+            if (depth == 16) output.Additional("Lr16", LayerInfo);
         });
-        WritePlanes(output, merged.Image, [0, 1, 2, -1], matte: true);
+        WritePlanes(output, merged.Image, [0, 1, 2, -1], matte: true, depth: depth);
         output.CheckSize();
     }
 
@@ -280,15 +286,15 @@ public static partial class PsdExport
                     maskedLayer.BlendIf = new();
                     if (record.NativeMaskProperties) { maskedLayer.MaskDensity = 1; maskedLayer.MaskFeather = 0; }
                     using var masked = DocumentRenderer.RenderLayers(document, [maskedLayer], record.Bounds);
+                    var barePixels = new PixelBuffer(result.Image!);
+                    var coveredPixels = new PixelBuffer(masked);
                     for (var y = 0; y < result.Mask.Height; y++)
                     {
-                        var bare = result.Image!.GetPixelSpan().Slice(y * result.Image.RowBytes);
-                        var covered = masked.GetPixelSpan().Slice(y * masked.RowBytes);
                         var target = result.Mask.GetPixelSpan().Slice(y * result.Mask.RowBytes);
                         for (var x = 0; x < result.Mask.Width; x++)
                         {
-                            var a = bare[x * 4 + 3];
-                            target[x] = a == 0 ? (byte)0 : (byte)Math.Min(255, (covered[x * 4 + 3] * 255 + a / 2) / a);
+                            var a = barePixels.Read(x, y).A;
+                            target[x] = a <= 0 ? (byte)0 : (byte)Math.Clamp(MathF.Round(coveredPixels.Read(x, y).A / a * 255), 0, 255);
                         }
                     }
                     Pixels.Invalidate(result.Mask);
@@ -300,22 +306,30 @@ public static partial class PsdExport
     }
 
     /// <summary>PackBits counts precede rows. Only one row and its encoded form are allocated, reused for every plane.</summary>
-    private static void WritePlanes(Output output, SKBitmap bitmap, short[] ids, bool matte = false)
+    private static void WritePlanes(Output output, SKBitmap bitmap, short[] ids, bool matte = false, int depth = 8)
     {
         output.U16(1);
         var counts = output.Position;
         output.Zeros(checked(ids.Length * bitmap.Height * 2));
-        var row = new byte[bitmap.Width];
-        var packed = new byte[bitmap.Width + (bitmap.Width + 127) / 128 + 1];
+        var row = new byte[bitmap.Width * (depth / 8)];
+        var packed = new byte[row.Length + (row.Length + 127) / 128 + 1];
         var rowCounts = new ushort[ids.Length * bitmap.Height];
         var index = 0;
+        var color = bitmap.ColorType == SKColorType.Alpha8 ? default : new PixelBuffer(bitmap);
         foreach (var id in ids)
         for (var y = 0; y < bitmap.Height; y++, index++)
         {
-            var pixels = bitmap.GetPixelSpan().Slice(y * bitmap.RowBytes, bitmap.Width * (bitmap.ColorType == SKColorType.Alpha8 ? 1 : 4));
+            var pixels = bitmap.GetPixelSpan().Slice(y * bitmap.RowBytes);
             for (var x = 0; x < bitmap.Width; x++)
             {
-                if (id == -2) row[x] = pixels[x];
+                if (depth == 16)
+                {
+                    var p = id == -2 ? default : color.Read(x, y);
+                    var v = id == -2 ? pixels[x] / 255f : id == -1 ? p.A
+                        : matte ? p[id] + 1 - p.A : p.A <= 0 ? 0 : p[id] / p.A;
+                    BinaryPrimitives.WriteUInt16BigEndian(row.AsSpan(x * 2), (ushort)Math.Clamp(MathF.Round(v * 65535), 0, 65535));
+                }
+                else if (id == -2) row[x] = pixels[x];
                 else
                 {
                     var a = pixels[x * 4 + 3];

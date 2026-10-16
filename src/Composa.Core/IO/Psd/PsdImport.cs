@@ -15,6 +15,7 @@ public sealed class PsdImport
     public int Width { get; }
     public int Height { get; }
     public double Resolution { get; }
+    public ColorDepth Depth { get; private init; } = ColorDepth.Eight;
     public IReadOnlyList<Guide> Guides { get; private init; } = [];
     /// <summary>Root layers, bottom to top, with folders holding their children. Meant to be placed once.</summary>
     public List<Layer> Layers { get; }
@@ -78,7 +79,7 @@ public sealed class PsdImport
         var file = PsdReader.Read(data, pixelBudget, mergedOnly: true);
         var import = Build(file, pixelBudget);
         return new PsdImport(import.Width, import.Height, import.Resolution, import.Layers,
-            [.. import.Conversions, new PsdConversion("Document", "Opened Photoshop's merged appearance as one layer. The original Photoshop layers were not imported.")]) { Guides = import.Guides };
+            [.. import.Conversions, new PsdConversion("Document", "Opened Photoshop's merged appearance as one layer. The original Photoshop layers were not imported.")]) { Guides = import.Guides, Depth = import.Depth };
     }
 
     /// <summary>Frees the layers' pixels when the import is not going ahead.</summary>
@@ -98,7 +99,7 @@ public sealed class PsdImport
     /// <summary>A new document holding the layers, the topmost root layer active.</summary>
     public Document ToDocument()
     {
-        var document = new Document(Width, Height) { Resolution = Resolution };
+        var document = new Document(Width, Height) { Resolution = Resolution, Depth = Depth };
         document.Layers.AddRange(Layers);
         document.Guides.AddRange(Guides);
         document.SetActive(Layers.LastOrDefault()?.Id);
@@ -130,9 +131,8 @@ public sealed class PsdImport
     private static PsdImport Build(PsdFile file, long pixelBudget, int depth = 0)
     {
         var conversions = new List<PsdConversion>();
-        if (file.Depth == 16) conversions.Add(new PsdConversion("Document", "16-bit RGB channels are converted to the editor's 8-bit channels. Save the original PSD to retain its full precision."));
         var canvas = new SKSizeI(file.Width, file.Height);
-        var remaining = pixelBudget - file.Layers.Sum(l => (long)(l.Image?.Width ?? 0) * (l.Image?.Height ?? 0));
+        var remaining = pixelBudget - file.Layers.Sum(l => ((long)(l.Image?.ByteCount ?? 0) + 3) / 4 + ((long)(l.MaskImage?.ByteCount ?? 0) + 3) / 4);
         var embedded = PsdSmartObjects.Embedded(file);
         var sources = new Dictionary<string, SmartObjectSource>(StringComparer.Ordinal);
 
@@ -203,7 +203,7 @@ public sealed class PsdImport
 
     private static PsdImport Complete(PsdFile file, List<Layer> layers, List<PsdConversion> conversions)
     {
-        var import = new PsdImport(file.Width, file.Height, file.Resolution, layers, conversions) { Guides = file.Guides };
+        var import = new PsdImport(file.Width, file.Height, file.Resolution, layers, conversions) { Guides = file.Guides, Depth = file.Depth == 16 ? ColorDepth.Sixteen : ColorDepth.Eight };
         try { PsdColor.Apply(layers, file.ColorProfile, conversions); return import; }
         catch { import.Discard(); throw; }
     }
@@ -241,7 +241,7 @@ public sealed class PsdImport
         if (kind == PsdLayerKind.Text)
         {
             // Horizontal type keeps its wording, font, size, color, alignment, tracking and leading, so it can be retyped.
-            var available = remaining + (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+            var available = remaining + (long)(record.Image?.ByteCount ?? 0) / 4;
             if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref available) is { } text)
             {
                 remaining = available;
@@ -255,7 +255,7 @@ public sealed class PsdImport
 
         if (kind is PsdLayerKind.Vector or PsdLayerKind.Fill)
         {
-            var cached = (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+            var cached = (long)(record.Image?.ByteCount ?? 0) / 4;
             if (PsdVector.LiveShape(extra, canvas, remaining + cached) is { } live)
             {
                 record.Image?.Dispose();
@@ -299,7 +299,7 @@ public sealed class PsdImport
         { Note("The smart object's warp, vector mask or smart filters are preserved in its Photoshop compatibility pixels; its source cannot be edited here."); return fallback; }
         if (placement.Id == null || placement.Quad == null || !embedded.TryGetValue(placement.Id, out var data))
         { Note("The smart object has no usable embedded content/placement (it may be externally linked). Photoshop compatibility pixels were kept."); return fallback; }
-        var cache = (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+        var cache = (long)(record.Image?.ByteCount ?? 0) / 4;
         var initialRemaining = remaining;
         var available = remaining + cache;
         PsdImport? inner = null;
@@ -322,10 +322,10 @@ public sealed class PsdImport
                     if ((long)image.Width * image.Height * 2 > available) { image.Dispose(); throw PsdException.TooLarge(); }
                     contents = new Document(image.Width, image.Height); contents.Layers.Add(Layer.Raster("Contents", image));
                 }
-                if (contents.RasterPixels() + (long)contents.Width * contents.Height > available) throw PsdException.TooLarge();
+                if (contents.RasterPixels() + (long)contents.Width * contents.Height * (contents.WorkingDepth == ColorDepth.Sixteen ? 4 : 1) > available) throw PsdException.TooLarge();
                 createdContents = contents;
                 source = created = SmartObjectSource.Create(contents);
-                var cost = contents.RasterPixels() + (long)source.Width * source.Height;
+                var cost = contents.RasterPixels() + (long)source.Preview.ByteCount / 4;
                 remaining = available - cost;
             }
             else remaining += cache;

@@ -46,7 +46,7 @@ internal static class PsdColor
 
     private static SKBitmap Convert(SKBitmap bitmap, SKColorSpace source, SKColorSpace destination)
     {
-        var result = Pixels.NewColor(bitmap.Width, bitmap.Height);
+        var result = Pixels.NewLike(bitmap);
         try
         {
             using var input = new SKPixmap(bitmap.Info.WithColorSpace(source), bitmap.GetPixels(), bitmap.RowBytes);
