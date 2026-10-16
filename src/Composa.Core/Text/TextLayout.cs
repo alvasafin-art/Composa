@@ -235,15 +235,15 @@ public sealed class TextLayout
     // ---- Drawing --------------------------------------------------------------------------------------------------
 
     /// <summary>Draws the text into a fresh bitmap of exactly the layout's size.</summary>
-    public SKBitmap Render()
+    public SKBitmap Render(ColorDepth depth = ColorDepth.Eight, Composa.ColorManagement.RgbProfile? profile = null)
     {
-        var bitmap = Pixels.NewColor(Width, Height);
+        var bitmap = Pixels.NewWorkingColor(Width, Height, depth, profile ?? Composa.ColorManagement.RgbProfile.Srgb);
         using var canvas = new SKCanvas(bitmap);
-        Draw(canvas);
+        Draw(canvas, bitmap.ColorSpace);
         return bitmap;
     }
 
-    public void Draw(SKCanvas canvas)
+    public void Draw(SKCanvas canvas, SKColorSpace? workingSpace = null)
     {
         using var fonts = new Fonts(this);
         using var paint = new SKPaint { IsAntialias = true };
@@ -277,7 +277,7 @@ public sealed class TextLayout
                     run.SetGlyphs(glyphs);
                     run.SetPositions(positions);
                     using var blob = builder.Build();
-                    paint.Color = new SKColor(color);
+                    paint.SetColor((SKColorF)new SKColor(color), workingSpace);
                     if (blob != null) canvas.DrawText(blob, 0, 0, paint);
                 }
                 k = end;

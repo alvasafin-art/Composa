@@ -87,8 +87,18 @@ public static class Prompts
     }
 
     /// <param name="preview">Called with the working color as it changes while the dialog is open, so what it colors can follow along. The caller puts the original back on Cancel.</param>
-    public static async Task<SKColor?> Color(Window owner, string title, SKColor initial, Action<SKColor>? preview = null)
+    public static async Task<SKColor?> Color(Window owner, string title, SKColor initial, Action<SKColor>? preview = null, Composa.ColorManagement.RgbProfile? profile = null)
     {
+        profile ??= Ui.WorkingProfile(owner);
+        if (!profile.Equals(Composa.ColorManagement.RgbProfile.Srgb))
+        {
+            var picker = new Controls.WorkingColorPicker(initial, profile);
+            var after = new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile)) };
+            picker.Changed += color => { after.Background = new SolidColorBrush(color.ToDisplay(profile)); preview?.Invoke(color); };
+            var rows = Ui.Column(10, picker, Ui.Row(10, Ui.Label("Before / After", Palette.Secondary),
+                new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile)) }, after));
+            return await new DialogWindow(title, rows).Ask(owner) ? picker.Color : null;
+        }
         // Saturation across and brightness up in the square, hue on the strip, as Photoshop lays it out. The control's
         // default puts brightness on the strip, where a black starting color leaves it at zero and every click in the
         // square stays black.

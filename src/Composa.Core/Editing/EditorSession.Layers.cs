@@ -83,7 +83,7 @@ public sealed partial class EditorSession
     {
         var units = (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1);
         if (document.RasterPixels() + units > DocumentLimits.DocumentPixelBudget) throw new InvalidOperationException("The new layer exceeds the document raster memory budget.");
-        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewColor(document.Width, document.Height, document.WorkingDepth));
+        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewWorkingColor(document.Width, document.Height, document.WorkingDepth, document.Profile));
         Apply("New Layer", () => document.InsertAboveActive(layer));
         LayersChanged?.Invoke();
         return layer;
@@ -95,10 +95,15 @@ public sealed partial class EditorSession
     /// </summary>
     public Layer AddImageLayer(string name, SKBitmap pixels, SKPoint? center = null, bool fit = true, double scale = 1)
     {
+        var converted = !Pixels.ProfileOf(pixels).Equals(document.Profile);
+        if (converted) pixels = Pixels.ConvertWorking(pixels, Pixels.DepthOf(pixels), document.Profile);
         var existing = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
         document.CollectBitmaps(existing, new(), includeSelection: false);
         if (!existing.Contains(pixels) && document.RasterPixels() + ((long)pixels.ByteCount + 3) / 4 > DocumentLimits.DocumentPixelBudget)
+        {
+            if (converted) pixels.Dispose();
             throw new InvalidOperationException("The imported layer exceeds the document raster memory budget.");
+        }
         var layer = Layer.Raster(name, pixels);
         if (fit) scale *= Math.Min(1, Math.Min((double)document.Width / pixels.Width, (double)document.Height / pixels.Height));
         double w = pixels.Width * scale, h = pixels.Height * scale;
@@ -506,7 +511,7 @@ public sealed partial class EditorSession
             bottom = y;
         }
         if (right < 0 || (left == 0 && top == 0 && right == pixels.Width - 1 && bottom == pixels.Height - 1)) return;
-        var trimmed = Pixels.NewColor(right - left + 1, bottom - top + 1);
+        var trimmed = Pixels.NewLike(pixels, right - left + 1, bottom - top + 1);
         using (var canvas = new SKCanvas(trimmed)) canvas.DrawBitmap(pixels, -left, -top);
         layer.Pixels = trimmed;
         layer.Transform = LayerTransform.Identity(trimmed.Width, trimmed.Height) with { X = layer.Transform.X + left, Y = layer.Transform.Y + top };

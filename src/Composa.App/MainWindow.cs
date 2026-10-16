@@ -699,8 +699,8 @@ public sealed partial class MainWindow : Window
     private void UpdateColors()
     {
         if (session == null) return;
-        foregroundSwatch.Background = new SolidColorBrush(session.Foreground.ToAvalonia());
-        backgroundSwatch.Background = new SolidColorBrush(session.Background.ToAvalonia());
+        foregroundSwatch.Background = new SolidColorBrush(session.Foreground.ToDisplay(session.Document.Profile));
+        backgroundSwatch.Background = new SolidColorBrush(session.Background.ToDisplay(session.Document.Profile));
     }
 
     private async Task PickColor(bool foreground)
@@ -785,7 +785,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         zoomText.Text = canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
-        sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · sRGB · {(int)session.Document.WorkingDepth}-bit";
+        sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · {session.Document.Profile.Name} · {(int)session.Document.WorkingDepth}-bit";
         hintText.Text = problem ?? (saving.Count > 0 ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note ?? Hint(session));
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
     }

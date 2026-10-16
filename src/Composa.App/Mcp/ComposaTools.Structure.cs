@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Text;
+using Composa.ColorManagement;
 using Composa.App.Automation;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
@@ -10,6 +11,24 @@ namespace Composa.App.Mcp;
 
 public sealed partial class ComposaTools
 {
+    [McpServerTool(Name = "set_color_profile")]
+    [Description("Assign or convert the document's RGB ICC profile as one undoable edit. profile: sRGB, Display P3, RGB (1998), or an explicit ICC/ICM file path. Assign keeps raster numbers. Convert preserves color within gamut; flatten=true preserves the composite, while false keeps editable layers and may change blends/adjustments. Embedded smart contents retain their profiles.")]
+    public Task<string> SetColorProfile(string profile, string mode = "convert", bool flatten = true, int? document = null) => OnUi(() =>
+    {
+        if (mode is not ("assign" or "convert")) throw new McpException("mode is assign or convert.");
+        var destination = RgbProfile.BuiltIn.FirstOrDefault(p => p.Name.Equals(profile, StringComparison.OrdinalIgnoreCase));
+        if (destination == null)
+        {
+            if (Path.GetExtension(profile).ToLowerInvariant() is not (".icc" or ".icm")) throw new McpException("Use sRGB, Display P3, RGB (1998), or an ICC/ICM file path.");
+            var file = new FileInfo(profile);
+            if (!file.Exists || file.Length > DocumentLimits.MaxIccBytes) throw new McpException("The ICC file is missing or exceeds the profile size limit.");
+            destination = RgbProfile.FromIcc(File.ReadAllBytes(profile));
+        }
+        var session = Editable(document);
+        if (mode == "assign") session.AssignColorProfile(destination); else session.ConvertColorProfile(destination, flatten);
+        return $"RGB profile: {session.Document.Profile.Name}. {mode}.";
+    });
+
     [McpServerTool(Name = "set_color_depth")]
     [Description("Converts the document to RGB 8 or 16 bits/channel as one undoable edit. Embedded smart-object originals retain their own precision. Conversion to 8 bits rounds working pixel values.")]
     public Task<string> SetColorDepth(int bitDepth, int? document = null) => OnUi(() =>

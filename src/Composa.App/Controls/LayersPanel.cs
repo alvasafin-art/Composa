@@ -467,7 +467,7 @@ public sealed class LayersPanel : UserControl
         const int side = 68;
         var scale = Math.Min((double)side / source.Width, (double)side / source.Height);
         int w = Math.Max(1, (int)Math.Round(source.Width * scale)), h = Math.Max(1, (int)Math.Round(source.Height * scale));
-        using var small = new SKBitmap(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var small = new SKBitmap(Composa.Rendering.Pixels.ColorInfo(w, h).WithColorType(SKColorType.Bgra8888));
         using (var canvas = new SKCanvas(small))
         {
             if (source.ColorType == SKColorType.Alpha8)

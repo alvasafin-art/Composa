@@ -18,14 +18,14 @@ public sealed partial class EditorSession
         if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The path exceeds the surface size limit.");
         var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height)).ToArray() };
         var style = new ShapeStyle(ShapeKind.Path, (uint)Foreground, 0) { Path = local, FillEnabled = documentPath.Closed, Stroke = (uint)Foreground, StrokeWidth = 2 };
-        var layer = Layer.Raster(document.UniqueName("Path"), RenderShape(style, width, height), left, top); layer.Shape = style;
+        var layer = Layer.Raster(document.UniqueName("Path"), RenderWorkingShape(style, width, height), left, top); layer.Shape = style;
         Apply("New Path", () => document.InsertAboveActive(layer)); InvalidateAll(); LayersChanged?.Invoke(); return layer;
     }
     public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;
         if (mask) layer.VectorMask = path;
-        else if (layer.Shape is { } style) { layer.Shape = style with { Path = path }; layer.Pixels = RenderShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
+        else if (layer.Shape is { } style) { layer.Shape = style with { Path = path }; layer.Pixels = RenderWorkingShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
         InvalidateAll(); LayersChanged?.Invoke();
     }
     public void CompletePathEdit(Layer layer)
@@ -49,7 +49,7 @@ public sealed partial class EditorSession
             var moved = Pixels.NewMask(w, h); using var canvas = new SKCanvas(moved); canvas.DrawBitmap(mask, -left, -top); layer.Mask = moved;
         }
         if (layer.VectorMask != null) layer.VectorMask = Remap(layer.VectorMask);
-        layer.Shape = layer.Shape with { Path = Remap(geometry) }; layer.Pixels = RenderShape(layer.Shape, w, h);
+        layer.Shape = layer.Shape with { Path = Remap(geometry) }; layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
         layer.Transform = layer.Transform with { X = center.X - width / 2, Y = center.Y - height / 2, Width = width, Height = height };
         InvalidateAll(); LayersChanged?.Invoke();
     }

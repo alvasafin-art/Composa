@@ -540,8 +540,7 @@ public sealed partial class CanvasView
         if (session == null) return;
         int x = (int)Math.Floor(currentDocument.X), y = (int)Math.Floor(currentDocument.Y);
         if (x < 0 || y < 0 || x >= session.Document.Width || y >= session.Document.Height) return;
-        var color = session.Composite().GetPixel(x, y);
-        if (color.Alpha == 0) return;
+        var color = session.SampleColor(x, y);
         if (background) session.Background = color.WithAlpha(255); else session.Foreground = color.WithAlpha(255);
         ToolStateChanged?.Invoke();
     }

@@ -15,10 +15,27 @@ public static partial class Pixels
         if (source.ColorType != SKColorType.Alpha8) TagProfile(copy, ProfileOf(source));
     }
 
-    internal static SKBitmap NewWorkingColor(int width, int height, ColorDepth depth, RgbProfile profile)
+    public static SKBitmap NewWorkingColor(int width, int height, ColorDepth depth, RgbProfile profile)
     {
         var result = NewColor(width, height, depth, profile.Space);
         TagProfile(result, profile); return result;
+    }
+
+    /// <summary>Color controls contain channel numbers in the target's working RGB, not implicit sRGB.</summary>
+    internal static void FillWorking(SKBitmap target, SKColor color)
+    {
+        using var canvas = new SKCanvas(target);
+        using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+        paint.SetColor((SKColorF)color, target.ColorSpace);
+        canvas.DrawPaint(paint); Invalidate(target);
+    }
+
+    internal static SKShader WorkingGradient(SKBitmap target, SKPoint from, SKPoint to, SKColor[] colors, bool radial, float? radius = null)
+    {
+        var values = colors.Select(c => (SKColorF)c).ToArray();
+        return radial
+            ? SKShader.CreateRadialGradient(from, radius ?? Math.Max(.5f, SKPoint.Distance(from, to)), values, target.ColorSpace, null, SKShaderTileMode.Clamp)
+            : SKShader.CreateLinearGradient(from, to, values, target.ColorSpace, null, SKShaderTileMode.Clamp);
     }
     /// <summary>Reinterprets the same channel numbers in another RGB profile. Source pixels remain immutable.</summary>
     internal static SKBitmap AssignProfile(SKBitmap source, RgbProfile profile)
@@ -29,7 +46,7 @@ public static partial class Pixels
     }
 
     /// <summary>A full precision ICC conversion and optional bit-depth conversion in one pass.</summary>
-    internal static SKBitmap ConvertWorking(SKBitmap source, ColorDepth depth, RgbProfile profile)
+    public static SKBitmap ConvertWorking(SKBitmap source, ColorDepth depth, RgbProfile profile)
     {
         var result = NewColor(source.Width, source.Height, depth, profile.Space);
         TagProfile(result, profile);

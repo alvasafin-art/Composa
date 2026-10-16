@@ -190,6 +190,7 @@ public sealed class HistoryPanel : UserControl
         "Assistant edit" or "Run Script" => Icons.Effects,
         "Blending Options" => Icons.Layers,
         "8 Bits/Channel" or "16 Bits/Channel" => Icons.Adjust,
+        "Assign Color Profile" or "Convert Color Profile" => Icons.Adjust,
         "Object Selection" or "Select Subject" => Icons.ObjectSelect,
         "Move Selection Pixels" or "Duplicate Selection" => Icons.Move,
         "Deselect" or "Color Range" => Icons.Marquee,

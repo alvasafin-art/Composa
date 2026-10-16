@@ -66,7 +66,7 @@ public sealed partial class EditorSession
             throw new InvalidOperationException("The parent smart object changed (for example through Undo). Reopen its contents before saving; your open contents remain available.");
         var replacement = SmartObjectSource.Create(content, expected.Id);
         SKBitmap preview;
-        try { preview = Pixels.DepthOf(replacement.Preview) == document.WorkingDepth ? replacement.Preview : Pixels.ConvertDepth(replacement.Preview, document.WorkingDepth); }
+        try { preview = WorkingPreview(replacement.Preview); }
         catch { replacement.Preview.Dispose(); throw; }
         var candidate = document.Clone();
         try
@@ -126,7 +126,7 @@ public sealed partial class EditorSession
         var independent = SmartObjectSource.Create(source.OpenDocument());
         var copy = layer.Clone(newIds: true); copy.Name += " independent copy"; copy.SmartObject = independent;
         SKBitmap preview;
-        try { preview = Pixels.DepthOf(independent.Preview) == document.WorkingDepth ? independent.Preview : Pixels.ConvertDepth(independent.Preview, document.WorkingDepth); }
+        try { preview = WorkingPreview(independent.Preview); }
         catch { independent.Preview.Dispose(); throw; }
         if (copy.FilterSource != null) copy.FilterSource = preview; else copy.Pixels = preview;
         var candidate = document.Clone(); candidate.InsertAboveActive(copy);
@@ -138,6 +138,9 @@ public sealed partial class EditorSession
         });
         InvalidateAll(); LayersChanged?.Invoke(); return copy;
     }
+
+    private SKBitmap WorkingPreview(SKBitmap image) => Pixels.DepthOf(image) == document.WorkingDepth && Pixels.ProfileOf(image).Equals(document.Profile)
+        ? image : Pixels.ConvertWorking(image, document.WorkingDepth, document.Profile);
 
     private static SKBitmap? ResizeSmartMask(SKBitmap? mask, SmartObjectSource before, SmartObjectSource after)
     {

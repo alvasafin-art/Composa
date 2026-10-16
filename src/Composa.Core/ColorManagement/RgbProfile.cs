@@ -14,13 +14,22 @@ public sealed class RgbProfile : IEquatable<RgbProfile>
     private readonly byte[] data;
     private readonly string fingerprint;
     internal SKColorSpace Space { get; }
+    private readonly Lazy<RgbTransfer> transfer;
+    internal RgbTransfer Transfer => transfer.Value;
     public string Name { get; }
     public byte[] IccBytes() => data.ToArray();
+    public SKColor ConvertColor(SKColor color, RgbProfile destination)
+    {
+        if (Equals(destination)) return color;
+        using var converter = new RgbColorConverter(this, destination);
+        return new SKColor(converter.Convert((uint)color));
+    }
     internal ReadOnlySpan<byte> Icc => data;
 
     private RgbProfile(byte[] bytes, SKColorSpace space, string name)
     {
         data = bytes; Space = space; Name = name; fingerprint = Convert.ToHexString(SHA256.HashData(bytes));
+        transfer = new(() => new RgbTransfer(this));
         lock (known)
         {
             foreach (var key in known.Where(p => !p.Value.TryGetTarget(out _)).Select(p => p.Key).ToArray()) known.Remove(key);

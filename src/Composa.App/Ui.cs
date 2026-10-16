@@ -163,7 +163,7 @@ public static class Ui
     {
         var scale = Math.Min(1, Math.Min((double)maxSide / source.Width, (double)maxSide / source.Height));
         int w = Math.Max(1, (int)Math.Round(source.Width * scale)), h = Math.Max(1, (int)Math.Round(source.Height * scale));
-        using var small = new SkiaSharp.SKBitmap(new SkiaSharp.SKImageInfo(w, h, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul));
+        using var small = new SkiaSharp.SKBitmap(Composa.Rendering.Pixels.ColorInfo(w, h).WithColorType(SkiaSharp.SKColorType.Bgra8888));
         using (var canvas = new SkiaSharp.SKCanvas(small))
         using (var image = SkiaSharp.SKImage.FromPixels(source.PeekPixels()))
             canvas.DrawImage(image, new SkiaSharp.SKRect(0, 0, w, h), new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Linear, SkiaSharp.SKMipmapMode.Linear));
@@ -172,5 +172,13 @@ public static class Ui
     }
 
     public static Color ToAvalonia(this SkiaSharp.SKColor c) => Color.FromArgb(c.Alpha, c.Red, c.Green, c.Blue);
+    public static Composa.ColorManagement.RgbProfile WorkingProfile(Window owner)
+    {
+        for (Window? window = owner; window != null; window = window.Owner as Window)
+            if (window is MainWindow main && main.Session is { } session) return session.Document.Profile;
+        return Composa.ColorManagement.RgbProfile.Srgb;
+    }
+    public static Color ToDisplay(this SkiaSharp.SKColor color, Composa.ColorManagement.RgbProfile profile) =>
+        profile.ConvertColor(color, Composa.ColorManagement.RgbProfile.Srgb).ToAvalonia();
     public static SkiaSharp.SKColor ToSkia(this Color c) => new(c.R, c.G, c.B, c.A);
 }

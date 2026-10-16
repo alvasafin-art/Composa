@@ -68,8 +68,8 @@ public sealed partial class EditorSession
 
     private void PreparePixelTarget(Layer layer)
     {
-        if (!IsInteracting || IsEditingMask || layer.IsLive || layer.Pixels is not { } image || Pixels.DepthOf(image) == document.WorkingDepth) return;
+        if (!IsInteracting || IsEditingMask || layer.IsLive || layer.Pixels is not { } image || Pixels.DepthOf(image) == document.WorkingDepth && Pixels.ProfileOf(image).Equals(document.Profile)) return;
         ValidateDepthBudget(new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance) { image }, document.WorkingDepth, layer);
-        layer.Pixels = Pixels.ConvertDepth(image, document.WorkingDepth);
+        layer.Pixels = Pixels.ConvertWorking(image, document.WorkingDepth, document.Profile);
     }
 }

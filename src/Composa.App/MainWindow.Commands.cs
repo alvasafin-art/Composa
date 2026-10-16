@@ -138,6 +138,8 @@ public sealed partial class MainWindow
             Sub("RGB Precision",
                 Item("8 Bits/Channel", () => session!.ChangeColorDepth(ColorDepth.Eight)),
                 Item("16 Bits/Channel", () => session!.ChangeColorDepth(ColorDepth.Sixteen))),
+            Item("Assign Color Profile…", () => _ = EditColorProfile(assign: true)),
+            Item("Convert Color Profile…", () => _ = EditColorProfile(assign: false)),
             Item("Trim…", () => _ = Trim()),
             Item("Reveal All", () => { if (session!.RevealAll()) canvas.Fit(); }, enabled: () => session!.CanRevealAll),
             Item("Duplicate", () => AddSession(session!.Duplicate())),
@@ -445,6 +447,7 @@ public sealed partial class MainWindow
     private void OnSessionLayersChanged()
     {
         RefreshAiUi();
+        UpdateColors();
         if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen)) return;
         if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape) RebuildOptions();
         else refreshOptions?.Invoke();
@@ -571,9 +574,9 @@ public sealed partial class MainWindow
         {
             var pixels = RawImporter.IsRaw(path) ? await DevelopRaw(path)
                 : SvgImporter.IsSvg(path) ? await Busy(() => Task.Run(() => SvgImporter.Render(path))) // At the size the file declares.
-                : ImageFiles.Load(path);
+                : ImageFiles.Load(path, preserveProfile: true);
             if (pixels == null) return null;
-            var document = new Document(pixels.Width, pixels.Height) { Depth = Pixels.DepthOf(pixels) };
+            var document = new Document(pixels.Width, pixels.Height) { Depth = Pixels.DepthOf(pixels), Profile = Pixels.ProfileOf(pixels) };
             var layer = Layer.Raster(Path.GetFileNameWithoutExtension(path), pixels);
             document.Layers.Add(layer);
             document.SetActive(layer.Id);
@@ -624,7 +627,7 @@ public sealed partial class MainWindow
                     if (target != session) { fitted.Dispose(); continue; }
                     session.AddImageLayer(name, fitted, at);
                 }
-                else session.AddImageLayer(name, ImageFiles.Load(path), at);
+                else session.AddImageLayer(name, ImageFiles.Load(path, preserveProfile: true), at);
             }
             catch (Exception error) { _ = Prompts.Alert(this, "Import couldn't finish", error.Message); }
         }

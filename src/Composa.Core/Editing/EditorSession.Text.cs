@@ -20,13 +20,15 @@ public sealed partial class EditorSession
     public bool IsEditingText => TextEdit != null;
 
     /// <summary>Draws text into a bitmap just large enough to hold it (or exactly its paragraph box).</summary>
-    public static SKBitmap RenderText(TextStyle style) => new TextLayout(style).Render();
+    public static SKBitmap RenderText(TextStyle style, ColorDepth depth = ColorDepth.Eight, Composa.ColorManagement.RgbProfile? profile = null) => new TextLayout(style).Render(depth, profile);
+
+    private SKBitmap RenderWorkingText(TextStyle style) => RenderText(style, document.WorkingDepth, document.Profile);
 
     /// <summary>Adds a live text layer with its text starting at a document point. Leaves the edit open when <paramref name="commit"/> is false.</summary>
     public Layer AddText(SKPoint at, TextStyle style, bool commit = true)
     {
         style = style.Clamped();
-        var pixels = RenderText(style);
+        var pixels = RenderWorkingText(style);
         var layer = Layer.Raster(style.LayerName(), pixels, Math.Round(at.X) - TextLayout.Padding, Math.Round(at.Y) - TextLayout.Padding);
         layer.Text = style;
         Begin("Text");
@@ -52,7 +54,7 @@ public sealed partial class EditorSession
         double scaleX = t.Width / old.Width, scaleY = t.Height / old.Height;
         var unit = style.IsBox ? 0f : style.Alignment switch { TextAlignment.Center => 0.5f, TextAlignment.Right => 1f, _ => 0f };
         var anchorBefore = layer.Matrix.MapPoint(unit * old.Width, 0);
-        var pixels = RenderText(style);
+        var pixels = RenderWorkingText(style);
         // A text layer is named after its text until someone names it by hand (or it is a copy); that name then stays.
         if (layer.Text == null || layer.Name == layer.Text.LayerName()) layer.Name = style.LayerName();
         layer.Text = style;
@@ -77,7 +79,7 @@ public sealed partial class EditorSession
         if (Math.Abs(factorY - 1) < 0.01 && (!style.IsBox || Math.Abs(factorX - 1) < 0.01) || layer.Transform.Distort != null) return;
         var resized = style.IsBox ? style.Scaled(factorX, factorY) : style.Scaled(factorY);
         var center = layer.Transform.Center;
-        var rendered = RenderText(resized);
+        var rendered = RenderWorkingText(resized);
         layer.Text = resized;
         layer.Transform = layer.Transform with { X = center.X - rendered.Width / 2.0, Y = center.Y - rendered.Height / 2.0, Width = rendered.Width, Height = rendered.Height };
         ReplaceLivePixels(layer, rendered);

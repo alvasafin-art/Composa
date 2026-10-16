@@ -410,7 +410,7 @@ public sealed partial class EditorSession
     public SKBitmap Flatten() => DocumentRenderer.Flatten(document);
 
     /// <summary>An owned composite for editing/clipboard sampling. The cached Composite is only the display preview.</summary>
-    private SKBitmap CompositePixels() => document.WorkingDepth == ColorDepth.Sixteen
+    private SKBitmap CompositePixels() => document.WorkingDepth == ColorDepth.Sixteen || !document.Profile.Equals(Composa.ColorManagement.RgbProfile.Srgb)
         ? DocumentRenderer.Flatten(document, CurrentOptions()) : Pixels.Clone(Composite());
 
     /// <summary>The document-space area a layer affects when it changes.</summary>
@@ -435,7 +435,16 @@ public sealed partial class EditorSession
     public SKColor SampleColor(int x, int y, bool allLayers = true)
     {
         if (x < 0 || y < 0 || x >= document.Width || y >= document.Height) return Foreground;
-        var color = Composite().GetPixel(x, y);
+        SKColor color;
+        if (document.Profile.Equals(Composa.ColorManagement.RgbProfile.Srgb)) color = Composite().GetPixel(x, y);
+        else
+        {
+            using var sample = Pixels.NewWorkingColor(1, 1, document.WorkingDepth, document.Profile);
+            DocumentRenderer.Render(document, sample, new SKRectI(0, 0, 1, 1), new RenderView(1, new SKPoint(x, y)), CurrentOptions());
+            var p = new PixelBuffer(sample).Read(0, 0).Straight;
+            byte Byte(float v) => (byte)Math.Clamp(Math.Round(v * 255), 0, 255);
+            color = new(Byte(p.R), Byte(p.G), Byte(p.B), Byte(p.A));
+        }
         return color.Alpha == 0 ? Foreground : color.WithAlpha(255);
     }
 

@@ -55,8 +55,9 @@ public sealed partial class EditorSession
         var result = source; var growX = 0; var growY = 0;
         try
         {
-            if (Pixels.DepthOf(source) != (budgetDocument ?? document).WorkingDepth)
-                result = source = Pixels.ConvertDepth(source, (budgetDocument ?? document).WorkingDepth);
+            var working = budgetDocument ?? document;
+            if (Pixels.DepthOf(source) != working.WorkingDepth || !Pixels.ProfileOf(source).Equals(working.Profile))
+                result = source = Pixels.ConvertWorking(source, working.WorkingDepth, working.Profile);
             foreach (var filter in layer.SmartFilters.Where(f => f.Enabled))
             {
                 var next = ImageFilters.Run(result, filter.Settings);

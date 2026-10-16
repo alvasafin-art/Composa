@@ -9,6 +9,27 @@ namespace Composa.App.Tests;
 
 public class RgbProfileInteropTests
 {
+    [Fact]
+    public void TIFF_decode_through_the_bundled_backend_preserves_wide_gamut_profile_and_RGB16()
+    {
+        var profile = RgbProfile.DisplayP3;
+        using var source = Pixels.NewWorkingColor(512, 2, ColorDepth.Sixteen, profile);
+        var samples = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(source.GetPixelSpan());
+        for (var i = 0; i < 1024; i++) { samples[i * 4] = (24000 + i % 512) / 65535f; samples[i * 4 + 1] = .7f; samples[i * 4 + 2] = .2f; samples[i * 4 + 3] = 1; }
+        var path = Path.Combine(Path.GetTempPath(), "composa-profile-" + Guid.NewGuid().ToString("N") + ".tif");
+        try
+        {
+            ImageFiles.Save(source, path, ExportFormat.Tiff);
+            using var png = new MemoryStream(BundledImageMagick.TryLoad()!.Convert(path, ImageMagickOutput.PngSource));
+            using var decoded = ImageFiles.Load(png, preserveProfile: true);
+            Assert.Equal(profile, Pixels.ProfileOf(decoded)); Assert.Equal(ColorDepth.Sixteen, Pixels.DepthOf(decoded));
+            var result = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(decoded.GetPixelSpan());
+            var levels = new HashSet<float>(); for (var x = 0; x < 512; x++) { levels.Add(result[x * 4]); Assert.InRange(Math.Abs(result[x * 4] - samples[x * 4]), 0, 1f / 65535); }
+            Assert.Equal(512, levels.Count);
+        }
+        finally { File.Delete(path); }
+    }
+
     [Theory]
     [InlineData(ExportFormat.Png)]
     [InlineData(ExportFormat.Jpeg)]

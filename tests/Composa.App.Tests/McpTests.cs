@@ -147,7 +147,7 @@ public class McpTests
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "list_documents", "list_files", "list_read_folders",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
-             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_layer", "set_shape", "set_text", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
+             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
             tools.Select(t => t.Name).Order());
 
         var resources = await client.ListResourcesAsync();
@@ -169,6 +169,14 @@ public class McpTests
         Assert.Contains("#FFFFFF", Text(await Pumped(client.CallToolAsync("sample_color", new Dictionary<string, object?> { ["points"] = new[] { new[] { 10d, 10d } }, ["layer"] = "Background" }))));
         Assert.Null((await Pumped(client.CallToolAsync("undo"))).IsError);
         Assert.Equal(ColorDepth.Eight, session.Document.Depth);
+        Assert.Null((await Pumped(client.CallToolAsync("set_color_profile", new Dictionary<string, object?> { ["profile"] = "Display P3", ["mode"] = "assign" }))).IsError);
+        Assert.Equal(Composa.ColorManagement.RgbProfile.DisplayP3, session.Document.Profile);
+        Assert.Contains("Display P3", Text(await Pumped(client.CallToolAsync("describe_document"))));
+        Assert.Null((await Pumped(client.CallToolAsync("set_color_profile", new Dictionary<string, object?> { ["profile"] = "RGB (1998)", ["flatten"] = false }))).IsError);
+        Assert.Equal(Composa.ColorManagement.RgbProfile.Rgb1998, session.Document.Profile);
+        Assert.Null((await Pumped(client.CallToolAsync("undo"))).IsError);
+        Assert.Null((await Pumped(client.CallToolAsync("undo"))).IsError);
+        Assert.Equal(Composa.ColorManagement.RgbProfile.Srgb, session.Document.Profile);
         var readFolder = Path.Combine(AppContext.BaseDirectory, "mcp-workspace", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(readFolder);
         var source = Path.Combine(readFolder, "layers.json"); File.WriteAllText(source, "[{\"name\":\"Imported title\",\"x\":12}]");
         window.Settings.AssistantReadFolders = [readFolder];

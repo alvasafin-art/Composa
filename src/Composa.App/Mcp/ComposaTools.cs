@@ -66,7 +66,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         var doc = s.Document;
         var text = new StringBuilder();
         text.Append('"').Append(s.Title).Append("\": ").Append(doc.Width).Append('×').Append(doc.Height).Append(" px at ")
-            .Append(doc.Resolution.ToString("0.#")).Append(" ppi, RGB ").Append((int)doc.WorkingDepth).Append(" bits/channel");
+            .Append(doc.Resolution.ToString("0.#")).Append(" ppi, RGB ").Append((int)doc.WorkingDepth).Append(" bits/channel, ").Append(doc.Profile.Name);
         if (doc.Selection != null && !SelectionMask.Bounds(doc.Selection).IsEmpty)
         {
             var b = SelectionMask.Bounds(doc.Selection);
@@ -141,7 +141,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         // Decoding is the slow part and needs no document, so it runs off the UI thread, as the window's own import does.
         // An SVG is drawn at the size it will be placed at, so a scaled one is as sharp as a full-size one.
         var svgFit = new SKSizeI(Math.Max(1, (int)Math.Round(canvas.Width * Math.Min(scale, 1))), Math.Max(1, (int)Math.Round(canvas.Height * Math.Min(scale, 1))));
-        var pixels = await Task.Run(() => SvgImporter.IsSvg(path) ? SvgImporter.Render(path, svgFit, budget) : ImageFiles.Load(path));
+        var pixels = await Task.Run(() => SvgImporter.IsSvg(path) ? SvgImporter.Render(path, svgFit, budget) : ImageFiles.Load(path, preserveProfile: true));
         if (((long)pixels.ByteCount + 3) / 4 > budget)
         {
             pixels.Dispose();

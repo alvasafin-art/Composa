@@ -313,7 +313,7 @@ public sealed partial class EditorSession
             if (layer.Shape != null && layer.Pixels != null)
             {
                 int w = Math.Max(1, (int)Math.Round(layer.Transform.Width)), h = Math.Max(1, (int)Math.Round(layer.Transform.Height));
-                if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderShape(layer.Shape, w, h));
+                if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, w, h));
             }
         }
         Transform = null;
@@ -370,7 +370,7 @@ public sealed partial class EditorSession
             layer.Transform = transform;
             if (layer.Text != null) RescaleText(layer);
             if (layer.Shape != null)
-                ReplaceLivePixels(layer, RenderShape(layer.Shape, Math.Max(1, (int)Math.Round(transform.Width)), Math.Max(1, (int)Math.Round(transform.Height))));
+                ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, Math.Max(1, (int)Math.Round(transform.Width)), Math.Max(1, (int)Math.Round(transform.Height))));
         });
         // Exactly one revision on: the commit above, with no other edit (or undo) between the two changes.
         if (inspectorEdit is { } last && last.LayerId == layer.Id && last.Revision == Revision - 1) FoldLastStep(InspectorEditName);

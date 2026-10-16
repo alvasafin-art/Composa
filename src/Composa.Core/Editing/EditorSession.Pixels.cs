@@ -204,7 +204,7 @@ public sealed partial class EditorSession
                 }
                 var filled = Pixels.Clone(original);
                 if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((Foreground.Red * 54 + Foreground.Green * 183 + Foreground.Blue * 19) >> 8));
-                else filled.Erase(Foreground);
+                else Pixels.FillWorking(filled, Foreground);
                 SetTarget(layer, MixBySelection(original, filled, region));
             }
             finally { if (selection != document.Selection) selection?.Dispose(); }
@@ -223,7 +223,7 @@ public sealed partial class EditorSession
             var original = Target(layer);
             var filled = Pixels.Clone(original);
             if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((color.Red * 54 + color.Green * 183 + color.Blue * 19) >> 8));
-            else filled.Erase(color);
+            else Pixels.FillWorking(filled, color);
             var selection = SelectionInTargetSpace(layer);
             SetTarget(layer, MixBySelection(original, filled, selection));
             if (selection != document.Selection) selection?.Dispose();
@@ -495,9 +495,7 @@ public sealed partial class EditorSession
         using (var canvas = new SKCanvas(painted))
         {
             canvas.SetMatrix(in inverse);
-            using var shader = GradientRadial
-                ? SKShader.CreateRadialGradient(from, Math.Max(0.5f, SKPoint.Distance(from, to)), colors, SKShaderTileMode.Clamp)
-                : SKShader.CreateLinearGradient(from, to, colors, SKShaderTileMode.Clamp);
+            using var shader = Pixels.WorkingGradient(painted, from, to, colors, GradientRadial);
             using var paint = new SKPaint { Shader = shader, IsDither = true };
             if (IsEditingMask) paint.BlendMode = SKBlendMode.Src;
             paint.Color = paint.Color.WithAlpha((byte)Math.Round(Math.Clamp(GradientOpacity, 0, 1) * 255));
@@ -511,12 +509,13 @@ public sealed partial class EditorSession
         Invalidate(AffectedArea(layer));
     }
 
-    public static SKBitmap RenderShape(ShapeStyle style, int width, int height)
+    public static SKBitmap RenderShape(ShapeStyle style, int width, int height, ColorDepth depth = ColorDepth.Eight, Composa.ColorManagement.RgbProfile? profile = null)
     {
         style = style.Clamped();
-        var pixels = Pixels.NewColor(width, height);
+        var pixels = Pixels.NewWorkingColor(width, height, depth, profile ?? Composa.ColorManagement.RgbProfile.Srgb);
         using var canvas = new SKCanvas(pixels);
-        using var paint = new SKPaint { Color = new SKColor(style.Fill), IsAntialias = true };
+        using var paint = new SKPaint { IsAntialias = true };
+        paint.SetColor((SKColorF)new SKColor(style.Fill), pixels.ColorSpace);
         if (style.Kind == ShapeKind.Line)
         {
             var thickness = (float)style.LineWidth;
@@ -551,7 +550,7 @@ public sealed partial class EditorSession
             if (style.FillEnabled) Draw();
             if (style.Stroke is { } stroke && strokeWidth > 0)
             {
-                paint.Color = new SKColor(stroke);
+                paint.SetColor((SKColorF)new SKColor(stroke), pixels.ColorSpace);
                 paint.Style = SKPaintStyle.Stroke;
                 paint.StrokeWidth = strokeWidth;
                 Draw();
@@ -559,6 +558,8 @@ public sealed partial class EditorSession
         }
         return pixels;
     }
+
+    private SKBitmap RenderWorkingShape(ShapeStyle style, int width, int height) => RenderShape(style, width, height, document.WorkingDepth, document.Profile);
 
     /// <summary>Adds a live shape layer covering a document rectangle (a line runs corner to corner).</summary>
     /// <summary>Adds the Shape tool's current shape in the foreground color.</summary>
@@ -601,7 +602,7 @@ public sealed partial class EditorSession
     {
         style = style.Clamped();
         if ((long)rect.Width * (long)rect.Height > DocumentLimits.MaxSurfacePixels) { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return null; }
-        var layer = Layer.Raster(document.UniqueName(stem), RenderShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
+        var layer = Layer.Raster(document.UniqueName(stem), RenderWorkingShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
         layer.Shape = style;
         Apply(stem, () => document.InsertAboveActive(layer));
         Invalidate(AffectedArea(layer));
@@ -664,7 +665,7 @@ public sealed partial class EditorSession
                     layer.Mask = expanded;
                 }
             }
-            layer.Pixels = RenderShape(style, width, height); layer.Shape = style;
+            layer.Pixels = RenderWorkingShape(style, width, height); layer.Shape = style;
         }
         if (preview)
         {

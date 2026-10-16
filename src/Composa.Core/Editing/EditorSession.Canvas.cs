@@ -116,14 +116,14 @@ public sealed partial class EditorSession
                         if (layer.Text is { } text && (text.IsBox || Math.Abs(sx - sy) < 1e-6))
                         {
                             layer.Text = text.Scaled(sx, sy);
-                            var rendered = RenderText(layer.Text);
+                            var rendered = RenderWorkingText(layer.Text);
                             (w, h) = (rendered.Width, rendered.Height);
                             layer.Pixels = rendered;
                         }
                         else if (layer.Shape is { } shape)
                         {
                             layer.Shape = shape with { CornerRadius = shape.CornerRadius * Math.Min(sx, sy), LineWidth = shape.LineWidth * Math.Min(sx, sy) };
-                            layer.Pixels = RenderShape(layer.Shape, w, h);
+                            layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
                         }
                         else
                         {

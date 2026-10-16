@@ -156,7 +156,7 @@ public sealed partial class EditorSession
         {
             // Snapshot before the dark drag overlay, mapping the visible document into
             // the active layer's local grid (including transformed retouch layers).
-            strokeHealingSample = Pixels.NewColor(target.Width, target.Height, Pixels.DepthOf(target));
+            strokeHealingSample = Pixels.NewLike(target);
             using var visible = CompositePixels();
             using var sampleCanvas = new SKCanvas(strokeHealingSample);
             sampleCanvas.SetMatrix(strokeToLayer);

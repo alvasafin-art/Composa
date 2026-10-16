@@ -240,8 +240,8 @@ public static class AdjustmentDialogs
         var bar = new Border { Height = 28, Width = 320, CornerRadius = new CornerRadius(4) };
         void Paint()
         {
-            var dark = new SKColor(map.Reversed ? map.Highlights : map.Shadows).ToAvalonia();
-            var light = new SKColor(map.Reversed ? map.Shadows : map.Highlights).ToAvalonia();
+            var dark = new SKColor(map.Reversed ? map.Highlights : map.Shadows).ToDisplay(Ui.WorkingProfile(owner));
+            var light = new SKColor(map.Reversed ? map.Shadows : map.Highlights).ToDisplay(Ui.WorkingProfile(owner));
             bar.Background = new LinearGradientBrush
             {
                 StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative),
@@ -307,7 +307,7 @@ public static class AdjustmentDialogs
                 break;
             case FilterKind.Vignette:
                 var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Brushes.White, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
-                void PaintSwatch() => swatch.Background = new SolidColorBrush(new SKColor(current.VignetteColor).ToAvalonia());
+                void PaintSwatch() => swatch.Background = new SolidColorBrush(new SKColor(current.VignetteColor).ToDisplay(Ui.WorkingProfile(owner)));
                 PaintSwatch();
                 ToolTip.SetTip(swatch, "Choose the vignette color");
                 swatch.PointerPressed += async (_, _) =>

@@ -26,7 +26,7 @@ public static unsafe class CameraRawPixels
         if (s.AdjustsLight || s.AdjustsColor)
         {
             var gains = s.Gains;
-            Basic(pixels, width, height, stride, gains.Red, gains.Green, gains.Blue, s.Exposure, s.Contrast, s.Highlights, s.Shadows, s.Whites, s.Blacks, s.Vibrance, s.Saturation, floating);
+            Basic(pixels, width, height, stride, gains.Red, gains.Green, gains.Blue, s.Exposure, s.Contrast, s.Highlights, s.Shadows, s.Whites, s.Blacks, s.Vibrance, s.Saturation, floating, Pixels.ProfileOf(source).Transfer);
         }
         if (s.Curve.Adjusts || s.Mixer.Adjusts || s.Grading.Adjusts) CurveColor(pixels, width, height, stride, s.Curve, s.Mixer, s.Grading, floating);
         if (s.Texture != 0 || s.Clarity != 0 || s.Dehaze != 0 || s.Glow > 0 || s.VignetteAmount != 0)
@@ -49,6 +49,7 @@ public static unsafe class CameraRawPixels
     {
         var floating = image.ColorType == SKColorType.RgbaF32;
         var pixels = (byte*)image.GetPixels();
+        var transfer = Pixels.ProfileOf(image).Transfer;
         double red = 0, green = 0, blue = 0, count = 0;
         var step = Math.Max(1, (int)Math.Sqrt((double)image.Width * image.Height / 250_000));
         for (var y = 0; y < image.Height; y += step)
@@ -60,7 +61,7 @@ public static unsafe class CameraRawPixels
                 double alpha = Alpha(p, floating);
                 if (alpha == 0) continue;
                 Read(p, floating, out var r, out var g, out var b);
-                red += SrgbToLinear(r); green += SrgbToLinear(g); blue += SrgbToLinear(b);
+                red += transfer.Decode(r, 0); green += transfer.Decode(g, 1); blue += transfer.Decode(b, 2);
                 count++;
             }
         }
@@ -259,8 +260,9 @@ public static unsafe class CameraRawPixels
 
     /// <summary>White balance, exposure in stops of linear light, contrast about mid gray, highlights, shadows, whites, blacks, vibrance, saturation.</summary>
     internal static void Basic(byte* pixels, int width, int height, int stride, double redGain, double greenGain, double blueGain, double exposure, double contrast,
-        double highlights, double shadows, double whites, double blacks, double vibrance, double saturation, bool floating = false)
+        double highlights, double shadows, double whites, double blacks, double vibrance, double saturation, bool floating = false, ColorManagement.RgbTransfer? transfer = null)
     {
+        transfer ??= ColorManagement.RgbProfile.Srgb.Transfer;
         var light = Math.Pow(2, exposure);
         var contrastScale = 1 + contrast / 100;
         double highlightAmount = highlights / 100, shadowAmount = shadows / 100, whiteAmount = whites / 100, blackAmount = blacks / 100;
@@ -273,10 +275,10 @@ public static unsafe class CameraRawPixels
                 var p = row + x * (floating ? 16 : 4);
                 if (Alpha(p, floating) == 0) continue;
                 Read(p, floating, out var r, out var g, out var b);
-                r = Clamp01(SrgbToLinear(r) * redGain * light); g = Clamp01(SrgbToLinear(g) * greenGain * light); b = Clamp01(SrgbToLinear(b) * blueGain * light);
-                r = Clamp01(0.5 + (LinearToSrgb(r) - 0.5) * contrastScale);
-                g = Clamp01(0.5 + (LinearToSrgb(g) - 0.5) * contrastScale);
-                b = Clamp01(0.5 + (LinearToSrgb(b) - 0.5) * contrastScale);
+                r = Clamp01(transfer.Decode(r, 0) * redGain * light); g = Clamp01(transfer.Decode(g, 1) * greenGain * light); b = Clamp01(transfer.Decode(b, 2) * blueGain * light);
+                r = Clamp01(0.5 + (transfer.Encode(r, 0) - 0.5) * contrastScale);
+                g = Clamp01(0.5 + (transfer.Encode(g, 1) - 0.5) * contrastScale);
+                b = Clamp01(0.5 + (transfer.Encode(b, 2) - 0.5) * contrastScale);
                 ScaleLuminance(ref r, ref g, ref b, ToneHighlights(Rec709(r, g, b), highlightAmount));
                 ScaleLuminance(ref r, ref g, ref b, ToneShadows(Rec709(r, g, b), shadowAmount));
                 ScaleLuminance(ref r, ref g, ref b, ToneWhites(Rec709(r, g, b), whiteAmount));

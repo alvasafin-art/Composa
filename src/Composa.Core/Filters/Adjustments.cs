@@ -53,7 +53,8 @@ public abstract partial record Adjustment
         if (IsIdentity) return;
         area = Model.Geometry.Intersect(area, new SKRectI(0, 0, bitmap.Width, bitmap.Height));
         if (area.IsEmpty) return;
-        if (bitmap.ColorType == SKColorType.RgbaF32) { ApplyHighPrecision(bitmap, area, originX, originY, step, parallel); return; }
+        if (bitmap.ColorType == SKColorType.RgbaF32 || this is ExposureAdjustment && !Rendering.Pixels.ProfileOf(bitmap).Equals(ColorManagement.RgbProfile.Srgb))
+        { ApplyHighPrecision(bitmap, area, originX, originY, step, parallel); return; }
         // Settings are immutable, so the per-pixel operation (often a lookup table) is built once per instance.
         var op = step > 1.01 && CreateOp(step) is { } reduced ? reduced : Ops.GetValue(this, static adjustment => adjustment.CreateOp());
         var pixels = (byte*)bitmap.GetPixels();

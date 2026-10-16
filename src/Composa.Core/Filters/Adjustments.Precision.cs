@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Composa.ColorManagement;
 using Composa.Rendering;
 using SkiaSharp;
 
@@ -9,6 +10,7 @@ internal delegate void FloatPixelOp(ref double r, ref double g, ref double b, in
 public abstract partial record Adjustment
 {
     private static readonly ConditionalWeakTable<Adjustment, FloatPixelOp> FloatOps = new();
+    private static readonly ConditionalWeakTable<Adjustment, ConditionalWeakTable<RgbProfile, FloatPixelOp>> ProfileOps = new();
 
     private void ApplyHighPrecision(SKBitmap bitmap, SKRectI area, double originX, double originY, double step, bool parallel)
     {
@@ -18,7 +20,9 @@ public abstract partial record Adjustment
             AddNoiseAdjustment noise => noise with { Amount = noise.Amount / step },
             _ => this
         } : this;
-        var op = FloatOps.GetValue(settings, HighPrecisionAdjustment.Create);
+        var op = settings is ExposureAdjustment
+            ? ProfileOps.GetValue(settings, _ => new()).GetValue(Pixels.ProfileOf(bitmap), p => HighPrecisionAdjustment.Create(settings, p.Transfer))
+            : FloatOps.GetValue(settings, s => HighPrecisionAdjustment.Create(s));
         var pixels = new PixelBuffer(bitmap);
         void Row(int y)
         {
@@ -39,7 +43,7 @@ public abstract partial record Adjustment
 /// <summary>Operations on normalized straight colors. No byte LUT, half-float or display copy in this path.</summary>
 internal static class HighPrecisionAdjustment
 {
-    internal static FloatPixelOp Create(Adjustment settings) => settings switch
+    internal static FloatPixelOp Create(Adjustment settings, RgbTransfer? transfer = null) => settings switch
     {
         InvertAdjustment => (ref double r, ref double g, ref double b, int _, int _) => { r = 1 - r; g = 1 - g; b = 1 - b; },
         BrightnessContrastAdjustment s => MapChannels((v, _) =>
@@ -50,8 +54,8 @@ internal static class HighPrecisionAdjustment
         }),
         LevelsAdjustment s => MapChannels((v, channel) => s.Ranges[0].Map(s.Ranges[channel + 1].Map(v * 255)) / 255),
         CurvesAdjustment s => MapChannels((v, channel) => s.Value(s.Value(v * 255, channel + 1), 0) / 255),
-        ExposureAdjustment s => MapChannels((v, _) => CameraRawPixels.LinearToSrgb(Math.Pow(Math.Max(0,
-            CameraRawPixels.SrgbToLinear(v) * Math.Pow(2, Math.Clamp(s.Exposure, -20, 20)) + s.Offset), 1 / Math.Clamp(s.Gamma, .01, 9.99)))),
+        ExposureAdjustment s => MapChannels((v, channel) => (transfer ?? RgbProfile.Srgb.Transfer).Encode(Math.Pow(Math.Max(0,
+            (transfer ?? RgbProfile.Srgb.Transfer).Decode(v, channel) * Math.Pow(2, Math.Clamp(s.Exposure, -20, 20)) + s.Offset), 1 / Math.Clamp(s.Gamma, .01, 9.99)), channel)),
         GradientMapAdjustment s => GradientMap(s),
         HueSaturationAdjustment s => HueSaturation(s),
         BlackAndWhiteAdjustment s => BlackAndWhite(s),
