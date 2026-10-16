@@ -13,6 +13,20 @@ namespace Composa.Core.Tests;
 
 public class BlendIfTests
 {
+    [Fact]
+    public void Converting_a_layer_to_a_smart_object_keeps_its_ranges_outside_the_embedded_source()
+    {
+        var document = Scene(out var top);
+        document.SetActive(top.Id);
+        top.BlendIf = new() { Gray = new() { ThisLayer = new(0, 128, 255, 255) } };
+        using var before = DocumentRenderer.Flatten(document);
+        var session = new EditorSession(document);
+        var smart = session.ConvertToSmartObject();
+        Assert.True(smart.SmartObject!.OpenDocument().Layers[0].BlendIf.IsIdentity);
+        using var after = DocumentRenderer.Flatten(session.Document);
+        Assert.Equal(before.Bytes, after.Bytes);
+    }
+
     private static Document Scene(out Layer top)
     {
         var document = new Document(256, 8);

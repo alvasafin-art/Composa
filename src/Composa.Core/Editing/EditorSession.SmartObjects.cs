@@ -21,10 +21,11 @@ public sealed partial class EditorSession
         if (roots.Count == 1 && roots[0].Pixels is { } pixels)
         {
             var original = roots[0];
-            content = new Document(pixels.Width, pixels.Height) { Resolution = document.Resolution };
+            content = new Document(pixels.Width, pixels.Height) { Resolution = document.Resolution, Depth = document.WorkingDepth };
             var inner = original.Clone(newIds: true);
             inner.Transform = LayerTransform.Identity(pixels.Width, pixels.Height);
             inner.Mask = null; inner.VectorMask = null; inner.Effects = null; inner.Visible = true; inner.Opacity = 1; inner.FillOpacity = 1; inner.Blend = BlendMode.Normal; inner.Clipped = false;
+            inner.BlendIf = new();
             content.Layers.Add(inner); content.SetActive(inner.Id);
             instance = original.Clone(); instance.Text = null; instance.Shape = null;
             instance.FilterSource = null; instance.SmartFilters = []; instance.FilterPaddingX = instance.FilterPaddingY = 0;
@@ -32,7 +33,7 @@ public sealed partial class EditorSession
         else
         {
             // Preserve document-space adjustment/group masks and the complete layer structure.
-            content = new Document(document.Width, document.Height) { Resolution = document.Resolution };
+            content = new Document(document.Width, document.Height) { Resolution = document.Resolution, Depth = document.WorkingDepth };
             content.Layers.AddRange(roots.Select(layer => layer.Clone(newIds: true)));
             content.SetActive(content.Layers[^1].Id);
             instance = new Layer { Kind = LayerKind.Raster, Name = roots.Count == 1 ? roots[0].Name : "Smart Object",

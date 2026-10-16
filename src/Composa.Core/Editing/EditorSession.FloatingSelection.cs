@@ -30,7 +30,7 @@ public sealed partial class EditorSession
         var bounds = SelectionMask.Bounds(selection);
         if (bounds.IsEmpty) { Cancel(); return false; }
 
-        floatPixels = Pixels.NewColor(bounds.Width, bounds.Height);
+        floatPixels = Pixels.NewLike(original, bounds.Width, bounds.Height);
         using (var canvas = new SKCanvas(floatPixels))
         {
             canvas.DrawBitmap(original, -bounds.Left, -bounds.Top);

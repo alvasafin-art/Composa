@@ -29,6 +29,8 @@ public static unsafe class ColorRange
         byte* output = (byte*)mask.GetPixels();
         int stride = image.RowBytes, maskStride = mask.RowBytes;
         var counts = new long[height];
+        var floating = image.ColorType == SKColorType.RgbaF32;
+        var colors = new PixelBuffer(image);
         Parallel.For(0, height, y =>
         {
             var row = pixels + y * stride;
@@ -38,7 +40,19 @@ public static unsafe class ColorRange
             {
                 var px = row + x * 4;
                 var matches = false;
-                if (px[3] != 0)
+                if (floating)
+                {
+                    var p = colors.Read(x, y).Straight;
+                    var limit = Math.Max(.5, tolerance); // Sample colors are the dialog's 8-bit RGB values.
+                    bool NearHigh((byte R, byte G, byte B)[] samples)
+                    {
+                        foreach (var c in samples)
+                            if (Math.Abs(p.R * 255 - c.R) <= limit && Math.Abs(p.G * 255 - c.G) <= limit && Math.Abs(p.B * 255 - c.B) <= limit) return true;
+                        return false;
+                    }
+                    matches = p.A > 0 && NearHigh(wanted) && !NearHigh(unwanted);
+                }
+                else if (px[3] != 0)
                 {
                     int a = px[3], r = (px[0] * 255 + a / 2) / a, g = (px[1] * 255 + a / 2) / a, b = (px[2] * 255 + a / 2) / a;
                     matches = Near(r, g, b, wanted, tolerance) && !Near(r, g, b, unwanted, tolerance);
@@ -64,6 +78,18 @@ public static unsafe class ColorRange
     public static SKColor? ColorAt(SKBitmap image, int x, int y)
     {
         if (x < 0 || y < 0 || x >= image.Width || y >= image.Height) return null;
+        if (image.ColorType == SKColorType.RgbaF32)
+        {
+            var colors = new PixelBuffer(image);
+            double red = 0, green = 0, blue = 0, alpha = 0;
+            for (var yy = Math.Max(0, y - 1); yy <= Math.Min(image.Height - 1, y + 1); yy++)
+            for (var xx = Math.Max(0, x - 1); xx <= Math.Min(image.Width - 1, x + 1); xx++)
+            {
+                var p = colors.Read(xx, yy); red += p.R; green += p.G; blue += p.B; alpha += p.A;
+            }
+            return alpha <= 0 ? null : new SKColor((byte)Math.Clamp(Math.Round(red / alpha * 255), 0, 255),
+                (byte)Math.Clamp(Math.Round(green / alpha * 255), 0, 255), (byte)Math.Clamp(Math.Round(blue / alpha * 255), 0, 255));
+        }
         byte* pixels = (byte*)image.GetPixels();
         long r = 0, g = 0, b = 0, a = 0;
         for (var yy = Math.Max(0, y - 1); yy <= Math.Min(image.Height - 1, y + 1); yy++)

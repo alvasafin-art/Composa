@@ -35,9 +35,12 @@ public sealed partial class EditorSession
     }
 
     public static EditorSession NewCanvas(int width, int height, SKColor? background = null)
+        => NewCanvas(width, height, background, ColorDepth.Eight);
+
+    public static EditorSession NewCanvas(int width, int height, SKColor? background, ColorDepth depth)
     {
-        var document = new Document(width, height);
-        var pixels = Pixels.NewColor(document.Width, document.Height);
+        var document = new Document(width, height) { Depth = depth };
+        var pixels = Pixels.NewColor(document.Width, document.Height, depth);
         if (background is { } color) pixels.Erase(color);
         var layer = Layer.Raster(background == null ? "Layer 1" : "Background", pixels);
         document.Layers.Add(layer);
@@ -404,6 +407,10 @@ public sealed partial class EditorSession
 
     /// <summary>A fresh flattened copy, independent of the preview, for export and Copy Merged.</summary>
     public SKBitmap Flatten() => DocumentRenderer.Flatten(document);
+
+    /// <summary>An owned composite for editing/clipboard sampling. The cached Composite is only the display preview.</summary>
+    private SKBitmap CompositePixels() => document.WorkingDepth == ColorDepth.Sixteen
+        ? DocumentRenderer.Flatten(document, CurrentOptions()) : Pixels.Clone(Composite());
 
     /// <summary>The document-space area a layer affects when it changes.</summary>
     public SKRectI AffectedArea(Layer layer)

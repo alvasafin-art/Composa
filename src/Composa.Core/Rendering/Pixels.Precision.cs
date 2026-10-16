@@ -21,6 +21,15 @@ public static partial class Pixels
 
     public static ColorDepth DepthOf(SKBitmap bitmap) => bitmap.ColorType == SKColorType.RgbaF32 ? ColorDepth.Sixteen : ColorDepth.Eight;
 
+    public static SKBitmap ConvertDepth(SKBitmap source, ColorDepth depth)
+    {
+        var result = NewColor(source.Width, source.Height, depth, source.ColorSpace);
+        using var canvas = new SKCanvas(result);
+        using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+        canvas.DrawBitmap(source, 0, 0, paint);
+        return result;
+    }
+
     /// <summary>An empty bitmap with the source's precision, profile and alpha representation.</summary>
     public static SKBitmap NewLike(SKBitmap source, int? width = null, int? height = null)
     {
@@ -43,6 +52,7 @@ public static partial class Pixels
 /// <summary>Normalized premultiplied channels; float working precision also keeps every unsigned 16-bit source level.</summary>
 internal readonly record struct PixelValue(float R, float G, float B, float A)
 {
+    public float this[int channel] => channel switch { 0 => R, 1 => G, 2 => B, 3 => A, _ => throw new ArgumentOutOfRangeException(nameof(channel)) };
     public PixelValue Straight => A <= 0 ? default : new(R / A, G / A, B / A, A);
     public PixelValue Premultiplied => new(R * A, G * A, B * A, A);
     public static PixelValue operator *(PixelValue value, float scale) => new(value.R * scale, value.G * scale, value.B * scale, value.A * scale);

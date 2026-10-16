@@ -5,7 +5,7 @@ using SkiaSharp;
 namespace Composa.Painting;
 
 /// <summary>Coarse-to-fine coherent donor search followed by voting from original-resolution texture.</summary>
-internal static unsafe class PatchMatchRefinement
+internal static unsafe partial class PatchMatchRefinement
 {
     public static SKBitmap Fill(SKBitmap source, SKBitmap initial, SKBitmap mask, SKBitmap? exclusion, CancellationToken cancellation)
     {
@@ -102,6 +102,7 @@ internal static unsafe class PatchMatchRefinement
                 if (scale == 1) break;
             }
             if (field == null) return Pixels.Clone(initial);
+            if (source.ColorType == SKColorType.RgbaF32) return FinishHighPrecision(source, initial, mask, exclusion, field, previousWidth, previousHeight, hole, cancellation);
             var result = Pixels.Clone(initial); var output = (byte*)result.GetPixels(); var original = (byte*)source.GetPixels(); var selectedFull = (byte*)mask.GetPixels();
             var excludedFull = (byte*)(exclusion ?? mask).GetPixels(); var excludeStride = (exclusion ?? mask).RowBytes;
             var fw = previousWidth; var fh = previousHeight;

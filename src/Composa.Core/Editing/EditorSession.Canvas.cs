@@ -138,6 +138,7 @@ public sealed partial class EditorSession
                         var bounds = Geometry.RoundOut(layer.Bounds);
                         var plain = layer.Clone();
                         plain.Visible = true; plain.Opacity = 1; plain.Blend = BlendMode.Normal; plain.Clipped = false; plain.Mask = null;
+                        plain.BlendIf = new();
                         using var drawn = DocumentRenderer.RenderLayers(document, [plain], bounds);
                         int w = Math.Max(1, (int)Math.Round(bounds.Width * sx)), h = Math.Max(1, (int)Math.Round(bounds.Height * sy));
                         if (layer.Mask != null)

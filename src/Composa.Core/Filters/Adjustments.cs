@@ -765,6 +765,22 @@ public sealed class Histogram
     public static unsafe Histogram Of(SKBitmap bitmap, SKBitmap? selection = null, int originX = 0, int originY = 0)
     {
         var result = new Histogram();
+        if (bitmap.ColorType == SKColorType.RgbaF32)
+        {
+            var colors = new Rendering.PixelBuffer(bitmap);
+            var sampling = Math.Max(1, (int)Math.Sqrt((double)bitmap.Width * bitmap.Height / 1_000_000));
+            for (var y = 0; y < bitmap.Height; y += sampling)
+            for (var x = 0; x < bitmap.Width; x += sampling)
+            {
+                var color = colors.Read(x, y).Straight;
+                if (color.A < 8 / 255f) continue;
+                int sx = x + originX, sy = y + originY;
+                if (selection != null && (sx < 0 || sy < 0 || sx >= selection.Width || sy >= selection.Height || selection.GetPixelSpan()[sy * selection.RowBytes + sx] == 0)) continue;
+                int r = (int)Math.Clamp(color.R * 255, 0, 255), g = (int)Math.Clamp(color.G * 255, 0, 255), b = (int)Math.Clamp(color.B * 255, 0, 255);
+                result.bins[0][r]++; result.bins[1][g]++; result.bins[2][b]++; result.bins[3][(r * 54 + g * 183 + b * 19) >> 8]++;
+            }
+            return result;
+        }
         var pixels = (byte*)bitmap.GetPixels();
         var step = Math.Max(1, (int)Math.Sqrt((double)bitmap.Width * bitmap.Height / 1_000_000));
         for (var y = 0; y < bitmap.Height; y += step)

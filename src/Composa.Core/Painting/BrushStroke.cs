@@ -39,7 +39,7 @@ public sealed record PlannedStroke(IReadOnlyList<SKPoint> Points, BrushSettings 
 /// the bitmap and recomputes touched pixels from the untouched original plus the coverage painted so far, so
 /// overlapping dabs never build up past the stroke's opacity.
 /// </summary>
-public sealed unsafe class BrushStroke : IDisposable
+public sealed unsafe partial class BrushStroke : IDisposable
 {
     private readonly SKBitmap original;
     private readonly BrushSettings settings;
@@ -86,7 +86,7 @@ public sealed unsafe class BrushStroke : IDisposable
         this.settings = settings;
         this.mode = mode;
         isMask = target.ColorType == SKColorType.Alpha8;
-        bytesPerPixel = isMask ? 1 : 4;
+        bytesPerPixel = target.BytesPerPixel;
         width = target.Width;
         height = target.Height;
         coverage = new StrokeCoverage(width, height);
@@ -227,6 +227,7 @@ public sealed unsafe class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private void Recompute(SKRectI rect)
     {
+        if (Working.ColorType == SKColorType.RgbaF32) { RecomputeHighPrecision(rect); return; }
         if (mode == BrushMode.Blur && blurred == null) blurred = MakeBlurred();
         var src = (byte*)original.GetPixels();
         var dst = (byte*)Working.GetPixels();
@@ -293,6 +294,12 @@ public sealed unsafe class BrushStroke : IDisposable
 
     private SKBitmap MakeBlurred()
     {
+        if (original.ColorType == SKColorType.RgbaF32)
+        {
+            var high = Pixels.Clone(original);
+            Filters.ImageFilters.BlurInPlace(high, Math.Max(1.5f, radius * .25f));
+            return high;
+        }
         var result = new SKBitmap(original.Info);
         result.Erase(SKColors.Transparent);
         using var canvas = new SKCanvas(result);
@@ -306,6 +313,7 @@ public sealed unsafe class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private bool Smudge(SKPoint center, SKRectI rect)
     {
+        if (Working.ColorType == SKColorType.RgbaF32) return SmudgeHighPrecision(center, rect);
         var size = (int)MathF.Ceiling(fullRadius * 2 + 3);
         var dst = (byte*)Working.GetPixels();
         var stride = Working.RowBytes;
@@ -348,6 +356,7 @@ public sealed unsafe class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private SKRectI Push(SKPoint center, SKRectI rect)
     {
+        if (Working.ColorType == SKColorType.RgbaF32) return PushHighPrecision(center, rect);
         var previous = lastDab;
         lastDab = center;
         if (previous is not { } from) return SKRectI.Empty;

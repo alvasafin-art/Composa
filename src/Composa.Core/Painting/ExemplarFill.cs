@@ -25,16 +25,19 @@ internal static unsafe class ExemplarFill
         var count = w * h;
         var original = new float[count * 4]; var samples = new int[count]; var selected = new bool[count]; var excluded = new bool[count];
         var src = (byte*)source.GetPixels(); var coverage = (byte*)mask.GetPixels();
+        var floating = source.ColorType == SKColorType.RgbaF32;
+        var sourceColors = new PixelBuffer(source);
         var avoidance = donorExclusion == null ? null : (byte*)donorExclusion.GetPixels();
         for (var y = bounds.Top; y < bounds.Bottom; y++)
         for (var x = bounds.Left; x < bounds.Right; x++)
         {
             int gx = (int)((long)(x - bounds.Left) * w / bounds.Width), gy = (int)((long)(y - bounds.Top) * h / bounds.Height);
-            var i = gy * w + gx; var p = src + (long)y * source.RowBytes + x * 4;
+            var i = gy * w + gx; var p = src + (long)y * source.RowBytes + x * source.BytesPerPixel;
+            var color = floating ? sourceColors.Read(x, y) * 255 : default;
             samples[i]++; selected[i] |= coverage[(long)y * mask.RowBytes + x] != 0;
             excluded[i] |= coverage[(long)y * mask.RowBytes + x] != 0
                 || avoidance != null && avoidance[(long)y * donorExclusion!.RowBytes + x] != 0;
-            for (var c = 0; c < 4; c++) original[i * 4 + c] += p[c];
+            for (var c = 0; c < 4; c++) original[i * 4 + c] += floating ? color[c] : p[c];
         }
         var known = new float[count];
         for (var i = 0; i < count; i++)
@@ -191,6 +194,7 @@ internal static unsafe class ExemplarFill
         // Disconnected/downsampled cells must not leave remnants of the removed object.
         if (selected.Where((value, i) => value && known[i] == 0).Any()) PushPull.Fill(current, known, w, h, 4);
         var result = Pixels.Clone(source); var dst = (byte*)result.GetPixels();
+        var resultColors = new PixelBuffer(result);
         double scaleX = (double)bounds.Width / w, scaleY = (double)bounds.Height / h;
         for (var y = hole.Top; y < hole.Bottom; y++)
         for (var x = hole.Left; x < hole.Right; x++)
@@ -203,6 +207,17 @@ internal static unsafe class ExemplarFill
                 sy = donor < 0 ? y : Math.Clamp(y + (int)Math.Round((donor / w - gy) * scaleY), bounds.Top, bounds.Bottom - 1);
             var clean = donor >= 0 && coverage[(long)sy * mask.RowBytes + sx] == 0
                 && (avoidance == null || avoidance[(long)sy * donorExclusion!.RowBytes + sx] == 0);
+            if (floating)
+            {
+                var donorColor = sourceColors.Read(sx, sy) * 255;
+                var at = gy * w + gx;
+                float Value(int c) => clean ? c == 3 ? donorColor.A : Math.Clamp(donorColor[c] + shifts[at * 3 + c], 0, donorColor.A)
+                    : Math.Clamp(current[at * 4 + c], 0, c == 3 ? 255 : current[at * 4 + 3]);
+                var filled = new PixelValue(Value(0), Value(1), Value(2), Value(3)) * (1 / 255f);
+                var cover = amount / 255f;
+                resultColors.Write(x, y, sourceColors.Read(x, y) * (1 - cover) + filled * cover);
+                continue;
+            }
             var a = src + (long)y * source.RowBytes + x * 4; var b = src + (long)sy * source.RowBytes + sx * 4;
             var p = dst + (long)y * result.RowBytes + x * 4;
             for (var c = 0; c < 4; c++)
@@ -222,6 +237,8 @@ internal static unsafe class ExemplarFill
         // Keep this rare fallback bounded too: do not allocate full-resolution float buffers for a big hole.
         PushPull.Fill(values, known, w, h, 4);
         var result = Pixels.Clone(source); var dst = (byte*)result.GetPixels(); var coverage = (byte*)mask.GetPixels();
+        var floating = source.ColorType == SKColorType.RgbaF32;
+        var colors = new PixelBuffer(result);
         for (var y = bounds.Top; y < bounds.Bottom; y++)
         for (var x = bounds.Left; x < bounds.Right; x++)
         {
@@ -230,6 +247,19 @@ internal static unsafe class ExemplarFill
             var fx = Math.Clamp((x - bounds.Left + 0.5) * w / bounds.Width - 0.5, 0, w - 1);
             var fy = Math.Clamp((y - bounds.Top + 0.5) * h / bounds.Height - 0.5, 0, h - 1);
             int x0 = (int)fx, y0 = (int)fy, x1 = Math.Min(x0 + 1, w - 1), y1 = Math.Min(y0 + 1, h - 1);
+            if (floating)
+            {
+                float Value(int c)
+                {
+                    var top = values[(y0 * w + x0) * 4 + c] * (1 - (fx - x0)) + values[(y0 * w + x1) * 4 + c] * (fx - x0);
+                    var bottom = values[(y1 * w + x0) * 4 + c] * (1 - (fx - x0)) + values[(y1 * w + x1) * 4 + c] * (fx - x0);
+                    return (float)Math.Clamp((top * (1 - (fy - y0)) + bottom * (fy - y0)) / 255, 0, 1);
+                }
+                var filled = new PixelValue(Value(0), Value(1), Value(2), Value(3));
+                var cover = amount / 255f;
+                colors.Write(x, y, colors.Read(x, y) * (1 - cover) + filled * cover);
+                continue;
+            }
             var p = dst + (long)y * result.RowBytes + x * 4;
             for (var c = 0; c < 4; c++)
             {

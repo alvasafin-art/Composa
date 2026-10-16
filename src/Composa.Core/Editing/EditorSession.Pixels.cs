@@ -71,7 +71,7 @@ public sealed partial class EditorSession
         var have = new SKRectI(x, y, x + pixels.Width, y + pixels.Height);
         var want = Geometry.Union(have, document.Bounds);
         if (want == have || (long)want.Width * want.Height > DocumentLimits.MaxSurfacePixels) return;
-        var grown = Pixels.NewColor(want.Width, want.Height);
+        var grown = Pixels.NewLike(pixels, want.Width, want.Height);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, have.Left - want.Left, have.Top - want.Top);
         layer.Pixels = grown;
         if (layer.Mask is { } mask) layer.Mask = GrownMask(mask, want.Width, want.Height, have.Left - want.Left, have.Top - want.Top);
@@ -117,7 +117,7 @@ public sealed partial class EditorSession
         long width = pixels.Width + left + right, height = pixels.Height + top + bottom;
         if (!DocumentLimits.FitsSurface(width, height)) return;
 
-        var grown = Pixels.NewColor((int)width, (int)height);
+        var grown = Pixels.NewLike(pixels, (int)width, (int)height);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, left, top);
         layer.Pixels = grown;
         if (layer.Mask is { } mask) layer.Mask = GrownMask(mask, (int)width, (int)height, left, top);
@@ -139,6 +139,20 @@ public sealed partial class EditorSession
     private static unsafe SKBitmap MixBySelection(SKBitmap original, SKBitmap modified, SKBitmap? selection)
     {
         if (selection == null) return modified;
+        if (original.ColorType == SKColorType.RgbaF32)
+        {
+            if (modified.ColorType != SKColorType.RgbaF32) throw new InvalidOperationException("A high precision edit cannot use display pixels.");
+            var before = new PixelBuffer(original); var after = new PixelBuffer(modified);
+            var coverage = selection.GetPixelSpan();
+            for (var y = 0; y < original.Height; y++)
+            for (var x = 0; x < original.Width; x++)
+            {
+                var amount = x < selection.Width && y < selection.Height ? coverage[y * selection.RowBytes + x] / 255f : 0;
+                after.Write(x, y, before.Read(x, y) * (1 - amount) + after.Read(x, y) * amount);
+            }
+            Pixels.Invalidate(modified);
+            return modified;
+        }
         var bpp = original.BytesPerPixel;
         byte* o = (byte*)original.GetPixels(), m = (byte*)modified.GetPixels(), s = (byte*)selection.GetPixels();
         int width = Math.Min(original.Width, selection.Width), height = Math.Min(original.Height, selection.Height);
@@ -288,6 +302,7 @@ public sealed partial class EditorSession
 
     private static unsafe bool IsClear(SKBitmap pixels)
     {
+        if (pixels.ColorType == SKColorType.RgbaF32) return Pixels.ContentBounds(pixels).IsEmpty;
         var data = (byte*)pixels.GetPixels();
         for (var y = 0; y < pixels.Height; y++)
         {
@@ -676,7 +691,7 @@ public sealed partial class EditorSession
         // `source` covers `sourceArea` of the document; the result is trimmed to the selection.
         var area = document.Selection != null ? Geometry.Intersect(SelectionMask.Bounds(document.Selection), sourceArea) : sourceArea;
         if (area.IsEmpty) return null;
-        var pixels = Pixels.NewColor(area.Width, area.Height);
+        var pixels = Pixels.NewLike(source, area.Width, area.Height);
         using var canvas = new SKCanvas(pixels);
         canvas.DrawBitmap(source, sourceArea.Left - area.Left, sourceArea.Top - area.Top);
         if (document.Selection != null)
@@ -691,6 +706,7 @@ public sealed partial class EditorSession
     {
         var copy = layer.Clone();
         copy.Visible = true; copy.Opacity = 1; copy.Blend = BlendMode.Normal; copy.Clipped = false;
+        copy.BlendIf = new();
         var area = document.Selection != null ? document.Bounds : Geometry.Union(document.Bounds, Geometry.RoundOut(layer.Bounds));
         using var rendered = DocumentRenderer.RenderLayers(document, [copy], area);
         return Grab(rendered, area);
@@ -721,7 +737,10 @@ public sealed partial class EditorSession
     /// <summary>Copies the merged picture: the selected part of it, or all of it with nothing selected or when <paramref name="whole"/> asks for all of it regardless.</summary>
     public bool CopyMerged(bool whole = false)
     {
-        var image = whole ? new ClipboardImage(Pixels.Clone(Composite()), new SKPointI(0, 0)) : Grab(Composite(), document.Bounds);
+        var rendered = CompositePixels();
+        ClipboardImage? image;
+        if (whole) image = new ClipboardImage(rendered, new SKPointI(0, 0));
+        else using (rendered) image = Grab(rendered, document.Bounds);
         if (image == null) return false;
         Clipboard = image;
         CopiedLayers = null;

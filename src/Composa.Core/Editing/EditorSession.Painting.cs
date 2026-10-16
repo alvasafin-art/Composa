@@ -129,7 +129,7 @@ public sealed partial class EditorSession
             var translationOnly = layer.Pixels != null && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height) || layer.Pixels == null;
             if (SampleAllLayers && !IsEditingMask && translationOnly)
             {
-                source = Pixels.Clone(Composite());
+                source = CompositePixels();
                 offset = new SKPointI((int)Math.Round(o.X + layer.Transform.X), (int)Math.Round(o.Y + layer.Transform.Y));
             }
             else
@@ -151,10 +151,11 @@ public sealed partial class EditorSession
         {
             // Snapshot before the dark drag overlay, mapping the visible document into
             // the active layer's local grid (including transformed retouch layers).
-            strokeHealingSample = Pixels.NewColor(target.Width, target.Height);
+            strokeHealingSample = Pixels.NewColor(target.Width, target.Height, Pixels.DepthOf(target));
+            using var visible = CompositePixels();
             using var sampleCanvas = new SKCanvas(strokeHealingSample);
             sampleCanvas.SetMatrix(strokeToLayer);
-            sampleCanvas.DrawImage(Pixels.ImageOf(Composite()), 0, 0);
+            sampleCanvas.DrawImage(Pixels.ImageOf(visible), 0, 0);
         }
         strokeMode = mode.Value;
         SetTarget(layer, stroke.Working);

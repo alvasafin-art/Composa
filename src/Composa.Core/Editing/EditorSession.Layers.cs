@@ -81,7 +81,7 @@ public sealed partial class EditorSession
 
     public Layer AddBlankLayer()
     {
-        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewColor(document.Width, document.Height));
+        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewColor(document.Width, document.Height, document.WorkingDepth));
         Apply("New Layer", () => document.InsertAboveActive(layer));
         LayersChanged?.Invoke();
         return layer;
@@ -477,6 +477,16 @@ public sealed partial class EditorSession
     private static unsafe void TrimToContent(Layer layer)
     {
         if (layer.Pixels is not { } pixels || !layer.Transform.IsPureTranslation(pixels.Width, pixels.Height)) return;
+        if (pixels.ColorType == SKColorType.RgbaF32)
+        {
+            var content = Pixels.ContentBounds(pixels);
+            if (content.IsEmpty || content == new SKRectI(0, 0, pixels.Width, pixels.Height)) return;
+            var cropped = Pixels.NewLike(pixels, content.Width, content.Height);
+            using (var canvas = new SKCanvas(cropped)) canvas.DrawBitmap(pixels, -content.Left, -content.Top);
+            layer.Pixels = cropped;
+            layer.Transform = LayerTransform.Identity(content.Width, content.Height) with { X = layer.Transform.X + content.Left, Y = layer.Transform.Y + content.Top };
+            return;
+        }
         int left = pixels.Width, top = pixels.Height, right = -1, bottom = -1;
         var data = (byte*)pixels.GetPixels();
         for (var y = 0; y < pixels.Height; y++)
