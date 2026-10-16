@@ -83,7 +83,7 @@ public sealed class ComfyClient : IComfyConnection
     {
         if (bitmap.ColorType != SKColorType.Alpha8)
         {
-            if (bitmap.ColorType == SKColorType.RgbaF32)
+            if (!Pixels.IsSrgb8(bitmap))
             {
                 using var modelInput = Pixels.DisplayCopy(bitmap);
                 return ImageFiles.Encode(modelInput, ExportFormat.Png);

@@ -19,6 +19,7 @@ public sealed class SceneEditInput : IDisposable
     public SKBitmap Before { get; private set; } = null!;
     public SKBitmap Background { get; private set; } = null!;
     public SKBitmap Foreground { get; private set; } = null!;
+    public SKBitmap ModelForeground { get; private set; } = null!;
     public SKBitmap ObjectAlpha { get; private set; } = null!;
     public SKBitmap SubjectMask { get; private set; } = null!;
     public SKBitmap ShadowMask { get; private set; } = null!;
@@ -39,6 +40,10 @@ public sealed class SceneEditInput : IDisposable
 
     private void Build(Document document, AiTaskRequest request, CancellationToken token)
     {
+        // Validate lighting color transforms before a model upload or paid generation starts.
+        _ = document.Profile.Transfer;
+        _ = new Composa.ColorManagement.LinearRgbTransform(document.Profile, Composa.ColorManagement.RgbProfile.Srgb);
+        _ = new Composa.ColorManagement.LinearRgbTransform(Composa.ColorManagement.RgbProfile.Srgb, document.Profile);
         var settings=request.Scene.Normalized();
         WholeImage=request.Task==AiTaskKind.Relight && settings.Scope==RelightScope.WholeImage;
         var selected=SceneSource.SelectedObject(document);
@@ -56,10 +61,11 @@ public sealed class SceneEditInput : IDisposable
         var clean=document.Clone();
         foreach(var id in PreviousResultIds) clean.Find(id)!.Visible=false;
         if(!WholeImage&&active!=null) {var source=clean.Find(active.Id)!;source.Visible=true;source.Effects=null;source.Transform=SceneSource.Transform(SourceFrame,source.Pixels!.Width,source.Pixels.Height);}
-        Before=Own(DocumentRenderer.Flatten(clean));
+        var workingBefore=Own(DocumentRenderer.Flatten(clean));
+        Before=Own(Pixels.DisplayCopy(workingBefore));
         var backdrop=clean.Clone();
         if(active!=null) backdrop.Find(active.Id)!.Visible=false;
-        Background=Own(DocumentRenderer.Flatten(backdrop));
+        using(var workingBackdrop=DocumentRenderer.Flatten(backdrop)) Background=Own(Pixels.DisplayCopy(workingBackdrop));
         IsCutout=!WholeImage && (active!.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
         if(IsCutout)
         {
@@ -73,7 +79,7 @@ public sealed class SceneEditInput : IDisposable
         }
         else
         {
-            Foreground=Before;
+            Foreground=workingBefore;
             // In an opaque photograph the ground belongs to that same raster, not the layers underneath it.
             if(!WholeImage) Background=Before;
             if(WholeImage) SubjectMask=Own(Alpha(Before));
@@ -87,6 +93,7 @@ public sealed class SceneEditInput : IDisposable
             }
             ObjectAlpha=SubjectMask;
         }
+        ModelForeground=Pixels.IsSrgb8(Foreground)?Foreground:Own(Pixels.DisplayCopy(Foreground));
         token.ThrowIfCancellationRequested();
         SubjectBounds=SelectionMask.Bounds(SubjectMask,16);
         if(SubjectBounds.IsEmpty || !WholeImage && HasNearFullCoverage(SubjectMask))

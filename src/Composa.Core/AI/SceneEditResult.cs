@@ -1,5 +1,6 @@
 using Composa.Editing;
 using Composa.Rendering;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.AI;
@@ -9,6 +10,12 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
 {
     public static SceneEditResult Extract(SceneEditInput input, SKBitmap generated, AiTaskRequest request, CancellationToken token = default,SKBitmap? reconstruction = null,double modelToDocument=1)
     {
+        if (!Pixels.IsSrgb8(generated) || reconstruction != null && !Pixels.IsSrgb8(reconstruction))
+        {
+            using var model = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
+            using var baselineCopy = reconstruction != null && !Pixels.IsSrgb8(reconstruction) ? Pixels.DisplayCopy(reconstruction) : null;
+            return Extract(input, model ?? generated, request, token, baselineCopy ?? reconstruction, modelToDocument);
+        }
         if(generated.Width!=input.Before.Width || generated.Height!=input.Before.Height)
             throw new InvalidDataException("The scene result must have the original document dimensions.");
         var settings=request.Scene.Normalized();
@@ -23,9 +30,12 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 layers.Add(new("Original Subject",Cutout(input.Foreground,input.ObjectAlpha,input.IsCutout),Tags:["scene-object","original-details"]));
                 return new(layers,0);
             }
-            var highPrecision=input.Foreground.ColorType==SKColorType.RgbaF32;
+            var highPrecision=!Pixels.IsSrgb8(input.Foreground);
             var objectPixels=highPrecision?Pixels.NewLike(input.Foreground):Pixels.NewColor(generated.Width,generated.Height);
             var originalPixels=new PixelBuffer(input.Foreground); var highOutput=new PixelBuffer(objectPixels);
+            var working=Pixels.ProfileOf(input.Foreground);
+            var transfer=working.Transfer;
+            var toModel=new LinearRgbTransform(working,RgbProfile.Srgb); var toWorking=new LinearRgbTransform(RgbProfile.Srgb,working);
             layers.Add(new(settings.PreserveDetails ? "Subject Lighting" : "Generated Subject",objectPixels,Tags:["scene-object",settings.PreserveDetails ? "original-details" : "generated-details"]));
             var ratios=settings.PreserveDetails ? new SceneLightingMap(input,generated,baseline,token) : null;
             for(var y=0;y<generated.Height;y++)
@@ -36,19 +46,27 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                     if(highPrecision)
                     {
                         var source=originalPixels.Read(x,y).Straight;
-                        var a=input.IsCutout?source.A:input.ObjectAlpha.GetPixel(x,y).Alpha/255f;
+                        var a=input.IsCutout||input.WholeImage?source.A:input.ObjectAlpha.GetPixel(x,y).Alpha/255f;
                         if(a<=0)continue;
                         var highAmount=settings.Strength*Math.Min(1,input.SubjectMask.GetPixel(x,y).Alpha/255d/Math.Max(.000001,a));
                         var model=generated.GetPixel(x,y); var backdrop=input.Background.GetPixel(x,y);
                         var highRatio=ratios?.At(x,y)??(1d,1d,1d);
-                        float HighChannel(float color,byte desired,byte background,double light)
+                        var r=transfer.Decode(source.R,0); var g=transfer.Decode(source.G,1); var b=transfer.Decode(source.B,2);
+                        (double R,double G,double B) edited;
+                        if(settings.PreserveDetails)
                         {
-                            var edited=settings.PreserveDetails?LinearFloat(color)*light
-                                :LinearFloat(input.IsCutout?Math.Clamp((desired/255d-(1-a)*background/255d)/Math.Max(.000001,a),0,1):desired/255d);
-                            return (float)Srgb(LinearFloat(color)*(1-highAmount)+edited*highAmount);
+                            var rgb=toModel.Map(r,g,b);
+                            edited=toWorking.Map(rgb.R*highRatio.Item1,rgb.G*highRatio.Item2,rgb.B*highRatio.Item3);
                         }
-                        highOutput.Write(x,y,new PixelValue(HighChannel(source.R,model.Red,backdrop.Red,highRatio.Item1),
-                            HighChannel(source.G,model.Green,backdrop.Green,highRatio.Item2),HighChannel(source.B,model.Blue,backdrop.Blue,highRatio.Item3),a).Premultiplied);
+                        else
+                        {
+                            double Subject(byte desired,byte background)=>LinearFloat(input.IsCutout?
+                                Math.Clamp((desired/255d-(1-a)*background/255d)/Math.Max(.000001,a),0,1):desired/255d);
+                            edited=toWorking.Map(Subject(model.Red,backdrop.Red),Subject(model.Green,backdrop.Green),Subject(model.Blue,backdrop.Blue));
+                        }
+                        highOutput.Write(x,y,new PixelValue((float)Math.Clamp(transfer.Encode(r*(1-highAmount)+edited.R*highAmount,0),0,1),
+                            (float)Math.Clamp(transfer.Encode(g*(1-highAmount)+edited.G*highAmount,1),0,1),
+                            (float)Math.Clamp(transfer.Encode(b*(1-highAmount)+edited.B*highAmount,2),0,1),a).Premultiplied);
                         continue;
                     }
                     var original=input.Foreground.GetPixel(x,y); var alpha=input.ObjectAlpha.GetPixel(x,y).Alpha;
@@ -108,7 +126,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 var source=baseline.GetPixel(x,y); var background=input.Background.GetPixel(x,y);
                 if(source.Alpha<250 || background.Alpha<250) continue;
                 var l=Luma(background); if(l<.01) continue;
-                var model=generated.GetPixel(x,y); var foreground=input.Foreground.GetPixel(x,y); var a=input.ObjectAlpha.GetPixel(x,y).Alpha/255d;
+                var model=generated.GetPixel(x,y); var foreground=input.ModelForeground.GetPixel(x,y); var a=input.ObjectAlpha.GetPixel(x,y).Alpha/255d;
                 var gains=lighting?.At(x,y)??(1d,1d,1d);
                 byte Background(byte observed,byte rebuilt,byte backdrop,byte original,double gain,int channel)
                 {

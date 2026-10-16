@@ -20,6 +20,7 @@ public static partial class Pixels
     }
 
     public static ColorDepth DepthOf(SKBitmap bitmap) => bitmap.ColorType == SKColorType.RgbaF32 ? ColorDepth.Sixteen : ColorDepth.Eight;
+    public static bool IsSrgb8(SKBitmap bitmap) => bitmap.ColorType == SKColorType.Rgba8888 && ProfileOf(bitmap).Equals(ColorManagement.RgbProfile.Srgb);
 
     public static SKBitmap ConvertDepth(SKBitmap source, ColorDepth depth)
     {

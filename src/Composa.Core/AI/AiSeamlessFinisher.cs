@@ -11,10 +11,10 @@ public static class AiSeamlessFinisher
     {
         // Generated/model pixels are RGB8. A caller may retain a precise reference; read an owned
         // display copy for model residual analysis, never reinterpret its float memory as bytes.
-        if (generated.ColorType == SKColorType.RgbaF32 || reference.ColorType == SKColorType.RgbaF32)
+        if (!Pixels.IsSrgb8(generated) || !Pixels.IsSrgb8(reference))
         {
-            using var resultDisplay = generated.ColorType == SKColorType.RgbaF32 ? Pixels.DisplayCopy(generated) : null;
-            using var referenceDisplay = reference.ColorType == SKColorType.RgbaF32 ? Pixels.DisplayCopy(reference) : null;
+            using var resultDisplay = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
+            using var referenceDisplay = !Pixels.IsSrgb8(reference) ? Pixels.DisplayCopy(reference) : null;
             return Match(resultDisplay ?? generated, referenceDisplay ?? reference, coverage, decodedArea, seamWidth, matchFlatBackground, continueUniformStrip);
         }
         if (generated.Width != reference.Width || generated.Height != reference.Height
