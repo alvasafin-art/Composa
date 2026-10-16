@@ -648,14 +648,14 @@ public sealed partial class MainWindow
     /// <summary>Reads a Photoshop file and, when anything has to be converted, asks before going on. Null means the user declined.</summary>
     private async Task<PsdImport?> ImportPhotoshop(string path, long pixelBudget)
     {
-        var import = await Task.Run(() => PsdImport.Load(path, pixelBudget));
+        var import = await Task.Run(() => PsdImport.Load(path, pixelBudget, preserveProfile: true));
         if (import.Conversions.Count == 0) return import;
         var merged = false;
         if (await PsdConversionDialog.Confirm(this, Path.GetFileName(path), import.Conversions, chooseMerged: value => merged = value))
         {
             if (!merged) return import;
             import.Discard();
-            return await Task.Run(() => PsdImport.LoadAppearance(path, pixelBudget));
+            return await Task.Run(() => PsdImport.LoadAppearance(path, pixelBudget, preserveProfile: true));
         }
         import.Discard();
         return null;

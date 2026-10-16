@@ -23,6 +23,7 @@ internal sealed class PsdWriter
     public List<(string Key, byte[] Data)> GlobalExtra = [];
     /// <summary>The merged image; transparent black when absent.</summary>
     public SKBitmap? Composite;
+    public byte[]? ColorProfile;
 
     public byte[] Build()
     {
@@ -44,6 +45,11 @@ internal sealed class PsdWriter
         var fixedResolution = (uint)Math.Round(Resolution * 65536);
         resources.U32(fixedResolution); resources.U16(1); resources.U16(1);
         resources.U32(fixedResolution); resources.U16(1); resources.U16(1);
+        if (ColorProfile is { } profile)
+        {
+            resources.Ascii("8BIM"); resources.U16(1039); resources.U16(0);
+            resources.U32((uint)profile.Length); resources.Bytes(profile); if (profile.Length % 2 != 0) resources.U8(0);
+        }
         file.Block(resources);
 
         var layerInfo = new Buffer();

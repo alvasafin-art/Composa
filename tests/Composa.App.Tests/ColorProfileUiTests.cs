@@ -9,12 +9,37 @@ using Composa.ColorManagement;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Rendering;
+using Composa.IO.Psd;
 using SkiaSharp;
 
 namespace Composa.App.Tests;
 
 public class ColorProfileUiTests
 {
+    [AvaloniaFact]
+    public async Task PSD_open_preserves_profile_and_placement_converts_live_colors_to_the_parent()
+    {
+        var document = new Document(80, 60) { Depth = ColorDepth.Sixteen, Profile = RgbProfile.Rgb1998 };
+        var source = new EditorSession(document);
+        source.AddShape(new ShapeStyle(ShapeKind.Rectangle, 0xFF6496C8, 0), new(0, 0, 80, 60));
+        var path = Path.Combine(Path.GetTempPath(), "composa-profile-" + Guid.NewGuid().ToString("N") + ".psd");
+        var window = new MainWindow { Width = 1100, Height = 760 }; window.Show();
+        try
+        {
+            using (var stream = File.Create(path)) PsdExport.Write(source.Document, stream);
+            var opened = await window.OpenPath(path);
+            Assert.Equal(RgbProfile.Rgb1998, opened!.Document.Profile);
+            Assert.Equal(0xFF6496C8u, opened.ActiveLayer!.Shape!.Fill);
+            Assert.Empty(window.OwnedWindows);
+            var target = EditorSession.NewCanvas(80, 60, null, ColorDepth.Sixteen); window.AddSession(target);
+            await window.PlacePaths([path], null);
+            var placed = target.Document.AllLayers().Single(l => l.Shape != null);
+            Assert.Equal((uint)RgbProfile.Rgb1998.ConvertColor(new SKColor(0xFF6496C8), RgbProfile.Srgb), placed.Shape!.Fill);
+            Assert.Equal(RgbProfile.Srgb, Pixels.ProfileOf(placed.Pixels!));
+        }
+        finally { window.Close(); File.Delete(path); }
+    }
+
     [AvaloniaFact]
     public async Task Open_keeps_the_images_profile_instead_of_clipping_it_to_sRGB()
     {

@@ -1,5 +1,6 @@
 using Composa.Model;
 using Composa.Rendering;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.IO.Psd;
@@ -7,6 +8,38 @@ namespace Composa.IO.Psd;
 /// <summary>Converts Photoshop's tagged RGB into the sRGB working space, using the Skia already carried by the editor.</summary>
 internal static class PsdColor
 {
+    internal static RgbProfile ReadProfile(byte[]? bytes)
+    {
+        if (bytes == null || bytes.AsSpan().SequenceEqual(PsdExport.SrgbProfileBytes)) return RgbProfile.Srgb;
+        try { return RgbProfile.FromIcc(bytes); }
+        catch (InvalidDataException error) { throw new PsdException("The embedded RGB profile is not supported. " + error.Message); }
+    }
+
+    internal static void Preserve(List<Layer> layers, RgbProfile profile)
+    {
+        var assigned = new Dictionary<SKBitmap, SKBitmap>(ReferenceEqualityComparer.Instance);
+        var previews = new Dictionary<SKBitmap, SKBitmap>(ReferenceEqualityComparer.Instance);
+        foreach (var layer in Document.Flatten(layers))
+        {
+            if (layer.Pixels is not { } pixels) continue;
+            if (layer.IsSmartObject)
+            {
+                if (Pixels.ProfileOf(pixels).Equals(profile)) continue;
+                if (!previews.TryGetValue(pixels, out var converted))
+                    previews[pixels] = converted = Pixels.ConvertWorking(pixels, Pixels.DepthOf(pixels), profile);
+                layer.Pixels = converted;
+            }
+            else
+            {
+                if (Pixels.ProfileOf(pixels).Equals(profile)) continue;
+                if (!assigned.TryGetValue(pixels, out var tagged)) assigned[pixels] = tagged = Pixels.AssignProfile(pixels, profile);
+                layer.Pixels = tagged;
+            }
+        }
+        // Parser-owned raster buffers have no committed history. Smart previews remain owned by their sources.
+        foreach (var source in assigned.Keys) source.Dispose();
+    }
+
     public static void Apply(List<Layer> layers, byte[]? profile, List<PsdConversion> conversions)
     {
         if (profile == null || profile.AsSpan().SequenceEqual(PsdExport.SrgbProfileBytes)) return;

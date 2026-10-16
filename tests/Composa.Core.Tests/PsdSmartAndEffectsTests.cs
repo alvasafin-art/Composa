@@ -55,7 +55,7 @@ public class PsdSmartAndEffectsTests
         imported.Discard();
     }
 
-    private static byte[] Placed(string id, double[] quad)
+    internal static byte[] Placed(string id, double[] quad)
     {
         var b = new B(); b.Ascii("soLD"); b.U32(4); b.U32(16);
         b.Bytes(new D().Add("Idnt", D.Text(id)).Add("Trnf", D.List(quad.Select(D.Doub).ToArray()))
@@ -63,7 +63,7 @@ public class PsdSmartAndEffectsTests
         return b.ToArray();
     }
 
-    private static byte[] Linked(string id, byte[] data, string type = "liFD")
+    internal static byte[] Linked(string id, byte[] data, string type = "liFD")
     {
         var r = new B(); r.Ascii(type); r.U32(1); r.U8((byte)id.Length); r.Ascii(id);
         var name = "Contents.psb"; r.U32((uint)name.Length); r.Bytes(Encoding.BigEndianUnicode.GetBytes(name));
