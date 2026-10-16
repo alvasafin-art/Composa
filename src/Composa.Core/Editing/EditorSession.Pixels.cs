@@ -25,6 +25,8 @@ public sealed class ClipboardLayers(IReadOnlyList<Layer> layers, EditorSession s
     public EditorSession Source { get; } = source;
     public int CanvasWidth { get; } = canvasWidth;
     public int CanvasHeight { get; } = canvasHeight;
+    public Composa.ColorManagement.RgbProfile Profile { get; } = source.Document.Profile;
+    public ColorDepth Depth { get; } = source.Document.WorkingDepth;
 }
 
 public sealed partial class EditorSession
@@ -780,7 +782,7 @@ public sealed partial class EditorSession
         if (image == null && CopiedLayers is { } layers) return PasteLayers(layers, inPlace);
         image ??= Clipboard;
         if (image == null) return null;
-        var pixels = Pixels.Clone(image.Pixels);
+        var pixels = PastePixels(image.Pixels);
         var placed = new SKRectI(image.Origin.X, image.Origin.Y, image.Origin.X + pixels.Width, image.Origin.Y + pixels.Height);
         var fits = inPlace ? document.Bounds.IntersectsWith(placed) : document.Bounds.Contains(placed);
         var layer = Layer.Raster(document.UniqueName(name), pixels,
@@ -802,6 +804,15 @@ public sealed partial class EditorSession
     {
         if (copied.Layers.Count == 0) return null;
         var pasted = copied.Layers.Select(l => l.Clone(newIds: true)).ToList();
+        if (!copied.Profile.Equals(document.Profile))
+        {
+            // The source session can change its profile after Copy. Interpret live colors using the
+            // immutable clipboard snapshot, not that session's current document.
+            var content = new Document(copied.CanvasWidth, copied.CanvasHeight) { Depth = copied.Depth, Profile = copied.Profile };
+            content.Layers.AddRange(pasted);
+            var conversion = new EditorSession(content); conversion.ConvertColorProfile(document.Profile, flatten: false);
+            pasted = conversion.Document.Layers;
+        }
         if (copied.Source != this && !inPlace)
         {
             // Centered on this canvas: a single layer by its own center, several by the center of what they cover.
@@ -845,7 +856,7 @@ public sealed partial class EditorSession
     {
         if (document.Selection is not { } selection || (image ??= Clipboard) == null) return null;
         var bounds = SelectionMask.Bounds(selection);
-        var pixels = Pixels.Clone(image.Pixels);
+        var pixels = PastePixels(image.Pixels);
         var layer = Layer.Raster(document.UniqueName("Pasted Layer"), pixels,
             Math.Round((bounds.Left + bounds.Right - pixels.Width) / 2.0), Math.Round((bounds.Top + bounds.Bottom - pixels.Height) / 2.0));
         Apply("Paste Into", () =>
@@ -861,6 +872,9 @@ public sealed partial class EditorSession
         SelectionChanged?.Invoke();
         return layer;
     }
+
+    private SKBitmap PastePixels(SKBitmap image) => Pixels.ProfileOf(image).Equals(document.Profile) ? Pixels.Clone(image)
+        : Pixels.ConvertWorking(image, Pixels.DepthOf(image), document.Profile);
 
     /// <summary>Ctrl+J: the selected pixels on a new layer, or a duplicate of the layer when nothing is selected.</summary>
     public void LayerViaCopy()

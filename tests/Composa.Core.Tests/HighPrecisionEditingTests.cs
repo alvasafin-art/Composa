@@ -8,6 +8,7 @@ using SkiaSharp;
 
 namespace Composa.Core.Tests;
 
+[Collection(ClipboardCollection.Name)]
 public class HighPrecisionEditingTests
 {
     [Fact]

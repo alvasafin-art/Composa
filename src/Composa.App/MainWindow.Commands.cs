@@ -867,7 +867,7 @@ public sealed partial class MainWindow
                     using var stream = new MemoryStream();
                     bitmap.Save(stream, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
                     stream.Position = 0;
-                    external = new ClipboardImage(ImageFiles.Load(stream, "clipboard"), new SKPointI(int.MinValue / 2, int.MinValue / 2));
+                    external = new ClipboardImage(ImageFiles.Load(stream, "clipboard", preserveProfile: true), new SKPointI(int.MinValue / 2, int.MinValue / 2));
                 }
             }
         }
