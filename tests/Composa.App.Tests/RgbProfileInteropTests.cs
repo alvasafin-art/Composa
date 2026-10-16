@@ -10,6 +10,37 @@ namespace Composa.App.Tests;
 public class RgbProfileInteropTests
 {
     [Theory]
+    [InlineData(ExportFormat.Png)]
+    [InlineData(ExportFormat.Jpeg)]
+    [InlineData(ExportFormat.Webp)]
+    [InlineData(ExportFormat.Tiff)]
+    public void Wide_gamut_export_keeps_the_actual_ICC_and_rgb_numbers(ExportFormat format)
+    {
+        var profile = RgbProfile.DisplayP3;
+        using var space = SKColorSpace.CreateIcc(profile.IccBytes());
+        using var source = Pixels.NewColor(32, 32, space: space);
+        var pixels = source.GetPixelSpan();
+        for (var i = 0; i < pixels.Length; i += 4) { pixels[i] = 128; pixels[i + 1] = 180; pixels[i + 2] = 50; pixels[i + 3] = 255; }
+        var bytes = ImageFiles.Encode(source, format, quality: 100);
+        using var independent = new Magick.MagickImage(bytes);
+        Assert.Equal(profile.IccBytes(), independent.GetColorProfile()!.ToByteArray());
+        using (var raw = independent.GetPixels())
+        {
+            var value = raw.GetPixel(16, 16).ToArray();
+            Assert.InRange(Math.Abs(value[0] / 257 - 128), 0, 3); Assert.InRange(Math.Abs(value[1] / 257 - 180), 0, 3); Assert.InRange(Math.Abs(value[2] / 257 - 50), 0, 3);
+        }
+        independent.TransformColorSpace(Magick.ColorProfiles.SRGB);
+        using var display = Pixels.DisplayCopy(source); using var colors = independent.GetPixels(); var expected = colors.GetPixel(16, 16).ToArray();
+        var actual = display.GetPixel(16, 16);
+        Assert.InRange(Math.Abs(actual.Red - expected[0] / 257), 0, 4); Assert.InRange(Math.Abs(actual.Green - expected[1] / 257), 0, 4); Assert.InRange(Math.Abs(actual.Blue - expected[2] / 257), 0, 4);
+        if (format != ExportFormat.Tiff)
+        {
+            using var input = new MemoryStream(bytes); using var preserved = ImageFiles.Load(input, preserveProfile: true);
+            Assert.Equal(profile, Pixels.ProfileOf(preserved)); Assert.InRange(Math.Abs(preserved.GetPixel(16, 16).Red - 128), 0, 3);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Generated_wide_gamut_profiles_agree_with_independent_LittleCMS_conversion(bool p3)
@@ -31,7 +62,9 @@ public class RgbProfileInteropTests
         using (var canvas = new SKCanvas(converted)) canvas.DrawBitmap(source, 0, 0);
         using var reference = new Magick.MagickImage();
         reference.Read(raw, new Magick.MagickReadSettings { Width = 64, Height = 4, Depth = 16, Endian = Magick.Endian.MSB, Format = Magick.MagickFormat.Rgba });
-        reference.SetProfile(new Magick.ColorProfile(profile.IccBytes())); reference.TransformColorSpace(Magick.ColorProfiles.SRGB);
+        reference.SetProfile(new Magick.ColorProfile(profile.IccBytes()));
+        reference.RenderingIntent = Magick.RenderingIntent.Relative;
+        reference.TransformColorSpace(new Magick.ColorProfile(RgbProfile.Srgb.IccBytes()), Magick.ColorTransformMode.HighRes);
         using var pixels = reference.GetPixels();
         var actual = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(converted.GetPixelSpan());
         var reds = new HashSet<float>();
@@ -40,7 +73,9 @@ public class RgbProfileInteropTests
         {
             var expected = pixels.GetPixel(x, y).ToArray();
             var alpha = actual[(y * 64 + x) * 4 + 3];
-            for (var c = 0; c < 3; c++) Assert.InRange(Math.Abs(actual[(y * 64 + x) * 4 + c] / alpha - expected[c] / 65535f), 0, .005);
+            // The float raster backend retains extended values outside the destination gamut;
+            // unsigned integer RGB output clips them, as LittleCMS Q16 does.
+            for (var c = 0; c < 3; c++) Assert.InRange(Math.Abs(Math.Clamp(actual[(y * 64 + x) * 4 + c] / alpha, 0, 1) - expected[c] / 65535f), 0, .001);
             Assert.InRange(Math.Abs(alpha - expected[3] / 65535f), 0, .000002);
             if (y == 0) reds.Add(actual[x * 4]);
         }

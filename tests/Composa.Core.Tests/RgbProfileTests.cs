@@ -21,6 +21,11 @@ public class RgbProfileTests
         }
         Assert.False(SkiaSharp.SKColorSpace.Equal(RgbProfile.Srgb.Space, RgbProfile.DisplayP3.Space));
         Assert.False(SkiaSharp.SKColorSpace.Equal(RgbProfile.Srgb.Space, RgbProfile.Rgb1998.Space));
+        foreach (var pair in new[] { (RgbProfile.DisplayP3, SkiaSharp.SKColorSpaceXyz.DisplayP3), (RgbProfile.Rgb1998, SkiaSharp.SKColorSpaceXyz.AdobeRgb) })
+        {
+            var actual = pair.Item1.Space.ToColorSpaceXyz().Values; var expected = pair.Item2.Values;
+            for (var i = 0; i < 9; i++) Assert.InRange(Math.Abs(actual[i] - expected[i]), 0, .0005);
+        }
     }
 
     [Fact]

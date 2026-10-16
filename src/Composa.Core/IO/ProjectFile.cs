@@ -5,6 +5,7 @@ using Composa.Filters;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.IO;
 
@@ -39,6 +40,7 @@ public static class ProjectFile
         public string Format { get; set; } = ProjectFile.Format;
         public int Version { get; set; } = ProjectFile.Version;
         public string ColorSpace { get; set; } = "sRGB";
+        public string? ColorProfileFile { get; set; }
         public ColorDepth BitDepth { get; set; } = ColorDepth.Eight;
         public int Width { get; set; }
         public int Height { get; set; }
@@ -108,6 +110,16 @@ public static class ProjectFile
         var written = new Dictionary<SKBitmap, string>(ReferenceEqualityComparer.Instance);
         var sources = new Dictionary<SmartObjectSource, string>(ReferenceEqualityComparer.Instance);
         var objects = new Dictionary<string, SmartRecord>();
+        var profiles = new Dictionary<RgbProfile, string>();
+
+        string? StoreProfile(RgbProfile profile)
+        {
+            if (profile.Equals(RgbProfile.Srgb)) return null;
+            if (profiles.TryGetValue(profile, out var known)) return known;
+            var name = profiles.Count + ".icc"; profiles.Add(profile, name);
+            using var entry = zip.CreateEntry("profiles/" + name, CompressionLevel.Optimal).Open(); entry.Write(profile.Icc);
+            return name;
+        }
 
         string StoreSource(SmartObjectSource source)
         {
@@ -154,6 +166,7 @@ public static class ProjectFile
         {
             Width = value.Width, Height = value.Height, Resolution = value.Resolution,
             BitDepth = value.WorkingDepth,
+            ColorSpace = value.Profile.Name, ColorProfileFile = StoreProfile(value.Profile),
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
             Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null,
             AlphaChannels = value.AlphaChannels.Count == 0 ? null : value.AlphaChannels.ToDictionary(p => p.Key, p => Store(p.Value, $"{written.Count}.channel.png"))
@@ -186,8 +199,20 @@ public static class ProjectFile
         var cache = new Dictionary<string, SKBitmap>();
         var sources = new Dictionary<string, SmartObjectSource>();
         var visiting = new HashSet<string>();
+        var profiles = new Dictionary<(string File, string Name), RgbProfile>();
         long allocatedPixels = 0;
         var count = 0;
+
+        RgbProfile FetchProfile(string? name, string title)
+        {
+            if (name == null) return RgbProfile.Srgb;
+            if (name.Contains("..") || name.Contains('/') || name.Contains('\\')) throw new InvalidDataException("The project refers to an unsafe profile path.");
+            if (profiles.TryGetValue((name, title), out var known)) return known;
+            var entry = zip.GetEntry("profiles/" + name) ?? throw new InvalidDataException("The project color profile is missing.");
+            if (entry.Length < 132 || entry.Length > DocumentLimits.MaxIccBytes) throw new InvalidDataException("The project color profile has an invalid size.");
+            var bytes = new byte[entry.Length]; using (var input = entry.Open()) input.ReadExactly(bytes);
+            return profiles[(name, title)] = RgbProfile.FromIcc(bytes, title);
+        }
 
         SKBitmap Fetch(string name, bool mask)
         {
@@ -197,7 +222,7 @@ public static class ProjectFile
             using var buffer = new MemoryStream();
             using (var input = image.Open()) input.CopyTo(buffer);
             buffer.Position = 0;
-            var bitmap = mask ? DecodeMask(buffer) : Png16Codec.TryDecode(buffer, name) ?? ImageFiles.Load(buffer, name);
+            var bitmap = mask ? DecodeMask(buffer) : Png16Codec.TryDecode(buffer, name, preserveProfile: true) ?? ImageFiles.Load(buffer, name, preserveProfile: true);
             allocatedPixels += ((long)bitmap.ByteCount + 3) / 4;
             cache[name] = bitmap;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
@@ -272,7 +297,8 @@ public static class ProjectFile
             if (!DocumentLimits.FitsSurface(value.Width, value.Height) || value.Format != Format || value.Version > Version)
                 throw new InvalidDataException("Invalid embedded document size or format.");
             var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72,
-                Depth = value.BitDepth == ColorDepth.Sixteen ? ColorDepth.Sixteen : ColorDepth.Eight };
+                Depth = value.BitDepth == ColorDepth.Sixteen ? ColorDepth.Sixteen : ColorDepth.Eight,
+                Profile = FetchProfile(value.ColorProfileFile, value.ColorSpace) };
             foreach (var record in value.Layers) result.Layers.Add(Build(record, 0, value.Version));
             if (value.AlphaChannels != null)
                 foreach (var pair in value.AlphaChannels.Take(64))

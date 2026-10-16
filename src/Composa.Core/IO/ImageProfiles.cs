@@ -2,15 +2,17 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using Composa.IO.Psd;
+using Composa.ColorManagement;
+using Composa.Model;
 
 namespace Composa.IO;
 
 /// <summary>Explicit output profiles, including formats whose native encoder omits an sRGB ICC chunk.</summary>
 internal static class ImageProfiles
 {
-    internal static byte[] Embed(byte[] encoded, ExportFormat format, int width, int height)
+    internal static byte[] Embed(byte[] encoded, ExportFormat format, int width, int height, RgbProfile colorProfile)
     {
-        var profile = PsdExport.SrgbProfileBytes.ToArray();
+        var profile = colorProfile.IccBytes();
         using var output = new MemoryStream();
         switch (format)
         {
@@ -20,6 +22,92 @@ internal static class ImageProfiles
             default: return encoded;
         }
         return output.ToArray();
+    }
+
+    internal static RgbProfile? ReadProfile(Stream input)
+    {
+        if (!input.CanSeek) throw new ArgumentException("Profile reading needs a seekable stream.");
+        var start = input.Position;
+        try
+        {
+            Span<byte> header = stackalloc byte[12];
+            if (input.ReadAtLeast(header, 12, throwOnEndOfStream: false) < 12) return null;
+            input.Position = start;
+            if (header[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }))
+            {
+                input.Position += 8; Span<byte> chunk = stackalloc byte[8]; Span<byte> checksum = stackalloc byte[4];
+                while (input.Length - input.Position >= 12)
+                {
+                    input.ReadExactly(chunk); var length = BinaryPrimitives.ReadUInt32BigEndian(chunk);
+                    if (length > input.Length - input.Position - 4) throw new InvalidDataException("The PNG profile chunk is truncated.");
+                    if (chunk[4..].SequenceEqual("IDAT"u8)) return null;
+                    if (chunk[4..].SequenceEqual("iCCP"u8))
+                    {
+                        if (length > DocumentLimits.MaxIccBytes) throw new InvalidDataException("The embedded ICC profile is too large.");
+                        var data = new byte[length]; input.ReadExactly(data); input.ReadExactly(checksum);
+                        if (Png16Codec.Crc(chunk[4..], data) != BinaryPrimitives.ReadUInt32BigEndian(checksum)) throw new InvalidDataException("The PNG ICC chunk is damaged.");
+                        var end = Array.IndexOf(data, (byte)0);
+                        if (end < 1 || end > 79 || end + 2 >= data.Length || data[end + 1] != 0) throw new InvalidDataException("The PNG ICC profile is invalid.");
+                        using var packed = new MemoryStream(data, end + 2, data.Length - end - 2);
+                        using var zipped = new ZLibStream(packed, CompressionMode.Decompress);
+                        using var profile = new MemoryStream(); var buffer = new byte[8192]; int read;
+                        while ((read = zipped.Read(buffer)) > 0)
+                        {
+                            if (profile.Length + read > DocumentLimits.MaxIccBytes) throw new InvalidDataException("The embedded ICC profile is too large.");
+                            profile.Write(buffer, 0, read);
+                        }
+                        return RgbProfile.FromIcc(profile.ToArray());
+                    }
+                    input.Position += (long)length + 4;
+                }
+            }
+            else if (header[..2].SequenceEqual(new byte[] { 255, 216 }))
+            {
+                input.Position += 2; var parts = new SortedDictionary<int, byte[]>(); var expected = 0; var total = 0;
+                while (input.Position < input.Length)
+                {
+                    if (input.ReadByte() != 255) break; int marker; do { marker = input.ReadByte(); } while (marker == 255);
+                    if (marker is < 0 or 0xD9 or 0xDA) break;
+                    if (marker is 0x01 or >= 0xD0 and <= 0xD8) continue;
+                    var a = input.ReadByte(); var b = input.ReadByte(); if (a < 0 || b < 0) throw new InvalidDataException("Truncated JPEG metadata.");
+                    var length = (a << 8 | b) - 2;
+                    if (length < 0 || length > input.Length - input.Position) throw new InvalidDataException("Truncated JPEG metadata.");
+                    if (marker == 0xE2 && length >= 14)
+                    {
+                        var data = new byte[length]; input.ReadExactly(data);
+                        if (!data.AsSpan(0, 12).SequenceEqual("ICC_PROFILE\0"u8)) continue;
+                        if (data[12] == 0 || data[13] == 0 || data[12] > data[13] || parts.ContainsKey(data[12]) || expected != 0 && expected != data[13]) throw new InvalidDataException("Invalid JPEG ICC segments.");
+                        expected = data[13]; total += data.Length - 14;
+                        if (total > DocumentLimits.MaxIccBytes) throw new InvalidDataException("The embedded ICC profile is too large.");
+                        parts[data[12]] = data[14..];
+                    }
+                    else input.Position += length;
+                }
+                if (expected > 0)
+                {
+                    if (parts.Count != expected) throw new InvalidDataException("The JPEG ICC profile is incomplete.");
+                    using var joined = new MemoryStream(total); foreach (var part in parts.Values) joined.Write(part);
+                    return RgbProfile.FromIcc(joined.ToArray());
+                }
+            }
+            else if (header[..4].SequenceEqual("RIFF"u8) && header[8..].SequenceEqual("WEBP"u8))
+            {
+                input.Position += 12; Span<byte> chunk = stackalloc byte[8];
+                while (input.Length - input.Position >= 8)
+                {
+                    input.ReadExactly(chunk); var length = BinaryPrimitives.ReadUInt32LittleEndian(chunk[4..]);
+                    if (length > input.Length - input.Position) throw new InvalidDataException("Truncated WebP metadata.");
+                    if (chunk[..4].SequenceEqual("ICCP"u8))
+                    {
+                        if (length > DocumentLimits.MaxIccBytes) throw new InvalidDataException("The embedded ICC profile is too large.");
+                        var bytes = new byte[length]; input.ReadExactly(bytes); return RgbProfile.FromIcc(bytes);
+                    }
+                    input.Position += (long)length + (length & 1);
+                }
+            }
+            return null;
+        }
+        finally { input.Position = start; }
     }
 
     private static void WritePng(Stream output, byte[] encoded, byte[] profile)
@@ -33,7 +121,7 @@ internal static class ImageProfiles
             if (kind == "IHDR")
             {
                 using var payload = new MemoryStream();
-                payload.Write("sRGB\0\0"u8);
+                payload.Write("Composa RGB\0\0"u8);
                 using (var zipped = new ZLibStream(payload, CompressionLevel.Optimal, leaveOpen: true)) zipped.Write(profile);
                 WritePngChunk(output, "iCCP", payload.ToArray());
             }

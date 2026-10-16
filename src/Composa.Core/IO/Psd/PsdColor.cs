@@ -52,6 +52,7 @@ internal static class PsdColor
             using var input = new SKPixmap(bitmap.Info.WithColorSpace(source), bitmap.GetPixels(), bitmap.RowBytes);
             if (!input.ReadPixels(result.Info.WithColorSpace(destination), result.GetPixels(), result.RowBytes))
                 throw new PsdException("The Photoshop color profile could not be converted to sRGB.");
+            Pixels.ClampColor(result);
             Pixels.Invalidate(result); return result;
         }
         catch { result.Dispose(); throw; }

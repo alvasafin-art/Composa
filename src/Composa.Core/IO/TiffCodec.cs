@@ -22,7 +22,7 @@ internal static class TiffCodec
         const uint xResolutionOffset = formatOffset + 8;
         const uint yResolutionOffset = xResolutionOffset + 8;
         const uint profileOffset = yResolutionOffset + 8;
-        var profile = Psd.PsdExport.SrgbProfileBytes;
+        var profile = Pixels.ProfileOf(bitmap).Icc;
         var pixelOffset = profileOffset + (uint)((profile.Length + 1) & ~1);
         var start = output.Position;
         using var writer = new BinaryWriter(output, System.Text.Encoding.UTF8, leaveOpen: true);

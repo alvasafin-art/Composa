@@ -13,17 +13,17 @@ namespace Composa.IO;
 internal static class Png16Codec
 {
     private static ReadOnlySpan<byte> Signature => [137, 80, 78, 71, 13, 10, 26, 10];
-    internal static SKBitmap? TryDecode(Stream input, string name = "image")
-        => TryDecode(input, out _, name);
+    internal static SKBitmap? TryDecode(Stream input, string name = "image", bool preserveProfile = false)
+        => TryDecode(input, out _, name, preserveProfile);
 
-    internal static SKBitmap? TryDecode(Stream input, out SKEncodedOrigin origin, string name = "image")
+    internal static SKBitmap? TryDecode(Stream input, out SKEncodedOrigin origin, string name = "image", bool preserveProfile = false)
     {
-        try { return Decode(input, out origin, name); }
+        try { return Decode(input, out origin, name, preserveProfile); }
         catch (EndOfStreamException) { throw Bad(name, "has truncated PNG data"); }
         catch (OverflowException) { throw Bad(name, "has invalid PNG dimensions or chunk lengths"); }
     }
 
-    private static SKBitmap? Decode(Stream input, out SKEncodedOrigin origin, string name)
+    private static SKBitmap? Decode(Stream input, out SKEncodedOrigin origin, string name, bool preserveProfile)
     {
         origin = SKEncodedOrigin.TopLeft;
         if (!input.CanSeek) throw new ArgumentException("PNG precision decoding requires a seekable stream.", nameof(input));
@@ -41,9 +41,10 @@ internal static class Png16Codec
         if (header[26] != 0 || header[27] != 0 || header[28] > 1) throw Bad(name, "uses an unsupported PNG method");
         // A float working buffer is 16 bytes/pixel. Apply the same byte ceiling as a normal surface.
         if ((long)width * height * 16 > DocumentLimits.MaxSurfaceBytes) throw Bad(name, "needs more memory than a high precision surface can hold");
+        var retainedProfile = preserveProfile ? ImageProfiles.ReadProfile(input) : null;
         using var codec = SKCodec.Create(new SKManagedStream(input, disposeManagedStream: false)) ?? throw Bad(name);
         origin = codec.EncodedOrigin;
-        var space = codec.Info.ColorSpace;
+        var space = retainedProfile?.Space ?? codec.Info.ColorSpace;
         input.Position = start + 8;
         using var compressed = new MemoryStream();
         byte[]? transparency = null;
@@ -68,6 +69,7 @@ internal static class Png16Codec
         compressed.Position = 0;
         using var zipped = new ZLibStream(compressed, CompressionMode.Decompress);
         var source = Pixels.NewColor(width, height, ColorDepth.Sixteen, space);
+        if (retainedProfile != null) Pixels.TagProfile(source, retainedProfile);
         try
         {
             var target = new PixelBuffer(source);
@@ -103,7 +105,7 @@ internal static class Png16Codec
             }
             if (zipped.ReadByte() != -1) throw Bad(name, "has extra PNG samples");
             Pixels.Invalidate(source);
-            if (space == null || space.IsSrgb) return source;
+            if (preserveProfile || space == null || space.IsSrgb) return source;
             // Full precision color conversion; the encoded source values and its profile travel together.
             var converted = Pixels.NewColor(width, height, ColorDepth.Sixteen);
             try
@@ -113,6 +115,7 @@ internal static class Png16Codec
                 canvas.DrawBitmap(source, 0, 0, paint);
             }
             catch { converted.Dispose(); throw; }
+            Pixels.ClampColor(converted);
             source.Dispose();
             return converted;
         }
@@ -137,7 +140,7 @@ internal static class Png16Codec
         return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
     }
 
-    private static uint Crc(ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload)
+    internal static uint Crc(ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload)
     {
         var crc = uint.MaxValue;
         foreach (var value in kind) crc = CrcTable[(crc ^ value) & 255] ^ (crc >> 8);

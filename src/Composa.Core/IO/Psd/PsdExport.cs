@@ -3,6 +3,7 @@ using System.Text;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.IO.Psd;
 
@@ -166,7 +167,7 @@ public static partial class PsdExport
 
     private static void Resources(Output output, Document document)
     {
-        output.Resource(1039, () => output.Bytes(SrgbProfile.Value));
+        output.Resource(1039, () => output.Bytes(document.Profile.Icc));
         output.Resource(1005, () =>
         {
             var resolution = (uint)Math.Round(Math.Clamp(document.Resolution, 1, 9600) * 65536);
@@ -271,6 +272,12 @@ public static partial class PsdExport
                 shown.BlendIf = new(); // Photoshop evaluates the native ranges against its real backdrop.
                 if (!record.HasEffects) shown.Mask = null;
                 result.Image = DocumentRenderer.RenderLayers(document, [shown], record.Bounds); result.OwnImage = true;
+            }
+            if (result.Image != null && !RgbProfile.SameSpace(result.Image.ColorSpace, document.Profile.Space))
+            {
+                var converted = Pixels.ConvertWorking(result.Image, document.WorkingDepth, document.Profile);
+                if (result.OwnImage) result.Image.Dispose();
+                result.Image = converted; result.OwnImage = true;
             }
             if (record.HasMask)
             {

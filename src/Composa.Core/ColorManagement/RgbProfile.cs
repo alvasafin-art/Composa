@@ -10,6 +10,7 @@ namespace Composa.ColorManagement;
 /// The native space is borrowed by Core renderers; callers must never dispose it.</summary>
 public sealed class RgbProfile : IEquatable<RgbProfile>
 {
+    private static readonly Dictionary<nint, WeakReference<RgbProfile>> known = [];
     private readonly byte[] data;
     private readonly string fingerprint;
     internal SKColorSpace Space { get; }
@@ -18,7 +19,31 @@ public sealed class RgbProfile : IEquatable<RgbProfile>
     internal ReadOnlySpan<byte> Icc => data;
 
     private RgbProfile(byte[] bytes, SKColorSpace space, string name)
-    { data = bytes; Space = space; Name = name; fingerprint = Convert.ToHexString(SHA256.HashData(bytes)); }
+    {
+        data = bytes; Space = space; Name = name; fingerprint = Convert.ToHexString(SHA256.HashData(bytes));
+        lock (known)
+        {
+            foreach (var key in known.Where(p => !p.Value.TryGetTarget(out _)).Select(p => p.Key).ToArray()) known.Remove(key);
+            known[space.Handle] = new(this);
+        }
+    }
+
+    internal static bool SameSpace(SKColorSpace? a, SKColorSpace? b) => ReferenceEquals(a, b) || a != null && b != null && SKColorSpace.Equal(a, b);
+
+    internal static RgbProfile ForSpace(SKColorSpace? space)
+    {
+        if (space == null) return Srgb;
+        lock (known)
+        {
+            if (known.TryGetValue(space.Handle, out var exact) && exact.TryGetTarget(out var profile)) return profile;
+            foreach (var weak in known.Values)
+                if (weak.TryGetTarget(out var equivalent) && SameSpace(equivalent.Space, space)) return equivalent;
+        }
+        if (space.IsSrgb) return Srgb;
+        if (!space.GetNumericalTransferFunction(out var transfer) || !space.ToColorSpaceXyz(out var matrix))
+            throw new InvalidDataException("The image's RGB space cannot be embedded as an ICC profile.");
+        return FromIcc(MatrixRgbProfile.Write("Composa RGB", matrix, transfer));
+    }
 
     public static RgbProfile FromIcc(ReadOnlySpan<byte> bytes, string? name = null)
     {
@@ -61,7 +86,7 @@ public sealed class RgbProfile : IEquatable<RgbProfile>
     private static readonly Lazy<RgbProfile> srgb = new(() =>
     {
         using var input = typeof(RgbProfile).Assembly.GetManifestResourceStream("Composa.IO.Psd.sRGB2014.icc") ?? throw new IOException("The built-in sRGB profile is missing.");
-        using var bytes = new MemoryStream(); input.CopyTo(bytes); return FromIcc(bytes.ToArray(), "sRGB");
+        using var bytes = new MemoryStream(); input.CopyTo(bytes); return new RgbProfile(bytes.ToArray(), SKColorSpace.CreateSrgb(), "sRGB");
     });
     private static readonly Lazy<RgbProfile> displayP3 = new(() => FromIcc(MatrixRgbProfile.Write("Display P3", SKColorSpaceXyz.DisplayP3, SKColorSpaceTransferFn.Srgb), "Display P3"));
     private static readonly Lazy<RgbProfile> rgb1998 = new(() => FromIcc(MatrixRgbProfile.Write("Composa RGB (1998)", SKColorSpaceXyz.AdobeRgb,

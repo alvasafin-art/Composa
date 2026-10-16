@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Composa.Model;
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.Rendering;
 
@@ -43,6 +44,7 @@ public static partial class Pixels
         if (depth == ColorDepth.Sixteen && !Model.DocumentLimits.FitsSurface(Math.Max(1, width), Math.Max(1, height), 16))
             throw new InvalidOperationException("The high precision surface exceeds the supported memory or dimensions.");
         var bitmap = new SKBitmap(ColorInfo(Math.Max(1, width), Math.Max(1, height), depth, space));
+        TagProfile(bitmap, space == null ? RgbProfile.Srgb : RgbProfile.ForSpace(space));
         Fill(bitmap, 0);
         return bitmap;
     }
@@ -98,6 +100,7 @@ public static partial class Pixels
     public static unsafe SKBitmap Clone(SKBitmap source)
     {
         var copy = new SKBitmap(source.Info);
+        RetainProfile(source, copy);
         byte* from = (byte*)source.GetPixels(), to = (byte*)copy.GetPixels();
         long height = source.Height;
         if (source.RowBytes != copy.RowBytes)

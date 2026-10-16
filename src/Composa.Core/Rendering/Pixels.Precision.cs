@@ -24,6 +24,7 @@ public static partial class Pixels
     public static SKBitmap ConvertDepth(SKBitmap source, ColorDepth depth)
     {
         var result = NewColor(source.Width, source.Height, depth, source.ColorSpace);
+        RetainProfile(source, result);
         using var canvas = new SKCanvas(result);
         using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
         canvas.DrawBitmap(source, 0, 0, paint);
@@ -36,6 +37,7 @@ public static partial class Pixels
         if (source.ColorType == SKColorType.RgbaF32 && !DocumentLimits.FitsSurface(width ?? source.Width, height ?? source.Height, 16))
             throw new InvalidOperationException("The high precision surface exceeds the supported memory or dimensions.");
         var result = new SKBitmap(source.Info.WithSize(width ?? source.Width, height ?? source.Height));
+        RetainProfile(source, result);
         Fill(result, 0);
         return result;
     }

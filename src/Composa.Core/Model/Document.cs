@@ -1,4 +1,5 @@
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.Model;
 
@@ -12,6 +13,7 @@ public sealed class Document
     public double Resolution { get; set; } = 72;
     public ColorDepth Depth { get; set; } = ColorDepth.Eight;
     public ColorDepth WorkingDepth => Depth;
+    public RgbProfile Profile { get; set; } = RgbProfile.Srgb;
     /// <summary>Root layers, bottom to top.</summary>
     public List<Layer> Layers { get; init; } = [];
     public Guid? ActiveLayerId { get; set; }
@@ -45,7 +47,7 @@ public sealed class Document
 
     public Document Clone()
     {
-        var copy = new Document(Width, Height) { Resolution = Resolution, Depth = Depth, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
+        var copy = new Document(Width, Height) { Resolution = Resolution, Depth = Depth, Profile = Profile, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
         foreach (var layer in Layers) copy.Layers.Add(layer.Clone());
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.SelectionOrder.AddRange(SelectionOrder);

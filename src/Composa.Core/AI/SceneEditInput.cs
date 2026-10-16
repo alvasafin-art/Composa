@@ -63,7 +63,7 @@ public sealed class SceneEditInput : IDisposable
         IsCutout=!WholeImage && (active!.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
         if(IsCutout)
         {
-            var isolated=new Document(document.Width,document.Height) {Depth=document.WorkingDepth};
+            var isolated=new Document(document.Width,document.Height) {Depth=document.WorkingDepth,Profile=document.Profile};
             var copy=clean.Find(active!.Id)!.Clone(); copy.Effects=null; copy.Clipped=false; copy.Visible=true;
             isolated.Layers.Add(copy);
             Foreground=Own(DocumentRenderer.Flatten(isolated));

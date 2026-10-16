@@ -1,4 +1,5 @@
 using Composa.Model;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.Rendering;
@@ -18,13 +19,15 @@ internal sealed class Tile : IDisposable
     public SKRectI Area { get; }
     public RenderView View { get; }
     public ColorDepth Depth { get; }
+    private readonly RgbProfile profile;
 
-    public Tile(SKRectI area, RenderView view, bool mask = false, ColorDepth depth = ColorDepth.Eight)
+    public Tile(SKRectI area, RenderView view, bool mask = false, ColorDepth depth = ColorDepth.Eight, RgbProfile? profile = null)
     {
         Area = area;
         View = view;
         Depth = depth;
-        Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewColor(area.Width, area.Height, depth);
+        this.profile = profile ?? RgbProfile.Srgb;
+        Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
         Canvas = new SKCanvas(Bitmap);
         Canvas.Translate(-area.Left, -area.Top);
         Canvas.Scale(view.Scale);
@@ -32,7 +35,7 @@ internal sealed class Tile : IDisposable
     }
 
     /// <summary>A sibling buffer over the same area.</summary>
-    public Tile Sibling(bool mask = false) => new(Area, View, mask, Depth);
+    public Tile Sibling(bool mask = false) => new(Area, View, mask, Depth, profile);
 
     /// <summary>Draws a bitmap covering the same area straight onto this tile, pixel for pixel.</summary>
     public void DrawRaw(SKBitmap bitmap, SKPaint? paint = null)
@@ -66,7 +69,7 @@ public static partial class DocumentRenderer
     /// <summary>A new bitmap holding the whole flattened document.</summary>
     public static SKBitmap Flatten(Document document, RenderOptions? options = null)
     {
-        var target = Pixels.NewColor(document.Width, document.Height, document.WorkingDepth);
+        var target = Pixels.NewWorkingColor(document.Width, document.Height, document.WorkingDepth, document.Profile);
         Render(document, target, document.Bounds, options);
         return target;
     }
@@ -105,11 +108,12 @@ public static partial class DocumentRenderer
                 padded.Inflate(margin, margin);
                 padded = Geometry.Union(part, Geometry.Intersect(padded, canvas));
             }
-            using var tile = new Tile(padded, view, depth: depth);
+            using var tile = new Tile(padded, view, depth: depth, profile: document.Profile);
             RenderNodes(document.Layers, tile, options);
             tile.Canvas.Flush();
             CopyRows(tile.Bitmap, new SKPointI(part.Left - padded.Left, part.Top - padded.Top), target, part);
         });
+        Pixels.ClampColor(target, area);
         Pixels.Invalidate(target);
     }
 
@@ -130,11 +134,12 @@ public static partial class DocumentRenderer
     {
         var source = (byte*)from.GetPixels();
         var destination = (byte*)to.GetPixels();
-        if (from.ColorType != to.ColorType)
+        var targetSpace = to.ColorType == SKColorType.Alpha8 ? null : to.ColorSpace ?? RgbProfile.Srgb.Space;
+        if (from.ColorType != to.ColorType || !RgbProfile.SameSpace(from.ColorSpace, targetSpace))
         {
             using var sourcePixels = from.PeekPixels();
             var at = (nint)(destination + (long)area.Top * to.RowBytes + (long)area.Left * to.BytesPerPixel);
-            if (!sourcePixels.ReadPixels(to.Info.WithSize(area.Width, area.Height), at, to.RowBytes, fromOrigin.X, fromOrigin.Y))
+            if (!sourcePixels.ReadPixels(to.Info.WithSize(area.Width, area.Height).WithColorSpace(targetSpace), at, to.RowBytes, fromOrigin.X, fromOrigin.Y))
                 throw new InvalidOperationException("The rendered pixels could not be converted for display.");
             return;
         }
@@ -146,7 +151,7 @@ public static partial class DocumentRenderer
     /// <summary>Renders only the given layers (and their clipped followers) over a document-space area, for merges and copies.</summary>
     public static SKBitmap RenderLayers(Document document, IEnumerable<Layer> layers, SKRectI area)
     {
-        using var tile = new Tile(new SKRectI(0, 0, area.Width, area.Height), new RenderView(1, new SKPoint(area.Left, area.Top)), depth: document.WorkingDepth);
+        using var tile = new Tile(new SKRectI(0, 0, area.Width, area.Height), new RenderView(1, new SKPoint(area.Left, area.Top)), depth: document.WorkingDepth, profile: document.Profile);
         RenderNodes(layers.ToList(), tile, null);
         tile.Canvas.Flush();
         return Pixels.Clone(tile.Bitmap);
