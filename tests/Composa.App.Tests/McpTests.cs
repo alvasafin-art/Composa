@@ -69,6 +69,16 @@ public class McpTests
             }
             finally { File.Delete(psd); }
             Assert.Equal(expected.GetPixelSpan().ToArray(), actual.GetPixelSpan().ToArray());
+            var tiff = Path.ChangeExtension(image, ".tif");
+            try
+            {
+                var exportedTiff = await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = tiff }));
+                Assert.Null(exportedTiff.IsError);
+                using var decodedTiff = new ImageMagick.MagickImage(tiff);
+                Assert.Equal((uint)expected.Width, decodedTiff.Width); Assert.Equal((uint)expected.Height, decodedTiff.Height);
+                Assert.NotNull(decodedTiff.GetColorProfile());
+            }
+            finally { File.Delete(tiff); }
             Assert.Equal(state, session.History.CurrentId); Assert.NotNull(session.Selection);
             if (OperatingSystem.IsWindows())
             {

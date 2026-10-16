@@ -4,7 +4,7 @@ using SkiaSharp;
 
 namespace Composa.IO;
 
-public enum ExportFormat { Png, Jpeg, Webp }
+public enum ExportFormat { Png, Jpeg, Webp, Tiff }
 
 public static class ImageFiles
 {
@@ -12,30 +12,42 @@ public static class ImageFiles
     public static readonly string[] ImportExtensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".ico", ".heic", ".heif", ".avif", ".tif", ".tiff", ".svg", ".psd", ".psb"];
 
     /// <summary>Decodes an image file to RGBA premultiplied pixels, upright according to its EXIF orientation.</summary>
-    public static SKBitmap Load(string path)
+    public static SKBitmap Load(string path, ColorDepth? depth = ColorDepth.Eight)
     {
         try
         {
             using var stream = File.OpenRead(path);
-            return Load(stream, Path.GetFileName(path));
+            return Load(stream, Path.GetFileName(path), depth);
         }
         catch (InvalidDataException) when (ImageMagick.IsAvailable)
         {
             // Skia has no HEIC, AVIF or TIFF decoder; ImageMagick fills the gap. When it cannot read
             // the file either, its reason is the one worth reporting, since it was the last to try.
-            using var stream = new MemoryStream(ImageMagick.Convert(path, ImageMagickOutput.Png)!);
-            return Load(stream, Path.GetFileName(path));
+            using var stream = new MemoryStream(ImageMagick.Convert(path, depth == ColorDepth.Eight ? ImageMagickOutput.Png : ImageMagickOutput.Png16)!);
+            return Load(stream, Path.GetFileName(path), depth);
         }
     }
 
-    public static SKBitmap Load(Stream stream, string name = "image")
+    public static SKBitmap Load(Stream stream, string name = "image", ColorDepth? depth = ColorDepth.Eight)
     {
+        if (depth != ColorDepth.Eight)
+        {
+            if (!stream.CanSeek)
+            {
+                using var seekable = new MemoryStream(); stream.CopyTo(seekable); seekable.Position = 0;
+                return Load(seekable, name, depth);
+            }
+            if (Png16Codec.TryDecode(stream, out var origin, name) is { } high) return Upright(high, origin);
+        }
         using var codec = SKCodec.Create(stream, out var status)
             ?? throw new InvalidDataException($"{name} could not be read ({status}). Supported formats are PNG, JPEG, WebP, BMP and GIF; HEIC, AVIF and TIFF open when ImageMagick is installed.");
         var info = codec.Info;
         if (!DocumentLimits.FitsSurface(info.Width, info.Height))
             throw new InvalidDataException($"{name} is larger than the supported {DocumentLimits.MaxSide:N0} pixels a side and {DocumentLimits.MaxSurfaceMegapixels} megapixels.");
-        var bitmap = new SKBitmap(Pixels.ColorInfo(info.Width, info.Height));
+        var actualDepth = depth ?? ColorDepth.Eight;
+        if ((long)info.Width * info.Height * (actualDepth == ColorDepth.Sixteen ? 16 : 4) > DocumentLimits.MaxSurfaceBytes)
+            throw new InvalidDataException($"{name} exceeds the supported surface memory.");
+        var bitmap = new SKBitmap(Pixels.ColorInfo(info.Width, info.Height, actualDepth));
         var result = codec.GetPixels(bitmap.Info, bitmap.GetPixels());
         if (result is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
         {
@@ -50,7 +62,7 @@ public static class ImageFiles
         if (origin is SKEncodedOrigin.TopLeft or SKEncodedOrigin.Default) return bitmap;
         var swap = origin is SKEncodedOrigin.LeftTop or SKEncodedOrigin.RightTop or SKEncodedOrigin.RightBottom or SKEncodedOrigin.LeftBottom;
         int w = swap ? bitmap.Height : bitmap.Width, h = swap ? bitmap.Width : bitmap.Height;
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(bitmap, w, h);
         using (var canvas = new SKCanvas(result))
         {
             var matrix = origin switch
@@ -73,6 +85,10 @@ public static class ImageFiles
 
     public static byte[] Encode(SKBitmap bitmap, ExportFormat format, int quality = 90, SKColor? matte = null)
     {
+        if (format == ExportFormat.Tiff)
+        {
+            using var tiff = new MemoryStream(); TiffCodec.Write(bitmap, tiff); return tiff.ToArray();
+        }
         var source = bitmap;
         SKBitmap? flattened = null;
         if (format == ExportFormat.Jpeg)
@@ -97,18 +113,27 @@ public static class ImageFiles
         finally { flattened?.Dispose(); }
     }
 
-    public static void Save(SKBitmap bitmap, string path, ExportFormat format, int quality = 90)
+    public static void Save(SKBitmap bitmap, string path, ExportFormat format, int quality = 90, double resolution = 72)
     {
-        var bytes = Encode(bitmap, format, quality);
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
-        File.WriteAllBytes(temp, bytes);
-        File.Move(temp, path, overwrite: true);
+        try
+        {
+            if (format == ExportFormat.Tiff)
+            {
+                using var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+                TiffCodec.Write(bitmap, output, resolution); output.Flush(flushToDisk: true);
+            }
+            else File.WriteAllBytes(temp, Encode(bitmap, format, quality));
+            File.Move(temp, path, overwrite: true);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
     public static ExportFormat FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".jpg" or ".jpeg" => ExportFormat.Jpeg,
         ".webp" => ExportFormat.Webp,
+        ".tif" or ".tiff" => ExportFormat.Tiff,
         _ => ExportFormat.Png
     };
 }

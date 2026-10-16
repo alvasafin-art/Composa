@@ -634,7 +634,8 @@ public class EditingTests
     public void Exports_encode_and_reload()
     {
         using var bitmap = Gradient(32, 24);
-        foreach (var format in Enum.GetValues<ExportFormat>())
+        // Stream decoding here is Skia's formats; TIFF is independently decoded by Magick in the app tests.
+        foreach (var format in Enum.GetValues<ExportFormat>().Where(f => f != ExportFormat.Tiff))
         {
             var bytes = ImageFiles.Encode(bitmap, format);
             using var reloaded = ImageFiles.Load(new MemoryStream(bytes));

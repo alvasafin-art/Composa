@@ -14,7 +14,18 @@ internal static class Png16Codec
 {
     private static ReadOnlySpan<byte> Signature => [137, 80, 78, 71, 13, 10, 26, 10];
     internal static SKBitmap? TryDecode(Stream input, string name = "image")
+        => TryDecode(input, out _, name);
+
+    internal static SKBitmap? TryDecode(Stream input, out SKEncodedOrigin origin, string name = "image")
     {
+        try { return Decode(input, out origin, name); }
+        catch (EndOfStreamException) { throw Bad(name, "has truncated PNG data"); }
+        catch (OverflowException) { throw Bad(name, "has invalid PNG dimensions or chunk lengths"); }
+    }
+
+    private static SKBitmap? Decode(Stream input, out SKEncodedOrigin origin, string name)
+    {
+        origin = SKEncodedOrigin.TopLeft;
         if (!input.CanSeek) throw new ArgumentException("PNG precision decoding requires a seekable stream.", nameof(input));
         var start = input.Position;
         Span<byte> header = stackalloc byte[33];
@@ -31,6 +42,7 @@ internal static class Png16Codec
         // A float working buffer is 16 bytes/pixel. Apply the same byte ceiling as a normal surface.
         if ((long)width * height * 16 > DocumentLimits.MaxSurfaceBytes) throw Bad(name, "needs more memory than a high precision surface can hold");
         using var codec = SKCodec.Create(new SKManagedStream(input, disposeManagedStream: false)) ?? throw Bad(name);
+        origin = codec.EncodedOrigin;
         var space = codec.Info.ColorSpace;
         input.Position = start + 8;
         using var compressed = new MemoryStream();
@@ -94,8 +106,13 @@ internal static class Png16Codec
             if (space == null || space.IsSrgb) return source;
             // Full precision color conversion; the encoded source values and its profile travel together.
             var converted = Pixels.NewColor(width, height, ColorDepth.Sixteen);
-            using (var canvas = new SKCanvas(converted))
-            using (var paint = new SKPaint { BlendMode = SKBlendMode.Src }) canvas.DrawBitmap(source, 0, 0, paint);
+            try
+            {
+                using var canvas = new SKCanvas(converted);
+                using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+                canvas.DrawBitmap(source, 0, 0, paint);
+            }
+            catch { converted.Dispose(); throw; }
             source.Dispose();
             return converted;
         }

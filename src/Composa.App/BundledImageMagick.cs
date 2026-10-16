@@ -33,8 +33,15 @@ public sealed class BundledImageMagick : IO.IImageMagick
     public byte[] Convert(string path, IO.ImageMagickOutput output) => Read(path, new Magick.MagickReadSettings { FrameIndex = 0, FrameCount = 1 }, image =>
     {
         image.AutoOrient();
-        if (output == IO.ImageMagickOutput.Pam16) image.Depth = 16;
-        return image.ToByteArray(output == IO.ImageMagickOutput.Png ? Magick.MagickFormat.Png : Magick.MagickFormat.Pam);
+        if (output is IO.ImageMagickOutput.Pam16 or IO.ImageMagickOutput.Png16) image.Depth = 16;
+        if (output == IO.ImageMagickOutput.Pam16)
+        {
+            // PAM has no ICC container: convert before dropping the profile.
+            if (image.GetColorProfile() != null) image.TransformColorSpace(Magick.ColorProfiles.SRGB);
+            else image.ColorSpace = Magick.ColorSpace.sRGB;
+        }
+        if (output == IO.ImageMagickOutput.Png16) image.Settings.SetDefine(Magick.MagickFormat.Png, "bit-depth", "16");
+        return image.ToByteArray(output == IO.ImageMagickOutput.Pam16 ? Magick.MagickFormat.Pam : Magick.MagickFormat.Png);
     });
 
     /// <summary>The resolution decides how large an SVG is drawn, 96 dots per inch being the size it declares.</summary>
