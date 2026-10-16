@@ -18,6 +18,7 @@ public static class DocumentLimits
     /// <summary>Largest single surface. At four bytes a pixel one allocation is at most 800 MB, and a filter holds a few of them at once.</summary>
     public const long MaxSurfacePixels = 200_000_000;
     public const long MaxSurfaceBytes = MaxSurfacePixels * 4;
+    public const int MaxIccBytes = 4 * 1024 * 1024;
 
     /// <summary>
     /// Total raster one document may hold, summed over every imported layer and mask. Only documents that genuinely
