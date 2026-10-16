@@ -10,6 +10,15 @@ namespace Composa.App.Mcp;
 
 public sealed partial class ComposaTools
 {
+    [McpServerTool(Name = "set_color_depth")]
+    [Description("Converts the document to RGB 8 or 16 bits/channel as one undoable edit. Embedded smart-object originals retain their own precision. Conversion to 8 bits rounds working pixel values.")]
+    public Task<string> SetColorDepth(int bitDepth, int? document = null) => OnUi(() =>
+    {
+        if (bitDepth is not (8 or 16)) throw new McpException("bitDepth must be 8 or 16.");
+        var session = Editable(document); session.ChangeColorDepth((ColorDepth)bitDepth);
+        return $"Document uses RGB {bitDepth} bits/channel.";
+    });
+
     [McpServerTool(Name = "smart_object")]
     [Description("Embedded smart objects: convert the named layer(s) preserving editable contents; copy makes an independent smart source. Ordinary duplicate_layer shares the source. Edit contents in its tab and Ctrl+S to update all parent instances. action: convert or copy.")]
     public Task<string> SmartObject(string action, string[] layers, int? document = null) => OnUi(() =>

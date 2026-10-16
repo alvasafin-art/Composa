@@ -33,6 +33,8 @@ public sealed class BundledImageMagick : IO.IImageMagick
     public byte[] Convert(string path, IO.ImageMagickOutput output) => Read(path, new Magick.MagickReadSettings { FrameIndex = 0, FrameCount = 1 }, image =>
     {
         image.AutoOrient();
+        if (output == IO.ImageMagickOutput.PngSource)
+            image.Settings.SetDefine(Magick.MagickFormat.Png, "bit-depth", image.Depth > 8 ? "16" : "8");
         if (output is IO.ImageMagickOutput.Pam16 or IO.ImageMagickOutput.Png16) image.Depth = 16;
         if (output == IO.ImageMagickOutput.Pam16)
         {

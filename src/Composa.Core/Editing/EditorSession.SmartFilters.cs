@@ -49,11 +49,14 @@ public sealed partial class EditorSession
     private void RenderSmartFilters(Layer layer, Document? budgetDocument = null)
     {
         var source = layer.FilterSource!; var old = layer.Pixels!;
+        var originalSource = source;
         var sourceTransform = SmartFilterSourceTransform(layer);
         var sourceWidth = sourceTransform.Width; var sourceHeight = sourceTransform.Height;
         var result = source; var growX = 0; var growY = 0;
         try
         {
+            if (Pixels.DepthOf(source) != (budgetDocument ?? document).WorkingDepth)
+                result = source = Pixels.ConvertDepth(source, (budgetDocument ?? document).WorkingDepth);
             foreach (var filter in layer.SmartFilters.Where(f => f.Enabled))
             {
                 var next = ImageFilters.Run(result, filter.Settings);
@@ -80,8 +83,13 @@ public sealed partial class EditorSession
                     (n.InX * old.Width + dx) / result.Width, (n.InY * old.Height + dy) / result.Height, (n.OutX * old.Width + dx) / result.Width, (n.OutY * old.Height + dy) / result.Height)).ToArray() };
             }
             layer.Transform = sourceTransform with { X = center.X - w / 2, Y = center.Y - h / 2, Width = w, Height = h };
-            layer.Pixels = result; layer.FilterPaddingX = growX; layer.FilterPaddingY = growY;
+            layer.Pixels = result; layer.FilterSource = source; layer.FilterPaddingX = growX; layer.FilterPaddingY = growY;
         }
-        catch { if (!ReferenceEquals(result, source)) result.Dispose(); throw; }
+        catch
+        {
+            if (!ReferenceEquals(result, source)) result.Dispose();
+            if (!ReferenceEquals(source, originalSource)) source.Dispose();
+            throw;
+        }
     }
 }

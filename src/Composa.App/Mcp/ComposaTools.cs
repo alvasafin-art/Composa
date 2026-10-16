@@ -66,7 +66,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         var doc = s.Document;
         var text = new StringBuilder();
         text.Append('"').Append(s.Title).Append("\": ").Append(doc.Width).Append('×').Append(doc.Height).Append(" px at ")
-            .Append(doc.Resolution.ToString("0.#")).Append(" ppi");
+            .Append(doc.Resolution.ToString("0.#")).Append(" ppi, RGB ").Append((int)doc.WorkingDepth).Append(" bits/channel");
         if (doc.Selection != null && !SelectionMask.Bounds(doc.Selection).IsEmpty)
         {
             var b = SelectionMask.Bounds(doc.Selection);
@@ -112,12 +112,14 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     public Task<string> NewDocument(
         [Description("Width in pixels")] int width,
         [Description("Height in pixels")] int height,
-        [Description("Background color as #rrggbb; leave it out for a transparent canvas")] string? background = null) => OnUi(() =>
+        [Description("Background color as #rrggbb; leave it out for a transparent canvas")] string? background = null,
+        [Description("RGB precision: 8 or 16 bits per channel")] int bitDepth = 8) => OnUi(() =>
     {
         if (window.IsDragging) throw new McpException("The person is dragging on the canvas; try again in a moment.");
-        if (!DocumentLimits.FitsSurface(width, height))
+        if (bitDepth is not (8 or 16)) throw new McpException("bitDepth must be 8 or 16.");
+        if (!DocumentLimits.FitsSurface(width, height, bitDepth == 16 ? 16 : 4))
             throw new McpException($"A canvas is at most {DocumentLimits.MaxSide} px on a side and {DocumentLimits.MaxSurfaceMegapixels} megapixels; {width}×{height} px is not.");
-        var s = EditorSession.NewCanvas(width, height, background == null ? null : ParseColor(background));
+        var s = EditorSession.NewCanvas(width, height, background == null ? null : ParseColor(background), (ColorDepth)bitDepth);
         window.AddSession(s);
         return $"Created document {window.Sessions.Count}: \"{s.Title}\" {width}×{height} px, now active.";
     });
@@ -140,7 +142,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         // An SVG is drawn at the size it will be placed at, so a scaled one is as sharp as a full-size one.
         var svgFit = new SKSizeI(Math.Max(1, (int)Math.Round(canvas.Width * Math.Min(scale, 1))), Math.Max(1, (int)Math.Round(canvas.Height * Math.Min(scale, 1))));
         var pixels = await Task.Run(() => SvgImporter.IsSvg(path) ? SvgImporter.Render(path, svgFit, budget) : ImageFiles.Load(path));
-        if ((long)pixels.Width * pixels.Height > budget)
+        if (((long)pixels.ByteCount + 3) / 4 > budget)
         {
             pixels.Dispose();
             throw new McpException($"{Path.GetFileName(path)} is {pixels.Width}×{pixels.Height} px, more than the {budget / 1_000_000} megapixels the document can still hold.");

@@ -322,12 +322,13 @@ public static partial class PsdExport
             var pixels = bitmap.GetPixelSpan().Slice(y * bitmap.RowBytes);
             for (var x = 0; x < bitmap.Width; x++)
             {
-                if (depth == 16)
+                if (depth == 16 || bitmap.ColorType == SKColorType.RgbaF32)
                 {
                     var p = id == -2 ? default : color.Read(x, y);
                     var v = id == -2 ? pixels[x] / 255f : id == -1 ? p.A
                         : matte ? p[id] + 1 - p.A : p.A <= 0 ? 0 : p[id] / p.A;
-                    BinaryPrimitives.WriteUInt16BigEndian(row.AsSpan(x * 2), (ushort)Math.Clamp(MathF.Round(v * 65535), 0, 65535));
+                    if (depth == 16) BinaryPrimitives.WriteUInt16BigEndian(row.AsSpan(x * 2), (ushort)Math.Clamp(MathF.Round(v * 65535), 0, 65535));
+                    else row[x] = (byte)Math.Clamp(MathF.Round(v * 255), 0, 255);
                 }
                 else if (id == -2) row[x] = pixels[x];
                 else

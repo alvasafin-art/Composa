@@ -84,7 +84,8 @@ public sealed partial class EditorSession
     /// </summary>
     private (SKBitmap Source, bool Owned) SelectionSample()
     {
-        if (SampleAllLayers || ActiveLayer is not { Pixels: not null } layer) return (Composite(), false);
+        if (SampleAllLayers || ActiveLayer is not { Pixels: not null } layer)
+            return document.WorkingDepth == ColorDepth.Sixteen ? (CompositePixels(), true) : (Composite(), false);
         var copy = layer.Clone();
         copy.Visible = true; copy.Opacity = 1; copy.Blend = BlendMode.Normal; copy.Clipped = false; copy.Mask = null; copy.Effects = null;
         return (DocumentRenderer.RenderLayers(document, [copy], document.Bounds), true);

@@ -40,6 +40,7 @@ public sealed partial class EditorSession
     public static EditorSession NewCanvas(int width, int height, SKColor? background, ColorDepth depth)
     {
         var document = new Document(width, height) { Depth = depth };
+        ValidateCanvasDepth(document.Width, document.Height, depth);
         var pixels = Pixels.NewColor(document.Width, document.Height, depth);
         if (background is { } color) pixels.Erase(color);
         var layer = Layer.Raster(background == null ? "Layer 1" : "Background", pixels);

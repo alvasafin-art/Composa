@@ -135,6 +135,9 @@ public sealed partial class MainWindow
             Line(),
             Item("Canvas Size…", () => _ = CanvasSize(), Key.C, ctrl | alt),
             Item("Image Size…", () => _ = ImageSize(), Key.I, ctrl | alt),
+            Sub("RGB Precision",
+                Item("8 Bits/Channel", () => session!.ChangeColorDepth(ColorDepth.Eight)),
+                Item("16 Bits/Channel", () => session!.ChangeColorDepth(ColorDepth.Sixteen))),
             Item("Trim…", () => _ = Trim()),
             Item("Reveal All", () => { if (session!.RevealAll()) canvas.Fit(); }, enabled: () => session!.CanRevealAll),
             Item("Duplicate", () => AddSession(session!.Duplicate())),
@@ -524,7 +527,7 @@ public sealed partial class MainWindow
     private async Task NewCanvas()
     {
         var result = await CanvasDialogs.NewCanvas(this, session?.Background ?? SKColors.White, await ClipboardImageSize());
-        if (result != null) AddSession(EditorSession.NewCanvas(result.Width, result.Height, result.Background));
+        if (result != null) AddSession(EditorSession.NewCanvas(result.Width, result.Height, result.Background, result.Depth));
     }
 
     private async Task Open()
@@ -570,7 +573,7 @@ public sealed partial class MainWindow
                 : SvgImporter.IsSvg(path) ? await Busy(() => Task.Run(() => SvgImporter.Render(path))) // At the size the file declares.
                 : ImageFiles.Load(path);
             if (pixels == null) return null;
-            var document = new Document(pixels.Width, pixels.Height);
+            var document = new Document(pixels.Width, pixels.Height) { Depth = Pixels.DepthOf(pixels) };
             var layer = Layer.Raster(Path.GetFileNameWithoutExtension(path), pixels);
             document.Layers.Add(layer);
             document.SetActive(layer.Id);
@@ -636,7 +639,7 @@ public sealed partial class MainWindow
     {
         var raw = await Busy(() => Task.Run(() => RawImporter.Decode(path)));
         if (await RawDevelopDialog.Show(this, Path.GetFileName(path), raw) is not { } settings) return null;
-        return await Busy(() => Task.Run(() => raw.Develop(settings)));
+        return await Busy(() => Task.Run(() => raw.Develop(settings, depth: settings.OutputDepth)));
     }
 
     /// <summary>Reads a Photoshop file and, when anything has to be converted, asks before going on. Null means the user declined.</summary>

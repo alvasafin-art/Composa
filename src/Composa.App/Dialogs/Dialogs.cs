@@ -120,7 +120,7 @@ public static class Prompts
     }
 }
 
-public sealed record NewCanvasResult(int Width, int Height, SKColor? Background);
+public sealed record NewCanvasResult(int Width, int Height, SKColor? Background, ColorDepth Depth = ColorDepth.Eight);
 
 public static class CanvasDialogs
 {
@@ -174,9 +174,21 @@ public static class CanvasDialogs
         widthBox.ValueChanged += FollowSize;
         heightBox.ValueChanged += FollowSize;
         var background = Ui.Combo(new[] { "Transparent", "White", "Background color" }, "Transparent", s => s, s => fill = s == "White" ? 1 : s == "Transparent" ? 0 : 2, 220);
-        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Background", background));
-        if (!await new DialogWindow("New Canvas", grid, "Create").Ask(owner)) return null;
-        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor);
+        var depth = ColorDepth.Eight;
+        DialogWindow? dialog = null;
+        var limit = Ui.Label("", Palette.Secondary); limit.MaxWidth = 300; limit.TextWrapping = TextWrapping.Wrap;
+        void Validate()
+        {
+            var valid = DocumentLimits.FitsSurface(width, height, depth == ColorDepth.Sixteen ? 16 : 4);
+            if (dialog != null) dialog.CanAccept = valid;
+            limit.Text = valid ? "" : $"Choose a smaller canvas. This RGB mode supports up to {DocumentLimits.MaxSurfaceBytes / (depth == ColorDepth.Sixteen ? 16 : 4) / 1_000_000:N0} megapixels.";
+        }
+        var precision = Ui.Combo(new[] { ColorDepth.Eight, ColorDepth.Sixteen }, depth, d => $"RGB · {(int)d} bits/channel", d => { depth = d; Validate(); }, 220);
+        widthBox.ValueChanged += (_, _) => Validate(); heightBox.ValueChanged += (_, _) => Validate();
+        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Background", background), ("Color mode", precision));
+        dialog = new DialogWindow("New Canvas", Ui.Column(8, grid, limit), "Create"); Validate();
+        if (!await dialog.Ask(owner)) return null;
+        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor, depth);
     }
 
     public static async Task<(int Width, int Height, Anchor Anchor)?> CanvasSize(Window owner, int currentWidth, int currentHeight)

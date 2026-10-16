@@ -40,6 +40,8 @@ public static partial class Pixels
 
     public static SKBitmap NewColor(int width, int height, ColorDepth depth = ColorDepth.Eight, SKColorSpace? space = null)
     {
+        if (depth == ColorDepth.Sixteen && !Model.DocumentLimits.FitsSurface(Math.Max(1, width), Math.Max(1, height), 16))
+            throw new InvalidOperationException("The high precision surface exceeds the supported memory or dimensions.");
         var bitmap = new SKBitmap(ColorInfo(Math.Max(1, width), Math.Max(1, height), depth, space));
         Fill(bitmap, 0);
         return bitmap;

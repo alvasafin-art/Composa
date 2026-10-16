@@ -65,6 +65,9 @@ public sealed partial class EditorSession
         if (instances.Any(layer => !ReferenceEquals(layer.SmartObject, expected)))
             throw new InvalidOperationException("The parent smart object changed (for example through Undo). Reopen its contents before saving; your open contents remain available.");
         var replacement = SmartObjectSource.Create(content, expected.Id);
+        SKBitmap preview;
+        try { preview = Pixels.DepthOf(replacement.Preview) == document.WorkingDepth ? replacement.Preview : Pixels.ConvertDepth(replacement.Preview, document.WorkingDepth); }
+        catch { replacement.Preview.Dispose(); throw; }
         var candidate = document.Clone();
         try
         {
@@ -86,8 +89,8 @@ public sealed partial class EditorSession
                     var sx = (float)replacement.Width / oldSource.Width; var sy = (float)replacement.Height / oldSource.Height;
                     canvas.Scale(sx, sy); canvas.DrawBitmap(mask, -layer.FilterPaddingX, -layer.FilterPaddingY); target.Mask = resized;
                 }
-                target.SmartObject = replacement; target.Pixels = replacement.Preview;
-                if (layer.FilterSource != null) target.FilterSource = replacement.Preview;
+                target.SmartObject = replacement; target.Pixels = preview;
+                if (layer.FilterSource != null) target.FilterSource = preview;
                 target.FilterPaddingX = target.FilterPaddingY = 0;
             }
             foreach (var layer in instances.Where(l => l.FilterSource != null)) RenderSmartFilters(candidate.Find(layer.Id)!, candidate);
@@ -100,8 +103,9 @@ public sealed partial class EditorSession
             {
                 var target = candidate.Find(layer.Id)!;
                 if (target.Mask != null && !ReferenceEquals(target.Mask, layer.Mask)) target.Mask.Dispose();
-                if (target.Pixels != null && !ReferenceEquals(target.Pixels, layer.Pixels) && !ReferenceEquals(target.Pixels, replacement.Preview)) target.Pixels.Dispose();
+                if (target.Pixels != null && !ReferenceEquals(target.Pixels, layer.Pixels) && !ReferenceEquals(target.Pixels, replacement.Preview) && !ReferenceEquals(target.Pixels, preview)) target.Pixels.Dispose();
             }
+            if (!ReferenceEquals(preview, replacement.Preview)) preview.Dispose();
             throw;
         }
         Apply("Update Smart Object", () =>
@@ -121,10 +125,13 @@ public sealed partial class EditorSession
         if (document.Find(layer.Id) != layer || layer.SmartObject is not { } source) throw new ArgumentException("Select a smart object.");
         var independent = SmartObjectSource.Create(source.OpenDocument());
         var copy = layer.Clone(newIds: true); copy.Name += " independent copy"; copy.SmartObject = independent;
-        if (copy.FilterSource != null) copy.FilterSource = independent.Preview; else copy.Pixels = independent.Preview;
+        SKBitmap preview;
+        try { preview = Pixels.DepthOf(independent.Preview) == document.WorkingDepth ? independent.Preview : Pixels.ConvertDepth(independent.Preview, document.WorkingDepth); }
+        catch { independent.Preview.Dispose(); throw; }
+        if (copy.FilterSource != null) copy.FilterSource = preview; else copy.Pixels = preview;
         var candidate = document.Clone(); candidate.InsertAboveActive(copy);
         try { EnsureSmartBudget(candidate); }
-        catch { independent.Preview.Dispose(); throw; }
+        catch { if (!ReferenceEquals(preview, independent.Preview)) preview.Dispose(); independent.Preview.Dispose(); throw; }
         Apply("New Smart Object via Copy", () =>
         {
             var siblings = document.SiblingsOf(layer.Id)!; siblings.Insert(siblings.IndexOf(layer) + 1, copy); document.SetActive(copy.Id);

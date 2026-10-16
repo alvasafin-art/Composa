@@ -319,8 +319,8 @@ public sealed class PsdImport
                 {
                     using var stream = new MemoryStream(data, writable: false);
                     var image = ImageFiles.Load(stream, "Embedded smart object");
-                    if ((long)image.Width * image.Height * 2 > available) { image.Dispose(); throw PsdException.TooLarge(); }
-                    contents = new Document(image.Width, image.Height); contents.Layers.Add(Layer.Raster("Contents", image));
+                    if (((long)image.ByteCount + 3) / 4 * 2 > available) { image.Dispose(); throw PsdException.TooLarge(); }
+                    contents = new Document(image.Width, image.Height) { Depth = Pixels.DepthOf(image) }; contents.Layers.Add(Layer.Raster("Contents", image));
                 }
                 if (contents.RasterPixels() + (long)contents.Width * contents.Height * (contents.WorkingDepth == ColorDepth.Sixteen ? 4 : 1) > available) throw PsdException.TooLarge();
                 createdContents = contents;

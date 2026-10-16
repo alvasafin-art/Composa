@@ -81,6 +81,8 @@ public sealed partial class EditorSession
 
     public Layer AddBlankLayer()
     {
+        var units = (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1);
+        if (document.RasterPixels() + units > DocumentLimits.DocumentPixelBudget) throw new InvalidOperationException("The new layer exceeds the document raster memory budget.");
         var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewColor(document.Width, document.Height, document.WorkingDepth));
         Apply("New Layer", () => document.InsertAboveActive(layer));
         LayersChanged?.Invoke();
@@ -93,6 +95,10 @@ public sealed partial class EditorSession
     /// </summary>
     public Layer AddImageLayer(string name, SKBitmap pixels, SKPoint? center = null, bool fit = true, double scale = 1)
     {
+        var existing = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        document.CollectBitmaps(existing, new(), includeSelection: false);
+        if (!existing.Contains(pixels) && document.RasterPixels() + ((long)pixels.ByteCount + 3) / 4 > DocumentLimits.DocumentPixelBudget)
+            throw new InvalidOperationException("The imported layer exceeds the document raster memory budget.");
         var layer = Layer.Raster(name, pixels);
         if (fit) scale *= Math.Min(1, Math.Min((double)document.Width / pixels.Width, (double)document.Height / pixels.Height));
         double w = pixels.Width * scale, h = pixels.Height * scale;

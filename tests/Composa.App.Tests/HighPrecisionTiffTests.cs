@@ -9,6 +9,25 @@ namespace Composa.App.Tests;
 public class HighPrecisionTiffTests
 {
     [Theory]
+    [InlineData(8)]
+    [InlineData(16)]
+    public void Auto_import_retains_declared_TIFF_depth_even_when_flat_color_fits_in_8_bits(int depth)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "composa-test-" + Guid.NewGuid().ToString("N") + ".tif");
+        try
+        {
+            using (var image = new Magick.MagickImage(Magick.MagickColors.Red, 16, 12)) { image.Depth = (uint)depth; image.Write(path); }
+            var backend = BundledImageMagick.TryLoad()!;
+            using var input = new MemoryStream(backend.Convert(path, ImageMagickOutput.PngSource));
+            Assert.Equal(depth, input.ToArray()[24]);
+            using var decoded = ImageFiles.Load(input);
+            Assert.Equal(depth == 16 ? SKColorType.RgbaF32 : SKColorType.Rgba8888, decoded.ColorType);
+            Assert.Equal(SKColors.Red, decoded.GetPixel(4, 4));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
     [InlineData(ColorDepth.Eight)]
     [InlineData(ColorDepth.Sixteen)]
     public void TIFF_export_has_true_samples_straight_alpha_ICC_and_resolution(ColorDepth depth)

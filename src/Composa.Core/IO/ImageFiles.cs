@@ -12,7 +12,7 @@ public static class ImageFiles
     public static readonly string[] ImportExtensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".ico", ".heic", ".heif", ".avif", ".tif", ".tiff", ".svg", ".psd", ".psb"];
 
     /// <summary>Decodes an image file to RGBA premultiplied pixels, upright according to its EXIF orientation.</summary>
-    public static SKBitmap Load(string path, ColorDepth? depth = ColorDepth.Eight)
+    public static SKBitmap Load(string path, ColorDepth? depth = null)
     {
         try
         {
@@ -23,12 +23,12 @@ public static class ImageFiles
         {
             // Skia has no HEIC, AVIF or TIFF decoder; ImageMagick fills the gap. When it cannot read
             // the file either, its reason is the one worth reporting, since it was the last to try.
-            using var stream = new MemoryStream(ImageMagick.Convert(path, depth == ColorDepth.Eight ? ImageMagickOutput.Png : ImageMagickOutput.Png16)!);
+            using var stream = new MemoryStream(ImageMagick.Convert(path, depth == ColorDepth.Sixteen ? ImageMagickOutput.Png16 : depth == ColorDepth.Eight ? ImageMagickOutput.Png : ImageMagickOutput.PngSource)!);
             return Load(stream, Path.GetFileName(path), depth);
         }
     }
 
-    public static SKBitmap Load(Stream stream, string name = "image", ColorDepth? depth = ColorDepth.Eight)
+    public static SKBitmap Load(Stream stream, string name = "image", ColorDepth? depth = null)
     {
         if (depth != ColorDepth.Eight)
         {

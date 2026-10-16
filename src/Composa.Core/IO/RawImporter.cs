@@ -12,6 +12,7 @@ namespace Composa.IO;
 /// </summary>
 public sealed record RawDevelopSettings
 {
+    public ColorDepth OutputDepth { get; init; } = ColorDepth.Sixteen;
     /// <summary>Stops of exposure either side of what the camera recorded, -3…3.</summary>
     public double Exposure { get; init; }
     /// <summary>White balance away from the camera's reading: -100 cooler to 100 warmer.</summary>

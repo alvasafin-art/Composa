@@ -45,7 +45,7 @@ public sealed partial class EditorSession
         var (source, owned) = wholePicture ? (Composite(), false) : SelectionSample();
         // A layer's committed pixels never change, so they and their placement name their rendering; the whole
         // picture is named by the history state it shows.
-        object key = owned && ActiveLayer is { Pixels: { } pixels } layer ? (pixels, layer.Transform, document.Width, document.Height) : ("composite", History.CurrentId);
+        object key = !wholePicture && !SampleAllLayers && owned && ActiveLayer is { Pixels: { } pixels } layer ? (pixels, layer.Transform, document.Width, document.Height) : ("composite", History.CurrentId);
         if (CachedMatte(key, detect) is { } cached) { if (owned) source.Dispose(); return cached; }
         // The composite is redrawn in place by later renders, so the model reads a copy of its own.
         var copy = owned ? source : Pixels.Clone(source);

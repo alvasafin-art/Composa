@@ -450,7 +450,7 @@ public static class RemoveObjectPreprocessor
         var feather = Math.Clamp(settings.Feather, 0, 256);
         var expanded = dilation > 0 ? SelectionMask.Expand(rawMask, dilation) : Pixels.Clone(rawMask);
         var mask = feather > 0 ? SelectionMask.Feather(expanded, feather) : Pixels.Clone(expanded);
-        var image = Pixels.Clone(source);
+        var image = Pixels.DisplayCopy(source); // Explicit RGB8 model-conditioning boundary.
         Fill(image, expanded, settings.FillMode == RemoveObjectFillMode.Neutral ? new SKColor(127, 127, 127) : settings.FillColor,
             settings.FillMode == RemoveObjectFillMode.Transparent);
         expanded.Dispose();

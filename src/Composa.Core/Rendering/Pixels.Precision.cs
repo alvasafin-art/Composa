@@ -33,6 +33,8 @@ public static partial class Pixels
     /// <summary>An empty bitmap with the source's precision, profile and alpha representation.</summary>
     public static SKBitmap NewLike(SKBitmap source, int? width = null, int? height = null)
     {
+        if (source.ColorType == SKColorType.RgbaF32 && !DocumentLimits.FitsSurface(width ?? source.Width, height ?? source.Height, 16))
+            throw new InvalidOperationException("The high precision surface exceeds the supported memory or dimensions.");
         var result = new SKBitmap(source.Info.WithSize(width ?? source.Width, height ?? source.Height));
         Fill(result, 0);
         return result;

@@ -135,7 +135,7 @@ public static class ProjectFile
             Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, FillOpacity = layer.FillOpacity, Blend = layer.Blend,
             BlendIf = layer.BlendIf.IsIdentity ? null : layer.BlendIf,
             Transform = layer.Pixels != null ? layer.Transform : null,
-            ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null) ? Store(layer.Pixels, $"{written.Count}.png") : null,
+            ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null || !ReferenceEquals(layer.Pixels, layer.SmartObject!.Preview)) ? Store(layer.Pixels, $"{written.Count}.png") : null,
             FilterSourceFile = layer.FilterSource != null ? Store(layer.FilterSource, $"{written.Count}.filter-source.png") : null,
             SmartFilters = layer.SmartFilters.Length == 0 ? null : layer.SmartFilters,
             FilterPaddingX = layer.FilterPaddingX, FilterPaddingY = layer.FilterPaddingY,
@@ -240,7 +240,8 @@ public static class ProjectFile
             {
                 if (record.Kind != LayerKind.Raster || record.Text != null || record.Shape != null)
                     throw new InvalidDataException("A smart object cannot also be a group, adjustment, text or shape layer.");
-                layer.SmartObject = Source(record.SmartObject); layer.Pixels = layer.SmartObject.Preview;
+                layer.SmartObject = Source(record.SmartObject);
+                layer.Pixels = record.ImageFile == null ? layer.SmartObject.Preview : Fetch(record.ImageFile, mask: false);
                 layer.Transform = IsUsable(record.Transform) ? record.Transform! : LayerTransform.Identity(layer.Pixels.Width, layer.Pixels.Height);
                 if (record.Effects is { } effects && !effects.IsEmpty) layer.Effects = effects.Clamped();
             }

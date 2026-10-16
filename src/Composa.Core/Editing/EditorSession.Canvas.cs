@@ -13,6 +13,7 @@ public sealed partial class EditorSession
     public void Crop(SKRectI rect, string name = "Crop")
     {
         rect = new SKRectI(rect.Left, rect.Top, rect.Left + Math.Clamp(rect.Width, 1, Document.MaxSide), rect.Top + Math.Clamp(rect.Height, 1, Document.MaxSide));
+        ValidateCanvasDepth(rect.Width, rect.Height, document.WorkingDepth);
         if (rect == document.Bounds) return;
         Apply(name, () =>
         {
@@ -74,6 +75,7 @@ public sealed partial class EditorSession
     {
         width = Math.Clamp(width, 1, Document.MaxSide);
         height = Math.Clamp(height, 1, Document.MaxSide);
+        ValidateCanvasDepth(width, height, document.WorkingDepth);
         if (width == document.Width && height == document.Height)
         {
             if (resolution is { } only && only != document.Resolution) Apply("Image Size", () => document.Resolution = Math.Clamp(only, 1, 9600));
@@ -184,11 +186,11 @@ public sealed partial class EditorSession
 
     public static SKBitmap Resample(SKBitmap source, int width, int height)
     {
-        var result = new SKBitmap(source.Info.WithSize(width, height));
+        var result = Pixels.NewLike(source, width, height);
         var sampling = width < source.Width || height < source.Height
             ? new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear)
             : new SKSamplingOptions(SKCubicResampler.CatmullRom);
-        if (!source.ScalePixels(result, sampling)) throw new InvalidOperationException("The image could not be resampled.");
+        if (!source.ScalePixels(result, sampling)) { result.Dispose(); throw new InvalidOperationException("The image could not be resampled."); }
         return result;
     }
 

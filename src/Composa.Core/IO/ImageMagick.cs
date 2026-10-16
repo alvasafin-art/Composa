@@ -11,6 +11,8 @@ public enum ImageMagickOutput
     Pam16,
     /// <summary>A full precision PNG, retaining alpha and the embedded ICC profile for the RGB decoder.</summary>
     Png16,
+    /// <summary>A PNG retaining the source's declared 8/16-bit depth, alpha and profile.</summary>
+    PngSource,
 }
 
 /// <summary>One way of reaching ImageMagick: the installed command line, or the library bundled with the Windows and macOS builds.</summary>
@@ -76,6 +78,12 @@ public sealed class ImageMagickTool : IImageMagick
 
     public byte[] Convert(string path, ImageMagickOutput output)
     {
+        if (output == ImageMagickOutput.PngSource)
+        {
+            var encodedDepth = System.Text.Encoding.ASCII.GetString(Run(path, ["-ping", path + "[0]", "-format", "%z", "info:"], 60_000)).Trim();
+            var bits = int.TryParse(encodedDepth, out var sourceDepth) && sourceDepth > 8 ? "16" : "8";
+            return Run(path, [path + "[0]", "-auto-orient", "-depth", bits, "-define", "png:bit-depth=" + bits, "png:-"], 180_000);
+        }
         if (output == ImageMagickOutput.Pam16)
         {
             // PAM has no ICC container. A real profile transform must happen before writing samples;

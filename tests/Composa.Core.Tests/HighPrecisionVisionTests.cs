@@ -10,6 +10,30 @@ namespace Composa.Core.Tests;
 
 public class HighPrecisionVisionTests
 {
+    [Fact]
+    public void Model_finishing_accepts_precise_references_without_reinterpreting_float_bytes()
+    {
+        using var source = Pixels.NewColor(64, 48, ColorDepth.Sixteen); source.Erase(SKColors.Gray);
+        var original = source.Bytes;
+        using var generated = Pixels.NewColor(64, 48); generated.Erase(SKColors.Blue);
+        using var mask = SelectionMask.FromRect(64, 48, new(16, 12, 48, 36));
+        using var constrained = AiResultPostprocessor.Constrain(generated, source, mask);
+        Assert.Equal(SKColorType.RgbaF32, constrained.ColorType);
+        Assert.Equal(new PixelBuffer(source).Read(0, 0), new PixelBuffer(constrained).Read(0, 0));
+        Assert.Equal(SKColors.Blue, constrained.GetPixel(32, 24));
+        var prepared = RemoveObjectPreprocessor.Prepare(source, mask, new() { Dilation = 0, Feather = 0 });
+        using (prepared.Image) using (prepared.Mask)
+        {
+            Assert.Equal(SKColorType.Rgba8888, prepared.Image.ColorType);
+            Assert.Equal(SKColors.Black, prepared.Image.GetPixel(32, 24));
+        }
+        using var finished = AiSeamlessFinisher.Match(generated, source, mask, source.Info.Rect, 3);
+        Assert.Equal(SKColorType.Rgba8888, finished.ColorType);
+        using var changed = AiResultPostprocessor.CompositedMask(generated, source, mask);
+        Assert.Equal(255, changed.GetPixel(32, 24).Alpha); Assert.Equal(0, changed.GetPixel(0, 0).Alpha);
+        Assert.Equal(original, source.Bytes);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

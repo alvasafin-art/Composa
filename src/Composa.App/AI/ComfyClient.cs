@@ -206,7 +206,7 @@ public sealed class ComfyClient : IComfyConnection
         using var response = await http.GetAsync(Address.Api(query), cancellationToken);
         await EnsureSuccess(response, cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        return ImageFiles.Load(stream, image.Filename);
+        return ImageFiles.Load(stream, image.Filename, Composa.Model.ColorDepth.Eight);
     }
 
     private async Task<JsonDocument> GetJson(string path, CancellationToken cancellationToken)

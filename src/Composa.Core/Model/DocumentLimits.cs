@@ -34,6 +34,9 @@ public static class DocumentLimits
     public static bool FitsSurface(long width, long height) =>
         width >= 1 && height >= 1 && width <= MaxSide && height <= MaxSide && width * height <= MaxSurfacePixels;
 
+    public static bool FitsSurface(long width, long height, int bytesPerPixel) =>
+        FitsSurface(width, height) && width * height * bytesPerPixel <= MaxSurfaceBytes;
+
     private static long PhysicalMemory()
     {
         // The GC knows the machine's memory, or the container's limit when there is one; either is the right ceiling.

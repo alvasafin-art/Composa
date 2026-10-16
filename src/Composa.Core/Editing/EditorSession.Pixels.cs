@@ -42,7 +42,11 @@ public sealed partial class EditorSession
     /// <summary>Fill also recolors live text: a text layer with nothing selected takes the color as its own.</summary>
     public bool CanFill => CanEditPixels || (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && !PixelsLocked(text));
 
-    private SKBitmap Target(Layer layer) => IsEditingMask ? layer.Mask! : layer.Pixels!;
+    private SKBitmap Target(Layer layer)
+    {
+        PreparePixelTarget(layer);
+        return IsEditingMask ? layer.Mask! : layer.Pixels!;
+    }
 
     private void SetTarget(Layer layer, SKBitmap bitmap)
     {
@@ -85,6 +89,7 @@ public sealed partial class EditorSession
     /// </summary>
     private void GrowToCanvas(Layer layer)
     {
+        PreparePixelTarget(layer);
         if (!IsEditingMask || !layer.IsLive) EnsureCoversCanvas(layer);
     }
 
@@ -679,7 +684,11 @@ public sealed partial class EditorSession
     public void RasterizeShape(Layer layer)
     {
         if (PixelsLocked(layer) || !layer.IsLive) return;
-        Apply("Rasterize Layer", () => { layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0; });
+        Apply("Rasterize Layer", () =>
+        {
+            layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0;
+            PreparePixelTarget(layer);
+        });
         LayersChanged?.Invoke();
     }
 

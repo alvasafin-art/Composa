@@ -11,7 +11,7 @@ public sealed class Document
     public int Height { get; set; }
     public double Resolution { get; set; } = 72;
     public ColorDepth Depth { get; set; } = ColorDepth.Eight;
-    public ColorDepth WorkingDepth => Depth == ColorDepth.Sixteen || AllLayers().Any(l => l.Pixels?.ColorType == SKColorType.RgbaF32) ? ColorDepth.Sixteen : ColorDepth.Eight;
+    public ColorDepth WorkingDepth => Depth;
     /// <summary>Root layers, bottom to top.</summary>
     public List<Layer> Layers { get; init; } = [];
     public Guid? ActiveLayerId { get; set; }
