@@ -51,9 +51,17 @@ public sealed partial class ComposaTools
             {
                 float dx = x + 0.5f - center.X, dy = y + 0.5f - center.Y;
                 if (dx * dx + dy * dy > radius * radius + 0.25f) continue;
-                var p = src + (long)y * pixels.RowBytes + x * 4;
                 // Premultiplied sums average to the straight color of what is there, weighted by how much is there.
-                red += p[0]; green += p[1]; blue += p[2]; alpha += p[3];
+                if (pixels.ColorType == SKColorType.RgbaF32)
+                {
+                    var p = (float*)(src + (long)y * pixels.RowBytes) + x * 4;
+                    red += p[0] * 255; green += p[1] * 255; blue += p[2] * 255; alpha += p[3] * 255;
+                }
+                else
+                {
+                    var p = src + (long)y * pixels.RowBytes + x * 4;
+                    red += p[0]; green += p[1]; blue += p[2]; alpha += p[3];
+                }
                 count++;
             }
         if (count == 0 || alpha <= 0) return "transparent";

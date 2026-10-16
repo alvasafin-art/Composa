@@ -12,7 +12,8 @@ public static unsafe partial class Pixels
     }
     public static SKBitmap WithAlphaOf(SKBitmap edited, SKBitmap original)
     {
-        var result = Clone(edited);
+        var result = original.ColorType == SKColorType.RgbaF32 && edited.ColorType != SKColorType.RgbaF32
+            ? ConvertDepth(edited, Model.ColorDepth.Sixteen) : Clone(edited);
         if (edited.ColorType == SKColorType.RgbaF32 || original.ColorType == SKColorType.RgbaF32)
         {
             var output = new PixelBuffer(result); var input = new PixelBuffer(original);

@@ -60,32 +60,31 @@ public static class GuidedFilter
 
         // Applied at full size: the matte is a·brightness + b, with a and b read smoothly from the work grid.
         var result = Pixels.NewMask(width, height);
-        var src = (byte*)guide.GetPixels();
+        var src = new PixelBuffer(guide);
         var dst = (byte*)result.GetPixels();
-        int srcStride = guide.RowBytes, dstStride = result.RowBytes;
+        var dstStride = result.RowBytes;
         double sx = (double)workW / width, sy = (double)workH / height;
         Parallel.For(0, height, new ParallelOptions { CancellationToken = cancellation }, y =>
         {
-            var row = src + (long)y * srcStride;
             var outRow = dst + (long)y * dstStride;
             var v = (y + 0.5) * sy - 0.5;
             for (var x = 0; x < width; x++)
             {
-                var pixel = row + x * 4;
-                if (pixel[3] < 8) { outRow[x] = 0; continue; }
+                var pixel = src.Read(x, y);
+                if (pixel.A < 8 / 255f) { outRow[x] = 0; continue; }
                 var u = (x + 0.5) * sx - 0.5;
-                var brightness = (0.2126f * pixel[0] + 0.7152f * pixel[1] + 0.0722f * pixel[2]) / 255f;
+                var brightness = 0.2126f * pixel.R + 0.7152f * pixel.G + 0.0722f * pixel.B;
                 var q = Bilinear(meanA, workW, workH, u, v) * brightness + Bilinear(meanB, workW, workH, u, v);
                 outRow[x] = (byte)Math.Clamp((int)MathF.Round(q * 255f), 0, 255);
             }
         });
-        return result;
+        Pixels.Invalidate(result); return result;
     }
 
     /// <summary>The picture's brightness, 0 to 1, drawn at the work size.</summary>
     private static unsafe float[] Brightness(SKBitmap guide, int workW, int workH)
     {
-        using var small = Pixels.NewColor(workW, workH);
+        using var small = Pixels.NewLike(guide, workW, workH);
         if (workW == guide.Width && workH == guide.Height) Pixels.CopyPixels(guide, small);
         else
         {
@@ -95,14 +94,13 @@ public static class GuidedFilter
             canvas.DrawImage(image, new SKRect(0, 0, workW, workH), new SKSamplingOptions(SKCubicResampler.Mitchell), paint);
         }
         var gray = new float[workW * workH];
-        var pixels = (byte*)small.GetPixels();
+        var pixels = new PixelBuffer(small);
         for (var y = 0; y < workH; y++)
         {
-            var row = pixels + (long)y * small.RowBytes;
             for (var x = 0; x < workW; x++)
             {
-                var p = row + x * 4;
-                gray[y * workW + x] = (0.2126f * p[0] + 0.7152f * p[1] + 0.0722f * p[2]) / 255f;
+                var p = pixels.Read(x, y);
+                gray[y * workW + x] = 0.2126f * p.R + 0.7152f * p.G + 0.0722f * p.B;
             }
         }
         return gray;

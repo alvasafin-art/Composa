@@ -81,7 +81,15 @@ public sealed class ComfyClient : IComfyConnection
     /// <summary>Comfy image-mask workflows read RGB channels; Alpha8 must therefore be uploaded as opaque grayscale.</summary>
     internal static byte[] EncodeUploadPng(SKBitmap bitmap)
     {
-        if (bitmap.ColorType != SKColorType.Alpha8) return ImageFiles.Encode(bitmap, ExportFormat.Png);
+        if (bitmap.ColorType != SKColorType.Alpha8)
+        {
+            if (bitmap.ColorType == SKColorType.RgbaF32)
+            {
+                using var modelInput = Pixels.DisplayCopy(bitmap);
+                return ImageFiles.Encode(modelInput, ExportFormat.Png);
+            }
+            return ImageFiles.Encode(bitmap, ExportFormat.Png);
+        }
         using var gray = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Gray8, SKAlphaType.Opaque));
         var source = bitmap.GetPixelSpan();
         var target = gray.GetPixelSpan();

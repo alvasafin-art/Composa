@@ -23,7 +23,9 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 layers.Add(new("Original Subject",Cutout(input.Foreground,input.ObjectAlpha,input.IsCutout),Tags:["scene-object","original-details"]));
                 return new(layers,0);
             }
-            var objectPixels=Pixels.NewColor(generated.Width,generated.Height);
+            var highPrecision=input.Foreground.ColorType==SKColorType.RgbaF32;
+            var objectPixels=highPrecision?Pixels.NewLike(input.Foreground):Pixels.NewColor(generated.Width,generated.Height);
+            var originalPixels=new PixelBuffer(input.Foreground); var highOutput=new PixelBuffer(objectPixels);
             layers.Add(new(settings.PreserveDetails ? "Subject Lighting" : "Generated Subject",objectPixels,Tags:["scene-object",settings.PreserveDetails ? "original-details" : "generated-details"]));
             var ratios=settings.PreserveDetails ? new SceneLightingMap(input,generated,baseline,token) : null;
             for(var y=0;y<generated.Height;y++)
@@ -31,6 +33,24 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 token.ThrowIfCancellationRequested();
                 for(var x=0;x<generated.Width;x++)
                 {
+                    if(highPrecision)
+                    {
+                        var source=originalPixels.Read(x,y).Straight;
+                        var a=input.IsCutout?source.A:input.ObjectAlpha.GetPixel(x,y).Alpha/255f;
+                        if(a<=0)continue;
+                        var highAmount=settings.Strength*Math.Min(1,input.SubjectMask.GetPixel(x,y).Alpha/255d/Math.Max(.000001,a));
+                        var model=generated.GetPixel(x,y); var backdrop=input.Background.GetPixel(x,y);
+                        var highRatio=ratios?.At(x,y)??(1d,1d,1d);
+                        float HighChannel(float color,byte desired,byte background,double light)
+                        {
+                            var edited=settings.PreserveDetails?LinearFloat(color)*light
+                                :LinearFloat(input.IsCutout?Math.Clamp((desired/255d-(1-a)*background/255d)/Math.Max(.000001,a),0,1):desired/255d);
+                            return (float)Srgb(LinearFloat(color)*(1-highAmount)+edited*highAmount);
+                        }
+                        highOutput.Write(x,y,new PixelValue(HighChannel(source.R,model.Red,backdrop.Red,highRatio.Item1),
+                            HighChannel(source.G,model.Green,backdrop.Green,highRatio.Item2),HighChannel(source.B,model.Blue,backdrop.Blue,highRatio.Item3),a).Premultiplied);
+                        continue;
+                    }
                     var original=input.Foreground.GetPixel(x,y); var alpha=input.ObjectAlpha.GetPixel(x,y).Alpha;
                     if(alpha==0) continue;
                     var target=input.SubjectMask.GetPixel(x,y).Alpha;
@@ -147,6 +167,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
     }
     private static double Linear(byte value)
     {var v=value/255d;return v<=.04045 ? v/12.92 : Math.Pow((v+.055)/1.055,2.4);}
+    private static double LinearFloat(double value)=>value<=.04045?value/12.92:Math.Pow((value+.055)/1.055,2.4);
     private static double Luma(SKColor color)=>.2126*Linear(color.Red)+.7152*Linear(color.Green)+.0722*Linear(color.Blue);
     private static byte Encode(double value)
     =>(byte)Math.Round(255*Srgb(value));

@@ -170,9 +170,9 @@ public sealed partial class AiTaskService
     }
     private sealed record SceneGeneration(SKBitmap Image,SKBitmap? Baseline):IDisposable
     {public void Dispose() {Image.Dispose();Baseline?.Dispose();}}
-    private static AiTaskInputs SceneApiInputs(SceneEditInput scene,AiTaskRequest request) => new()
+    internal static AiTaskInputs SceneApiInputs(SceneEditInput scene,AiTaskRequest request) => new()
     {
-        SourceImage=Pixels.Clone(scene.InitialImage),ContextImage=Pixels.Clone(scene.Before),
+        SourceImage=Pixels.DisplayCopy(scene.InitialImage),ContextImage=Pixels.DisplayCopy(scene.Before),
         CanvasWidth=scene.Before.Width,CanvasHeight=scene.Before.Height,TargetBounds=scene.Before.Info.Rect,
         Prompt=SceneEditingWorkflow.Prompt(request)+SceneEditingWorkflow.LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : ""),Seed=request.Settings.Seed,
         ReferenceImages=request.ReferenceImages.Select(image=>SceneEditingWorkflow.CopyReference(image,request.ReferenceMegapixels)).ToArray()

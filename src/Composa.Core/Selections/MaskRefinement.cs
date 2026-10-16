@@ -30,7 +30,7 @@ public static unsafe class MaskRefinement
             using var outer = SelectionMask.Expand(working, 8);
             using var inner = SelectionMask.Contract(working, 8);
             var data = (byte*)guided.GetPixels(); var outData = (byte*)outer.GetPixels(); var inData = inner == null ? null : (byte*)inner.GetPixels();
-            var guidePixels = (byte*)image.GetPixels();
+            var guidePixels = new PixelBuffer(image);
             var probes = new[] { (-4, 0), (4, 0), (0, -4), (0, 4) };
             for (var y = 0; y < mask.Height; y++) for (var x = 0; x < mask.Width; x++)
             {
@@ -38,13 +38,13 @@ public static unsafe class MaskRefinement
                 var edge = false;
                 for (var channel = 0; channel < 3 && !edge; channel++)
                 {
-                    var lo = 255; var hi = 0;
+                    var lo = 1f; var hi = 0f;
                     foreach (var (dx, dy) in probes)
                     {
-                        var value = guidePixels[(long)Math.Clamp(y + dy, 0, image.Height - 1) * image.RowBytes + Math.Clamp(x + dx, 0, image.Width - 1) * 4 + channel];
+                        var value = guidePixels.Read(Math.Clamp(x + dx, 0, image.Width - 1), Math.Clamp(y + dy, 0, image.Height - 1))[channel];
                         lo = Math.Min(lo, value); hi = Math.Max(hi, value);
                     }
-                    edge = hi - lo > 12;
+                    edge = hi - lo > 12 / 255f;
                 }
                 if (!edge || outData[(long)y * outer.RowBytes + x] == 0 || inData != null && inData[(long)y * inner!.RowBytes + x] == 255) data[i] = input[(long)y * working.RowBytes + x];
             }
@@ -75,6 +75,7 @@ public static unsafe class MaskRefinement
 
     public static SKBitmap Cutout(SKBitmap image, SKBitmap mask, bool decontaminate)
     {
+        if (image.ColorType == SKColorType.RgbaF32) return CutoutHighPrecision(image, mask, decontaminate);
         var result = Pixels.Clone(image); var src = (byte*)image.GetPixels(); var dst = (byte*)result.GetPixels(); var alpha = (byte*)mask.GetPixels();
         Parallel.For(0, image.Height, y =>
         {
@@ -96,6 +97,35 @@ public static unsafe class MaskRefinement
                 for (var c = 0; c < 4; c++) dst[i + c] = (byte)((dst[i + c] * a + 127) / 255);
             }
         });
-        return result;
+        Pixels.Invalidate(result); return result;
+    }
+
+    private static SKBitmap CutoutHighPrecision(SKBitmap image, SKBitmap mask, bool decontaminate)
+    {
+        var result = Pixels.Clone(image);
+        var source = new PixelBuffer(image); var output = new PixelBuffer(result);
+        var coverage = (byte*)mask.GetPixels();
+        Parallel.For(0, image.Height, y =>
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                var a = coverage[(long)y * mask.RowBytes + x];
+                var color = source.Read(x, y);
+                if (decontaminate && a is > 0 and < 250)
+                {
+                    var best = int.MaxValue; var nearest = default(PixelValue); var found = false;
+                    for (var dy = -6; dy <= 6; dy++)
+                    for (var dx = -6; dx <= 6; dx++)
+                    {
+                        int xx = x + dx, yy = y + dy, distance = dx * dx + dy * dy;
+                        if (xx < 0 || yy < 0 || xx >= image.Width || yy >= image.Height || distance >= best || coverage[(long)yy * mask.RowBytes + xx] < 250) continue;
+                        best = distance; nearest = source.Read(xx, yy); found = true;
+                    }
+                    if (found && nearest.A > 0) color = (nearest.Straight with { A = color.A }).Premultiplied;
+                }
+                output.Write(x, y, color * (a / 255f));
+            }
+        });
+        Pixels.Invalidate(result); return result;
     }
 }

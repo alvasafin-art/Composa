@@ -443,9 +443,9 @@ public class McpTests
             Assert.Equal(copy, session.FilePath);
             Assert.Equal("copy", session.Title);
 
-            var badExtension = await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = Path.Combine(folder, "flat.tiff") }));
+            var badExtension = await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = Path.Combine(folder, "flat.bmp") }));
             Assert.Equal(true, badExtension.IsError);
-            Assert.Contains(".png, .jpg or .webp", Text(badExtension));
+            Assert.Contains(".png, .jpg, .webp, .tif or .tiff", Text(badExtension));
             var jpeg = Path.Combine(folder, "flat.jpg");
             Assert.Equal($"Exported \"copy\" as a 400×300 px JPEG to {jpeg}.", Text(await Pumped(client.CallToolAsync("export_image", new Dictionary<string, object?> { ["path"] = jpeg, ["quality"] = 80 }))));
             using (var exported = SKBitmap.Decode(jpeg)) { Assert.Equal(400, exported.Width); Assert.Equal(300, exported.Height); }

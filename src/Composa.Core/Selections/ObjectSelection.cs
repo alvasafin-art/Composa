@@ -32,7 +32,7 @@ public static class ObjectSelection
         if (x < 0 || y < 0 || x >= source.Width || y >= source.Height) return null;
         using var backdrop = ImageFilters.Backdrop(source, 40);
         var bg = (byte*)backdrop.GetPixels();
-        if (bg[(long)y * backdrop.RowBytes + x] != 0 || ((byte*)source.GetPixels())[(long)y * source.RowBytes + x * 4 + 3] < 8) return null;
+        if (bg[(long)y * backdrop.RowBytes + x] != 0 || new PixelBuffer(source).Read(x, y).A < 8 / 255f) return null;
         using var foreground = SelectionMask.Invert(backdrop);
         RemoveTransparent(source, foreground);
         // The connected piece of foreground the click landed on.
@@ -119,9 +119,10 @@ public static class ObjectSelection
 
     private static unsafe void RemoveTransparent(SKBitmap source, SKBitmap mask)
     {
-        byte* s = (byte*)source.GetPixels(), m = (byte*)mask.GetPixels();
+        var s = new PixelBuffer(source); var m = (byte*)mask.GetPixels();
         for (var y = 0; y < source.Height; y++)
         for (var x = 0; x < source.Width; x++)
-            if (s[(long)y * source.RowBytes + x * 4 + 3] < 8) m[(long)y * mask.RowBytes + x] = 0;
+            if (s.Read(x, y).A < 8 / 255f) m[(long)y * mask.RowBytes + x] = 0;
+        Pixels.Invalidate(mask);
     }
 }

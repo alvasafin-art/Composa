@@ -185,8 +185,7 @@ public sealed partial class EditorSession
             if (!TargetMatrix(layer).TryInvert(out var inverse)) return;
             var local = inverse.MapPoint(point);
             var original = Target(layer);
-            using var sample = Pixels.NewColor(original.Width, original.Height);
-            using (var canvas = new SKCanvas(sample)) canvas.DrawImage(Pixels.ImageOf(original), 0, 0);
+            using var sample = IsEditingMask ? MaskToColor(original) : Pixels.Clone(original);
             using var region = MagicWand.Select(sample, (int)Math.Floor(local.X), (int)Math.Floor(local.Y), WandTolerance, true, smooth: false);
             var selection = SelectionInTargetSpace(layer);
             try

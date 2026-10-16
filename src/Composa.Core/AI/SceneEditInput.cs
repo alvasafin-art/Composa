@@ -48,7 +48,7 @@ public sealed class SceneEditInput : IDisposable
         if (!WholeImage && active!.Blend!=BlendMode.Normal)
             throw new InvalidOperationException("Scene editing needs a Normal image layer. Keep a copy of the original blend before converting it.");
         // New full-canvas intermediates plus the eventual output are bounded independently of model resolution.
-        if (document.RasterPixels()+10L*document.Width*document.Height>DocumentLimits.DocumentPixelBudget)
+        if (document.RasterPixels()+10L*document.Width*document.Height*(document.WorkingDepth==ColorDepth.Sixteen?4:1)>DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException($"Scene editing exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget. Use a smaller document.");
         SourceLayerId=active?.Id;
         if(!WholeImage) PreviousResultIds=SceneSource.PreviousResults(document,selected!,active!);
@@ -136,8 +136,8 @@ public sealed class SceneEditInput : IDisposable
 
     public static bool HasTransparency(SKBitmap image)
     {
-        var data=image.GetPixelSpan();
-        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) if(data[y*image.RowBytes+x*4+3]<255) return true;
+        var data=new PixelBuffer(image);
+        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) if(data.Read(x,y).A<1) return true;
         return false;
     }
     private static bool HasNearFullCoverage(SKBitmap mask)
@@ -148,8 +148,8 @@ public sealed class SceneEditInput : IDisposable
     }
     public static SKBitmap Alpha(SKBitmap image)
     {
-        var mask=Pixels.NewMask(image.Width,image.Height); var source=image.GetPixelSpan(); var target=mask.GetPixelSpan();
-        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) target[y*mask.RowBytes+x]=source[y*image.RowBytes+x*4+3];
+        var mask=Pixels.NewMask(image.Width,image.Height); var source=new PixelBuffer(image); var target=mask.GetPixelSpan();
+        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) target[y*mask.RowBytes+x]=(byte)Math.Clamp(MathF.Round(source.Read(x,y).A*255),0,255);
         Pixels.Invalidate(mask); return mask;
     }
     private static void Multiply(SKBitmap target,SKBitmap other)
