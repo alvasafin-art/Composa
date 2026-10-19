@@ -94,7 +94,7 @@ public sealed partial class EditorSession
         layer.Pixels = grown;
         if (maskPlacement == null && layer.Mask is { } mask) layer.Mask = GrownMask(mask, want.Width, want.Height, have.Left - want.Left, have.Top - want.Top);
         layer.Transform = LayerTransform.Identity(want.Width, want.Height) with { X = want.Left, Y = want.Top };
-        if (maskPlacement is { } placement) layer.PlaceMask(placement);
+        if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
     }
 
     /// <summary>
@@ -169,7 +169,7 @@ public sealed partial class EditorSession
         x += deltaX * cos - deltaY * sin - deltaX;
         y += deltaX * sin + deltaY * cos - deltaY;
         layer.Transform = t with { X = x, Y = y, Width = w, Height = h };
-        if (maskPlacement is { } placement) layer.PlaceMask(placement);
+        if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
     }
 
     /// <summary>original + (modified - original) × selection, for both color and mask bitmaps. Takes ownership of <paramref name="modified"/>.</summary>
@@ -704,7 +704,7 @@ public sealed partial class EditorSession
                 }
             }
             layer.Pixels = RenderWorkingShape(style, width, height); layer.Shape = style;
-            if (maskPlacement is { } placement) layer.PlaceMask(placement);
+            if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
         }
         if (preview)
         {

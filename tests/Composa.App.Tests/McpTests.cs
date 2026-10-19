@@ -147,7 +147,7 @@ public class McpTests
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "list_documents", "list_files", "list_read_folders",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
-             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
+             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_filter", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
             tools.Select(t => t.Name).Order());
 
         var resources = await client.ListResourcesAsync();
@@ -228,6 +228,20 @@ public class McpTests
         var smart = await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "convert", ["layers"] = new[] { "Hello" } }));
         Assert.Null(smart.IsError); Assert.True(session.ActiveLayer.IsSmartObject);
         Assert.Equal("Hello", session.ActiveLayer.SmartObject!.OpenDocument().ActiveLayer!.Text!.Text);
+        Assert.Null((await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "add", ["kind"] = "GaussianBlur", ["radius"] = 2 }))).IsError);
+        var blur = session.ActiveLayer.SmartFilters.Single();
+        Assert.Null((await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "add", ["kind"] = "AddNoise", ["amount"] = 10 }))).IsError);
+        var noise = session.ActiveLayer.SmartFilters[^1];
+        Assert.Contains(noise.Id.ToString("N"), Text(await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello" }))));
+        Assert.Null((await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "change", ["filter"] = noise.Id.ToString("N"), ["opacity"] = .4, ["blend"] = "Multiply" }))).IsError);
+        Assert.Equal(.4, session.ActiveLayer.SmartFilters[^1].Opacity); Assert.Equal(BlendMode.Multiply, session.ActiveLayer.SmartFilters[^1].Blend);
+        Assert.Null((await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "down", ["filter"] = noise.Id.ToString("N") }))).IsError);
+        Assert.Equal(noise.Id, session.ActiveLayer.SmartFilters[0].Id);
+        Assert.Null((await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "change", ["filter"] = noise.Id.ToString("N"), ["enabled"] = false }))).IsError);
+        Assert.Null((await Pumped(client.CallToolAsync("smart_filter", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "remove", ["filter"] = blur.Id.ToString("N") }))).IsError);
+        Assert.Single(session.ActiveLayer.SmartFilters);
+        for (var i = 0; i < 6; i++) await Pumped(client.CallToolAsync("undo"));
+        Assert.Empty(session.ActiveLayer!.SmartFilters);
         await Pumped(client.CallToolAsync("undo"));
         Assert.NotNull(session.ActiveLayer!.Text);
 

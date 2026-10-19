@@ -157,6 +157,7 @@ public sealed partial class MainWindow : Window
         layers.EditMaskPropertiesRequested += layer => _ = EditMaskProperties(layer);
         layers.EditSmartObjectRequested += layer => OpenSmartObject(layer);
         layers.EditSmartFilterRequested += (layer, filter) => _ = SmartFilter(filter.Settings.Kind, layer, filter);
+        layers.EditSmartFilterBlendingRequested += (layer, filter) => _ = SmartFilterBlending(layer, filter);
 
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);

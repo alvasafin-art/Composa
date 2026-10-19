@@ -98,6 +98,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
             if (layer.Mask != null) text.Append(", masked");
             if (layer.Clipped) text.Append(", clipped to the layer below");
             if (layer.Effects != null) text.Append(", with effects");
+            if (layer.SmartFilters.Length > 0) text.Append(", ").Append(layer.SmartFilters.Length).Append(" smart filters (smart_filter list)");
             text.AppendLine();
             if (layer.IsGroup) Describe(text, doc, layer.Children, depth + 1);
         }

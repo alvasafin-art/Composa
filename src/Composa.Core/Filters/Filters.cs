@@ -114,7 +114,7 @@ public static unsafe partial class ImageFilters
                 // colors continued outwards. Spreading it into transparency would leave a see-through frame.
                 var sigma = (float)Math.Max(0.1, settings.Radius);
                 using var filter = SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp);
-                var result = Pixels.NewColor(source.Width, source.Height);
+                var result = Pixels.NewLike(source);
                 using var canvas = new SKCanvas(result);
                 using var paint = new SKPaint { ImageFilter = filter, BlendMode = SKBlendMode.Src };
                 canvas.DrawBitmap(source, 0, 0, paint);
@@ -154,7 +154,7 @@ public static unsafe partial class ImageFilters
 
     private static SKBitmap Draw(SKBitmap source, int padX, int padY, SKImageFilter filter)
     {
-        var result = Pixels.NewColor(source.Width + padX * 2, source.Height + padY * 2);
+        var result = Pixels.NewLike(source, source.Width + padX * 2, source.Height + padY * 2);
         using var canvas = new SKCanvas(result);
         using var paint = new SKPaint { ImageFilter = filter };
         canvas.DrawBitmap(source, padX, padY, paint);
@@ -214,7 +214,7 @@ public static unsafe partial class ImageFilters
         double radians = angle * Math.PI / 180, dx = Math.Cos(radians), dy = -Math.Sin(radians);
         int padX = clamp ? 0 : (int)Math.Ceiling(Math.Abs(dx) * length / 2) + 1, padY = clamp ? 0 : (int)Math.Ceiling(Math.Abs(dy) * length / 2) + 1;
         int w = source.Width + padX * 2, h = source.Height + padY * 2;
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         var src = (byte*)source.GetPixels();
         var dst = (byte*)result.GetPixels();
         int srcStride = source.RowBytes, dstStride = result.RowBytes, sw = source.Width, sh = source.Height;
@@ -296,7 +296,7 @@ public static unsafe partial class ImageFilters
     {
         if (source.ColorType == SKColorType.RgbaF32) return HighLensCorrection(source, distortion);
         int w = source.Width, h = source.Height;
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         byte* src = (byte*)source.GetPixels(), dst = (byte*)result.GetPixels();
         double cx = w / 2.0, cy = h / 2.0, norm = Math.Sqrt(cx * cx + cy * cy);
         var k = distortion * 0.5;
@@ -427,12 +427,12 @@ public static unsafe partial class ImageFilters
                 for (var c = 0; c < 4; c++) p[c] = (byte)Math.Round(p[c] * weight);
             }
         });
-        using var glow = Pixels.NewColor(w, h);
+        using var glow = Pixels.NewLike(source, w, h);
         using (var filter = SKImageFilter.CreateBlur(sigma, sigma, clamp ? SKShaderTileMode.Clamp : SKShaderTileMode.Decal))
         using (var canvas = new SKCanvas(glow))
         using (var paint = new SKPaint { ImageFilter = filter, BlendMode = SKBlendMode.Src })
             canvas.DrawBitmap(lights, pad, pad, paint);
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         using (var canvas = new SKCanvas(result)) canvas.DrawBitmap(source, pad, pad);
         byte* dst = (byte*)result.GetPixels(), soft = (byte*)glow.GetPixels();
         var gain = Math.Max(0, intensity);

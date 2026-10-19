@@ -92,7 +92,7 @@ public sealed partial class EditorSession
                 target.SmartObject = replacement; target.Pixels = preview;
                 if (layer.FilterSource != null) target.FilterSource = preview;
                 target.FilterPaddingX = target.FilterPaddingY = 0;
-                if (layer.MaskTransform != null) target.PlaceMask(layer.MaskMatrix);
+                if (layer.MaskLinked && layer.MaskTransform != null) target.PlaceMask(layer.MaskMatrix);
             }
             foreach (var layer in instances.Where(l => l.FilterSource != null)) RenderSmartFilters(candidate.Find(layer.Id)!, candidate);
             EnsureSmartBudget(candidate);

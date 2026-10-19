@@ -290,7 +290,7 @@ public static class ProjectFile
             if (record.FilterSourceFile != null)
             {
                 layer.FilterSource = Fetch(record.FilterSourceFile, mask: false);
-                layer.SmartFilters = record.SmartFilters?.Take(64).Where(f => Enum.IsDefined(f.Settings.Kind)).ToArray() ?? [];
+                layer.SmartFilters = record.SmartFilters?.Take(64).Where(f => Enum.IsDefined(f.Settings.Kind)).Select(f => f.Normalized()).ToArray() ?? [];
                 layer.FilterPaddingX = Math.Clamp(record.FilterPaddingX, 0, DocumentLimits.MaxSide);
                 layer.FilterPaddingY = Math.Clamp(record.FilterPaddingY, 0, DocumentLimits.MaxSide);
                 if (record.ImageFile != null) layer.Pixels = Fetch(record.ImageFile, mask: false);

@@ -61,6 +61,7 @@ internal static class EditorDocumentInspection
         text = layer.Text == null ? null : new { value = fullText ? layer.Text.Text : layer.Text.Text[..Math.Min(400, layer.Text.Text.Length)],
             length = layer.Text.Text.Length, truncated = !fullText && layer.Text.Text.Length > 400, size = layer.Text.Size, color = Color(layer.Text.Color), font = layer.Text.FontFamily },
         hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, maskLinked = layer.MaskLinked,
+        smartFilters = layer.SmartFilters.Select(f => new { id = f.Id, kind = f.Settings.Kind.ToString(), f.Enabled, f.Opacity, blend = f.Blend.ToString() }),
         smartSourceId = layer.SmartObject?.Id, children = layer.Children.Select(child => child.Id)
     })!.AsObject();
 

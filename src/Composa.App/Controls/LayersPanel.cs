@@ -53,6 +53,7 @@ public sealed class LayersPanel : UserControl
     public event Action<Layer>? EditShapeRequested;
     public event Action<Layer>? EditSmartObjectRequested;
     public event Action<Layer, SmartFilter>? EditSmartFilterRequested;
+    public event Action<Layer, SmartFilter>? EditSmartFilterBlendingRequested;
     public event Action<AdjustmentKind>? NewAdjustmentRequested;
     /// <summary>Double-click on an effect row: open its settings.</summary>
     public event Action<Layer, LayerEffectKind>? EditEffectRequested;
@@ -422,8 +423,22 @@ public sealed class LayersPanel : UserControl
         var current = session!;
         var toggle = Ui.Check("", filter.Enabled, enabled => current.ChangeSmartFilter(layer, filter.Id, enabled: enabled));
         var edit = Ui.TextButton(FilterSettings.DisplayName(filter.Settings.Kind) + "…", () => EditSmartFilterRequested?.Invoke(layer, filter));
+        edit.MaxWidth = 130;
+        ToolTip.SetTip(edit, FilterSettings.DisplayName(filter.Settings.Kind));
+        var blending = Ui.TextButton($"{filter.Opacity:P0}", () => EditSmartFilterBlendingRequested?.Invoke(layer, filter));
+        ToolTip.SetTip(blending, $"Smart filter blending: {filter.Blend.DisplayName()}, {filter.Opacity:P0}");
         var delete = Ui.IconButton(Icons.Trash, "Delete smart filter", () => current.ChangeSmartFilter(layer, filter.Id, remove: true));
-        return new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = Ui.Row(5, toggle, edit, delete) };
+        var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = Ui.Row(5, toggle, edit, blending, delete) };
+        var menu = new ContextMenu();
+        void Add(string name, Action action, bool enabled = true)
+        {
+            var item = new MenuItem { Header = name, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
+        }
+        var index = Array.FindIndex(layer.SmartFilters, f => f.Id == filter.Id);
+        Add("Blending Options…", () => EditSmartFilterBlendingRequested?.Invoke(layer, filter));
+        Add("Move Filter Up", () => current.MoveSmartFilter(layer, filter.Id, 1), index < layer.SmartFilters.Length - 1);
+        Add("Move Filter Down", () => current.MoveSmartFilter(layer, filter.Id, -1), index > 0);
+        row.ContextMenu = menu; return row;
     }
 
     private void EffectDragMoved(PointerEventArgs e)
