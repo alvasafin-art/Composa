@@ -64,8 +64,10 @@ public sealed partial class MainWindow
     private sealed class AiReferenceItem(SKBitmap pixels, Bitmap preview, string name) : IDisposable
     {
         public SKBitmap Pixels { get; } = pixels;
-        public Bitmap Preview { get; } = preview;
+        public Bitmap Preview { get; private set; } = preview;
         public string Name { get; } = name;
+        public void UpdateDisplay(Composa.ColorManagement.RgbProfile profile)
+        { var next = Ui.ToAvaloniaBitmap(Pixels, 512, profile); var old = Preview; Preview = next; old.Dispose(); }
         public void Dispose() { Pixels.Dispose(); Preview.Dispose(); }
     }
 
@@ -437,8 +439,7 @@ public sealed partial class MainWindow
     {
         // Hold a separate image while the preview is open: removing a reference must not
         // dispose pixels still being rendered by another window.
-        using var stream = new MemoryStream(); item.Preview.Save(stream); stream.Position = 0;
-        using var preview = new Bitmap(stream);
+        using var preview = Ui.ToAvaloniaBitmap(item.Pixels, 1040, DisplayProfile);
         var dialog = new Window { Title = item.Name, Width = 760, Height = 600, MinWidth = 300, MinHeight = 240,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
         var root = new DockPanel { Margin = new Thickness(12) };
@@ -464,10 +465,7 @@ public sealed partial class MainWindow
         if (aiReferences.Count >= 6) { pixels.Dispose(); return; }
         try
         {
-            using var image = SKImage.FromBitmap(pixels);
-            using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
-            using var stream = new MemoryStream(encoded.ToArray());
-            aiReferences.Add(new AiReferenceItem(pixels, new Bitmap(stream), name));
+            aiReferences.Add(new AiReferenceItem(pixels, Ui.ToAvaloniaBitmap(pixels, 512, DisplayProfile), name));
         }
         catch { pixels.Dispose(); throw; }
     }

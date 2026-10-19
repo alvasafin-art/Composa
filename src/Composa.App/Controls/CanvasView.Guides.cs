@@ -135,7 +135,7 @@ public sealed partial class CanvasView
             var xs = grid.Lines(document.Width).Select(v => (float)v).ToArray();
             var ys = grid.Lines(document.Height).Select(v => (float)v).ToArray();
             float width = document.Width, height = document.Height;
-            var color = appearance.Color;
+            var color = Composa.ColorManagement.RgbProfile.Srgb.ConvertColor(appearance.Color, DisplayProfile);
             var dashes = GridAppearance.Dashes(appearance.Style);
             steps.Add(canvas =>
             {

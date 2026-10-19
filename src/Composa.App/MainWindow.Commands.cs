@@ -240,6 +240,7 @@ public sealed partial class MainWindow
                 ViewToggle("Grid", v => v.ShowGrid, v => v with { ShowGrid = !v.ShowGrid }, Key.OemQuotes, ctrl, "Show Grid"),
                 ViewToggle("Guides", v => v.ShowGuides, v => v with { ShowGuides = !v.ShowGuides }, Key.OemSemicolon, ctrl, "Show Guides")),
             Item("Grid Settings…", () => _ = ShowGridSettings()),
+            Item("Display Color…", () => _ = EditDisplayColor(), needsDocument: false),
             Line(),
             ViewToggle("Snap", v => v.Snap, v => v with { Snap = !v.Snap }, Key.OemSemicolon, ctrl | shift),
             Sub("Snap To",

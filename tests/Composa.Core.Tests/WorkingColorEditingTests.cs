@@ -10,6 +10,33 @@ namespace Composa.Core.Tests;
 
 public class WorkingColorEditingTests
 {
+    [Fact]
+    public void Untagged_BGRA_sources_are_normalized_before_they_enter_committed_RGB_edits()
+    {
+        using var image = new SKBitmap(32, 24); image.Erase(new SKColor(100, 150, 200));
+        var original = image.Bytes; var session = EditorSession.NewCanvas(32, 24);
+        var layer = session.AddImageLayer("External bitmap", image, fit: false);
+        Assert.Equal(SKColorType.Rgba8888, layer.Pixels!.ColorType); Assert.Equal(new SKColor(100, 150, 200), layer.Pixels.GetPixel(8, 8));
+        session.SelectRect(new(0, 0, 4, 4)); session.Fill(SKColors.Red);
+        Assert.Equal(SKColors.Red, layer.Pixels!.GetPixel(1, 1)); Assert.Equal(new SKColor(100, 150, 200), layer.Pixels.GetPixel(8, 8));
+        Assert.Equal(original, image.Bytes);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void White_balance_eyedropper_and_auto_use_the_same_working_TRC(bool p3)
+    {
+        using var image = Pixels.NewWorkingColor(16, 16, ColorDepth.Sixteen, p3 ? RgbProfile.DisplayP3 : RgbProfile.Rgb1998);
+        var pixels = new PixelBuffer(image);
+        for (var y = 0; y < 16; y++) for (var x = 0; x < 16; x++) pixels.Write(x, y, new(.45f, .5f, .48f, 1));
+        var picked = CameraRawPixels.WhiteBalanceAt(image, 8, 8)!.Value; var auto = CameraRawPixels.AutoBalance(image)!.Value;
+        Assert.InRange(Math.Abs(picked.Temperature - auto.Temperature), 0, .000001); Assert.InRange(Math.Abs(picked.Tint - auto.Tint), 0, .000001);
+        using var corrected = CameraRawPixels.Apply(image, new() { Temperature = picked.Temperature, Tint = picked.Tint });
+        var gray = new PixelBuffer(corrected).Read(8, 8);
+        Assert.InRange(Math.Abs(gray.R - gray.G), 0, .00002); Assert.InRange(Math.Abs(gray.B - gray.G), 0, .00002);
+    }
+
     [Theory]
     [InlineData(ColorDepth.Eight)]
     [InlineData(ColorDepth.Sixteen)]

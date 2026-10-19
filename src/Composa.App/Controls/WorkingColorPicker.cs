@@ -21,10 +21,10 @@ public sealed class WorkingColorPicker : StackPanel
     public SKColor Color => color;
     public event Action<SKColor>? Changed;
 
-    public WorkingColorPicker(SKColor initial, RgbProfile profile)
+    public WorkingColorPicker(SKColor initial, RgbProfile profile, RgbProfile? displayProfile = null)
     {
         Spacing = 10; color = initial.WithAlpha(255); color.ToHsv(out hue, out saturation, out value);
-        square = new Spectrum(profile, false, Pick); hueStrip = new Spectrum(profile, true, Pick);
+        square = new Spectrum(profile, displayProfile ?? RgbProfile.Srgb, false, Pick); hueStrip = new Spectrum(profile, displayProfile ?? RgbProfile.Srgb, true, Pick);
         Children.Add(Ui.Row(10, square, hueStrip));
         SliderField Channel(string name, byte start, Action<byte> set)
         {
@@ -71,13 +71,14 @@ public sealed class WorkingColorPicker : StackPanel
     private sealed class Spectrum : Control
     {
         private readonly RgbProfile profile;
+        private readonly RgbProfile displayProfile;
         private readonly bool strip;
         private readonly Action<bool, double, double> pick;
         private Bitmap? bitmap;
         private float paintedHue = -1, hue, saturation, value;
-        public Spectrum(RgbProfile profile, bool strip, Action<bool, double, double> pick)
+        public Spectrum(RgbProfile profile, RgbProfile displayProfile, bool strip, Action<bool, double, double> pick)
         {
-            this.profile = profile; this.strip = strip; this.pick = pick;
+            this.profile = profile; this.displayProfile = displayProfile; this.strip = strip; this.pick = pick;
             Width = strip ? 24 : 256; Height = 192; Focusable = true;
             Cursor = new Cursor(StandardCursorType.Cross);
             Avalonia.Automation.AutomationProperties.SetName(this, strip ? "Hue" : "Saturation and brightness");
@@ -95,7 +96,7 @@ public sealed class WorkingColorPicker : StackPanel
                         : SKColor.FromHsv(hue, x * 100f / (pixels.Width - 1), (1 - y / (pixels.Height - 1f)) * 100);
                     var at = y * pixels.RowBytes + x * 4; bytes[at] = c.Red; bytes[at + 1] = c.Green; bytes[at + 2] = c.Blue; bytes[at + 3] = 255;
                 }
-                var next = Ui.ToAvaloniaBitmap(pixels, 256); var old = bitmap; bitmap = next; paintedHue = hue; old?.Dispose();
+                var next = Ui.ToAvaloniaBitmap(pixels, 256, displayProfile); var old = bitmap; bitmap = next; paintedHue = hue; old?.Dispose();
             }
             InvalidateVisual();
         }

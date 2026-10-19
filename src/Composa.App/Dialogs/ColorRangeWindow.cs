@@ -64,7 +64,7 @@ public sealed class ColorRangeWindow : DialogWindow
         {
             if (session.ColorRange is not { } edit) return;
             foreach (var (mode, button) in buttons) button.IsChecked = mode == edit.SampleMode;
-            preview.Source = edit.Preview == null ? null : Ui.ToAvaloniaBitmap(edit.Preview, ColorRange.PreviewWidth * 2);
+            preview.Source = edit.Preview == null ? null : Ui.ToAvaloniaBitmap(edit.Preview, ColorRange.PreviewWidth * 2, Ui.DisplayProfile(owner));
             hint.Text = edit.HasColors
                 ? $"Shift-click adds a color, Alt-click takes one away. {edit.Count:N0} pixels selected."
                 : "Click the image to pick the color to select.";

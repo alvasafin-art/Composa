@@ -18,7 +18,7 @@ public sealed class GradientEditor : StackPanel
     public GradientEditor(Window owner, GradientRamp ramp, Action<GradientRamp> changed)
     {
         this.owner = owner; this.ramp = ramp.Normalized(); this.changed = changed;
-        preview = new(Ui.WorkingProfile(owner)); Spacing = 8; Build();
+        preview = new(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner)); Spacing = 8; Build();
     }
     private void Set(GradientRamp next) { ramp = next; preview.Ramp = next.Normalized(); preview.InvalidateVisual(); changed(next.Normalized()); }
     private void Build()
@@ -31,11 +31,11 @@ public sealed class GradientEditor : StackPanel
         for (var index = 0; index < ramp.Colors.Length; index++)
         {
             var at = index; var stop = ramp.Colors[at];
-            var swatch = new Button { Content = "Color", Width = 80, Background = new SolidColorBrush(new SKColor(stop.Color).ToDisplay(Ui.WorkingProfile(owner))) };
+            var swatch = new Button { Content = "Color", Width = 80, Background = new SolidColorBrush(new SKColor(stop.Color).ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner))) };
             swatch.Click += async (_, _) =>
             {
                 if (await Prompts.Color(owner, "Gradient stop", new SKColor(ramp.Colors[at].Color)) is { } color)
-                { var stops = ramp.Colors.ToArray(); stops[at] = stops[at] with { Color = (uint)color }; Set(ramp with { Colors = stops }); swatch.Background = new SolidColorBrush(color.ToDisplay(Ui.WorkingProfile(owner))); }
+                { var stops = ramp.Colors.ToArray(); stops[at] = stops[at] with { Color = (uint)color }; Set(ramp with { Colors = stops }); swatch.Background = new SolidColorBrush(color.ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner))); }
             };
             var position = Ui.Number(stop.Position * 100, 0, 100, v => { var stops = ramp.Colors.ToArray(); stops[at] = stops[at] with { Position = v / 100 }; Set(ramp with { Colors = stops }); }, width: 70);
             Children.Add(Ui.Row(8, swatch, position, Ui.TextButton("Remove", () => { if (ramp.Colors.Length > 2) { Set(ramp with { Colors = ramp.Colors.Where((_, i) => i != at).ToArray() }); Build(); } })));
@@ -54,6 +54,7 @@ public sealed class GradientEditor : StackPanel
     private sealed class RampPreview : Control
     {
         private readonly RgbProfile profile;
+        private readonly RgbProfile displayProfile;
         private Avalonia.Media.Imaging.Bitmap? bitmap;
         public GradientRamp Ramp
         {
@@ -67,10 +68,10 @@ public sealed class GradientEditor : StackPanel
                     bytes[at] = (byte)(color.Red * color.Alpha / 255); bytes[at + 1] = (byte)(color.Green * color.Alpha / 255);
                     bytes[at + 2] = (byte)(color.Blue * color.Alpha / 255); bytes[at + 3] = color.Alpha;
                 }
-                var next = Ui.ToAvaloniaBitmap(image, 286); var old = bitmap; bitmap = next; old?.Dispose();
+                var next = Ui.ToAvaloniaBitmap(image, 286, displayProfile); var old = bitmap; bitmap = next; old?.Dispose();
             }
         }
-        public RampPreview(RgbProfile profile) { this.profile = profile; Height = 26; Width = 286; }
+        public RampPreview(RgbProfile profile, RgbProfile displayProfile) { this.profile = profile; this.displayProfile = displayProfile; Height = 26; Width = 286; }
         public override void Render(DrawingContext context)
         {
             var dark = new SolidColorBrush(Color.Parse("#555555")); var light = new SolidColorBrush(Color.Parse("#888888"));

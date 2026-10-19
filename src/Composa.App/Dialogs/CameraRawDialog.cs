@@ -45,7 +45,7 @@ public static class CameraRawDialog
         }
 
         // The thumbnail: click a pixel that should be neutral and Temperature and Tint follow.
-        var thumb = Ui.ToAvaloniaBitmap(original, 300);
+        var thumb = Ui.ToAvaloniaBitmap(original, 300, Ui.DisplayProfile(owner));
         var preview = new Image { Source = thumb, Width = thumb.PixelSize.Width, Height = thumb.PixelSize.Height, Stretch = Stretch.Uniform, Cursor = new Cursor(StandardCursorType.Cross) };
         ToolTip.SetTip(preview, "Click a pixel that should be neutral to set the white balance from it");
         var readout = Ui.Label("R —   G —   B —", Palette.Secondary);
@@ -61,8 +61,7 @@ public static class CameraRawDialog
         preview.PointerPressed += (_, e) =>
         {
             var p = e.GetPosition(preview);
-            if (CameraRawPixels.StraightColor(original, (int)(p.X / preview.Width * original.Width), (int)(p.Y / preview.Height * original.Height)) is not { } c) return;
-            if (CameraRawSettings.NeutralizeSrgb(c.Red, c.Green, c.Blue) is not { } solved) return;
+            if (CameraRawPixels.WhiteBalanceAt(original, (int)(p.X / preview.Width * original.Width), (int)(p.Y / preview.Height * original.Height)) is not { } solved) return;
             Update(current with { Temperature = Math.Clamp(solved.Temperature, -100, 100), Tint = Math.Clamp(solved.Tint, -100, 100), WhiteBalance = CameraRawWhiteBalance.Custom });
             setTemperature?.Invoke(current.Temperature);
             setTint?.Invoke(current.Tint);

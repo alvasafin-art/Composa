@@ -15,6 +15,8 @@ public static partial class Pixels
         if (source.ColorType != SKColorType.Alpha8) TagProfile(copy, ProfileOf(source));
     }
 
+    public static SKImageInfo WorkingInfo(int width, int height, ColorDepth depth, RgbProfile profile) => ColorInfo(width, height, depth, profile.Space);
+
     public static SKBitmap NewWorkingColor(int width, int height, ColorDepth depth, RgbProfile profile)
     {
         var result = NewColor(width, height, depth, profile.Space);

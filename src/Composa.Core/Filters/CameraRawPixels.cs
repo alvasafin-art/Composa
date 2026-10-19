@@ -68,6 +68,14 @@ public static unsafe class CameraRawPixels
         return count == 0 ? null : CameraRawSettings.Neutralize(red / count, green / count, blue / count);
     }
 
+    /// <summary>Neutralizes a sampled working-RGB color using the image's actual channel tone curves.</summary>
+    public static (double Temperature, double Tint)? WhiteBalanceAt(SKBitmap image, int x, int y)
+    {
+        if (StraightColor(image, x, y) is not { } color) return null;
+        var transfer = Pixels.ProfileOf(image).Transfer;
+        return CameraRawSettings.Neutralize(transfer.Decode(color.Red, 0), transfer.Decode(color.Green, 1), transfer.Decode(color.Blue, 2));
+    }
+
     /// <summary>The straight color of one pixel, 0…1 per channel, or null where the layer is clear.</summary>
     public static (double Red, double Green, double Blue)? StraightColor(SKBitmap image, int x, int y)
     {

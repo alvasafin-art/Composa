@@ -11,6 +11,7 @@ using Composa.Model;
 using Composa.Rendering;
 using Geometry = Composa.Model.Geometry;
 using Composa.Selections;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.App.Controls;
@@ -44,6 +45,17 @@ public sealed partial class CanvasView : Control
     private (float Scale, SKPoint Origin, int Width, int Height) viewKey;
     private SKRectI viewDirty;
     private bool viewStale = true;
+    private RgbProfile displayProfile = RgbProfile.Srgb;
+    public RgbProfile DisplayProfile
+    {
+        get => displayProfile;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (displayProfile.Equals(value)) return;
+            displayProfile = value; viewCache = null; viewStale = true; InvalidateVisual();
+        }
+    }
 
     public CanvasView()
     {
@@ -319,7 +331,10 @@ public sealed partial class CanvasView : Control
             {
                 canvas.Save();
                 canvas.ClipRect(screenRect);
-                using var image = SKImage.FromPixels(cache.PeekPixels());
+                // The cache already contains display-device RGB. An untagged presentation prevents
+                // Skia converting those values back to the UI surface's nominal sRGB space.
+                using var raw = new SKPixmap(cache.Info.WithColorSpace(null), cache.GetPixels(), cache.RowBytes);
+                using var image = SKImage.FromPixels(raw);
                 canvas.DrawImage(image, cacheSource, cacheTarget, new SKSamplingOptions(nearest ? SKFilterMode.Nearest : SKFilterMode.Linear));
                 canvas.Restore();
             }
@@ -377,7 +392,7 @@ public sealed partial class CanvasView : Control
         if (viewCache == null || viewCache.Width < width || viewCache.Height < height)
         {
             // The old bitmap may still be in use by the render thread, so it is left to the garbage collector.
-            viewCache = Pixels.NewColor(Math.Max(width, viewCache?.Width ?? 0) + 64, Math.Max(height, viewCache?.Height ?? 0) + 64);
+            viewCache = Pixels.NewWorkingColor(Math.Max(width, viewCache?.Width ?? 0) + 64, Math.Max(height, viewCache?.Height ?? 0) + 64, ColorDepth.Eight, displayProfile);
             viewStale = true;
         }
         var key = (scale, viewOrigin, width, height);

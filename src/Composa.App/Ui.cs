@@ -159,13 +159,16 @@ public static class Ui
         : new Border { Height = 1, Background = Palette.Divider };
 
     /// <summary>Copies Skia pixels into an Avalonia bitmap, reduced to fit <paramref name="maxSide"/>.</summary>
-    public static Avalonia.Media.Imaging.Bitmap ToAvaloniaBitmap(SkiaSharp.SKBitmap source, int maxSide)
+    public static Avalonia.Media.Imaging.Bitmap ToAvaloniaBitmap(SkiaSharp.SKBitmap source, int maxSide, Composa.ColorManagement.RgbProfile? displayProfile = null)
     {
         var scale = Math.Min(1, Math.Min((double)maxSide / source.Width, (double)maxSide / source.Height));
         int w = Math.Max(1, (int)Math.Round(source.Width * scale)), h = Math.Max(1, (int)Math.Round(source.Height * scale));
-        using var small = new SkiaSharp.SKBitmap(Composa.Rendering.Pixels.ColorInfo(w, h).WithColorType(SkiaSharp.SKColorType.Bgra8888));
+        using var small = new SkiaSharp.SKBitmap(Composa.Rendering.Pixels.WorkingInfo(w, h, Composa.Model.ColorDepth.Eight, displayProfile ?? Composa.ColorManagement.RgbProfile.Srgb).WithColorType(SkiaSharp.SKColorType.Bgra8888));
+        var sourceInfo = source.ColorType == SkiaSharp.SKColorType.Alpha8 ? source.Info
+            : source.Info.WithColorSpace(source.ColorSpace ?? Composa.Rendering.Pixels.ColorInfo(1, 1).ColorSpace);
+        using var sourcePixels = new SkiaSharp.SKPixmap(sourceInfo, source.GetPixels(), source.RowBytes);
         using (var canvas = new SkiaSharp.SKCanvas(small))
-        using (var image = SkiaSharp.SKImage.FromPixels(source.PeekPixels()))
+        using (var image = SkiaSharp.SKImage.FromPixels(sourcePixels))
             canvas.DrawImage(image, new SkiaSharp.SKRect(0, 0, w, h), new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Linear, SkiaSharp.SKMipmapMode.Linear));
         return new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul, small.GetPixels(),
             new PixelSize(w, h), new Vector(96, 96), small.RowBytes);
@@ -178,7 +181,13 @@ public static class Ui
             if (window is MainWindow main && main.Session is { } session) return session.Document.Profile;
         return Composa.ColorManagement.RgbProfile.Srgb;
     }
-    public static Color ToDisplay(this SkiaSharp.SKColor color, Composa.ColorManagement.RgbProfile profile) =>
-        profile.ConvertColor(color, Composa.ColorManagement.RgbProfile.Srgb).ToAvalonia();
+    public static Composa.ColorManagement.RgbProfile DisplayProfile(Window owner)
+    {
+        for (Window? window = owner; window != null; window = window.Owner as Window)
+            if (window is MainWindow main) return main.DisplayProfile;
+        return Composa.ColorManagement.RgbProfile.Srgb;
+    }
+    public static Color ToDisplay(this SkiaSharp.SKColor color, Composa.ColorManagement.RgbProfile profile, Composa.ColorManagement.RgbProfile? displayProfile = null) =>
+        profile.ConvertColor(color, displayProfile ?? Composa.ColorManagement.RgbProfile.Srgb).ToAvalonia();
     public static SkiaSharp.SKColor ToSkia(this Color c) => new(c.R, c.G, c.B, c.A);
 }

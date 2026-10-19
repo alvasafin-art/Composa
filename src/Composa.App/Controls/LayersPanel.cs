@@ -10,6 +10,7 @@ using Avalonia.VisualTree;
 using Composa.Editing;
 using Composa.Filters;
 using Composa.Model;
+using Composa.ColorManagement;
 using SkiaSharp;
 using BlendMode = Composa.Model.BlendMode;
 using TextAlignment = Avalonia.Media.TextAlignment;
@@ -30,7 +31,13 @@ public sealed class LayersPanel : UserControl
     private bool opacityDragging;
     private double opacityStart;
     private Guid? renaming;
-    private static readonly ConditionalWeakTable<SKBitmap, Bitmap> Thumbnails = new();
+    private static readonly ConditionalWeakTable<SKBitmap, Dictionary<RgbProfile, Bitmap>> Thumbnails = new();
+    private RgbProfile displayProfile = RgbProfile.Srgb;
+    public RgbProfile DisplayProfile
+    {
+        get => displayProfile;
+        set { if (displayProfile.Equals(value)) return; displayProfile = value; Rebuild(); }
+    }
 
     // Drag state.
     private Layer? pressed;
@@ -461,13 +468,14 @@ public sealed class LayersPanel : UserControl
         return border;
     }
 
-    private static unsafe Bitmap Thumbnail(SKBitmap source)
+    private unsafe Bitmap Thumbnail(SKBitmap source)
     {
-        if (Thumbnails.TryGetValue(source, out var cached)) return cached;
+        var profiles = Thumbnails.GetValue(source, _ => new());
+        if (profiles.TryGetValue(displayProfile, out var cached)) return cached;
         const int side = 68;
         var scale = Math.Min((double)side / source.Width, (double)side / source.Height);
         int w = Math.Max(1, (int)Math.Round(source.Width * scale)), h = Math.Max(1, (int)Math.Round(source.Height * scale));
-        using var small = new SKBitmap(Composa.Rendering.Pixels.ColorInfo(w, h).WithColorType(SKColorType.Bgra8888));
+        using var small = new SKBitmap(Composa.Rendering.Pixels.WorkingInfo(w, h, ColorDepth.Eight, displayProfile).WithColorType(SKColorType.Bgra8888));
         using (var canvas = new SKCanvas(small))
         {
             if (source.ColorType == SKColorType.Alpha8)
@@ -485,7 +493,9 @@ public sealed class LayersPanel : UserControl
             }
         }
         var bitmap = new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, small.GetPixels(), new PixelSize(w, h), new Vector(96, 96), small.RowBytes);
-        Thumbnails.Add(source, bitmap);
+        profiles[displayProfile] = bitmap;
+        // Old render operations may still own an evicted image, so leave disposal to their references/GC.
+        while (profiles.Count > 4) profiles.Remove(profiles.Keys.First(p => !p.Equals(displayProfile)));
         return bitmap;
     }
 

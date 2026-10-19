@@ -233,7 +233,7 @@ public sealed partial class MainWindow
                 if (picked is { } color) Change(st => set(st, (uint)color | 0xFF000000));
                 refreshOptions?.Invoke();
             };
-            refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToDisplay(s.Document.Profile)); };
+            refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToDisplay(s.Document.Profile, DisplayProfile)); };
             return swatch;
         }
         row.Children.Add(Ui.Separator());
@@ -380,7 +380,7 @@ public sealed partial class MainWindow
             faceMenu.PlaceholderText = uniformFace == null ? "(Multiple)" : Composa.Text.FontCatalog.Closest(face.FontFamily, face).Name;
             var faceIndex = uniformFace == null ? -1 : faceChoices.ToList().IndexOf(Composa.Text.FontCatalog.Closest(face.FontFamily, face));
             if (faceMenu.SelectedIndex != faceIndex) faceMenu.SelectedIndex = faceIndex;
-            swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToDisplay(s.Document.Profile));
+            swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToDisplay(s.Document.Profile, DisplayProfile));
             foreach (var (alignment, button) in alignments) button.IsChecked = current.Alignment == alignment;
             updating = false;
         };

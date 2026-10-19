@@ -18,6 +18,8 @@ public sealed class Settings
     /// <summary>Toggles that belong to the person rather than to a document, kept the way Photoshop keeps its tool options.</summary>
     public bool ShowTransformControls { get; set; } = true;
     public bool AutoSelect { get; set; } = true;
+    public DisplayColorMode DisplayColorMode { get; set; } = DisplayColorMode.Automatic;
+    public string? DisplayProfilePath { get; set; }
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.EfficientSamS;
     public ToolPaletteSettings? ToolPalette { get; set; }
     public int PromptSelectionRevision { get; set; } = 1;

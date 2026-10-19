@@ -95,7 +95,7 @@ public sealed partial class EditorSession
     /// </summary>
     public Layer AddImageLayer(string name, SKBitmap pixels, SKPoint? center = null, bool fit = true, double scale = 1)
     {
-        var converted = !Pixels.ProfileOf(pixels).Equals(document.Profile);
+        var converted = pixels.ColorType is not (SKColorType.Rgba8888 or SKColorType.RgbaF32) || !Pixels.ProfileOf(pixels).Equals(document.Profile);
         if (converted) pixels = Pixels.ConvertWorking(pixels, Pixels.DepthOf(pixels), document.Profile);
         var existing = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
         document.CollectBitmaps(existing, new(), includeSelection: false);

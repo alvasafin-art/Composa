@@ -21,7 +21,8 @@ public sealed partial class MainWindow
         var dialogTitle = assign ? "Assign Color Profile" : "Convert Color Profile";
         var load = Ui.TextButton("Load ICC…", async () =>
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "RGB ICC Profile", AllowMultiple = false,
+            var provider = TopLevel.GetTopLevel(combo)?.StorageProvider ?? StorageProvider;
+            var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "RGB ICC Profile", AllowMultiple = false,
                 FileTypeFilter = [new FilePickerFileType("RGB ICC Profile") { Patterns = ["*.icc", "*.icm"] }] });
             if (files.Count == 0) return;
             try
@@ -39,7 +40,9 @@ public sealed partial class MainWindow
             { await Prompts.Alert(this, "RGB Profile", error.Message); }
         });
         var flatten = new CheckBox { Content = "Flatten image to preserve composite appearance", IsChecked = true, IsVisible = !assign };
-        var rows = Ui.Column(12, Ui.Label("Current profile: " + current.Name, Palette.Secondary), Ui.Row(8, combo, load),
+        var currentLabel = Ui.Label("Current profile: " + current.Name, Palette.Secondary);
+        currentLabel.MaxWidth = 390; currentLabel.TextTrimming = TextTrimming.CharacterEllipsis; ToolTip.SetTip(currentLabel, current.Name);
+        var rows = Ui.Column(12, currentLabel, Ui.Row(8, combo, load),
             new TextBlock { Text = assign ? "Keeps RGB numbers and changes their meaning. The image's appearance may change."
                 : "Converts RGB numbers to preserve color within the destination gamut. Keeping layers can change blends and adjustments.",
                 MaxWidth = 390, TextWrapping = TextWrapping.Wrap }, flatten);

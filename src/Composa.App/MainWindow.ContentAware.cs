@@ -27,7 +27,7 @@ public sealed partial class MainWindow
         if (mask == null) { target.CancelPreview(); return; }
         using var excluded = Pixels.NewMask(original.Width, original.Height);
         var previewScale = Math.Min(1, 960.0 / Math.Max(original.Width, original.Height));
-        using var previewImage = Pixels.NewColor(Math.Max(1, (int)Math.Round(original.Width * previewScale)), Math.Max(1, (int)Math.Round(original.Height * previewScale)));
+        using var previewImage = Pixels.NewWorkingColor(Math.Max(1, (int)Math.Round(original.Width * previewScale)), Math.Max(1, (int)Math.Round(original.Height * previewScale)), Composa.Model.ColorDepth.Eight, Pixels.ProfileOf(original));
         var sample = new Image { Stretch = Stretch.Uniform, Cursor = new Cursor(StandardCursorType.Cross) };
         var resultView = new Image { Stretch = Stretch.Uniform };
         Avalonia.Media.Imaging.Bitmap? samplingBitmap = null, resultBitmap = null;
@@ -35,10 +35,10 @@ public sealed partial class MainWindow
         using var workspaceCancellation = new CancellationTokenSource();
         DialogWindow? dialog = null; Task? previewTask = null;
         var radius = 30.0; var draft = true;
-        static unsafe WriteableBitmap Display(SKBitmap pixels)
+        unsafe WriteableBitmap Display(SKBitmap pixels)
         {
             var scale = Math.Min(1, 960.0 / Math.Max(pixels.Width, pixels.Height));
-            using var small = Pixels.NewColor(Math.Max(1, (int)Math.Round(pixels.Width * scale)), Math.Max(1, (int)Math.Round(pixels.Height * scale)));
+            using var small = Pixels.NewWorkingColor(Math.Max(1, (int)Math.Round(pixels.Width * scale)), Math.Max(1, (int)Math.Round(pixels.Height * scale)), Composa.Model.ColorDepth.Eight, DisplayProfile);
             using (var canvas = new SKCanvas(small)) canvas.DrawBitmap(pixels, new SKRect(0, 0, small.Width, small.Height));
             var bitmap = new WriteableBitmap(new PixelSize(small.Width, small.Height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Premul);
             using var frame = bitmap.Lock();

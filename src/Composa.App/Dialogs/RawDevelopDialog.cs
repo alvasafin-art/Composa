@@ -43,7 +43,7 @@ public static class RawDevelopDialog
                 var wanted = ++revision;
                 var chosen = settings;
                 var bitmap = await Task.Run(() => raw.Develop(chosen, preview));
-                if (wanted == revision) image.Source = Ui.ToAvaloniaBitmap(bitmap, preview);
+                if (wanted == revision) image.Source = Ui.ToAvaloniaBitmap(bitmap, preview, Ui.DisplayProfile(owner));
                 bitmap.Dispose();
             } while (pending);
             rendering = false;

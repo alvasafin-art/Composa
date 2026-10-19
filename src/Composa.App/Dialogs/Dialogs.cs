@@ -90,13 +90,14 @@ public static class Prompts
     public static async Task<SKColor?> Color(Window owner, string title, SKColor initial, Action<SKColor>? preview = null, Composa.ColorManagement.RgbProfile? profile = null)
     {
         profile ??= Ui.WorkingProfile(owner);
-        if (!profile.Equals(Composa.ColorManagement.RgbProfile.Srgb))
+        var display = Ui.DisplayProfile(owner);
+        if (!profile.Equals(Composa.ColorManagement.RgbProfile.Srgb) || !display.Equals(Composa.ColorManagement.RgbProfile.Srgb))
         {
-            var picker = new Controls.WorkingColorPicker(initial, profile);
-            var after = new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile)) };
-            picker.Changed += color => { after.Background = new SolidColorBrush(color.ToDisplay(profile)); preview?.Invoke(color); };
+            var picker = new Controls.WorkingColorPicker(initial, profile, display);
+            var after = new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) };
+            picker.Changed += color => { after.Background = new SolidColorBrush(color.ToDisplay(profile, display)); preview?.Invoke(color); };
             var rows = Ui.Column(10, picker, Ui.Row(10, Ui.Label("Before / After", Palette.Secondary),
-                new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile)) }, after));
+                new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) }, after));
             return await new DialogWindow(title, rows).Ask(owner) ? picker.Color : null;
         }
         // Saturation across and brightness up in the square, hue on the strip, as Photoshop lays it out. The control's
@@ -265,6 +266,7 @@ public static class CanvasDialogs
     /// <summary>Picks the JPEG quality while showing what the compression does to the picture and how large the file gets.</summary>
     public static async Task<int?> JpegQuality(Window owner, int initial, SKBitmap flattened)
     {
+        var display = Ui.DisplayProfile(owner);
         var quality = initial;
         var preview = new Image { Width = 520, Height = 340, Stretch = Stretch.Uniform };
         var info = Ui.Label("Measuring…", Palette.Secondary);
@@ -284,7 +286,7 @@ public static class CanvasDialogs
             {
                 var encoded = Composa.IO.ImageFiles.Encode(flattened, Composa.IO.ExportFormat.Jpeg, q);
                 using var decoded = SKBitmap.Decode(encoded);
-                return (encoded.LongLength, decoded == null ? null : Ui.ToAvaloniaBitmap(decoded, 1040));
+                return (encoded.LongLength, decoded == null ? null : Ui.ToAvaloniaBitmap(decoded, 1040, display));
             });
             inFlight = Task.WhenAll(inFlight, work);
             var (bytes, shown) = await work;
