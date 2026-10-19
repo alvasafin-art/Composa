@@ -22,6 +22,7 @@ public sealed partial class EditorSession
     {
         if (editingAlphaChannel == null && EditingRgbChannels == RgbChannels.All && VisibleRgbChannels == RgbChannels.All) return;
         editingAlphaChannel = null; EditingRgbChannels = VisibleRgbChannels = RgbChannels.All; AlphaChannelOverlay = false;
+        channelControls = null;
         CanvasChanged?.Invoke(null); ChannelsChanged?.Invoke();
     }
 
@@ -120,9 +121,10 @@ public sealed partial class EditorSession
             if (mask != null)
             {
                 var pixels = new PixelBuffer(gray); var output = (byte*)mask.GetPixels();
-                Parallel.For(0, mask.Height, y =>
+                var width = pixels.Width; var height = pixels.Height; var stride = mask.RowBytes;
+                Parallel.For(0, height, y =>
                 {
-                    for (var x = 0; x < mask.Width; x++) output[y * mask.RowBytes + x] = (byte)Math.Clamp(Math.Round(pixels.Read(x, y).R * 255), 0, 255);
+                    for (var x = 0; x < width; x++) output[y * stride + x] = (byte)Math.Clamp(Math.Round(pixels.Read(x, y).R * 255), 0, 255);
                 });
             }
             var placed = new SKRectI(image.Origin.X, image.Origin.Y, image.Origin.X + gray.Width, image.Origin.Y + gray.Height);
@@ -165,12 +167,13 @@ public sealed partial class EditorSession
         if (!Pixels.IsSingleChannel(channel)) throw new ArgumentException("Choose one RGB channel.");
         using var composite = CompositePixels(); var pixels = new PixelBuffer(composite); var mask = Pixels.NewMask(document.Width, document.Height);
         var output = (byte*)mask.GetPixels();
-        Parallel.For(0, mask.Height, y =>
+        var width = pixels.Width; var height = pixels.Height; var stride = mask.RowBytes;
+        Parallel.For(0, height, y =>
         {
-            for (var x = 0; x < mask.Width; x++)
+            for (var x = 0; x < width; x++)
             {
                 var p = pixels.Read(x, y); var value = channel == RgbChannels.Red ? p.R : channel == RgbChannels.Green ? p.G : p.B;
-                output[y * mask.RowBytes + x] = (byte)Math.Clamp(Math.Round(value * 255), 0, 255);
+                output[y * stride + x] = (byte)Math.Clamp(Math.Round(value * 255), 0, 255);
             }
         });
         Select(mask, mode, "Load Channel Selection");

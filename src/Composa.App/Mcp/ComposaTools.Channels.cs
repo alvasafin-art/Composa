@@ -10,9 +10,10 @@ namespace Composa.App.Mcp;
 public sealed partial class ComposaTools
 {
     [McpServerTool(Name = "channels")]
-    [Description("RGB components and saved alpha channels. action: list, select (name selects alpha, otherwise rgb), view (visibleRgb and overlay), new (named alpha; optionally fromSelection/revealAll), duplicate, rename (replacement), up/down, delete, load (channel as selection), fill (color), invert. RGB uses all, red, green, blue, or comma-separated components. Alpha edits do not change layer pixels; RGB component edits preserve other components and transparency. View changes never affect exports. paint_stroke(s) can address red/green/blue or alpha:NAME explicitly.")]
+    [Description("RGB components and saved alpha channels. action: list, select (name selects alpha, otherwise rgb), view (visibleRgb and overlay), new (named alpha; optionally fromSelection/revealAll), duplicate, rename (replacement), up/down, delete, load (channel as selection), fill (color), invert, transform (x/y/width/height/rotation of channel contents or the selected fragment). RGB uses all, red, green, blue, or comma-separated components; transform requires a specific component subset or an alpha name. Alpha edits do not change layer pixels; component edits preserve other components and transparency. View never affects exports. paint_stroke(s) address channels explicitly.")]
     public Task<string> Channels(string action = "list", string? name = null, string rgb = "all", string? replacement = null,
-        string? visibleRgb = null, bool overlay = false, bool fromSelection = false, bool revealAll = false, string color = "#FFFFFF", int? document = null) => OnUi(() =>
+        string? visibleRgb = null, bool overlay = false, bool fromSelection = false, bool revealAll = false, string color = "#FFFFFF", int? document = null,
+        double? x = null, double? y = null, double? width = null, double? height = null, double? rotation = null) => OnUi(() =>
     {
         var s = action == "list" ? Session(document) : Editable(document);
         switch (action)
@@ -27,17 +28,25 @@ public sealed partial class ComposaTools
             case "down": s.MoveAlphaChannel(RequireAlpha(s, name), 1); break;
             case "delete": s.DeleteSelectionChannel(RequireAlpha(s, name)); break;
             case "load": if (name != null) s.LoadSelection(RequireAlpha(s, name)); else s.LoadRgbChannel(ParseRgbChannels(rgb)); break;
-            case "fill": case "invert":
+            case "fill": case "invert": case "transform":
                 var target = CapturePaintTarget(s);
                 try
                 {
                     if (name != null) s.EditAlphaChannel(RequireAlpha(s, name)); else s.EditRgbChannels(ParseRgbChannels(rgb), changeView: false);
                     if (!s.CanEditPixels) throw new McpException("Choose an unlocked raster layer, or give an alpha channel name.");
-                    if (action == "fill") s.Fill(ParseColor(color), "Fill Channel"); else s.Adjust(new InvertAdjustment());
+                    if (action == "fill") s.Fill(ParseColor(color), "Fill Channel");
+                    else if (action == "invert") s.Adjust(new InvertAdjustment());
+                    else
+                    {
+                        var frame = s.ChannelControlTransform;
+                        var next = frame with { X = x ?? frame.X, Y = y ?? frame.Y, Width = width ?? frame.Width, Height = height ?? frame.Height, Rotation = rotation ?? frame.Rotation };
+                        if (next.Width > DocumentLimits.MaxSide || next.Height > DocumentLimits.MaxSide) throw new McpException($"Channel frame size must not exceed {DocumentLimits.MaxSide} px.");
+                        s.SetChannelControlTransform(next);
+                    }
                 }
                 finally { RestorePaintTarget(s, target); }
                 break;
-            default: throw new McpException("Use list, select, view, new, duplicate, rename, up, down, delete, load, fill or invert.");
+            default: throw new McpException("Use list, select, view, new, duplicate, rename, up, down, delete, load, fill, invert or transform.");
         }
         return $"Editing: {s.EditingAlphaChannel ?? (s.IsEditingMask ? "layer mask" : s.EditingRgbChannels.ToString())}. Visible RGB: {s.VisibleRgbChannels}. Alpha overlay: {s.AlphaChannelOverlay}.\nAlpha channels: "
             + (s.Document.AlphaChannels.Count == 0 ? "none" : string.Join(", ", s.Document.AlphaChannels.Keys));

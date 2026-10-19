@@ -43,8 +43,8 @@ public sealed partial class MainWindow
         {
             case Tool.Move:
                 Add(Title("Move"));
-                if (s.IsEditingAlphaChannel || s.IsEditingComponent) { Add(Ui.Label("Choose RGB in Channels to move the layer", Palette.Secondary)); break; }
                 BuildTransformFields(row);
+                if (s.IsEditingChannel) break;
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildAlignmentFields(row);
                 break;
@@ -421,8 +421,9 @@ public sealed partial class MainWindow
     private void BuildTransformFields(StackPanel row)
     {
         var s = session!;
-        var layer = s.ActiveLayer;
+        var layer = s.IsEditingChannel ? s.ChannelControlLayer : s.ActiveLayer;
         var autoSelect = Ui.Check("Auto Select", canvas.AutoSelect, v => { canvas.AutoSelect = v; RememberToolSettings(); });
+        autoSelect.IsEnabled = !s.IsEditingChannel;
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
         row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
@@ -433,14 +434,37 @@ public sealed partial class MainWindow
             return;
         }
         var updating = false;
+        TransformEdit? inspectorTransform = null;
+        void FinishChannelInspector(bool keep)
+        {
+            var edit = inspectorTransform; inspectorTransform = null;
+            if (edit == null || !ReferenceEquals(s.Transform, edit)) return;
+            if (keep) s.CommitTransform(); else s.CancelTransform();
+        }
         NumericUpDown Field(string label, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> set, double min, double max, string format)
         {
             var box = Ui.Number(get(s.EditingControlTransform(layer)), min, max, v =>
             {
-                if (updating || s.Document.Find(layer.Id) is not { } live) return;
-                s.SetControlTransform(live, set(s.EditingControlTransform(live), v));
+                var live = s.IsEditingChannel ? s.ChannelControlLayer : s.Document.Find(layer.Id);
+                if (updating || live == null) return;
+                var transform = set(s.EditingControlTransform(live), v);
+                if (s.IsEditingChannel) { s.PreviewChannelControlTransform(transform); inspectorTransform = s.Transform; }
+                else s.SetControlTransform(live, transform);
             }, 1, format, layer.Shape != null ? 55 : 74);
-            row.Children.Add(Ui.Row(5, Ui.Scrub(Ui.Label(label, Palette.Secondary), box), box));
+            box.LostFocus += (_, _) =>
+            {
+                var expected = inspectorTransform;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                { if (expected != null && inspectorTransform == expected && !row.IsKeyboardFocusWithin) FinishChannelInspector(keep: true); });
+            };
+            box.KeyUp += (_, e) => { if (e.Key == Key.Enter) FinishChannelInspector(keep: true); };
+            box.AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Escape && inspectorTransform != null) { FinishChannelInspector(keep: false); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            var scrub = Ui.Scrub(Ui.Label(label, Palette.Secondary), box);
+            scrub.AddHandler(PointerPressedEvent, (_, e) => { if (s.IsEditingChannel && e.GetCurrentPoint(scrub).Properties.IsLeftButtonPressed) { channelInspectorDragging = true; channelInspectorPointer = e.Pointer; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            void EndScrub() { if (!channelInspectorDragging) return; channelInspectorDragging = false; channelInspectorPointer = null; if (!row.IsKeyboardFocusWithin) FinishChannelInspector(keep: true); }
+            scrub.AddHandler(PointerReleasedEvent, (_, _) => EndScrub(), Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+            scrub.PointerCaptureLost += (_, _) => EndScrub();
+            row.Children.Add(Ui.Row(5, scrub, box));
             return box;
         }
         var x = Field("X", t => t.X, (t, v) => t with { X = v }, -100000, 100000, "0.#");
@@ -450,7 +474,8 @@ public sealed partial class MainWindow
         var angle = Field("∠", t => t.Rotation, (t, v) => t with { Rotation = v }, -360, 360, "0.##");
         refreshOptions = () =>
         {
-            if (s.Document.Find(layer.Id) is not { } live) return;
+            var live = s.IsEditingChannel ? s.ChannelControlLayer : s.Document.Find(layer.Id);
+            if (live == null) return;
             updating = true;
             var control = s.EditingControlTransform(live);
             x.Value = (decimal)control.X; y.Value = (decimal)control.Y;

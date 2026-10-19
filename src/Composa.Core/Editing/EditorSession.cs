@@ -125,8 +125,8 @@ public sealed partial class EditorSession
     public double GradientOpacity { get; set; } = 1;
     /// <summary>When the active layer has a mask: paint, fill and filter the mask instead of the pixels.</summary>
     private bool editingMask, editingSmartFilterMask;
-    public bool EditingMask { get => editingMask; set { editingMask = value; editingSmartFilterMask = false; if (value || editingAlphaChannel != null) ResetChannelTarget(); } }
-    public bool EditingSmartFilterMask { get => editingSmartFilterMask; set { editingSmartFilterMask = value; if (value) { editingMask = false; ResetChannelTarget(); } } }
+    public bool EditingMask { get => editingMask; set { if (channelTransform != null) CommitTransform(); editingMask = value; editingSmartFilterMask = false; if (value || editingAlphaChannel != null) ResetChannelTarget(); } }
+    public bool EditingSmartFilterMask { get => editingSmartFilterMask; set { if (channelTransform != null) CommitTransform(); editingSmartFilterMask = value; if (value) { editingMask = false; ResetChannelTarget(); } } }
     public Guid? SoloLayerId { get; set; }
 
     /// <summary>Raised after pixels changed; the rectangle is in document space (null means everything, including size).</summary>
@@ -294,6 +294,7 @@ public sealed partial class EditorSession
         var alpha = EditingAlphaChannel is { } name ? document.AlphaChannels[name] : null;
         var resized = state.Width != document.Width || state.Height != document.Height;
         document = state;
+        channelControls = null;
         if (editingAlphaChannel != null && !document.AlphaChannels.ContainsKey(editingAlphaChannel))
             editingAlphaChannel = alpha == null ? null : document.AlphaChannels.FirstOrDefault(pair => ReferenceEquals(pair.Value, alpha)).Key;
         if (editingAlphaChannel == null) AlphaChannelOverlay = false;

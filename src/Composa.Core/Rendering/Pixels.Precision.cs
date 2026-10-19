@@ -9,9 +9,9 @@ public static partial class Pixels
     private static SKRectI ScanHighPrecisionContent(SKBitmap image)
     {
         var pixels = new PixelBuffer(image);
-        int left = image.Width, top = image.Height, right = 0, bottom = 0;
-        for (var y = 0; y < image.Height; y++)
-        for (var x = 0; x < image.Width; x++)
+        int width = pixels.Width, height = pixels.Height, left = width, top = height, right = 0, bottom = 0;
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
         {
             if (pixels.Read(x, y).A <= 0) continue;
             left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x + 1); bottom = y + 1;

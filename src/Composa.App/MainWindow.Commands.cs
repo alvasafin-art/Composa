@@ -430,9 +430,9 @@ public sealed partial class MainWindow
     private void Execute(Shortcut command)
     {
         if (Content is Control { IsEnabled: false }) return;
-        if (command.Enabled?.Invoke() == false || canvas.IsDragging) return;
+        if (command.Enabled?.Invoke() == false || IsDragging) return;
         problem = note = null;
-        try { command.Run(); }
+        try { session?.CommitChannelControlEdit(); command.Run(); }
         catch (Exception error) { _ = Prompts.Alert(this, command.Title, error.Message); }
         UpdateStatus();
     }
@@ -472,6 +472,15 @@ public sealed partial class MainWindow
         { if (e.Key == Key.Escape) automationCancellation?.Cancel(); e.Handled = true; return; }
         var focused = FocusManager?.GetFocusedElement();
         if (SwallowAlt(e)) return;
+        if (channelInspectorDragging)
+        {
+            if (e.Key == Key.Escape)
+            {
+                channelInspectorDragging = false; var pointer = channelInspectorPointer; channelInspectorPointer = null;
+                pointer?.Capture(null); session?.CancelTransform();
+            }
+            e.Handled = true; return;
+        }
         if (aiFloatingHost.IsVisible && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
         {
             e.Handled = true;
@@ -701,6 +710,8 @@ public sealed partial class MainWindow
 
     private async Task<bool> Save(EditorSession target, bool saveAs, bool photoshop = false)
     {
+        if (IsDragging) return false;
+        target.CommitChannelControlEdit();
         if (!saveAs && embeddedTabs.ContainsKey(target))
         {
             try { return await SaveSmartObjectContents(target); }
@@ -764,7 +775,8 @@ public sealed partial class MainWindow
         var extension = Path.GetExtension(path);
         if (!extension.Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
             return new IOException("Save a .cmps project or a .psd Photoshop document.");
-        if (canvas.IsDragging) return new IOException("Finish dragging on the canvas before saving.");
+        if (IsDragging) return new IOException("Finish dragging the canvas or controls before saving.");
+        target.CommitChannelControlEdit();
         target.FinishText();
         var snapshot = target.Document.Clone();
         var state = target.History.CurrentId;

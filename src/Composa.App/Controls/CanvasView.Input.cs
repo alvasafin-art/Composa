@@ -710,8 +710,8 @@ public sealed partial class CanvasView
     private SKPoint[]? CurrentFrame()
     {
         if (session == null) return null;
-        if (session.IsEditingAlphaChannel || session.IsEditingComponent) return null;
         if (session.Transform is { } edit) return edit.Corners();
+        if (session.IsEditingChannel && session.Selection is { } channelSelection) return Corners(SelectionMask.Bounds(channelSelection));
         if (session.IndependentMaskTarget is { Mask: { } mask } maskLayer)
             return MaskCorners(maskLayer, mask);
         var targets = session.TransformTargets();
@@ -877,11 +877,10 @@ public sealed partial class CanvasView
     private void BeginMove(bool control, int clicks)
     {
         if (session == null) return;
-        if (session.IsEditingAlphaChannel || session.IsEditingComponent) { Problem?.Invoke("Choose RGB in Channels to move the layer."); return; }
         handle = ShowTransformControls && CurrentFrame() is { } frame ? HitFrame(frame, pressScreen, allowRotate: true) : TransformHandle.None;
         distortCorner = -1;
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
-        if (!onHandle && session.IndependentMaskTarget == null)
+        if (!onHandle && session.IndependentMaskTarget == null && !session.IsEditingChannel)
         {
             var hit = LayerAt(pressDocument);
             var keepGroup = handle == TransformHandle.Move && session.ActiveLayer?.IsGroup == true && !dragModifiers.HasFlag(KeyModifiers.Shift);

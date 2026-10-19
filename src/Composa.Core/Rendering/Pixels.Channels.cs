@@ -5,14 +5,36 @@ namespace Composa.Rendering;
 
 public static partial class Pixels
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SKBitmap, Dictionary<RgbChannels, SKRectI>> componentBounds = new();
+
+    public static unsafe SKRectI ComponentBounds(SKBitmap bitmap, RgbChannels channels)
+    {
+        var cache = componentBounds.GetValue(bitmap, _ => []);
+        lock (cache)
+        {
+            if (cache.TryGetValue(channels, out var found)) return found;
+            var mask = bitmap.ColorType == SKColorType.Alpha8; var input = mask ? default : new PixelBuffer(bitmap); var data = (byte*)bitmap.GetPixels();
+            var width = bitmap.Width; var height = bitmap.Height; var stride = bitmap.RowBytes;
+            int left = width, top = height, right = 0, bottom = 0;
+            for (var y = 0; y < height; y++) for (var x = 0; x < width; x++)
+            {
+                var p = mask ? default : input.Read(x, y);
+                var present = mask ? data[y * stride + x] > 0 : channels.HasFlag(RgbChannels.Red) && p.R > 0 || channels.HasFlag(RgbChannels.Green) && p.G > 0 || channels.HasFlag(RgbChannels.Blue) && p.B > 0;
+                if (!present) continue; left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x + 1); bottom = y + 1;
+            }
+            return cache[channels] = right <= left ? SKRectI.Empty : new(left, top, right, bottom);
+        }
+    }
+
     public static bool IsSingleChannel(RgbChannels channels) => channels is RgbChannels.Red or RgbChannels.Green or RgbChannels.Blue;
 
     public static SKBitmap Grayscale(SKBitmap source)
     {
         var result = NewLike(source); var input = new PixelBuffer(source); var output = new PixelBuffer(result);
-        Parallel.For(0, source.Height, y =>
+        var width = input.Width; var height = input.Height;
+        Parallel.For(0, height, y =>
         {
-            for (var x = 0; x < source.Width; x++)
+            for (var x = 0; x < width; x++)
             {
                 var p = input.Read(x, y); var gray = (p.R * 54 + p.G * 183 + p.B * 19) / 256;
                 output.Write(x, y, new(gray, gray, gray, p.A));
@@ -27,9 +49,10 @@ public static partial class Pixels
         if (!IsSingleChannel(channel)) throw new ArgumentException("Choose one RGB component.");
         var result = outputProfile == null ? NewLike(source) : NewWorkingColor(source.Width, source.Height, DepthOf(source), outputProfile);
         var input = new PixelBuffer(source); var output = new PixelBuffer(result);
-        Parallel.For(0, source.Height, y =>
+        var width = input.Width; var height = input.Height;
+        Parallel.For(0, height, y =>
         {
-            for (var x = 0; x < source.Width; x++)
+            for (var x = 0; x < width; x++)
             {
                 var p = input.Read(x, y); var value = channel == RgbChannels.Red ? p.R : channel == RgbChannels.Green ? p.G : p.B;
                 output.Write(x, y, new(value, value, value, p.A));
@@ -49,9 +72,10 @@ public static partial class Pixels
         var floating = modified.ColorType == SKColorType.RgbaF32;
         var selected = new[] { channels.HasFlag(RgbChannels.Red), channels.HasFlag(RgbChannels.Green), channels.HasFlag(RgbChannels.Blue) };
         byte* before = (byte*)original.GetPixels(), after = (byte*)modified.GetPixels();
+        var beforeStride = original.RowBytes; var afterStride = modified.RowBytes;
         Parallel.For(bounds.Top, bounds.Bottom, y =>
         {
-            var src = before + (long)y * original.RowBytes; var dst = after + (long)y * modified.RowBytes;
+            var src = before + (long)y * beforeStride; var dst = after + (long)y * afterStride;
             for (var x = bounds.Left; x < bounds.Right; x++)
             {
                 if (floating)

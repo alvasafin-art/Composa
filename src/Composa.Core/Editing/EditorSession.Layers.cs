@@ -27,6 +27,7 @@ public sealed partial class EditorSession
     public void SelectLayer(Guid id, bool extend = false, bool range = false)
     {
         if (document.Find(id) == null) return;
+        if (channelTransform != null) CommitTransform();
         SelectedEffect = null;
         if (TextEdit != null && textLayer?.Id != id) FinishText();
         if (range && document.ActiveLayerId is { } anchor)
@@ -59,6 +60,7 @@ public sealed partial class EditorSession
     /// <summary>Clears the layer selection after a click on empty canvas space.</summary>
     public void ClearLayerSelection()
     {
+        if (channelTransform != null) CommitTransform();
         FinishText();
         document.SetActive(null);
         SelectedEffect = null;

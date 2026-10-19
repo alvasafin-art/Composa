@@ -49,6 +49,8 @@ public sealed partial class MainWindow : Window
     private readonly Panel welcome;
     private readonly UpdateNotice updateNotice = new();
     private Action? refreshOptions;
+    private bool channelInspectorDragging;
+    private IPointer? channelInspectorPointer;
     private readonly Settings settings = Settings.Load();
     private readonly Recovery? recovery = Settings.Persist ? new Recovery() : null;
     // The status bar shows a problem in orange, or a note in the hint's color, in place of the tool hint until the next command.
@@ -244,7 +246,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Every open document, in tab order.</summary>
     public IReadOnlyList<EditorSession> Sessions => sessions;
     /// <summary>Whether a drag on the canvas is mutating a bitmap in place, when nothing else may touch the document.</summary>
-    internal bool IsDragging => canvas.IsDragging;
+    internal bool IsDragging => canvas.IsDragging || channelInspectorDragging;
     /// <summary>The remembered preferences; tests read them back without anything reaching disk.</summary>
     public Settings Settings => settings;
     public CanvasView Canvas => canvas;
@@ -285,6 +287,7 @@ public sealed partial class MainWindow : Window
     {
         if (session != null && session != next)
         {
+            session.CommitChannelControlEdit();
             canvas.CancelInteraction();
             if (session.IsPreviewing) session.CancelPreview();
             if (session.IsEditingText) session.FinishText();
@@ -411,6 +414,7 @@ public sealed partial class MainWindow : Window
     private async Task<bool> CloseSession(EditorSession item)
     {
         if (!sessions.Contains(item)) return true;
+        item.CommitChannelControlEdit();
         // Contents must be resolved before the parent's save prompt, including nested tabs.
         foreach (var child in embeddedTabs.Where(pair => pair.Value.Parent == item).Select(pair => pair.Key).ToArray())
             if (!await CloseSession(child)) return false;
@@ -507,6 +511,7 @@ public sealed partial class MainWindow : Window
             ShowProblem("Stop the running script before closing the editor."); return;
         }
         RememberWindow();
+        foreach (var item in sessions) item.CommitChannelControlEdit();
         if (session?.IsEditingText == true) session.FinishText();
         if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified))) return;
         e.Cancel = true;
@@ -807,7 +812,7 @@ public sealed partial class MainWindow : Window
     }
 
     private static string Hint(EditorSession s) => s.IsEditingAlphaChannel || s.IsEditingComponent
-        ? (s.IsEditingAlphaChannel ? "Alpha channel · " : "RGB component · ") + (s.Tool == Tool.Move ? "Choose RGB in Channels to move the layer" : "White adds · Black removes · Gray sets partial intensity · Other channels stay unchanged")
+        ? (s.IsEditingAlphaChannel ? "Alpha channel · " : "RGB component · ") + (s.Tool == Tool.Move ? "Drag channel contents · Handles transform · A selection limits the edit · Alt-drag duplicates" : "White adds · Black removes · Gray sets partial intensity · Other channels stay unchanged")
         : s.Tool == Tool.Move ? ToolHint(s) : ToolHint(s) + " · Ctrl-drag moves the layer";
 
     private static string ToolHint(EditorSession s) => s.Tool switch

@@ -18,12 +18,12 @@ public static partial class Pixels
     {
         if (image.ColorType == SKColorType.RgbaF32) return ScanHighPrecisionContent(image);
         if (image.ColorType != SKColorType.Rgba8888) return new(0, 0, image.Width, image.Height);
-        int left = image.Width, top = image.Height, right = 0, bottom = 0;
+        int width = image.Width, height = image.Height, stride = image.RowBytes, left = width, top = height, right = 0, bottom = 0;
         var pixels = (byte*)image.GetPixels();
-        for (var y = 0; y < image.Height; y++)
+        for (var y = 0; y < height; y++)
         {
-            var row = pixels + (long)y * image.RowBytes;
-            for (var x = 0; x < image.Width; x++)
+            var row = pixels + (long)y * stride;
+            for (var x = 0; x < width; x++)
             {
                 if (row[x * 4 + 3] == 0) continue;
                 left = Math.Min(left, x); top = Math.Min(top, y);
@@ -187,6 +187,7 @@ public static partial class Pixels
     public static void Invalidate(SKBitmap bitmap)
     {
         extents.Remove(bitmap);
+        componentBounds.Remove(bitmap);
         Invalidated?.Invoke(bitmap);
         lock (bitmap)
         {

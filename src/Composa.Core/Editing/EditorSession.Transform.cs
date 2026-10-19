@@ -16,6 +16,8 @@ public sealed class TransformEdit
     // Folder and adjustment masks live in document space; they follow a move so they stay over their content.
     private readonly List<(Layer Layer, LayerTransform Start)> masks;
     private readonly Layer? maskTarget;
+    private readonly bool hasFrameOverride;
+    private SKPoint[]? overrideCorners;
 
     /// <summary>The frame being manipulated: an unrotated rectangle plus a rotation about its center.</summary>
     public SKRect StartFrame { get; }
@@ -24,15 +26,20 @@ public sealed class TransformEdit
     public double Rotation { get; private set; }
     public IReadOnlyList<Layer> Layers => maskTarget != null ? [] : layers.Select(l => l.Layer).ToList();
 
-    internal TransformEdit(EditorSession session, List<Layer> targets, List<Layer> maskOwners, Layer? maskTarget = null)
+    internal TransformEdit(EditorSession session, List<Layer> targets, List<Layer> maskOwners, Layer? maskTarget = null, LayerTransform? frameOverride = null)
     {
         this.session = session;
         this.maskTarget = maskTarget;
+        hasFrameOverride = frameOverride != null;
         if (maskTarget != null)
             targets = [new Layer { Pixels = maskTarget.Mask, Transform = maskTarget.MaskTransform ?? LayerTransform.FromMatrix(maskTarget.MaskMatrix, maskTarget.Mask!.Width, maskTarget.Mask.Height) }];
         layers = targets.Select(l => (l, l.Transform)).ToList();
         masks = maskOwners.Select(l => (l, LayerTransform.FromMatrix(l.MaskMatrix, l.Mask!.Width, l.Mask.Height))).ToList();
-        if (layers.Count == 0) StartFrame = new SKRect(0, 0, session.Document.Width, session.Document.Height);
+        if (frameOverride is { } frame)
+        {
+            StartFrame = SKRect.Create((float)frame.X, (float)frame.Y, (float)frame.Width, (float)frame.Height); StartRotation = frame.Rotation;
+        }
+        else if (layers.Count == 0) StartFrame = new SKRect(0, 0, session.Document.Width, session.Document.Height);
         else if (layers.Count == 1)
         {
             var t = maskTarget != null ? layers[0].Start : layers[0].Layer.ControlTransform;
@@ -56,7 +63,8 @@ public sealed class TransformEdit
     /// </summary>
     public SKPoint[] Corners()
     {
-        if (layers.Count == 1 && layers[0].Layer is { Pixels: { } pixels, Transform.Distort: not null } distorted)
+        if (overrideCorners != null) return overrideCorners;
+        if (!hasFrameOverride && layers.Count == 1 && layers[0].Layer is { Pixels: { } pixels, Transform.Distort: not null } distorted)
             return (maskTarget != null ? distorted.Transform : distorted.ControlTransform).Corners(pixels.Width, pixels.Height);
         var rotate = SKMatrix.CreateRotationDegrees((float)Rotation, Frame.MidX, Frame.MidY);
         return [rotate.MapPoint(Frame.Left, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Bottom), rotate.MapPoint(Frame.Left, Frame.Bottom)];
@@ -68,6 +76,7 @@ public sealed class TransformEdit
         var before = Area();
         Frame = frame;
         Rotation = rotation;
+        overrideCorners = null;
         Update();
         SyncMask();
         session.Invalidate(Geometry.Union(before, Area()));
@@ -161,6 +170,7 @@ public sealed class TransformEdit
     private void SyncMask()
     {
         if (maskTarget != null) maskTarget.MaskTransform = layers[0].Layer.Transform;
+        session.UpdateChannelTransformPreview(this);
     }
 
     private SKRectI Area()
@@ -182,6 +192,15 @@ public sealed class TransformEdit
         if (layers.Count == 1)
         {
             var (layer, start) = layers[0];
+            if (hasFrameOverride)
+            {
+                var original = new LayerTransform { X = StartFrame.Left, Y = StartFrame.Top, Width = StartFrame.Width, Height = StartFrame.Height, Rotation = StartRotation }.Matrix(1, 1);
+                var next = new LayerTransform { X = frame.Left, Y = frame.Top, Width = frame.Width, Height = frame.Height, Rotation = Rotation, FlipHorizontal = flipX, FlipVertical = flipY }.Matrix(1, 1);
+                if (Frame == StartFrame && Rotation == StartRotation) layer.Transform = start;
+                else if (original.TryInvert(out var inverse))
+                    layer.Transform = LayerTransform.FromMatrix(start.Matrix(layer.Pixels!.Width, layer.Pixels.Height).PostConcat(inverse.PostConcat(next)), layer.Pixels.Width, layer.Pixels.Height);
+                return;
+            }
             layer.Transform = MapControlFrame(start, StartFrame, StartRotation, frame, Rotation, flipX, flipY);
             return;
         }
@@ -239,6 +258,19 @@ public sealed class TransformEdit
     public void DistortCorner(int corner, SKPoint point)
     {
         if (layers.Count != 1 || session.Transform != this) return;
+        if (hasFrameOverride)
+        {
+            var quad = new[] { new SKPoint(StartFrame.Left, StartFrame.Top), new SKPoint(StartFrame.Right, StartFrame.Top), new SKPoint(StartFrame.Right, StartFrame.Bottom), new SKPoint(StartFrame.Left, StartFrame.Bottom) };
+            var beforeOverride = Area(); var (proxy, initial) = layers[0]; var originalPoint = quad[corner]; quad[corner] = point;
+            if (point == originalPoint) { proxy.Transform = initial; overrideCorners = null; }
+            else
+            {
+                var delta = SKMatrix.CreateTranslation(-StartFrame.Left, -StartFrame.Top).PostConcat(Geometry.RectToQuad(StartFrame.Width, StartFrame.Height, quad));
+                proxy.Transform = LayerTransform.FromMatrix(initial.Matrix(proxy.Pixels!.Width, proxy.Pixels.Height).PostConcat(delta), proxy.Pixels.Width, proxy.Pixels.Height);
+                overrideCorners = quad;
+            }
+            SyncMask(); session.Invalidate(Geometry.Union(beforeOverride, Area())); return;
+        }
         var before = Area();
         var (layer, start) = layers[0];
         var pixels = layer.Pixels!;
@@ -285,16 +317,16 @@ public sealed partial class EditorSession
 {
     public TransformEdit? Transform { get; private set; }
     public Layer? IndependentMaskTarget => IsEditingMask && !IsEditingAlphaChannel && !IsEditingSmartFilterMask && ActiveLayer is { MaskLinked: false, Mask: not null } layer && !PositionLocked(layer) ? layer : null;
-    public LayerTransform EditingControlTransform(Layer layer) => IndependentMaskTarget == layer
+    public LayerTransform EditingControlTransform(Layer layer) => IsEditingChannel && (layer == ChannelControlLayer || layer == ActiveLayer) ? ChannelControlTransform : IndependentMaskTarget == layer
         ? layer.MaskTransform ?? LayerTransform.FromMatrix(layer.MaskMatrix, layer.Mask!.Width, layer.Mask.Height) : layer.ControlTransform;
 
     /// <summary>The raster layers a transform applies to: the selection, including everything inside selected folders.</summary>
-    public List<Layer> TransformTargets() =>
-        SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).Distinct().ToList();
+    public List<Layer> TransformTargets() => IsEditingChannel ? ChannelControlLayer is { } channel ? [channel] : []
+        : SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).Distinct().ToList();
 
     public TransformEdit? BeginTransform(string name = "Transform", bool duplicate = false)
     {
-        if (IsEditingAlphaChannel || IsEditingComponent) return null;
+        if (IsEditingChannel) return BeginChannelTransform(name, duplicate);
         var targets = TransformTargets();
         var maskTarget = IndependentMaskTarget;
         var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked && !PositionLocked(l)).Distinct().ToList();
@@ -314,6 +346,7 @@ public sealed partial class EditorSession
 
     public void CommitTransform()
     {
+        if (EndChannelTransform(keep: true)) return;
         if (Transform == null) return;
         var changed = Transform.HasChanges;
         foreach (var layer in Transform.Layers)
@@ -334,6 +367,7 @@ public sealed partial class EditorSession
 
     public void CancelTransform()
     {
+        if (EndChannelTransform(keep: false)) return;
         if (Transform == null) return;
         Transform = null;
         Cancel();
@@ -364,6 +398,7 @@ public sealed partial class EditorSession
 
     public void SetControlTransform(Layer layer, LayerTransform control)
     {
+        if (IsEditingChannel && (layer == ChannelControlLayer || layer == ActiveLayer)) { SetChannelControlTransform(control); return; }
         if (IndependentMaskTarget == layer) { SetMaskTransform(layer, control); return; }
         var before = layer.ControlTransform;
         SetTransform(layer, TransformEdit.MapControlFrame(layer.Transform, SKRect.Create((float)before.X, (float)before.Y, (float)before.Width, (float)before.Height), before.Rotation,
