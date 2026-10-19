@@ -98,16 +98,18 @@ public sealed partial class EditorSession
     public bool BeginStroke(SKPoint point, out string? problem, bool lineFromLast = false, BrushMode? mode = null, float pressure = 1)
     {
         problem = null;
-        if (ActiveLayer is not { } layer) { problem = "Select a layer to paint on."; return false; }
+        if (PixelEditLayer is not { } layer) { problem = "Select a layer to paint on."; return false; }
         if (PixelsLocked(layer)) { problem = "Unlock the layer's pixels before painting."; return false; }
         if (!IsEditingMask && layer.Pixels == null) { problem = layer.IsGroup ? "Folders can't be painted on. Select a layer inside." : "Adjustment layers have no pixels. Add a mask to paint on."; return false; }
         if (!IsEditingMask && layer.IsLive) { problem = layer.IsSmartObject ? "Open the smart object's contents to paint, or rasterize it (Layer menu)." : $"This is live {(layer.Text != null ? "text" : "shape")}. Rasterize it (Layer menu) to paint on it."; return false; }
         if (!document.IsEffectivelyVisible(layer)) { problem = "The layer is hidden."; return false; }
         mode ??= CurrentBrushMode;
+        var channelErase = IsEditingComponent && mode == BrushMode.Erase;
+        if (channelErase) mode = BrushMode.Paint;
         if (mode is BrushMode.Clone or BrushMode.Healing && cloneSource == null) { problem = "Alt-click to set the source first."; return false; }
         if (mode is BrushMode.Heal or BrushMode.Healing && IsEditingMask) { problem = "Healing brushes work on pixels, not masks."; return false; }
 
-        Begin(mode.Value switch
+        Begin(channelErase ? "Eraser" : mode.Value switch
         {
             BrushMode.Erase => "Eraser", BrushMode.Clone => "Clone Stamp", BrushMode.Heal => "Spot Healing Brush", BrushMode.Healing => "Healing Brush",
             BrushMode.Liquify => "Liquify", BrushMode.Blur => "Blur", BrushMode.Smudge => "Smudge", BrushMode.Dodge => "Dodge", BrushMode.Burn => "Burn", _ => "Brush"
@@ -144,11 +146,11 @@ public sealed partial class EditorSession
                 offset = new SKPointI((int)Math.Round(v.X), (int)Math.Round(v.Y));
             }
         }
-        var color = mode == BrushMode.Paint ? Foreground : SKColors.Black;
+        var color = mode == BrushMode.Paint ? ChannelPaintColor(channelErase ? Background : Foreground) : SKColors.Black;
         stroke = new BrushStroke(target, Brush, mode.Value, color, scale)
         {
             Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset,
-            LockTransparency = !IsEditingMask && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
+            LockTransparency = !IsEditingMask && (IsEditingComponent || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
         };
         strokeLayer = layer;
         strokeOriginal = target;
@@ -211,6 +213,7 @@ public sealed partial class EditorSession
         var changed = stroke!.AddPoint(strokeToLayer.MapPoint(point), PressureSensitive ? pressure : 1);
         lastStrokeEnd = point;
         if (changed.IsEmpty) return;
+        if (IsEditingComponent) Pixels.ConstrainChannels(stroke.Working, strokeOriginal!, EditingRgbChannels, changed);
         var area = Geometry.RoundOut(stroke.ToDocument.MapRect(SKRect.Create(changed.Left, changed.Top, changed.Width, changed.Height)));
         area.Inflate(1, 1);
         // A clipping base or a folder/adjustment mask changes more than its own rectangle's worth of layers, but never
@@ -226,7 +229,7 @@ public sealed partial class EditorSession
         if (IsSmoothing && smoothingPointer is { } pointer && smoothingAnchor is { } anchor && pointer != anchor) Paint(pointer, strokePressure);
         if (stroke.Touched.IsEmpty)
         {
-            SetTarget(layer, strokeOriginal!);
+            SetTarget(layer, strokeOriginal!, constrainChannels: false);
             CloseStroke();
             Cancel();
             return;

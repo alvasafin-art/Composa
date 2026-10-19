@@ -5,6 +5,35 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
+    private async Task NewAlphaChannel(bool fromSelection)
+    {
+        var target = session; if (target == null || canvas.IsDragging) return;
+        if (fromSelection && target.Selection == null) { ShowProblem("Make a selection before saving it as a channel."); return; }
+        var number = 1; while (target.Document.AlphaChannels.ContainsKey("Alpha " + number)) number++;
+        var name = new TextBox { Text = "Alpha " + number, Width = 280, MaxLength = 200 };
+        var selection = new CheckBox { Content = "Use current selection", IsChecked = fromSelection, IsEnabled = target.Selection != null };
+        var white = new CheckBox { Content = "Start with white (reveal all)", IsEnabled = !fromSelection };
+        selection.IsCheckedChanged += (_, _) => white.IsEnabled = selection.IsChecked != true;
+        var dialog = new DialogWindow("New Alpha Channel", Ui.Column(12, Ui.Row(10, Ui.Label("Name"), name), selection, white));
+        void Validate() => dialog.CanAccept = !string.IsNullOrWhiteSpace(name.Text) && !target.Document.AlphaChannels.ContainsKey(name.Text.Trim());
+        name.TextChanged += (_, _) => Validate(); Validate();
+        if (!await dialog.Ask(this) || !sessions.Contains(target)) return;
+        try { target.AddAlphaChannel(name.Text ?? "", selection.IsChecked == true, white.IsChecked == true); }
+        catch (Exception error) { ShowProblem(error.Message); }
+    }
+
+    private async Task RenameAlphaChannel(string original)
+    {
+        var target = session; if (target == null || canvas.IsDragging) return;
+        var name = new TextBox { Text = original, Width = 280, MaxLength = 200 };
+        var dialog = new DialogWindow("Rename Alpha Channel", Ui.Row(10, Ui.Label("Name"), name));
+        void Validate() => dialog.CanAccept = !string.IsNullOrWhiteSpace(name.Text) &&
+            (name.Text.Trim().Equals(original, StringComparison.OrdinalIgnoreCase) || !target.Document.AlphaChannels.ContainsKey(name.Text.Trim()));
+        name.TextChanged += (_, _) => Validate(); Validate();
+        if (!await dialog.Ask(this) || !sessions.Contains(target)) return;
+        try { target.RenameAlphaChannel(original, name.Text ?? ""); } catch (Exception error) { ShowProblem(error.Message); }
+    }
+
     private async Task SaveSelectionChannel()
     {
         var target = session!;

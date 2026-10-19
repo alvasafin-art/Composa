@@ -45,6 +45,8 @@ internal static class EditorDocumentInspection
         width = s.Document.Width, height = s.Document.Height, resolution = s.Document.Resolution,
         activeLayerId = s.Document.ActiveLayerId, layerCount = s.Document.AllLayers().Count(),
         hasSelection = s.Selection != null,
+        editingAlphaChannel = s.EditingAlphaChannel, editingRgbChannels = s.EditingRgbChannels.ToString(), visibleRgbChannels = s.VisibleRgbChannels.ToString(),
+        alphaChannelOverlay = s.AlphaChannelOverlay, alphaChannels = s.Document.AlphaChannels.Keys,
         selection = s.Selection == null ? null : Bounds(SelectionMask.Bounds(s.Selection)),
         guideCount = s.Guides.Count, guides = s.Guides.Select(g => new { id = g.Id, axis = g.Axis.ToString().ToLowerInvariant(), position = g.Position }),
         showGuides = s.View.ShowGuides, guidesLocked = s.View.LockGuides

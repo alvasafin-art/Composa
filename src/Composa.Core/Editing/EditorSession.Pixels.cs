@@ -37,12 +37,12 @@ public sealed partial class EditorSession
     public static ClipboardLayers? CopiedLayers { get; set; }
 
     /// <summary>The active layer when it (or its mask) can take pixel edits.</summary>
-    public Layer? EditableLayer => ActiveLayer is { } layer && !PixelsLocked(layer) && (IsEditingMask || (layer.Pixels != null && !layer.IsLive)) ? layer : null;
+    public Layer? EditableLayer => IsEditingAlphaChannel ? alphaChannelProxy : ActiveLayer is { } layer && !PixelsLocked(layer) && (IsEditingMask || (layer.Pixels != null && !layer.IsLive)) ? layer : null;
 
     public bool CanEditPixels => EditableLayer != null;
 
     /// <summary>Fill also recolors live text: a text layer with nothing selected takes the color as its own.</summary>
-    public bool CanFill => CanEditPixels || (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && !PixelsLocked(text));
+    public bool CanFill => CanEditPixels || (!IsEditingMask && !IsEditingComponent && document.Selection == null && ActiveLayer is { Text: not null } text && !PixelsLocked(text));
 
     private SKBitmap Target(Layer layer)
     {
@@ -50,23 +50,26 @@ public sealed partial class EditorSession
         return IsEditingMask ? MaskTarget(layer)! : layer.Pixels!;
     }
 
-    private SKBitmap? MaskTarget(Layer layer) => IsEditingSmartFilterMask ? layer.SmartFilterMask : layer.Mask;
-    private byte MaskTargetDefault(Layer layer) => IsEditingSmartFilterMask ? layer.SmartFilterMaskDefault : layer.MaskDefault;
+    private SKBitmap? MaskTarget(Layer layer) => EditingAlphaChannel is { } name ? document.AlphaChannels[name] : IsEditingSmartFilterMask ? layer.SmartFilterMask : layer.Mask;
+    private byte MaskTargetDefault(Layer layer) => IsEditingAlphaChannel ? (byte)0 : IsEditingSmartFilterMask ? layer.SmartFilterMaskDefault : layer.MaskDefault;
     private void SetMaskTargetDefault(Layer layer, byte value)
     {
+        if (IsEditingAlphaChannel) return;
         if (IsEditingSmartFilterMask) layer.SmartFilterMaskDefault = value; else layer.MaskDefault = value;
     }
 
-    private void SetTarget(Layer layer, SKBitmap bitmap)
+    private void SetTarget(Layer layer, SKBitmap bitmap, bool constrainChannels = true)
     {
-        if (!IsEditingMask && !IsStroking && layer.Pixels is { } original && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
+        if (IsEditingComponent && constrainChannels && layer.Pixels is { } before && !ReferenceEquals(before, bitmap)) Pixels.ConstrainChannels(bitmap, before, EditingRgbChannels);
+        if (!IsEditingMask && !IsEditingComponent && !IsStroking && layer.Pixels is { } original && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
             && !ReferenceEquals(bitmap, original)) bitmap = Pixels.WithAlphaOf(bitmap, original);
-        if (IsEditingSmartFilterMask) layer.SmartFilterMask = bitmap;
+        if (EditingAlphaChannel is { } alpha) document.AlphaChannels[alpha] = bitmap;
+        else if (IsEditingSmartFilterMask) layer.SmartFilterMask = bitmap;
         else if (IsEditingMask) layer.Mask = bitmap; else layer.Pixels = bitmap;
     }
 
     /// <summary>The matrix from the edit target's pixel grid to the document.</summary>
-    public SKMatrix TargetMatrix(Layer layer) => IsEditingSmartFilterMask ? layer.SmartFilterMaskMatrix : IsEditingMask ? DocumentRenderer.MaskMatrix(layer) : layer.Matrix;
+    public SKMatrix TargetMatrix(Layer layer) => IsEditingAlphaChannel ? SKMatrix.Identity : IsEditingSmartFilterMask ? layer.SmartFilterMaskMatrix : IsEditingMask ? DocumentRenderer.MaskMatrix(layer) : layer.Matrix;
 
     /// <summary>The selection resampled into the edit target's grid, or null when nothing is selected.</summary>
     private SKBitmap? SelectionInTargetSpace(Layer layer)
@@ -112,6 +115,7 @@ public sealed partial class EditorSession
     /// </summary>
     private void GrowToCanvas(Layer layer)
     {
+        if (IsEditingAlphaChannel || IsEditingComponent) return;
         PreparePixelTarget(layer);
         if (IsEditingSmartFilterMask) { GrowIndependentMask(layer, smartFilter: true); return; }
         if (IsEditingMask && layer.MaskTransform != null) { GrowIndependentMask(layer); return; }
@@ -235,7 +239,7 @@ public sealed partial class EditorSession
             if (!TargetMatrix(layer).TryInvert(out var inverse)) return;
             var local = inverse.MapPoint(point);
             var original = Target(layer);
-            using var sample = IsEditingMask ? MaskToColor(original) : Pixels.Clone(original);
+            using var sample = IsEditingMask ? MaskToColor(original) : IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(original, EditingRgbChannels) : Pixels.Clone(original);
             using var region = MagicWand.Select(sample, (int)Math.Floor(local.X), (int)Math.Floor(local.Y), WandTolerance, true, smooth: false);
             var selection = SelectionInTargetSpace(layer);
             try
@@ -249,7 +253,7 @@ public sealed partial class EditorSession
                 }
                 var filled = Pixels.Clone(original);
                 if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((Foreground.Red * 54 + Foreground.Green * 183 + Foreground.Blue * 19) >> 8));
-                else Pixels.FillWorking(filled, Foreground);
+                else Pixels.FillWorking(filled, ChannelPaintColor(Foreground));
                 SetTarget(layer, MixBySelection(original, filled, region));
             }
             finally { if (selection != document.Selection) selection?.Dispose(); }
@@ -259,7 +263,7 @@ public sealed partial class EditorSession
 
     public void Fill(SKColor color, string name = "Fill")
     {
-        if (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && RecolorText(text, color)) return;
+        if (!IsEditingMask && !IsEditingComponent && document.Selection == null && ActiveLayer is { Text: not null } text && RecolorText(text, color)) return;
         if (EditableLayer is not { } layer) return;
         Apply(name, () =>
         {
@@ -268,7 +272,7 @@ public sealed partial class EditorSession
             var original = Target(layer);
             var filled = Pixels.Clone(original);
             if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((color.Red * 54 + color.Green * 183 + color.Blue * 19) >> 8));
-            else Pixels.FillWorking(filled, color);
+            else Pixels.FillWorking(filled, ChannelPaintColor(color));
             var selection = SelectionInTargetSpace(layer);
             SetTarget(layer, MixBySelection(original, filled, selection));
             if (IsEditingMask && document.Selection == null) SetMaskTargetDefault(layer, filled.GetPixel(0, 0).Alpha);
@@ -281,7 +285,7 @@ public sealed partial class EditorSession
     /// <summary>Delete: erases the selected pixels (or paints the mask black).</summary>
     public void ClearSelection()
     {
-        if (!IsEditingMask && ActiveLayer is { } locked && EffectiveLocks(locked).HasFlag(LayerLocks.Transparency)) return;
+        if (!IsEditingMask && !IsEditingComponent && ActiveLayer is { } locked && EffectiveLocks(locked).HasFlag(LayerLocks.Transparency)) return;
         if (EditableLayer is not { } layer || document.Selection == null) return;
         Apply("Clear", () =>
         {
@@ -315,7 +319,7 @@ public sealed partial class EditorSession
     {
         if (EditableLayer is not { } layer) return false;
         Begin(name);
-        if (coverCanvas && !IsEditingMask) EnsureCoversCanvas(layer);
+        if (coverCanvas && !IsEditingMask && !IsEditingComponent) EnsureCoversCanvas(layer);
         previewLayer = layer;
         previewOriginal = Target(layer);
         previewOriginalMask = IsEditingMask ? MaskTarget(layer) : layer.Mask;
@@ -409,8 +413,9 @@ public sealed partial class EditorSession
     {
         if (previewLayer is not { } layer || previewOriginal is not { } original) return;
         var before = AffectedArea(layer);
-        var (result, growX, growY) = run(original);
-        var canGrow = !IsEditingMask && previewSelection == null && previewOriginalMask == null
+        using var component = IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(original, EditingRgbChannels) : null;
+        var (result, growX, growY) = run(component ?? original);
+        var canGrow = !IsEditingMask && !IsEditingComponent && previewSelection == null && previewOriginalMask == null
             && previewTransform!.IsPureTranslation(original.Width, original.Height);
         if ((growX > 0 || growY > 0) && !canGrow)
         {
@@ -527,11 +532,11 @@ public sealed partial class EditorSession
     /// <summary>Draws a gradient between two document points onto the pending edit's original pixels (call <see cref="BeginGradient"/> first).</summary>
     public void DrawGradient(Layer layer, SKBitmap original, SKPoint from, SKPoint to)
     {
-        if (!IsInteracting || document.Find(layer.Id) != layer) return; // The edit this drag belonged to is over.
+        if (!IsInteracting || (IsEditingAlphaChannel ? layer != alphaChannelProxy : document.Find(layer.Id) != layer)) return; // The edit this drag belonged to is over.
         var matrix = TargetMatrix(layer);
         if (!matrix.TryInvert(out var inverse)) return;
-        var start = Foreground;
-        var end = GradientToTransparent ? Foreground.WithAlpha(0) : Background;
+        var start = ChannelPaintColor(Foreground);
+        var end = GradientToTransparent ? start.WithAlpha(0) : ChannelPaintColor(Background);
         if (IsEditingMask)
         {
             byte Gray(SKColor c) => (byte)((c.Red * 54 + c.Green * 183 + c.Blue * 19) >> 8);
@@ -541,6 +546,7 @@ public sealed partial class EditorSession
         }
         var painted = Pixels.Clone(original);
         var colors = GradientRamp?.ShaderColors() ?? [start, end];
+        if (IsEditingComponent && GradientRamp != null) colors = colors.Select(ChannelPaintColor).ToArray();
         if (IsEditingMask && GradientRamp != null) colors = colors.Select(c => new SKColor(0, 0, 0, (byte)((c.Red * 54 + c.Green * 183 + c.Blue * 19) / 256 * c.Alpha / 255))).ToArray();
         using (var canvas = new SKCanvas(painted))
         {
@@ -775,13 +781,24 @@ public sealed partial class EditorSession
     }
 
     /// <summary>Copy takes pixels from a pixel layer (or a mask); with nothing selected it also takes the layers themselves, folders and adjustments included.</summary>
-    public bool CanCopy => ActiveLayer is { } layer && (layer.Pixels != null || CanCopyLayers);
+    public bool CanCopy => IsEditingAlphaChannel || ActiveLayer is { } layer && (layer.Pixels != null || CanCopyLayers);
 
     /// <summary>Copy with no selection copies the selected layers whole, for Paste here or in another project.</summary>
-    public bool CanCopyLayers => ActiveLayer != null && document.Selection == null && !IsEditingMask;
+    public bool CanCopyLayers => ActiveLayer != null && document.Selection == null && !IsEditingMask && !IsEditingComponent;
 
     public bool Copy()
     {
+        if (EditingAlphaChannel is { } alpha)
+        {
+            using var grayscale = MaskToColor(document.AlphaChannels[alpha]); Clipboard = Grab(grayscale, document.Bounds); CopiedLayers = null; return Clipboard != null;
+        }
+        if (IsEditingComponent && ActiveLayer is { } componentLayer)
+        {
+            using var sampled = ComponentLayerSample(componentLayer);
+            using var grayscale = Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(sampled, EditingRgbChannels) : Pixels.Clone(sampled);
+            if (!Pixels.IsSingleChannel(EditingRgbChannels)) HideChannelComponents(grayscale, EditingRgbChannels);
+            Clipboard = Grab(grayscale, document.Bounds); CopiedLayers = null; return Clipboard != null;
+        }
         CopiedLayers = CanCopyLayers
             ? new ClipboardLayers(SelectedRoots().Select(l => l.Clone()).ToList(), this, document.Width, document.Height)
             : null;
@@ -812,7 +829,7 @@ public sealed partial class EditorSession
     public void Cut()
     {
         if (!Copy()) return;
-        if (document.Selection != null) ClearSelection(); else DeleteSelectedLayers();
+        if (document.Selection != null) ClearSelection(); else if (IsEditingAlphaChannel || IsEditingComponent) Fill(SKColors.Black, "Clear Channel"); else DeleteSelectedLayers();
     }
 
     /// <summary>
@@ -830,6 +847,7 @@ public sealed partial class EditorSession
 
     private Layer? Paste(ClipboardImage? image, string name, bool inPlace)
     {
+        if (IsEditingAlphaChannel || IsEditingComponent) return PasteChannelPixels(image ?? Clipboard, inPlace);
         if (image == null && CopiedLayers is { } layers) return PasteLayers(layers, inPlace);
         image ??= Clipboard;
         if (image == null) return null;
@@ -903,7 +921,9 @@ public sealed partial class EditorSession
     /// </summary>
     public Layer? PasteInto(ClipboardImage? image = null)
     {
-        if (document.Selection is not { } selection || (image ??= Clipboard) == null) return null;
+        if (IsEditingAlphaChannel || IsEditingComponent) return PasteChannelPixels(image ?? Clipboard, inPlace: false);
+        image ??= Clipboard;
+        if (document.Selection is not { } selection || image == null) return null;
         var bounds = SelectionMask.Bounds(selection);
         var pixels = PastePixels(image.Pixels);
         var layer = Layer.Raster(document.UniqueName("Pasted Layer"), pixels,

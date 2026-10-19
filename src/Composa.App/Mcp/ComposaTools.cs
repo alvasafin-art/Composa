@@ -177,10 +177,12 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     [Description("Fills the active layer with a color, within the selection when there is one. A text layer is recolored instead of filled.")]
     public Task<string> FillLayer(
         [Description("A color as #rrggbb or #aarrggbb")] string color,
-        int? document = null) => OnUi(() =>
+        int? document = null,
+        [Description("pixels, layerMask, filterMask, red, green, blue, alpha:NAME or active")] string target = "pixels") => OnUi(() =>
     {
         var s = Editable(document);
-        if (s.ActiveLayer is not { } layer) throw new McpException("No layer is active.");
+        using var scope = UsePaintTarget(s, target);
+        if (s.PixelEditLayer is not { } layer) throw new McpException("No layer or alpha channel is active.");
         if (!s.CanFill) throw new McpException($"\"{layer.Name}\" cannot be filled: it is a {Kind(layer)} layer.");
         s.Fill(ParseColor(color));
         return $"Filled \"{layer.Name}\" with {color}.";

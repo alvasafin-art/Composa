@@ -194,6 +194,7 @@ public sealed class LayersPanel : UserControl
     /// <summary>The trash button and Delete: a highlighted effect goes first, then the targeted mask, then the layers.</summary>
     public void DeleteLayerOrMask()
     {
+        if (session?.EditingAlphaChannel is { } alpha) { session.DeleteSelectionChannel(alpha); return; }
         if (session == null) return;
         if (session.SelectedEffect != null) { session.RemoveSelectedEffect(); return; }
         if (session.ActiveLayer is not { } layer) return;

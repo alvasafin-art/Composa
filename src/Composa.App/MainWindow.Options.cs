@@ -43,6 +43,7 @@ public sealed partial class MainWindow
         {
             case Tool.Move:
                 Add(Title("Move"));
+                if (s.IsEditingAlphaChannel || s.IsEditingComponent) { Add(Ui.Label("Choose RGB in Channels to move the layer", Palette.Secondary)); break; }
                 BuildTransformFields(row);
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildAlignmentFields(row);

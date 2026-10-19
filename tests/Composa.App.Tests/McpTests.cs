@@ -144,7 +144,7 @@ public class McpTests
         var tools = await client.ListToolsAsync();
         Assert.Equal(
             ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
-             "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
+             "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "channels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "list_documents", "list_files", "list_read_folders",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
              "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_filter", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
@@ -169,6 +169,28 @@ public class McpTests
         Assert.Contains("#FFFFFF", Text(await Pumped(client.CallToolAsync("sample_color", new Dictionary<string, object?> { ["points"] = new[] { new[] { 10d, 10d } }, ["layer"] = "Background" }))));
         Assert.Null((await Pumped(client.CallToolAsync("undo"))).IsError);
         Assert.Equal(ColorDepth.Eight, session.Document.Depth);
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "new", ["name"] = "Channel test" }))).IsError);
+        var untouchedPixels = session.ActiveLayer!.Pixels;
+        Assert.Null((await Pumped(client.CallToolAsync("paint_stroke", new Dictionary<string, object?> { ["target"] = "alpha:Channel test", ["color"] = "#FFFFFF", ["points"] = new double[][] { [30, 20], [60, 20] }, ["size"] = 12, ["hardness"] = 1 }))).IsError);
+        Assert.Equal(255, session.Document.AlphaChannels["Channel test"].GetPixel(45, 20).Alpha); Assert.Same(untouchedPixels, session.ActiveLayer.Pixels);
+        Assert.Equal("Channel test", session.EditingAlphaChannel);
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "rename", ["name"] = "Channel test", ["replacement"] = "Object" }))).IsError);
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "duplicate", ["name"] = "Object" }))).IsError);
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "up", ["name"] = "Object copy" }))).IsError);
+        Assert.Equal("Object copy", session.Document.AlphaChannels.Keys.First());
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "load", ["name"] = "Object" }))).IsError);
+        Assert.NotNull(session.Selection);
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "delete", ["name"] = "Object copy" }))).IsError);
+        Assert.Contains("Object", Text(await Pumped(client.CallToolAsync("channels"))));
+        for (var i = 0; i < 7; i++) Assert.Null((await Pumped(client.CallToolAsync("undo"))).IsError);
+        Assert.Empty(session.Document.AlphaChannels); Assert.Null(session.Selection);
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "select", ["rgb"] = "green" }))).IsError);
+        Assert.Null((await Pumped(client.CallToolAsync("paint_stroke", new Dictionary<string, object?> { ["color"] = "#0000FF", ["points"] = new double[][] { [30, 20] }, ["size"] = 12, ["hardness"] = 1 }))).IsError);
+        Assert.Equal(SKColors.Blue, session.ActiveLayer!.Pixels!.GetPixel(30, 20)); Assert.Equal(RgbChannels.Green, session.EditingRgbChannels);
+        await Pumped(client.CallToolAsync("undo"));
+        Assert.Null((await Pumped(client.CallToolAsync("paint_stroke", new Dictionary<string, object?> { ["target"] = "green", ["color"] = "#000000", ["points"] = new double[][] { [30, 20] }, ["size"] = 12, ["hardness"] = 1 }))).IsError);
+        Assert.Equal(SKColors.Magenta, session.ActiveLayer!.Pixels!.GetPixel(30, 20)); await Pumped(client.CallToolAsync("undo"));
+        Assert.Null((await Pumped(client.CallToolAsync("channels", new Dictionary<string, object?> { ["action"] = "select", ["rgb"] = "all" }))).IsError);
         Assert.Null((await Pumped(client.CallToolAsync("set_color_profile", new Dictionary<string, object?> { ["profile"] = "Display P3", ["mode"] = "assign" }))).IsError);
         Assert.Equal(Composa.ColorManagement.RgbProfile.DisplayP3, session.Document.Profile);
         Assert.Contains("Display P3", Text(await Pumped(client.CallToolAsync("describe_document"))));

@@ -186,25 +186,35 @@ public sealed partial class ComposaTools
     private Task<string> Adjust(int? document, string? layer, bool asLayer, Adjustment adjustment) => OnUi(() =>
     {
         var s = Editable(document);
-        var target = Target(s, layer);
-        if (asLayer)
+        var active = s.ActiveLayer; using var scope = UsePaintTarget(s, "pixels");
+        try
         {
-            var added = s.AddAdjustmentLayer(adjustment);
-            return $"Added adjustment layer \"{added.Name}\" above \"{target.Name}\", now active.";
+            var target = Target(s, layer);
+            if (asLayer)
+            {
+                var added = s.AddAdjustmentLayer(adjustment);
+                return $"Added adjustment layer \"{added.Name}\" above \"{target.Name}\", now active.";
+            }
+            if (!s.CanEditPixels)
+                throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so its pixels cannot be adjusted in place. Set asLayer for an adjustment layer above it, or rasterize it first.");
+            s.Adjust(adjustment);
+            return $"Applied {adjustment.DisplayName} to \"{target.Name}\".";
         }
-        if (!s.CanEditPixels)
-            throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so its pixels cannot be adjusted in place. Set asLayer for an adjustment layer above it, or rasterize it first.");
-        s.Adjust(adjustment);
-        return $"Applied {adjustment.DisplayName} to \"{target.Name}\".";
+        finally { if (!asLayer && layer != null) { if (active == null) s.ClearLayerSelection(); else if (s.ActiveLayer != active) s.SelectLayer(active.Id); } }
     });
 
     private Task<string> Filter(int? document, string? layer, FilterSettings settings) => OnUi(() =>
     {
         var s = Editable(document);
-        var target = Target(s, layer);
-        if (!s.CanEditPixels) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so a filter cannot change its pixels. Rasterize it first.");
-        s.ApplyFilter(settings);
-        return $"Applied {FilterSettings.DisplayName(settings.Kind)} to \"{target.Name}\".";
+        var active = s.ActiveLayer; using var scope = UsePaintTarget(s, "pixels");
+        try
+        {
+            var target = Target(s, layer);
+            if (!s.CanEditPixels) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so a filter cannot change its pixels. Rasterize it first.");
+            s.ApplyFilter(settings);
+            return $"Applied {FilterSettings.DisplayName(settings.Kind)} to \"{target.Name}\".";
+        }
+        finally { if (layer != null) { if (active == null) s.ClearLayerSelection(); else if (s.ActiveLayer != active) s.SelectLayer(active.Id); } }
     });
 
     /// <summary>The named layer, made active as the menus need it to be, or the active layer.</summary>

@@ -206,6 +206,7 @@ public sealed class HistoryPanel : UserControl
         // adjustment layer is "New Adjustment Layer".
         _ when FilterNames.Contains(name) || EffectNames.Any(effect => name.EndsWith(effect, StringComparison.Ordinal)) => Icons.Effects,
         _ when name.Contains("Adjustment", StringComparison.Ordinal) || AdjustmentNames.Contains(name) => Icons.Adjust,
+        _ when name.Contains("Channel", StringComparison.Ordinal) => Icons.Mask,
         _ => Icons.Layers
     };
 }

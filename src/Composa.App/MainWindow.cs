@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
     private readonly CanvasView canvas = new();
     private readonly LayersPanel layers = new() { Width = 296 };
     private readonly HistoryPanel history = new();
+    private readonly ChannelsPanel channels = new();
     /// <summary>The right-hand column: the Layers panel with the panels of the Window menu under it.</summary>
     private readonly SideDock dock;
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
@@ -105,8 +106,10 @@ public sealed partial class MainWindow : Window
         AddAt(center, Ui.Separator(), 3).Margin = new Thickness(0);
         var historySection = new DockSection("History", history, settings.Dock.GetValueOrDefault("History") ?? new DockPanelState());
         historySection.Changed += () => { settings.Dock["History"] = historySection.State; settings.Save(); };
+        var channelsSection = new DockSection("Channels", channels, settings.Dock.GetValueOrDefault("Channels") ?? new DockPanelState { Visible = false, Height = 250 });
+        channelsSection.Changed += () => { settings.Dock["Channels"] = channelsSection.State; settings.Save(); };
         // The column has the Layers panel's width, so a long step name is cut off rather than widening it.
-        dock = new SideDock(layers, historySection) { Width = layers.Width };
+        dock = new SideDock(layers, channelsSection, historySection) { Width = layers.Width };
         AddAt(center, dock, 4);
         history.GoToRequested += GoToHistory;
 
@@ -159,6 +162,9 @@ public sealed partial class MainWindow : Window
         layers.ReplaceSmartObjectRequested += (layer, relink) => _ = ChooseSmartObjectFile(relink, layer, relink);
         layers.UpdateLinkedSmartObjectRequested += layer => _ = UpdateLinkedFromUi(layer);
         layers.LinkedSourceInfoRequested += layer => _ = LinkedSourceInfo(layer);
+        channels.NewRequested += fromSelection => _ = NewAlphaChannel(fromSelection);
+        channels.RenameRequested += name => _ = RenameAlphaChannel(name);
+        channels.Problem += ShowProblem;
         layers.EditSmartFilterRequested += (layer, filter) => _ = SmartFilter(filter.Settings.Kind, layer, filter);
         layers.EditSmartFilterBlendingRequested += (layer, filter) => _ = SmartFilterBlending(layer, filter);
 
@@ -269,6 +275,7 @@ public sealed partial class MainWindow : Window
         added.HistoryChanged += RebuildTabs;
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
+        added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); refreshOptions?.Invoke(); } };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
         added.SelectionChanged += () => { if (added == session) { refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
@@ -290,6 +297,7 @@ public sealed partial class MainWindow : Window
         canvas.Session = session;
         layers.Session = session;
         history.Session = session;
+        channels.Session = session;
         welcome.IsVisible = session == null;
         RebuildTabs();
         RebuildOptions();
@@ -798,7 +806,9 @@ public sealed partial class MainWindow : Window
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
     }
 
-    private static string Hint(EditorSession s) => s.Tool == Tool.Move ? ToolHint(s) : ToolHint(s) + " · Ctrl-drag moves the layer";
+    private static string Hint(EditorSession s) => s.IsEditingAlphaChannel || s.IsEditingComponent
+        ? (s.IsEditingAlphaChannel ? "Alpha channel · " : "RGB component · ") + (s.Tool == Tool.Move ? "Choose RGB in Channels to move the layer" : "White adds · Black removes · Gray sets partial intensity · Other channels stay unchanged")
+        : s.Tool == Tool.Move ? ToolHint(s) : ToolHint(s) + " · Ctrl-drag moves the layer";
 
     private static string ToolHint(EditorSession s) => s.Tool switch
     {

@@ -125,8 +125,8 @@ public sealed partial class EditorSession
     public double GradientOpacity { get; set; } = 1;
     /// <summary>When the active layer has a mask: paint, fill and filter the mask instead of the pixels.</summary>
     private bool editingMask, editingSmartFilterMask;
-    public bool EditingMask { get => editingMask; set { editingMask = value; editingSmartFilterMask = false; } }
-    public bool EditingSmartFilterMask { get => editingSmartFilterMask; set { editingSmartFilterMask = value; if (value) editingMask = false; } }
+    public bool EditingMask { get => editingMask; set { editingMask = value; editingSmartFilterMask = false; if (value || editingAlphaChannel != null) ResetChannelTarget(); } }
+    public bool EditingSmartFilterMask { get => editingSmartFilterMask; set { editingSmartFilterMask = value; if (value) { editingMask = false; ResetChannelTarget(); } } }
     public Guid? SoloLayerId { get; set; }
 
     /// <summary>Raised after pixels changed; the rectangle is in document space (null means everything, including size).</summary>
@@ -140,8 +140,8 @@ public sealed partial class EditorSession
 
     public Layer? ActiveLayer => document.ActiveLayer;
     public bool IsEditingSmartFilterMask => editingSmartFilterMask && ActiveLayer is { SmartFilterMask: not null, FilterSource: not null };
-    public bool IsEditingMask => IsEditingSmartFilterMask || editingMask && ActiveLayer?.Mask != null;
-    public SKBitmap? EditingMaskBitmap => IsEditingMask && ActiveLayer is { } layer ? MaskTarget(layer) : null;
+    public bool IsEditingMask => IsEditingAlphaChannel || IsEditingSmartFilterMask || editingMask && ActiveLayer?.Mask != null;
+    public SKBitmap? EditingMaskBitmap => IsEditingMask && PixelEditLayer is { } layer ? MaskTarget(layer) : null;
     public bool HasPendingEdit => pendingBefore != null;
 
     // ---- Undo ---------------------------------------------------------------------------------------------------
@@ -291,12 +291,17 @@ public sealed partial class EditorSession
 
     private void Restore(Document state)
     {
+        var alpha = EditingAlphaChannel is { } name ? document.AlphaChannels[name] : null;
         var resized = state.Width != document.Width || state.Height != document.Height;
         document = state;
+        if (editingAlphaChannel != null && !document.AlphaChannels.ContainsKey(editingAlphaChannel))
+            editingAlphaChannel = alpha == null ? null : document.AlphaChannels.FirstOrDefault(pair => ReferenceEquals(pair.Value, alpha)).Key;
+        if (editingAlphaChannel == null) AlphaChannelOverlay = false;
         if (resized) composite = null;
         InvalidateAll();
         LayersChanged?.Invoke();
         SelectionChanged?.Invoke();
+        ChannelsChanged?.Invoke();
     }
 
     /// <summary>Marks a document that did not come from a saved file (a recovered copy) as needing a save.</summary>
@@ -400,8 +405,11 @@ public sealed partial class EditorSession
     /// Renders what a view shows straight from the layers, at the view's own resolution. The canvas uses this rather
     /// than <see cref="Composite"/>, so its cost follows the screen size and not the document size.
     /// </summary>
-    public void RenderView(SKBitmap target, SKRectI area, RenderView view) =>
-        DocumentRenderer.Render(document, target, area, view, CurrentOptions());
+    public void RenderView(SKBitmap target, SKRectI area, RenderView view)
+    {
+        if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All) RenderChannelView(target, area, view);
+        else DocumentRenderer.Render(document, target, area, view, CurrentOptions());
+    }
 
     private RenderOptions? CurrentOptions()
     {
@@ -439,6 +447,10 @@ public sealed partial class EditorSession
     public SKColor SampleColor(int x, int y, bool allLayers = true)
     {
         if (x < 0 || y < 0 || x >= document.Width || y >= document.Height) return Foreground;
+        if (EditingAlphaChannel is { } alpha)
+        {
+            var gray = document.AlphaChannels[alpha].GetPixel(x, y).Alpha; return new(gray, gray, gray);
+        }
         SKColor color;
         if (document.Profile.Equals(Composa.ColorManagement.RgbProfile.Srgb)) color = Composite().GetPixel(x, y);
         else
@@ -449,7 +461,13 @@ public sealed partial class EditorSession
             byte Byte(float v) => (byte)Math.Clamp(Math.Round(v * 255), 0, 255);
             color = new(Byte(p.R), Byte(p.G), Byte(p.B), Byte(p.A));
         }
-        return color.Alpha == 0 ? Foreground : color.WithAlpha(255);
+        if (color.Alpha == 0) return Foreground;
+        if (IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels))
+        {
+            var gray = EditingRgbChannels == RgbChannels.Red ? color.Red : EditingRgbChannels == RgbChannels.Green ? color.Green : color.Blue;
+            return new(gray, gray, gray);
+        }
+        return color.WithAlpha(255);
     }
 
     public void SwapColors() => (Foreground, Background) = (Background, Foreground);

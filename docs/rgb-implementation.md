@@ -295,3 +295,30 @@ MCP-операции со ссылкой сами по себе внешний �
 приёмки дополнительно прошли **20 целевых App проверок**. Финальная граница размера источника и обработка
 ошибок декодера затем проверены целевым набором повторно.
 Поведение сверено с [Adobe: обновление связанных Smart Objects](https://helpx.adobe.com/photoshop/desktop/create-manage-layers/smart-objects/update-linked-smart-objects.html).
+
+## Каналы: редактирование и просмотр
+
+Добавлена панель Channels (Window → Channels): составной RGB, отдельные R/G/B и именованные alpha.
+Выбор цели и видимость независимы. Один компонент можно показывать серым или редактировать, наблюдая RGB;
+alpha — серым или поверх изображения с красным overlay. Эти режимы относятся только к отображению,
+не меняют Composite/Flatten, входы AI и экспорт. Gray-preview строится из рабочих чисел до display ICC.
+Изменение режима просмотра не делает документ modified и не сбрасывает кеш настоящей RGB-композиции.
+
+Кисть, ластик, заливка, градиент, bucket и preview корректировок/фильтров направляются в выбранный target.
+RGB8/F32 сохраняют остальные компоненты и alpha побитно; одноканальные фильтры читают grayscale-плоскость
+без перехода RGB16 в 8 бит. Alpha использует собственную Alpha8-плоскость документа, в том числе без слоя.
+Есть создание, дублирование, переименование, порядок, удаление, сохранение/загрузка выделения, copy/cut/paste,
+история и .cmps. Дубликат может разделять immutable pixels до первой правки; изменения копии исходник не портят.
+
+MCP `channels` управляет каналами, `paint_stroke(s)` и `fill_layer` принимают явные red/green/blue/alpha:NAME
+в дополнение к pixels/layerMask/filterMask/active. Default pixels редактирует RGB, возвращая прежнюю цель,
+маску и вид пользователя. Фильтры и коррекции MCP также не зависят от оставленного в UI channel target.
+Discovery и реальный bridge-сценарий дополнены созданием, кистью, rename/copy/order/load/delete и Undo.
+
+Пройдены **726 Core + 660 App**, 14 opt-in App пропущены. После устранения лишнего viewport-trigger
+дополнительно прошли **3 App проверки**, включая отсутствие перестроений панели в покое. Клики и кисть
+проверены через настоящий pointer input, финальные `channels-component-rgb-preview` и `channels-alpha-overlay`
+просмотрены. Пункт «полноценное редактирование каналов» пока не закрыт: далее — перенос/трансформация
+содержимого канала и выбранного фрагмента, более широкий корпус RGB16/selection и PSD alpha round trip.
+[Семантика панели Photoshop](https://helpx.adobe.com/photoshop/desktop/adjust-color/hdr-and-channel-manipulation/manage-channels-in-the-channels-panel.html),
+[Alpha-маски Photoshop](https://helpx.adobe.com/photoshop/desktop/create-masks/layer-masks/create-alpha-channel-masks.html).

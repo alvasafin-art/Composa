@@ -7,7 +7,7 @@ namespace Composa.Editing;
 
 public sealed partial class EditorSession
 {
-    public bool CanSmartFilter => ActiveLayer is { Pixels: not null, Shape: null, Text: null } layer && !PixelsLocked(layer) && !IsEditingMask;
+    public bool CanSmartFilter => ActiveLayer is { Pixels: not null, Shape: null, Text: null } layer && !PixelsLocked(layer) && !IsEditingMask && !IsEditingComponent;
     public void PreviewSmartFilters(Layer layer, SmartFilter[] filters)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;

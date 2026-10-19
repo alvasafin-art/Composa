@@ -284,7 +284,7 @@ public sealed class TransformEdit
 public sealed partial class EditorSession
 {
     public TransformEdit? Transform { get; private set; }
-    public Layer? IndependentMaskTarget => IsEditingMask && !IsEditingSmartFilterMask && ActiveLayer is { MaskLinked: false, Mask: not null } layer && !PositionLocked(layer) ? layer : null;
+    public Layer? IndependentMaskTarget => IsEditingMask && !IsEditingAlphaChannel && !IsEditingSmartFilterMask && ActiveLayer is { MaskLinked: false, Mask: not null } layer && !PositionLocked(layer) ? layer : null;
     public LayerTransform EditingControlTransform(Layer layer) => IndependentMaskTarget == layer
         ? layer.MaskTransform ?? LayerTransform.FromMatrix(layer.MaskMatrix, layer.Mask!.Width, layer.Mask.Height) : layer.ControlTransform;
 
@@ -294,6 +294,7 @@ public sealed partial class EditorSession
 
     public TransformEdit? BeginTransform(string name = "Transform", bool duplicate = false)
     {
+        if (IsEditingAlphaChannel || IsEditingComponent) return null;
         var targets = TransformTargets();
         var maskTarget = IndependentMaskTarget;
         var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked && !PositionLocked(l)).Distinct().ToList();

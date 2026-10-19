@@ -292,7 +292,7 @@ public sealed partial class MainWindow
             return item;
         }
         scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
-        Top("_Window", PanelToggle("History"));
+        Top("_Window", PanelToggle("Channels"), PanelToggle("History"));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
             Item("Check for Updates…", () => _ = CheckForUpdatesNow(), needsDocument: false),
@@ -525,6 +525,7 @@ public sealed partial class MainWindow
         if (session == null) return;
         if (session.SelectedEffect != null) { session.RemoveSelectedEffect(); return; }
         if (session.Selection != null && session.CanEditPixels) session.ClearSelection();
+        else if (session.IsEditingAlphaChannel || session.IsEditingComponent) session.Fill(SKColors.Black, "Clear Channel");
         else if (session.Selection == null) layers.DeleteLayerOrMask();
     }
 
@@ -889,7 +890,7 @@ public sealed partial class MainWindow
             _ => session.Paste(external)
         };
         if (pasted == null) ShowProblem("The clipboard has no image.");
-        else SelectTool(Tool.Move);
+        else if (!session.IsEditingAlphaChannel && !session.IsEditingComponent) SelectTool(Tool.Move);
     }
 
     /// <summary>
