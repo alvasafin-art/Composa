@@ -52,6 +52,11 @@ public sealed class LayersPanel : UserControl
     public event Action<Layer>? EditTextRequested;
     public event Action<Layer>? EditShapeRequested;
     public event Action<Layer>? EditSmartObjectRequested;
+    public event Action<Layer, bool>? ReplaceSmartObjectRequested;
+    public event Action<Layer>? UpdateLinkedSmartObjectRequested;
+    public event Action<Layer>? LinkedSourceInfoRequested;
+    public Func<Layer, Composa.IO.LinkedSourceStatus?>? LinkedSourceStatus { get; set; }
+    public void RefreshSourceStatus() => Rebuild();
     public event Action<Layer, SmartFilter>? EditSmartFilterRequested;
     public event Action<Layer, SmartFilter>? EditSmartFilterBlendingRequested;
     public event Action<AdjustmentKind>? NewAdjustmentRequested;
@@ -299,8 +304,10 @@ public sealed class LayersPanel : UserControl
             content.Children.Add(pixelThumb);
             if (layer.IsSmartObject)
             {
-                var badge = Ui.Label("◇", Palette.Accent);
-                ToolTip.SetTip(badge, "Smart object · double-click the thumbnail to edit contents");
+                var status = LinkedSourceStatus?.Invoke(layer);
+                var badge = Ui.Label(layer.SmartObject!.Link != null ? status is { State: not Composa.IO.LinkedSourceState.Current } ? "↗!" : "↗" : "◇", Palette.Accent);
+                ToolTip.SetTip(badge, layer.SmartObject.Link is { } link ? $"Linked smart object · {link.Path}" + (link.HasLocalEdits ? " · local cached edits" : "")
+                    + (status?.Detail is { } detail ? "\n" + detail : status is { State: not Composa.IO.LinkedSourceState.Current } ? "\n" + status.State : "") : "Smart object · double-click the thumbnail to edit contents");
                 content.Children.Add(badge);
             }
         }
@@ -617,6 +624,14 @@ public sealed class LayersPanel : UserControl
         {
             Add("Edit Smart Object Contents…", () => EditSmartObjectRequested?.Invoke(layer));
             Add("New Smart Object via Copy", () => current.DuplicateSmartObjectIndependent(layer));
+            Add("Replace Contents…", () => ReplaceSmartObjectRequested?.Invoke(layer, false));
+            Add("Relink to File…", () => ReplaceSmartObjectRequested?.Invoke(layer, true));
+            if (layer.SmartObject!.Link != null)
+            {
+                Add("Update from File", () => UpdateLinkedSmartObjectRequested?.Invoke(layer));
+                Add("Embed Linked Object", () => current.SetSmartObjectLink(layer.SmartObject!, null));
+                Add("Linked Source Info…", () => LinkedSourceInfoRequested?.Invoke(layer));
+            }
         }
         menu.Items.Add(new Separator());
 

@@ -156,6 +156,9 @@ public sealed partial class MainWindow : Window
         layers.EditBlendingRequested += layer => _ = EditBlending(layer);
         layers.EditMaskPropertiesRequested += layer => _ = EditMaskProperties(layer);
         layers.EditSmartObjectRequested += layer => OpenSmartObject(layer);
+        layers.ReplaceSmartObjectRequested += (layer, relink) => _ = ChooseSmartObjectFile(relink, layer, relink);
+        layers.UpdateLinkedSmartObjectRequested += layer => _ = UpdateLinkedFromUi(layer);
+        layers.LinkedSourceInfoRequested += layer => _ = LinkedSourceInfo(layer);
         layers.EditSmartFilterRequested += (layer, filter) => _ = SmartFilter(filter.Settings.Kind, layer, filter);
         layers.EditSmartFilterBlendingRequested += (layer, filter) => _ = SmartFilterBlending(layer, filter);
 
@@ -187,6 +190,7 @@ public sealed partial class MainWindow : Window
             Opened += (_, _) => _ = OfferRecovery();
         }
         InitializeDisplayColor();
+        InitializeLinkedSources();
     }
 
     private async Task OfferRecovery()
@@ -415,6 +419,7 @@ public sealed partial class MainWindow : Window
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        foreach (var key in linkedObservations.Keys.Where(key => key.Parent == item).ToArray()) linkedObservations.Remove(key);
         embeddedTabs.Remove(item);
         recovery?.Forget(item);
         item.HistoryChanged -= RebuildTabs;

@@ -63,7 +63,9 @@ internal static class EditorDocumentInspection
         hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, maskLinked = layer.MaskLinked,
         smartFilters = layer.SmartFilters.Select(f => new { id = f.Id, kind = f.Settings.Kind.ToString(), f.Enabled, f.Opacity, blend = f.Blend.ToString() }),
         hasSmartFilterMask = layer.SmartFilterMask != null, smartFilterMaskEnabled = layer.SmartFilterMaskEnabled,
-        smartSourceId = layer.SmartObject?.Id, children = layer.Children.Select(child => child.Id)
+        smartSourceId = layer.SmartObject?.Id,
+        smartSourceLink = layer.SmartObject?.Link is not { } link ? null : new { path = link.Path, hasLocalEdits = link.HasLocalEdits, useMergedAppearance = link.UseMergedAppearance },
+        children = layer.Children.Select(child => child.Id)
     })!.AsObject();
 
     internal static string Kind(Layer layer) => layer.IsSmartObject ? "smartObject" : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : layer.Text != null ? "text" : layer.Shape != null ? "shape" : "raster";

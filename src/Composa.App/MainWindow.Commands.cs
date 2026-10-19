@@ -71,6 +71,8 @@ public sealed partial class MainWindow
             Item("Open…", () => _ = Open(), Key.O, ctrl, needsDocument: false),
             recentMenu = Sub("Open Recent"),
             Item("Place Images as Layers…", () => _ = PlaceImages()),
+            Item("Place Linked Smart Object…", () => _ = ChooseSmartObjectFile(true)),
+            Item("Place Embedded Smart Object…", () => _ = ChooseSmartObjectFile(false)),
             Line(),
             Item("Save", () => _ = Save(session!, false), Key.S, ctrl),
             Item("Save As…", () => _ = Save(session!, true), Key.S, ctrl | shift),
@@ -204,9 +206,14 @@ public sealed partial class MainWindow
                 .Append(Line()).Append(Item("Delete Effect", () => session!.RemoveSelectedEffect(), enabled: () => session!.SelectedEffect != null)).ToArray()),
             Item("Edit Text…", () => BeginTextEdit(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.Text != null),
             Item("Rasterize Layer", () => session!.RasterizeShape(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsLive == true),
-            Item("Convert to Smart Object", () => session!.ConvertToSmartObject(), enabled: () => session!.SelectedRoots().Count > 0),
+            Sub("Smart Objects", Item("Convert to Smart Object", () => session!.ConvertToSmartObject(), enabled: () => session!.SelectedRoots().Count > 0),
             Item("Edit Smart Object Contents…", () => OpenSmartObject(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
             Item("New Smart Object via Copy", () => session!.DuplicateSmartObjectIndependent(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("Replace Smart Object Contents…", () => _ = ChooseSmartObjectFile(false, session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("Relink Smart Object…", () => _ = ChooseSmartObjectFile(true, session!.ActiveLayer!, relink: true), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("Update Linked Smart Object", () => _ = UpdateLinkedFromUi(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.SmartObject?.Link != null),
+            Item("Embed Linked Smart Object", () => session!.SetSmartObjectLink(session.ActiveLayer!.SmartObject!, null), enabled: () => session!.ActiveLayer?.SmartObject?.Link != null),
+            Item("Linked Source Info…", () => _ = LinkedSourceInfo(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.SmartObject?.Link != null)),
             Item("Rotate Layer 90° Clockwise", () => session!.RotateLayers(90)),
             Item("Rotate Layer 90° Counterclockwise", () => session!.RotateLayers(-90)),
             Item("Rotate Layer 180°", () => session!.RotateLayers(180)),
@@ -695,7 +702,7 @@ public sealed partial class MainWindow
     {
         if (!saveAs && embeddedTabs.ContainsKey(target))
         {
-            try { return SaveSmartObjectContents(target); }
+            try { return await SaveSmartObjectContents(target); }
             catch (Exception updateError) { await Prompts.Alert(this, "Couldn't update smart object", updateError.Message); return false; }
         }
         var path = target.FilePath;

@@ -4,6 +4,8 @@ using Composa.Model;
 using Composa.Text;
 using Composa.ColorManagement;
 using Composa.App.Automation;
+using Composa.IO;
+using Composa.IO.Psd;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
@@ -39,21 +41,46 @@ public sealed partial class ComposaTools
     });
 
     [McpServerTool(Name = "smart_object")]
-    [Description("Embedded smart objects: convert the named layer(s) preserving editable contents; copy makes an independent smart source. Ordinary duplicate_layer shares the source. Edit contents in its tab and Ctrl+S to update all parent instances. action: convert or copy.")]
-    public Task<string> SmartObject(string action, string[] layers, int? document = null) => OnUi(() =>
+    [Description("Smart objects: convert layer(s), copy one independent source, place a file (linked=true by default), replace contents, relink to a file, update from the linked file, embed or info. All except place/convert take one layer in layers. path is required for place/replace/relink. Ordinary duplicate_layer shares the source; updates affect every shared instance and preserve placement/masks/filters. Files remain usable from cache when offline. Source files are never written by this tool. PSD and RAW file operations need the File menu's review.")]
+    public Task<string> SmartObject(string action, string[]? layers = null, int? document = null, string? path = null, bool linked = true,
+        bool discardLocal = false) => OnUi(async () =>
     {
-        var s = Editable(document);
-        if (layers.Length == 0) throw new McpException("Give at least one layer.");
-        var targets = layers.Select(layer => Find(s, layer)).Distinct().ToArray();
+        var s = action == "info" ? Session(document) : Editable(document);
+        if (action is not ("convert" or "copy" or "place" or "replace" or "relink" or "update" or "embed" or "info")) throw new McpException("Use convert, copy, place, replace, relink, update, embed or info.");
+        var targets = (layers ?? []).Select(layer => Find(s, layer)).Distinct().ToArray();
+        if (action != "place" && targets.Length == 0) throw new McpException("Give at least one layer.");
+        if (action is not ("place" or "convert") && targets.Length != 1) throw new McpException("This action takes one smart object.");
+        if (action is "place" or "replace" or "relink")
+        {
+            path = Absolute(path ?? throw new McpException("Give the source file's absolute path."));
+            if (PsdImport.IsPsd(path) || RawImporter.IsRaw(path)) throw new McpException("Photoshop and camera RAW sources need review; use the File menu.");
+        }
         Layer result;
-        if (action == "convert")
+        if (action == "place") result = await window.PlaceSmartObjectPath(path!, linked, s, review: false) ?? throw new McpException("Source was not placed.");
+        else if (action == "convert")
         {
             s.SelectLayer(targets[0].Id);
             foreach (var target in targets.Skip(1)) s.SelectLayer(target.Id, extend: true);
             result = s.ConvertToSmartObject();
         }
         else if (action == "copy" && targets.Length == 1) result = s.DuplicateSmartObjectIndependent(targets[0]);
-        else throw new McpException("Use convert with layer names/ids, or copy with one smart object.");
+        else
+        {
+            result = targets[0]; var source = result.SmartObject ?? throw new McpException("Select a smart object.");
+            if (action == "info")
+            {
+                var status = source.Link == null ? null : await Task.Run(() => LinkedSmartObjectFile.Probe(source.Link, verifyHash: true));
+                return $"Smart source {source.Id}: {source.Width}×{source.Height} px. " + (source.Link == null ? "Embedded." : $"Linked: {source.Link.Path}. {status!.State}. {status.Detail}");
+            }
+            if (action == "embed") s.SetSmartObjectLink(source, null);
+            else if (action is "replace" or "relink") await window.ReplaceSmartObjectPath(result, path!, action == "relink", s, review: false);
+            else if (action == "update")
+            {
+                if (source.Link == null) throw new McpException("This smart object is embedded.");
+                if (PsdImport.IsPsd(source.Link.Path) || RawImporter.IsRaw(source.Link.Path)) throw new McpException("Photoshop and camera RAW sources need review; use the File menu.");
+                await window.UpdateLinkedSmartObject(s, source, review: false, discardLocal: discardLocal);
+            }
+        }
         return $"Smart object \"{result.Name}\" [{Id(result)}], content {result.SmartObject!.Width}×{result.SmartObject.Height} px, source {result.SmartObject.Id}.";
     });
 

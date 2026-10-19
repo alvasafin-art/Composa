@@ -171,7 +171,7 @@ public sealed class HistoryPanel : UserControl
         "Healing Brush" => Icons.HealingBrush,
         "Spot Healing Brush" or "Patch" or "Content-Aware Fill" or "New Retouch Layer" => Icons.Heal,
         "New Path" or "Edit Path" => Icons.Line,
-        "Add Smart Filter" or "Change Smart Filter" or "Delete Smart Filter" => Icons.Effects,
+        "Add Smart Filter" or "Change Smart Filter" or "Delete Smart Filter" or "Smart Filter Blending" or "Reorder Smart Filters" => Icons.Effects,
         "Liquify" => Icons.Liquify,
         "Blur" or "Fill" => Icons.Drop,
         "Smudge" => Icons.Smudge,

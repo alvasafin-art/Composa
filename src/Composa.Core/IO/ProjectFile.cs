@@ -56,6 +56,7 @@ public static class ProjectFile
     private sealed class SmartRecord
     {
         public Guid Id { get; set; }
+        public SmartObjectLink? Link { get; set; }
         public Manifest Content { get; set; } = new();
     }
 
@@ -134,7 +135,7 @@ public static class ProjectFile
             if (sources.TryGetValue(source, out var existing)) return existing;
             var key = "object-" + sources.Count;
             sources.Add(source, key);
-            var record = new SmartRecord { Id = source.Id }; objects.Add(key, record);
+            var record = new SmartRecord { Id = source.Id, Link = source.Link }; objects.Add(key, record);
             record.Content = RecordDocument(source.OpenDocument());
             return key;
         }
@@ -249,7 +250,7 @@ public static class ProjectFile
             if (manifest.SmartObjects == null || !manifest.SmartObjects.TryGetValue(key, out var record))
                 throw new InvalidDataException("Embedded smart object content is missing.");
             var value = BuildDocument(record.Content);
-            var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id);
+            var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id, record.Link);
             sources.Add(key, source); visiting.Remove(key);
             allocatedPixels += ((long)source.Preview.ByteCount + 3) / 4;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");

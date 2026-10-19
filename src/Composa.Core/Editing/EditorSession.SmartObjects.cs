@@ -59,13 +59,16 @@ public sealed partial class EditorSession
     }
 
     public void UpdateSmartObject(SmartObjectSource expected, Document content)
+        => ReplaceSmartObject(expected, content, expected.Link is { } link ? link with { HasLocalEdits = true } : null, "Update Smart Object");
+
+    public void ReplaceSmartObject(SmartObjectSource expected, Document content, SmartObjectLink? link = null, string name = "Replace Smart Object Contents")
     {
         FinishText();
         var instances = document.AllLayers().Where(layer => layer.SmartObject?.Id == expected.Id).ToList();
         if (instances.Count == 0) throw new InvalidOperationException("This smart object no longer exists in the parent document.");
         if (instances.Any(layer => !ReferenceEquals(layer.SmartObject, expected)))
             throw new InvalidOperationException("The parent smart object changed (for example through Undo). Reopen its contents before saving; your open contents remain available.");
-        var replacement = SmartObjectSource.Create(content, expected.Id);
+        var replacement = SmartObjectSource.Create(content, expected.Id, link);
         SKBitmap preview;
         try { preview = WorkingPreview(replacement.Preview); }
         catch { replacement.Preview.Dispose(); throw; }
@@ -119,7 +122,7 @@ public sealed partial class EditorSession
             if (!ReferenceEquals(preview, replacement.Preview)) preview.Dispose();
             throw;
         }
-        Apply("Update Smart Object", () =>
+        Apply(name, () =>
         {
             foreach (var layer in instances)
             {
@@ -131,6 +134,37 @@ public sealed partial class EditorSession
             }
         });
         InvalidateAll(); LayersChanged?.Invoke();
+    }
+
+    public Layer PlaceSmartObject(Document content, string name, SmartObjectLink? link = null, SKPoint? center = null, bool fit = true)
+    {
+        FinishText();
+        var source = SmartObjectSource.Create(content, link: link); SKBitmap preview;
+        try { preview = WorkingPreview(source.Preview); }
+        catch { source.Preview.Dispose(); throw; }
+        var scale = fit ? Math.Min(1, Math.Min((double)document.Width / source.Width, (double)document.Height / source.Height)) : 1;
+        var point = center ?? new SKPoint(document.Width / 2f, document.Height / 2f);
+        var width = source.Width * scale; var height = source.Height * scale;
+        var layer = Layer.Raster(name, preview); layer.SmartObject = source;
+        layer.Transform = new() { X = Math.Round(point.X - width / 2), Y = Math.Round(point.Y - height / 2), Width = width, Height = height };
+        var candidate = document.Clone(); candidate.InsertAboveActive(layer);
+        try { EnsureSmartBudget(candidate); }
+        catch { if (!ReferenceEquals(preview, source.Preview)) preview.Dispose(); source.Preview.Dispose(); throw; }
+        Apply(link == null ? "Place Embedded Smart Object" : "Place Linked Smart Object", () => document.InsertAboveActive(layer));
+        EditingMask = false; InvalidateAll(); LayersChanged?.Invoke(); return layer;
+    }
+
+    /// <summary>Changes linkage without regenerating or modifying shared pixels.</summary>
+    public void SetSmartObjectLink(SmartObjectSource expected, SmartObjectLink? link)
+    {
+        FinishText();
+        var instances = document.AllLayers().Where(l => l.SmartObject?.Id == expected.Id).ToArray();
+        if (instances.Length == 0 || instances.Any(l => !ReferenceEquals(l.SmartObject, expected)))
+            throw new InvalidOperationException("The smart object changed; select its current revision.");
+        if (instances.Any(PixelsLocked)) throw new InvalidOperationException("Unlock the smart object before changing its link.");
+        var replacement = expected.WithLink(link); if (Equals(replacement.Link, expected.Link)) return;
+        Apply(link == null ? "Embed Smart Object" : "Relink Smart Object", () => { foreach (var layer in instances) layer.SmartObject = replacement; });
+        LayersChanged?.Invoke();
     }
 
     public Layer DuplicateSmartObjectIndependent(Layer layer)

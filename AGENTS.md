@@ -94,3 +94,4 @@ scripts/publish.sh              # just the portable tarball
 scripts/package/windows.sh      # Windows zip and installer (--no-installer on Linux)
 scripts/make-icons.sh           # only when packaging/composa.svg changes
 ```
+- Linked smart objects retain cached editable contents and immutable `SmartObjectLink` file revision metadata. `ProjectFile.Read` must never follow those paths. `LinkedSmartObjectFile` owns newly decoded bitmaps until `Adopt` after a successful session command; dispose unadopted loads only. Source writes use snapshots, actual-format encoders and revision checks; the window registers the entire review/write task in `saving`, so close/quit waits. Automatic refresh runs IO off the UI thread, preserves local/dirty contents and must not reapply a disk revision the user just undid. Keep refresh observations free of source/bitmap references. A changed PSD conversion report needs explicit review.

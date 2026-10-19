@@ -99,6 +99,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
             if (layer.Clipped) text.Append(", clipped to the layer below");
             if (layer.Effects != null) text.Append(", with effects");
             if (layer.SmartFilters.Length > 0) text.Append(", ").Append(layer.SmartFilters.Length).Append(" smart filters (smart_filter list)");
+            if (layer.SmartObject?.Link is { } link) text.Append(", linked to ").Append(link.Path).Append(link.HasLocalEdits ? " (local cached edits)" : "");
             text.AppendLine();
             if (layer.IsGroup) Describe(text, doc, layer.Children, depth + 1);
         }

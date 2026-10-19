@@ -324,9 +324,9 @@ public sealed partial class EditorSession
     public void MarkSaved(string path) => MarkSaved(path, History.CurrentId);
 
     /// <summary>Records contents applied to their parent, without inventing a filesystem path.</summary>
-    public void MarkEmbeddedSaved()
+    public void MarkEmbeddedSaved(long? state = null)
     {
-        savedState = History.CurrentId;
+        savedState = state ?? History.CurrentId;
         HistoryChanged?.Invoke();
     }
 

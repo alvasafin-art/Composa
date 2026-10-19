@@ -284,6 +284,7 @@ public class McpTests
         Assert.Contains("no document 9", noSuch.Message);
 
         var picture = Path.Combine(Path.GetTempPath(), $"composa-place-{Guid.NewGuid():N}.png");
+        var linkedPicture = picture + ".png";
         using (var wide = new SKBitmap(800, 200)) { wide.Erase(SKColors.Lime); ImageFiles.Save(wide, picture, ExportFormat.Png); }
         try
         {
@@ -296,8 +297,23 @@ public class McpTests
             var missing = await Pumped(client.CallToolAsync("place_image", new Dictionary<string, object?> { ["path"] = picture + ".missing" }));
             Assert.Equal(true, missing.IsError);
             Assert.Equal("Undid Add Image.", Text(await Pumped(client.CallToolAsync("undo"))));
+            var smartPlaced = await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "place", ["path"] = picture }));
+            Assert.Null(smartPlaced.IsError); var linkedLayer = session.ActiveLayer!; var linkedId = linkedLayer.Id.ToString(); var placedFrame = linkedLayer.Transform;
+            Assert.Equal(picture, linkedLayer.SmartObject!.Link!.Path);
+            Assert.Contains("Linked:", Text(await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "info", ["layers"] = new[] { linkedId } }))));
+            Assert.Null((await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "replace", ["layers"] = new[] { linkedId }, ["path"] = picture }))).IsError);
+            File.Copy(picture, linkedPicture);
+            Assert.Null((await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "relink", ["layers"] = new[] { linkedId }, ["path"] = linkedPicture }))).IsError);
+            Assert.Equal(linkedPicture, linkedLayer.SmartObject.Link!.Path);
+            using (var changed = new SKBitmap(800, 200)) { changed.Erase(SKColors.Purple); ImageFiles.Save(changed, linkedPicture, ExportFormat.Png); }
+            Assert.Null((await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "update", ["layers"] = new[] { linkedId } }))).IsError);
+            Assert.Equal(SKColors.Purple, linkedLayer.Pixels!.GetPixel(30, 20)); Assert.Equal(placedFrame, linkedLayer.Transform);
+            Assert.Null((await Pumped(client.CallToolAsync("smart_object", new Dictionary<string, object?> { ["action"] = "embed", ["layers"] = new[] { linkedId } }))).IsError);
+            Assert.Null(linkedLayer.SmartObject.Link); Assert.Equal(SKColors.Lime, ImageFiles.Load(picture).GetPixel(30, 20));
+            for (var i = 0; i < 5; i++) Assert.Null((await Pumped(client.CallToolAsync("undo"))).IsError);
+            Assert.Equal(2, session.Document.Layers.Count);
         }
-        finally { File.Delete(picture); }
+        finally { File.Delete(picture); File.Delete(linkedPicture); }
 
         var refused = await Pumped(client.CallToolAsync("fill_layer", new Dictionary<string, object?> { ["color"] = "nonsense" }));
         Assert.Equal(true, refused.IsError);
