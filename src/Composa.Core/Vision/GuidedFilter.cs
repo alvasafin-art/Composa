@@ -120,7 +120,7 @@ public static class GuidedFilter
         return output;
     }
 
-    private static float Bilinear(float[] field, int width, int height, double u, double v)
+    internal static float Bilinear(float[] field, int width, int height, double u, double v)
     {
         var x0 = (int)Math.Floor(u);
         var y0 = (int)Math.Floor(v);

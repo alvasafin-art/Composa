@@ -83,6 +83,10 @@ public sealed partial class EditorSession
     {
         if (ActiveLayer is not { Pixels: { } pixels } layer || PixelsLocked(layer) || !layer.Matrix.TryInvert(out var inverse)) return;
         var mask = SelectionMask.Remap(selection, pixels.Width, pixels.Height, inverse) ?? Pixels.NewMask(pixels.Width, pixels.Height);
-        Apply("Refine Layer Mask", () => { layer.Mask = mask; layer.MaskEnabled = true; }); InvalidateAll(); LayersChanged?.Invoke();
+        var candidate = document.Clone(); candidate.Find(layer.Id)!.Mask = mask;
+        if (candidate.RasterPixels() > DocumentLimits.DocumentPixelBudget) { mask.Dispose(); throw new InvalidOperationException("The refined mask exceeds the document raster memory budget."); }
+        Apply("Refine Layer Mask", () =>
+        { layer.Mask = mask; layer.MaskEnabled = true; layer.MaskLinked = true; layer.MaskTransform = null; layer.MaskDefault = 0; layer.MaskDensity = 1; layer.MaskFeather = 0; });
+        InvalidateAll(); LayersChanged?.Invoke();
     }
 }

@@ -146,7 +146,7 @@ public class McpTests
             ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "channels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "list_documents", "list_files", "list_read_folders",
-             "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
+             "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "refine_selection", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
              "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_filter", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
             tools.Select(t => t.Name).Order());
 
@@ -499,6 +499,13 @@ public class McpTests
         Assert.Matches(@"\n\d+,\d+ \d+,\d+", traced);
         Assert.Equal("Selected the area at 0,0 size 110×90.", Text(await Pumped(client.CallToolAsync("modify_selection", new Dictionary<string, object?> { ["expand"] = 10 }))));
         Assert.Equal("Selected the area at 20,0 size 110×90.", Text(await Pumped(client.CallToolAsync("modify_selection", new Dictionary<string, object?> { ["moveX"] = 20 }))));
+        var beforeRefine = session.Selection; var beforeRefineId = session.History.CurrentId;
+        Assert.Equal("Selected the area at 20,0 size 110×90.", Text(await Pumped(client.CallToolAsync("refine_selection", new Dictionary<string, object?> { ["method"] = "keep" }))));
+        Assert.NotSame(beforeRefine, session.Selection); Assert.Equal(255, session.Selection!.GetPixel(50, 40).Alpha);
+        await Pumped(client.CallToolAsync("undo")); Assert.Same(beforeRefine, session.Selection); Assert.Equal(beforeRefineId, session.History.CurrentId);
+        var localRefine = await Pumped(client.CallToolAsync("refine_selection", new Dictionary<string, object?> { ["method"] = "classic", ["radius"] = 0, ["background"] = new[] { new[] { 50.0, 40.0 } }, ["brushSize"] = 12, ["output"] = "layer" }));
+        Assert.Contains("editable refined cutout", Text(localRefine)); Assert.Equal(0, session.ActiveLayer!.Mask!.GetPixel(50, 40).Alpha);
+        await Pumped(client.CallToolAsync("undo")); Assert.Equal(beforeRefineId, session.History.CurrentId);
         var polygon = await Pumped(client.CallToolAsync("select_shape", new Dictionary<string, object?> { ["kind"] = "polygon", ["points"] = new[] { new[] { 200.0, 100.0 }, new[] { 300.0, 100.0 }, new[] { 250.0, 200.0 } }, ["mode"] = "add" }));
         Assert.Equal("Selected the area at 20,0 size 280×200.", Text(polygon));
         Assert.Equal("Selected the area at 0,0 size 400×300.", Text(await Pumped(client.CallToolAsync("select_inverse"))));

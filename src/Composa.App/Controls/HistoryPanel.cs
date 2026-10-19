@@ -192,6 +192,7 @@ public sealed class HistoryPanel : UserControl
         "8 Bits/Channel" or "16 Bits/Channel" => Icons.Adjust,
         "Assign Color Profile" or "Convert Color Profile" => Icons.Adjust,
         "Object Selection" or "Select Subject" => Icons.ObjectSelect,
+        "Select and Mask" => Icons.Mask,
         "Move Selection Pixels" or "Duplicate Selection" => Icons.Move,
         "Deselect" or "Color Range" => Icons.Marquee,
         "Crop" or "Trim" or "Canvas Size" or "Image Size" or "Reveal All" => Icons.Crop,

@@ -11,4 +11,5 @@ TestResults/
 src/Composa.Core/Models/modnet.onnx
 src/Composa.Core/Models/efficient_sam_vits_encoder.onnx
 src/Composa.Core/Models/efficient_sam_vits_decoder.onnx
+src/Composa.Core/Models/vitmatte_small.onnx
 .tools/

@@ -21,11 +21,12 @@ dotnet publish "$ROOT/src/Composa.App" -c Release -r "$RID" --self-contained tru
   -p:UpdateChannel=github -o "$WORK/$NAME"
 for model in "$WORK/$NAME"/models/*.onnx; do
   case "$(basename "$model")" in
-    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx) ;;
+    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx|vitmatte_small.onnx) ;;
     *) echo "tarball.sh: obsolete model in published build: $model" >&2; exit 1 ;;
   esac
 done
 test -f "$WORK/$NAME/models/efficient_sam_vits_encoder.onnx" && test -f "$WORK/$NAME/models/efficient_sam_vits_decoder.onnx"
+test -f "$WORK/$NAME/models/vitmatte_small.onnx"
 mkdir -p "$WORK/$NAME/docs"
 cp "$ROOT/docs/nano-banana.md" "$ROOT/docs/scene-matching.md" "$WORK/$NAME/docs/"
 cp "$ROOT/docs/scene-edit-validation.md" "$WORK/$NAME/docs/"
