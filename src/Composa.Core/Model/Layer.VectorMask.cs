@@ -38,7 +38,7 @@ public sealed partial class Layer
     }
     public SKBitmap? RenderMask()
     {
-        var mask = RenderRasterMask();
+        var mask = AlignedRasterMask();
         if (VectorMask == null || !VectorMaskEnabled || Pixels == null) return mask;
         lock (vectorMaskGate)
         {

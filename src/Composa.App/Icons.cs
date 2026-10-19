@@ -12,6 +12,8 @@ public static class Icons
     public sealed record Icon(string? Stroke, string? Fill = null, bool Dashed = false);
 
     public static readonly Icon Move = new(null, "M12 2 L15.5 6 H13 V11 H18 V8.5 L22 12 L18 15.5 V13 H13 V18 H15.5 L12 22 L8.5 18 H11 V13 H6 V15.5 L2 12 L6 8.5 V11 H11 V6 H8.5 Z");
+    public static readonly Icon Link = new("M10 8 H8 A4 4 0 0 0 8 16 H10 M14 8 H16 A4 4 0 0 1 16 16 H14 M8 12 H16");
+    public static readonly Icon Unlink = new("M9 8 H7 A4 4 0 0 0 7 16 H9 M15 8 H17 A4 4 0 0 1 17 16 H15 M10 4 L14 20");
     public static readonly Icon Marquee = new("M4 4 H20 V20 H4 Z", null, true);
     public static readonly Icon MarqueeEllipse = new("M12 4 A8 8 0 1 1 12 20 A8 8 0 1 1 12 4 Z", null, true);
     public static readonly Icon Lasso = new("M12 4 C6 4 3 7 3 10 C3 13 6 15 11 15 C17 15 21 13 21 9.5 C21 6 17 4 12 4 M9 15 C6.5 16 6.5 19 8.5 19 C10 21 8 22.5 5.5 22");

@@ -531,6 +531,7 @@ public sealed partial class EditorSession
             else layer.Mask = Pixels.NewMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
             layer.MaskEnabled = true;
             layer.MaskDensity = 1; layer.MaskFeather = 0;
+            layer.MaskLinked = true; layer.MaskTransform = null; layer.MaskDefault = 0;
         });
         EditingMask = true;
         Invalidate(AffectedArea(layer));
@@ -557,7 +558,7 @@ public sealed partial class EditorSession
             var pixels = Pixels.Clone(layer.Pixels);
             using (var canvas = new SKCanvas(pixels))
             using (var paint = new SKPaint { BlendMode = SKBlendMode.DstIn })
-                canvas.DrawBitmap(layer.RenderRasterMask(ignoreDisabled: true)!, new SKRect(0, 0, pixels.Width, pixels.Height), paint);
+                canvas.DrawBitmap(layer.AlignedRasterMask(ignoreDisabled: true)!, new SKRect(0, 0, pixels.Width, pixels.Height), paint);
             layer.Pixels = pixels;
             layer.Mask = null;
         });
@@ -570,6 +571,20 @@ public sealed partial class EditorSession
     {
         if (IsLocked(layer) || layer.Mask == null || layer.MaskEnabled == enabled) return;
         Apply(enabled ? "Enable Layer Mask" : "Disable Layer Mask", () => layer.MaskEnabled = enabled);
+        Invalidate(AffectedArea(layer));
+        LayersChanged?.Invoke();
+    }
+
+    public void SetMaskLinked(Layer layer, bool linked)
+    {
+        if (IsLocked(layer) || layer.Mask == null || layer.MaskLinked == linked) return;
+        var matrix = layer.MaskMatrix;
+        if (linked && layer.Pixels != null && !layer.Transform.Matrix(1, 1).TryInvert(out _)) return;
+        Apply(linked ? "Link Layer Mask" : "Unlink Layer Mask", () =>
+        {
+            layer.MaskLinked = linked;
+            layer.PlaceMask(matrix);
+        });
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
     }

@@ -89,7 +89,8 @@ public class PsdSmartAndEffectsTests
         var imported = PsdImport.Load(writer.Build()); Assert.Empty(imported.Conversions); Assert.Equal(2, imported.Layers.Count);
         var first = imported.Layers[0]; var second = imported.Layers[1];
         Assert.True(first.IsSmartObject); Assert.Same(first.SmartObject, second.SmartObject); Assert.Same(first.Pixels, second.Pixels);
-        Assert.Equal(SKColors.Red, first.Pixels!.GetPixel(10, 5)); Assert.Equal(20, first.Mask!.Width); Assert.Equal(10, first.Mask.Height);
+        Assert.Equal(SKColors.Red, first.Pixels!.GetPixel(10, 5)); Assert.Equal(40, first.Mask!.Width); Assert.Equal(20, first.Mask.Height);
+        Assert.Equal(20, first.AlignedRasterMask()!.Width); Assert.Equal(10, first.AlignedRasterMask()!.Height);
         var corners = first.Transform.Corners(first.Pixels.Width, first.Pixels.Height);
         for (var i = 0; i < 4; i++) { Assert.InRange(Math.Abs(corners[i].X - quad[i * 2]), 0, .02); Assert.InRange(Math.Abs(corners[i].Y - quad[i * 2 + 1]), 0, .02); }
         var session = new EditorSession(imported.ToDocument()); var editable = first.SmartObject!.OpenDocument();

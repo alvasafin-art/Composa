@@ -49,6 +49,7 @@ public sealed partial class EditorSession
     private void RenderSmartFilters(Layer layer, Document? budgetDocument = null)
     {
         var source = layer.FilterSource!; var old = layer.Pixels!;
+        var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         var originalSource = source;
         var sourceTransform = SmartFilterSourceTransform(layer);
         var sourceWidth = sourceTransform.Width; var sourceHeight = sourceTransform.Height;
@@ -72,7 +73,7 @@ public sealed partial class EditorSession
                 throw new InvalidOperationException("The smart filter exceeds the document raster budget.");
             var center = sourceTransform.Matrix(source.Width, source.Height).MapPoint(result.Width / 2f - growX, result.Height / 2f - growY);
             var w = sourceWidth * result.Width / source.Width; var h = sourceHeight * result.Height / source.Height;
-            if (layer.Mask is { } mask && (old.Width != result.Width || old.Height != result.Height || growX != layer.FilterPaddingX || growY != layer.FilterPaddingY))
+            if (maskPlacement == null && layer.Mask is { } mask && (old.Width != result.Width || old.Height != result.Height || growX != layer.FilterPaddingX || growY != layer.FilterPaddingY))
             {
                 var next = Pixels.NewMask(result.Width, result.Height, 255);
                 using var canvas = new SKCanvas(next); canvas.DrawBitmap(mask, growX - layer.FilterPaddingX, growY - layer.FilterPaddingY); layer.Mask = next;
@@ -85,6 +86,7 @@ public sealed partial class EditorSession
             }
             layer.Transform = sourceTransform with { X = center.X - w / 2, Y = center.Y - h / 2, Width = w, Height = h };
             layer.Pixels = result; layer.FilterSource = source; layer.FilterPaddingX = growX; layer.FilterPaddingY = growY;
+            if (maskPlacement is { } placement) layer.PlaceMask(placement);
         }
         catch
         {

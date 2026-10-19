@@ -410,24 +410,24 @@ public static partial class DocumentRenderer
     }
 
     /// <summary>The matrix placing a layer's mask on the document: the pixel transform for raster layers, identity otherwise.</summary>
-    public static SKMatrix MaskMatrix(Layer layer)
-    {
-        if (layer.Mask == null || layer.Pixels == null) return SKMatrix.Identity;
-        return layer.Transform.Matrix(layer.Mask.Width, layer.Mask.Height);
-    }
+    public static SKMatrix MaskMatrix(Layer layer) => layer.MaskMatrix;
 
     private static void MultiplyByMask(Layer layer, Tile content)
     {
         var mask = layer.RenderMask()!;
-        var matrix = layer.Pixels == null ? SKMatrix.Identity : layer.Transform.Matrix(mask.Width, mask.Height);
+        var matrix = layer.Pixels == null ? layer.MaskMatrix : layer.Transform.Matrix(mask.Width, mask.Height);
         var canvas = content.Canvas;
         if (layer.Pixels == null)
         {
-            // A folder's or adjustment's mask hides everything beyond its own extent.
-            canvas.Save();
-            canvas.ClipRect(new SKRect(0, 0, mask.Width, mask.Height), SKClipOperation.Difference);
-            canvas.Clear(SKColors.Transparent);
-            canvas.Restore();
+            using var coverage = content.Sibling(mask: true);
+            var outside = (byte)Math.Clamp(Math.Round(255 - (255 - layer.MaskDefault) * Math.Clamp(layer.MaskDensity, 0, 1)), 0, 255);
+            coverage.Canvas.Clear(SKColors.Black.WithAlpha(outside));
+            coverage.Canvas.Concat(in matrix);
+            using (var sourcePaint = new SKPaint { BlendMode = SKBlendMode.Src }) DrawBitmap(coverage.Canvas, mask, sourcePaint);
+            coverage.Canvas.Flush();
+            using var multiply = new SKPaint { BlendMode = SKBlendMode.DstIn };
+            content.DrawRaw(coverage.Bitmap, multiply);
+            return;
         }
         canvas.Save();
         canvas.Concat(in matrix);

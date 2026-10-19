@@ -286,7 +286,16 @@ public class McpTests
         await Pumped(client.CallToolAsync("undo"));
         hello = session.ActiveLayer!;
         Assert.Null((await Pumped(client.CallToolAsync("layer_mask", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "add" }))).IsError);
-        Assert.NotNull(hello.Mask); await Pumped(client.CallToolAsync("undo")); hello = session.ActiveLayer!;
+        Assert.NotNull(hello.Mask);
+        Assert.Null((await Pumped(client.CallToolAsync("layer_mask", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "unlink" }))).IsError);
+        Assert.False(hello.MaskLinked);
+        var textFrame = hello.Transform;
+        Assert.Null((await Pumped(client.CallToolAsync("transform_layer", new Dictionary<string, object?> { ["layer"] = "Hello", ["targetMask"] = true, ["x"] = 7, ["rotation"] = 10 }))).IsError);
+        Assert.Equal(textFrame, hello.Transform); Assert.Equal(10, hello.MaskTransform!.Rotation);
+        await Pumped(client.CallToolAsync("undo")); hello = session.ActiveLayer!;
+        Assert.Null((await Pumped(client.CallToolAsync("layer_mask", new Dictionary<string, object?> { ["layer"] = "Hello", ["action"] = "link" }))).IsError);
+        Assert.True(hello.MaskLinked);
+        await Pumped(client.CallToolAsync("undo")); await Pumped(client.CallToolAsync("undo")); await Pumped(client.CallToolAsync("undo")); hello = session.ActiveLayer!;
         Assert.Null((await Pumped(client.CallToolAsync("rasterize_layer", new Dictionary<string, object?> { ["layer"] = "Hello" }))).IsError);
         Assert.Null(hello.Text); await Pumped(client.CallToolAsync("undo")); hello = session.ActiveLayer!;
         Assert.Null((await Pumped(client.CallToolAsync("group_layers", new Dictionary<string, object?> { ["layers"] = new[] { "Hello" }, ["name"] = "Text group" }))).IsError);

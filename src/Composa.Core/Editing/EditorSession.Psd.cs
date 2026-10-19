@@ -36,8 +36,7 @@ public sealed partial class EditorSession
                 if (!box.IsEmpty)
                 {
                     double dx = Math.Round(at.X - box.MidX), dy = Math.Round(at.Y - box.MidY);
-                    foreach (var leaf in Document.Flatten(incoming).Where(l => l.Pixels != null))
-                        leaf.Transform = leaf.Transform with { X = leaf.Transform.X + dx, Y = leaf.Transform.Y + dy };
+                    foreach (var leaf in Document.Flatten(incoming)) leaf.TranslateContent(dx, dy);
                 }
             }
             group.Children.AddRange(incoming);

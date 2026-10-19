@@ -82,7 +82,7 @@ public sealed partial class EditorSession
                         target.VectorMask = vector with { Nodes = vector.Nodes.Select(n => new BezierNode((n.X * layer.Pixels!.Width - layer.FilterPaddingX) / oldSource.Width, (n.Y * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height,
                             (n.InX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.InY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height, (n.OutX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.OutY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height)).ToArray() };
                 }
-                if (layer.Mask is { } mask)
+                if (layer.MaskTransform == null && layer.Mask is { } mask)
                 {
                     var resized = Pixels.NewMask(replacement.Width, replacement.Height);
                     using var canvas = new SKCanvas(resized);
@@ -92,6 +92,7 @@ public sealed partial class EditorSession
                 target.SmartObject = replacement; target.Pixels = preview;
                 if (layer.FilterSource != null) target.FilterSource = preview;
                 target.FilterPaddingX = target.FilterPaddingY = 0;
+                if (layer.MaskTransform != null) target.PlaceMask(layer.MaskMatrix);
             }
             foreach (var layer in instances.Where(l => l.FilterSource != null)) RenderSmartFilters(candidate.Find(layer.Id)!, candidate);
             EnsureSmartBudget(candidate);
@@ -114,6 +115,7 @@ public sealed partial class EditorSession
             {
                 var target = candidate.Find(layer.Id)!;
                 layer.SmartObject = replacement; layer.Pixels = target.Pixels; layer.Mask = target.Mask; layer.VectorMask = target.VectorMask;
+                layer.MaskTransform = target.MaskTransform;
                 layer.FilterSource = target.FilterSource; layer.FilterPaddingX = target.FilterPaddingX; layer.FilterPaddingY = target.FilterPaddingY; layer.Transform = target.Transform;
             }
         });

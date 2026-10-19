@@ -66,7 +66,7 @@ public sealed partial class EditorSession
         if (moved.Rotation == 0 && Math.Abs(moved.Width - pixels.Width) < 0.01 && Math.Abs(moved.Height - pixels.Height) < 0.01)
             moved = moved with { X = Math.Round(moved.X), Y = Math.Round(moved.Y), Width = pixels.Width, Height = pixels.Height };
         layer.Transform = moved;
-        if (layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height)) layer.Mask = Resample(mask, pixels.Width, pixels.Height);
+        if (layer.MaskTransform == null && layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height)) layer.Mask = Resample(mask, pixels.Width, pixels.Height);
         if (pendingBefore != null && !ReferenceEquals(old, pendingBefore.Find(layer.Id)?.Pixels)) { Pixels.Invalidate(old); old.Dispose(); }
         Invalidate(Geometry.Union(before, AffectedArea(layer)));
     }

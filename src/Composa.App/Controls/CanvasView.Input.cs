@@ -711,6 +711,8 @@ public sealed partial class CanvasView
     {
         if (session == null) return null;
         if (session.Transform is { } edit) return edit.Corners();
+        if (session.IndependentMaskTarget is { Mask: { } mask } maskLayer)
+            return MaskCorners(maskLayer, mask);
         var targets = session.TransformTargets();
         if (targets.Count == 0) return null;
         if (targets.Count == 1)
@@ -724,6 +726,9 @@ public sealed partial class CanvasView
         foreach (var layer in targets) bounds = bounds.IsEmpty ? layer.ControlBounds : SKRect.Union(bounds, layer.ControlBounds);
         return Corners(bounds);
     }
+
+    private static SKPoint[] MaskCorners(Layer layer, SKBitmap mask) =>
+        [layer.MaskMatrix.MapPoint(0, 0), layer.MaskMatrix.MapPoint(mask.Width, 0), layer.MaskMatrix.MapPoint(mask.Width, mask.Height), layer.MaskMatrix.MapPoint(0, mask.Height)];
 
     private readonly record struct TransformFrame(LayerTransform Transform)
     {
@@ -782,7 +787,8 @@ public sealed partial class CanvasView
     }
 
     /// <summary>Whether the one layer being transformed already has a corner pulled out of place.</summary>
-    private bool IsDistorted() => session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
+    private bool IsDistorted() => session?.IndependentMaskTarget is { MaskTransform.Distort: not null }
+        || session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
 
     /// <summary>The topmost visible layer with a non-transparent pixel under a document point.</summary>
     private Layer? LayerAt(SKPoint p)
@@ -803,8 +809,10 @@ public sealed partial class CanvasView
                 alpha *= parent.Opacity;
                 if (parent.RenderMask() is { } parentMask)
                 {
-                    int px = (int)Math.Floor(p.X), py = (int)Math.Floor(p.Y);
-                    alpha *= px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha / 255.0 : 0;
+                    if (!parent.MaskMatrix.TryInvert(out var maskInverse)) { alpha = 0; break; }
+                    var maskPoint = maskInverse.MapPoint(p);
+                    int px = (int)Math.Floor(maskPoint.X), py = (int)Math.Floor(maskPoint.Y);
+                    alpha *= (px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha : parent.MaskDefault) / 255.0;
                 }
             }
             if (alpha > 12) return layer;
@@ -871,7 +879,7 @@ public sealed partial class CanvasView
         handle = ShowTransformControls && CurrentFrame() is { } frame ? HitFrame(frame, pressScreen, allowRotate: true) : TransformHandle.None;
         distortCorner = -1;
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
-        if (!onHandle)
+        if (!onHandle && session.IndependentMaskTarget == null)
         {
             var hit = LayerAt(pressDocument);
             var keepGroup = handle == TransformHandle.Move && session.ActiveLayer?.IsGroup == true && !dragModifiers.HasFlag(KeyModifiers.Shift);
@@ -886,6 +894,7 @@ public sealed partial class CanvasView
                 session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
             handle = TransformHandle.Move;
         }
+        else if (!onHandle) handle = TransformHandle.Move;
         else if ((control || IsDistorted()) && handle is TransformHandle.TopLeft or TransformHandle.TopRight or TransformHandle.BottomRight or TransformHandle.BottomLeft)
         {
             // Ctrl-dragging a corner distorts, as in Photoshop; once a layer is distorted its corners keep distorting.

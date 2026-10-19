@@ -20,8 +20,10 @@ public sealed partial class EditorSession
             var shift = SKMatrix.CreateTranslation(-rect.Left, -rect.Top);
             foreach (var layer in document.AllLayers())
             {
+                var maskMatrix = layer.MaskMatrix;
                 if (layer.Pixels != null) layer.Transform = layer.Transform.Translated(-rect.Left, -rect.Top);
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, rect.Width, rect.Height, shift, 255);
+                else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, rect.Width, rect.Height, shift, 255);
+                if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskMatrix.PostConcat(shift));
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, rect.Width, rect.Height, shift);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], rect.Width, rect.Height, shift) ?? Pixels.NewMask(rect.Width, rect.Height);
@@ -87,6 +89,8 @@ public sealed partial class EditorSession
             var scale = SKMatrix.CreateScale((float)sx, (float)sy);
             foreach (var layer in document.AllLayers())
             {
+                var explicitMask = layer.MaskTransform != null;
+                var maskPlacement = layer.MaskMatrix;
                 if (layer.Pixels is { } pixels)
                 {
                     var t = layer.Transform;
@@ -130,7 +134,7 @@ public sealed partial class EditorSession
                             layer.Text = null; // Stretched unevenly, text can no longer be redrawn from its settings.
                             layer.Pixels = Resample(pixels, w, h);
                         }
-                        if (layer.Mask != null) layer.Mask = Resample(layer.Mask, w, h);
+                        if (!explicitMask && layer.Mask != null) layer.Mask = Resample(layer.Mask, w, h);
                         layer.Transform = LayerTransform.Identity(w, h) with { X = Math.Round(t.X * sx), Y = Math.Round(t.Y * sy) };
                     }
                     else if (Math.Abs(sx - sy) > 1e-6 && (t.Rotation != 0 || t.Distort != null))
@@ -143,7 +147,7 @@ public sealed partial class EditorSession
                         plain.BlendIf = new();
                         using var drawn = DocumentRenderer.RenderLayers(document, [plain], bounds);
                         int w = Math.Max(1, (int)Math.Round(bounds.Width * sx)), h = Math.Max(1, (int)Math.Round(bounds.Height * sy));
-                        if (layer.Mask != null)
+                        if (!explicitMask && layer.Mask != null)
                         {
                             using var maskDrawn = Pixels.NewMask(bounds.Width, bounds.Height);
                             using (var canvas = new SKCanvas(maskDrawn))
@@ -169,7 +173,8 @@ public sealed partial class EditorSession
                         };
                     }
                 }
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, width, height, scale, 0);
+                else if (layer.Mask != null && !explicitMask) layer.Mask = RemapDocumentMask(layer.Mask, width, height, scale, 0);
+                if (explicitMask) layer.PlaceMask(maskPlacement.PostConcat(scale));
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, width, height, scale);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], width, height, scale) ?? Pixels.NewMask(width, height);
@@ -213,8 +218,10 @@ public sealed partial class EditorSession
                 : SKMatrix.CreateScale(1, -1, 0, document.Height / 2f);
             foreach (var layer in document.AllLayers())
             {
+                var maskPlacement = layer.MaskMatrix;
                 if (layer.Pixels != null) layer.Transform = Mirror(layer.Transform, horizontally, horizontally ? document.Width : document.Height);
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, document.Width, document.Height, mirror, 255);
+                else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, document.Width, document.Height, mirror, 255);
+                if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskPlacement.PostConcat(mirror));
             }
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, document.Width, document.Height, mirror);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], document.Width, document.Height, mirror) ?? Pixels.NewMask(document.Width, document.Height);
@@ -235,6 +242,7 @@ public sealed partial class EditorSession
             var turn = clockwise ? new SKMatrix(0, -1, height, 1, 0, 0, 0, 0, 1) : new SKMatrix(0, 1, 0, -1, 0, width, 0, 0, 1);
             foreach (var layer in document.AllLayers())
             {
+                var maskPlacement = layer.MaskMatrix;
                 if (layer.Pixels != null)
                 {
                     var t = layer.Transform;
@@ -244,7 +252,8 @@ public sealed partial class EditorSession
                     if (rotation <= -180) rotation += 360;
                     layer.Transform = t with { X = center.X - t.Width / 2, Y = center.Y - t.Height / 2, Rotation = rotation };
                 }
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, height, width, turn, 255);
+                else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, height, width, turn, 255);
+                if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskPlacement.PostConcat(turn));
             }
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, height, width, turn);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], height, width, turn) ?? Pixels.NewMask(height, width);
@@ -261,6 +270,10 @@ public sealed partial class EditorSession
     /// <summary>Turns the selected layers in place, each around its own center.</summary>
     public void RotateLayers(double degrees)
     {
+        if (IndependentMaskTarget is { } maskLayer)
+        {
+            var t = EditingControlTransform(maskLayer); SetMaskTransform(maskLayer, t with { Rotation = (t.Rotation + degrees) % 360 }); return;
+        }
         var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).ToList();
         if (layers.Count == 0) return;
         Apply("Rotate Layer", () =>
@@ -280,6 +293,11 @@ public sealed partial class EditorSession
     /// <summary>Flips the selected layers in place, each around its own center.</summary>
     public void FlipLayers(bool horizontally)
     {
+        if (IndependentMaskTarget is { } maskLayer)
+        {
+            var t = EditingControlTransform(maskLayer);
+            SetMaskTransform(maskLayer, Mirror(t, horizontally, horizontally ? 2 * t.X + t.Width : 2 * t.Y + t.Height)); return;
+        }
         var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).ToList();
         if (layers.Count == 0) return;
         Apply(horizontally ? "Flip Layer Horizontal" : "Flip Layer Vertical", () =>

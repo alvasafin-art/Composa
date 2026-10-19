@@ -73,6 +73,9 @@ public static class ProjectFile
         public LayerTransform? Transform { get; set; }
         public string? ImageFile { get; set; }
         public string? MaskFile { get; set; }
+        public bool MaskLinked { get; set; } = true;
+        public LayerTransform? MaskTransform { get; set; }
+        public byte MaskDefault { get; set; }
         public bool? MaskEnabled { get; set; }
         public double MaskDensity { get; set; } = 1;
         public double MaskFeather { get; set; }
@@ -153,6 +156,7 @@ public static class ProjectFile
             FilterPaddingX = layer.FilterPaddingX, FilterPaddingY = layer.FilterPaddingY,
             VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
+            MaskLinked = layer.MaskLinked, MaskTransform = layer.MaskTransform, MaskDefault = layer.MaskDefault,
             MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null, Locks = layer.Locks,
             MaskDensity = layer.MaskDensity, MaskFeather = layer.MaskFeather,
             Clipped = layer.Clipped ? true : null,
@@ -279,6 +283,10 @@ public static class ProjectFile
             else if (record.Kind == LayerKind.Raster) throw new InvalidDataException($"Layer \"{record.Name}\" has no image.");
             if (record.Kind == LayerKind.Adjustment && record.Adjustment == null) throw new InvalidDataException($"Adjustment layer \"{record.Name}\" has no settings.");
             if (record.MaskFile != null) layer.Mask = Fetch(record.MaskFile, mask: true);
+            layer.MaskLinked = record.MaskLinked;
+            layer.MaskDefault = record.MaskDefault;
+            layer.MaskTransform = IsUsableMaskTransform(record.MaskTransform) ? record.MaskTransform : null;
+            if (layer.Mask != null && !layer.MaskLinked && layer.MaskTransform == null) layer.PlaceMask(layer.MaskMatrix);
             if (record.FilterSourceFile != null)
             {
                 layer.FilterSource = Fetch(record.FilterSourceFile, mask: false);
@@ -323,6 +331,9 @@ public static class ProjectFile
         t != null && new[] { t.X, t.Y, t.Width, t.Height, t.Rotation }.All(double.IsFinite)
         && t.Width >= 1 && t.Height >= 1 && t.Width <= 1_000_000 && t.Height <= 1_000_000 && Math.Abs(t.X) <= 10_000_000 && Math.Abs(t.Y) <= 10_000_000
         && (t.Distort == null || (t.Distort.Length == 8 && t.Distort.All(float.IsFinite)));
+
+    private static bool IsUsableMaskTransform(LayerTransform? t) => t != null && IsUsable(t with { Width = Math.Max(1, t.Width), Height = Math.Max(1, t.Height) })
+        && t.Width > 1e-10 && t.Height > 1e-10;
 
     private static byte[] EncodeMask(SKBitmap mask)
     {

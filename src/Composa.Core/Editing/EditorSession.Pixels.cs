@@ -64,6 +64,17 @@ public sealed partial class EditorSession
     private SKBitmap? SelectionInTargetSpace(Layer layer)
     {
         if (document.Selection == null) return null;
+        if (IsEditingMask && layer.Mask is { } mask)
+        {
+            var result = Pixels.NewMask(mask.Width, mask.Height);
+            if (TargetMatrix(layer).TryInvert(out var inverse))
+            {
+                using var canvas = new SKCanvas(result);
+                canvas.SetMatrix(in inverse);
+                canvas.DrawImage(Pixels.ImageOf(document.Selection), 0, 0, DocumentRenderer.SamplingFor(inverse));
+            }
+            return result;
+        }
         if (layer.Pixels == null) return document.Selection;
         return SelectionInLayerSpace(layer);
     }
@@ -79,9 +90,11 @@ public sealed partial class EditorSession
         if (want == have || (long)want.Width * want.Height > DocumentLimits.MaxSurfacePixels) return;
         var grown = Pixels.NewLike(pixels, want.Width, want.Height);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, have.Left - want.Left, have.Top - want.Top);
+        var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         layer.Pixels = grown;
-        if (layer.Mask is { } mask) layer.Mask = GrownMask(mask, want.Width, want.Height, have.Left - want.Left, have.Top - want.Top);
+        if (maskPlacement == null && layer.Mask is { } mask) layer.Mask = GrownMask(mask, want.Width, want.Height, have.Left - want.Left, have.Top - want.Top);
         layer.Transform = LayerTransform.Identity(want.Width, want.Height) with { X = want.Left, Y = want.Top };
+        if (maskPlacement is { } placement) layer.PlaceMask(placement);
     }
 
     /// <summary>
@@ -92,16 +105,31 @@ public sealed partial class EditorSession
     private void GrowToCanvas(Layer layer)
     {
         PreparePixelTarget(layer);
+        if (IsEditingMask && layer.MaskTransform != null) { GrowIndependentMask(layer); return; }
         if (!IsEditingMask || !layer.IsLive) EnsureCoversCanvas(layer);
+    }
+
+    private void GrowIndependentMask(Layer layer)
+    {
+        var mask = layer.Mask!; var matrix = layer.MaskMatrix;
+        if (!matrix.TryInvert(out var inverse)) return;
+        var needed = inverse.MapRect(new SKRect(0, 0, document.Width, document.Height));
+        if (!new[] { needed.Left, needed.Top, needed.Right, needed.Bottom }.All(float.IsFinite)) return;
+        var want = Geometry.Union(new SKRectI(0, 0, mask.Width, mask.Height), Geometry.RoundOut(needed));
+        if (want == new SKRectI(0, 0, mask.Width, mask.Height) || !DocumentLimits.FitsSurface(want.Width, want.Height)) return;
+        var bytes = (long)want.Width * want.Height;
+        if (document.RasterPixels() + (bytes - mask.ByteCount + 3) / 4 > DocumentLimits.DocumentPixelBudget) return;
+        layer.Mask = GrownMask(mask, want.Width, want.Height, -want.Left, -want.Top, layer.MaskDefault);
+        layer.PlaceMask(SKMatrix.CreateTranslation(want.Left, want.Top).PostConcat(matrix));
     }
 
     /// <summary>
     /// The mask placed at (<paramref name="left"/>, <paramref name="top"/>) on a larger one. New area is the mask's
     /// background (<see cref="Pixels.MaskBackground"/>): a hide-all mask stays black, any other mask reveals it.
     /// </summary>
-    private static SKBitmap GrownMask(SKBitmap mask, int width, int height, int left, int top)
+    private static SKBitmap GrownMask(SKBitmap mask, int width, int height, int left, int top, byte? outside = null)
     {
-        var grown = Pixels.NewMask(width, height, Pixels.MaskBackground(mask));
+        var grown = Pixels.NewMask(width, height, outside ?? Pixels.MaskBackground(mask));
         using var canvas = new SKCanvas(grown);
         using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
         canvas.DrawBitmap(mask, new SKRect(left, top, left + mask.Width, top + mask.Height), paint);
@@ -126,8 +154,9 @@ public sealed partial class EditorSession
 
         var grown = Pixels.NewLike(pixels, (int)width, (int)height);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, left, top);
+        var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         layer.Pixels = grown;
-        if (layer.Mask is { } mask) layer.Mask = GrownMask(mask, (int)width, (int)height, left, top);
+        if (maskPlacement == null && layer.Mask is { } mask) layer.Mask = GrownMask(mask, (int)width, (int)height, left, top);
 
         // In the unrotated frame the padding extends the box; flips swap which side it lands on.
         double sx = t.Width / pixels.Width, sy = t.Height / pixels.Height;
@@ -140,6 +169,7 @@ public sealed partial class EditorSession
         x += deltaX * cos - deltaY * sin - deltaX;
         y += deltaX * sin + deltaY * cos - deltaY;
         layer.Transform = t with { X = x, Y = y, Width = w, Height = h };
+        if (maskPlacement is { } placement) layer.PlaceMask(placement);
     }
 
     /// <summary>original + (modified - original) × selection, for both color and mask bitmaps. Takes ownership of <paramref name="modified"/>.</summary>
@@ -228,6 +258,7 @@ public sealed partial class EditorSession
             else Pixels.FillWorking(filled, color);
             var selection = SelectionInTargetSpace(layer);
             SetTarget(layer, MixBySelection(original, filled, selection));
+            if (IsEditingMask && document.Selection == null) layer.MaskDefault = filled.GetPixel(0, 0).Alpha;
             if (selection != document.Selection) selection?.Dispose();
         });
         Invalidate(AffectedArea(layer));
@@ -257,6 +288,7 @@ public sealed partial class EditorSession
     private Layer? previewLayer;
     private SKBitmap? previewOriginal;
     private SKBitmap? previewOriginalMask;
+    private byte previewMaskDefault;
     private LayerTransform? previewTransform;
     private SKBitmap? previewSelection;
 
@@ -274,6 +306,7 @@ public sealed partial class EditorSession
         previewLayer = layer;
         previewOriginal = Target(layer);
         previewOriginalMask = layer.Mask;
+        previewMaskDefault = layer.MaskDefault;
         previewTransform = layer.Transform;
         previewSelection = SelectionInTargetSpace(layer);
         return true;
@@ -289,6 +322,8 @@ public sealed partial class EditorSession
         }
         using var color = MaskToColor(source);
         adjustment.Apply(color);
+        if (previewSelection == null && previewLayer != null && adjustment is InvertAdjustment)
+            previewLayer.MaskDefault = (byte)(255 - previewMaskDefault);
         return (ColorToMask(color), 0, 0);
     });
 
@@ -647,6 +682,7 @@ public sealed partial class EditorSession
         }
         void Change()
         {
+            var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
             if (pad > 0)
             {
                 var t = layer.Transform;
@@ -659,7 +695,7 @@ public sealed partial class EditorSession
                     grown = grown with { Distort = [(float)(corners[0].X - grown.X), (float)(corners[0].Y - grown.Y), (float)(corners[1].X - grown.X - grown.Width), (float)(corners[1].Y - grown.Y), (float)(corners[2].X - grown.X - grown.Width), (float)(corners[2].Y - grown.Y - grown.Height), (float)(corners[3].X - grown.X), (float)(corners[3].Y - grown.Y - grown.Height)] };
                 }
                 layer.Transform = grown;
-                if (layer.Mask is { } mask)
+                if (maskPlacement == null && layer.Mask is { } mask)
                 {
                     var expanded = Pixels.NewMask(width, height);
                     using var canvas = new SKCanvas(expanded);
@@ -668,6 +704,7 @@ public sealed partial class EditorSession
                 }
             }
             layer.Pixels = RenderWorkingShape(style, width, height); layer.Shape = style;
+            if (maskPlacement is { } placement) layer.PlaceMask(placement);
         }
         if (preview)
         {
@@ -822,9 +859,7 @@ public sealed partial class EditorSession
             var dy = Math.Round(document.Height / 2.0 - covered.MidY);
             foreach (var layer in pasted.SelectMany(l => Document.Flatten([l])))
             {
-                if (layer.Pixels != null) layer.Transform = layer.Transform.Translated(dx, dy);
-                else if (layer.Mask is { } mask && (dx != 0 || dy != 0 || mask.Width != document.Width || mask.Height != document.Height))
-                    layer.Mask = RemapDocumentMask(mask, document.Width, document.Height, SKMatrix.CreateTranslation((float)dx, (float)dy), 255);
+                layer.TranslateContent(dx, dy);
             }
         }
         Apply(pasted.Count > 1 ? "Paste Layers" : "Paste Layer", () =>

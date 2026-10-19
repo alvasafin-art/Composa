@@ -22,6 +22,32 @@ public sealed record LayerTransform
 
     public static LayerTransform Identity(int width, int height) => new() { Width = width, Height = height };
 
+    /// <summary>Retains an affine or projective matrix without resampling its source. Corner order includes flips.</summary>
+    public static LayerTransform FromMatrix(SKMatrix matrix, int sourceWidth, int sourceHeight)
+    {
+        var corners = new[] { matrix.MapPoint(0, 0), matrix.MapPoint(sourceWidth, 0),
+            matrix.MapPoint(sourceWidth, sourceHeight), matrix.MapPoint(0, sourceHeight) };
+        var a = corners[1] - corners[0]; var b = corners[3] - corners[0];
+        double w = Math.Sqrt(a.X * a.X + a.Y * a.Y), h = Math.Sqrt(b.X * b.X + b.Y * b.Y);
+        if (w > 1e-10 && h > 1e-10 && Math.Abs(a.X * b.X + a.Y * b.Y) <= w * h * 1e-6
+            && Math.Abs(corners[2].X - corners[1].X - b.X) + Math.Abs(corners[2].Y - corners[1].Y - b.Y) < Math.Max(w, h) * 1e-6)
+        {
+            var center = new SKPoint((corners[0].X + corners[2].X) / 2, (corners[0].Y + corners[2].Y) / 2);
+            return new() { X = center.X - w / 2, Y = center.Y - h / 2, Width = w, Height = h,
+                Rotation = Math.Atan2(a.Y, a.X) * 180 / Math.PI, FlipVertical = a.X * b.Y - a.Y * b.X < 0 };
+        }
+        var bounds = new SKRect(corners.Min(p => p.X), corners.Min(p => p.Y), corners.Max(p => p.X), corners.Max(p => p.Y));
+        var width = Math.Max(1e-9, bounds.Width); var height = Math.Max(1e-9, bounds.Height);
+        var offsets = new float[8];
+        for (var i = 0; i < 4; i++)
+        {
+            offsets[i * 2] = (float)(corners[i].X - bounds.Left - (i is 1 or 2 ? width : 0));
+            offsets[i * 2 + 1] = (float)(corners[i].Y - bounds.Top - (i >= 2 ? height : 0));
+        }
+        return new() { X = bounds.Left, Y = bounds.Top, Width = width, Height = height,
+            Distort = offsets.All(v => Math.Abs(v) < 1e-7) ? null : offsets };
+    }
+
     public SKPoint Center => new((float)(X + Width / 2), (float)(Y + Height / 2));
 
     public bool IsPureTranslation(int sourceWidth, int sourceHeight) =>

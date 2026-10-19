@@ -185,6 +185,8 @@ public sealed partial class MainWindow
             Item("Delete Layer", layers.DeleteLayerOrMask, enabled: () => session!.ActiveLayer != null),
             Line(),
             Item("Add Layer Mask", () => session!.AddMask(session.ActiveLayer!), enabled: () => session!.ActiveLayer is { Mask: null }),
+            Item("Link Layer Mask", () => session!.SetMaskLinked(session.ActiveLayer!, true), enabled: () => session!.ActiveLayer is { Mask: not null, MaskLinked: false }),
+            Item("Unlink Layer Mask", () => session!.SetMaskLinked(session.ActiveLayer!, false), enabled: () => session!.ActiveLayer is { Mask: not null, MaskLinked: true }),
             Item("Invert Layer Mask", () => { session!.EditingMask = true; session.Adjust(new InvertAdjustment()); }, enabled: () => session!.ActiveLayer?.Mask != null),
             Item("Apply Layer Mask", () => session!.ApplyMask(session.ActiveLayer!), enabled: () => session!.ActiveLayer is { Mask: not null, Pixels: not null }),
             clipItem,

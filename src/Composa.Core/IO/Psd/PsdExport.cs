@@ -29,7 +29,7 @@ public static partial class PsdExport
         foreach (var layer in document.AllLayers())
         {
             if (layer.Mask != null && (layer.MaskDensity < 1 || layer.MaskFeather > 0)
-                && (layer.Effects?.Visible() is { IsEmpty: false } || layer.Pixels is { } masked && !layer.Transform.IsPureTranslation(masked.Width, masked.Height)))
+                && (layer.Effects?.Visible() is { IsEmpty: false } || !new Record(layer, SKRectI.Empty).NativeMaskProperties))
                 notes.Add(new(layer.Name, "Mask density and feather are applied to the exported appearance; their original values stay in the Composa project."));
             if (layer.FilterSource != null) notes.Add(new(layer.Name, "Smart filters are exported as the rendered appearance; their editable source and settings stay in the Composa project."));
             if (layer.VectorMask != null) notes.Add(new(layer.Name, "Vector masks are applied to the exported appearance; their editable paths stay in the Composa project."));
@@ -67,9 +67,13 @@ public static partial class PsdExport
     {
         public bool HasEffects => Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
         public bool HasMask => Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
-        public bool NativeMaskProperties => Layer.Pixels == null || Layer.Transform.IsPureTranslation(Layer.Pixels.Width, Layer.Pixels.Height);
+        public bool NativeMaskProperties => Layer.MaskTransform != null ? LayerTransform.FromMatrix(Layer.MaskMatrix, Layer.Mask!.Width, Layer.Mask.Height).IsPureTranslation(Layer.Mask.Width, Layer.Mask.Height)
+            : Layer.Pixels == null || Layer.Transform.IsPureTranslation(Layer.Pixels.Width, Layer.Pixels.Height);
         public List<(short Id, long Position)> Channels { get; } = [];
-        public SKRectI MaskBounds => Layer.IsGroup ? new(0, 0, Layer.Mask!.Width, Layer.Mask.Height) : Bounds;
+        public SKRectI MaskBounds => Layer.MaskTransform != null ? Geometry.RoundOut(LayerTransform.FromMatrix(Layer.MaskMatrix, Layer.Mask!.Width, Layer.Mask.Height).Bounds(Layer.Mask.Width, Layer.Mask.Height))
+            : Layer.IsGroup ? new(0, 0, Layer.Mask!.Width, Layer.Mask.Height) : Bounds;
+        public byte MaskDefault => NativeMaskProperties ? Layer.MaskDefault
+            : (byte)Math.Clamp(Math.Round(255 - (255 - Layer.MaskDefault) * Math.Clamp(Layer.MaskDensity, 0, 1)), 0, 255);
     }
 
     private static List<Record> Records(Document document)
@@ -106,6 +110,7 @@ public static partial class PsdExport
         // A negative layer count advertises the merged transparency, including an entirely empty canvas.
         if (records.Count == 0) records.Add(new(Layer.Group(AppearanceLayer), document.Bounds, Appearance: true));
         if (records.Count > PsdReader.MaxLayers) throw new PsdException($"Photoshop export supports at most {PsdReader.MaxLayers:N0} layer records, including folder dividers.");
+        foreach (var record in records.Where(r => r.HasMask)) Validate(record.MaskBounds);
         return records;
     }
 
@@ -209,12 +214,12 @@ public static partial class PsdExport
                 var properties = record.NativeMaskProperties && (layer.MaskDensity < 1 || layer.MaskFeather > 0);
                 output.Block(() =>
                 {
-                    output.Rect(record.MaskBounds); output.U8(0);
-                    output.U8((byte)((layer.MaskEnabled ? 0 : 2) | (properties ? 16 : 0)));
+                    output.Rect(record.MaskBounds); output.U8(record.MaskDefault);
+                    output.U8((byte)((layer.MaskEnabled ? 0 : 2) | (layer.MaskLinked ? 0 : 1) | (properties ? 16 : 0)));
                     if (properties)
                     {
                         output.U8(3); output.U8((byte)Math.Clamp(Math.Round(layer.MaskDensity * 255), 0, 255)); output.F64(layer.MaskFeather);
-                        output.U8(layer.MaskEnabled ? (byte)0 : (byte)2); output.U8(0); output.Rect(record.MaskBounds);
+                        output.U8((byte)((layer.MaskEnabled ? 0 : 2) | (layer.MaskLinked ? 0 : 1))); output.U8(record.MaskDefault); output.Rect(record.MaskBounds);
                     }
                     else output.U16(0);
                 });
@@ -261,7 +266,19 @@ public static partial class PsdExport
         try
         {
             if (record.Appearance) { result.Image = merged.Image; return result; }
-            if (record.Section != 0) { result.Mask = record.HasMask ? layer.Mask : null; return result; }
+            if (record.HasMask && layer.MaskTransform != null)
+            {
+                var bounds = record.MaskBounds;
+                var source = record.NativeMaskProperties ? layer.Mask! : layer.RenderRasterMask(ignoreDisabled: true)!;
+                var outside = record.NativeMaskProperties ? layer.MaskDefault : (byte)Math.Clamp(Math.Round(255 - (255 - layer.MaskDefault) * Math.Clamp(layer.MaskDensity, 0, 1)), 0, 255);
+                result.Mask = Pixels.NewMask(bounds.Width, bounds.Height, outside); result.OwnMask = true;
+                using var canvas = new SKCanvas(result.Mask);
+                var matrix = layer.MaskMatrix.PostConcat(SKMatrix.CreateTranslation(-bounds.Left, -bounds.Top));
+                canvas.SetMatrix(in matrix);
+                using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+                canvas.DrawImage(Pixels.ImageOf(source), 0, 0, DocumentRenderer.SamplingFor(matrix), paint);
+            }
+            if (record.Section != 0) { result.Mask ??= record.HasMask ? layer.Mask : null; return result; }
             if (layer.Pixels == null) return result;
             var direct = !record.HasEffects && layer.FillOpacity >= 1 && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height);
             if (direct) result.Image = layer.Pixels;
@@ -279,7 +296,7 @@ public static partial class PsdExport
                 if (result.OwnImage) result.Image.Dispose();
                 result.Image = converted; result.OwnImage = true;
             }
-            if (record.HasMask)
+            if (record.HasMask && result.Mask == null)
             {
                 if (direct && layer.Mask!.Width == layer.Pixels.Width && layer.Mask.Height == layer.Pixels.Height) result.Mask = layer.Mask;
                 else

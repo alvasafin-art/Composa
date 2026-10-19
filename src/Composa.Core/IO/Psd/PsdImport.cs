@@ -368,51 +368,24 @@ public sealed class PsdImport
     }
 
     /// <summary>
-    /// Photoshop keeps a mask over its own rectangle with a default value outside it; here a mask shares its layer's
-    /// pixel grid (or the document's, for folders and adjustments), so the plane is placed into one of that size.
+    /// Retains Photoshop's independent mask plane, rectangle and outside coverage. Linking changes how future
+    /// layer transforms move the mask; PSD rectangle coordinates themselves remain document coordinates.
     /// </summary>
     private static void ApplyMask(PsdLayer record, Layer layer, SKSizeI canvas, List<PsdConversion> conversions)
     {
         if (!record.HasMask || record.MaskFromRender) { record.MaskImage?.Dispose(); return; }
-        int width, height, dx, dy;
-        if (layer.Pixels is { } pixels)
+        layer.Mask = record.MaskImage ?? Pixels.NewMask(1, 1, record.MaskDefault);
+        layer.MaskLinked = record.MaskLinked; layer.MaskDefault = record.MaskDefault;
+        var placement = SKMatrix.CreateTranslation(record.MaskLeft, record.MaskTop);
+        if (layer.Pixels != null && !layer.Transform.Matrix(1, 1).TryInvert(out _))
         {
-            width = pixels.Width; height = pixels.Height;
-            dx = record.MaskLeft - (int)Math.Round(layer.Transform.X); dy = record.MaskTop - (int)Math.Round(layer.Transform.Y);
+            layer.MaskLinked = false;
+            conversions.Add(new(layer.Name, "The degenerate layer transform cannot link its mask; the mask keeps its document position."));
         }
-        else
-        {
-            width = canvas.Width; height = canvas.Height;
-            dx = record.MaskLeft; dy = record.MaskTop;
-        }
-        var mask = Pixels.NewMask(width, height, record.MaskDefault);
-        if (record.MaskImage is { } plane)
-        {
-            using (plane)
-            {
-                if ((layer.IsLive || layer.IsSmartObject) && layer.Pixels is { } source && !layer.Transform.IsPureTranslation(source.Width, source.Height) && layer.Matrix.TryInvert(out var inverse))
-                {
-                    // PSD masks are in document coordinates. Move coverage back into the live layer's local grid.
-                    using var surface = new SKCanvas(mask);
-                    surface.SetMatrix(SKMatrix.CreateTranslation(record.MaskLeft, record.MaskTop).PostConcat(inverse));
-                    using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-                    using var image = SKImage.FromBitmap(plane);
-                    surface.DrawImage(image, 0, 0, new SKSamplingOptions(SKFilterMode.Linear), paint);
-                }
-                else
-                {
-                    using var surface = new SKCanvas(mask);
-                    using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-                    surface.DrawBitmap(plane, dx, dy, paint);
-                }
-            }
-            Pixels.Invalidate(mask);
-        }
-        layer.Mask = mask;
+        layer.PlaceMask(placement);
         layer.MaskEnabled = !record.MaskDisabled;
         layer.MaskDensity = record.MaskDensity;
         layer.MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0;
-        if (!record.MaskLinked) conversions.Add(new PsdConversion(layer.Name, "The mask was unlinked from its layer in Photoshop; here it moves with the layer."));
     }
 
     /// <summary>A clipped layer follows the sibling below it here, so clipping onto a folder or an adjustment has no base to keep.</summary>

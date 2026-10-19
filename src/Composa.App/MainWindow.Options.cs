@@ -425,7 +425,8 @@ public sealed partial class MainWindow
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
         row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
-        if (layer?.Pixels == null)
+        if (s.IndependentMaskTarget != null) row.Children.Add(Ui.Label("Mask", Palette.Secondary));
+        if (layer == null || layer.Pixels == null && s.IndependentMaskTarget != layer)
         {
             row.Children.Add(Ui.Label(layer == null ? "No layer selected" : layer.IsGroup ? "Moves every layer in the folder" : "This layer has no pixels", Palette.Secondary));
             return;
@@ -433,10 +434,10 @@ public sealed partial class MainWindow
         var updating = false;
         NumericUpDown Field(string label, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> set, double min, double max, string format)
         {
-            var box = Ui.Number(get(layer.ControlTransform), min, max, v =>
+            var box = Ui.Number(get(s.EditingControlTransform(layer)), min, max, v =>
             {
                 if (updating || s.Document.Find(layer.Id) is not { } live) return;
-                s.SetControlTransform(live, set(live.ControlTransform, v));
+                s.SetControlTransform(live, set(s.EditingControlTransform(live), v));
             }, 1, format, layer.Shape != null ? 55 : 74);
             row.Children.Add(Ui.Row(5, Ui.Scrub(Ui.Label(label, Palette.Secondary), box), box));
             return box;
@@ -450,9 +451,10 @@ public sealed partial class MainWindow
         {
             if (s.Document.Find(layer.Id) is not { } live) return;
             updating = true;
-            x.Value = (decimal)live.ControlTransform.X; y.Value = (decimal)live.ControlTransform.Y;
-            w.Value = (decimal)live.ControlTransform.Width; h.Value = (decimal)live.ControlTransform.Height;
-            angle.Value = (decimal)live.ControlTransform.Rotation;
+            var control = s.EditingControlTransform(live);
+            x.Value = (decimal)control.X; y.Value = (decimal)control.Y;
+            w.Value = (decimal)control.Width; h.Value = (decimal)control.Height;
+            angle.Value = (decimal)control.Rotation;
             updating = false;
         };
     }

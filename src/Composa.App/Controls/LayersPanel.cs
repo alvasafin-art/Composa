@@ -303,6 +303,10 @@ public sealed class LayersPanel : UserControl
         }
         if (layer.Mask != null)
         {
+            var link = new Button { Classes = { "flat" }, Width = 18, Height = 28, Padding = new Thickness(0), Content = Icons.Create(layer.MaskLinked ? Icons.Link : Icons.Unlink, 16, Palette.Secondary) };
+            ToolTip.SetTip(link, layer.MaskLinked ? "Unlink mask: move and transform it independently" : "Link mask: move it together with the layer");
+            link.Click += (_, _) => current.SetMaskLinked(layer, !layer.MaskLinked);
+            content.Children.Add(link);
             var maskThumb = Thumb(new Image { Source = Thumbnail(layer.Mask), Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
                 layer.Id == current.ActiveLayer?.Id && current.IsEditingMask);
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
@@ -568,6 +572,7 @@ public sealed class LayersPanel : UserControl
         Add("Hide All (Black)", () => current.AddMask(layer, hideAll: true), parent: addMask);
         menu.Items.Add(addMask);
         Add(layer.Mask is { } && !layer.MaskEnabled ? "Enable Mask" : "Disable Mask", () => current.SetMaskEnabled(layer, !layer.MaskEnabled), layer.Mask != null);
+        Add(layer.MaskLinked ? "Unlink Mask" : "Link Mask", () => current.SetMaskLinked(layer, !layer.MaskLinked), layer.Mask != null);
         Add("Mask Properties…", () => EditMaskPropertiesRequested?.Invoke(layer), layer.Mask != null);
         Add("Delete Mask", () => current.DeleteMask(layer), layer.Mask != null);
         Add("Apply Mask", () => current.ApplyMask(layer), layer.Mask != null && layer.Pixels != null && !layer.IsSmartObject);

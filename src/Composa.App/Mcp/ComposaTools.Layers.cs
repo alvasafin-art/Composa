@@ -64,7 +64,7 @@ public sealed partial class ComposaTools
     });
 
     [McpServerTool(Name = "transform_layer")]
-    [Description("Moves, resizes or rotates a layer by setting its frame in canvas pixels. Give only what should change. Text is laid out again at the new size and a shape is redrawn, so both stay sharp. Consecutive calls on one layer fold into one undo step, as the transform bar's fields do.")]
+    [Description("Moves, resizes or rotates a layer by setting its frame in canvas pixels. Give only what should change. targetMask edits an unlinked raster mask independently. Text is laid out again at the new size and a shape is redrawn, so both stay sharp. Consecutive layer calls fold into one undo step, as the transform bar's fields do.")]
     public Task<string> TransformLayer(
         string layer,
         [Description("Left edge")] double? x = null,
@@ -72,18 +72,21 @@ public sealed partial class ComposaTools
         double? width = null,
         double? height = null,
         [Description("Degrees; positive turns clockwise")] double? rotation = null,
+        bool targetMask = false,
         int? document = null) => OnUi(() =>
     {
         var s = Editable(document);
         var target = Find(s, layer);
-        if (target.Pixels == null) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer and has no frame of its own.");
-        var t = target.Transform;
+        if (targetMask && (target.Mask == null || target.MaskLinked)) throw new McpException("Unlink the layer mask first, using layer_mask action unlink.");
+        if (!targetMask && target.Pixels == null) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer and has no frame of its own.");
+        var t = targetMask ? target.MaskTransform ?? LayerTransform.FromMatrix(target.MaskMatrix, target.Mask!.Width, target.Mask.Height) : target.Transform;
         var next = t with { X = x ?? t.X, Y = y ?? t.Y, Width = width ?? t.Width, Height = height ?? t.Height, Rotation = rotation ?? t.Rotation };
-        if (next.Width < 1 || next.Height < 1 || next.Width > DocumentLimits.MaxSide || next.Height > DocumentLimits.MaxSide)
+        if (!new[] { next.X, next.Y, next.Width, next.Height, next.Rotation }.All(double.IsFinite)
+            || next.Width < 1 || next.Height < 1 || next.Width > DocumentLimits.MaxSide || next.Height > DocumentLimits.MaxSide)
             throw new McpException($"The width and height must be between 1 and {DocumentLimits.MaxSide} px.");
-        if (target.IsLive && !target.IsSmartObject) CheckRasterAllocation(s,next.Width,next.Height,(long)target.Pixels.Width*target.Pixels.Height);
-        s.SetTransform(target, next);
-        var b = target.Bounds;
+        if (!targetMask && target.IsLive && !target.IsSmartObject) CheckRasterAllocation(s,next.Width,next.Height,(long)target.Pixels!.Width*target.Pixels.Height);
+        if (targetMask) s.SetMaskTransform(target, next); else s.SetTransform(target, next);
+        var b = targetMask ? next.Bounds(target.Mask!.Width, target.Mask.Height) : target.Bounds;
         return $"\"{target.Name}\" is now at {b.Left:0},{b.Top:0} size {b.Width:0}×{b.Height:0}" + (next.Rotation != 0 ? $", rotated {next.Rotation:0.#}°" : "") + ".";
     });
 

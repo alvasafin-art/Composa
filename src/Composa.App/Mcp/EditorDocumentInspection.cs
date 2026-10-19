@@ -15,7 +15,7 @@ internal static class EditorDocumentInspection
     internal const string ChecksSchema = """
         {"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{
         "layer":{"type":["string","null"],"description":"Target: full layer id or unique name, e.g. Tile. Use null for canvas, guides or selection."},
-        "property":{"type":"string","enum":["width","height","resolution","layerCount","guideCount","hasSelection","showGuides","guidesLocked","name","kind","visible","opacity","blend","insideCanvas","hasMask","maskEnabled","shape.fill","shape.kind","text.value","text.color","text.size","transform.x","transform.y","transform.width","transform.height","transform.rotation"]},
+        "property":{"type":"string","enum":["width","height","resolution","layerCount","guideCount","hasSelection","showGuides","guidesLocked","name","kind","visible","opacity","blend","insideCanvas","hasMask","maskEnabled","maskLinked","shape.fill","shape.kind","text.value","text.color","text.size","transform.x","transform.y","transform.width","transform.height","transform.rotation"]},
         "operator":{"type":"string","enum":["equals","near","exists","absent"]},
         "expected":{"type":["string","number","boolean","null"],"description":"Actual scalar value, e.g. 2, true or #FFFF00. Not an object with a value property."},
         "tolerance":{"type":"number","minimum":0}},"required":["layer","property"],"additionalProperties":false}}
@@ -60,7 +60,7 @@ internal static class EditorDocumentInspection
         shape = layer.Shape == null ? null : new { kind = layer.Shape.Kind.ToString(), fill = Color(layer.Shape.Fill) },
         text = layer.Text == null ? null : new { value = fullText ? layer.Text.Text : layer.Text.Text[..Math.Min(400, layer.Text.Text.Length)],
             length = layer.Text.Text.Length, truncated = !fullText && layer.Text.Text.Length > 400, size = layer.Text.Size, color = Color(layer.Text.Color), font = layer.Text.FontFamily },
-        hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled,
+        hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, maskLinked = layer.MaskLinked,
         smartSourceId = layer.SmartObject?.Id, children = layer.Children.Select(child => child.Id)
     })!.AsObject();
 

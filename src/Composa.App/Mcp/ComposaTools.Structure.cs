@@ -102,7 +102,7 @@ public sealed partial class ComposaTools
     private static IEnumerable<Layer> Descendants(Layer layer) => new[] { layer }.Concat(layer.Children.SelectMany(Descendants));
 
     [McpServerTool(Name = "layer_mask")]
-    [Description("Manages a layer's mask: add (uses current selection, otherwise reveals all), hide_all, delete, apply (bake into pixel alpha), enable or disable. Selection and layer masks are separate.")]
+    [Description("Manages a layer's mask: add (uses current selection, otherwise reveals all), hide_all, delete, apply (bake into pixel alpha), enable, disable, link or unlink (preserves the mask's document position). Selection and layer masks are separate.")]
     public Task<string> LayerMask(string layer, string action, int? document = null) => OnUi(() =>
     {
         var s = Editable(document); var target = Find(s, layer);
@@ -120,10 +120,12 @@ public sealed partial class ComposaTools
                 s.ApplyMask(target); break;
             case "enable": s.SetMaskEnabled(target, true); break;
             case "disable": s.SetMaskEnabled(target, false); break;
-            default: throw new McpException("action: add, hide_all, delete, apply, enable or disable.");
+            case "link": s.SetMaskLinked(target, true); break;
+            case "unlink": s.SetMaskLinked(target, false); break;
+            default: throw new McpException("action: add, hide_all, delete, apply, enable, disable, link or unlink.");
         }
         s.EditingMask = false;
-        return $"Mask {action}: \"{target.Name}\"; hasMask={target.Mask != null}, enabled={target.MaskEnabled}.";
+        return $"Mask {action}: \"{target.Name}\"; hasMask={target.Mask != null}, enabled={target.MaskEnabled}, linked={target.MaskLinked}.";
     });
 
     [McpServerTool(Name = "rasterize_layer")]
