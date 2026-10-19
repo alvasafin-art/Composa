@@ -192,7 +192,8 @@ public sealed class LayersPanel : UserControl
         if (session == null) return;
         if (session.SelectedEffect != null) { session.RemoveSelectedEffect(); return; }
         if (session.ActiveLayer is not { } layer) return;
-        if (session.IsEditingMask) session.DeleteMask(layer); else session.DeleteSelectedLayers();
+        if (session.IsEditingSmartFilterMask) session.DeleteSmartFilterMask(layer);
+        else if (session.IsEditingMask) session.DeleteMask(layer); else session.DeleteSelectedLayers();
     }
 
     public void BeginRename()
@@ -249,6 +250,7 @@ public sealed class LayersPanel : UserControl
             var layer = layers[i];
             rows.Children.Add(BuildRow(layer, depth, parentVisible));
             if (layer.Effects is { } effects) foreach (var kind in effects.Kinds) rows.Children.Add(BuildEffectRow(layer, kind, depth, parentVisible && layer.Visible));
+            if (layer.SmartFilters.Length > 0) rows.Children.Add(BuildSmartFilterMaskRow(layer, depth));
             foreach (var filter in layer.SmartFilters.Reverse()) rows.Children.Add(BuildSmartFilterRow(layer, filter, depth));
             if (layer.IsGroup && !layer.Collapsed) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
         }
@@ -291,7 +293,7 @@ public sealed class LayersPanel : UserControl
         else if (layer.IsAdjustment) content.Children.Add(Thumb(Icons.Create(Icons.Adjust, 18), selected && !current.IsEditingMask));
         else if (layer.Pixels != null)
         {
-            var pixelThumb = Thumb(new Image { Source = Thumbnail(layer.Pixels), Stretch = Stretch.Uniform }, selected && layer.Id == current.ActiveLayer?.Id && !current.IsEditingMask);
+            var pixelThumb = Thumb(new Image { Source = LayerThumbnail(layer), Stretch = Stretch.Uniform }, selected && layer.Id == current.ActiveLayer?.Id && !current.IsEditingMask);
             // The row's own press handler (which bubbles next) selects the layer and then applies this target.
             pixelThumb.PointerPressed += (_, _) => thumbnailTarget = false;
             content.Children.Add(pixelThumb);
@@ -309,7 +311,7 @@ public sealed class LayersPanel : UserControl
             link.Click += (_, _) => current.SetMaskLinked(layer, !layer.MaskLinked);
             content.Children.Add(link);
             var maskThumb = Thumb(new Image { Source = Thumbnail(layer.Mask), Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
-                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask);
+                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask);
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
             ToolTip.SetTip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
             maskThumb.AddHandler(PointerPressedEvent, (_, e) =>
@@ -441,6 +443,42 @@ public sealed class LayersPanel : UserControl
         row.ContextMenu = menu; return row;
     }
 
+    private Control BuildSmartFilterMaskRow(Layer layer, int depth)
+    {
+        var current = session!;
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (layer.SmartFilterMask is { } mask)
+        {
+            var thumbnail = Thumb(new Image { Source = Thumbnail(mask), Stretch = Stretch.Uniform, Opacity = layer.SmartFilterMaskEnabled ? 1 : .35 },
+                current.ActiveLayer?.Id == layer.Id && current.IsEditingSmartFilterMask);
+            ToolTip.SetTip(thumbnail, "Smart filter mask: paint black to hide filtering, white to reveal it; Shift-click to disable");
+            thumbnail.PointerPressed += (_, e) =>
+            {
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) current.SetSmartFilterMaskEnabled(layer, !layer.SmartFilterMaskEnabled);
+                else { current.SelectLayer(layer.Id); current.EditingSmartFilterMask = true; current.NotifyLayersChanged(); }
+                e.Handled = true;
+            };
+            content.Children.Add(thumbnail);
+        }
+        else
+        {
+            var add = Ui.TextButton("Add filter mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); });
+            ToolTip.SetTip(add, "Mask the smart filter stack without hiding the object"); content.Children.Add(add);
+        }
+        content.Children.Add(Ui.Label("Smart Filters", Palette.Secondary));
+        var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = content };
+        var menu = new ContextMenu();
+        void Add(string title, Action action, bool enabled = true)
+        {
+            var item = new MenuItem { Header = title, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
+        }
+        Add("Add Filter Mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); }, layer.SmartFilterMask == null);
+        Add("Hide All Filters", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer, true); }, layer.SmartFilterMask == null);
+        Add(layer.SmartFilterMaskEnabled ? "Disable Filter Mask" : "Enable Filter Mask", () => current.SetSmartFilterMaskEnabled(layer, !layer.SmartFilterMaskEnabled), layer.SmartFilterMask != null);
+        Add("Delete Filter Mask", () => current.DeleteSmartFilterMask(layer), layer.SmartFilterMask != null);
+        row.ContextMenu = menu; return row;
+    }
+
     private void EffectDragMoved(PointerEventArgs e)
     {
         if (effectDrag == null || session == null) return;
@@ -516,6 +554,13 @@ public sealed class LayersPanel : UserControl
         // Old render operations may still own an evicted image, so leave disposal to their references/GC.
         while (profiles.Count > 4) profiles.Remove(profiles.Keys.First(p => !p.Equals(displayProfile)));
         return bitmap;
+    }
+
+    private Bitmap LayerThumbnail(Layer layer)
+    {
+        if (!layer.HasSmartFilterMask) return Thumbnail(layer.Pixels!);
+        using var preview = layer.RenderFilterPreview(68);
+        return Ui.ToAvaloniaBitmap(preview, 68, displayProfile);
     }
 
     /// <summary>

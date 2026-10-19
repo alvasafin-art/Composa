@@ -327,7 +327,20 @@ public static partial class DocumentRenderer
 
     private static byte ToByte(double opacity) => (byte)Math.Clamp(Math.Round(opacity * 255), 0, 255);
 
-    private static double ScaleOf(SKMatrix matrix) => Math.Sqrt(Math.Abs(matrix.ScaleX * matrix.ScaleY - matrix.SkewX * matrix.SkewY));
+    private static double ScaleOf(SKMatrix m)
+    {
+        if (m.Persp0 == 0 && m.Persp1 == 0)
+        {
+            var affine = Math.Sqrt(Math.Abs((double)m.ScaleX * m.ScaleY - (double)m.SkewX * m.SkewY));
+            return Math.Abs(affine - 1) < 1e-6 ? 1 : affine;
+        }
+        // The Jacobian determinant at the source origin. The affine 2×2 corner alone changes when a
+        // perspective is translated on screen, which selected different sampling/mip levels for render bands.
+        double a = m.ScaleX, b = m.SkewX, c = m.TransX, d = m.SkewY, e = m.ScaleY, f = m.TransY, g = m.Persp0, h = m.Persp1, i = m.Persp2;
+        var determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+        var scale = Math.Abs(i) > 1e-12 ? Math.Sqrt(Math.Abs(determinant / (i * i * i))) : 1;
+        return Math.Abs(scale - 1) < 1e-6 ? 1 : scale;
+    }
 
     /// <summary>The sampling for drawing a bitmap through a matrix: exact pixels when nothing is resampled, smooth otherwise.</summary>
     public static SKSamplingOptions SamplingFor(SKMatrix matrix)
@@ -360,7 +373,7 @@ public static partial class DocumentRenderer
 
     /// <summary>The layer's pixels with its effects drawn around them, or null when it has none (or they cannot be drawn).</summary>
     private static (SKBitmap Image, int Inset)? EffectsOf(Layer layer) =>
-        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.Pixels, layer.RenderMask(), layer.Effects, layer.FillOpacity);
+        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.RenderFilterPixels()!, layer.RenderMask(), layer.Effects, layer.FillOpacity);
 
     private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, (SKBitmap Image, int Inset)? effects, bool highPrecision)
     {
@@ -380,7 +393,7 @@ public static partial class DocumentRenderer
                 // While a stroke is in progress the effects are those of the pixels at its start; the wet paint goes over them.
                 if (Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
             }
-            else DrawBitmap(target, layer.Pixels, paint);
+            else if (!layer.DrawSmartFilterPixels(target, paint)) DrawBitmap(target, layer.Pixels, paint);
         }
         var pixels = layer.Pixels;
         var corners = layer.Transform.Distort == null ? null : layer.Transform.Corners(pixels.Width, pixels.Height);

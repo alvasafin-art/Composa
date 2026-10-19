@@ -36,7 +36,7 @@ public sealed partial class EditorSession
         {
             layer.SmartFilters = layer.SmartFilters.Where(f => !remove || f.Id != id).Select(f => f.Id == id ? (f with { Settings = settings ?? f.Settings, Enabled = enabled ?? f.Enabled, Opacity = opacity ?? f.Opacity, Blend = blend ?? f.Blend }).Normalized() : f).ToArray();
             RenderSmartFilters(layer);
-            if (layer.SmartFilters.Length == 0) layer.FilterSource = null;
+            if (layer.SmartFilters.Length == 0) { layer.FilterSource = null; layer.SmartFilterMask = null; }
         });
         InvalidateAll(); LayersChanged?.Invoke();
     }

@@ -47,24 +47,32 @@ public sealed partial class EditorSession
     private SKBitmap Target(Layer layer)
     {
         PreparePixelTarget(layer);
-        return IsEditingMask ? layer.Mask! : layer.Pixels!;
+        return IsEditingMask ? MaskTarget(layer)! : layer.Pixels!;
+    }
+
+    private SKBitmap? MaskTarget(Layer layer) => IsEditingSmartFilterMask ? layer.SmartFilterMask : layer.Mask;
+    private byte MaskTargetDefault(Layer layer) => IsEditingSmartFilterMask ? layer.SmartFilterMaskDefault : layer.MaskDefault;
+    private void SetMaskTargetDefault(Layer layer, byte value)
+    {
+        if (IsEditingSmartFilterMask) layer.SmartFilterMaskDefault = value; else layer.MaskDefault = value;
     }
 
     private void SetTarget(Layer layer, SKBitmap bitmap)
     {
         if (!IsEditingMask && !IsStroking && layer.Pixels is { } original && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
             && !ReferenceEquals(bitmap, original)) bitmap = Pixels.WithAlphaOf(bitmap, original);
-        if (IsEditingMask) layer.Mask = bitmap; else layer.Pixels = bitmap;
+        if (IsEditingSmartFilterMask) layer.SmartFilterMask = bitmap;
+        else if (IsEditingMask) layer.Mask = bitmap; else layer.Pixels = bitmap;
     }
 
     /// <summary>The matrix from the edit target's pixel grid to the document.</summary>
-    public SKMatrix TargetMatrix(Layer layer) => IsEditingMask ? DocumentRenderer.MaskMatrix(layer) : layer.Matrix;
+    public SKMatrix TargetMatrix(Layer layer) => IsEditingSmartFilterMask ? layer.SmartFilterMaskMatrix : IsEditingMask ? DocumentRenderer.MaskMatrix(layer) : layer.Matrix;
 
     /// <summary>The selection resampled into the edit target's grid, or null when nothing is selected.</summary>
     private SKBitmap? SelectionInTargetSpace(Layer layer)
     {
         if (document.Selection == null) return null;
-        if (IsEditingMask && layer.Mask is { } mask)
+        if (IsEditingMask && MaskTarget(layer) is { } mask)
         {
             var result = Pixels.NewMask(mask.Width, mask.Height);
             if (TargetMatrix(layer).TryInvert(out var inverse))
@@ -105,13 +113,14 @@ public sealed partial class EditorSession
     private void GrowToCanvas(Layer layer)
     {
         PreparePixelTarget(layer);
+        if (IsEditingSmartFilterMask) { GrowIndependentMask(layer, smartFilter: true); return; }
         if (IsEditingMask && layer.MaskTransform != null) { GrowIndependentMask(layer); return; }
         if (!IsEditingMask || !layer.IsLive) EnsureCoversCanvas(layer);
     }
 
-    private void GrowIndependentMask(Layer layer)
+    private void GrowIndependentMask(Layer layer, bool smartFilter = false)
     {
-        var mask = layer.Mask!; var matrix = layer.MaskMatrix;
+        var mask = smartFilter ? layer.SmartFilterMask! : layer.Mask!; var matrix = smartFilter ? layer.SmartFilterMaskMatrix : layer.MaskMatrix;
         if (!matrix.TryInvert(out var inverse)) return;
         var needed = inverse.MapRect(new SKRect(0, 0, document.Width, document.Height));
         if (!new[] { needed.Left, needed.Top, needed.Right, needed.Bottom }.All(float.IsFinite)) return;
@@ -119,8 +128,12 @@ public sealed partial class EditorSession
         if (want == new SKRectI(0, 0, mask.Width, mask.Height) || !DocumentLimits.FitsSurface(want.Width, want.Height)) return;
         var bytes = (long)want.Width * want.Height;
         if (document.RasterPixels() + (bytes - mask.ByteCount + 3) / 4 > DocumentLimits.DocumentPixelBudget) return;
-        layer.Mask = GrownMask(mask, want.Width, want.Height, -want.Left, -want.Top, layer.MaskDefault);
-        layer.PlaceMask(SKMatrix.CreateTranslation(want.Left, want.Top).PostConcat(matrix));
+        var grown = GrownMask(mask, want.Width, want.Height, -want.Left, -want.Top, smartFilter ? layer.SmartFilterMaskDefault : layer.MaskDefault);
+        if (smartFilter)
+        {
+            layer.SmartFilterMask = grown; layer.SmartFilterMaskX += want.Left; layer.SmartFilterMaskY += want.Top;
+        }
+        else { layer.Mask = grown; layer.PlaceMask(SKMatrix.CreateTranslation(want.Left, want.Top).PostConcat(matrix)); }
     }
 
     /// <summary>
@@ -258,7 +271,7 @@ public sealed partial class EditorSession
             else Pixels.FillWorking(filled, color);
             var selection = SelectionInTargetSpace(layer);
             SetTarget(layer, MixBySelection(original, filled, selection));
-            if (IsEditingMask && document.Selection == null) layer.MaskDefault = filled.GetPixel(0, 0).Alpha;
+            if (IsEditingMask && document.Selection == null) SetMaskTargetDefault(layer, filled.GetPixel(0, 0).Alpha);
             if (selection != document.Selection) selection?.Dispose();
         });
         Invalidate(AffectedArea(layer));
@@ -305,8 +318,8 @@ public sealed partial class EditorSession
         if (coverCanvas && !IsEditingMask) EnsureCoversCanvas(layer);
         previewLayer = layer;
         previewOriginal = Target(layer);
-        previewOriginalMask = layer.Mask;
-        previewMaskDefault = layer.MaskDefault;
+        previewOriginalMask = IsEditingMask ? MaskTarget(layer) : layer.Mask;
+        previewMaskDefault = MaskTargetDefault(layer);
         previewTransform = layer.Transform;
         previewSelection = SelectionInTargetSpace(layer);
         return true;
@@ -323,7 +336,7 @@ public sealed partial class EditorSession
         using var color = MaskToColor(source);
         adjustment.Apply(color);
         if (previewSelection == null && previewLayer != null && adjustment is InvertAdjustment)
-            previewLayer.MaskDefault = (byte)(255 - previewMaskDefault);
+            SetMaskTargetDefault(previewLayer, (byte)(255 - previewMaskDefault));
         return (ColorToMask(color), 0, 0);
     });
 
@@ -726,6 +739,7 @@ public sealed partial class EditorSession
         if (PixelsLocked(layer) || !layer.IsLive) return;
         Apply("Rasterize Layer", () =>
         {
+            layer.Pixels = layer.RenderFilterPixels(); layer.SmartFilterMask = null;
             layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0;
             PreparePixelTarget(layer);
         });

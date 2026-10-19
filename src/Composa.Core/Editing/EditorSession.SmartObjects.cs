@@ -29,6 +29,7 @@ public sealed partial class EditorSession
             content.Layers.Add(inner); content.SetActive(inner.Id);
             instance = original.Clone(); instance.Text = null; instance.Shape = null;
             instance.FilterSource = null; instance.SmartFilters = []; instance.FilterPaddingX = instance.FilterPaddingY = 0;
+            instance.SmartFilterMask = null;
         }
         else
         {
@@ -89,6 +90,14 @@ public sealed partial class EditorSession
                     var sx = (float)replacement.Width / oldSource.Width; var sy = (float)replacement.Height / oldSource.Height;
                     canvas.Scale(sx, sy); canvas.DrawBitmap(mask, -layer.FilterPaddingX, -layer.FilterPaddingY); target.Mask = resized;
                 }
+                if (layer.SmartFilterMask is { } filterMask && (oldSource.Width != replacement.Width || oldSource.Height != replacement.Height))
+                {
+                    var sx = (double)replacement.Width / oldSource.Width; var sy = (double)replacement.Height / oldSource.Height;
+                    var width = Math.Max(1, (int)Math.Round(filterMask.Width * sx)); var height = Math.Max(1, (int)Math.Round(filterMask.Height * sy));
+                    if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The resized smart filter mask exceeds the surface limit.");
+                    target.SmartFilterMask = Resample(filterMask, width, height);
+                    target.SmartFilterMaskX *= sx; target.SmartFilterMaskY *= sy;
+                }
                 target.SmartObject = replacement; target.Pixels = preview;
                 if (layer.FilterSource != null) target.FilterSource = preview;
                 target.FilterPaddingX = target.FilterPaddingY = 0;
@@ -104,6 +113,7 @@ public sealed partial class EditorSession
             {
                 var target = candidate.Find(layer.Id)!;
                 if (target.Mask != null && !ReferenceEquals(target.Mask, layer.Mask)) target.Mask.Dispose();
+                if (target.SmartFilterMask != null && !ReferenceEquals(target.SmartFilterMask, layer.SmartFilterMask)) target.SmartFilterMask.Dispose();
                 if (target.Pixels != null && !ReferenceEquals(target.Pixels, layer.Pixels) && !ReferenceEquals(target.Pixels, replacement.Preview) && !ReferenceEquals(target.Pixels, preview)) target.Pixels.Dispose();
             }
             if (!ReferenceEquals(preview, replacement.Preview)) preview.Dispose();
@@ -116,6 +126,7 @@ public sealed partial class EditorSession
                 var target = candidate.Find(layer.Id)!;
                 layer.SmartObject = replacement; layer.Pixels = target.Pixels; layer.Mask = target.Mask; layer.VectorMask = target.VectorMask;
                 layer.MaskTransform = target.MaskTransform;
+                layer.SmartFilterMask = target.SmartFilterMask; layer.SmartFilterMaskX = target.SmartFilterMaskX; layer.SmartFilterMaskY = target.SmartFilterMaskY;
                 layer.FilterSource = target.FilterSource; layer.FilterPaddingX = target.FilterPaddingX; layer.FilterPaddingY = target.FilterPaddingY; layer.Transform = target.Transform;
             }
         });

@@ -86,6 +86,11 @@ public static class ProjectFile
         public SmartFilter[]? SmartFilters { get; set; }
         public int FilterPaddingX { get; set; }
         public int FilterPaddingY { get; set; }
+        public string? SmartFilterMaskFile { get; set; }
+        public bool SmartFilterMaskEnabled { get; set; } = true;
+        public byte SmartFilterMaskDefault { get; set; } = 255;
+        public double SmartFilterMaskX { get; set; }
+        public double SmartFilterMaskY { get; set; }
         public VectorPath? VectorMask { get; set; }
         public bool? VectorMaskEnabled { get; set; }
         public Adjustment? Adjustment { get; set; }
@@ -154,6 +159,9 @@ public static class ProjectFile
             FilterSourceFile = layer.FilterSource != null ? Store(layer.FilterSource, $"{written.Count}.filter-source.png") : null,
             SmartFilters = layer.SmartFilters.Length == 0 ? null : layer.SmartFilters,
             FilterPaddingX = layer.FilterPaddingX, FilterPaddingY = layer.FilterPaddingY,
+            SmartFilterMaskFile = layer.SmartFilterMask != null ? Store(layer.SmartFilterMask, $"{written.Count}.filter-mask.png") : null,
+            SmartFilterMaskEnabled = layer.SmartFilterMaskEnabled, SmartFilterMaskDefault = layer.SmartFilterMaskDefault,
+            SmartFilterMaskX = layer.SmartFilterMaskX, SmartFilterMaskY = layer.SmartFilterMaskY,
             VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
             MaskLinked = layer.MaskLinked, MaskTransform = layer.MaskTransform, MaskDefault = layer.MaskDefault,
@@ -293,6 +301,10 @@ public static class ProjectFile
                 layer.SmartFilters = record.SmartFilters?.Take(64).Where(f => Enum.IsDefined(f.Settings.Kind)).Select(f => f.Normalized()).ToArray() ?? [];
                 layer.FilterPaddingX = Math.Clamp(record.FilterPaddingX, 0, DocumentLimits.MaxSide);
                 layer.FilterPaddingY = Math.Clamp(record.FilterPaddingY, 0, DocumentLimits.MaxSide);
+                if (record.SmartFilterMaskFile != null) layer.SmartFilterMask = Fetch(record.SmartFilterMaskFile, mask: true);
+                layer.SmartFilterMaskEnabled = record.SmartFilterMaskEnabled; layer.SmartFilterMaskDefault = record.SmartFilterMaskDefault;
+                layer.SmartFilterMaskX = double.IsFinite(record.SmartFilterMaskX) ? Math.Clamp(record.SmartFilterMaskX, -DocumentLimits.MaxSide, DocumentLimits.MaxSide) : 0;
+                layer.SmartFilterMaskY = double.IsFinite(record.SmartFilterMaskY) ? Math.Clamp(record.SmartFilterMaskY, -DocumentLimits.MaxSide, DocumentLimits.MaxSide) : 0;
                 if (record.ImageFile != null) layer.Pixels = Fetch(record.ImageFile, mask: false);
             }
             if (record.Kind == LayerKind.Group && record.Children != null)

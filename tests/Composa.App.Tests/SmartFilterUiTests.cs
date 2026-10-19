@@ -17,6 +17,30 @@ namespace Composa.App.Tests;
 public class SmartFilterUiTests
 {
     [AvaloniaFact]
+    public void Stack_mask_button_and_brush_hide_filtering_without_hiding_or_repainting_the_object()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 }; window.Show();
+        try
+        {
+            var color = new SKColor(130, 100, 190); var session = EditorSession.NewCanvas(240, 160, color); window.AddSession(session); var layer = session.ActiveLayer!;
+            session.AddSmartFilter(layer, new() { Kind = FilterKind.AddNoise, Amount = 50, Seed = 12 }); var filtered = layer.Pixels!; var filteredBytes = filtered.Bytes;
+            Dispatcher.UIThread.RunJobs();
+            window.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "Add filter mask").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs(); Assert.True(session.IsEditingSmartFilterMask); Assert.Null(layer.Mask);
+            window.SelectTool(Tool.Brush); session.Brush = session.Brush with { Size = 28, Hardness = 1 }; session.Foreground = SKColors.Black;
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+            window.MouseDown(At(80, 60), MouseButton.Left); window.MouseMove(At(140, 60), RawInputModifiers.LeftMouseButton); window.MouseUp(At(140, 60), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(color, layer.RenderFilterPixels()!.GetPixel(100, 60)); Assert.Equal(255, layer.RenderFilterPixels()!.GetPixel(100, 60).Alpha);
+            Assert.Same(filtered, layer.Pixels); Assert.Equal(filteredBytes, filtered.Bytes); Assert.Equal(0, layer.SmartFilterMask!.GetPixel(100, 60).Alpha);
+            Assert.True(Screenshots.Save(window, "smart-filter-mask-painted"));
+            session.Undo(); layer = session.ActiveLayer!; Assert.Equal(255, layer.SmartFilterMask!.GetPixel(100, 60).Alpha);
+            Assert.Equal(filteredBytes, layer.RenderFilterPixels()!.Bytes);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Blending_previews_cancel_accept_and_filter_reordering_are_undoable()
     {
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show();

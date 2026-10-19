@@ -123,6 +123,6 @@ public sealed partial class ComposaTools
         var target = Find(s, layer);
         if (target.Pixels == null) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer without pixels of its own; leave layer out to read what is on screen.");
         if (!target.Matrix.TryInvert(out var toPixels)) throw new McpException($"\"{target.Name}\" is too small to read.");
-        return (target.Pixels, toPixels);
+        return (target.RenderFilterPixels()!, toPixels);
     }
 }

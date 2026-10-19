@@ -284,7 +284,7 @@ public sealed class TransformEdit
 public sealed partial class EditorSession
 {
     public TransformEdit? Transform { get; private set; }
-    public Layer? IndependentMaskTarget => IsEditingMask && ActiveLayer is { MaskLinked: false, Mask: not null } layer && !PositionLocked(layer) ? layer : null;
+    public Layer? IndependentMaskTarget => IsEditingMask && !IsEditingSmartFilterMask && ActiveLayer is { MaskLinked: false, Mask: not null } layer && !PositionLocked(layer) ? layer : null;
     public LayerTransform EditingControlTransform(Layer layer) => IndependentMaskTarget == layer
         ? layer.MaskTransform ?? LayerTransform.FromMatrix(layer.MaskMatrix, layer.Mask!.Width, layer.Mask.Height) : layer.ControlTransform;
 

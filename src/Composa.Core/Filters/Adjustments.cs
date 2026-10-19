@@ -766,6 +766,18 @@ public sealed class Histogram
     public static unsafe Histogram Of(SKBitmap bitmap, SKBitmap? selection = null, int originX = 0, int originY = 0)
     {
         var result = new Histogram();
+        if (bitmap.ColorType == SKColorType.Alpha8)
+        {
+            var mask = bitmap.GetPixelSpan();
+            var sampling = Math.Max(1, (int)Math.Sqrt((double)bitmap.Width * bitmap.Height / 1_000_000));
+            for (var y = 0; y < bitmap.Height; y += sampling) for (var x = 0; x < bitmap.Width; x += sampling)
+            {
+                int sx = x + originX, sy = y + originY;
+                if (selection != null && (sx < 0 || sy < 0 || sx >= selection.Width || sy >= selection.Height || selection.GetPixelSpan()[sy * selection.RowBytes + sx] == 0)) continue;
+                var value = mask[y * bitmap.RowBytes + x]; for (var c = 0; c < 4; c++) result.bins[c][value]++;
+            }
+            return result;
+        }
         if (bitmap.ColorType == SKColorType.RgbaF32)
         {
             var colors = new Rendering.PixelBuffer(bitmap);

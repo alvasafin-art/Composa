@@ -439,6 +439,12 @@ public sealed partial class Layer
     public LayerLocks Locks { get; set; }
     public SKBitmap? FilterSource { get; set; }
     public SmartFilter[] SmartFilters { get; set; } = [];
+    public SKBitmap? SmartFilterMask { get; set; }
+    public bool SmartFilterMaskEnabled { get; set; } = true;
+    public byte SmartFilterMaskDefault { get; set; } = 255;
+    /// <summary>Mask origin in the original filter source's pixel grid, independently of filter padding.</summary>
+    public double SmartFilterMaskX { get; set; }
+    public double SmartFilterMaskY { get; set; }
     public int FilterPaddingX { get; set; }
     public int FilterPaddingY { get; set; }
     public VectorPath? VectorMask { get; set; }
@@ -539,6 +545,8 @@ public sealed partial class Layer
             Pixels = Pixels, Transform = Transform, Mask = Mask, MaskLinked = MaskLinked, MaskTransform = MaskTransform, MaskDefault = MaskDefault, MaskEnabled = MaskEnabled, MaskDensity = MaskDensity, MaskFeather = MaskFeather, Clipped = Clipped, BlendIf = BlendIf,
             Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed, Locks = Locks,
             FilterSource = FilterSource, SmartFilters = SmartFilters, FilterPaddingX = FilterPaddingX, FilterPaddingY = FilterPaddingY,
+            SmartFilterMask = SmartFilterMask, SmartFilterMaskEnabled = SmartFilterMaskEnabled, SmartFilterMaskDefault = SmartFilterMaskDefault,
+            SmartFilterMaskX = SmartFilterMaskX, SmartFilterMaskY = SmartFilterMaskY,
             VectorMask = VectorMask, VectorMaskEnabled = VectorMaskEnabled
         };
         copy.Tags.UnionWith(Tags);

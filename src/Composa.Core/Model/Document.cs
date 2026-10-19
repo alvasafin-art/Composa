@@ -133,6 +133,7 @@ public sealed class Document
         {
             if (layer.Pixels != null) into.Add(layer.Pixels);
             if (layer.FilterSource != null) into.Add(layer.FilterSource);
+            if (layer.SmartFilterMask != null) into.Add(layer.SmartFilterMask);
             if (layer.Mask != null) into.Add(layer.Mask);
             layer.SmartObject?.CollectBitmaps(into, visited);
         }

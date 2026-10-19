@@ -941,13 +941,14 @@ public sealed partial class MainWindow
     private Histogram? HistogramOfActive()
     {
         if (session?.ActiveLayer is not { } layer) return null;
-        if (layer.Pixels != null && !session.IsEditingMask) return Histogram.Of(layer.Pixels);
+        if (session.EditingMaskBitmap is { } mask) return Histogram.Of(mask);
+        if (layer.Pixels != null) return Histogram.Of(layer.RenderFilterPixels()!);
         return Histogram.Of(session.Composite());
     }
 
     private void AutoLevels()
     {
-        if (session?.ActiveLayer?.Pixels is { } pixels) session.Adjust(LevelsAdjustment.Auto(Histogram.Of(pixels)));
+        if ((session?.EditingMaskBitmap ?? session?.ActiveLayer?.RenderFilterPixels()) is { } pixels) session!.Adjust(LevelsAdjustment.Auto(Histogram.Of(pixels)));
     }
 
     private async Task Adjust(AdjustmentKind kind)
@@ -975,7 +976,7 @@ public sealed partial class MainWindow
             var seed = (uint)Random.Shared.Next();
             var grade = await CameraRawDialog.Show(this, lastCameraRaw, original,
                 settings => Busy(() => target.PreviewFilter(new FilterSettings { Kind = kind, CameraRaw = settings, Seed = seed })),
-                () => target.ActiveLayer is { } layer ? (target.IsEditingMask ? layer.Mask : layer.Pixels) : null);
+                () => target.IsEditingMask ? target.EditingMaskBitmap : target.ActiveLayer?.Pixels);
             if (grade == null) { target.CancelPreview(); return; }
             lastCameraRaw = grade;
             if (grade.IsIdentity) { target.CancelPreview(); return; }

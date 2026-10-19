@@ -124,7 +124,9 @@ public sealed partial class EditorSession
     public bool GradientRadial { get; set; }
     public double GradientOpacity { get; set; } = 1;
     /// <summary>When the active layer has a mask: paint, fill and filter the mask instead of the pixels.</summary>
-    public bool EditingMask { get; set; }
+    private bool editingMask, editingSmartFilterMask;
+    public bool EditingMask { get => editingMask; set { editingMask = value; editingSmartFilterMask = false; } }
+    public bool EditingSmartFilterMask { get => editingSmartFilterMask; set { editingSmartFilterMask = value; if (value) editingMask = false; } }
     public Guid? SoloLayerId { get; set; }
 
     /// <summary>Raised after pixels changed; the rectangle is in document space (null means everything, including size).</summary>
@@ -137,7 +139,9 @@ public sealed partial class EditorSession
     public event Action<string>? Problem;
 
     public Layer? ActiveLayer => document.ActiveLayer;
-    public bool IsEditingMask => EditingMask && ActiveLayer?.Mask != null;
+    public bool IsEditingSmartFilterMask => editingSmartFilterMask && ActiveLayer is { SmartFilterMask: not null, FilterSource: not null };
+    public bool IsEditingMask => IsEditingSmartFilterMask || editingMask && ActiveLayer?.Mask != null;
+    public SKBitmap? EditingMaskBitmap => IsEditingMask && ActiveLayer is { } layer ? MaskTarget(layer) : null;
     public bool HasPendingEdit => pendingBefore != null;
 
     // ---- Undo ---------------------------------------------------------------------------------------------------

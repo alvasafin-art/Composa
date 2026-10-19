@@ -21,6 +21,7 @@ public sealed partial class ComposaTools
         [Description("The most the stroke covers, 0 to 1; the strength for blur, smudge, dodge and burn")] double opacity = 1,
         [Description("paint, erase, blur, smudge, dodge or burn")] string mode = "paint",
         [Description("The layer to paint on; the active one when left out")] string? layer = null,
+        [Description("pixels, layerMask or filterMask")] string target = "pixels",
         int? document = null) => OnUi(() =>
     {
         var s = Editable(document);
@@ -29,14 +30,23 @@ public sealed partial class ComposaTools
         if (size is < 1 or > 5000 || double.IsNaN(size)) throw new McpException("size is 1 to 5000 pixels.");
         // A stroke aimed at a layer paints there and leaves the selection alone, so what is added next still goes where it did.
         var active = s.ActiveLayer;
+        var oldMask = s.EditingMask; var oldFilterMask = s.EditingSmartFilterMask;
         if (layer != null) s.SelectLayer(Find(s, layer).Id);
-        var target = s.ActiveLayer ?? throw new McpException("No layer is active.");
+        var paintedLayer = s.ActiveLayer ?? throw new McpException("No layer is active.");
         var brush = new BrushSettings { Size = size, Hardness = Math.Clamp(hardness, 0, 1), Opacity = Math.Clamp(opacity, 0, 1) };
         var path = points.Select(p => new SKPoint((float)p[0], (float)p[1])).ToList();
-        var problem = s.PaintStroke(path, brush, ParseColor(color), brushMode);
-        if (active != null && active != target) s.SelectLayer(active.Id);
-        if (problem != null) throw new McpException(problem);
-        return $"Painted a {mode} stroke of {path.Count} point{(path.Count == 1 ? "" : "s")} on \"{target.Name}\".";
+        try
+        {
+            SetPaintTarget(s, target);
+            var problem = s.PaintStroke(path, brush, ParseColor(color), brushMode);
+            if (problem != null) throw new McpException(problem);
+            return $"Painted a {mode} stroke of {path.Count} point{(path.Count == 1 ? "" : "s")} on \"{paintedLayer.Name}\".";
+        }
+        finally
+        {
+            if (active != null && active != paintedLayer) s.SelectLayer(active.Id);
+            s.EditingMask = oldMask; if (oldFilterMask) s.EditingSmartFilterMask = true;
+        }
     });
 
     /// <summary>One stroke of a <c>paint_strokes</c> call, with the same choices as <c>paint_stroke</c>.</summary>
@@ -63,6 +73,7 @@ public sealed partial class ComposaTools
     public Task<string> PaintStrokes(
         [Description("The strokes, in painting order")] StrokeSpec[] strokes,
         [Description("The layer to paint on; the active one when left out")] string? layer = null,
+        [Description("pixels, layerMask or filterMask")] string target = "pixels",
         int? document = null) => OnUi(() =>
     {
         var s = Editable(document);
@@ -78,13 +89,33 @@ public sealed partial class ComposaTools
             planned.Add(new PlannedStroke(stroke.Points.Select(p => new SKPoint((float)p[0], (float)p[1])).ToList(), brush, ParseColor(stroke.Color), ParseBrushMode(stroke.Mode)));
         }
         var active = s.ActiveLayer;
+        var oldMask = s.EditingMask; var oldFilterMask = s.EditingSmartFilterMask;
         if (layer != null) s.SelectLayer(Find(s, layer).Id);
-        var target = s.ActiveLayer ?? throw new McpException("No layer is active.");
-        var (painted, problem) = s.PaintStrokes(planned);
-        if (active != null && active != target) s.SelectLayer(active.Id);
-        if (problem != null) throw new McpException($"{problem} {painted} of {planned.Count} strokes were painted before that.");
-        return $"Painted {painted} strokes on \"{target.Name}\".";
+        var paintedLayer = s.ActiveLayer ?? throw new McpException("No layer is active.");
+        try
+        {
+            SetPaintTarget(s, target);
+            var (painted, problem) = s.PaintStrokes(planned);
+            if (problem != null) throw new McpException($"{problem} {painted} of {planned.Count} strokes were painted before that.");
+            return $"Painted {painted} strokes on \"{paintedLayer.Name}\".";
+        }
+        finally
+        {
+            if (active != null && active != paintedLayer) s.SelectLayer(active.Id);
+            s.EditingMask = oldMask; if (oldFilterMask) s.EditingSmartFilterMask = true;
+        }
     });
+
+    private static void SetPaintTarget(Composa.Editing.EditorSession session, string target)
+    {
+        switch (target.ToLowerInvariant())
+        {
+            case "pixels": session.EditingMask = false; break;
+            case "layermask" when session.ActiveLayer?.Mask != null: session.EditingMask = true; break;
+            case "filtermask" when session.ActiveLayer is { SmartFilterMask: not null, FilterSource: not null }: session.EditingSmartFilterMask = true; break;
+            default: throw new McpException("target: pixels, layerMask (existing layer mask), or filterMask (existing Smart Filters mask).");
+        }
+    }
 
     private static BrushMode ParseBrushMode(string mode) => mode.Trim().ToLowerInvariant() switch
     {
