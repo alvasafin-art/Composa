@@ -18,7 +18,7 @@ using TextAlignment = Avalonia.Media.TextAlignment;
 namespace Composa.App.Controls;
 
 /// <summary>The layer stack: visibility, thumbnails, masks, folders, blend mode and opacity, drag-to-reorder.</summary>
-public sealed class LayersPanel : UserControl
+public sealed partial class LayersPanel : UserControl
 {
     private EditorSession? session;
     private readonly StackPanel rows = new();
@@ -124,6 +124,7 @@ public sealed class LayersPanel : UserControl
         Grid.SetColumnSpan(blendRow, 3);
         header.Children.Add(title);
         header.Children.Add(blendRow);
+        AddSearchHeader(header);
 
         var adjustmentMenu = new ContextMenu();
         foreach (var kind in Enum.GetValues<AdjustmentKind>())
@@ -245,6 +246,7 @@ public sealed class LayersPanel : UserControl
         if (!opacityDragging) opacity.Value = (active?.Opacity ?? 1) * 100;
         opacityText.Text = $"{Math.Round(opacity.Value)}%";
         updating = false;
+        PrepareFilter();
         if (session == null) return;
         AddRows(session.Document.Layers, 0, parentVisible: true);
     }
@@ -254,11 +256,12 @@ public sealed class LayersPanel : UserControl
         for (var i = layers.Count - 1; i >= 0; i--)
         {
             var layer = layers[i];
+            if (filterRows != null && !filterRows.Contains(layer.Id)) continue;
             rows.Children.Add(BuildRow(layer, depth, parentVisible));
             if (layer.Effects is { } effects) foreach (var kind in effects.Kinds) rows.Children.Add(BuildEffectRow(layer, kind, depth, parentVisible && layer.Visible));
             if (layer.SmartFilters.Length > 0) rows.Children.Add(BuildSmartFilterMaskRow(layer, depth));
             foreach (var filter in layer.SmartFilters.Reverse()) rows.Children.Add(BuildSmartFilterRow(layer, filter, depth));
-            if (layer.IsGroup && !layer.Collapsed) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
+            if (layer.IsGroup && (!layer.Collapsed || IsFiltering)) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
         }
     }
 
@@ -291,7 +294,7 @@ public sealed class LayersPanel : UserControl
         if (layer.Clipped) content.Children.Add(Icons.Create(Icons.ClipArrow, 13, Palette.Secondary));
         if (layer.IsGroup)
         {
-            var chevron = new Button { Classes = { "flat" }, Padding = new Thickness(2), Content = Icons.Create(layer.Collapsed ? Icons.ChevronRight : Icons.ChevronDown, 12) };
+            var chevron = new Button { Classes = { "flat" }, Padding = new Thickness(2), IsEnabled = !IsFiltering, Content = Icons.Create(layer.Collapsed && !IsFiltering ? Icons.ChevronRight : Icons.ChevronDown, 12) };
             chevron.Click += (_, _) => { layer.Collapsed = !layer.Collapsed; Rebuild(); };
             content.Children.Add(chevron);
             content.Children.Add(Icons.Create(Icons.Folder, 18));
@@ -354,6 +357,7 @@ public sealed class LayersPanel : UserControl
             if (layer.VectorMask != null) { name.Text += "  [vector mask]"; }
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = 150;
+            ToolTip.SetTip(name, layer.Tags.Count == 0 ? layer.Name : layer.Name + "\nTags: " + string.Join(", ", layer.Tags.Order(StringComparer.OrdinalIgnoreCase)));
             if (layer.IsLive) name.FontStyle = FontStyle.Italic;
             content.Children.Add(name);
         }
@@ -692,7 +696,8 @@ public sealed class LayersPanel : UserControl
         if (session.SelectedEffect != null) { session.SelectedEffect = null; session.NotifyLayersChanged(); }
         var target = thumbnailTarget;
         thumbnailTarget = null;
-        if (extend || range || !session.Document.SelectedLayerIds.Contains(layer.Id)) session.SelectLayer(layer.Id, extend, range);
+        if (extend || range || !session.Document.SelectedLayerIds.Contains(layer.Id)) session.SelectLayer(layer.Id, extend, range,
+            IsFiltering ? rows.Children.OfType<Border>().Where(r => r.Tag is Layer).Select(r => ((Layer)r.Tag!).Id).ToArray() : null);
         if (target is { } mask && !extend && !range)
         {
             // Clicking a thumbnail chooses what painting affects: the layer's pixels or its mask.
@@ -705,7 +710,7 @@ public sealed class LayersPanel : UserControl
 
     private void RowMoved(PointerEventArgs e)
     {
-        if (pressed == null || session == null) return;
+        if (pressed == null || session == null || IsFiltering) return;
         if (!e.GetCurrentPoint(rows).Properties.IsLeftButtonPressed) { EndRowDrag(); return; }
         var position = e.GetPosition(rows);
         if (!dragging && Math.Abs(position.Y - pressPoint.Y) < 6) return;

@@ -38,18 +38,19 @@ public class NavigatorPanelTests
     }
 
     [AvaloniaFact]
-    public void Navigator_pixels_convert_from_working_P3_to_display_RGB_once_without_changing_source_or_export()
+    public async Task Navigator_pixels_convert_from_working_P3_to_display_RGB_once_without_changing_source_or_export()
     {
         var window = new MainWindow { Width = 1280, Height = 900 }; window.Show(); var color = new SKColor(100, 150, 200); var session = EditorSession.NewCanvas(300, 200, color, ColorDepth.Sixteen); session.AssignColorProfile(RgbProfile.DisplayP3); window.AddSession(session); Toggle(window);
+        var profilePath = Path.Combine(Path.GetTempPath(), "navigator-" + Guid.NewGuid().ToString("N") + ".icc");
         try
         {
             var source = session.ActiveLayer!.Pixels!; var bytes = source.Bytes; using var before = session.Flatten(); var state = session.History.CurrentId; var panel = Panel(window);
-            window.ApplyDisplayProfile(RgbProfile.Rgb1998, "Test display"); panel.RefreshThumbnail(); Assert.True(Screenshots.Save(window, "navigator-color-managed"));
+            await UseDisplayProfile(window, profilePath); panel.RefreshThumbnail(); Assert.True(Screenshots.Save(window, "navigator-color-managed")); Assert.Equal(RgbProfile.Rgb1998, window.DisplayProfile);
             var point = Preview(panel).TranslatePoint(panel.ImageBounds.Center, window)!.Value; using var shot = SKBitmap.Decode(Path.Combine(Screenshots.Folder, "navigator-color-managed.png")); var actual = shot.GetPixel((int)point.X, (int)point.Y); var expected = RgbProfile.DisplayP3.ConvertColor(color, RgbProfile.Rgb1998);
             Assert.InRange(Math.Abs(actual.Red - expected.Red), 0, 2); Assert.InRange(Math.Abs(actual.Green - expected.Green), 0, 2); Assert.InRange(Math.Abs(actual.Blue - expected.Blue), 0, 2);
             using var after = session.Flatten(); Assert.Equal(before.Bytes, after.Bytes); Assert.Equal(bytes, source.Bytes); Assert.Equal(state, session.History.CurrentId);
         }
-        finally { session.MarkSaved("navigator.cmps", session.History.CurrentId); window.Close(); }
+        finally { session.MarkSaved("navigator.cmps", session.History.CurrentId); window.Close(); File.Delete(profilePath); }
     }
 
     [AvaloniaFact]
@@ -95,9 +96,10 @@ public class NavigatorPanelTests
     }
 
     [AvaloniaFact]
-    public void Hidden_collapsed_and_switched_documents_refresh_only_when_needed_and_follow_the_display_profile()
+    public async Task Hidden_collapsed_and_switched_documents_refresh_only_when_needed_and_follow_the_display_profile()
     {
         var window = new MainWindow { Width = 1280, Height = 900 }; window.Show(); var first = Scene(); window.AddSession(first); Toggle(window);
+        var profilePath = Path.Combine(Path.GetTempPath(), "navigator-" + Guid.NewGuid().ToString("N") + ".icc");
         try
         {
             Pump(); var panel = Panel(window); panel.RefreshThumbnail(); var count = panel.ThumbnailBuilds; Assert.True(count > 0);
@@ -108,11 +110,18 @@ public class NavigatorPanelTests
             var collapsed = panel.ThumbnailBuilds; first.SetVisible(first.ActiveLayer!, true); panel.RefreshThumbnail(); Assert.Equal(collapsed, panel.ThumbnailBuilds);
             header = window.GetVisualDescendants().OfType<Border>().Single(b => ToolTip.GetTip(b) is "Expand Navigator"); at = header.TranslatePoint(new Point(20, 10), window)!.Value; window.MouseDown(at, MouseButton.Left); window.MouseUp(at, MouseButton.Left); Pump(); panel.RefreshThumbnail();
             var second = EditorSession.NewCanvas(300, 300, SKColors.OrangeRed); window.AddSession(second); Pump(); panel.RefreshThumbnail(); Assert.Same(second, panel.Session); Assert.InRange(Math.Abs(panel.ImageBounds.Width - panel.ImageBounds.Height), 0, .001);
-            window.ApplyDisplayProfile(RgbProfile.Rgb1998, "Test display"); panel.RefreshThumbnail(); Assert.Equal(RgbProfile.Rgb1998, panel.DisplayProfile);
+            await UseDisplayProfile(window, profilePath); panel.RefreshThumbnail(); Assert.Equal(RgbProfile.Rgb1998, panel.DisplayProfile);
             typeof(MainWindow).GetMethod("SetSession", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [first]); Pump(); panel.RefreshThumbnail(); Assert.Same(first, panel.Session); Assert.Equal(RgbProfile.DisplayP3, first.Document.Profile);
             Assert.True(Screenshots.Save(window, "navigator-display-profile"));
         }
-        finally { foreach (var session in window.Sessions) session.MarkSaved("navigator.cmps", session.History.CurrentId); window.Close(); }
+        finally { foreach (var session in window.Sessions) session.MarkSaved("navigator.cmps", session.History.CurrentId); window.Close(); File.Delete(profilePath); }
+    }
+
+    private static async Task UseDisplayProfile(MainWindow window, string path)
+    {
+        await File.WriteAllBytesAsync(path, RgbProfile.Rgb1998.IccBytes(), TestContext.Current.CancellationToken);
+        window.Settings.DisplayColorMode = DisplayColorMode.Custom; window.Settings.DisplayProfilePath = path;
+        await window.RefreshDisplayColor();
     }
 
     private static EditorSession Scene()

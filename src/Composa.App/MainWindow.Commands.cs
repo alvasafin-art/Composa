@@ -302,7 +302,8 @@ public sealed partial class MainWindow
             return item;
         }
         scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
-        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"));
+        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"), Line(),
+            Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
             Item("Check for Updates…", () => _ = CheckForUpdatesNow(), needsDocument: false),

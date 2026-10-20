@@ -24,7 +24,7 @@ public sealed partial class EditorSession
         LayersChanged?.Invoke();
     }
 
-    public void SelectLayer(Guid id, bool extend = false, bool range = false)
+    public void SelectLayer(Guid id, bool extend = false, bool range = false, IReadOnlyList<Guid>? rangeOrder = null)
     {
         if (WarpEdit != null) CommitWarp();
         if (document.Find(id) == null) return;
@@ -33,12 +33,17 @@ public sealed partial class EditorSession
         if (TextEdit != null && textLayer?.Id != id) FinishText();
         if (range && document.ActiveLayerId is { } anchor)
         {
-            var order = document.AllLayers().Select(l => l.Id).ToList();
+            var order = rangeOrder == null ? document.AllLayers().Select(l => l.Id).ToList()
+                : rangeOrder.Where(candidate => document.Find(candidate) != null).Distinct().ToList();
             int from = order.IndexOf(anchor), to = order.IndexOf(id);
-            if (from > to) (from, to) = (to, from);
-            for (var i = from; i <= to; i++) document.SelectedLayerIds.Add(order[i]);
-            for (var i = from; i <= to; i++) if (!document.SelectionOrder.Contains(order[i])) document.SelectionOrder.Add(order[i]);
-            document.ActiveLayerId = id;
+            if (from < 0 || to < 0) document.SetActive(id);
+            else
+            {
+                if (from > to) (from, to) = (to, from);
+                for (var i = from; i <= to; i++) document.SelectedLayerIds.Add(order[i]);
+                for (var i = from; i <= to; i++) if (!document.SelectionOrder.Contains(order[i])) document.SelectionOrder.Add(order[i]);
+                document.ActiveLayerId = id;
+            }
         }
         else if (extend)
         {
