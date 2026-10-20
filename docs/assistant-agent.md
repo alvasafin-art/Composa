@@ -39,6 +39,10 @@ reconstruction operate on one sparse displacement field; colors are sampled from
 pixels. One call commits one Undo step and preserves the active layer/channel target; a changed document
 rejects the background result. Live content requires editing its smart source or an explicit rasterization.
 
+`adjust_hue_saturation` accepts optional `boundaries: [fadeStart,fullStart,fullEnd,fadeEnd]` in clockwise hue
+degrees for a named color family. The interval may cross red (360°/0°); master/colorize do not use local
+boundaries. All local families classify the original color before applying their shifts.
+
 `AgentCapabilityTests` checks schema parity/discovery, live tool promotion, whole JSON receipts, target identity/pagination, batch filtering/order/stepping, all-target validation, independent final verification, repair/recheck, verified no-ops, inspect-only safety and script memory accounting. `McpTests` invokes inspection, verification, querying and batch editing through the real stdio bridge and per-test pipe. `get_script_api` returns the complete small reference in one call, without fragment pagination.
 
 `AgentAcceptanceTests` runs the production agent against a real local model and grades editor data, not the model's summary:

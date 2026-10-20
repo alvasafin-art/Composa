@@ -96,32 +96,7 @@ internal static class HighPrecisionAdjustment
         };
     }
 
-    private static FloatPixelOp HueSaturation(HueSaturationAdjustment settings) => (ref double r, ref double g, ref double b, int _, int _) =>
-    {
-        ColorMath.RgbToHsl(r, g, b, out var h, out var s, out var l);
-        var master = settings.Shifts[0];
-        if (settings.Colorize)
-        {
-            h = ((master.Hue % 360) + 360) % 360;
-            s = master.Saturation >= 0 ? .25 + master.Saturation / 100 * .75 : .25 * (1 + master.Saturation / 100);
-        }
-        else
-        {
-            for (var i = 1; i < 7 && s > 0; i++)
-            {
-                var shift = settings.Shifts[i];
-                if (shift.IsZero) continue;
-                var weight = HueSaturationAdjustment.RangeWeight((HueRange)i, h) * Math.Min(1, s * 4);
-                h += shift.Hue * weight;
-                s = HueSaturationAdjustment.ApplySaturation(s, shift.Saturation * weight);
-                l = HueSaturationAdjustment.ApplyLightness(l, shift.Lightness * weight);
-            }
-            h = ((h + master.Hue) % 360 + 360) % 360;
-            s = HueSaturationAdjustment.ApplySaturation(s, master.Saturation);
-        }
-        l = HueSaturationAdjustment.ApplyLightness(l, master.Lightness);
-        ColorMath.HslToRgb(h, s, l, out r, out g, out b);
-    };
+    private static FloatPixelOp HueSaturation(HueSaturationAdjustment settings) => settings.CreateColorOp();
 
     private static FloatPixelOp BlackAndWhite(BlackAndWhiteAdjustment settings)
     {

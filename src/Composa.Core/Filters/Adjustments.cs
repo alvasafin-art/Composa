@@ -623,18 +623,22 @@ public readonly record struct HslShift(double Hue, double Saturation, double Lig
     [JsonIgnore] public bool IsZero => Hue == 0 && Saturation == 0 && Lightness == 0;
 }
 
-public sealed record HueSaturationAdjustment : Adjustment
+public sealed partial record HueSaturationAdjustment : Adjustment
 {
     /// <summary>Indexed by <see cref="HueRange"/>: hue -180…180, saturation and lightness -100…100.</summary>
     public HslShift[] Shifts { get; init; } = new HslShift[7];
+    /// <summary>Six optional custom bands, Reds through Magentas. Null keeps legacy default hue boundaries.</summary>
+    public HueBand[]? Bands { get; init; }
     public bool Colorize { get; init; }
     public override AdjustmentKind Kind => AdjustmentKind.HueSaturation;
     public override string DisplayName => "Hue/Saturation";
-    public override bool IsIdentity => !Colorize && Shifts.All(s => s.IsZero);
+    public override bool IsIdentity => !Colorize && (Shifts == null || Shifts.All(s => s.IsZero));
 
     public HueSaturationAdjustment WithShift(HueRange range, HslShift shift)
     {
-        var shifts = (HslShift[])Shifts.Clone();
+        if (!Enum.IsDefined(range)) throw new ArgumentOutOfRangeException(nameof(range));
+        var shifts = new HslShift[7];
+        if (Shifts != null) Array.Copy(Shifts, shifts, Math.Min(Shifts.Length, shifts.Length));
         shifts[(int)range] = shift;
         return this with { Shifts = shifts };
     }
@@ -642,44 +646,16 @@ public sealed record HueSaturationAdjustment : Adjustment
     /// <summary>How strongly a hue (degrees) belongs to a color range: full within 15° of its center, fading out by 45°.</summary>
     internal static double RangeWeight(HueRange range, double hue)
     {
-        var center = ((int)range - 1) * 60.0;
-        var distance = Math.Abs(((hue - center) % 360 + 540) % 360 - 180);
-        return distance <= 15 ? 1 : distance >= 45 ? 0 : (45 - distance) / 30;
+        return HueBand.Default(range).Weight(hue);
     }
 
     internal override PixelOp CreateOp()
     {
-        var shifts = Shifts;
-        var colorize = Colorize;
-        var anyRange = shifts.Skip(1).Any(s => !s.IsZero);
+        var transform = CreateColorOp();
         return [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)] (ref int r, ref int g, ref int b, int _, int _) =>
         {
-            ColorMath.RgbToHsl(r / 255.0, g / 255.0, b / 255.0, out var h, out var s, out var l);
-            var master = shifts[0];
-            if (colorize)
-            {
-                h = ((master.Hue % 360) + 360) % 360;
-                s = master.Saturation >= 0 ? 0.25 + master.Saturation / 100 * 0.75 : 0.25 * (1 + master.Saturation / 100);
-            }
-            else
-            {
-                if (anyRange && s > 0)
-                {
-                    for (var i = 1; i < 7; i++)
-                    {
-                        if (shifts[i].IsZero) continue;
-                        var weight = RangeWeight((HueRange)i, h) * Math.Min(1, s * 4);
-                        if (weight <= 0) continue;
-                        h += shifts[i].Hue * weight;
-                        s = ApplySaturation(s, shifts[i].Saturation * weight);
-                        l = ApplyLightness(l, shifts[i].Lightness * weight);
-                    }
-                }
-                h = ((h + master.Hue) % 360 + 360) % 360;
-                s = ApplySaturation(s, master.Saturation);
-            }
-            l = ApplyLightness(l, master.Lightness);
-            ColorMath.HslToRgb(h, s, l, out var nr, out var ng, out var nb);
+            double nr = r / 255.0, ng = g / 255.0, nb = b / 255.0;
+            transform(ref nr, ref ng, ref nb, 0, 0);
             r = Lut.ToByte(nr); g = Lut.ToByte(ng); b = Lut.ToByte(nb);
         };
     }

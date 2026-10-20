@@ -492,6 +492,10 @@ public class McpTests
         Assert.Equal(true, badStyle.IsError);
         var badRange = await Pumped(client.CallToolAsync("adjust_hue_saturation", new Dictionary<string, object?> { ["hue"] = 30, ["range"] = "purples" }));
         Assert.Equal(true, badRange.IsError);
+        var customHue = await Pumped(client.CallToolAsync("adjust_hue_saturation", new Dictionary<string, object?> { ["hue"] = 30, ["range"] = "reds", ["boundaries"] = new[] { 170d, 175, 185, 190 }, ["asLayer"] = true, ["layer"] = "Background" }));
+        Assert.Null(customHue.IsError); Assert.Equal(new HueBand(170, 5, 10, 5), Assert.IsType<HueSaturationAdjustment>(session.ActiveLayer!.Adjustment).BandFor(HueRange.Reds));
+        await Pumped(client.CallToolAsync("undo"));
+        var invalidHue = await Pumped(client.CallToolAsync("adjust_hue_saturation", new Dictionary<string, object?> { ["range"] = "reds", ["boundaries"] = new[] { 0d, 180, 90, 270 } })); Assert.Equal(true, invalidHue.IsError);
         var byColor = await Pumped(client.CallToolAsync("select_color_range", new Dictionary<string, object?> { ["colors"] = new[] { "#808080" }, ["fuzziness"] = 200 }));
         Assert.StartsWith("Selected the area", Text(byColor));
         Assert.Equal("Color Range", session.History.UndoName);

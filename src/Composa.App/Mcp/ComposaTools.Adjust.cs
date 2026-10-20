@@ -37,11 +37,20 @@ public sealed partial class ComposaTools
         double hue = 0, double saturation = 0, double lightness = 0,
         [Description("master, reds, yellows, greens, cyans, blues or magentas")] string range = "master",
         bool colorize = false,
-        [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null)
+        [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null,
+        [Description("Optional [fadeStart,fullStart,fullEnd,fadeEnd] in clockwise hue degrees 0..360 for a named color range; can cross red. Not used with master/colorize.")] double[]? boundaries = null)
     {
-        if (!Enum.TryParse<HueRange>(range.Trim(), true, out var hueRange)) throw new McpException("range is master, reds, yellows, greens, cyans, blues or magentas.");
+        if (!Enum.TryParse<HueRange>(range.Trim(), true, out var hueRange) || !Enum.IsDefined(hueRange)) throw new McpException("range is master, reds, yellows, greens, cyans, blues or magentas.");
+        if (colorize) hueRange = HueRange.Master;
         var shift = new HslShift(colorize ? Math.Clamp(hue, 0, 360) : Math.Clamp(hue, -180, 180), Math.Clamp(saturation, -100, 100), Math.Clamp(lightness, -100, 100));
-        return Adjust(document, layer, asLayer, new HueSaturationAdjustment { Colorize = colorize }.WithShift(hueRange, shift));
+        var settings = new HueSaturationAdjustment { Colorize = colorize }.WithShift(hueRange, shift);
+        if (boundaries != null)
+        {
+            if (hueRange == HueRange.Master || boundaries.Length != 4 || boundaries.Any(v => !double.IsFinite(v) || v is < 0 or > 360)) throw new McpException("boundaries needs four hue angles for a named color range, without colorize.");
+            try { settings = settings.WithBand(hueRange, HueBand.FromEdges(boundaries[0], boundaries[1], boundaries[2], boundaries[3])); }
+            catch (ArgumentException) { throw new McpException("Hue boundaries must form one clockwise interval."); }
+        }
+        return Adjust(document, layer, asLayer, settings);
     }
 
     [McpServerTool(Name = "adjust_levels")]
