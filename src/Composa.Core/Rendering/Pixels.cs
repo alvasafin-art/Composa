@@ -214,6 +214,8 @@ public static partial class Pixels
         if (scale >= 0.5f) return;
         foreach (var layer in document.AllLayers())
         {
+            // Warp builds its own reduced material. Preparing an unused source pyramid wastes a full-image pass.
+            if (layer.HasWarp || !document.IsEffectivelyVisible(layer)) continue;
             foreach (var bitmap in new[] { layer.Pixels, layer.Mask })
             {
                 if (bitmap == null || IsLive(bitmap)) continue;
@@ -232,12 +234,13 @@ public static partial class Pixels
         if (source.ColorType == SKColorType.RgbaF32)
         {
             var input = new PixelBuffer(source); var output = new PixelBuffer(half);
+            int highLastX = source.Width - 1, highLastY = source.Height - 1;
             Parallel.For(0, height, y =>
             {
+                int y0 = Math.Min(y * 2, highLastY), y1 = Math.Min(y * 2 + 1, highLastY);
                 for (var x = 0; x < width; x++)
                 {
-                    int x0 = Math.Min(x * 2, source.Width - 1), x1 = Math.Min(x * 2 + 1, source.Width - 1);
-                    int y0 = Math.Min(y * 2, source.Height - 1), y1 = Math.Min(y * 2 + 1, source.Height - 1);
+                    int x0 = Math.Min(x * 2, highLastX), x1 = Math.Min(x * 2 + 1, highLastX);
                     output.Write(x, y, (input.Read(x0, y0) + input.Read(x1, y0) + input.Read(x0, y1) + input.Read(x1, y1)) * .25f);
                 }
             });

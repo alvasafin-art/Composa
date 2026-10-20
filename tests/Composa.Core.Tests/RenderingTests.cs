@@ -252,6 +252,25 @@ public class ViewRenderingTests
         TestImages.AssertColor(SKColors.Red, view.GetPixel(100, 75));
         TestImages.AssertColor(SKColors.Lime, view.GetPixel(10, 10));
     }
+
+    [Fact]
+    public void High_precision_pyramid_averages_premultiplied_samples_without_rounding_to_bytes()
+    {
+        using var source = Pixels.NewColor(258, 130, ColorDepth.Sixteen);
+        var pixels = new PixelBuffer(source);
+        for (var y = 0; y < source.Height; y++) for (var x = 0; x < source.Width; x++)
+            pixels.Write(x, y, new(.15f + x / 65535f, .12f + y / 65535f, .08f, .5f));
+        var before = source.Bytes; var level = 1; var image = Pixels.Level(source, ref level);
+        using var half = Pixels.NewColor(129, 65, ColorDepth.Sixteen);
+        Assert.True(image.ReadPixels(half.Info, half.GetPixels(), half.RowBytes, 0, 0));
+        var result = new PixelBuffer(half);
+        foreach (var (x, y) in new[] { (0, 0), (64, 32), (128, 64) })
+        {
+            var expected = (pixels.Read(x * 2, y * 2) + pixels.Read(x * 2 + 1, y * 2) + pixels.Read(x * 2, y * 2 + 1) + pixels.Read(x * 2 + 1, y * 2 + 1)) * .25f;
+            for (var channel = 0; channel < 4; channel++) Assert.InRange(Math.Abs(expected[channel] - result.Read(x, y)[channel]), 0, 1e-7f);
+        }
+        Assert.Equal(before, source.Bytes);
+    }
 }
 
 public class CompositingQaTests

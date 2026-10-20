@@ -23,76 +23,83 @@ public static class WarpRenderer
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(mesh);
         if (source.ColorType is not (SKColorType.Rgba8888 or SKColorType.RgbaF32)) throw new ArgumentException("Warp requires working RGB pixels.", nameof(source));
-        if (!double.IsFinite(scale) || scale <= 0 || scale > 1) throw new ArgumentOutOfRangeException(nameof(scale));
         if (linkedMask != null && (linkedMask.ColorType != SKColorType.Alpha8 || linkedMask.Width != source.Width || linkedMask.Height != source.Height))
             throw new ArgumentException("Linked warp coverage must use the original source grid.", nameof(linkedMask));
         cancellationToken.ThrowIfCancellationRequested();
-        var bounds = Geometry.RoundOut(mesh.Bounds(source.Width, source.Height));
+        var content = Pixels.ContentBounds(source);
+        var region = content.IsEmpty ? new SKRect(0, 0, source.Width, source.Height) : new SKRect(content.Left, content.Top, content.Right, content.Bottom);
+        return RenderRegion(source, new WarpGeometry(mesh, source.Width, source.Height, region), SKPoint.Empty, linkedMask, null, scale, null, cancellationToken);
+    }
+
+    /// <summary>Samples a texture and optional coverage in canonical source coordinates. Separate originals and
+    /// filter results can use one geometry/output frame even when the filter adds a differently sized border.</summary>
+    internal static WarpedPixels RenderRegion(SKBitmap source, WarpGeometry geometry, SKPoint sourceOrigin, SKBitmap? linkedMask = null,
+        SKMatrix? maskPlacement = null, double scale = 1, SKRectI? outputBounds = null, CancellationToken cancellationToken = default)
+    {
+        if (source.ColorType is not (SKColorType.Rgba8888 or SKColorType.RgbaF32)) throw new ArgumentException("Warp requires working RGB pixels.", nameof(source));
+        if (linkedMask != null && linkedMask.ColorType != SKColorType.Alpha8) throw new ArgumentException("Warp coverage must be Alpha8.", nameof(linkedMask));
+        if (!double.IsFinite(scale) || scale <= 0 || scale > 1) throw new ArgumentOutOfRangeException(nameof(scale));
+        if (!float.IsFinite(sourceOrigin.X) || !float.IsFinite(sourceOrigin.Y))
+            throw new ArgumentException("Warp texture origins must be finite.");
+        cancellationToken.ThrowIfCancellationRequested();
+        var bounds = outputBounds ?? Geometry.RoundOut(geometry.Bounds);
         if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height, source.BytesPerPixel))
             throw new InvalidOperationException($"The deformed surface exceeds the {DocumentLimits.MaxSide}-pixel side or supported surface memory limit.");
         var width = Math.Max(1, (int)Math.Ceiling(bounds.Width * scale)); var height = Math.Max(1, (int)Math.Ceiling(bounds.Height * scale));
         var result = Pixels.NewWorkingColor(width, height, Pixels.DepthOf(source), Pixels.ProfileOf(source));
+        SKBitmap? covered = null;
         try
         {
+            if (linkedMask != null)
+            {
+                var placement = maskPlacement ?? SKMatrix.CreateTranslation(sourceOrigin.X, sourceOrigin.Y);
+                placement = placement.PostConcat(SKMatrix.CreateTranslation(-sourceOrigin.X, -sourceOrigin.Y));
+                covered = Pixels.Clone(source);
+                using var maskCanvas = new SKCanvas(covered);
+                using var coverage = Pixels.ImageOf(linkedMask).ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, DocumentRenderer.SamplingFor(placement), placement);
+                using var keep = new SKPaint { Shader = coverage, BlendMode = SKBlendMode.DstIn };
+                maskCanvas.DrawRect(0, 0, covered.Width, covered.Height, keep); maskCanvas.Flush(); Pixels.Invalidate(covered);
+            }
             using var canvas = new SKCanvas(result);
             canvas.Scale((float)width / bounds.Width, (float)height / bounds.Height); canvas.Translate(-bounds.Left, -bounds.Top);
-            var sampling = mesh.IsIdentity && width == bounds.Width && height == bounds.Height
+            var sampling = geometry.Mesh.IsIdentity && width == bounds.Width && height == bounds.Height
                 ? new SKSamplingOptions(SKFilterMode.Nearest) : new SKSamplingOptions(SKFilterMode.Linear);
-            using var imageShader = Pixels.ImageOf(source).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal, sampling);
-            using var maskShader = linkedMask == null ? null : Pixels.ImageOf(linkedMask).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal, sampling);
-            using var combined = maskShader == null ? null : SKShader.CreateBlend(SKBlendMode.DstIn, imageShader, maskShader);
+            using var imageShader = Pixels.ImageOf(covered ?? source).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal, sampling, SKMatrix.CreateTranslation(sourceOrigin.X, sourceOrigin.Y));
             // This is one material, rather than translucent triangle layers. Src also keeps native scan-conversion
             // overlaps at shared subpixel edges from accumulating alpha. In folds the last surface wins.
-            using var paint = new SKPaint { Shader = combined ?? imageShader, Color = SKColors.White, IsAntialias = false, BlendMode = SKBlendMode.Src };
-            if (mesh.IsIdentity)
+            using var paint = new SKPaint { Shader = imageShader, Color = SKColors.White, IsAntialias = false, BlendMode = SKBlendMode.Src };
+            if (geometry.Mesh.IsIdentity)
             {
-                var domain = mesh.Domain;
-                canvas.DrawRect((float)(domain.X * source.Width), (float)(domain.Y * source.Height), (float)(domain.Width * source.Width), (float)(domain.Height * source.Height), paint);
+                canvas.DrawRect(geometry.SourceRegion, paint);
             }
             else
             {
                 // One subdivision count for the whole grid guarantees identical vertices along shared patch edges.
-                var divisions = Subdivisions(mesh, source.Width, source.Height, Math.Max((double)width / bounds.Width, (double)height / bounds.Height));
-                for (var y = 0; y < mesh.Rows; y++) for (var x = 0; x < mesh.Columns; x++)
+                var divisions = geometry.Subdivisions(Math.Max((double)width / bounds.Width, (double)height / bounds.Height), Tolerance);
+                foreach (var patch in geometry.Patches)
                 for (var sy = 0; sy < divisions; sy += ChunkDivisions) for (var sx = 0; sx < divisions; sx += ChunkDivisions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    DrawChunk(canvas, paint, mesh, source.Width, source.Height, x, y, sx, sy, divisions);
+                    DrawChunk(canvas, paint, geometry, patch, sx, sy, divisions);
                 }
             }
             canvas.Flush(); cancellationToken.ThrowIfCancellationRequested();
+            GC.KeepAlive(source); GC.KeepAlive(linkedMask);
             return new(result, bounds);
         }
         catch { result.Dispose(); throw; }
+        finally { if (covered != null) { Pixels.Invalidate(covered); covered.Dispose(); } }
     }
 
-    private static int Subdivisions(WarpMesh mesh, int width, int height, double scale)
-    {
-        Span<WarpPoint> b = stackalloc WarpPoint[16]; double curvature = 0;
-        double Length(WarpPoint point) => Math.Sqrt(point.X * point.X * width * (double)width + point.Y * point.Y * height * (double)height) * scale;
-        for (var y = 0; y < mesh.Rows; y++) for (var x = 0; x < mesh.Columns; x++)
-        {
-            mesh.PatchControls(x, y, b); double uu = 0, vv = 0, uv = 0;
-            for (var j = 0; j < 4; j++) for (var i = 0; i < 2; i++) uu = Math.Max(uu, Length((b[j * 4 + i + 2] - b[j * 4 + i + 1] * 2 + b[j * 4 + i]) * 6));
-            for (var j = 0; j < 2; j++) for (var i = 0; i < 4; i++) vv = Math.Max(vv, Length((b[(j + 2) * 4 + i] - b[(j + 1) * 4 + i] * 2 + b[j * 4 + i]) * 6));
-            for (var j = 0; j < 3; j++) for (var i = 0; i < 3; i++) uv = Math.Max(uv, Length((b[(j + 1) * 4 + i + 1] - b[j * 4 + i + 1] - b[(j + 1) * 4 + i] + b[j * 4 + i]) * 9));
-            // The second-order Taylor remainder bounds each triangle's piecewise affine error.
-            curvature = Math.Max(curvature, uu + 2 * uv + vv);
-        }
-        var needed = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(curvature / (2 * Tolerance))));
-        var divisions = 1; while (divisions < needed) divisions *= 2;
-        return divisions;
-    }
-
-    private static void DrawChunk(SKCanvas canvas, SKPaint paint, WarpMesh mesh, int width, int height, int patchX, int patchY, int startX, int startY, int divisions)
+    private static void DrawChunk(SKCanvas canvas, SKPaint paint, WarpGeometry geometry, WarpGeometry.Patch patch, int startX, int startY, int divisions)
     {
         var nx = Math.Min(ChunkDivisions, divisions - startX); var ny = Math.Min(ChunkDivisions, divisions - startY);
         var positions = new SKPoint[(nx + 1) * (ny + 1)]; var texture = new SKPoint[positions.Length]; var indices = new ushort[nx * ny * 6];
         for (var y = 0; y <= ny; y++) for (var x = 0; x <= nx; x++)
         {
-            var u = (patchX + (double)(startX + x) / divisions) / mesh.Columns; var v = (patchY + (double)(startY + y) / divisions) / mesh.Rows;
-            var p = mesh.Evaluate(u, v); var s = mesh.Domain.At(u, v); var index = y * (nx + 1) + x;
-            positions[index] = new((float)(p.X * width), (float)(p.Y * height)); texture[index] = new((float)(s.X * width), (float)(s.Y * height));
+            var u = (double)(startX + x) / divisions; var v = (double)(startY + y) / divisions;
+            var p = patch.Evaluate(u, v); var s = geometry.SourcePoint(patch, u, v); var index = y * (nx + 1) + x;
+            positions[index] = new((float)p.X, (float)p.Y); texture[index] = new((float)s.X, (float)s.Y);
         }
         var at = 0;
         for (var y = 0; y < ny; y++) for (var x = 0; x < nx; x++)

@@ -58,8 +58,8 @@ public sealed partial class CanvasView
     private void NudgeWarpPoint(KeyEventArgs e)
     {
         if (session?.WarpEdit is not { } edit || warpNode < 0 || IsDragging) return;
-        var before = edit.Mesh; var node = before.Points[warpNode]; var pixels = edit.Layer.Pixels!;
-        var point = edit.Layer.Matrix.MapPoint((float)(node.X * pixels.Width), (float)(node.Y * pixels.Height));
+        var before = edit.Mesh; var node = before.Points[warpNode];
+        var point = edit.Layer.WarpNodePosition(node);
         var step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : 1;
         point.X += e.Key == Key.Left ? -step : e.Key == Key.Right ? step : 0;
         point.Y += e.Key == Key.Up ? -step : e.Key == Key.Down ? step : 0;
@@ -75,7 +75,7 @@ public sealed partial class CanvasView
         warpNode = -1;
         for (var i = 0; i < mesh.Points.Length; i++)
         {
-            var node = mesh.Points[i]; var document = layer.Matrix.MapPoint((float)(node.X * layer.Pixels!.Width), (float)(node.Y * layer.Pixels.Height));
+            var node = mesh.Points[i]; var document = layer.WarpNodePosition(node);
             var distance = Distance(ToScreen(document), screen);
             if (distance >= closest) continue;
             closest = distance; warpNode = i; warpNodeStart = document;
@@ -110,7 +110,7 @@ public sealed partial class CanvasView
     private void CaptureWarpOverlay(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
         var edit = session!.WarpEdit!; var mesh = edit.Mesh; var layer = edit.Layer;
-        var matrix = layer.Matrix.PostConcat(view); var width = layer.Pixels!.Width; var height = layer.Pixels.Height;
+        var matrix = layer.WarpMatrix.PostConcat(view); var size = layer.WarpSourceSize; var width = size.Width; var height = size.Height;
         SKPoint Map(WarpPoint point) => matrix.MapPoint((float)(point.X * width), (float)(point.Y * height));
         var lines = new List<SKPoint[]>();
         for (var axis = 0; axis < 2; axis++)

@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.ColorManagement;
 using Composa.Editing;
+using Composa.Filters;
 using Composa.IO;
 using Composa.Model;
 using Composa.Rendering;
@@ -81,6 +82,32 @@ public class WarpUiTests
             window.MouseDown(At(window, from), MouseButton.Left); window.MouseMove(At(window, to), RawInputModifiers.LeftMouseButton); Assert.True(window.IsDragging);
             window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None); window.MouseUp(At(window, to), MouseButton.Left); Dispatcher.UIThread.RunJobs();
             Assert.False(window.IsDragging); Assert.Null(session.WarpEdit); Assert.Null(session.ActiveLayer!.Warp); Assert.Same(original, session.ActiveLayer.Pixels); Assert.Equal(history, session.History.Count);
+        }
+        finally { session.MarkSaved("warp-ui.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void Filter_mask_brush_and_reopened_grid_use_visible_document_coordinates_after_filter_padding()
+    {
+        var window = new MainWindow { Width = 1280, Height = 820 }; window.Show();
+        var document = new Document(360, 260) { Depth = ColorDepth.Sixteen, Profile = RgbProfile.DisplayP3 };
+        var image = Pixels.NewWorkingColor(100, 80, document.Depth, document.Profile); image.Erase(SKColors.CornflowerBlue);
+        var layer = Layer.Raster("Warped object", image, 80, 80); document.InsertAboveActive(layer); var session = new EditorSession(document);
+        try
+        {
+            var mesh = WarpMesh.Create(); for (var i = 0; i < mesh.Points.Length; i++) mesh = mesh.WithPoint(i, mesh.Points[i] + new WarpPoint(.4, 0));
+            session.SetWarp(layer, mesh); session.AddSmartFilter(layer, new() { Kind = FilterKind.GaussianBlur, Radius = 3 });
+            session.AddSmartFilter(layer, new() { Kind = FilterKind.AddNoise, Amount = 65, Seed = 17 });
+            using var full = session.Flatten(); window.AddSession(session); session.AddSmartFilterMask(layer, hideAll: true);
+            session.Foreground = SKColors.White; session.Brush = new() { Size = 14, Hardness = 1, Opacity = 1 }; window.SelectTool(Tool.Brush);
+            Dispatcher.UIThread.RunJobs(); window.Canvas.Fit(); window.Canvas.ZoomTo(2); Dispatcher.UIThread.RunJobs(); Drag(window, new(200, 120), new(201, 120));
+            using var painted = session.Flatten(); Assert.Equal(full.GetPixel(200, 120), painted.GetPixel(200, 120));
+            window.MouseMove(At(window, new(290, 200))); Assert.True(Screenshots.Save(window, "warp-filter-mask-pointer-rgb16")); Assert.Equal(2, window.Canvas.Zoom);
+            session.EditRgbChannels(); window.StartWarp(); Dispatcher.UIThread.RunJobs(); var expected = layer.WarpNodePosition(mesh.Points[5]) + new SKPoint(4, -3);
+            Drag(window, layer.WarpNodePosition(mesh.Points[5]), expected);
+            Assert.InRange(SKPoint.Distance(expected, layer.WarpNodePosition(session.WarpEdit!.Mesh.Points[5])), 0, .001f);
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None); Dispatcher.UIThread.RunJobs(); Assert.Null(session.WarpEdit);
+            Assert.Equal(mesh, session.ActiveLayer!.Warp); Assert.NotNull(session.ActiveLayer.SmartFilterMask);
         }
         finally { session.MarkSaved("warp-ui.cmps", session.History.CurrentId); window.Close(); }
     }

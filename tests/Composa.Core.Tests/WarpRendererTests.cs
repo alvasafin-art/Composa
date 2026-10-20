@@ -70,7 +70,9 @@ public class WarpRendererTests
             Assert.InRange(Math.Abs(color.R - (original.X - .5 / source.Width)), 0, .006);
             Assert.InRange(Math.Abs(color.G - (original.Y - .5 / source.Height)), 0, .006); Assert.Equal(1f, color.A);
         }
-        Assert.Equal(0, actual.Read(0, 0).A);
+        // The control frame is no longer a crop: later source content outside it must remain visible.
+        var outside = mesh.EvaluateExtended((.03 - mesh.Domain.X) / mesh.Domain.Width, (.5 - mesh.Domain.Y) / mesh.Domain.Height);
+        Assert.InRange(actual.Read((int)(outside.X * source.Width) - warped.Bounds.Left, (int)(outside.Y * source.Height) - warped.Bounds.Top).A, .99f, 1f);
     }
 
     [Fact]
@@ -84,5 +86,44 @@ public class WarpRendererTests
         Assert.Throws<OperationCanceledException>(() => WarpRenderer.Render(source, WarpMesh.Create(), cancellationToken: cancellation.Token));
         using var wide = Pixels.NewColor(3000, 2); var mesh = WarpMesh.Create(1, 1).WithPoint(1, new(16, 0)).WithPoint(3, new(16, 1));
         Assert.Throws<InvalidOperationException>(() => WarpRenderer.Render(wide, mesh)); Assert.Equal(bytes, source.Bytes);
+    }
+
+    [Fact]
+    public void Padded_filter_texture_and_original_share_the_same_warped_output_grid_without_moving_either_source()
+    {
+        using var original = Pixels.NewWorkingColor(100, 80, ColorDepth.Sixteen, RgbProfile.DisplayP3); var before = new PixelBuffer(original);
+        for (var y = 0; y < 80; y++) for (var x = 0; x < 100; x++) before.Write(x, y, new(.2f + x / 65535f, .3f, .1f, .7f));
+        using var filtered = Pixels.NewLike(original, 120, 94);
+        using (var canvas = new SKCanvas(filtered)) canvas.DrawBitmap(original, 10, 7);
+        new PixelBuffer(filtered).Write(5, 35, new(0, .4f, 0, .5f)); var bytes = original.Bytes;
+        var geometry = new WarpGeometry(WarpLayerTests.Shift(WarpMesh.Create(), .2, 0), 100, 80, new(-10, -7, 110, 87));
+        using var after = WarpRenderer.RenderRegion(filtered, geometry, new(-10, -7));
+        using var source = WarpRenderer.RenderRegion(original, geometry, SKPoint.Empty, outputBounds: after.Bounds);
+        Assert.Equal(after.Bounds, source.Bounds); var a = new PixelBuffer(after.Bitmap); var b = new PixelBuffer(source.Bitmap);
+        var x0 = 15 - after.Bounds.Left; var y0 = 28 - after.Bounds.Top;
+        Assert.InRange(Math.Abs(a.Read(x0, y0).A - .5), 0, .000004); Assert.Equal(0, b.Read(x0, y0).A);
+        var x1 = 40 - after.Bounds.Left; var y1 = 30 - after.Bounds.Top;
+        for (var c = 0; c < 4; c++) Assert.InRange(Math.Abs(a.Read(x1, y1)[c] - b.Read(x1, y1)[c]), 0, .000004);
+        Assert.Equal(bytes, original.Bytes); Assert.Equal(original.ColorType, source.Bitmap.ColorType); Assert.Equal(RgbProfile.DisplayP3, Pixels.ProfileOf(after.Bitmap));
+    }
+
+    [Fact]
+    public void Source_coverage_is_applied_before_sampling_so_legacy_small_masks_do_not_square_alpha_at_the_outer_edge()
+    {
+        using var source = Pixels.NewWorkingColor(90, 60, ColorDepth.Sixteen, RgbProfile.DisplayP3); var pixels = new PixelBuffer(source);
+        using var expectedSource = Pixels.NewLike(source); var expected = new PixelBuffer(expectedSource);
+        for (var y = 0; y < 60; y++) for (var x = 0; x < 90; x++)
+        {
+            var value = new PixelValue(.2f + x / 65535f, .3f, .1f, .65f); pixels.Write(x, y, value); expected.Write(x, y, value * (128f / 255));
+        }
+        using var mask = Pixels.NewMask(9, 6, 128); var bytes = source.Bytes;
+        var mesh = WarpLayerTests.Shift(WarpMesh.Create(), .13, .07).WithPoint(5, new(.39, .34));
+        var layer = Layer.Raster("Raw model", source); layer.Mask = mask; layer.Warp = mesh;
+        var actual = layer.WarpAppearance(); using var reference = WarpRenderer.Render(expectedSource, mesh);
+        Assert.Equal(reference.Bitmap.Info.Size, actual.Pixels!.Info.Size);
+        var a = new PixelBuffer(actual.Pixels); var b = new PixelBuffer(reference.Bitmap);
+        for (var y = 0; y < a.Height; y++) for (var x = 0; x < a.Width; x++) for (var c = 0; c < 4; c++)
+            Assert.InRange(Math.Abs(a.Read(x, y)[c] - b.Read(x, y)[c]), 0, .000004);
+        Assert.Equal(bytes, source.Bytes);
     }
 }

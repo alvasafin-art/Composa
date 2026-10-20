@@ -60,7 +60,7 @@ internal static class EditorDocumentInspection
         hasWarp = layer.HasWarp,
         transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation },
         warp = layer.Warp == null || layer.Pixels == null ? null : new { columns = layer.Warp.Columns, rows = layer.Warp.Rows,
-            points = layer.Warp.Points.Select((p, i) => { var point = layer.Matrix.MapPoint((float)(p.X * layer.Pixels.Width), (float)(p.Y * layer.Pixels.Height));
+            points = layer.Warp.Points.Select((p, i) => { var point = layer.WarpNodePosition(p);
                 return new { column = i % (layer.Warp.Columns + 1), row = i / (layer.Warp.Columns + 1), x = point.X, y = point.Y }; }) },
         controlBounds = Bounds(layer.ControlBounds),
         bounds = Bounds(ContentBounds(layer)), insideCanvas = InsideCanvas(s, ContentBounds(layer)),

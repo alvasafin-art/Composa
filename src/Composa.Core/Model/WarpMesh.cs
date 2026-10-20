@@ -77,6 +77,31 @@ public sealed class WarpMesh : IEquatable<WarpMesh>
         return Cubic(row[0], row[1], row[2], row[3], v);
     }
 
+    /// <summary>Continues the surface through its boundary tangents. Transparent PNG margins or later source
+    /// additions must not be clipped by the original control region. Corner continuation includes the mixed
+    /// derivative, keeping both first derivatives continuous across each side.</summary>
+    public WarpPoint EvaluateExtended(double u, double v)
+    {
+        if (!double.IsFinite(u) || !double.IsFinite(v)) throw new ArgumentException("Warp parameters must be finite.");
+        if (IsIdentity) return Domain.At(u, v);
+        var clampedU = Math.Clamp(u, 0, 1); var clampedV = Math.Clamp(v, 0, 1);
+        var scaledU = clampedU * Columns; var scaledV = clampedV * Rows;
+        var x = Math.Min(Columns - 1, (int)scaledU); var y = Math.Min(Rows - 1, (int)scaledV);
+        var localU = scaledU - x; var localV = scaledV - y;
+        Span<WarpPoint> values = stackalloc WarpPoint[4]; Span<WarpPoint> derivatives = stackalloc WarpPoint[4];
+        for (var i = -1; i <= 2; i++)
+        {
+            var a = Extended(x - 1, y + i); var b = Extended(x, y + i); var c = Extended(x + 1, y + i); var d = Extended(x + 2, y + i);
+            values[i + 1] = Cubic(a, b, c, d, localU); derivatives[i + 1] = CubicDerivative(a, b, c, d, localU);
+        }
+        var value = Cubic(values[0], values[1], values[2], values[3], localV);
+        var du = Cubic(derivatives[0], derivatives[1], derivatives[2], derivatives[3], localV) * Columns;
+        var dv = CubicDerivative(values[0], values[1], values[2], values[3], localV) * Rows;
+        var mixed = CubicDerivative(derivatives[0], derivatives[1], derivatives[2], derivatives[3], localV) * (Columns * Rows);
+        var outsideU = u - clampedU; var outsideV = v - clampedV;
+        return value + du * outsideU + dv * outsideV + mixed * (outsideU * outsideV);
+    }
+
     private WarpPoint Extended(int x, int y)
     {
         if (x < 0) return Extended(0, y) * 2 - Extended(1, y);
@@ -88,6 +113,9 @@ public sealed class WarpMesh : IEquatable<WarpMesh>
 
     private static WarpPoint Cubic(WarpPoint a, WarpPoint b, WarpPoint c, WarpPoint d, double t) =>
         b + (c - a) * (.5 * t) + (a * 2 - b * 5 + c * 4 - d) * (.5 * t * t) + (b * 3 - a - c * 3 + d) * (.5 * t * t * t);
+
+    private static WarpPoint CubicDerivative(WarpPoint a, WarpPoint b, WarpPoint c, WarpPoint d, double t) =>
+        (c - a) * .5 + (a * 2 - b * 5 + c * 4 - d) * t + (b * 3 - a - c * 3 + d) * (1.5 * t * t);
 
     /// <summary>Conservative bounds from each patch's exact Bernstein control hull, including cubic overshoot.</summary>
     public SKRect Bounds(int sourceWidth, int sourceHeight)

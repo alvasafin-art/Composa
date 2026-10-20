@@ -24,14 +24,12 @@ public sealed partial class ComposaTools
         if (target.Warp is { } existing && (columns != null && columns != existing.Columns || rows != null && rows != existing.Rows))
             throw new McpException("Reset the existing Warp before choosing another grid size.");
         var mesh = EditorSession.WarpGridFor(target, columns ?? 3, rows ?? 3);
-        if (!target.Matrix.TryInvert(out var inverse)) throw new McpException("The layer transform is singular.");
         foreach (var point in points)
         {
             if (point == null || point.Length != 4 || !point.All(double.IsFinite) || point[0] != Math.Floor(point[0]) || point[1] != Math.Floor(point[1])
                 || point[0] < 0 || point[0] > mesh.Columns || point[1] < 0 || point[1] > mesh.Rows)
                 throw new McpException("Each node is [integer column,integer row,canvasX,canvasY], within the grid.");
-            var local = inverse.MapPoint((float)point[2], (float)point[3]);
-            mesh = mesh.WithPoint((int)point[1] * (mesh.Columns + 1) + (int)point[0], new((double)local.X / target.Pixels!.Width, (double)local.Y / target.Pixels.Height));
+            mesh = mesh.WithPoint((int)point[1] * (mesh.Columns + 1) + (int)point[0], target.WarpPointAt(new((float)point[2], (float)point[3])));
         }
         s.SetWarp(target, mesh);
         return $"\"{target.Name}\": Warp grid {mesh.Columns}×{mesh.Rows}, {points.Length} nodes placed; source retained.";

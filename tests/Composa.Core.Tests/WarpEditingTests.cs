@@ -77,7 +77,8 @@ public class WarpEditingTests
     {
         var session = EditorSession.NewCanvas(240, 180); var layer = session.ActiveLayer!; var pixels = layer.Pixels!; pixels.Erase(SKColors.Red);
         var mask = Pixels.NewMask(240, 180, 128); layer.Mask = mask; var entries = session.History.Count;
-        var edit = session.BeginWarp(); Assert.Null(layer.SmartObject); Assert.Same(mask, layer.Mask);
+        var edit = session.BeginWarp(); Assert.NotNull(layer.SmartObject); Assert.Null(layer.Mask);
+        Assert.Same(mask, layer.SmartObject!.OpenDocument().ActiveLayer!.Mask);
         edit.MovePoint(5, new(70, 40)); session.CancelWarp();
         Assert.Equal(entries, session.History.Count); Assert.Same(pixels, session.ActiveLayer!.Pixels); Assert.Same(mask, session.ActiveLayer.Mask); Assert.Null(session.ActiveLayer.SmartObject);
         edit = session.BeginWarp(); edit.MovePoint(5, new(70, 40)); session.CommitWarp(); Assert.Equal(entries + 1, session.History.Count);

@@ -5,9 +5,16 @@ namespace Composa.Model;
 
 public sealed partial class Layer
 {
-    private readonly Lock filterMaskGate = new();
-    private (SKBitmap Mask, SKImage Generation, int Width, int Height, double X, double Y, byte Outside, SKBitmap Result)? filterMaskStencil;
-    private (SKImage Pixels, SKImage Source, SKImage Stencil, SKBitmap Result)? maskedFilterPixels;
+    private sealed class FilterMaskCache
+    {
+        public readonly Lock Gate = new();
+        public (SKBitmap Mask, SKImage Generation, int Width, int Height, SKMatrix Matrix, byte Outside, SKBitmap Result)? Stencil;
+        public (SKImage Pixels, SKImage Source, SKImage Stencil, SKBitmap Result)? Pixels;
+    }
+    private FilterMaskCache filterMaskCache = new();
+    // A render proxy can place the existing source mask into a reduced or deformed appearance grid without
+    // replacing/resampling its editable source plane. Never serialized as document data.
+    internal SKMatrix? SmartFilterMaskPlacement { get; set; }
 
     public bool HasSmartFilterMask => FilterSource != null && SmartFilters.Length > 0 && SmartFilterMask != null && SmartFilterMaskEnabled;
     public SKMatrix SmartFilterMaskMatrix => SKMatrix.CreateTranslation((float)(SmartFilterMaskX + FilterPaddingX), (float)(SmartFilterMaskY + FilterPaddingY)).PostConcat(Matrix);
@@ -16,19 +23,19 @@ public sealed partial class Layer
     {
         var mask = SmartFilterMask!; var pixels = Pixels!;
         var generation = Rendering.Pixels.ImageOf(mask);
-        var x = SmartFilterMaskX + FilterPaddingX; var y = SmartFilterMaskY + FilterPaddingY;
-        lock (filterMaskGate)
+        var matrix = SmartFilterMaskPlacement ?? SKMatrix.CreateTranslation((float)(SmartFilterMaskX + FilterPaddingX), (float)(SmartFilterMaskY + FilterPaddingY));
+        lock (filterMaskCache.Gate)
         {
-            if (filterMaskStencil is { } cached && ReferenceEquals(cached.Mask, mask) && ReferenceEquals(cached.Generation, generation)
-                && cached.Width == pixels.Width && cached.Height == pixels.Height && cached.X == x && cached.Y == y && cached.Outside == SmartFilterMaskDefault) return cached.Result;
+            if (filterMaskCache.Stencil is { } cached && ReferenceEquals(cached.Mask, mask) && ReferenceEquals(cached.Generation, generation)
+                && cached.Width == pixels.Width && cached.Height == pixels.Height && cached.Matrix == matrix && cached.Outside == SmartFilterMaskDefault) return cached.Result;
             var result = Rendering.Pixels.NewMask(pixels.Width, pixels.Height, SmartFilterMaskDefault);
             using (var canvas = new SKCanvas(result))
             using (var paint = new SKPaint { BlendMode = SKBlendMode.Src })
             {
-                var matrix = SKMatrix.CreateTranslation((float)x, (float)y); canvas.SetMatrix(in matrix);
+                canvas.SetMatrix(in matrix);
                 canvas.DrawImage(generation, 0, 0, DocumentRenderer.SamplingFor(matrix), paint);
             }
-            filterMaskStencil = (mask, generation, pixels.Width, pixels.Height, x, y, SmartFilterMaskDefault, result);
+            filterMaskCache.Stencil = (mask, generation, pixels.Width, pixels.Height, matrix, SmartFilterMaskDefault, result);
             return result;
         }
     }
@@ -39,7 +46,8 @@ public sealed partial class Layer
     {
         if (!HasSmartFilterMask || Pixels == null) return false;
         var sampling = DocumentRenderer.SamplingFor(canvas.TotalMatrix);
-        using var mask = Rendering.Pixels.ImageOf(FilterMaskStencil()).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal, sampling);
+        var stencil = FilterMaskStencil();
+        using var mask = Rendering.Pixels.ImageOf(stencil).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal, sampling);
         using var before = Rendering.Pixels.ImageOf(FilterSource!).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal,
             sampling, SKMatrix.CreateTranslation(FilterPaddingX, FilterPaddingY));
         using var after = Rendering.Pixels.ImageOf(Pixels).ToShader(SKShaderTileMode.Decal, SKShaderTileMode.Decal, sampling);
@@ -47,7 +55,8 @@ public sealed partial class Layer
         using var filteredPart = SKShader.CreateBlend(SKBlendMode.DstIn, after, mask);
         using var combined = SKShader.CreateBlend(SKBlendMode.Plus, originalPart, filteredPart);
         using var mixedPaint = new SKPaint { Shader = combined, ColorF = paint.ColorF, BlendMode = paint.BlendMode, IsAntialias = paint.IsAntialias };
-        canvas.DrawRect(0, 0, Pixels.Width, Pixels.Height, mixedPaint); return true;
+        canvas.DrawRect(0, 0, Pixels.Width, Pixels.Height, mixedPaint);
+        GC.KeepAlive(stencil); GC.KeepAlive(this); return true;
     }
 
     /// <summary>Immutable appearance pixels for effects and interchange paths that need an actual bitmap.</summary>
@@ -56,13 +65,13 @@ public sealed partial class Layer
         if (!HasSmartFilterMask || Pixels == null) return Pixels;
         var image = Rendering.Pixels.ImageOf(Pixels); var source = Rendering.Pixels.ImageOf(FilterSource!);
         var stencil = Rendering.Pixels.ImageOf(FilterMaskStencil());
-        lock (filterMaskGate)
+        lock (filterMaskCache.Gate)
         {
-            if (maskedFilterPixels is { } cached && ReferenceEquals(cached.Pixels, image) && ReferenceEquals(cached.Source, source) && ReferenceEquals(cached.Stencil, stencil)) return cached.Result;
+            if (filterMaskCache.Pixels is { } cached && ReferenceEquals(cached.Pixels, image) && ReferenceEquals(cached.Source, source) && ReferenceEquals(cached.Stencil, stencil)) return cached.Result;
             var result = Rendering.Pixels.NewLike(Pixels);
             using (var canvas = new SKCanvas(result))
             using (var paint = new SKPaint { Color = SKColors.White, BlendMode = SKBlendMode.Src }) DrawSmartFilterPixels(canvas, paint);
-            maskedFilterPixels = (image, source, stencil, result); return result;
+            filterMaskCache.Pixels = (image, source, stencil, result); return result;
         }
     }
 

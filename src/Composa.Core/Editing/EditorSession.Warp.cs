@@ -8,21 +8,30 @@ namespace Composa.Editing;
 public sealed class WarpEdit
 {
     private readonly EditorSession session;
+    private readonly Layer originalSource;
     internal WarpMesh? Original { get; }
     public Layer Layer { get; }
     public WarpMesh Mesh => Layer.Warp!;
-    internal WarpEdit(EditorSession session, Layer layer, WarpMesh mesh)
-    { this.session = session; Layer = layer; Original = layer.Warp; layer.Warp = mesh; }
+    internal WarpEdit(EditorSession session, Layer layer, WarpMesh mesh, Layer originalSource)
+    { this.session = session; Layer = layer; this.originalSource = originalSource; Original = originalSource.Warp; layer.Warp = mesh; }
+
+    internal void RestoreSource() => RestoreSource(Layer, originalSource);
+
+    internal static void RestoreSource(Layer target, Layer original)
+    {
+        target.Pixels = original.Pixels; target.SmartObject = original.SmartObject; target.Shape = original.Shape; target.Text = original.Text;
+        target.Mask = original.Mask; target.VectorMask = original.VectorMask;
+        target.FilterSource = original.FilterSource; target.SmartFilters = original.SmartFilters; target.SmartFilterMask = original.SmartFilterMask;
+        target.FilterPaddingX = original.FilterPaddingX; target.FilterPaddingY = original.FilterPaddingY; target.Warp = original.Warp;
+    }
 
     public void MovePoint(int index, SKPoint documentPoint)
     {
         if (session.WarpEdit != this) return;
         var previous = Mesh.Points[index];
-        var current = Layer.Matrix.MapPoint((float)(previous.X * Layer.Pixels!.Width), (float)(previous.Y * Layer.Pixels.Height));
+        var current = Layer.WarpNodePosition(previous);
         if (Math.Abs(current.X - documentPoint.X) + Math.Abs(current.Y - documentPoint.Y) < 1e-5) return;
-        if (!Layer.Matrix.TryInvert(out var inverse)) throw new InvalidOperationException("The layer transform is singular.");
-        var point = inverse.MapPoint(documentPoint);
-        SetMesh(Mesh.WithPoint(index, new((double)point.X / Layer.Pixels!.Width, (double)point.Y / Layer.Pixels.Height)));
+        SetMesh(Mesh.WithPoint(index, Layer.WarpPointAt(documentPoint)));
     }
 
     public void Reset() => SetMesh(WarpMesh.Create(Mesh.Columns, Mesh.Rows, Mesh.Domain));
@@ -53,8 +62,14 @@ public sealed partial class EditorSession
         if (!CanWarp) throw new InvalidOperationException("Select an unlocked image layer to warp.");
         var layer = ActiveLayer!;
         var mesh = WarpGridFor(layer, columns, rows);
-        ValidateWarp(layer, mesh); Begin("Warp");
-        WarpEdit = new(this, layer, mesh); InvalidateAll(); return WarpEdit;
+        ValidateWarp(layer, mesh, currentGrid: layer.Warp == null); var original = layer.Clone(); Begin("Warp");
+        try
+        {
+            if (layer.Warp == null) EmbedWarpCoverage(layer);
+            ValidateWarp(layer, mesh);
+            WarpEdit = new(this, layer, mesh, original); InvalidateAll(); LayersChanged?.Invoke(); return WarpEdit;
+        }
+        catch { WarpEdit = null; if (transactionDepth > 0) WarpEdit.RestoreSource(layer, original); else Cancel(); throw; }
     }
 
     public static WarpMesh WarpGridFor(Layer layer, int columns = 3, int rows = 3)
@@ -74,9 +89,8 @@ public sealed partial class EditorSession
         if (mesh.IsIdentity) edit.Layer.Warp = null;
         if (Equals(edit.Layer.Warp, edit.Original))
         {
-            // Geometry was the only preview mutation. Keep the live document/layer references when another
-            // command settles an unchanged Warp; that command may already hold its target layer.
-            edit.Layer.Warp = edit.Original;
+            // Restore preparation in place: the next command may already hold the live target layer.
+            edit.RestoreSource();
             if (transactionDepth == 0) pendingBefore = null;
             InvalidateAll(); LayersChanged?.Invoke();
         }
@@ -84,11 +98,6 @@ public sealed partial class EditorSession
         {
             try
             {
-                var result = edit.Layer.Warp;
-                if (result != null)
-                {
-                    edit.Layer.Warp = edit.Original; EmbedWarpCoverage(edit.Layer); edit.Layer.Warp = result;
-                }
                 Commit(); InvalidateAll(); LayersChanged?.Invoke();
             }
             catch { Cancel(); throw; }
@@ -99,7 +108,7 @@ public sealed partial class EditorSession
     {
         if (WarpEdit is not { } edit) return;
         WarpEdit = null;
-        if (transactionDepth > 0) { edit.Layer.Warp = edit.Original; InvalidateAll(); LayersChanged?.Invoke(); }
+        if (transactionDepth > 0) { edit.RestoreSource(); InvalidateAll(); LayersChanged?.Invoke(); }
         else Cancel();
     }
 
@@ -108,17 +117,21 @@ public sealed partial class EditorSession
         FinishInteraction();
         if (document.Find(layer.Id) != layer || layer.Pixels == null) throw new InvalidOperationException("The image layer is no longer in this document.");
         if (PixelsLocked(layer) || PositionLocked(layer)) throw new InvalidOperationException("Unlock the layer before warping it.");
-        ValidateWarp(layer, mesh);
+        ValidateWarp(layer, mesh, currentGrid: layer.Warp == null);
         if (mesh?.IsIdentity == true) mesh = null;
         if (Equals(mesh, layer.Warp)) return;
-        Apply("Warp", () => { if (mesh != null) EmbedWarpCoverage(layer); layer.Warp = mesh; }); InvalidateAll(); LayersChanged?.Invoke();
+        Apply("Warp", () =>
+        {
+            if (mesh != null && layer.Warp == null) EmbedWarpCoverage(layer);
+            layer.Warp = mesh; ValidateWarp(layer, mesh);
+        }); InvalidateAll(); LayersChanged?.Invoke();
     }
 
-    internal static void ValidateWarp(Layer layer, WarpMesh? mesh)
+    internal static void ValidateWarp(Layer layer, WarpMesh? mesh, bool currentGrid = false)
     {
         if (mesh == null) return;
         var pixels = layer.Pixels ?? throw new InvalidOperationException("A Warp surface requires image pixels.");
-        var bounds = Geometry.RoundOut(mesh.Bounds(pixels.Width, pixels.Height));
+        var bounds = Geometry.RoundOut(layer.GeometryForWarp(mesh, currentGrid).Bounds);
         if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height, pixels.BytesPerPixel))
             throw new InvalidOperationException($"The deformed surface exceeds the {DocumentLimits.MaxSide}-pixel side or supported surface memory limit.");
     }

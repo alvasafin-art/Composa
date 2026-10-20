@@ -319,7 +319,7 @@ public static class ProjectFile
             if (record.Warp != null)
             {
                 if (layer.Pixels == null) throw new InvalidDataException("A Warp surface requires a pixel layer.");
-                var bounds = Geometry.RoundOut(record.Warp.Bounds(layer.Pixels.Width, layer.Pixels.Height));
+                var bounds = Geometry.RoundOut(layer.GeometryForWarp(record.Warp).Bounds);
                 if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height, layer.Pixels.BytesPerPixel)) throw new InvalidDataException("The Warp surface exceeds supported dimensions or memory.");
                 layer.Warp = record.Warp;
             }

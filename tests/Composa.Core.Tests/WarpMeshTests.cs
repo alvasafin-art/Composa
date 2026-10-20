@@ -47,6 +47,30 @@ public class WarpMeshTests
         Assert.Throws<ArgumentException>(() => WarpMesh.Create(domain: new(0, 0, 0, 1)));
     }
 
+    [Fact]
+    public void Extended_surface_preserves_affine_geometry_outside_the_original_control_region()
+    {
+        var area = new WarpDomain(.2, .1, .5, .7); var mesh = WarpMesh.Create(4, 3, area);
+        static WarpPoint Map(WarpPoint point) => new(1.2 * point.X + .1 * point.Y + .03, -.1 * point.X + .9 * point.Y - .04);
+        for (var i = 0; i < mesh.Points.Length; i++) mesh = mesh.WithPoint(i, Map(mesh.Points[i]));
+        for (var y = -8; y <= 8; y++) for (var x = -8; x <= 8; x++) Close(Map(area.At(x / 4.0, y / 4.0)), mesh.EvaluateExtended(x / 4.0, y / 4.0));
+        Assert.Throws<ArgumentException>(() => mesh.EvaluateExtended(double.NaN, 0));
+    }
+
+    [Fact]
+    public void Extended_surface_keeps_both_first_derivatives_continuous_across_sides_and_corner_strips()
+    {
+        var mesh = WarpMesh.Create().WithPoint(5, new(.2, .13)).WithPoint(10, new(.78, .83));
+        for (var y = 0; y <= 20; y++) for (var x = 0; x <= 20; x++) Close(mesh.Evaluate(x / 20.0, y / 20.0), mesh.EvaluateExtended(x / 20.0, y / 20.0));
+        const double epsilon = 1e-6;
+        foreach (var side in new[] { 0.0, 1.0 }) foreach (var other in new[] { -.4, .25, .7, 1.3 }) foreach (var axis in new[] { 0, 1 })
+        {
+            WarpPoint At(double coordinate) => axis == 0 ? mesh.EvaluateExtended(coordinate, other) : mesh.EvaluateExtended(other, coordinate);
+            var at = At(side); var before = (at - At(side - epsilon)) * (1 / epsilon); var after = (At(side + epsilon) - at) * (1 / epsilon);
+            Assert.InRange(Math.Abs(before.X - after.X) + Math.Abs(before.Y - after.Y), 0, .0002);
+        }
+    }
+
     private static void Close(WarpPoint expected, WarpPoint actual)
     { Assert.InRange(Math.Abs(actual.X - expected.X), 0, 1e-10); Assert.InRange(Math.Abs(actual.Y - expected.Y), 0, 1e-10); }
 }
