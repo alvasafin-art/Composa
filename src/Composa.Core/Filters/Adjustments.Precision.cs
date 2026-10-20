@@ -60,6 +60,7 @@ internal static class HighPrecisionAdjustment
         HueSaturationAdjustment s => HueSaturation(s),
         BlackAndWhiteAdjustment s => BlackAndWhite(s),
         ColorBalanceAdjustment s => ColorBalance(s),
+        ChannelMixerAdjustment s => s.CreateColorOp(),
         GrainAdjustment s => Grain(s),
         AddNoiseAdjustment s => Noise(s),
         _ => throw new NotSupportedException($"{settings.DisplayName} does not yet have a high precision pixel operation.")

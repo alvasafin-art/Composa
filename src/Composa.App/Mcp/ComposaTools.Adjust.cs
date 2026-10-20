@@ -19,6 +19,21 @@ public sealed partial class ComposaTools
     private const string AsLayer = "Add an adjustment layer above the layer instead of changing its pixels; it then affects every layer below and can be edited later";
     private const string TargetLayer = "The layer to work on; the active one when left out";
 
+    [McpServerTool(Name = "adjust_channel_mixer")]
+    [Description("Channel Mixer: each output row is [red,green,blue,constant] in percent, -200..200. Rows read the original channels simultaneously. Unspecified RGB rows remain identity. monochrome uses gray (default [40,40,20,0]) for all outputs. Alpha is preserved; asLayer keeps the adjustment editable.")]
+    public Task<string> AdjustChannelMixer(double[]? red = null, double[]? green = null, double[]? blue = null, double[]? gray = null, bool monochrome = false,
+        [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null)
+    {
+        ChannelMix Row(double[]? values, ChannelMix fallback)
+        {
+            if (values == null) return fallback;
+            if (values.Length != 4 || values.Any(v => !double.IsFinite(v) || v is < ChannelMix.Min or > ChannelMix.Max)) throw new McpException("Each mixer row is [red,green,blue,constant], all finite percentages -200..200.");
+            return new(values[0], values[1], values[2], values[3]);
+        }
+        var settings = new ChannelMixerAdjustment { Monochrome = monochrome };
+        return Adjust(document, layer, asLayer, settings with { Red = Row(red, settings.Red), Green = Row(green, settings.Green), Blue = Row(blue, settings.Blue), Gray = Row(gray, settings.Gray) });
+    }
+
     // ---- Adjustments ------------------------------------------------------------------------------------------------
 
     [McpServerTool(Name = "adjust_brightness_contrast")]
@@ -122,6 +137,11 @@ public sealed partial class ComposaTools
     [Description("Gaussian Blur by a radius in pixels.")]
     public Task<string> FilterBlur([Description("0.1 to 250")] double radius = 8, [Description(TargetLayer)] string? layer = null, int? document = null) =>
         Filter(document, layer, new FilterSettings { Kind = FilterKind.GaussianBlur, Radius = Math.Clamp(radius, 0.1, 250) });
+
+    [McpServerTool(Name = "filter_high_pass")]
+    [Description("High Pass retains image details around neutral gray (radius 0.1..250 pixels), preserving the source alpha and working RGB precision. Apply to a duplicate and use Overlay/Soft Light for sharpening, or use smart_filter to retain an editable stack.")]
+    public Task<string> FilterHighPass(double radius = 2, [Description(TargetLayer)] string? layer = null, int? document = null) =>
+        Filter(document, layer, new FilterSettings { Kind = FilterKind.HighPass, Radius = Math.Clamp(radius, .1, 250) });
 
     [McpServerTool(Name = "filter_motion_blur")]
     [Description("Motion Blur over a distance in pixels at an angle in degrees.")]

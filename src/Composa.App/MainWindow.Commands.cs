@@ -1008,7 +1008,7 @@ public sealed partial class MainWindow
             target.CommitPreview();
             return;
         }
-        var initial = new FilterSettings { Kind = kind, Radius = kind == FilterKind.Sharpen ? 2 : kind == FilterKind.MotionBlur ? 30 : 8, Amount = kind == FilterKind.Sharpen ? 60 : 20, Seed = (uint)Random.Shared.Next() };
+        var initial = new FilterSettings { Kind = kind, Radius = kind is FilterKind.Sharpen or FilterKind.HighPass ? 2 : kind == FilterKind.MotionBlur ? 30 : 8, Amount = kind == FilterKind.Sharpen ? 60 : 20, Seed = (uint)Random.Shared.Next() };
         var result = await AdjustmentDialogs.EditFilter(this, initial, settings => Busy(() => target.PreviewFilter(settings)));
         // A filter left at nothing (a vignette of zero) closes as Cancel does, without an undo step.
         if (result == null || result.IsIdentity) target.CancelPreview();

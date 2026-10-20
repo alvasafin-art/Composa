@@ -35,7 +35,7 @@ public sealed partial class MainWindow
         var target = session!; var layer = chosen ?? target.ActiveLayer;
         if (layer?.Pixels == null || target.PixelsLocked(layer)) return;
         var old = layer.SmartFilters; var id = existing?.Id ?? Guid.NewGuid();
-        var initial = existing?.Settings ?? new FilterSettings { Kind = kind, Seed = (uint)Random.Shared.Next() };
+        var initial = existing?.Settings ?? new FilterSettings { Kind = kind, Radius = kind == FilterKind.HighPass ? 2 : 8, Seed = (uint)Random.Shared.Next() };
         target.Begin(existing == null ? "Add Smart Filter" : "Change Smart Filter");
         void Preview(FilterSettings settings)
         {

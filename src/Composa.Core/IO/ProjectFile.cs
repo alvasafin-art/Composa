@@ -24,9 +24,9 @@ public static class ProjectFile
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
     /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
     /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
-    /// 12 retained interpolating Warp surfaces.
+    /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data and custom hue ranges.
     /// </summary>
-    public const int Version = 12;
+    public const int Version = 13;
 
     private static readonly JsonSerializerOptions Json = new()
     {

@@ -11,6 +11,7 @@ public static unsafe partial class ImageFilters
         {
             case FilterKind.MotionBlur: return HighMotionBlur(source, settings.Radius, settings.Angle, settings.ClampEdges && HasOpaqueBorder(source));
             case FilterKind.Sharpen: return (HighSharpen(source, settings.Radius, settings.Amount / 50), 0, 0);
+            case FilterKind.HighPass: return (HighPass(source, settings.Radius), 0, 0);
             case FilterKind.AddNoise:
                 var noisy = Pixels.Clone(source);
                 new AddNoiseAdjustment { Amount = settings.Amount, Gaussian = settings.Gaussian, Monochromatic = settings.Monochrome, Seed = settings.Seed }.Apply(noisy);

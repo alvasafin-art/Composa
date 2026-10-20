@@ -22,12 +22,13 @@
 - Сохраняемая Warp-сетка, расширение смарт-источника, внешние маски и Smart Filters после деформации.
 - Liquify: исходное изображение и отдельное поле деформации, Freeze/Thaw/Reconstruct, локальная история и полноразмерный preview.
 - HSL: настраиваемые границы/feathering цветовых диапазонов, независимая классификация исходного цвета и сохранение границ из PSD.
+- Channel Mixer с независимыми RGB/Gray-каналами, константой и пресетами; High Pass с float-размытием, исходной alpha и поддержкой Smart Filters.
 
 ## Остальная область — ещё не завершена
 
 - Автоматическое определение ICC дисплея Linux/macOS и RGB soft proof; расширенная независимая приёмка цветового пути.
 - Расширенная фотографическая приёмка Healing/Patch/Content-Aware Fill.
-- Selective Color, Channel Mixer, High Pass, LUT, редактируемые заливки.
+- Selective Color, LUT, редактируемые заливки.
 - Фоновый уменьшенный preview с отменой устаревшего результата; Camera Raw Geometry/Upright/clipping; измерения больших проектов и память.
 - Нативный PSD для корректировок/эффектов/каналов/Smart Objects, расширенный межпрограммный round trip и PDF.
 - Navigator, поиск команд, canvas-only, перенос между вкладками, поиск/метки слоёв, рабочие пространства.
@@ -561,4 +562,33 @@ Colorize применяется к Master.
 отмена движения/окна, Reset, Colorize и настоящий MCP bridge. Скриншот `hsl-custom-band-rgb16` просмотрен.
 
 Источники: [Adobe: границы полного диапазона и плавного перехода](https://helpx.adobe.com/photoshop/desktop/adjust-color/color-corrections/apply-a-hue-or-saturation-adjustment.html),
-[Adobe: формат Hue/Saturation](https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/#50577411_pgfId-1059259).
+[Adobe: формат Hue/Saturation](https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/).
+
+### 20 октября: Channel Mixer и High Pass
+
+Channel Mixer вычисляет независимые выходные RGB-каналы одновременно по исходному цвету; вклад каждого
+канала и Constant регулируется от −200% до 200%. Monochrome хранит отдельную Gray-строку, не теряя RGB-настройки.
+Есть готовые монохромные фильтры, обмен Red/Blue, Reset output и сумма вкладов без Constant. Смена произвольного
+коэффициента снимает неверное название пресета. Коррекция работает как слой и растровая команда; CMPS и Undo
+сохраняют настройки. Нативная запись/чтение Photoshop `mixr` этим этапом не заявляется.
+
+High Pass вычитает Gaussian low frequencies из исходного прямого RGB вокруг нейтрального 50%-серого,
+сохраняя исходные alpha и сетку. Размытие считается во float даже для RGB8, чтобы деление на слабую alpha
+не создавало ложных цветных краёв. Scratch ограничен полосой с halo, стыки проверены по полноразмерному
+float-эталону. Доступны растровое применение и Smart Filter, Radius с начальным/Reset 2 px и подсказка
+применения Overlay/Soft Light. `adjust_channel_mixer` и `filter_high_pass` доступны агенту через штатную историю.
+
+Общие прогоны: **814 Core + 679 App прошли**, 16 opt-in App пропущены. Целевые проверки покрывают
+отрицательные коэффициенты/Constant, переключение RGB/Gray, соседние RGB16-уровни, P3, прозрачность,
+края изображения и полос, чёрную маску Smart Filters, CMPS и Undo; настоящий MCP bridge также пройден.
+Скриншоты `channel-mixer-rgb16` и `high-pass-rgb16` просмотрены. На фотографии GT25 3694×2457 в RGB16/P3
+High Pass 2 px занял **677 мс**, монохромный Mixer **67 мс**, peak working set процесса **689 МБ**.
+Просмотрены монохромное фото и High Pass поверх оригинала в Soft Light. Это измерение одного изображения;
+фотографическая AI-приёмка и многослойный стресс-тест сюда не входят.
+
+Для следующей Selective Color проверка в установленном Photoshop пока не проведена: запуск через
+инструмент управления приложениями завершился ожиданием разрешения. Это не засчитывается как сравнение.
+Полный аудит остаётся незавершённым; промежуточный релиз не публикуется.
+
+Источники: [Adobe: Channel Mixer](https://helpx.adobe.com/photoshop/desktop/adjust-color/selective-color-adjustments/mix-color-channels-with-channel-mixer.html),
+[Adobe: монохромные фильтры](https://helpx.adobe.com/photoshop/desktop/adjust-color/selective-color-adjustments/create-monochrome-and-tinted-images-with-channel-mixer.html).

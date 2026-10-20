@@ -143,9 +143,9 @@ public class McpTests
         await Pumped(() => host.Connections == 1);
         var tools = await client.ListToolsAsync();
         Assert.Equal(
-            ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
+            ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_channel_mixer", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "channels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
-             "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "liquify_layer", "list_documents", "list_files", "list_read_folders",
+             "filter_bloom", "filter_blur", "filter_high_pass", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "liquify_layer", "list_documents", "list_files", "list_read_folders",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "refine_selection", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
              "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_filter", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document", "warp_layer"],
             tools.Select(t => t.Name).Order());
@@ -484,6 +484,9 @@ public class McpTests
         var blurred = await Pumped(client.CallToolAsync("filter_blur", new Dictionary<string, object?> { ["radius"] = 6, ["layer"] = "Background" }));
         Assert.Equal("Applied Gaussian Blur to \"Background\".", Text(blurred));
         Assert.Equal("Gaussian Blur", session.History.UndoName);
+        Assert.Null((await Pumped(client.CallToolAsync("filter_high_pass", new Dictionary<string, object?> { ["radius"] = 2, ["layer"] = "Background" }))).IsError); Assert.Equal("High Pass", session.History.UndoName); await Pumped(client.CallToolAsync("undo"));
+        Assert.Null((await Pumped(client.CallToolAsync("adjust_channel_mixer", new Dictionary<string, object?> { ["red"] = new[] { 0d, 0, 100, 0 }, ["blue"] = new[] { 100d, 0, 0, 0 }, ["asLayer"] = true, ["layer"] = "Background" }))).IsError);
+        Assert.Equal(new ChannelMix(0, 0, 100), Assert.IsType<ChannelMixerAdjustment>(session.ActiveLayer!.Adjustment).Red); await Pumped(client.CallToolAsync("undo"));
         var painted = await Pumped(client.CallToolAsync("filter_painterly", new Dictionary<string, object?> { ["style"] = "colorist wash", ["brushSize"] = 12, ["layer"] = "Background", ["seed"] = 5 }));
         Assert.Equal("Applied Painterly to \"Background\".", Text(painted));
         Assert.Equal("Painterly", session.History.UndoName);

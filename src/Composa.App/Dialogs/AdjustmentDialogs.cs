@@ -10,7 +10,7 @@ using SkiaSharp;
 namespace Composa.App.Dialogs;
 
 /// <summary>Editors for every adjustment and filter. Each reports changes live so the canvas can preview them.</summary>
-public static class AdjustmentDialogs
+public static partial class AdjustmentDialogs
 {
     private static readonly string[] Channels = ["RGB", "Red", "Green", "Blue"];
 
@@ -49,6 +49,7 @@ public static class AdjustmentDialogs
             GradientMapAdjustment map => GradientMapEditor(owner, map, foreground, background, Update),
             BlackAndWhiteAdjustment bw => BlackAndWhiteEditor(bw, Update),
             ColorBalanceAdjustment balance => ColorBalanceEditor(balance, Update),
+            ChannelMixerAdjustment mixer => ChannelMixerEditor(mixer, Update),
             _ => Ui.Label("This adjustment has no settings.", Palette.Secondary)
         };
         var previewBox = Ui.Check("Preview", true, v => { preview = v; timer.Stop(); timer.Start(); });
@@ -308,8 +309,8 @@ public static class AdjustmentDialogs
         void Update(FilterSettings value) { current = value; timer.Stop(); timer.Start(); }
         var panel = new StackPanel { Spacing = 8 };
         // A filter opens with its defaults, so Reset puts a slider back to the value it opened with.
-        void Slider(string label, double value, double min, double max, Func<double, FilterSettings> apply, double step = 1, string format = "0") =>
-            panel.Children.Add(Ui.SliderField(label, value, min, max, v => Update(apply(v)), step, format, FieldWidth, reset: value));
+        void Slider(string label, double value, double min, double max, Func<double, FilterSettings> apply, double step = 1, string format = "0", double? reset = null) =>
+            panel.Children.Add(Ui.SliderField(label, value, min, max, v => Update(apply(v)), step, format, FieldWidth, reset: reset ?? value));
         switch (initial.Kind)
         {
             case FilterKind.GaussianBlur:
@@ -324,6 +325,11 @@ public static class AdjustmentDialogs
             case FilterKind.Sharpen:
                 Slider("Amount", initial.Amount, 0, 200, v => current with { Amount = v });
                 Slider("Radius", initial.Radius, 0.5, 20, v => current with { Radius = v }, 0.1, "0.0");
+                break;
+            case FilterKind.HighPass:
+                Slider("Radius", initial.Radius, .1, 250, v => current with { Radius = v }, .1, "0.0", reset: 2);
+                var highPassHint = Ui.Label("Neutral gray carries no detail. Use Overlay or Soft Light for sharpening.", Palette.Secondary); highPassHint.TextWrapping = TextWrapping.Wrap; highPassHint.Width = FieldWidth;
+                panel.Children.Add(highPassHint);
                 break;
             case FilterKind.AddNoise:
                 Slider("Amount", initial.Amount, 0, 100, v => current with { Amount = v });

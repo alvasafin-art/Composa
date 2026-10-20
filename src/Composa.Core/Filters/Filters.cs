@@ -4,7 +4,7 @@ using SkiaSharp;
 
 namespace Composa.Filters;
 
-public enum FilterKind { GaussianBlur, MotionBlur, AddNoise, Sharpen, Vignette, BloomGlow, TonalContrast, LensCorrection, CameraRaw, RemoveBackground, Painterly }
+public enum FilterKind { GaussianBlur, MotionBlur, AddNoise, Sharpen, Vignette, BloomGlow, TonalContrast, LensCorrection, CameraRaw, RemoveBackground, Painterly, HighPass }
 
 /// <summary>Settings for the destructive Filter menu commands. Unused values are ignored by each kind.</summary>
 public sealed record FilterSettings
@@ -74,6 +74,7 @@ public sealed record FilterSettings
 
     public static string DisplayName(FilterKind kind) => kind switch
     {
+        FilterKind.HighPass => "High Pass",
         FilterKind.GaussianBlur => "Gaussian Blur",
         FilterKind.MotionBlur => "Motion Blur",
         FilterKind.AddNoise => "Add Noise",
@@ -131,6 +132,8 @@ public static unsafe partial class ImageFilters
                 return MotionBlur(source, settings.Radius, settings.Angle, settings.ClampEdges && HasOpaqueBorder(source));
             case FilterKind.Sharpen:
                 return (Sharpen(source, settings.Radius, settings.Amount / 100 * 2), 0, 0);
+            case FilterKind.HighPass:
+                return (HighPass(source, settings.Radius), 0, 0);
             case FilterKind.AddNoise:
                 return (AddNoise(source, settings.Amount, settings.Gaussian, settings.Monochrome, settings.Seed), 0, 0);
             case FilterKind.LensCorrection:
