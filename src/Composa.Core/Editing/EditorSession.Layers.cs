@@ -122,6 +122,7 @@ public sealed partial class EditorSession
     /// <param name="commit">False leaves the edit open, so a settings dialog can still <see cref="Cancel"/> the whole layer.</param>
     public Layer AddAdjustmentLayer(Adjustment adjustment, bool commit = true)
     {
+        CheckLookupBudget(adjustment);
         var layer = Layer.ForAdjustment(adjustment);
         layer.Name = document.UniqueName(adjustment.DisplayName);
         Begin("New Adjustment Layer");
@@ -137,8 +138,25 @@ public sealed partial class EditorSession
     public void SetAdjustment(Layer layer, Adjustment adjustment)
     {
         if (PixelsLocked(layer)) return;
+        CheckLookupBudget(adjustment, layer);
         layer.Adjustment = adjustment;
         InvalidateAll();
+    }
+
+    private void CheckLookupBudget(Adjustment adjustment, Layer? replaced = null)
+    {
+        if (adjustment is not ColorLookupAdjustment { Table: { } candidate }) return;
+        var tables = new Dictionary<string, CubeLut> { [candidate.Fingerprint] = candidate }; var visited = new HashSet<SmartObjectSource>();
+        void Collect(Document value)
+        {
+            foreach (var layer in value.AllLayers())
+            {
+                if (!ReferenceEquals(layer, replaced) && layer.Adjustment is ColorLookupAdjustment { Table: { } table }) tables.TryAdd(table.Fingerprint, table);
+                if (layer.SmartObject is { } source && visited.Add(source)) Collect(source.OpenDocument());
+            }
+        }
+        Collect(document);
+        if (tables.Values.Sum(t => (long)t.AssetBytes) > DocumentLimits.MaxDocumentLutBytes) throw new InvalidOperationException($"The document lookup tables exceed {DocumentLimits.MaxDocumentLutBytes / 1024 / 1024} MB. Remove an unused table first.");
     }
 
     public void DeleteSelectedLayers()

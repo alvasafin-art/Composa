@@ -19,6 +19,12 @@ public static class DocumentLimits
     public const long MaxSurfacePixels = 200_000_000;
     public const long MaxSurfaceBytes = MaxSurfacePixels * 4;
     public const int MaxIccBytes = 4 * 1024 * 1024;
+    public const int MaxLut1DSize = 65536;
+    public const int MaxLut3DSize = 128;
+    public const int MaxLutBytes = 32 * 1024 * 1024;
+    public const int MaxDocumentLutBytes = 128 * 1024 * 1024;
+    public const int MaxLutTextBytes = 256 * 1024 * 1024;
+    public const int MaxLutLineLength = 4096;
     public const int MaxWarpGridDivisions = 8;
     public const double MaxWarpCoordinate = 16;
 

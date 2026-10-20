@@ -3,7 +3,7 @@ using SkiaSharp;
 
 namespace Composa.Filters;
 
-public enum AdjustmentKind { HueSaturation, Levels, Curves, Exposure, GradientMap, Grain, Invert, BrightnessContrast, BlackAndWhite, ColorBalance, GaussianBlur, MotionBlur, AddNoise, ChannelMixer }
+public enum AdjustmentKind { HueSaturation, Levels, Curves, Exposure, GradientMap, Grain, Invert, BrightnessContrast, BlackAndWhite, ColorBalance, GaussianBlur, MotionBlur, AddNoise, ChannelMixer, ColorLookup }
 
 /// <summary>
 /// A color adjustment. The same settings drive a destructive Image menu command and a live adjustment layer.
@@ -24,6 +24,7 @@ public enum AdjustmentKind { HueSaturation, Levels, Curves, Exposure, GradientMa
 [JsonDerivedType(typeof(MotionBlurAdjustment), "motionBlur")]
 [JsonDerivedType(typeof(AddNoiseAdjustment), "addNoise")]
 [JsonDerivedType(typeof(ChannelMixerAdjustment), "channelMixer")]
+[JsonDerivedType(typeof(ColorLookupAdjustment), "colorLookup")]
 public abstract partial record Adjustment
 {
     [JsonIgnore] public abstract AdjustmentKind Kind { get; }
@@ -54,7 +55,7 @@ public abstract partial record Adjustment
         if (IsIdentity) return;
         area = Model.Geometry.Intersect(area, new SKRectI(0, 0, bitmap.Width, bitmap.Height));
         if (area.IsEmpty) return;
-        if (bitmap.ColorType == SKColorType.RgbaF32 || this is ExposureAdjustment && !Rendering.Pixels.ProfileOf(bitmap).Equals(ColorManagement.RgbProfile.Srgb))
+        if (bitmap.ColorType == SKColorType.RgbaF32 || this is ColorLookupAdjustment || this is ExposureAdjustment && !Rendering.Pixels.ProfileOf(bitmap).Equals(ColorManagement.RgbProfile.Srgb))
         { ApplyHighPrecision(bitmap, area, originX, originY, step, parallel); return; }
         // Settings are immutable, so the per-pixel operation (often a lookup table) is built once per instance.
         var op = step > 1.01 && CreateOp(step) is { } reduced ? reduced : Ops.GetValue(this, static adjustment => adjustment.CreateOp());
@@ -94,8 +95,9 @@ public abstract partial record Adjustment
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Adjustment, PixelOp> Ops = new();
 
     /// <summary>Value equality including array contents, which record equality compares by reference.</summary>
-    public bool ContentEquals(Adjustment other) =>
-        System.Text.Json.JsonSerializer.Serialize(this) == System.Text.Json.JsonSerializer.Serialize(other);
+    public bool ContentEquals(Adjustment other) => this is ColorLookupAdjustment lookup
+        ? other is ColorLookupAdjustment rhs && lookup.Strength.Equals(rhs.Strength) && lookup.Space == rhs.Space && lookup.Table?.Fingerprint == rhs.Table?.Fingerprint
+        : System.Text.Json.JsonSerializer.Serialize(this) == System.Text.Json.JsonSerializer.Serialize(other);
 
     public static Adjustment Create(AdjustmentKind kind) => kind switch
     {
@@ -112,6 +114,7 @@ public abstract partial record Adjustment
         AdjustmentKind.MotionBlur => new MotionBlurAdjustment(),
         AdjustmentKind.AddNoise => new AddNoiseAdjustment { Seed = (uint)Random.Shared.Next() },
         AdjustmentKind.ChannelMixer => new ChannelMixerAdjustment(),
+        AdjustmentKind.ColorLookup => new ColorLookupAdjustment(),
         _ => new BrightnessContrastAdjustment()
     };
 }

@@ -20,8 +20,8 @@ public abstract partial record Adjustment
             AddNoiseAdjustment noise => noise with { Amount = noise.Amount / step },
             _ => this
         } : this;
-        var op = settings is ExposureAdjustment
-            ? ProfileOps.GetValue(settings, _ => new()).GetValue(Pixels.ProfileOf(bitmap), p => HighPrecisionAdjustment.Create(settings, p.Transfer))
+        var op = settings is ExposureAdjustment or ColorLookupAdjustment
+            ? ProfileOps.GetValue(settings, _ => new()).GetValue(Pixels.ProfileOf(bitmap), p => settings is ColorLookupAdjustment lookup ? lookup.CreateColorOp(p) : HighPrecisionAdjustment.Create(settings, p.Transfer))
             : FloatOps.GetValue(settings, s => HighPrecisionAdjustment.Create(s));
         var pixels = new PixelBuffer(bitmap);
         void Row(int y)

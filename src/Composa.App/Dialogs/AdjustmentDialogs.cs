@@ -50,6 +50,7 @@ public static partial class AdjustmentDialogs
             BlackAndWhiteAdjustment bw => BlackAndWhiteEditor(bw, Update),
             ColorBalanceAdjustment balance => ColorBalanceEditor(balance, Update),
             ChannelMixerAdjustment mixer => ChannelMixerEditor(mixer, Update),
+            ColorLookupAdjustment lookup => ColorLookupEditor(owner, lookup, Update),
             _ => Ui.Label("This adjustment has no settings.", Palette.Secondary)
         };
         var previewBox = Ui.Check("Preview", true, v => { preview = v; timer.Stop(); timer.Start(); });

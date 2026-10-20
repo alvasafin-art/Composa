@@ -143,7 +143,7 @@ public class McpTests
         await Pumped(() => host.Connections == 1);
         var tools = await client.ListToolsAsync();
         Assert.Equal(
-            ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_channel_mixer", "adjust_color_balance", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
+            ["add_line", "add_shape", "add_text", "adjust_black_and_white", "adjust_brightness_contrast", "adjust_channel_mixer", "adjust_color_balance", "adjust_color_lookup", "adjust_curves", "adjust_exposure", "adjust_gradient_map",
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "channels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_high_pass", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "liquify_layer", "list_documents", "list_files", "list_read_folders",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "refine_selection", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
@@ -487,6 +487,18 @@ public class McpTests
         Assert.Null((await Pumped(client.CallToolAsync("filter_high_pass", new Dictionary<string, object?> { ["radius"] = 2, ["layer"] = "Background" }))).IsError); Assert.Equal("High Pass", session.History.UndoName); await Pumped(client.CallToolAsync("undo"));
         Assert.Null((await Pumped(client.CallToolAsync("adjust_channel_mixer", new Dictionary<string, object?> { ["red"] = new[] { 0d, 0, 100, 0 }, ["blue"] = new[] { 100d, 0, 0, 0 }, ["asLayer"] = true, ["layer"] = "Background" }))).IsError);
         Assert.Equal(new ChannelMix(0, 0, 100), Assert.IsType<ChannelMixerAdjustment>(session.ActiveLayer!.Adjustment).Red); await Pumped(client.CallToolAsync("undo"));
+        var cubePath = Path.Combine(Path.GetTempPath(), "composa-mcp-lut-" + Guid.NewGuid().ToString("N") + ".cube");
+        try
+        {
+            File.WriteAllText(cubePath, "TITLE \"Reverse\"\nLUT_1D_SIZE 2\n1 1 1\n0 0 0\n");
+            Assert.Null((await Pumped(client.CallToolAsync("adjust_color_lookup", new Dictionary<string, object?> { ["path"] = cubePath, ["strength"] = 35, ["space"] = "workingRgb", ["asLayer"] = true, ["layer"] = "Background" }))).IsError);
+            var lookup = Assert.IsType<ColorLookupAdjustment>(session.ActiveLayer!.Adjustment); Assert.Equal("Reverse", lookup.Table!.Title); Assert.Equal(35, lookup.Strength); Assert.Equal(LookupRgbSpace.WorkingRgb, lookup.Space);
+            await Pumped(client.CallToolAsync("undo")); var lookupState = session.History.CurrentId;
+            Assert.True((await Pumped(client.CallToolAsync("adjust_color_lookup", new Dictionary<string, object?> { ["path"] = cubePath, ["space"] = "camera-log" }))).IsError);
+            File.WriteAllText(cubePath, "LUT_1D_SIZE 2\n0 0 0\n");
+            Assert.True((await Pumped(client.CallToolAsync("adjust_color_lookup", new Dictionary<string, object?> { ["path"] = cubePath }))).IsError); Assert.Equal(lookupState, session.History.CurrentId);
+        }
+        finally { File.Delete(cubePath); }
         var painted = await Pumped(client.CallToolAsync("filter_painterly", new Dictionary<string, object?> { ["style"] = "colorist wash", ["brushSize"] = 12, ["layer"] = "Background", ["seed"] = 5 }));
         Assert.Equal("Applied Painterly to \"Background\".", Text(painted));
         Assert.Equal("Painterly", session.History.UndoName);

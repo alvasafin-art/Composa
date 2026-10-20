@@ -24,7 +24,7 @@ public static class ProjectFile
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
     /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
     /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
-    /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data and custom hue ranges.
+    /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data, custom hue ranges and embedded LUTs.
     /// </summary>
     public const int Version = 13;
 
@@ -99,6 +99,7 @@ public static class ProjectFile
         public bool? VectorMaskEnabled { get; set; }
         public bool VectorMaskFollowsWarp { get; set; } = true;
         public Adjustment? Adjustment { get; set; }
+        public string? LookupFile { get; set; }
         public ShapeStyle? Shape { get; set; }
         public TextStyle? Text { get; set; }
         public LayerEffects? Effects { get; set; }
@@ -124,6 +125,16 @@ public static class ProjectFile
         var sources = new Dictionary<SmartObjectSource, string>(ReferenceEqualityComparer.Instance);
         var objects = new Dictionary<string, SmartRecord>();
         var profiles = new Dictionary<RgbProfile, string>();
+        var lookups = new Dictionary<string, string>(); long lookupBytes = 0;
+
+        string StoreLookup(CubeLut table)
+        {
+            if (lookups.TryGetValue(table.Fingerprint, out var known)) return known;
+            lookupBytes += table.AssetBytes;
+            if (lookupBytes > DocumentLimits.MaxDocumentLutBytes) throw new InvalidDataException($"The project LUTs exceed {DocumentLimits.MaxDocumentLutBytes / 1024 / 1024} MB.");
+            var name = lookups.Count + ".lut"; lookups.Add(table.Fingerprint, name);
+            using var entry = zip.CreateEntry("lookups/" + name, CompressionLevel.Optimal).Open(); table.WriteBinary(entry); return name;
+        }
 
         string? StoreProfile(RgbProfile profile)
         {
@@ -175,7 +186,9 @@ public static class ProjectFile
             MaskDensity = layer.MaskDensity, MaskFeather = layer.MaskFeather,
             Clipped = layer.Clipped ? true : null,
             Collapsed = layer.Collapsed ? true : null,
-            Adjustment = layer.Adjustment, Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
+            Adjustment = layer.Adjustment is ColorLookupAdjustment lookup ? lookup with { Table = null } : layer.Adjustment,
+            LookupFile = layer.Adjustment is ColorLookupAdjustment { Table: { } table } ? StoreLookup(table) : null,
+            Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
             Children = layer.IsGroup ? layer.Children.Select(Record).ToList() : null,
             SmartObject = layer.SmartObject is { } source ? StoreSource(source) : null
         };
@@ -218,8 +231,19 @@ public static class ProjectFile
         var sources = new Dictionary<string, SmartObjectSource>();
         var visiting = new HashSet<string>();
         var profiles = new Dictionary<(string File, string Name), RgbProfile>();
+        var lookups = new Dictionary<string, CubeLut>(); long lookupBytes = 0;
         long allocatedPixels = 0;
         var count = 0;
+
+        CubeLut FetchLookup(string name)
+        {
+            if (name.Contains("..") || name.Contains('/') || name.Contains('\\')) throw new InvalidDataException("The project refers to an unsafe LUT path.");
+            if (lookups.TryGetValue(name, out var known)) return known;
+            var entry = zip.GetEntry("lookups/" + name) ?? throw new InvalidDataException("The project lookup table is missing.");
+            if (entry.Length < 1 || entry.Length > DocumentLimits.MaxLutBytes + DocumentLimits.MaxLutLineLength + 128 || lookupBytes + entry.Length > DocumentLimits.MaxDocumentLutBytes)
+                throw new InvalidDataException("The project LUTs exceed the supported memory budget.");
+            using var input = entry.Open(); var table = CubeLut.ReadBinary(input); lookupBytes += entry.Length; lookups.Add(name, table); return table;
+        }
 
         RgbProfile FetchProfile(string? name, string title)
         {
@@ -265,6 +289,14 @@ public static class ProjectFile
         Layer Build(LayerRecord record, int depth, int version)
         {
             if (++count > 10_000 || depth > 64) throw new InvalidDataException("The project has too many layers.");
+            var adjustment = record.Adjustment;
+            if (adjustment is ColorLookupAdjustment lookup)
+            {
+                if (lookup.Table != null) throw new InvalidDataException("Project lookup samples must be stored as an embedded asset.");
+                adjustment = lookup with { Table = record.LookupFile == null ? null : FetchLookup(record.LookupFile), Strength = double.IsFinite(lookup.Strength) ? Math.Clamp(lookup.Strength, 0, 100) : 0,
+                    Space = Enum.IsDefined(lookup.Space) ? lookup.Space : LookupRgbSpace.Srgb };
+            }
+            else if (record.LookupFile != null) throw new InvalidDataException("A LUT asset requires a Color Lookup adjustment.");
             var layer = new Layer
             {
                 Id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, Name = record.Name, Kind = record.Kind, Visible = record.Visible,
@@ -274,7 +306,7 @@ public static class ProjectFile
                 MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false, Locks = record.Locks & LayerLocks.All,
                 MaskDensity = double.IsFinite(record.MaskDensity) ? Math.Clamp(record.MaskDensity, 0, 1) : 1,
                 MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0,
-                Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
+                Adjustment = adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
                 VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true, VectorMaskFollowsWarp = record.VectorMaskFollowsWarp
             };
             if (record.Tags != null)
