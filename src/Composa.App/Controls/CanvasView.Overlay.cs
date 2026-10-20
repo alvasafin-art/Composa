@@ -18,6 +18,11 @@ public sealed partial class CanvasView
         var phase = antsPhase;
 
         CaptureGuidesAndGrid(steps, view, hair);
+        if (session.WarpEdit != null)
+        {
+            CaptureWarpOverlay(steps, view, hair);
+            return canvas => { foreach (var step in steps) step(canvas); };
+        }
         CapturePenOverlay(steps, view, hair);
 
         if (aiContextBounds is { } aiBounds && session.Selection != null && !session.IsPaintingSelection && drag == Drag.None)

@@ -566,6 +566,7 @@ public sealed class LayersPanel : UserControl
 
     private Bitmap LayerThumbnail(Layer layer)
     {
+        if (layer.HasWarp) layer = layer.WarpAppearance(Math.Min(1, 68.0 / Math.Max(layer.Pixels!.Width, layer.Pixels.Height)));
         if (!layer.HasSmartFilterMask) return Thumbnail(layer.Pixels!);
         using var preview = layer.RenderFilterPreview(68);
         return Ui.ToAvaloniaBitmap(preview, 68, displayProfile);

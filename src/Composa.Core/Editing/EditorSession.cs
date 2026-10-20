@@ -76,6 +76,7 @@ public sealed partial class EditorSession
         get => tool;
         set
         {
+            if (value != tool && WarpEdit != null) CommitWarp();
             if (value != Tool.Text && TextEdit != null) FinishText();
             tool = value;
         }
@@ -163,6 +164,7 @@ public sealed partial class EditorSession
     {
         // Color Range's panel is not modal, so another edit can begin while it is open; that keeps what it shows.
         if (ColorRange != null) CommitColorRange();
+        if (WarpEdit != null) CommitWarp();
         if (TextEdit != null) FinishText();
         else if (stroke != null) EndStroke();
         else if (floatLayer != null) EndMovePixels(keep: true);

@@ -28,6 +28,7 @@ public static partial class PsdExport
         if (NeedsAppearance(document)) notes.Add(new("Document", "Adjustments are applied to a merged appearance layer. Source layers are kept in a hidden folder; adjustment settings stay in the Composa project."));
         foreach (var layer in document.AllLayers())
         {
+            if (layer.HasWarp) notes.Add(new(layer.Name, "Warp and its enabled masks are exported as the rendered appearance. The retained source, mesh and disabled mask settings stay in the Composa project."));
             if (layer.Mask != null && (layer.MaskDensity < 1 || layer.MaskFeather > 0)
                 && (layer.Effects?.Visible() is { IsEmpty: false } || !new Record(layer, SKRectI.Empty).NativeMaskProperties))
                 notes.Add(new(layer.Name, "Mask density and feather are applied to the exported appearance; their original values stay in the Composa project."));
@@ -65,8 +66,8 @@ public static partial class PsdExport
 
     private sealed record Record(Layer Layer, SKRectI Bounds, int Section = 0, bool Appearance = false)
     {
-        public bool HasEffects => Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
-        public bool HasMask => Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
+        public bool HasEffects => Layer.HasWarp || Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
+        public bool HasMask => !Layer.HasWarp && Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
         public bool NativeMaskProperties => Layer.MaskTransform != null ? LayerTransform.FromMatrix(Layer.MaskMatrix, Layer.Mask!.Width, Layer.Mask.Height).IsPureTranslation(Layer.Mask.Width, Layer.Mask.Height)
             : Layer.Pixels == null || Layer.Transform.IsPureTranslation(Layer.Pixels.Width, Layer.Pixels.Height);
         public List<(short Id, long Position)> Channels { get; } = [];

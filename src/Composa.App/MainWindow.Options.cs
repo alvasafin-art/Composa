@@ -16,6 +16,7 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     private bool optionsHaveShape;
+    private bool optionsHaveWarp;
     private Button generativeExpandButton = null!;
 
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
@@ -24,6 +25,7 @@ public sealed partial class MainWindow
         refreshOptions = null;
         optionsHost.Height = 40;
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
+        optionsHaveWarp = session?.WarpEdit != null;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         if (session == null) { toolOptionsHost.Child = null; return; }
@@ -42,9 +44,22 @@ public sealed partial class MainWindow
         switch (s.Tool)
         {
             case Tool.Move:
+                if (s.WarpEdit is { } warp)
+                {
+                    Add(Title("Warp"));
+                    var grids = new[] { (Columns: 3, Rows: 3), (Columns: 4, Rows: 4), (Columns: 5, Rows: 5), (warp.Mesh.Columns, warp.Mesh.Rows) }.Distinct().ToArray();
+                    var grid = Ui.Combo(grids, (warp.Mesh.Columns, warp.Mesh.Rows), v => $"{v.Columns} × {v.Rows}", v => canvas.ChangeWarpGrid(v.Columns, v.Rows), 94);
+                    grid.Name = "WarpGrid"; grid.IsEnabled = warp.Mesh.IsIdentity;
+                    ToolTip.SetTip(grid, "Reset the deformation to choose a different grid. The source pixels stay intact.");
+                    Add(grid, Flat("Reset", canvas.ResetWarp), Flat("Undo point", () => canvas.UndoWarpPoint()),
+                        Ui.TextButton("Apply", () => canvas.FinishWarp(keep: true), accent: true), Flat("Cancel", () => canvas.FinishWarp(keep: false)),
+                        Ui.Label("Drag nodes · Shift locks direction · Enter applies · Esc cancels", Palette.Secondary));
+                    break;
+                }
                 Add(Title("Move"));
                 BuildTransformFields(row);
                 if (s.IsEditingChannel) break;
+                var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildAlignmentFields(row);
                 break;

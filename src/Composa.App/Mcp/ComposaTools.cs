@@ -96,6 +96,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
             if (layer.Opacity < 1) text.Append(", opacity ").Append((layer.Opacity * 100).ToString("0")).Append('%');
             if (layer.Blend != BlendMode.Normal) text.Append(", blend ").Append(layer.Blend.DisplayName());
             if (layer.Mask != null) text.Append(", masked");
+            if (layer.Warp is { } warp) text.Append(", Warp grid ").Append(warp.Columns).Append('×').Append(warp.Rows);
             if (layer.Clipped) text.Append(", clipped to the layer below");
             if (layer.Effects != null) text.Append(", with effects");
             if (layer.SmartFilters.Length > 0) text.Append(", ").Append(layer.SmartFilters.Length).Append(" smart filters (smart_filter list)");

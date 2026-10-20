@@ -24,7 +24,7 @@ public sealed partial class EditorSession
     public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;
-        if (mask) layer.VectorMask = path;
+        if (mask) { if (layer.VectorMask == null) layer.VectorMaskFollowsWarp = !layer.HasWarp; layer.VectorMask = path; }
         else if (layer.Shape is { } style) { layer.Shape = style with { Path = path }; layer.Pixels = RenderWorkingShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
         InvalidateAll(); LayersChanged?.Invoke();
     }
@@ -72,7 +72,7 @@ public sealed partial class EditorSession
             var outgoing = matrix.MapPoint((float)n.OutX * source.Pixels.Width, (float)n.OutY * source.Pixels.Height);
             return new(anchor.X / target.Pixels.Width, anchor.Y / target.Pixels.Height, incoming.X / target.Pixels.Width, incoming.Y / target.Pixels.Height, outgoing.X / target.Pixels.Width, outgoing.Y / target.Pixels.Height);
         }
-        Apply("Vector Mask", () => target.VectorMask = geometry with { Nodes = geometry.Nodes.Select(Convert).ToArray() }); InvalidateAll(); LayersChanged?.Invoke();
+        Apply("Vector Mask", () => { target.VectorMask = geometry with { Nodes = geometry.Nodes.Select(Convert).ToArray() }; target.VectorMaskFollowsWarp = !target.HasWarp; }); InvalidateAll(); LayersChanged?.Invoke();
     }
     public void RemoveVectorMask(Layer layer)
     {
@@ -86,7 +86,7 @@ public sealed partial class EditorSession
         var candidate = document.Clone(); candidate.Find(layer.Id)!.Mask = mask;
         if (candidate.RasterPixels() > DocumentLimits.DocumentPixelBudget) { mask.Dispose(); throw new InvalidOperationException("The refined mask exceeds the document raster memory budget."); }
         Apply("Refine Layer Mask", () =>
-        { layer.Mask = mask; layer.MaskEnabled = true; layer.MaskLinked = true; layer.MaskTransform = null; layer.MaskDefault = 0; layer.MaskDensity = 1; layer.MaskFeather = 0; });
+        { layer.Mask = mask; layer.MaskEnabled = true; layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0; layer.MaskDensity = 1; layer.MaskFeather = 0; });
         InvalidateAll(); LayersChanged?.Invoke();
     }
 }

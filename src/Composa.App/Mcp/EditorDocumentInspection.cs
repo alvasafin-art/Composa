@@ -15,7 +15,7 @@ internal static class EditorDocumentInspection
     internal const string ChecksSchema = """
         {"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{
         "layer":{"type":["string","null"],"description":"Target: full layer id or unique name, e.g. Tile. Use null for canvas, guides or selection."},
-        "property":{"type":"string","enum":["width","height","resolution","layerCount","guideCount","hasSelection","showGuides","guidesLocked","name","kind","visible","opacity","blend","insideCanvas","hasMask","maskEnabled","maskLinked","shape.fill","shape.kind","text.value","text.color","text.size","transform.x","transform.y","transform.width","transform.height","transform.rotation"]},
+        "property":{"type":"string","enum":["width","height","resolution","layerCount","guideCount","hasSelection","showGuides","guidesLocked","name","kind","visible","opacity","blend","insideCanvas","hasMask","maskEnabled","maskLinked","hasWarp","warp.columns","warp.rows","shape.fill","shape.kind","text.value","text.color","text.size","transform.x","transform.y","transform.width","transform.height","transform.rotation"]},
         "operator":{"type":"string","enum":["equals","near","exists","absent"]},
         "expected":{"type":["string","number","boolean","null"],"description":"Actual scalar value, e.g. 2, true or #FFFF00. Not an object with a value property."},
         "tolerance":{"type":"number","minimum":0}},"required":["layer","property"],"additionalProperties":false}}
@@ -57,7 +57,12 @@ internal static class EditorDocumentInspection
         id = layer.Id, name = layer.Name, parentId = s.Document.ParentOf(layer.Id)?.Id,
         kind = Kind(layer),
         visible = layer.Visible, opacity = layer.Opacity, blend = layer.Blend.ToString(), tags = layer.Tags,
+        hasWarp = layer.HasWarp,
         transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation },
+        warp = layer.Warp == null || layer.Pixels == null ? null : new { columns = layer.Warp.Columns, rows = layer.Warp.Rows,
+            points = layer.Warp.Points.Select((p, i) => { var point = layer.Matrix.MapPoint((float)(p.X * layer.Pixels.Width), (float)(p.Y * layer.Pixels.Height));
+                return new { column = i % (layer.Warp.Columns + 1), row = i / (layer.Warp.Columns + 1), x = point.X, y = point.Y }; }) },
+        controlBounds = Bounds(layer.ControlBounds),
         bounds = Bounds(ContentBounds(layer)), insideCanvas = InsideCanvas(s, ContentBounds(layer)),
         shape = layer.Shape == null ? null : new { kind = layer.Shape.Kind.ToString(), fill = Color(layer.Shape.Fill) },
         text = layer.Text == null ? null : new { value = fullText ? layer.Text.Text : layer.Text.Text[..Math.Min(400, layer.Text.Text.Length)],

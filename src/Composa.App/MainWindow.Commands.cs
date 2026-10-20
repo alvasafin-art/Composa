@@ -182,6 +182,7 @@ public sealed partial class MainWindow
             Item("Edit Adjustment…", () => _ = EditAdjustmentLayer(session!.ActiveLayer!, false), enabled: () => session!.ActiveLayer?.IsAdjustment == true),
             Line(),
             Item("Transform Layer", () => { canvas.ShowTransformControls = true; SelectTool(Tool.Move); }, Key.T, ctrl),
+            Item("Warp…", StartWarp, enabled: () => session!.CanWarp),
             Item("Duplicate Layer / Layer via Copy", () => session!.LayerViaCopy(), Key.J, ctrl, () => session!.ActiveLayer != null),
             Item("Rename Layer…", layers.BeginRename, Key.F2, enabled: () => session!.ActiveLayer != null),
             Item("Delete Layer", layers.DeleteLayerOrMask, enabled: () => session!.ActiveLayer != null),
@@ -432,7 +433,7 @@ public sealed partial class MainWindow
         if (Content is Control { IsEnabled: false }) return;
         if (command.Enabled?.Invoke() == false || IsDragging) return;
         problem = note = null;
-        try { session?.CommitChannelControlEdit(); command.Run(); }
+        try { session?.CommitChannelControlEdit(); if (session != null && !CommitWarp(session)) return; command.Run(); }
         catch (Exception error) { _ = Prompts.Alert(this, command.Title, error.Message); }
         UpdateStatus();
     }
@@ -459,7 +460,7 @@ public sealed partial class MainWindow
         RefreshAiUi();
         UpdateColors();
         if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen)) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape) RebuildOptions();
+        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape || (session.WarpEdit != null) != optionsHaveWarp) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }
@@ -496,6 +497,7 @@ public sealed partial class MainWindow
         if (focused is Control control && control.FindAncestorOfType<MenuItem>() != null) return;
         // A slider field that was just dragged keeps the keys that step or jump its value; letters still reach the tool shortcuts.
         if (focused is Controls.SliderField && e.Key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Home or Key.End) return;
+        if (focused is ComboBox && session?.WarpEdit != null && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
 
         if (canvas.HandleKeyDown(e)) { e.Handled = true; return; }
         // While text is being typed, letters are text, not tool keys or shortcuts; the key stays unhandled so the
@@ -712,6 +714,7 @@ public sealed partial class MainWindow
     {
         if (IsDragging) return false;
         target.CommitChannelControlEdit();
+        if (!CommitWarp(target)) return false;
         if (!saveAs && embeddedTabs.ContainsKey(target))
         {
             try { return await SaveSmartObjectContents(target); }
@@ -777,6 +780,7 @@ public sealed partial class MainWindow
             return new IOException("Save a .cmps project or a .psd Photoshop document.");
         if (IsDragging) return new IOException("Finish dragging the canvas or controls before saving.");
         target.CommitChannelControlEdit();
+        if (!CommitWarp(target)) return new InvalidOperationException("Couldn't apply Warp before saving.");
         target.FinishText();
         var snapshot = target.Document.Clone();
         var state = target.History.CurrentId;

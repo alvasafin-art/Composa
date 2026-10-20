@@ -414,6 +414,8 @@ public sealed partial class Layer
     /// <summary>Alpha8 coverage (white reveals). For raster layers it matches <see cref="Pixels"/>; otherwise the document.</summary>
     public SKBitmap? Mask { get; set; }
     public bool MaskLinked { get; set; } = true;
+    /// <summary>Pre-Warp coverage follows the retained surface; masks added afterwards stay editable above Warp.</summary>
+    public bool MaskFollowsWarp { get; set; } = true;
     /// <summary>Independent placement: document coordinates when unlinked, unit layer coordinates when linked.
     /// Null preserves legacy placement over the full layer (document origin for folders/adjustments).</summary>
     public LayerTransform? MaskTransform { get; set; }
@@ -432,7 +434,7 @@ public sealed partial class Layer
     /// <summary>Stroke, shadows and overlay drawn around the pixels; null when the layer has none.</summary>
     public LayerEffects? Effects { get; set; }
     /// <summary>Live layers (shapes and text) are regenerated from their settings; they take pixel edits only once rasterized.</summary>
-    public bool IsLive => Shape != null || Text != null || SmartObject != null || FilterSource != null;
+    public bool IsLive => Shape != null || Text != null || SmartObject != null || FilterSource != null || HasWarp;
     /// <summary>Bottom-to-top children of a group.</summary>
     public List<Layer> Children { get; init; } = [];
     public bool Collapsed { get; set; }
@@ -449,6 +451,7 @@ public sealed partial class Layer
     public int FilterPaddingY { get; set; }
     public VectorPath? VectorMask { get; set; }
     public bool VectorMaskEnabled { get; set; } = true;
+    public bool VectorMaskFollowsWarp { get; set; } = true;
 
     public bool IsGroup => Kind == LayerKind.Group;
     public bool IsAdjustment => Kind == LayerKind.Adjustment;
@@ -457,13 +460,18 @@ public sealed partial class Layer
     public SKMatrix Matrix => Pixels == null ? SKMatrix.Identity : Transform.Matrix(Pixels.Width, Pixels.Height);
 
     /// <summary>Document-space bounds of the layer's pixels; empty for groups and adjustments.</summary>
-    public SKRect Bounds => Pixels == null ? SKRect.Empty : Transform.Bounds(Pixels.Width, Pixels.Height);
+    public SKRect Bounds => Pixels == null ? SKRect.Empty : HasWarp ? Matrix.MapRect(WarpBounds) : Transform.Bounds(Pixels.Width, Pixels.Height);
 
     /// <summary>Raster controls enclose content, while live text and shapes retain their editable boxes. The source grid and masks stay intact.</summary>
     public LayerTransform ControlTransform
     {
         get
         {
+            if (HasWarp)
+            {
+                var warpBounds = Geometry.RoundOut(WarpBounds);
+                return LayerTransform.FromMatrix(SKMatrix.CreateTranslation(warpBounds.Left, warpBounds.Top).PostConcat(Matrix), warpBounds.Width, warpBounds.Height);
+            }
             if (Pixels == null || IsLive || IsSmartObject) return Transform;
             var bounds = ControlSourceBounds;
             if (bounds == new SKRectI(0, 0, Pixels.Width, Pixels.Height)) return Transform;
@@ -493,6 +501,7 @@ public sealed partial class Layer
         get
         {
             if (Pixels == null) return SKRectI.Empty;
+            if (HasWarp) return Geometry.RoundOut(WarpBounds);
             var bounds = IsLive || IsSmartObject ? SKRectI.Empty : Rendering.Pixels.ContentBounds(Pixels);
             return bounds.IsEmpty ? new(0, 0, Pixels.Width, Pixels.Height) : bounds;
         }
@@ -532,7 +541,8 @@ public sealed partial class Layer
             if (Pixels == null) return SKRect.Empty;
             var margin = EffectMargin;
             if (margin == 0) return Bounds;
-            return Matrix.MapRect(new SKRect(-margin, -margin, Pixels.Width + margin, Pixels.Height + margin));
+            var source = WarpBounds; source.Inflate(margin, margin);
+            return Matrix.MapRect(source);
         }
     }
 
@@ -542,12 +552,12 @@ public sealed partial class Layer
         var copy = new Layer
         {
             Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, FillOpacity = FillOpacity, Blend = Blend,
-            Pixels = Pixels, Transform = Transform, Mask = Mask, MaskLinked = MaskLinked, MaskTransform = MaskTransform, MaskDefault = MaskDefault, MaskEnabled = MaskEnabled, MaskDensity = MaskDensity, MaskFeather = MaskFeather, Clipped = Clipped, BlendIf = BlendIf,
+            Pixels = Pixels, Transform = Transform, Warp = Warp, warpCache = warpCache, Mask = Mask, MaskLinked = MaskLinked, MaskFollowsWarp = MaskFollowsWarp, MaskTransform = MaskTransform, MaskDefault = MaskDefault, MaskEnabled = MaskEnabled, MaskDensity = MaskDensity, MaskFeather = MaskFeather, Clipped = Clipped, BlendIf = BlendIf,
             Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed, Locks = Locks,
             FilterSource = FilterSource, SmartFilters = SmartFilters, FilterPaddingX = FilterPaddingX, FilterPaddingY = FilterPaddingY,
             SmartFilterMask = SmartFilterMask, SmartFilterMaskEnabled = SmartFilterMaskEnabled, SmartFilterMaskDefault = SmartFilterMaskDefault,
             SmartFilterMaskX = SmartFilterMaskX, SmartFilterMaskY = SmartFilterMaskY,
-            VectorMask = VectorMask, VectorMaskEnabled = VectorMaskEnabled
+            VectorMask = VectorMask, VectorMaskEnabled = VectorMaskEnabled, VectorMaskFollowsWarp = VectorMaskFollowsWarp
         };
         copy.Tags.UnionWith(Tags);
         foreach (var child in Children) copy.Children.Add(child.Clone(newIds));

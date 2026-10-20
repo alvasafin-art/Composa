@@ -19,6 +19,8 @@ public static class DocumentLimits
     public const long MaxSurfacePixels = 200_000_000;
     public const long MaxSurfaceBytes = MaxSurfacePixels * 4;
     public const int MaxIccBytes = 4 * 1024 * 1024;
+    public const int MaxWarpGridDivisions = 8;
+    public const double MaxWarpCoordinate = 16;
 
     /// <summary>
     /// Total raster one document may hold, summed over every imported layer and mask. Only documents that genuinely

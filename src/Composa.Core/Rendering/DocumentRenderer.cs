@@ -171,7 +171,9 @@ public static partial class DocumentRenderer
             if (layer.Clipped) continue; // A clipped layer with no base shows nothing.
             if (!layer.Visible || layer.Opacity <= 0) continue;
             clipped.RemoveAll(l => !l.Visible || l.Opacity <= 0);
-            RenderUnit(layer, clipped, tile, options);
+            if (layer.HasWarp || clipped.Any(l => l.HasWarp))
+                RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped.Select(l => l.WarpAppearanceForView(tile.View.Scale)).ToList(), tile, options);
+            else RenderUnit(layer, clipped, tile, options);
         }
     }
 

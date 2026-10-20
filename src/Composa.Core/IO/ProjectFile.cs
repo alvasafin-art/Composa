@@ -23,9 +23,10 @@ public static class ProjectFile
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
     /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
-    /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties.
+    /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
+    /// 12 retained interpolating Warp surfaces.
     /// </summary>
-    public const int Version = 11;
+    public const int Version = 12;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -72,9 +73,11 @@ public static class ProjectFile
         public BlendIfSettings? BlendIf { get; set; }
         public BlendMode Blend { get; set; }
         public LayerTransform? Transform { get; set; }
+        public WarpMesh? Warp { get; set; }
         public string? ImageFile { get; set; }
         public string? MaskFile { get; set; }
         public bool MaskLinked { get; set; } = true;
+        public bool MaskFollowsWarp { get; set; } = true;
         public LayerTransform? MaskTransform { get; set; }
         public byte MaskDefault { get; set; }
         public bool? MaskEnabled { get; set; }
@@ -94,6 +97,7 @@ public static class ProjectFile
         public double SmartFilterMaskY { get; set; }
         public VectorPath? VectorMask { get; set; }
         public bool? VectorMaskEnabled { get; set; }
+        public bool VectorMaskFollowsWarp { get; set; } = true;
         public Adjustment? Adjustment { get; set; }
         public ShapeStyle? Shape { get; set; }
         public TextStyle? Text { get; set; }
@@ -156,6 +160,7 @@ public static class ProjectFile
             Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, FillOpacity = layer.FillOpacity, Blend = layer.Blend,
             BlendIf = layer.BlendIf.IsIdentity ? null : layer.BlendIf,
             Transform = layer.Pixels != null ? layer.Transform : null,
+            Warp = layer.Warp,
             ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null || !ReferenceEquals(layer.Pixels, layer.SmartObject!.Preview)) ? Store(layer.Pixels, $"{written.Count}.png") : null,
             FilterSourceFile = layer.FilterSource != null ? Store(layer.FilterSource, $"{written.Count}.filter-source.png") : null,
             SmartFilters = layer.SmartFilters.Length == 0 ? null : layer.SmartFilters,
@@ -163,9 +168,9 @@ public static class ProjectFile
             SmartFilterMaskFile = layer.SmartFilterMask != null ? Store(layer.SmartFilterMask, $"{written.Count}.filter-mask.png") : null,
             SmartFilterMaskEnabled = layer.SmartFilterMaskEnabled, SmartFilterMaskDefault = layer.SmartFilterMaskDefault,
             SmartFilterMaskX = layer.SmartFilterMaskX, SmartFilterMaskY = layer.SmartFilterMaskY,
-            VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled,
+            VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled, VectorMaskFollowsWarp = layer.VectorMaskFollowsWarp,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
-            MaskLinked = layer.MaskLinked, MaskTransform = layer.MaskTransform, MaskDefault = layer.MaskDefault,
+            MaskLinked = layer.MaskLinked, MaskFollowsWarp = layer.MaskFollowsWarp, MaskTransform = layer.MaskTransform, MaskDefault = layer.MaskDefault,
             MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null, Locks = layer.Locks,
             MaskDensity = layer.MaskDensity, MaskFeather = layer.MaskFeather,
             Clipped = layer.Clipped ? true : null,
@@ -270,7 +275,7 @@ public static class ProjectFile
                 MaskDensity = double.IsFinite(record.MaskDensity) ? Math.Clamp(record.MaskDensity, 0, 1) : 1,
                 MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0,
                 Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
-                VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true
+                VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true, VectorMaskFollowsWarp = record.VectorMaskFollowsWarp
             };
             if (record.Tags != null)
                 foreach (var tag in record.Tags.Take(64)) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
@@ -293,6 +298,7 @@ public static class ProjectFile
             if (record.Kind == LayerKind.Adjustment && record.Adjustment == null) throw new InvalidDataException($"Adjustment layer \"{record.Name}\" has no settings.");
             if (record.MaskFile != null) layer.Mask = Fetch(record.MaskFile, mask: true);
             layer.MaskLinked = record.MaskLinked;
+            layer.MaskFollowsWarp = record.MaskFollowsWarp;
             layer.MaskDefault = record.MaskDefault;
             layer.MaskTransform = IsUsableMaskTransform(record.MaskTransform) ? record.MaskTransform : null;
             if (layer.Mask != null && !layer.MaskLinked && layer.MaskTransform == null) layer.PlaceMask(layer.MaskMatrix);
@@ -310,6 +316,13 @@ public static class ProjectFile
             }
             if (record.Kind == LayerKind.Group && record.Children != null)
                 foreach (var child in record.Children) layer.Children.Add(Build(child, depth + 1, version));
+            if (record.Warp != null)
+            {
+                if (layer.Pixels == null) throw new InvalidDataException("A Warp surface requires a pixel layer.");
+                var bounds = Geometry.RoundOut(record.Warp.Bounds(layer.Pixels.Width, layer.Pixels.Height));
+                if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height, layer.Pixels.BytesPerPixel)) throw new InvalidDataException("The Warp surface exceeds supported dimensions or memory.");
+                layer.Warp = record.Warp;
+            }
             return layer;
         }
 

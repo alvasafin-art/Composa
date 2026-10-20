@@ -57,6 +57,7 @@ public static partial class Pixels
 /// <summary>Normalized premultiplied channels; float working precision also keeps every unsigned 16-bit source level.</summary>
 internal readonly record struct PixelValue(float R, float G, float B, float A)
 {
+    public override string ToString() => $"RGBA({R}, {G}, {B}, {A})";
     public float this[int channel] => channel switch { 0 => R, 1 => G, 2 => B, 3 => A, _ => throw new ArgumentOutOfRangeException(nameof(channel)) };
     public PixelValue Straight => A <= 0 ? default : new(R / A, G / A, B / A, A);
     public PixelValue Premultiplied => new(R * A, G * A, B * A, A);

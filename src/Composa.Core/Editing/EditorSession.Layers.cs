@@ -26,6 +26,7 @@ public sealed partial class EditorSession
 
     public void SelectLayer(Guid id, bool extend = false, bool range = false)
     {
+        if (WarpEdit != null) CommitWarp();
         if (document.Find(id) == null) return;
         if (channelTransform != null) CommitTransform();
         SelectedEffect = null;
@@ -60,6 +61,7 @@ public sealed partial class EditorSession
     /// <summary>Clears the layer selection after a click on empty canvas space.</summary>
     public void ClearLayerSelection()
     {
+        if (WarpEdit != null) CommitWarp();
         if (channelTransform != null) CommitTransform();
         FinishText();
         document.SetActive(null);
@@ -533,7 +535,7 @@ public sealed partial class EditorSession
             else layer.Mask = Pixels.NewMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
             layer.MaskEnabled = true;
             layer.MaskDensity = 1; layer.MaskFeather = 0;
-            layer.MaskLinked = true; layer.MaskTransform = null; layer.MaskDefault = 0;
+            layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0;
         });
         EditingMask = true;
         Invalidate(AffectedArea(layer));

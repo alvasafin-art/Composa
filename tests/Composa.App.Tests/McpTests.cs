@@ -147,7 +147,7 @@ public class McpTests
              "adjust_hue_saturation", "adjust_invert", "adjust_levels", "batch_set_layers", "channels", "delete_layer", "describe_document", "deselect", "duplicate_layer", "execute_script", "export_image", "export_psd", "fill_layer", "filter_add_noise",
              "filter_bloom", "filter_blur", "filter_lens_correction", "filter_motion_blur", "filter_painterly", "filter_remove_background", "filter_sharpen", "filter_tonal_contrast", "filter_vignette", "get_document_state", "get_script_api", "group_layers", "guides", "layer_mask", "list_documents", "list_files", "list_read_folders",
              "measure_text", "modify_selection", "new_document", "new_layer", "open_document", "paint_stroke", "paint_strokes", "place_image", "query_layers", "rasterize_layer", "read_file", "refine_selection", "render", "reorder_layer", "resize_document", "sample_color", "save_document", "select_all", "select_color_range", "select_inverse",
-             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_filter", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document"],
+             "select_layer", "select_layer_pixels", "select_object", "select_shape", "select_subject", "select_wand", "set_color_depth", "set_color_profile", "set_layer", "set_shape", "set_text", "smart_filter", "smart_object", "trace_edges", "transform_layer", "undo", "verify_document", "warp_layer"],
             tools.Select(t => t.Name).Order());
 
         var resources = await client.ListResourcesAsync();
@@ -395,6 +395,12 @@ public class McpTests
         Assert.StartsWith("\"Greeting\" is now at 50,60 size", Text(moved));
         Assert.Equal(50, hello.Transform.X);
         Assert.Equal("Background", session.Document.Layers[0].Name);
+        var warpActive = session.ActiveLayer!.Id; var warpSource = session.Document.Layers[0].Pixels!; var warpBytes = warpSource.Bytes;
+        Assert.Null((await Pumped(client.CallToolAsync("warp_layer", new Dictionary<string, object?> { ["layer"] = "Background", ["points"] = new[] { new[] { 1d, 1, 120, 90 } } }))).IsError);
+        Assert.NotNull(session.Document.Layers[0].Warp); Assert.Equal(warpActive, session.ActiveLayer!.Id); Assert.Equal(warpBytes, warpSource.Bytes);
+        Assert.Null((await Pumped(client.CallToolAsync("verify_document", new Dictionary<string, object?> { ["checks"] = new object[] { new { layer = "Background", property = "hasWarp", expected = true } } }))).IsError);
+        Assert.Contains("Warp grid", Text(await Pumped(client.CallToolAsync("describe_document"))));
+        await Pumped(client.CallToolAsync("undo")); hello = session.Document.Find(hello.Id)!; Assert.Null(session.Document.Layers[0].Warp);
         Assert.Equal("Duplicated \"Greeting\" as \"Greeting copy\", now active.", Text(await Pumped(client.CallToolAsync("duplicate_layer", new Dictionary<string, object?> { ["layer"] = "Greeting" }))));
         Assert.Equal(3, session.Document.Layers.Count);
         await Pumped(client.CallToolAsync("reorder_layer", new Dictionary<string, object?> { ["layer"] = "Greeting copy", ["direction"] = "bottom" }));

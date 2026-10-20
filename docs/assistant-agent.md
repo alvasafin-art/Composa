@@ -27,6 +27,12 @@ The native agent may call `finish_task` to explicitly end a turn; the host runs 
 
 ## Acceptance suite
 
+`warp_layer` edits an interpolating grid with `[column,row,canvasX,canvasY]` node positions or removes it with
+`reset=true`. It retains the undeformed editable source inside a smart object and commits one Undo step without
+changing the person's active layer. `get_document_state` includes existing Warp nodes in canvas coordinates and
+the layer's control bounds. Source masks stay editable inside the smart object; a new outer mask remains above
+Warp and can be painted at the visible pointer position.
+
 `AgentCapabilityTests` checks schema parity/discovery, live tool promotion, whole JSON receipts, target identity/pagination, batch filtering/order/stepping, all-target validation, independent final verification, repair/recheck, verified no-ops, inspect-only safety and script memory accounting. `McpTests` invokes inspection, verification, querying and batch editing through the real stdio bridge and per-test pipe. `get_script_api` returns the complete small reference in one call, without fragment pagination.
 
 `AgentAcceptanceTests` runs the production agent against a real local model and grades editor data, not the model's summary:

@@ -143,7 +143,7 @@ public sealed partial class MainWindow : Window
         canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
         canvas.PointerAt += point => positionText.Text = point is { } p ? $"{p.X}, {p.Y}" : "";
         canvas.Problem += message => { problem = message; UpdateStatus(); };
-        canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); };
+        canvas.ToolStateChanged += () => { if (session?.WarpEdit != null || optionsHaveWarp) RebuildOptions(); else refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); UpdateStatus(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
         canvas.ObjectSelectionAvailable = () => !localSelectionBusy && (settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI || canvas.AiToolsAvailable() == true);
         canvas.AiSelectionCompleted += task => _ = RunAi(task, useInlinePrompt: true);
@@ -288,6 +288,7 @@ public sealed partial class MainWindow : Window
         if (session != null && session != next)
         {
             session.CommitChannelControlEdit();
+            if (!CommitWarp(session)) return;
             canvas.CancelInteraction();
             if (session.IsPreviewing) session.CancelPreview();
             if (session.IsEditingText) session.FinishText();
@@ -415,6 +416,7 @@ public sealed partial class MainWindow : Window
     {
         if (!sessions.Contains(item)) return true;
         item.CommitChannelControlEdit();
+        if (!CommitWarp(item)) return false;
         // Contents must be resolved before the parent's save prompt, including nested tabs.
         foreach (var child in embeddedTabs.Where(pair => pair.Value.Parent == item).Select(pair => pair.Key).ToArray())
             if (!await CloseSession(child)) return false;
@@ -511,7 +513,11 @@ public sealed partial class MainWindow : Window
             ShowProblem("Stop the running script before closing the editor."); return;
         }
         RememberWindow();
-        foreach (var item in sessions) item.CommitChannelControlEdit();
+        foreach (var item in sessions)
+        {
+            item.CommitChannelControlEdit();
+            if (!CommitWarp(item)) { e.Cancel = true; return; }
+        }
         if (session?.IsEditingText == true) session.FinishText();
         if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified))) return;
         e.Cancel = true;
@@ -811,7 +817,8 @@ public sealed partial class MainWindow : Window
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
     }
 
-    private static string Hint(EditorSession s) => s.IsEditingAlphaChannel || s.IsEditingComponent
+    private static string Hint(EditorSession s) => s.WarpEdit != null ? "Drag Warp nodes · Shift locks direction · Arrows nudge selected node · Ctrl+Z undoes a point · Enter applies · Esc cancels"
+        : s.IsEditingAlphaChannel || s.IsEditingComponent
         ? (s.IsEditingAlphaChannel ? "Alpha channel · " : "RGB component · ") + (s.Tool == Tool.Move ? "Drag channel contents · Handles transform · A selection limits the edit · Alt-drag duplicates" : "White adds · Black removes · Gray sets partial intensity · Other channels stay unchanged")
         : s.Tool == Tool.Move ? ToolHint(s) : ToolHint(s) + " · Ctrl-drag moves the layer";
 

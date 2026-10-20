@@ -745,7 +745,12 @@ public sealed partial class EditorSession
         if (PixelsLocked(layer) || !layer.IsLive) return;
         Apply("Rasterize Layer", () =>
         {
-            layer.Pixels = layer.RenderFilterPixels(); layer.SmartFilterMask = null;
+            var appearance = layer.WarpAppearance();
+            var maskPlacement = appearance.MaskMatrix;
+            layer.Pixels = appearance.RenderFilterPixels(); layer.Transform = appearance.Transform;
+            layer.Mask = appearance.Mask; layer.MaskTransform = appearance.MaskTransform; layer.VectorMask = appearance.VectorMask; layer.Warp = null; layer.MaskFollowsWarp = layer.VectorMaskFollowsWarp = true;
+            if (layer.Mask != null && !ReferenceEquals(appearance, layer)) layer.PlaceMask(maskPlacement);
+            layer.SmartFilterMask = null;
             layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0;
             PreparePixelTarget(layer);
         });

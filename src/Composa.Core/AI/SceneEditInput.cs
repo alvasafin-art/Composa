@@ -66,7 +66,7 @@ public sealed class SceneEditInput : IDisposable
         var backdrop=clean.Clone();
         if(active!=null) backdrop.Find(active.Id)!.Visible=false;
         using(var workingBackdrop=DocumentRenderer.Flatten(backdrop)) Background=Own(Pixels.DisplayCopy(workingBackdrop));
-        IsCutout=!WholeImage && (active!.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
+        IsCutout=!WholeImage && (active!.HasWarp || active.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
         if(IsCutout)
         {
             var isolated=new Document(document.Width,document.Height) {Depth=document.WorkingDepth,Profile=document.Profile};

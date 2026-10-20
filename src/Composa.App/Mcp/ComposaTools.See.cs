@@ -120,7 +120,7 @@ public sealed partial class ComposaTools
     private static (SKBitmap Pixels, SKMatrix ToPixels) Source(EditorSession s, string? layer)
     {
         if (layer == null) return (s.Composite(), SKMatrix.Identity);
-        var target = Find(s, layer);
+        var target = Find(s, layer).WarpAppearance();
         if (target.Pixels == null) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer without pixels of its own; leave layer out to read what is on screen.");
         if (!target.Matrix.TryInvert(out var toPixels)) throw new McpException($"\"{target.Name}\" is too small to read.");
         return (target.RenderFilterPixels()!, toPixels);
