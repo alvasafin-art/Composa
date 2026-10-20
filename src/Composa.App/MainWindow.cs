@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
     private readonly NavigatorPanel navigator;
     /// <summary>The right-hand column: the Layers panel with the panels of the Window menu under it.</summary>
     private readonly SideDock dock;
+    private readonly List<Control> canvasChrome = [];
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     private readonly Border optionsHost = new() { Height = 40, Background = Palette.Panel, Padding = new Thickness(12, 0) };
     private readonly Border toolOptionsHost = new();
@@ -103,10 +104,10 @@ public sealed partial class MainWindow : Window
         aiFloatingLayer.Children.Add(aiFloatingHost);
         var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer } };
         var center = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto") };
-        center.Children.Add(BuildToolRail());
-        AddAt(center, Ui.Separator(), 1).Margin = new Thickness(0);
+        center.Children.Add(Chrome(BuildToolRail()));
+        var leftDivider = Ui.Separator(); leftDivider.Margin = new Thickness(0); AddAt(center, Chrome(leftDivider), 1);
         AddAt(center, canvasHost, 2);
-        AddAt(center, Ui.Separator(), 3).Margin = new Thickness(0);
+        var rightDivider = Ui.Separator(); rightDivider.Margin = new Thickness(0); AddAt(center, Chrome(rightDivider), 3);
         var historySection = new DockSection("History", history, settings.Dock.GetValueOrDefault("History") ?? new DockPanelState());
         historySection.Changed += () => { settings.Dock["History"] = historySection.State; settings.Save(); };
         var channelsSection = new DockSection("Channels", channels, settings.Dock.GetValueOrDefault("Channels") ?? new DockPanelState { Visible = false, Height = 250 });
@@ -116,7 +117,7 @@ public sealed partial class MainWindow : Window
         var navigatorSection = new DockSection("Navigator", navigator, settings.Dock.GetValueOrDefault("Navigator") ?? new DockPanelState { Visible = false, Height = 220 });
         navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
         dock = new SideDock(layers, navigatorSection, channelsSection, historySection) { Width = layers.Width };
-        AddAt(center, dock, 4);
+        AddAt(center, Chrome(dock), 4);
         history.GoToRequested += GoToHistory;
 
         // The update notice sits under the menu, where it is visible without covering anything.
@@ -133,14 +134,15 @@ public sealed partial class MainWindow : Window
         optionsHost.Child = combinedOptions;
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
         root.Children.Add(BuildMenu());
-        AddRow(root, updateNotice, 1);
-        AddRow(root, BuildTabBar(), 2);
-        AddRow(root, optionsHost, 3);
-        AddRow(root, Ui.Separator(false), 4);
+        AddRow(root, Chrome(updateNotice), 1);
+        AddRow(root, Chrome(BuildTabBar()), 2);
+        AddRow(root, Chrome(optionsHost), 3);
+        AddRow(root, Chrome(Ui.Separator(false)), 4);
         AddRow(root, center, 5);
-        AddRow(root, Ui.Separator(false), 6);
-        AddRow(root, BuildStatusBar(), 7);
+        AddRow(root, Chrome(Ui.Separator(false)), 6);
+        AddRow(root, Chrome(BuildStatusBar()), 7);
         Content = root;
+        aiFloatingLayer.IsVisible = !settings.CanvasOnly;
 
         StartUpdateCheck();
 

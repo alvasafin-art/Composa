@@ -30,6 +30,8 @@ public sealed partial class MainWindow
     private Guid? optionsLayer;
     private int jpegQuality = 90;
     private MenuItem? recentMenu;
+    private const string FindCommandId = "Find Command";
+    private MenuItem? canvasOnlyItem;
 
     private bool HasDocument => session != null;
 
@@ -46,11 +48,11 @@ public sealed partial class MainWindow
             menu.Items.Add(top);
             return top;
         }
-        MenuItem Item(string name, Action run, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, Func<bool>? enabled = null, bool needsDocument = true, string? id = null)
+        MenuItem Item(string name, Action run, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, Func<bool>? enabled = null, bool needsDocument = true, string? id = null, bool viewOnly = false)
         {
             var gesture = key == Key.None ? null : new KeyGesture(key, modifiers);
             var guard = needsDocument ? () => HasDocument && (enabled?.Invoke() ?? true) : enabled;
-            var command = new Shortcut(id ?? name.TrimEnd('…'), name.TrimEnd('…'), "Menus", gesture, run, guard);
+            var command = new Shortcut(id ?? name.TrimEnd('…'), name.TrimEnd('…'), "Menus", gesture, run, guard, viewOnly: viewOnly);
             commands.Add(command);
             var item = new MenuItem { Header = name, InputGesture = gesture };
             item.Click += (_, _) => Execute(command);
@@ -234,25 +236,30 @@ public sealed partial class MainWindow
                 session.View = flip(session.View);
                 canvas.ViewOptionsChanged(rulersShown);
                 RememberToolSettings();
-            }, key, modifiers, id: id);
+            }, key, modifiers, id: id, viewOnly: true);
             item.ToggleType = MenuItemToggleType.CheckBox;
             viewToggles.Add((item, get));
             return item;
         }
+        canvasOnlyItem = Item("Canvas Only", () => SetCanvasOnly(!settings.CanvasOnly), Key.F6, needsDocument: false, viewOnly: true);
+        canvasOnlyItem.ToggleType = MenuItemToggleType.CheckBox; canvasOnlyItem.IsChecked = settings.CanvasOnly;
         Top("_View",
-            Item("Fit Canvas", canvas.Fit, Key.D0, ctrl),
-            Item("Actual Pixels", () => canvas.ZoomTo(1), Key.D1, ctrl),
-            Item("Zoom In", canvas.ZoomIn, Key.OemPlus, ctrl),
-            Item("Zoom Out", canvas.ZoomOut, Key.OemMinus, ctrl),
+            Item("Find Command…", () => _ = FindCommand(), Key.P, ctrl | shift, needsDocument: false, viewOnly: true),
+            canvasOnlyItem,
+            Line(),
+            Item("Fit Canvas", canvas.Fit, Key.D0, ctrl, viewOnly: true),
+            Item("Actual Pixels", () => canvas.ZoomTo(1), Key.D1, ctrl, viewOnly: true),
+            Item("Zoom In", canvas.ZoomIn, Key.OemPlus, ctrl, viewOnly: true),
+            Item("Zoom Out", canvas.ZoomOut, Key.OemMinus, ctrl, viewOnly: true),
             Line(), grid,
-            Item("Show Transform Controls", () => { canvas.ShowTransformControls = !canvas.ShowTransformControls; canvas.InvalidateVisual(); RebuildOptions(); RememberToolSettings(); }, Key.H, ctrl),
+            Item("Show Transform Controls", () => { canvas.ShowTransformControls = !canvas.ShowTransformControls; canvas.InvalidateVisual(); RebuildOptions(); RememberToolSettings(); }, Key.H, ctrl, viewOnly: true),
             Line(),
             ViewToggle("Rulers", v => v.ShowRulers, v => v with { ShowRulers = !v.ShowRulers }, Key.R, ctrl),
             Sub("Show",
                 ViewToggle("Grid", v => v.ShowGrid, v => v with { ShowGrid = !v.ShowGrid }, Key.OemQuotes, ctrl, "Show Grid"),
                 ViewToggle("Guides", v => v.ShowGuides, v => v with { ShowGuides = !v.ShowGuides }, Key.OemSemicolon, ctrl, "Show Guides")),
             Item("Grid Settings…", () => _ = ShowGridSettings()),
-            Item("Display Color…", () => _ = EditDisplayColor(), needsDocument: false),
+            Item("Display Color…", () => _ = EditDisplayColor(), needsDocument: false, viewOnly: true),
             Line(),
             ViewToggle("Snap", v => v.Snap, v => v with { Snap = !v.Snap }, Key.OemSemicolon, ctrl | shift),
             Sub("Snap To",
@@ -264,9 +271,9 @@ public sealed partial class MainWindow
             ViewToggle("Lock Guides", v => v.LockGuides, v => v with { LockGuides = !v.LockGuides }, Key.OemSemicolon, ctrl | alt),
             Item("Clear Guides", () => session!.ClearGuides(), enabled: () => session!.CanClearGuides));
         // '+' is Shift and '=' on most keyboards, so Zoom In answers with Shift held too.
-        commands.Add(new Shortcut("Zoom In (with Shift)", "Zoom In", "Menus", new KeyGesture(Key.OemPlus, ctrl | shift), canvas.ZoomIn, () => HasDocument, hidden: true));
-        commands.Add(new Shortcut("Zoom In (keypad)", "Zoom In", "Menus", new KeyGesture(Key.Add, ctrl), canvas.ZoomIn, () => HasDocument, hidden: true));
-        commands.Add(new Shortcut("Zoom Out (keypad)", "Zoom Out", "Menus", new KeyGesture(Key.Subtract, ctrl), canvas.ZoomOut, () => HasDocument, hidden: true));
+        commands.Add(new Shortcut("Zoom In (with Shift)", "Zoom In", "Menus", new KeyGesture(Key.OemPlus, ctrl | shift), canvas.ZoomIn, () => HasDocument, hidden: true, viewOnly: true));
+        commands.Add(new Shortcut("Zoom In (keypad)", "Zoom In", "Menus", new KeyGesture(Key.Add, ctrl), canvas.ZoomIn, () => HasDocument, hidden: true, viewOnly: true));
+        commands.Add(new Shortcut("Zoom Out (keypad)", "Zoom Out", "Menus", new KeyGesture(Key.Subtract, ctrl), canvas.ZoomOut, () => HasDocument, hidden: true, viewOnly: true));
 
         // A package manager owns updates for a .deb or .rpm, so there is nothing to switch on there.
         var autoUpdates = new MenuItem
@@ -289,7 +296,7 @@ public sealed partial class MainWindow
 
         MenuItem PanelToggle(string title)
         {
-            var item = Item(title, () => dock.SetVisible(dock.Section(title), !dock.Section(title).State.Visible), needsDocument: false);
+            var item = Item(title, () => dock.SetVisible(dock.Section(title), !dock.Section(title).State.Visible), needsDocument: false, viewOnly: true);
             item.ToggleType = MenuItemToggleType.CheckBox;
             panelToggles.Add((item, title));
             return item;
@@ -423,6 +430,7 @@ public sealed partial class MainWindow
         foreach (var (item, command) in menuItems) item.IsEnabled = command.Enabled?.Invoke() ?? true;
         foreach (var (item, isChecked) in viewToggles) item.IsChecked = session != null && isChecked(session.View);
         foreach (var (item, section) in panelToggles) item.IsChecked = dock.Section(section).State.Visible;
+        if (canvasOnlyItem != null) canvasOnlyItem.IsChecked = settings.CanvasOnly;
         if (session == null) return;
         undoItem!.Header = session.History.CanUndo ? $"Undo {session.History.UndoName}" : "Undo";
         redoItem!.Header = session.History.CanRedo ? $"Redo {session.History.RedoName}" : "Redo";
@@ -435,7 +443,7 @@ public sealed partial class MainWindow
         if (Content is Control { IsEnabled: false }) return;
         if (command.Enabled?.Invoke() == false || IsDragging) return;
         problem = note = null;
-        try { session?.CommitChannelControlEdit(); if (session != null && !CommitWarp(session)) return; command.Run(); }
+        try { if (!command.ViewOnly) { session?.CommitChannelControlEdit(); if (session != null && !CommitWarp(session)) return; } command.Run(); }
         catch (Exception error) { _ = Prompts.Alert(this, command.Title, error.Message); }
         UpdateStatus();
     }
@@ -461,8 +469,8 @@ public sealed partial class MainWindow
     {
         RefreshAiUi();
         UpdateColors();
-        if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen)) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape || (session.WarpEdit != null) != optionsHaveWarp) RebuildOptions();
+        if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen or Tool.Text)) return;
+        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }
@@ -501,6 +509,10 @@ public sealed partial class MainWindow
         if (focused is Controls.SliderField && e.Key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Home or Key.End) return;
         if (focused is ComboBox && session?.WarpEdit != null && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
         if (navigator.OwnsPanKeys(focused) && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
+
+        // Searching does not finish a canvas text edit or a retained transform.
+        var viewCommand = commands.FirstOrDefault(c => c.ViewOnly && c.Matches(e));
+        if (viewCommand != null) { Execute(viewCommand); e.Handled = true; return; }
 
         if (canvas.HandleKeyDown(e)) { e.Handled = true; return; }
         // While text is being typed, letters are text, not tool keys or shortcuts; the key stays unhandled so the

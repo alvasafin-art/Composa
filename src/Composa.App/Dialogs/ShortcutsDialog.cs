@@ -8,7 +8,7 @@ using Avalonia.Media;
 namespace Composa.App.Dialogs;
 
 /// <summary>A command that can be triggered by a key, with the key it started with and the one it has now.</summary>
-public sealed class Shortcut(string id, string title, string group, KeyGesture? gesture, Action run, Func<bool>? enabled = null, bool hidden = false)
+public sealed class Shortcut(string id, string title, string group, KeyGesture? gesture, Action run, Func<bool>? enabled = null, bool hidden = false, bool viewOnly = false)
 {
     public string Id { get; } = id;
     public string Title { get; } = title;
@@ -20,6 +20,8 @@ public sealed class Shortcut(string id, string title, string group, KeyGesture? 
     public Func<bool>? Enabled { get; } = enabled;
     /// <summary>Alternates (Ctrl+Y for Redo) that are not listed or rebound.</summary>
     public bool Hidden { get; } = hidden;
+    /// <summary>View/navigation chrome must not finish an open channel transform or Warp just to inspect the document.</summary>
+    public bool ViewOnly { get; } = viewOnly;
     /// <summary>The menu item showing the gesture, if any.</summary>
     public MenuItem? Item { get; set; }
 

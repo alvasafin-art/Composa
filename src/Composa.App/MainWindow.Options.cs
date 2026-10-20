@@ -17,6 +17,7 @@ public sealed partial class MainWindow
 {
     private bool optionsHaveShape;
     private bool optionsHaveWarp;
+    private bool optionsEditingText;
     private Button generativeExpandButton = null!;
 
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
@@ -26,6 +27,7 @@ public sealed partial class MainWindow
         optionsHost.Height = 40;
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
         optionsHaveWarp = session?.WarpEdit != null;
+        optionsEditingText = session?.IsEditingText == true;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         if (session == null) { toolOptionsHost.Child = null; return; }

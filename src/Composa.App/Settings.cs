@@ -13,6 +13,7 @@ public sealed class Settings
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }
+    public bool CanvasOnly { get; set; }
     public int JpegQuality { get; set; } = 90;
     public bool ShowPixelGrid { get; set; } = true;
     /// <summary>Toggles that belong to the person rather than to a document, kept the way Photoshop keeps its tool options.</summary>
