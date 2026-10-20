@@ -9,6 +9,26 @@ namespace Composa.Core.Tests;
 
 public class PsdNativeTests
 {
+    [Theory]
+    [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
+    public void Regular_PostScript_font_with_faux_styles_stays_editable_and_keeps_its_faces_after_reexport(bool bold, bool italic)
+    {
+        var regular = FontCatalog.Closest(Family, new TextFace(Family, false, false)).Face;
+        var psName = PsdFonts.PostScriptName(TextLayout.TypefaceFor(regular));
+        var writer = new PsdWriter { Width = 300, Height = 180 };
+        using var cache = Pixels.NewColor(40, 30); cache.Erase(SKColors.Black);
+        writer.Layers.Add(new PsdWriterLayer { Name = "Faux type", Image = cache }.With("TySh", new PsdWriter.TypeTool { Text = "ABC xyz", Font = psName, FauxBold = bold, FauxItalic = italic }.Build()));
+        var first = PsdImport.Load(writer.Build());
+        try
+        {
+            var style = Assert.IsType<TextStyle>(first.Layers[0].Text); Assert.Equal(regular.Bold || bold, style.Bold); Assert.Equal(regular.Italic || italic, style.Italic);
+            var document = first.ToDocument(); Assert.Empty(PsdExport.Conversions(document)); var second = PsdImport.Load(Write(document));
+            try { Assert.Equal(style.Face, Assert.IsType<TextStyle>(second.Layers[0].Text).Face); Assert.Equal(style.Text, second.Layers[0].Text!.Text); Picture(document, second.ToDocument(), 3); }
+            finally { second.Discard(); }
+        }
+        finally { first.Discard(); }
+    }
+
     private static string Family => EditorSession.FontFamilies.FirstOrDefault(f => f == "Arial") ?? EditorSession.FontFamilies[0];
     private static Layer TextLayer(TextStyle style, double x = 30, double y = 20)
     {

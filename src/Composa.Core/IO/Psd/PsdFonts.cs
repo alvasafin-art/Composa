@@ -20,7 +20,8 @@ internal static class PsdFonts
             {
                 using var typeface = styles.CreateTypeface(i);
                 if (typeface == null) continue;
-                result.TryAdd(PostScriptName(typeface), FontCatalog.Face(typeface.FamilyName, typeface.FontWeight, typeface.FontWidth, typeface.FontSlant));
+                using var style = styles[i];
+                result.TryAdd(PostScriptName(typeface), FontCatalog.Face(typeface.FamilyName, style.Weight, style.Width, style.Slant));
             }
         }
         return result;
@@ -28,10 +29,16 @@ internal static class PsdFonts
 
     public static TextFace? Find(string name, TextFace guess)
     {
+        // A font manager may synthesize the requested weight/slant while keeping the regular face's
+        // OpenType PostScript name. The installed name's actual face wins over that requested metadata.
+        if (installed.Value.TryGetValue(name, out var actual)) return actual;
         var face = TextLayout.TypefaceFor(guess);
         if (PostScriptName(face) == name) return FontCatalog.Face(face.FamilyName, face.FontWeight, face.FontWidth, face.FontSlant);
-        return installed.Value.TryGetValue(name, out var actual) ? actual : null;
+        return null;
     }
+
+    public static TextFace IntrinsicFace(SKTypeface face) => installed.Value.TryGetValue(PostScriptName(face), out var actual)
+        ? actual : FontCatalog.Face(face.FamilyName, face.FontWeight, face.FontWidth, face.FontSlant);
 
     public static string PostScriptName(SKTypeface face)
     {
