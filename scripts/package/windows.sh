@@ -36,11 +36,12 @@ dotnet publish "$ROOT/src/Composa.App" -c Release -r "$RID" --self-contained tru
   -p:DebugType=none -p:UpdateChannel=github -o "$TREE"
 for model in "$TREE"/models/*.onnx; do
   case "$(basename "$model")" in
-    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx) ;;
+    efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx|vitmatte_small.onnx) ;;
     *) echo "windows.sh: obsolete model in published build: $model" >&2; exit 1 ;;
   esac
 done
 test -f "$TREE/models/efficient_sam_vits_encoder.onnx" && test -f "$TREE/models/efficient_sam_vits_decoder.onnx"
+test -f "$TREE/models/vitmatte_small.onnx"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$TREE/"
 cp "$ROOT/run-composa.bat" "$TREE/"
 mkdir -p "$TREE/docs"

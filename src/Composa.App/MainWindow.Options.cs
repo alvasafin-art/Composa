@@ -16,6 +16,8 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     private bool optionsHaveShape;
+    private bool optionsHaveWarp;
+    private bool optionsEditingText;
     private Button generativeExpandButton = null!;
 
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
@@ -24,6 +26,8 @@ public sealed partial class MainWindow
         refreshOptions = null;
         optionsHost.Height = 40;
         optionsHaveShape = session?.ActiveLayer?.Shape != null;
+        optionsHaveWarp = session?.WarpEdit != null;
+        optionsEditingText = session?.IsEditingText == true;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         if (session == null) { toolOptionsHost.Child = null; return; }
@@ -33,7 +37,7 @@ public sealed partial class MainWindow
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
         if (embeddedTabs.TryGetValue(s, out var embedded))
         {
-            Add(Ui.TextButton("Save contents ↗", () => _ = Save(s, false), accent: true),
+            Add(Ui.TextButton(embedded.Source.Link != null ? "Save source ↗" : "Save contents ↗", () => _ = Save(s, false), accent: true),
                 Ui.TextButton("Back to parent", () => SetSession(embedded.Parent)));
         }
         // A tool that comes in a group is picked from its rail button, so the bar only names the one in use.
@@ -42,8 +46,22 @@ public sealed partial class MainWindow
         switch (s.Tool)
         {
             case Tool.Move:
+                if (s.WarpEdit is { } warp)
+                {
+                    Add(Title("Warp"));
+                    var grids = new[] { (Columns: 3, Rows: 3), (Columns: 4, Rows: 4), (Columns: 5, Rows: 5), (warp.Mesh.Columns, warp.Mesh.Rows) }.Distinct().ToArray();
+                    var grid = Ui.Combo(grids, (warp.Mesh.Columns, warp.Mesh.Rows), v => $"{v.Columns} × {v.Rows}", v => canvas.ChangeWarpGrid(v.Columns, v.Rows), 94);
+                    grid.Name = "WarpGrid"; grid.IsEnabled = warp.Mesh.IsIdentity;
+                    ToolTip.SetTip(grid, "Reset the deformation to choose a different grid. The source pixels stay intact.");
+                    Add(grid, Flat("Reset", canvas.ResetWarp), Flat("Undo point", () => canvas.UndoWarpPoint()),
+                        Ui.TextButton("Apply", () => canvas.FinishWarp(keep: true), accent: true), Flat("Cancel", () => canvas.FinishWarp(keep: false)),
+                        Ui.Label("Drag nodes · Shift locks direction · Enter applies · Esc cancels", Palette.Secondary));
+                    break;
+                }
                 Add(Title("Move"));
                 BuildTransformFields(row);
+                if (s.IsEditingChannel) break;
+                var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
                 if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildAlignmentFields(row);
                 break;
@@ -74,6 +92,11 @@ public sealed partial class MainWindow
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
                     Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v), Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
                 if (s.Tool == Tool.SpotHealing) Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
+                if (s.Tool == Tool.Smear && s.SmearMode == SmearMode.Liquify)
+                {
+                    var workspace = Ui.TextButton("Freeze / Reconstruct…", () => _ = Liquify()); workspace.Name = "LiquifyWorkspace";
+                    workspace.IsEnabled = s.CanLiquify; Add(workspace); refreshOptions += () => workspace.IsEnabled = s.CanLiquify;
+                }
                 refreshOptions += () =>
                 {
                     size.Value = Math.Min(500, s.Brush.Size);
@@ -233,7 +256,7 @@ public sealed partial class MainWindow
                 if (picked is { } color) Change(st => set(st, (uint)color | 0xFF000000));
                 refreshOptions?.Invoke();
             };
-            refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToAvalonia()); };
+            refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToDisplay(s.Document.Profile, DisplayProfile)); };
             return swatch;
         }
         row.Children.Add(Ui.Separator());
@@ -380,7 +403,7 @@ public sealed partial class MainWindow
             faceMenu.PlaceholderText = uniformFace == null ? "(Multiple)" : Composa.Text.FontCatalog.Closest(face.FontFamily, face).Name;
             var faceIndex = uniformFace == null ? -1 : faceChoices.ToList().IndexOf(Composa.Text.FontCatalog.Closest(face.FontFamily, face));
             if (faceMenu.SelectedIndex != faceIndex) faceMenu.SelectedIndex = faceIndex;
-            swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToAvalonia());
+            swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToDisplay(s.Document.Profile, DisplayProfile));
             foreach (var (alignment, button) in alignments) button.IsChecked = current.Alignment == alignment;
             updating = false;
         };
@@ -420,25 +443,50 @@ public sealed partial class MainWindow
     private void BuildTransformFields(StackPanel row)
     {
         var s = session!;
-        var layer = s.ActiveLayer;
+        var layer = s.IsEditingChannel ? s.ChannelControlLayer : s.ActiveLayer;
         var autoSelect = Ui.Check("Auto Select", canvas.AutoSelect, v => { canvas.AutoSelect = v; RememberToolSettings(); });
+        autoSelect.IsEnabled = !s.IsEditingChannel;
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
         row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
-        if (layer?.Pixels == null)
+        if (s.IndependentMaskTarget != null) row.Children.Add(Ui.Label("Mask", Palette.Secondary));
+        if (layer == null || layer.Pixels == null && s.IndependentMaskTarget != layer)
         {
             row.Children.Add(Ui.Label(layer == null ? "No layer selected" : layer.IsGroup ? "Moves every layer in the folder" : "This layer has no pixels", Palette.Secondary));
             return;
         }
         var updating = false;
+        TransformEdit? inspectorTransform = null;
+        void FinishChannelInspector(bool keep)
+        {
+            var edit = inspectorTransform; inspectorTransform = null;
+            if (edit == null || !ReferenceEquals(s.Transform, edit)) return;
+            if (keep) s.CommitTransform(); else s.CancelTransform();
+        }
         NumericUpDown Field(string label, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> set, double min, double max, string format)
         {
-            var box = Ui.Number(get(layer.ControlTransform), min, max, v =>
+            var box = Ui.Number(get(s.EditingControlTransform(layer)), min, max, v =>
             {
-                if (updating || s.Document.Find(layer.Id) is not { } live) return;
-                s.SetControlTransform(live, set(live.ControlTransform, v));
+                var live = s.IsEditingChannel ? s.ChannelControlLayer : s.Document.Find(layer.Id);
+                if (updating || live == null) return;
+                var transform = set(s.EditingControlTransform(live), v);
+                if (s.IsEditingChannel) { s.PreviewChannelControlTransform(transform); inspectorTransform = s.Transform; }
+                else s.SetControlTransform(live, transform);
             }, 1, format, layer.Shape != null ? 55 : 74);
-            row.Children.Add(Ui.Row(5, Ui.Scrub(Ui.Label(label, Palette.Secondary), box), box));
+            box.LostFocus += (_, _) =>
+            {
+                var expected = inspectorTransform;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                { if (expected != null && inspectorTransform == expected && !row.IsKeyboardFocusWithin) FinishChannelInspector(keep: true); });
+            };
+            box.KeyUp += (_, e) => { if (e.Key == Key.Enter) FinishChannelInspector(keep: true); };
+            box.AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Escape && inspectorTransform != null) { FinishChannelInspector(keep: false); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            var scrub = Ui.Scrub(Ui.Label(label, Palette.Secondary), box);
+            scrub.AddHandler(PointerPressedEvent, (_, e) => { if (s.IsEditingChannel && e.GetCurrentPoint(scrub).Properties.IsLeftButtonPressed) { channelInspectorDragging = true; channelInspectorPointer = e.Pointer; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            void EndScrub() { if (!channelInspectorDragging) return; channelInspectorDragging = false; channelInspectorPointer = null; if (!row.IsKeyboardFocusWithin) FinishChannelInspector(keep: true); }
+            scrub.AddHandler(PointerReleasedEvent, (_, _) => EndScrub(), Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+            scrub.PointerCaptureLost += (_, _) => EndScrub();
+            row.Children.Add(Ui.Row(5, scrub, box));
             return box;
         }
         var x = Field("X", t => t.X, (t, v) => t with { X = v }, -100000, 100000, "0.#");
@@ -448,11 +496,13 @@ public sealed partial class MainWindow
         var angle = Field("∠", t => t.Rotation, (t, v) => t with { Rotation = v }, -360, 360, "0.##");
         refreshOptions = () =>
         {
-            if (s.Document.Find(layer.Id) is not { } live) return;
+            var live = s.IsEditingChannel ? s.ChannelControlLayer : s.Document.Find(layer.Id);
+            if (live == null) return;
             updating = true;
-            x.Value = (decimal)live.ControlTransform.X; y.Value = (decimal)live.ControlTransform.Y;
-            w.Value = (decimal)live.ControlTransform.Width; h.Value = (decimal)live.ControlTransform.Height;
-            angle.Value = (decimal)live.ControlTransform.Rotation;
+            var control = s.EditingControlTransform(live);
+            x.Value = (decimal)control.X; y.Value = (decimal)control.Y;
+            w.Value = (decimal)control.Width; h.Value = (decimal)control.Height;
+            angle.Value = (decimal)control.Rotation;
             updating = false;
         };
     }

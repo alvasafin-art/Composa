@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode }
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
@@ -124,6 +124,7 @@ public sealed partial class CanvasView
         if (session == null) { drag = Drag.None; return; }
         switch (drag)
         {
+            case Drag.WarpNode: EndWarpPoint(keep: false); break;
             case Drag.Stroke: session.CancelStroke(); break;
             case Drag.Patch: session.CancelPreview(); break;
             case Drag.PenNode: if (!penDraftDrag) session.Cancel(); penLayer = null; penOriginal = null; penDraft.Clear(); break;
@@ -147,6 +148,7 @@ public sealed partial class CanvasView
         if (session != null)
         {
             if (spaceDown || drag == Drag.Pan) type = StandardCursorType.Hand;
+            else if (session.WarpEdit != null) type = StandardCursorType.Cross;
             else if (temporaryMove || (controlHover && drag == Drag.None && session.Tool != Tool.Pen)) type = StandardCursorType.SizeAll; // The four-way move arrow says what Ctrl will do.
             else if (session.ColorRange != null) type = StandardCursorType.Cross; // Every click picks a color while the panel is open.
             else type = session.Tool switch
@@ -202,6 +204,7 @@ public sealed partial class CanvasView
             return;
         }
         if (!point.Properties.IsLeftButtonPressed) return;
+        if (session.WarpEdit != null) { BeginWarpPoint(point.Position); e.Handled = true; return; }
         var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         var control = e.KeyModifiers.HasFlag(KeyModifiers.Control);
@@ -385,6 +388,7 @@ public sealed partial class CanvasView
                 session.MovePixelsBy((int)Math.Round(mx), (int)Math.Round(my));
                 break;
             case Drag.Transform: DragTransform(shift, alt, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
+            case Drag.WarpNode: DragWarpPoint(shift); break;
             case Drag.Gradient:
                 if (gradientLayer == null || gradientOriginal == null) break;
                 if (gradientMovesStart) gradientFrom = ConstrainAngle(gradientTo, currentDocument, shift);
@@ -433,6 +437,7 @@ public sealed partial class CanvasView
 
         switch (finished)
         {
+            case Drag.WarpNode: EndWarpPoint(keep: true); break;
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
             case Drag.PenNode:
@@ -540,8 +545,7 @@ public sealed partial class CanvasView
         if (session == null) return;
         int x = (int)Math.Floor(currentDocument.X), y = (int)Math.Floor(currentDocument.Y);
         if (x < 0 || y < 0 || x >= session.Document.Width || y >= session.Document.Height) return;
-        var color = session.Composite().GetPixel(x, y);
-        if (color.Alpha == 0) return;
+        var color = session.SampleColor(x, y);
         if (background) session.Background = color.WithAlpha(255); else session.Foreground = color.WithAlpha(255);
         ToolStateChanged?.Invoke();
     }
@@ -712,6 +716,9 @@ public sealed partial class CanvasView
     {
         if (session == null) return null;
         if (session.Transform is { } edit) return edit.Corners();
+        if (session.IsEditingChannel && session.Selection is { } channelSelection) return Corners(SelectionMask.Bounds(channelSelection));
+        if (session.IndependentMaskTarget is { Mask: { } mask } maskLayer)
+            return MaskCorners(maskLayer, mask);
         var targets = session.TransformTargets();
         if (targets.Count == 0) return null;
         if (targets.Count == 1)
@@ -725,6 +732,9 @@ public sealed partial class CanvasView
         foreach (var layer in targets) bounds = bounds.IsEmpty ? layer.ControlBounds : SKRect.Union(bounds, layer.ControlBounds);
         return Corners(bounds);
     }
+
+    private static SKPoint[] MaskCorners(Layer layer, SKBitmap mask) =>
+        [layer.MaskMatrix.MapPoint(0, 0), layer.MaskMatrix.MapPoint(mask.Width, 0), layer.MaskMatrix.MapPoint(mask.Width, mask.Height), layer.MaskMatrix.MapPoint(0, mask.Height)];
 
     private readonly record struct TransformFrame(LayerTransform Transform)
     {
@@ -783,7 +793,8 @@ public sealed partial class CanvasView
     }
 
     /// <summary>Whether the one layer being transformed already has a corner pulled out of place.</summary>
-    private bool IsDistorted() => session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
+    private bool IsDistorted() => session?.IndependentMaskTarget is { MaskTransform.Distort: not null }
+        || session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
 
     /// <summary>The topmost visible layer with a non-transparent pixel under a document point.</summary>
     private Layer? LayerAt(SKPoint p)
@@ -791,21 +802,19 @@ public sealed partial class CanvasView
         if (session == null || !session.Document.Bounds.Contains((int)Math.Floor(p.X), (int)Math.Floor(p.Y))) return null;
         foreach (var layer in session.Document.AllLayers().Reverse())
         {
-            if (layer.Pixels == null || !session.Document.IsEffectivelyVisible(layer) || !layer.Matrix.TryInvert(out var inverse)) continue;
-            var local = inverse.MapPoint(p);
-            int x = (int)Math.Floor(local.X), y = (int)Math.Floor(local.Y);
-            if (x < 0 || y < 0 || x >= layer.Pixels.Width || y >= layer.Pixels.Height) continue;
+            if (layer.Pixels == null || !session.Document.IsEffectivelyVisible(layer)) continue;
             // Live text is picked by its editable box, including spaces and thin glyphs. Keep stack order:
             // an opaque layer above the text still wins, and layer/group masks still constrain the hit.
-            var alpha = (layer.Text != null ? 255 : layer.Pixels.GetPixel(x, y).Alpha) * layer.Opacity;
-            if (layer.MaskEnabled && layer.Mask is { } mask) alpha *= mask.GetPixel(x, y).Alpha / 255.0;
+            var alpha = layer.HitCoverage(p, (float)zoom) * 255 * layer.Opacity;
             for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
             {
                 alpha *= parent.Opacity;
-                if (parent.MaskEnabled && parent.Mask is { } parentMask)
+                if (parent.RenderMask() is { } parentMask)
                 {
-                    int px = (int)Math.Floor(p.X), py = (int)Math.Floor(p.Y);
-                    alpha *= px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha / 255.0 : 0;
+                    if (!parent.MaskMatrix.TryInvert(out var maskInverse)) { alpha = 0; break; }
+                    var maskPoint = maskInverse.MapPoint(p);
+                    int px = (int)Math.Floor(maskPoint.X), py = (int)Math.Floor(maskPoint.Y);
+                    alpha *= (px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha : parent.MaskDefault) / 255.0;
                 }
             }
             if (alpha > 12) return layer;
@@ -872,7 +881,7 @@ public sealed partial class CanvasView
         handle = ShowTransformControls && CurrentFrame() is { } frame ? HitFrame(frame, pressScreen, allowRotate: true) : TransformHandle.None;
         distortCorner = -1;
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
-        if (!onHandle)
+        if (!onHandle && session.IndependentMaskTarget == null && !session.IsEditingChannel)
         {
             var hit = LayerAt(pressDocument);
             var keepGroup = handle == TransformHandle.Move && session.ActiveLayer?.IsGroup == true && !dragModifiers.HasFlag(KeyModifiers.Shift);
@@ -887,6 +896,7 @@ public sealed partial class CanvasView
                 session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
             handle = TransformHandle.Move;
         }
+        else if (!onHandle) handle = TransformHandle.Move;
         else if ((control || IsDistorted()) && handle is TransformHandle.TopLeft or TransformHandle.TopRight or TransformHandle.BottomRight or TransformHandle.BottomLeft)
         {
             // Ctrl-dragging a corner distorts, as in Photoshop; once a layer is distorted its corners keep distorting.
@@ -953,6 +963,14 @@ public sealed partial class CanvasView
     public bool HandleKeyDown(KeyEventArgs e)
     {
         if (session == null) return false;
+        if (session.WarpEdit != null)
+        {
+            if (e.Key == Key.Escape) { FinishWarp(keep: false); return true; }
+            if (e.Key == Key.Enter) { if (!IsDragging) FinishWarp(keep: true); return true; }
+            if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control)) { UndoWarpPoint(e.KeyModifiers.HasFlag(KeyModifiers.Shift)); return true; }
+            if (e.Key == Key.Y && e.KeyModifiers == KeyModifiers.Control) { UndoWarpPoint(redo: true); return true; }
+            if (e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift && e.Key is Key.Left or Key.Right or Key.Up or Key.Down) { NudgeWarpPoint(e); return true; }
+        }
         if (session.TextEdit is { } editor) return HandleTextKey(editor, e);
         if (session.Tool == Tool.Pen)
         {

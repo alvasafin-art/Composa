@@ -7,16 +7,16 @@
 #   usage: scripts/models/fetch.sh [--all]
 #
 # Nothing here runs at application run time: Composa never downloads a model. The packaging scripts
-# and the workflows fetch SAM Quality only. --all also verifies legacy development fixtures;
+# and the workflows fetch SAM Quality and ViTMatte. --all also verifies legacy development fixtures;
 # those weights never ship in release packages. BiRefNet runs on the connected ComfyUI server.
 #
 # The subject pins are the community ONNX conversions Lolly uses, hashed on 2026-10-01 against Lolly's pins:
 #   u2netp.onnx  is in git (4.6 MB), from rembg's release page; upstream xuebinqin/U-2-Net, Apache-2.0.
 #   modnet.onnx  26 MB, from Xenova/modnet on Hugging Face; upstream ZHKKKe/MODNet, Apache-2.0.
-# This is a new subject-only packaging script in this fork (no Models or scripts/models
-# files existed at HEAD). Real-ESRGAN is not bundled. MobileSAM and EfficientSAM Ti are
-# committed; EfficientSAM S is fetched with fixed hashes. Provenance and licenses travel with the application.
-# A new model goes here, into SubjectModels.cs and into packaging/THIRD-PARTY-NOTICES.txt in one change,
+# ViTMatte is pinned separately in Vision/RefinementModels.cs. Real-ESRGAN is not bundled.
+# MobileSAM and EfficientSAM Ti are committed development fixtures. EfficientSAM S and ViTMatte
+# are fetched with fixed hashes. Provenance and licenses travel with the application.
+# A new model goes here, into its Vision catalog and packaging/THIRD-PARTY-NOTICES.txt in one change,
 # and only with weights under a permissive licence (Apache-2.0, MIT or BSD): BRIA's RMBG models are
 # non-commercial and never ship.
 set -euo pipefail
@@ -56,6 +56,10 @@ fetch efficient_sam_vits_encoder.onnx \
 fetch efficient_sam_vits_decoder.onnx \
   "https://github.com/wkentaro/efficient-sam/releases/download/onnx-models-20231225/efficient_sam_vits_decoder.onnx" \
   4727baf23dacfb51d4c16795b2ac382c403505556d0284e84c6ff3d4e8e36f22 16565728
+
+fetch vitmatte_small.onnx \
+  "https://huggingface.co/Xenova/vitmatte-small-composition-1k/resolve/6bc1297f6140f055a227b6d2cfe8c093281f35d2/onnx/model.onnx" \
+  bf28d2e0be2c073286e88d60ad649d7123da2749a2d99133fd1098d5887e0225 103885865
 
 # These are committed; this only confirms the checkout still carries the right files.
 check() {

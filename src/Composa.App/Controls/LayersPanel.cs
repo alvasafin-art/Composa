@@ -10,6 +10,7 @@ using Avalonia.VisualTree;
 using Composa.Editing;
 using Composa.Filters;
 using Composa.Model;
+using Composa.ColorManagement;
 using SkiaSharp;
 using BlendMode = Composa.Model.BlendMode;
 using TextAlignment = Avalonia.Media.TextAlignment;
@@ -17,7 +18,7 @@ using TextAlignment = Avalonia.Media.TextAlignment;
 namespace Composa.App.Controls;
 
 /// <summary>The layer stack: visibility, thumbnails, masks, folders, blend mode and opacity, drag-to-reorder.</summary>
-public sealed class LayersPanel : UserControl
+public sealed partial class LayersPanel : UserControl
 {
     private EditorSession? session;
     private readonly StackPanel rows = new();
@@ -30,7 +31,13 @@ public sealed class LayersPanel : UserControl
     private bool opacityDragging;
     private double opacityStart;
     private Guid? renaming;
-    private static readonly ConditionalWeakTable<SKBitmap, Bitmap> Thumbnails = new();
+    private static readonly ConditionalWeakTable<SKBitmap, Dictionary<RgbProfile, Bitmap>> Thumbnails = new();
+    private RgbProfile displayProfile = RgbProfile.Srgb;
+    public RgbProfile DisplayProfile
+    {
+        get => displayProfile;
+        set { if (displayProfile.Equals(value)) return; displayProfile = value; Rebuild(); }
+    }
 
     // Drag state.
     private Layer? pressed;
@@ -45,13 +52,21 @@ public sealed class LayersPanel : UserControl
     public event Action<Layer>? EditTextRequested;
     public event Action<Layer>? EditShapeRequested;
     public event Action<Layer>? EditSmartObjectRequested;
+    public event Action<Layer, bool>? ReplaceSmartObjectRequested;
+    public event Action<Layer>? UpdateLinkedSmartObjectRequested;
+    public event Action<Layer>? LinkedSourceInfoRequested;
+    public Func<Layer, Composa.IO.LinkedSourceStatus?>? LinkedSourceStatus { get; set; }
+    public void RefreshSourceStatus() => Rebuild();
     public event Action<Layer, SmartFilter>? EditSmartFilterRequested;
+    public event Action<Layer, SmartFilter>? EditSmartFilterBlendingRequested;
     public event Action<AdjustmentKind>? NewAdjustmentRequested;
     /// <summary>Double-click on an effect row: open its settings.</summary>
     public event Action<Layer, LayerEffectKind>? EditEffectRequested;
     /// <summary>The footer's effects menu: add an effect to the active layer.</summary>
     public event Action<LayerEffectKind>? NewEffectRequested;
     public event Action<Layer>? EditTagsRequested;
+    public event Action<Layer>? EditBlendingRequested;
+    public event Action<Layer>? EditMaskPropertiesRequested;
 
     /// <summary>The blend mode at each index of the blend menu; null for the lines between groups.</summary>
     private readonly List<BlendMode?> blendAt = [];
@@ -109,6 +124,7 @@ public sealed class LayersPanel : UserControl
         Grid.SetColumnSpan(blendRow, 3);
         header.Children.Add(title);
         header.Children.Add(blendRow);
+        AddSearchHeader(header);
 
         var adjustmentMenu = new ContextMenu();
         foreach (var kind in Enum.GetValues<AdjustmentKind>())
@@ -179,10 +195,12 @@ public sealed class LayersPanel : UserControl
     /// <summary>The trash button and Delete: a highlighted effect goes first, then the targeted mask, then the layers.</summary>
     public void DeleteLayerOrMask()
     {
+        if (session?.EditingAlphaChannel is { } alpha) { session.DeleteSelectionChannel(alpha); return; }
         if (session == null) return;
         if (session.SelectedEffect != null) { session.RemoveSelectedEffect(); return; }
         if (session.ActiveLayer is not { } layer) return;
-        if (session.IsEditingMask) session.DeleteMask(layer); else session.DeleteSelectedLayers();
+        if (session.IsEditingSmartFilterMask) session.DeleteSmartFilterMask(layer);
+        else if (session.IsEditingMask) session.DeleteMask(layer); else session.DeleteSelectedLayers();
     }
 
     public void BeginRename()
@@ -224,9 +242,11 @@ public sealed class LayersPanel : UserControl
         var active = session?.ActiveLayer;
         blend.IsEnabled = opacity.IsEnabled = active != null;
         blend.SelectedIndex = blendAt.IndexOf(active?.Blend ?? BlendMode.Normal);
+        if(blend.Items[blendAt.IndexOf(BlendMode.PassThrough)] is ComboBoxItem passThrough)passThrough.IsEnabled=active?.IsGroup==true;
         if (!opacityDragging) opacity.Value = (active?.Opacity ?? 1) * 100;
         opacityText.Text = $"{Math.Round(opacity.Value)}%";
         updating = false;
+        PrepareFilter();
         if (session == null) return;
         AddRows(session.Document.Layers, 0, parentVisible: true);
     }
@@ -236,10 +256,12 @@ public sealed class LayersPanel : UserControl
         for (var i = layers.Count - 1; i >= 0; i--)
         {
             var layer = layers[i];
+            if (filterRows != null && !filterRows.Contains(layer.Id)) continue;
             rows.Children.Add(BuildRow(layer, depth, parentVisible));
             if (layer.Effects is { } effects) foreach (var kind in effects.Kinds) rows.Children.Add(BuildEffectRow(layer, kind, depth, parentVisible && layer.Visible));
+            if (layer.SmartFilters.Length > 0) rows.Children.Add(BuildSmartFilterMaskRow(layer, depth));
             foreach (var filter in layer.SmartFilters.Reverse()) rows.Children.Add(BuildSmartFilterRow(layer, filter, depth));
-            if (layer.IsGroup && !layer.Collapsed) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
+            if (layer.IsGroup && (!layer.Collapsed || IsFiltering)) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
         }
     }
 
@@ -272,7 +294,7 @@ public sealed class LayersPanel : UserControl
         if (layer.Clipped) content.Children.Add(Icons.Create(Icons.ClipArrow, 13, Palette.Secondary));
         if (layer.IsGroup)
         {
-            var chevron = new Button { Classes = { "flat" }, Padding = new Thickness(2), Content = Icons.Create(layer.Collapsed ? Icons.ChevronRight : Icons.ChevronDown, 12) };
+            var chevron = new Button { Classes = { "flat" }, Padding = new Thickness(2), IsEnabled = !IsFiltering, Content = Icons.Create(layer.Collapsed && !IsFiltering ? Icons.ChevronRight : Icons.ChevronDown, 12) };
             chevron.Click += (_, _) => { layer.Collapsed = !layer.Collapsed; Rebuild(); };
             content.Children.Add(chevron);
             content.Children.Add(Icons.Create(Icons.Folder, 18));
@@ -280,21 +302,27 @@ public sealed class LayersPanel : UserControl
         else if (layer.IsAdjustment) content.Children.Add(Thumb(Icons.Create(Icons.Adjust, 18), selected && !current.IsEditingMask));
         else if (layer.Pixels != null)
         {
-            var pixelThumb = Thumb(new Image { Source = Thumbnail(layer.Pixels), Stretch = Stretch.Uniform }, selected && layer.Id == current.ActiveLayer?.Id && !current.IsEditingMask);
+            var pixelThumb = Thumb(new Image { Source = LayerThumbnail(layer), Stretch = Stretch.Uniform }, selected && layer.Id == current.ActiveLayer?.Id && !current.IsEditingMask);
             // The row's own press handler (which bubbles next) selects the layer and then applies this target.
             pixelThumb.PointerPressed += (_, _) => thumbnailTarget = false;
             content.Children.Add(pixelThumb);
             if (layer.IsSmartObject)
             {
-                var badge = Ui.Label("◇", Palette.Accent);
-                ToolTip.SetTip(badge, "Smart object · double-click the thumbnail to edit contents");
+                var status = LinkedSourceStatus?.Invoke(layer);
+                var badge = Ui.Label(layer.SmartObject!.Link != null ? status is { State: not Composa.IO.LinkedSourceState.Current } ? "↗!" : "↗" : "◇", Palette.Accent);
+                ToolTip.SetTip(badge, layer.SmartObject.Link is { } link ? $"Linked smart object · {link.Path}" + (link.HasLocalEdits ? " · local cached edits" : "")
+                    + (status?.Detail is { } detail ? "\n" + detail : status is { State: not Composa.IO.LinkedSourceState.Current } ? "\n" + status.State : "") : "Smart object · double-click the thumbnail to edit contents");
                 content.Children.Add(badge);
             }
         }
         if (layer.Mask != null)
         {
+            var link = new Button { Classes = { "flat" }, Width = 18, Height = 28, Padding = new Thickness(0), Content = Icons.Create(layer.MaskLinked ? Icons.Link : Icons.Unlink, 16, Palette.Secondary) };
+            ToolTip.SetTip(link, layer.MaskLinked ? "Unlink mask: move and transform it independently" : "Link mask: move it together with the layer");
+            link.Click += (_, _) => current.SetMaskLinked(layer, !layer.MaskLinked);
+            content.Children.Add(link);
             var maskThumb = Thumb(new Image { Source = Thumbnail(layer.Mask), Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
-                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask);
+                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask);
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
             ToolTip.SetTip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
             maskThumb.AddHandler(PointerPressedEvent, (_, e) =>
@@ -329,6 +357,7 @@ public sealed class LayersPanel : UserControl
             if (layer.VectorMask != null) { name.Text += "  [vector mask]"; }
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = 150;
+            ToolTip.SetTip(name, layer.Tags.Count == 0 ? layer.Name : layer.Name + "\nTags: " + string.Join(", ", layer.Tags.Order(StringComparer.OrdinalIgnoreCase)));
             if (layer.IsLive) name.FontStyle = FontStyle.Italic;
             content.Children.Add(name);
         }
@@ -408,8 +437,58 @@ public sealed class LayersPanel : UserControl
         var current = session!;
         var toggle = Ui.Check("", filter.Enabled, enabled => current.ChangeSmartFilter(layer, filter.Id, enabled: enabled));
         var edit = Ui.TextButton(FilterSettings.DisplayName(filter.Settings.Kind) + "…", () => EditSmartFilterRequested?.Invoke(layer, filter));
+        edit.MaxWidth = 130;
+        ToolTip.SetTip(edit, FilterSettings.DisplayName(filter.Settings.Kind));
+        var blending = Ui.TextButton($"{filter.Opacity:P0}", () => EditSmartFilterBlendingRequested?.Invoke(layer, filter));
+        ToolTip.SetTip(blending, $"Smart filter blending: {filter.Blend.DisplayName()}, {filter.Opacity:P0}");
         var delete = Ui.IconButton(Icons.Trash, "Delete smart filter", () => current.ChangeSmartFilter(layer, filter.Id, remove: true));
-        return new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = Ui.Row(5, toggle, edit, delete) };
+        var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = Ui.Row(5, toggle, edit, blending, delete) };
+        var menu = new ContextMenu();
+        void Add(string name, Action action, bool enabled = true)
+        {
+            var item = new MenuItem { Header = name, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
+        }
+        var index = Array.FindIndex(layer.SmartFilters, f => f.Id == filter.Id);
+        Add("Blending Options…", () => EditSmartFilterBlendingRequested?.Invoke(layer, filter));
+        Add("Move Filter Up", () => current.MoveSmartFilter(layer, filter.Id, 1), index < layer.SmartFilters.Length - 1);
+        Add("Move Filter Down", () => current.MoveSmartFilter(layer, filter.Id, -1), index > 0);
+        row.ContextMenu = menu; return row;
+    }
+
+    private Control BuildSmartFilterMaskRow(Layer layer, int depth)
+    {
+        var current = session!;
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (layer.SmartFilterMask is { } mask)
+        {
+            var thumbnail = Thumb(new Image { Source = Thumbnail(mask), Stretch = Stretch.Uniform, Opacity = layer.SmartFilterMaskEnabled ? 1 : .35 },
+                current.ActiveLayer?.Id == layer.Id && current.IsEditingSmartFilterMask);
+            ToolTip.SetTip(thumbnail, "Smart filter mask: paint black to hide filtering, white to reveal it; Shift-click to disable");
+            thumbnail.PointerPressed += (_, e) =>
+            {
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) current.SetSmartFilterMaskEnabled(layer, !layer.SmartFilterMaskEnabled);
+                else { current.SelectLayer(layer.Id); current.EditingSmartFilterMask = true; current.NotifyLayersChanged(); }
+                e.Handled = true;
+            };
+            content.Children.Add(thumbnail);
+        }
+        else
+        {
+            var add = Ui.TextButton("Add filter mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); });
+            ToolTip.SetTip(add, "Mask the smart filter stack without hiding the object"); content.Children.Add(add);
+        }
+        content.Children.Add(Ui.Label("Smart Filters", Palette.Secondary));
+        var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = content };
+        var menu = new ContextMenu();
+        void Add(string title, Action action, bool enabled = true)
+        {
+            var item = new MenuItem { Header = title, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
+        }
+        Add("Add Filter Mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); }, layer.SmartFilterMask == null);
+        Add("Hide All Filters", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer, true); }, layer.SmartFilterMask == null);
+        Add(layer.SmartFilterMaskEnabled ? "Disable Filter Mask" : "Enable Filter Mask", () => current.SetSmartFilterMaskEnabled(layer, !layer.SmartFilterMaskEnabled), layer.SmartFilterMask != null);
+        Add("Delete Filter Mask", () => current.DeleteSmartFilterMask(layer), layer.SmartFilterMask != null);
+        row.ContextMenu = menu; return row;
     }
 
     private void EffectDragMoved(PointerEventArgs e)
@@ -458,13 +537,14 @@ public sealed class LayersPanel : UserControl
         return border;
     }
 
-    private static unsafe Bitmap Thumbnail(SKBitmap source)
+    private unsafe Bitmap Thumbnail(SKBitmap source)
     {
-        if (Thumbnails.TryGetValue(source, out var cached)) return cached;
+        var profiles = Thumbnails.GetValue(source, _ => new());
+        if (profiles.TryGetValue(displayProfile, out var cached)) return cached;
         const int side = 68;
         var scale = Math.Min((double)side / source.Width, (double)side / source.Height);
         int w = Math.Max(1, (int)Math.Round(source.Width * scale)), h = Math.Max(1, (int)Math.Round(source.Height * scale));
-        using var small = new SKBitmap(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var small = new SKBitmap(Composa.Rendering.Pixels.WorkingInfo(w, h, ColorDepth.Eight, displayProfile).WithColorType(SKColorType.Bgra8888));
         using (var canvas = new SKCanvas(small))
         {
             if (source.ColorType == SKColorType.Alpha8)
@@ -482,8 +562,18 @@ public sealed class LayersPanel : UserControl
             }
         }
         var bitmap = new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, small.GetPixels(), new PixelSize(w, h), new Vector(96, 96), small.RowBytes);
-        Thumbnails.Add(source, bitmap);
+        profiles[displayProfile] = bitmap;
+        // Old render operations may still own an evicted image, so leave disposal to their references/GC.
+        while (profiles.Count > 4) profiles.Remove(profiles.Keys.First(p => !p.Equals(displayProfile)));
         return bitmap;
+    }
+
+    private Bitmap LayerThumbnail(Layer layer)
+    {
+        if (layer.HasWarp) layer = layer.WarpAppearance(Math.Min(1, 68.0 / Math.Max(layer.Pixels!.Width, layer.Pixels.Height)));
+        if (!layer.HasSmartFilterMask) return Thumbnail(layer.Pixels!);
+        using var preview = layer.RenderFilterPreview(68);
+        return Ui.ToAvaloniaBitmap(preview, 68, displayProfile);
     }
 
     /// <summary>
@@ -518,6 +608,7 @@ public sealed class LayersPanel : UserControl
         Add(targetsMask ? "Delete Mask" : several ? "Delete Selected Layers" : "Delete Layer", () => { if (targetsMask) current.DeleteMask(layer); else current.DeleteSelectedLayers(); });
         menu.Items.Add(locks);
         Add("Tags…", () => EditTagsRequested?.Invoke(layer), !several);
+        Add("Blending Options…", () => EditBlendingRequested?.Invoke(layer), !several);
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
         if (layer.Shape != null) Add("Shape Properties…", () => EditShapeRequested?.Invoke(layer));
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
@@ -539,6 +630,14 @@ public sealed class LayersPanel : UserControl
         {
             Add("Edit Smart Object Contents…", () => EditSmartObjectRequested?.Invoke(layer));
             Add("New Smart Object via Copy", () => current.DuplicateSmartObjectIndependent(layer));
+            Add("Replace Contents…", () => ReplaceSmartObjectRequested?.Invoke(layer, false));
+            Add("Relink to File…", () => ReplaceSmartObjectRequested?.Invoke(layer, true));
+            if (layer.SmartObject!.Link != null)
+            {
+                Add("Update from File", () => UpdateLinkedSmartObjectRequested?.Invoke(layer));
+                Add("Embed Linked Object", () => current.SetSmartObjectLink(layer.SmartObject!, null));
+                Add("Linked Source Info…", () => LinkedSourceInfoRequested?.Invoke(layer));
+            }
         }
         menu.Items.Add(new Separator());
 
@@ -554,6 +653,8 @@ public sealed class LayersPanel : UserControl
         Add("Hide All (Black)", () => current.AddMask(layer, hideAll: true), parent: addMask);
         menu.Items.Add(addMask);
         Add(layer.Mask is { } && !layer.MaskEnabled ? "Enable Mask" : "Disable Mask", () => current.SetMaskEnabled(layer, !layer.MaskEnabled), layer.Mask != null);
+        Add(layer.MaskLinked ? "Unlink Mask" : "Link Mask", () => current.SetMaskLinked(layer, !layer.MaskLinked), layer.Mask != null);
+        Add("Mask Properties…", () => EditMaskPropertiesRequested?.Invoke(layer), layer.Mask != null);
         Add("Delete Mask", () => current.DeleteMask(layer), layer.Mask != null);
         Add("Apply Mask", () => current.ApplyMask(layer), layer.Mask != null && layer.Pixels != null && !layer.IsSmartObject);
         Add("Select Mask", () => current.SelectLayerMask(layer), layer.Mask != null);
@@ -595,7 +696,8 @@ public sealed class LayersPanel : UserControl
         if (session.SelectedEffect != null) { session.SelectedEffect = null; session.NotifyLayersChanged(); }
         var target = thumbnailTarget;
         thumbnailTarget = null;
-        if (extend || range || !session.Document.SelectedLayerIds.Contains(layer.Id)) session.SelectLayer(layer.Id, extend, range);
+        if (extend || range || !session.Document.SelectedLayerIds.Contains(layer.Id)) session.SelectLayer(layer.Id, extend, range,
+            IsFiltering ? rows.Children.OfType<Border>().Where(r => r.Tag is Layer).Select(r => ((Layer)r.Tag!).Id).ToArray() : null);
         if (target is { } mask && !extend && !range)
         {
             // Clicking a thumbnail chooses what painting affects: the layer's pixels or its mask.
@@ -608,7 +710,7 @@ public sealed class LayersPanel : UserControl
 
     private void RowMoved(PointerEventArgs e)
     {
-        if (pressed == null || session == null) return;
+        if (pressed == null || session == null || IsFiltering) return;
         if (!e.GetCurrentPoint(rows).Properties.IsLeftButtonPressed) { EndRowDrag(); return; }
         var position = e.GetPosition(rows);
         if (!dragging && Math.Abs(position.Y - pressPoint.Y) < 6) return;

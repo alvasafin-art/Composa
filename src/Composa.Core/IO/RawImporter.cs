@@ -1,16 +1,18 @@
 using System.Diagnostics;
 using System.Text;
+using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
 
 namespace Composa.IO;
 
 /// <summary>
-/// What to spend a RAW file's latitude on before it becomes an 8-bit layer. The camera's own rendering is the starting
+/// What to spend a RAW file's latitude on before it becomes a layer. The camera's own rendering is the starting
 /// point; every value is a departure from it, so Reset has somewhere to go back to.
 /// </summary>
 public sealed record RawDevelopSettings
 {
+    public ColorDepth OutputDepth { get; init; } = ColorDepth.Sixteen;
     /// <summary>Stops of exposure either side of what the camera recorded, -3…3.</summary>
     public double Exposure { get; init; }
     /// <summary>White balance away from the camera's reading: -100 cooler to 100 warmer.</summary>
@@ -23,7 +25,7 @@ public sealed record RawDevelopSettings
 
 /// <summary>
 /// A decoded camera frame at 16 bits per channel, sRGB-encoded, kept until the develop settings are chosen. Sixteen bits
-/// hold more of the sensor's range than a layer can, so darkening a bright frame recovers tones an 8-bit decode would
+/// retain the sensor's range, so darkening a bright frame recovers tones an 8-bit decode would
 /// have already clipped.
 /// </summary>
 public sealed class RawImage
@@ -85,16 +87,30 @@ public sealed class RawImage
     }
 
     /// <summary>
-    /// The frame as 8-bit premultiplied pixels with the settings applied: exposure scales linear light, temperature and
+    /// The frame as premultiplied pixels with the settings applied: exposure scales linear light, temperature and
     /// tint weigh the channels against each other. <paramref name="maxSide"/> above zero reduces the result to fit,
     /// sampling the frame rather than filtering it, for a preview that keeps up with a slider.
     /// </summary>
-    public unsafe SKBitmap Develop(RawDevelopSettings settings, int maxSide = 0)
+    public unsafe SKBitmap Develop(RawDevelopSettings settings, int maxSide = 0, ColorDepth depth = ColorDepth.Eight)
     {
         var step = maxSide > 0 ? Math.Max(1, (int)Math.Ceiling(Math.Max(Width, Height) / (double)maxSide)) : 1;
         int width = (Width + step - 1) / step, height = (Height + step - 1) / step;
         var tables = Tables(settings);
-        var result = Pixels.NewColor(width, height);
+        if ((long)width * height * (depth == ColorDepth.Sixteen ? 16 : 4) > DocumentLimits.MaxSurfaceBytes)
+            throw new InvalidDataException("The developed frame exceeds the supported surface memory. Reduce its dimensions before opening it.");
+        var result = Pixels.NewColor(width, height, depth);
+        if (depth == ColorDepth.Sixteen)
+        {
+            var high = new PixelBuffer(result);
+            Parallel.For(0, height, y =>
+            {
+                var source = (long)y * step * Width * 3;
+                for (var x = 0; x < width; x++, source += step * 3)
+                    high.Write(x, y, new(tables[0][Samples[source]], tables[1][Samples[source + 1]], tables[2][Samples[source + 2]], 1));
+            });
+            Pixels.Invalidate(result);
+            return result;
+        }
         var target = (byte*)result.GetPixels();
         var stride = result.RowBytes;
         var samples = Samples;
@@ -104,27 +120,28 @@ public sealed class RawImage
             var source = (long)y * step * Width * 3;
             for (var x = 0; x < width; x++, row += 4, source += step * 3)
             {
-                row[0] = tables[0][samples[source]];
-                row[1] = tables[1][samples[source + 1]];
-                row[2] = tables[2][samples[source + 2]];
+                row[0] = (byte)Math.Clamp(MathF.Round(tables[0][samples[source]] * 255), 0, 255);
+                row[1] = (byte)Math.Clamp(MathF.Round(tables[1][samples[source + 1]] * 255), 0, 255);
+                row[2] = (byte)Math.Clamp(MathF.Round(tables[2][samples[source + 2]] * 255), 0, 255);
                 row[3] = 255;
             }
         });
+        Pixels.Invalidate(result);
         return result;
     }
 
-    /// <summary>One 16-bit to 8-bit table per channel: decode sRGB, scale in linear light, encode again.</summary>
-    private static byte[][] Tables(RawDevelopSettings settings)
+    /// <summary>One full precision table per channel: decode sRGB, scale in linear light, encode again.</summary>
+    private static float[][] Tables(RawDevelopSettings settings)
     {
         var exposure = Math.Pow(2, Math.Clamp(settings.Exposure, -3, 3));
         var warmth = Math.Clamp(settings.Temperature, -100, 100) / 100;
         var tint = Math.Clamp(settings.Tint, -100, 100) / 100;
         // Warmer means more red and less blue; a magenta tint takes green away, a green one adds it.
         double[] gains = [exposure * (1 + 0.35 * warmth), exposure * (1 - 0.25 * tint), exposure * (1 - 0.35 * warmth)];
-        var tables = new byte[3][];
+        var tables = new float[3][];
         for (var channel = 0; channel < 3; channel++)
         {
-            var table = tables[channel] = new byte[65536];
+            var table = tables[channel] = new float[65536];
             var gain = gains[channel];
             for (var i = 0; i < 65536; i++)
             {
@@ -132,7 +149,7 @@ public sealed class RawImage
                 var linear = encoded <= 0.04045 ? encoded / 12.92 : Math.Pow((encoded + 0.055) / 1.055, 2.4);
                 linear = Math.Min(1, linear * gain);
                 var output = linear <= 0.0031308 ? linear * 12.92 : 1.055 * Math.Pow(linear, 1 / 2.4) - 0.055;
-                table[i] = (byte)Math.Clamp(Math.Round(output * 255), 0, 255);
+                table[i] = (float)Math.Clamp(output, 0, 1);
             }
         }
         return tables;

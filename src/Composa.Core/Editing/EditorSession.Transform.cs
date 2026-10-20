@@ -14,25 +14,35 @@ public sealed class TransformEdit
     private readonly EditorSession session;
     private readonly List<(Layer Layer, LayerTransform Start)> layers;
     // Folder and adjustment masks live in document space; they follow a move so they stay over their content.
-    private readonly List<(Layer Layer, SKBitmap Start)> masks;
-    private readonly Dictionary<Layer, SKBitmap> movedMasks = [];
+    private readonly List<(Layer Layer, LayerTransform Start)> masks;
+    private readonly Layer? maskTarget;
+    private readonly bool hasFrameOverride;
+    private SKPoint[]? overrideCorners;
 
     /// <summary>The frame being manipulated: an unrotated rectangle plus a rotation about its center.</summary>
     public SKRect StartFrame { get; }
     public double StartRotation { get; }
     public SKRect Frame { get; private set; }
     public double Rotation { get; private set; }
-    public IReadOnlyList<Layer> Layers => layers.Select(l => l.Layer).ToList();
+    public IReadOnlyList<Layer> Layers => maskTarget != null ? [] : layers.Select(l => l.Layer).ToList();
 
-    internal TransformEdit(EditorSession session, List<Layer> targets, List<Layer> maskOwners)
+    internal TransformEdit(EditorSession session, List<Layer> targets, List<Layer> maskOwners, Layer? maskTarget = null, LayerTransform? frameOverride = null)
     {
         this.session = session;
+        this.maskTarget = maskTarget;
+        hasFrameOverride = frameOverride != null;
+        if (maskTarget != null)
+            targets = [new Layer { Pixels = maskTarget.Mask, Transform = maskTarget.MaskTransform ?? LayerTransform.FromMatrix(maskTarget.MaskMatrix, maskTarget.Mask!.Width, maskTarget.Mask.Height) }];
         layers = targets.Select(l => (l, l.Transform)).ToList();
-        masks = maskOwners.Select(l => (l, l.Mask!)).ToList();
-        if (layers.Count == 0) StartFrame = new SKRect(0, 0, session.Document.Width, session.Document.Height);
+        masks = maskOwners.Select(l => (l, LayerTransform.FromMatrix(l.MaskMatrix, l.Mask!.Width, l.Mask.Height))).ToList();
+        if (frameOverride is { } frame)
+        {
+            StartFrame = SKRect.Create((float)frame.X, (float)frame.Y, (float)frame.Width, (float)frame.Height); StartRotation = frame.Rotation;
+        }
+        else if (layers.Count == 0) StartFrame = new SKRect(0, 0, session.Document.Width, session.Document.Height);
         else if (layers.Count == 1)
         {
-            var t = layers[0].Layer.ControlTransform;
+            var t = maskTarget != null ? layers[0].Start : layers[0].Layer.ControlTransform;
             StartFrame = SKRect.Create((float)t.X, (float)t.Y, (float)t.Width, (float)t.Height);
             StartRotation = t.Rotation;
         }
@@ -53,8 +63,9 @@ public sealed class TransformEdit
     /// </summary>
     public SKPoint[] Corners()
     {
-        if (layers.Count == 1 && layers[0].Layer is { Pixels: { } pixels, Transform.Distort: not null } distorted)
-            return distorted.ControlTransform.Corners(pixels.Width, pixels.Height);
+        if (overrideCorners != null) return overrideCorners;
+        if (!hasFrameOverride && layers.Count == 1 && layers[0].Layer is { Pixels: { } pixels, Transform.Distort: not null } distorted)
+            return (maskTarget != null ? distorted.Transform : distorted.ControlTransform).Corners(pixels.Width, pixels.Height);
         var rotate = SKMatrix.CreateRotationDegrees((float)Rotation, Frame.MidX, Frame.MidY);
         return [rotate.MapPoint(Frame.Left, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Bottom), rotate.MapPoint(Frame.Left, Frame.Bottom)];
     }
@@ -65,7 +76,9 @@ public sealed class TransformEdit
         var before = Area();
         Frame = frame;
         Rotation = rotation;
+        overrideCorners = null;
         Update();
+        SyncMask();
         session.Invalidate(Geometry.Union(before, Area()));
     }
 
@@ -147,25 +160,23 @@ public sealed class TransformEdit
 
     private void MoveMasks()
     {
-        int dx = (int)Math.Round(Frame.MidX - StartFrame.MidX), dy = (int)Math.Round(Frame.MidY - StartFrame.MidY);
         foreach (var (layer, start) in masks)
         {
-            SKBitmap? moved = null;
-            if (dx != 0 || dy != 0)
-            {
-                // What slides in from outside takes the mask's corner value: hidden for a hide-all mask, revealed otherwise.
-                var fill = start.GetPixel(0, 0).Alpha;
-                moved = EditorSession.RemapDocumentMask(start, start.Width, start.Height, SKMatrix.CreateTranslation(dx, dy), fill);
-            }
-            layer.Mask = moved ?? start;
-            if (movedMasks.Remove(layer, out var previous)) { Rendering.Pixels.Invalidate(previous); previous.Dispose(); }
-            if (moved != null) movedMasks[layer] = moved;
+            var transform = MapControlFrame(start, StartFrame, StartRotation, Frame.Standardized, Rotation, Frame.Width < 0, Frame.Height < 0);
+            layer.PlaceMask(transform.Matrix(layer.Mask!.Width, layer.Mask.Height));
         }
+    }
+
+    private void SyncMask()
+    {
+        if (maskTarget != null) maskTarget.MaskTransform = layers[0].Layer.Transform;
+        session.UpdateChannelTransformPreview(this);
     }
 
     private SKRectI Area()
     {
         if (masks.Count > 0) return session.Document.Bounds;
+        if (maskTarget != null) return session.AffectedArea(maskTarget);
         var area = SKRectI.Empty;
         foreach (var (layer, _) in layers) area = Geometry.Union(area, session.AffectedArea(layer));
         return area;
@@ -181,6 +192,15 @@ public sealed class TransformEdit
         if (layers.Count == 1)
         {
             var (layer, start) = layers[0];
+            if (hasFrameOverride)
+            {
+                var original = new LayerTransform { X = StartFrame.Left, Y = StartFrame.Top, Width = StartFrame.Width, Height = StartFrame.Height, Rotation = StartRotation }.Matrix(1, 1);
+                var next = new LayerTransform { X = frame.Left, Y = frame.Top, Width = frame.Width, Height = frame.Height, Rotation = Rotation, FlipHorizontal = flipX, FlipVertical = flipY }.Matrix(1, 1);
+                if (Frame == StartFrame && Rotation == StartRotation) layer.Transform = start;
+                else if (original.TryInvert(out var inverse))
+                    layer.Transform = LayerTransform.FromMatrix(start.Matrix(layer.Pixels!.Width, layer.Pixels.Height).PostConcat(inverse.PostConcat(next)), layer.Pixels.Width, layer.Pixels.Height);
+                return;
+            }
             layer.Transform = MapControlFrame(start, StartFrame, StartRotation, frame, Rotation, flipX, flipY);
             return;
         }
@@ -223,7 +243,8 @@ public sealed class TransformEdit
     }
 
     /// <summary>True when any layer ended up somewhere other than where it started.</summary>
-    public bool HasChanges => layers.Any(l => !Same(l.Layer.Transform, l.Start)) || masks.Any(m => !ReferenceEquals(m.Layer.Mask, m.Start));
+    public bool HasChanges => layers.Any(l => !Same(l.Layer.Transform, l.Start))
+        || masks.Any(m => !Same(LayerTransform.FromMatrix(m.Layer.MaskMatrix, m.Layer.Mask!.Width, m.Layer.Mask.Height), m.Start));
 
     /// <summary>Record equality compares the distort array by reference, so it is compared separately.</summary>
     public static bool Same(LayerTransform a, LayerTransform b) =>
@@ -237,10 +258,23 @@ public sealed class TransformEdit
     public void DistortCorner(int corner, SKPoint point)
     {
         if (layers.Count != 1 || session.Transform != this) return;
+        if (hasFrameOverride)
+        {
+            var quad = new[] { new SKPoint(StartFrame.Left, StartFrame.Top), new SKPoint(StartFrame.Right, StartFrame.Top), new SKPoint(StartFrame.Right, StartFrame.Bottom), new SKPoint(StartFrame.Left, StartFrame.Bottom) };
+            var beforeOverride = Area(); var (proxy, initial) = layers[0]; var originalPoint = quad[corner]; quad[corner] = point;
+            if (point == originalPoint) { proxy.Transform = initial; overrideCorners = null; }
+            else
+            {
+                var delta = SKMatrix.CreateTranslation(-StartFrame.Left, -StartFrame.Top).PostConcat(Geometry.RectToQuad(StartFrame.Width, StartFrame.Height, quad));
+                proxy.Transform = LayerTransform.FromMatrix(initial.Matrix(proxy.Pixels!.Width, proxy.Pixels.Height).PostConcat(delta), proxy.Pixels.Width, proxy.Pixels.Height);
+                overrideCorners = quad;
+            }
+            SyncMask(); session.Invalidate(Geometry.Union(beforeOverride, Area())); return;
+        }
         var before = Area();
         var (layer, start) = layers[0];
         var pixels = layer.Pixels!;
-        var source = layer.ControlSourceBounds;
+        var source = maskTarget != null ? new SKRectI(0, 0, pixels.Width, pixels.Height) : layer.ControlSourceBounds;
         if (source == new SKRectI(0, 0, pixels.Width, pixels.Height))
         {
             // Preserve exact offsets of untouched corners when the source already fills its controls.
@@ -249,6 +283,7 @@ public sealed class TransformEdit
             offsets[corner * 2] = p.X - (float)start.X - (corner is 1 or 2 ? (float)start.Width : 0);
             offsets[corner * 2 + 1] = p.Y - (float)start.Y - (corner is 2 or 3 ? (float)start.Height : 0);
             layer.Transform = start with { Distort = offsets.All(v => Math.Abs(v) < .01f) ? null : offsets };
+            SyncMask();
             session.Invalidate(Geometry.Union(before, Area()));
             return;
         }
@@ -273,6 +308,7 @@ public sealed class TransformEdit
             distort[i * 2 + 1] = p.Y - (float)(start.Y + (i is 2 or 3 ? start.Height : 0));
         }
         layer.Transform = start with { Distort = distort.All(v => Math.Abs(v) < 0.01f) ? null : distort };
+        SyncMask();
         session.Invalidate(Geometry.Union(before, Area()));
     }
 }
@@ -280,30 +316,37 @@ public sealed class TransformEdit
 public sealed partial class EditorSession
 {
     public TransformEdit? Transform { get; private set; }
+    public Layer? IndependentMaskTarget => IsEditingMask && !IsEditingAlphaChannel && !IsEditingSmartFilterMask && ActiveLayer is { MaskLinked: false, Mask: not null } layer && !PositionLocked(layer) ? layer : null;
+    public LayerTransform EditingControlTransform(Layer layer) => IsEditingChannel && (layer == ChannelControlLayer || layer == ActiveLayer) ? ChannelControlTransform : IndependentMaskTarget == layer
+        ? layer.MaskTransform ?? LayerTransform.FromMatrix(layer.MaskMatrix, layer.Mask!.Width, layer.Mask.Height) : layer.ControlTransform;
 
     /// <summary>The raster layers a transform applies to: the selection, including everything inside selected folders.</summary>
-    public List<Layer> TransformTargets() =>
-        SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).Distinct().ToList();
+    public List<Layer> TransformTargets() => IsEditingChannel ? ChannelControlLayer is { } channel ? [channel] : []
+        : SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).Distinct().ToList();
 
     public TransformEdit? BeginTransform(string name = "Transform", bool duplicate = false)
     {
+        if (IsEditingChannel) return BeginChannelTransform(name, duplicate);
         var targets = TransformTargets();
-        var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && !PositionLocked(l)).Distinct().ToList();
-        if (targets.Count == 0 && maskOwners.Count == 0) return null;
+        var maskTarget = IndependentMaskTarget;
+        var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked && !PositionLocked(l)).Distinct().ToList();
+        if (targets.Count == 0 && maskOwners.Count == 0 && maskTarget == null) return null;
+        if (maskTarget != null) duplicate = false;
         Begin(duplicate ? "Duplicate and Move" : name);
         if (duplicate)
         {
             InsertLayerCopies(SelectedRoots());
             targets = TransformTargets();
-            maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && !PositionLocked(l)).Distinct().ToList();
+            maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked && !PositionLocked(l)).Distinct().ToList();
         }
-        Transform = new TransformEdit(this, targets, maskOwners);
+        Transform = new TransformEdit(this, targets, maskTarget == null ? maskOwners : [], maskTarget);
         if (duplicate) { InvalidateAll(); LayersChanged?.Invoke(); }
         return Transform;
     }
 
     public void CommitTransform()
     {
+        if (EndChannelTransform(keep: true)) return;
         if (Transform == null) return;
         var changed = Transform.HasChanges;
         foreach (var layer in Transform.Layers)
@@ -313,7 +356,7 @@ public sealed partial class EditorSession
             if (layer.Shape != null && layer.Pixels != null)
             {
                 int w = Math.Max(1, (int)Math.Round(layer.Transform.Width)), h = Math.Max(1, (int)Math.Round(layer.Transform.Height));
-                if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderShape(layer.Shape, w, h));
+                if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, w, h));
             }
         }
         Transform = null;
@@ -324,6 +367,7 @@ public sealed partial class EditorSession
 
     public void CancelTransform()
     {
+        if (EndChannelTransform(keep: false)) return;
         if (Transform == null) return;
         Transform = null;
         Cancel();
@@ -337,7 +381,7 @@ public sealed partial class EditorSession
         var t = layer.Transform;
         if (t.Rotation == 0 && t.Distort == null && Math.Abs(t.Width - pixels.Width) < 1 && Math.Abs(t.Height - pixels.Height) < 1)
             layer.Transform = t with { X = Math.Round(t.X), Y = Math.Round(t.Y), Width = pixels.Width, Height = pixels.Height };
-        if (layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height)) layer.Mask = Resample(mask, pixels.Width, pixels.Height);
+        if (layer.MaskTransform == null && layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height)) layer.Mask = Resample(mask, pixels.Width, pixels.Height);
     }
 
     /// <summary>Nudges the selected layers with the arrow keys.</summary>
@@ -350,12 +394,33 @@ public sealed partial class EditorSession
 
     private const string InspectorEditName = "Transform";
     private (Guid LayerId, int Revision)? inspectorEdit;
+    private (Guid LayerId, int Revision)? maskInspectorEdit;
 
     public void SetControlTransform(Layer layer, LayerTransform control)
     {
+        if (IsEditingChannel && (layer == ChannelControlLayer || layer == ActiveLayer)) { SetChannelControlTransform(control); return; }
+        if (IndependentMaskTarget == layer) { SetMaskTransform(layer, control); return; }
         var before = layer.ControlTransform;
         SetTransform(layer, TransformEdit.MapControlFrame(layer.Transform, SKRect.Create((float)before.X, (float)before.Y, (float)before.Width, (float)before.Height), before.Rotation,
             SKRect.Create((float)control.X, (float)control.Y, (float)control.Width, (float)control.Height), control.Rotation));
+    }
+
+    public void SetMaskTransform(Layer layer, LayerTransform transform)
+    {
+        if (layer.Mask == null || PositionLocked(layer)) return;
+        if (!new[] { transform.X, transform.Y, transform.Width, transform.Height, transform.Rotation }.All(double.IsFinite)
+            || transform.Width <= 0 || transform.Height <= 0 || transform.Distort is { } distort && (distort.Length != 8 || !distort.All(float.IsFinite)))
+            throw new ArgumentException("A mask transform must be finite and have a positive size.", nameof(transform));
+        var before = !layer.MaskLinked && layer.MaskTransform != null ? layer.MaskTransform : LayerTransform.FromMatrix(layer.MaskMatrix, layer.Mask.Width, layer.Mask.Height);
+        if (TransformEdit.Same(before, transform)) return;
+        Apply("Transform Layer Mask", () =>
+        {
+            if (!layer.MaskLinked) layer.MaskTransform = transform;
+            else layer.PlaceMask(transform.Matrix(layer.Mask.Width, layer.Mask.Height));
+        });
+        if (maskInspectorEdit is { } last && last.LayerId == layer.Id && last.Revision == Revision - 1) FoldLastStep("Transform Layer Mask");
+        maskInspectorEdit = (layer.Id, Revision);
+        InvalidateAll(); LayersChanged?.Invoke();
     }
 
     /// <summary>
@@ -370,7 +435,7 @@ public sealed partial class EditorSession
             layer.Transform = transform;
             if (layer.Text != null) RescaleText(layer);
             if (layer.Shape != null)
-                ReplaceLivePixels(layer, RenderShape(layer.Shape, Math.Max(1, (int)Math.Round(transform.Width)), Math.Max(1, (int)Math.Round(transform.Height))));
+                ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, Math.Max(1, (int)Math.Round(transform.Width)), Math.Max(1, (int)Math.Round(transform.Height))));
         });
         // Exactly one revision on: the commit above, with no other edit (or undo) between the two changes.
         if (inspectorEdit is { } last && last.LayerId == layer.Id && last.Revision == Revision - 1) FoldLastStep(InspectorEditName);

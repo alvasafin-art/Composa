@@ -10,24 +10,28 @@ public sealed class SmartObjectSource
     private readonly Document content;
     public Guid Id { get; }
     public SKBitmap Preview { get; }
+    public SmartObjectLink? Link { get; }
     public int Width => content.Width;
     public int Height => content.Height;
     public Document OpenDocument() => content.Clone();
 
-    private SmartObjectSource(Guid id, Document content, SKBitmap preview)
-    { Id = id; this.content = content; Preview = preview; }
+    private SmartObjectSource(Guid id, Document content, SKBitmap preview, SmartObjectLink? link = null)
+    { Id = id; this.content = content; Preview = preview; Link = link?.Validated(); }
 
-    public static SmartObjectSource Create(Document document, Guid? id = null)
+    public static SmartObjectSource Create(Document document, Guid? id = null, SmartObjectLink? link = null)
     {
+        link = link?.Validated();
         if (!DocumentLimits.FitsSurface(document.Width, document.Height)) throw new ArgumentException("Invalid smart object size.");
         var identity = id ?? Guid.NewGuid();
         Validate(document, identity, 0);
-        if (document.RasterPixels() + (long)document.Width * document.Height > DocumentLimits.DocumentPixelBudget)
+        if (document.RasterPixels() + (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1) > DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException($"The smart object exceeds the {DocumentLimits.DocumentBudgetMegapixels} MP document budget.");
         var snapshot = document.Clone(); snapshot.Selection = null;
         var preview = DocumentRenderer.Flatten(snapshot);
-        return new(identity, snapshot, preview);
+        return new(identity, snapshot, preview, link);
     }
+
+    public SmartObjectSource WithLink(SmartObjectLink? link) => new(Id, content, Preview, link);
 
     private static void Validate(Document document, Guid identity, int depth)
     {

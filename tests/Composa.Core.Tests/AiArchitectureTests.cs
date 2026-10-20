@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using System.IO.Compression;
 using Composa.AI;
 using Composa.Editing;
 using Composa.IO;
@@ -402,7 +403,16 @@ public class AiArchitectureTests
         Assert.Contains("title", loaded.ActiveLayer!.Tags);
         Assert.Contains("hero-image", loaded.ActiveLayer.Tags);
         Assert.DoesNotContain("bad/tag", loaded.ActiveLayer.Tags);
-        Assert.Equal(10, ProjectFile.Version);
+        // Exercise an actual pre-tags manifest instead of tying this unrelated feature to the current format number.
+        stream.Position = 0;
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            var entry = archive.GetEntry("manifest.json")!; JsonNode manifest;
+            using (var content = entry.Open()) manifest = JsonNode.Parse(content)!;
+            manifest["version"] = 5; manifest["layers"]![0]!.AsObject().Remove("tags"); entry.Delete();
+            using var writer = new StreamWriter(archive.CreateEntry("manifest.json").Open(), new UTF8Encoding(false)); writer.Write(manifest.ToJsonString());
+        }
+        stream.Position = 0; Assert.Empty(ProjectFile.Read(stream).ActiveLayer!.Tags);
     }
 
     [Fact]

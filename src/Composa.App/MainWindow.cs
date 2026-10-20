@@ -24,15 +24,18 @@ public sealed partial class MainWindow : Window
     private readonly CanvasView canvas = new();
     private readonly LayersPanel layers = new() { Width = 296 };
     private readonly HistoryPanel history = new();
+    private readonly ChannelsPanel channels = new();
+    private readonly NavigatorPanel navigator;
     /// <summary>The right-hand column: the Layers panel with the panels of the Window menu under it.</summary>
     private readonly SideDock dock;
+    private readonly List<Control> canvasChrome = [];
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     private readonly Border optionsHost = new() { Height = 40, Background = Palette.Panel, Padding = new Thickness(12, 0) };
     private readonly Border toolOptionsHost = new();
     private readonly Grid combinedOptions = new() { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
     private readonly Dictionary<Tool, ToolButton> toolButtons = [];
     private readonly TextBlock zoomText = new() { Width = 56, Foreground = Palette.Secondary };
-    private readonly TextBlock sizeText = new() { Foreground = Palette.Secondary };
+    private readonly TextBlock sizeText = new() { Foreground = Palette.Secondary, MaxWidth = 430, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock positionText = new() { Foreground = Palette.Secondary, Width = 96 };
     private readonly TextBlock hintText = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock aiText = new() { Foreground = Palette.Accent };
@@ -48,6 +51,8 @@ public sealed partial class MainWindow : Window
     private readonly Panel welcome;
     private readonly UpdateNotice updateNotice = new();
     private Action? refreshOptions;
+    private bool channelInspectorDragging;
+    private IPointer? channelInspectorPointer;
     private readonly Settings settings = Settings.Load();
     private readonly Recovery? recovery = Settings.Persist ? new Recovery() : null;
     // The status bar shows a problem in orange, or a note in the hint's color, in place of the tool hint until the next command.
@@ -99,15 +104,20 @@ public sealed partial class MainWindow : Window
         aiFloatingLayer.Children.Add(aiFloatingHost);
         var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer } };
         var center = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto") };
-        center.Children.Add(BuildToolRail());
-        AddAt(center, Ui.Separator(), 1).Margin = new Thickness(0);
+        center.Children.Add(Chrome(BuildToolRail()));
+        var leftDivider = Ui.Separator(); leftDivider.Margin = new Thickness(0); AddAt(center, Chrome(leftDivider), 1);
         AddAt(center, canvasHost, 2);
-        AddAt(center, Ui.Separator(), 3).Margin = new Thickness(0);
+        var rightDivider = Ui.Separator(); rightDivider.Margin = new Thickness(0); AddAt(center, Chrome(rightDivider), 3);
         var historySection = new DockSection("History", history, settings.Dock.GetValueOrDefault("History") ?? new DockPanelState());
         historySection.Changed += () => { settings.Dock["History"] = historySection.State; settings.Save(); };
+        var channelsSection = new DockSection("Channels", channels, settings.Dock.GetValueOrDefault("Channels") ?? new DockPanelState { Visible = false, Height = 250 });
+        channelsSection.Changed += () => { settings.Dock["Channels"] = channelsSection.State; settings.Save(); };
         // The column has the Layers panel's width, so a long step name is cut off rather than widening it.
-        dock = new SideDock(layers, historySection) { Width = layers.Width };
-        AddAt(center, dock, 4);
+        navigator = new NavigatorPanel(canvas);
+        var navigatorSection = new DockSection("Navigator", navigator, settings.Dock.GetValueOrDefault("Navigator") ?? new DockPanelState { Visible = false, Height = 220 });
+        navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
+        dock = new SideDock(layers, navigatorSection, channelsSection, historySection) { Width = layers.Width };
+        AddAt(center, Chrome(dock), 4);
         history.GoToRequested += GoToHistory;
 
         // The update notice sits under the menu, where it is visible without covering anything.
@@ -124,21 +134,22 @@ public sealed partial class MainWindow : Window
         optionsHost.Child = combinedOptions;
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
         root.Children.Add(BuildMenu());
-        AddRow(root, updateNotice, 1);
-        AddRow(root, BuildTabBar(), 2);
-        AddRow(root, optionsHost, 3);
-        AddRow(root, Ui.Separator(false), 4);
+        AddRow(root, Chrome(updateNotice), 1);
+        AddRow(root, Chrome(BuildTabBar()), 2);
+        AddRow(root, Chrome(optionsHost), 3);
+        AddRow(root, Chrome(Ui.Separator(false)), 4);
         AddRow(root, center, 5);
-        AddRow(root, Ui.Separator(false), 6);
-        AddRow(root, BuildStatusBar(), 7);
+        AddRow(root, Chrome(Ui.Separator(false)), 6);
+        AddRow(root, Chrome(BuildStatusBar()), 7);
         Content = root;
+        aiFloatingLayer.IsVisible = !settings.CanvasOnly;
 
         StartUpdateCheck();
 
         canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
         canvas.PointerAt += point => positionText.Text = point is { } p ? $"{p.X}, {p.Y}" : "";
         canvas.Problem += message => { problem = message; UpdateStatus(); };
-        canvas.ToolStateChanged += () => { refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); };
+        canvas.ToolStateChanged += () => { if (session?.WarpEdit != null || optionsHaveWarp) RebuildOptions(); else refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); UpdateStatus(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
         canvas.ObjectSelectionAvailable = () => !localSelectionBusy && (settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI || canvas.AiToolsAvailable() == true);
         canvas.AiSelectionCompleted += task => _ = RunAi(task, useInlinePrompt: true);
@@ -153,8 +164,17 @@ public sealed partial class MainWindow : Window
         layers.EditEffectRequested += (layer, kind) => _ = EditEffect(layer, kind);
         layers.NewEffectRequested += kind => _ = NewEffect(kind);
         layers.EditTagsRequested += layer => _ = EditLayerTags(layer);
+        layers.EditBlendingRequested += layer => _ = EditBlending(layer);
+        layers.EditMaskPropertiesRequested += layer => _ = EditMaskProperties(layer);
         layers.EditSmartObjectRequested += layer => OpenSmartObject(layer);
+        layers.ReplaceSmartObjectRequested += (layer, relink) => _ = ChooseSmartObjectFile(relink, layer, relink);
+        layers.UpdateLinkedSmartObjectRequested += layer => _ = UpdateLinkedFromUi(layer);
+        layers.LinkedSourceInfoRequested += layer => _ = LinkedSourceInfo(layer);
+        channels.NewRequested += fromSelection => _ = NewAlphaChannel(fromSelection);
+        channels.RenameRequested += name => _ = RenameAlphaChannel(name);
+        channels.Problem += ShowProblem;
         layers.EditSmartFilterRequested += (layer, filter) => _ = SmartFilter(filter.Settings.Kind, layer, filter);
+        layers.EditSmartFilterBlendingRequested += (layer, filter) => _ = SmartFilterBlending(layer, filter);
 
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -183,6 +203,8 @@ public sealed partial class MainWindow : Window
             autosave.Start();
             Opened += (_, _) => _ = OfferRecovery();
         }
+        InitializeDisplayColor();
+        InitializeLinkedSources();
     }
 
     private async Task OfferRecovery()
@@ -230,7 +252,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Every open document, in tab order.</summary>
     public IReadOnlyList<EditorSession> Sessions => sessions;
     /// <summary>Whether a drag on the canvas is mutating a bitmap in place, when nothing else may touch the document.</summary>
-    internal bool IsDragging => canvas.IsDragging;
+    internal bool IsDragging => canvas.IsDragging || channelInspectorDragging;
     /// <summary>The remembered preferences; tests read them back without anything reaching disk.</summary>
     public Settings Settings => settings;
     public CanvasView Canvas => canvas;
@@ -261,6 +283,7 @@ public sealed partial class MainWindow : Window
         added.HistoryChanged += RebuildTabs;
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
+        added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); refreshOptions?.Invoke(); } };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
         added.SelectionChanged += () => { if (added == session) { refreshOptions?.Invoke(); RefreshAiUi(); } };
         SetSession(added);
@@ -270,6 +293,8 @@ public sealed partial class MainWindow : Window
     {
         if (session != null && session != next)
         {
+            session.CommitChannelControlEdit();
+            if (!CommitWarp(session)) return;
             canvas.CancelInteraction();
             if (session.IsPreviewing) session.CancelPreview();
             if (session.IsEditingText) session.FinishText();
@@ -282,6 +307,8 @@ public sealed partial class MainWindow : Window
         canvas.Session = session;
         layers.Session = session;
         history.Session = session;
+        channels.Session = session;
+        navigator.Session = session;
         welcome.IsVisible = session == null;
         RebuildTabs();
         RebuildOptions();
@@ -395,6 +422,8 @@ public sealed partial class MainWindow : Window
     private async Task<bool> CloseSession(EditorSession item)
     {
         if (!sessions.Contains(item)) return true;
+        item.CommitChannelControlEdit();
+        if (!CommitWarp(item)) return false;
         // Contents must be resolved before the parent's save prompt, including nested tabs.
         foreach (var child in embeddedTabs.Where(pair => pair.Value.Parent == item).Select(pair => pair.Key).ToArray())
             if (!await CloseSession(child)) return false;
@@ -411,6 +440,7 @@ public sealed partial class MainWindow : Window
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        foreach (var key in linkedObservations.Keys.Where(key => key.Parent == item).ToArray()) linkedObservations.Remove(key);
         embeddedTabs.Remove(item);
         recovery?.Forget(item);
         item.HistoryChanged -= RebuildTabs;
@@ -490,6 +520,11 @@ public sealed partial class MainWindow : Window
             ShowProblem("Stop the running script before closing the editor."); return;
         }
         RememberWindow();
+        foreach (var item in sessions)
+        {
+            item.CommitChannelControlEdit();
+            if (!CommitWarp(item)) { e.Cancel = true; return; }
+        }
         if (session?.IsEditingText == true) session.FinishText();
         if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified))) return;
         e.Cancel = true;
@@ -697,8 +732,8 @@ public sealed partial class MainWindow : Window
     private void UpdateColors()
     {
         if (session == null) return;
-        foregroundSwatch.Background = new SolidColorBrush(session.Foreground.ToAvalonia());
-        backgroundSwatch.Background = new SolidColorBrush(session.Background.ToAvalonia());
+        foregroundSwatch.Background = new SolidColorBrush(session.Foreground.ToDisplay(session.Document.Profile, DisplayProfile));
+        backgroundSwatch.Background = new SolidColorBrush(session.Background.ToDisplay(session.Document.Profile, DisplayProfile));
     }
 
     private async Task PickColor(bool foreground)
@@ -783,12 +818,16 @@ public sealed partial class MainWindow : Window
             return;
         }
         zoomText.Text = canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
-        sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · sRGB";
+        sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · {session.Document.Profile.Name} · {(int)session.Document.WorkingDepth}-bit";
+        ToolTip.SetTip(sizeText, sizeText.Text);
         hintText.Text = problem ?? (saving.Count > 0 ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note ?? Hint(session));
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
     }
 
-    private static string Hint(EditorSession s) => s.Tool == Tool.Move ? ToolHint(s) : ToolHint(s) + " · Ctrl-drag moves the layer";
+    private static string Hint(EditorSession s) => s.WarpEdit != null ? "Drag Warp nodes · Shift locks direction · Arrows nudge selected node · Ctrl+Z undoes a point · Enter applies · Esc cancels"
+        : s.IsEditingAlphaChannel || s.IsEditingComponent
+        ? (s.IsEditingAlphaChannel ? "Alpha channel · " : "RGB component · ") + (s.Tool == Tool.Move ? "Drag channel contents · Handles transform · A selection limits the edit · Alt-drag duplicates" : "White adds · Black removes · Gray sets partial intensity · Other channels stay unchanged")
+        : s.Tool == Tool.Move ? ToolHint(s) : ToolHint(s) + " · Ctrl-drag moves the layer";
 
     private static string ToolHint(EditorSession s) => s.Tool switch
     {

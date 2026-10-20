@@ -25,6 +25,8 @@ public sealed class ClipboardLayers(IReadOnlyList<Layer> layers, EditorSession s
     public EditorSession Source { get; } = source;
     public int CanvasWidth { get; } = canvasWidth;
     public int CanvasHeight { get; } = canvasHeight;
+    public Composa.ColorManagement.RgbProfile Profile { get; } = source.Document.Profile;
+    public ColorDepth Depth { get; } = source.Document.WorkingDepth;
 }
 
 public sealed partial class EditorSession
@@ -35,29 +37,55 @@ public sealed partial class EditorSession
     public static ClipboardLayers? CopiedLayers { get; set; }
 
     /// <summary>The active layer when it (or its mask) can take pixel edits.</summary>
-    public Layer? EditableLayer => ActiveLayer is { } layer && !PixelsLocked(layer) && (IsEditingMask || (layer.Pixels != null && !layer.IsLive)) ? layer : null;
+    public Layer? EditableLayer => IsEditingAlphaChannel ? alphaChannelProxy : ActiveLayer is { } layer && !PixelsLocked(layer) && (IsEditingMask || (layer.Pixels != null && !layer.IsLive)) ? layer : null;
 
     public bool CanEditPixels => EditableLayer != null;
 
     /// <summary>Fill also recolors live text: a text layer with nothing selected takes the color as its own.</summary>
-    public bool CanFill => CanEditPixels || (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && !PixelsLocked(text));
+    public bool CanFill => CanEditPixels || (!IsEditingMask && !IsEditingComponent && document.Selection == null && ActiveLayer is { Text: not null } text && !PixelsLocked(text));
 
-    private SKBitmap Target(Layer layer) => IsEditingMask ? layer.Mask! : layer.Pixels!;
-
-    private void SetTarget(Layer layer, SKBitmap bitmap)
+    private SKBitmap Target(Layer layer)
     {
-        if (!IsEditingMask && !IsStroking && layer.Pixels is { } original && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
+        PreparePixelTarget(layer);
+        return IsEditingMask ? MaskTarget(layer)! : layer.Pixels!;
+    }
+
+    private SKBitmap? MaskTarget(Layer layer) => EditingAlphaChannel is { } name ? document.AlphaChannels[name] : IsEditingSmartFilterMask ? layer.SmartFilterMask : layer.Mask;
+    private byte MaskTargetDefault(Layer layer) => IsEditingAlphaChannel ? (byte)0 : IsEditingSmartFilterMask ? layer.SmartFilterMaskDefault : layer.MaskDefault;
+    private void SetMaskTargetDefault(Layer layer, byte value)
+    {
+        if (IsEditingAlphaChannel) return;
+        if (IsEditingSmartFilterMask) layer.SmartFilterMaskDefault = value; else layer.MaskDefault = value;
+    }
+
+    private void SetTarget(Layer layer, SKBitmap bitmap, bool constrainChannels = true)
+    {
+        if (IsEditingComponent && constrainChannels && layer.Pixels is { } before && !ReferenceEquals(before, bitmap)) Pixels.ConstrainChannels(bitmap, before, EditingRgbChannels);
+        if (!IsEditingMask && !IsEditingComponent && !IsStroking && layer.Pixels is { } original && EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)
             && !ReferenceEquals(bitmap, original)) bitmap = Pixels.WithAlphaOf(bitmap, original);
-        if (IsEditingMask) layer.Mask = bitmap; else layer.Pixels = bitmap;
+        if (EditingAlphaChannel is { } alpha) document.AlphaChannels[alpha] = bitmap;
+        else if (IsEditingSmartFilterMask) layer.SmartFilterMask = bitmap;
+        else if (IsEditingMask) layer.Mask = bitmap; else layer.Pixels = bitmap;
     }
 
     /// <summary>The matrix from the edit target's pixel grid to the document.</summary>
-    public SKMatrix TargetMatrix(Layer layer) => IsEditingMask ? DocumentRenderer.MaskMatrix(layer) : layer.Matrix;
+    public SKMatrix TargetMatrix(Layer layer) => IsEditingAlphaChannel ? SKMatrix.Identity : IsEditingSmartFilterMask ? layer.SmartFilterMaskMatrix : IsEditingMask ? DocumentRenderer.MaskMatrix(layer) : layer.Matrix;
 
     /// <summary>The selection resampled into the edit target's grid, or null when nothing is selected.</summary>
     private SKBitmap? SelectionInTargetSpace(Layer layer)
     {
         if (document.Selection == null) return null;
+        if (IsEditingMask && MaskTarget(layer) is { } mask)
+        {
+            var result = Pixels.NewMask(mask.Width, mask.Height);
+            if (TargetMatrix(layer).TryInvert(out var inverse))
+            {
+                using var canvas = new SKCanvas(result);
+                canvas.SetMatrix(in inverse);
+                canvas.DrawImage(Pixels.ImageOf(document.Selection), 0, 0, DocumentRenderer.SamplingFor(inverse));
+            }
+            return result;
+        }
         if (layer.Pixels == null) return document.Selection;
         return SelectionInLayerSpace(layer);
     }
@@ -71,11 +99,13 @@ public sealed partial class EditorSession
         var have = new SKRectI(x, y, x + pixels.Width, y + pixels.Height);
         var want = Geometry.Union(have, document.Bounds);
         if (want == have || (long)want.Width * want.Height > DocumentLimits.MaxSurfacePixels) return;
-        var grown = Pixels.NewColor(want.Width, want.Height);
+        var grown = Pixels.NewLike(pixels, want.Width, want.Height);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, have.Left - want.Left, have.Top - want.Top);
+        var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         layer.Pixels = grown;
-        if (layer.Mask is { } mask) layer.Mask = GrownMask(mask, want.Width, want.Height, have.Left - want.Left, have.Top - want.Top);
+        if (maskPlacement == null && layer.Mask is { } mask) layer.Mask = GrownMask(mask, want.Width, want.Height, have.Left - want.Left, have.Top - want.Top);
         layer.Transform = LayerTransform.Identity(want.Width, want.Height) with { X = want.Left, Y = want.Top };
+        if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
     }
 
     /// <summary>
@@ -85,16 +115,38 @@ public sealed partial class EditorSession
     /// </summary>
     private void GrowToCanvas(Layer layer)
     {
+        if (IsEditingAlphaChannel || IsEditingComponent) return;
+        PreparePixelTarget(layer);
+        if (IsEditingSmartFilterMask) { GrowIndependentMask(layer, smartFilter: true); return; }
+        if (IsEditingMask && layer.MaskTransform != null) { GrowIndependentMask(layer); return; }
         if (!IsEditingMask || !layer.IsLive) EnsureCoversCanvas(layer);
+    }
+
+    private void GrowIndependentMask(Layer layer, bool smartFilter = false)
+    {
+        var mask = smartFilter ? layer.SmartFilterMask! : layer.Mask!; var matrix = smartFilter ? layer.SmartFilterMaskMatrix : layer.MaskMatrix;
+        if (!matrix.TryInvert(out var inverse)) return;
+        var needed = inverse.MapRect(new SKRect(0, 0, document.Width, document.Height));
+        if (!new[] { needed.Left, needed.Top, needed.Right, needed.Bottom }.All(float.IsFinite)) return;
+        var want = Geometry.Union(new SKRectI(0, 0, mask.Width, mask.Height), Geometry.RoundOut(needed));
+        if (want == new SKRectI(0, 0, mask.Width, mask.Height) || !DocumentLimits.FitsSurface(want.Width, want.Height)) return;
+        var bytes = (long)want.Width * want.Height;
+        if (document.RasterPixels() + (bytes - mask.ByteCount + 3) / 4 > DocumentLimits.DocumentPixelBudget) return;
+        var grown = GrownMask(mask, want.Width, want.Height, -want.Left, -want.Top, smartFilter ? layer.SmartFilterMaskDefault : layer.MaskDefault);
+        if (smartFilter)
+        {
+            layer.SmartFilterMask = grown; layer.SmartFilterMaskX += want.Left; layer.SmartFilterMaskY += want.Top;
+        }
+        else { layer.Mask = grown; layer.PlaceMask(SKMatrix.CreateTranslation(want.Left, want.Top).PostConcat(matrix)); }
     }
 
     /// <summary>
     /// The mask placed at (<paramref name="left"/>, <paramref name="top"/>) on a larger one. New area is the mask's
     /// background (<see cref="Pixels.MaskBackground"/>): a hide-all mask stays black, any other mask reveals it.
     /// </summary>
-    private static SKBitmap GrownMask(SKBitmap mask, int width, int height, int left, int top)
+    private static SKBitmap GrownMask(SKBitmap mask, int width, int height, int left, int top, byte? outside = null)
     {
-        var grown = Pixels.NewMask(width, height, Pixels.MaskBackground(mask));
+        var grown = Pixels.NewMask(width, height, outside ?? Pixels.MaskBackground(mask));
         using var canvas = new SKCanvas(grown);
         using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
         canvas.DrawBitmap(mask, new SKRect(left, top, left + mask.Width, top + mask.Height), paint);
@@ -117,10 +169,11 @@ public sealed partial class EditorSession
         long width = pixels.Width + left + right, height = pixels.Height + top + bottom;
         if (!DocumentLimits.FitsSurface(width, height)) return;
 
-        var grown = Pixels.NewColor((int)width, (int)height);
+        var grown = Pixels.NewLike(pixels, (int)width, (int)height);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, left, top);
+        var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         layer.Pixels = grown;
-        if (layer.Mask is { } mask) layer.Mask = GrownMask(mask, (int)width, (int)height, left, top);
+        if (maskPlacement == null && layer.Mask is { } mask) layer.Mask = GrownMask(mask, (int)width, (int)height, left, top);
 
         // In the unrotated frame the padding extends the box; flips swap which side it lands on.
         double sx = t.Width / pixels.Width, sy = t.Height / pixels.Height;
@@ -133,12 +186,27 @@ public sealed partial class EditorSession
         x += deltaX * cos - deltaY * sin - deltaX;
         y += deltaX * sin + deltaY * cos - deltaY;
         layer.Transform = t with { X = x, Y = y, Width = w, Height = h };
+        if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
     }
 
     /// <summary>original + (modified - original) × selection, for both color and mask bitmaps. Takes ownership of <paramref name="modified"/>.</summary>
     private static unsafe SKBitmap MixBySelection(SKBitmap original, SKBitmap modified, SKBitmap? selection)
     {
         if (selection == null) return modified;
+        if (original.ColorType == SKColorType.RgbaF32)
+        {
+            if (modified.ColorType != SKColorType.RgbaF32) throw new InvalidOperationException("A high precision edit cannot use display pixels.");
+            var before = new PixelBuffer(original); var after = new PixelBuffer(modified);
+            var coverage = selection.GetPixelSpan();
+            for (var y = 0; y < original.Height; y++)
+            for (var x = 0; x < original.Width; x++)
+            {
+                var amount = x < selection.Width && y < selection.Height ? coverage[y * selection.RowBytes + x] / 255f : 0;
+                after.Write(x, y, before.Read(x, y) * (1 - amount) + after.Read(x, y) * amount);
+            }
+            Pixels.Invalidate(modified);
+            return modified;
+        }
         var bpp = original.BytesPerPixel;
         byte* o = (byte*)original.GetPixels(), m = (byte*)modified.GetPixels(), s = (byte*)selection.GetPixels();
         int width = Math.Min(original.Width, selection.Width), height = Math.Min(original.Height, selection.Height);
@@ -171,8 +239,7 @@ public sealed partial class EditorSession
             if (!TargetMatrix(layer).TryInvert(out var inverse)) return;
             var local = inverse.MapPoint(point);
             var original = Target(layer);
-            using var sample = Pixels.NewColor(original.Width, original.Height);
-            using (var canvas = new SKCanvas(sample)) canvas.DrawImage(Pixels.ImageOf(original), 0, 0);
+            using var sample = IsEditingMask ? MaskToColor(original) : IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(original, EditingRgbChannels) : Pixels.Clone(original);
             using var region = MagicWand.Select(sample, (int)Math.Floor(local.X), (int)Math.Floor(local.Y), WandTolerance, true, smooth: false);
             var selection = SelectionInTargetSpace(layer);
             try
@@ -186,7 +253,7 @@ public sealed partial class EditorSession
                 }
                 var filled = Pixels.Clone(original);
                 if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((Foreground.Red * 54 + Foreground.Green * 183 + Foreground.Blue * 19) >> 8));
-                else filled.Erase(Foreground);
+                else Pixels.FillWorking(filled, ChannelPaintColor(Foreground));
                 SetTarget(layer, MixBySelection(original, filled, region));
             }
             finally { if (selection != document.Selection) selection?.Dispose(); }
@@ -196,7 +263,7 @@ public sealed partial class EditorSession
 
     public void Fill(SKColor color, string name = "Fill")
     {
-        if (!IsEditingMask && document.Selection == null && ActiveLayer is { Text: not null } text && RecolorText(text, color)) return;
+        if (!IsEditingMask && !IsEditingComponent && document.Selection == null && ActiveLayer is { Text: not null } text && RecolorText(text, color)) return;
         if (EditableLayer is not { } layer) return;
         Apply(name, () =>
         {
@@ -205,9 +272,10 @@ public sealed partial class EditorSession
             var original = Target(layer);
             var filled = Pixels.Clone(original);
             if (IsEditingMask) filled.GetPixelSpan().Fill((byte)((color.Red * 54 + color.Green * 183 + color.Blue * 19) >> 8));
-            else filled.Erase(color);
+            else Pixels.FillWorking(filled, ChannelPaintColor(color));
             var selection = SelectionInTargetSpace(layer);
             SetTarget(layer, MixBySelection(original, filled, selection));
+            if (IsEditingMask && document.Selection == null) SetMaskTargetDefault(layer, filled.GetPixel(0, 0).Alpha);
             if (selection != document.Selection) selection?.Dispose();
         });
         Invalidate(AffectedArea(layer));
@@ -217,7 +285,7 @@ public sealed partial class EditorSession
     /// <summary>Delete: erases the selected pixels (or paints the mask black).</summary>
     public void ClearSelection()
     {
-        if (!IsEditingMask && ActiveLayer is { } locked && EffectiveLocks(locked).HasFlag(LayerLocks.Transparency)) return;
+        if (!IsEditingMask && !IsEditingComponent && ActiveLayer is { } locked && EffectiveLocks(locked).HasFlag(LayerLocks.Transparency)) return;
         if (EditableLayer is not { } layer || document.Selection == null) return;
         Apply("Clear", () =>
         {
@@ -237,6 +305,7 @@ public sealed partial class EditorSession
     private Layer? previewLayer;
     private SKBitmap? previewOriginal;
     private SKBitmap? previewOriginalMask;
+    private byte previewMaskDefault;
     private LayerTransform? previewTransform;
     private SKBitmap? previewSelection;
 
@@ -250,10 +319,11 @@ public sealed partial class EditorSession
     {
         if (EditableLayer is not { } layer) return false;
         Begin(name);
-        if (coverCanvas && !IsEditingMask) EnsureCoversCanvas(layer);
+        if (coverCanvas && !IsEditingMask && !IsEditingComponent) EnsureCoversCanvas(layer);
         previewLayer = layer;
         previewOriginal = Target(layer);
-        previewOriginalMask = layer.Mask;
+        previewOriginalMask = IsEditingMask ? MaskTarget(layer) : layer.Mask;
+        previewMaskDefault = MaskTargetDefault(layer);
         previewTransform = layer.Transform;
         previewSelection = SelectionInTargetSpace(layer);
         return true;
@@ -269,6 +339,8 @@ public sealed partial class EditorSession
         }
         using var color = MaskToColor(source);
         adjustment.Apply(color);
+        if (previewSelection == null && previewLayer != null && adjustment is InvertAdjustment)
+            SetMaskTargetDefault(previewLayer, (byte)(255 - previewMaskDefault));
         return (ColorToMask(color), 0, 0);
     });
 
@@ -288,6 +360,7 @@ public sealed partial class EditorSession
 
     private static unsafe bool IsClear(SKBitmap pixels)
     {
+        if (pixels.ColorType == SKColorType.RgbaF32) return Pixels.ContentBounds(pixels).IsEmpty;
         var data = (byte*)pixels.GetPixels();
         for (var y = 0; y < pixels.Height; y++)
         {
@@ -340,8 +413,9 @@ public sealed partial class EditorSession
     {
         if (previewLayer is not { } layer || previewOriginal is not { } original) return;
         var before = AffectedArea(layer);
-        var (result, growX, growY) = run(original);
-        var canGrow = !IsEditingMask && previewSelection == null && previewOriginalMask == null
+        using var component = IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(original, EditingRgbChannels) : null;
+        var (result, growX, growY) = run(component ?? original);
+        var canGrow = !IsEditingMask && !IsEditingComponent && previewSelection == null && previewOriginalMask == null
             && previewTransform!.IsPureTranslation(original.Width, original.Height);
         if ((growX > 0 || growY > 0) && !canGrow)
         {
@@ -458,11 +532,11 @@ public sealed partial class EditorSession
     /// <summary>Draws a gradient between two document points onto the pending edit's original pixels (call <see cref="BeginGradient"/> first).</summary>
     public void DrawGradient(Layer layer, SKBitmap original, SKPoint from, SKPoint to)
     {
-        if (!IsInteracting || document.Find(layer.Id) != layer) return; // The edit this drag belonged to is over.
+        if (!IsInteracting || (IsEditingAlphaChannel ? layer != alphaChannelProxy : document.Find(layer.Id) != layer)) return; // The edit this drag belonged to is over.
         var matrix = TargetMatrix(layer);
         if (!matrix.TryInvert(out var inverse)) return;
-        var start = Foreground;
-        var end = GradientToTransparent ? Foreground.WithAlpha(0) : Background;
+        var start = ChannelPaintColor(Foreground);
+        var end = GradientToTransparent ? start.WithAlpha(0) : ChannelPaintColor(Background);
         if (IsEditingMask)
         {
             byte Gray(SKColor c) => (byte)((c.Red * 54 + c.Green * 183 + c.Blue * 19) >> 8);
@@ -472,13 +546,12 @@ public sealed partial class EditorSession
         }
         var painted = Pixels.Clone(original);
         var colors = GradientRamp?.ShaderColors() ?? [start, end];
+        if (IsEditingComponent && GradientRamp != null) colors = colors.Select(ChannelPaintColor).ToArray();
         if (IsEditingMask && GradientRamp != null) colors = colors.Select(c => new SKColor(0, 0, 0, (byte)((c.Red * 54 + c.Green * 183 + c.Blue * 19) / 256 * c.Alpha / 255))).ToArray();
         using (var canvas = new SKCanvas(painted))
         {
             canvas.SetMatrix(in inverse);
-            using var shader = GradientRadial
-                ? SKShader.CreateRadialGradient(from, Math.Max(0.5f, SKPoint.Distance(from, to)), colors, SKShaderTileMode.Clamp)
-                : SKShader.CreateLinearGradient(from, to, colors, SKShaderTileMode.Clamp);
+            using var shader = Pixels.WorkingGradient(painted, from, to, colors, GradientRadial);
             using var paint = new SKPaint { Shader = shader, IsDither = true };
             if (IsEditingMask) paint.BlendMode = SKBlendMode.Src;
             paint.Color = paint.Color.WithAlpha((byte)Math.Round(Math.Clamp(GradientOpacity, 0, 1) * 255));
@@ -492,12 +565,13 @@ public sealed partial class EditorSession
         Invalidate(AffectedArea(layer));
     }
 
-    public static SKBitmap RenderShape(ShapeStyle style, int width, int height)
+    public static SKBitmap RenderShape(ShapeStyle style, int width, int height, ColorDepth depth = ColorDepth.Eight, Composa.ColorManagement.RgbProfile? profile = null)
     {
         style = style.Clamped();
-        var pixels = Pixels.NewColor(width, height);
+        var pixels = Pixels.NewWorkingColor(width, height, depth, profile ?? Composa.ColorManagement.RgbProfile.Srgb);
         using var canvas = new SKCanvas(pixels);
-        using var paint = new SKPaint { Color = new SKColor(style.Fill), IsAntialias = true };
+        using var paint = new SKPaint { IsAntialias = true };
+        paint.SetColor((SKColorF)new SKColor(style.Fill), pixels.ColorSpace);
         if (style.Kind == ShapeKind.Line)
         {
             var thickness = (float)style.LineWidth;
@@ -532,7 +606,7 @@ public sealed partial class EditorSession
             if (style.FillEnabled) Draw();
             if (style.Stroke is { } stroke && strokeWidth > 0)
             {
-                paint.Color = new SKColor(stroke);
+                paint.SetColor((SKColorF)new SKColor(stroke), pixels.ColorSpace);
                 paint.Style = SKPaintStyle.Stroke;
                 paint.StrokeWidth = strokeWidth;
                 Draw();
@@ -540,6 +614,8 @@ public sealed partial class EditorSession
         }
         return pixels;
     }
+
+    private SKBitmap RenderWorkingShape(ShapeStyle style, int width, int height) => RenderShape(style, width, height, document.WorkingDepth, document.Profile);
 
     /// <summary>Adds a live shape layer covering a document rectangle (a line runs corner to corner).</summary>
     /// <summary>Adds the Shape tool's current shape in the foreground color.</summary>
@@ -582,7 +658,7 @@ public sealed partial class EditorSession
     {
         style = style.Clamped();
         if ((long)rect.Width * (long)rect.Height > DocumentLimits.MaxSurfacePixels) { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return null; }
-        var layer = Layer.Raster(document.UniqueName(stem), RenderShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
+        var layer = Layer.Raster(document.UniqueName(stem), RenderWorkingShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
         layer.Shape = style;
         Apply(stem, () => document.InsertAboveActive(layer));
         Invalidate(AffectedArea(layer));
@@ -625,6 +701,7 @@ public sealed partial class EditorSession
         }
         void Change()
         {
+            var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
             if (pad > 0)
             {
                 var t = layer.Transform;
@@ -637,7 +714,7 @@ public sealed partial class EditorSession
                     grown = grown with { Distort = [(float)(corners[0].X - grown.X), (float)(corners[0].Y - grown.Y), (float)(corners[1].X - grown.X - grown.Width), (float)(corners[1].Y - grown.Y), (float)(corners[2].X - grown.X - grown.Width), (float)(corners[2].Y - grown.Y - grown.Height), (float)(corners[3].X - grown.X), (float)(corners[3].Y - grown.Y - grown.Height)] };
                 }
                 layer.Transform = grown;
-                if (layer.Mask is { } mask)
+                if (maskPlacement == null && layer.Mask is { } mask)
                 {
                     var expanded = Pixels.NewMask(width, height);
                     using var canvas = new SKCanvas(expanded);
@@ -645,7 +722,8 @@ public sealed partial class EditorSession
                     layer.Mask = expanded;
                 }
             }
-            layer.Pixels = RenderShape(style, width, height); layer.Shape = style;
+            layer.Pixels = RenderWorkingShape(style, width, height); layer.Shape = style;
+            if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
         }
         if (preview)
         {
@@ -665,7 +743,17 @@ public sealed partial class EditorSession
     public void RasterizeShape(Layer layer)
     {
         if (PixelsLocked(layer) || !layer.IsLive) return;
-        Apply("Rasterize Layer", () => { layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0; });
+        Apply("Rasterize Layer", () =>
+        {
+            var appearance = layer.WarpAppearance();
+            var maskPlacement = appearance.MaskMatrix;
+            layer.Pixels = appearance.RenderFilterPixels(); layer.Transform = appearance.Transform;
+            layer.Mask = appearance.Mask; layer.MaskTransform = appearance.MaskTransform; layer.VectorMask = appearance.VectorMask; layer.Warp = null; layer.MaskFollowsWarp = layer.VectorMaskFollowsWarp = true;
+            if (layer.Mask != null && !ReferenceEquals(appearance, layer)) layer.PlaceMask(maskPlacement);
+            layer.SmartFilterMask = null;
+            layer.Shape = null; layer.Text = null; layer.SmartObject = null; layer.FilterSource = null; layer.SmartFilters = []; layer.FilterPaddingX = layer.FilterPaddingY = 0;
+            PreparePixelTarget(layer);
+        });
         LayersChanged?.Invoke();
     }
 
@@ -676,7 +764,7 @@ public sealed partial class EditorSession
         // `source` covers `sourceArea` of the document; the result is trimmed to the selection.
         var area = document.Selection != null ? Geometry.Intersect(SelectionMask.Bounds(document.Selection), sourceArea) : sourceArea;
         if (area.IsEmpty) return null;
-        var pixels = Pixels.NewColor(area.Width, area.Height);
+        var pixels = Pixels.NewLike(source, area.Width, area.Height);
         using var canvas = new SKCanvas(pixels);
         canvas.DrawBitmap(source, sourceArea.Left - area.Left, sourceArea.Top - area.Top);
         if (document.Selection != null)
@@ -691,19 +779,31 @@ public sealed partial class EditorSession
     {
         var copy = layer.Clone();
         copy.Visible = true; copy.Opacity = 1; copy.Blend = BlendMode.Normal; copy.Clipped = false;
+        copy.BlendIf = new();
         var area = document.Selection != null ? document.Bounds : Geometry.Union(document.Bounds, Geometry.RoundOut(layer.Bounds));
         using var rendered = DocumentRenderer.RenderLayers(document, [copy], area);
         return Grab(rendered, area);
     }
 
     /// <summary>Copy takes pixels from a pixel layer (or a mask); with nothing selected it also takes the layers themselves, folders and adjustments included.</summary>
-    public bool CanCopy => ActiveLayer is { } layer && (layer.Pixels != null || CanCopyLayers);
+    public bool CanCopy => IsEditingAlphaChannel || ActiveLayer is { } layer && (layer.Pixels != null || CanCopyLayers);
 
     /// <summary>Copy with no selection copies the selected layers whole, for Paste here or in another project.</summary>
-    public bool CanCopyLayers => ActiveLayer != null && document.Selection == null && !IsEditingMask;
+    public bool CanCopyLayers => ActiveLayer != null && document.Selection == null && !IsEditingMask && !IsEditingComponent;
 
     public bool Copy()
     {
+        if (EditingAlphaChannel is { } alpha)
+        {
+            using var grayscale = MaskToColor(document.AlphaChannels[alpha]); Clipboard = Grab(grayscale, document.Bounds); CopiedLayers = null; return Clipboard != null;
+        }
+        if (IsEditingComponent && ActiveLayer is { } componentLayer)
+        {
+            using var sampled = ComponentLayerSample(componentLayer);
+            using var grayscale = Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(sampled, EditingRgbChannels) : Pixels.Clone(sampled);
+            if (!Pixels.IsSingleChannel(EditingRgbChannels)) HideChannelComponents(grayscale, EditingRgbChannels);
+            Clipboard = Grab(grayscale, document.Bounds); CopiedLayers = null; return Clipboard != null;
+        }
         CopiedLayers = CanCopyLayers
             ? new ClipboardLayers(SelectedRoots().Select(l => l.Clone()).ToList(), this, document.Width, document.Height)
             : null;
@@ -721,7 +821,10 @@ public sealed partial class EditorSession
     /// <summary>Copies the merged picture: the selected part of it, or all of it with nothing selected or when <paramref name="whole"/> asks for all of it regardless.</summary>
     public bool CopyMerged(bool whole = false)
     {
-        var image = whole ? new ClipboardImage(Pixels.Clone(Composite()), new SKPointI(0, 0)) : Grab(Composite(), document.Bounds);
+        var rendered = CompositePixels();
+        ClipboardImage? image;
+        if (whole) image = new ClipboardImage(rendered, new SKPointI(0, 0));
+        else using (rendered) image = Grab(rendered, document.Bounds);
         if (image == null) return false;
         Clipboard = image;
         CopiedLayers = null;
@@ -731,7 +834,7 @@ public sealed partial class EditorSession
     public void Cut()
     {
         if (!Copy()) return;
-        if (document.Selection != null) ClearSelection(); else DeleteSelectedLayers();
+        if (document.Selection != null) ClearSelection(); else if (IsEditingAlphaChannel || IsEditingComponent) Fill(SKColors.Black, "Clear Channel"); else DeleteSelectedLayers();
     }
 
     /// <summary>
@@ -749,10 +852,11 @@ public sealed partial class EditorSession
 
     private Layer? Paste(ClipboardImage? image, string name, bool inPlace)
     {
+        if (IsEditingAlphaChannel || IsEditingComponent) return PasteChannelPixels(image ?? Clipboard, inPlace);
         if (image == null && CopiedLayers is { } layers) return PasteLayers(layers, inPlace);
         image ??= Clipboard;
         if (image == null) return null;
-        var pixels = Pixels.Clone(image.Pixels);
+        var pixels = PastePixels(image.Pixels);
         var placed = new SKRectI(image.Origin.X, image.Origin.Y, image.Origin.X + pixels.Width, image.Origin.Y + pixels.Height);
         var fits = inPlace ? document.Bounds.IntersectsWith(placed) : document.Bounds.Contains(placed);
         var layer = Layer.Raster(document.UniqueName(name), pixels,
@@ -774,6 +878,15 @@ public sealed partial class EditorSession
     {
         if (copied.Layers.Count == 0) return null;
         var pasted = copied.Layers.Select(l => l.Clone(newIds: true)).ToList();
+        if (!copied.Profile.Equals(document.Profile))
+        {
+            // The source session can change its profile after Copy. Interpret live colors using the
+            // immutable clipboard snapshot, not that session's current document.
+            var content = new Document(copied.CanvasWidth, copied.CanvasHeight) { Depth = copied.Depth, Profile = copied.Profile };
+            content.Layers.AddRange(pasted);
+            var conversion = new EditorSession(content); conversion.ConvertColorProfile(document.Profile, flatten: false);
+            pasted = conversion.Document.Layers;
+        }
         if (copied.Source != this && !inPlace)
         {
             // Centered on this canvas: a single layer by its own center, several by the center of what they cover.
@@ -783,9 +896,7 @@ public sealed partial class EditorSession
             var dy = Math.Round(document.Height / 2.0 - covered.MidY);
             foreach (var layer in pasted.SelectMany(l => Document.Flatten([l])))
             {
-                if (layer.Pixels != null) layer.Transform = layer.Transform.Translated(dx, dy);
-                else if (layer.Mask is { } mask && (dx != 0 || dy != 0 || mask.Width != document.Width || mask.Height != document.Height))
-                    layer.Mask = RemapDocumentMask(mask, document.Width, document.Height, SKMatrix.CreateTranslation((float)dx, (float)dy), 255);
+                layer.TranslateContent(dx, dy);
             }
         }
         Apply(pasted.Count > 1 ? "Paste Layers" : "Paste Layer", () =>
@@ -815,9 +926,11 @@ public sealed partial class EditorSession
     /// </summary>
     public Layer? PasteInto(ClipboardImage? image = null)
     {
-        if (document.Selection is not { } selection || (image ??= Clipboard) == null) return null;
+        if (IsEditingAlphaChannel || IsEditingComponent) return PasteChannelPixels(image ?? Clipboard, inPlace: false);
+        image ??= Clipboard;
+        if (document.Selection is not { } selection || image == null) return null;
         var bounds = SelectionMask.Bounds(selection);
-        var pixels = Pixels.Clone(image.Pixels);
+        var pixels = PastePixels(image.Pixels);
         var layer = Layer.Raster(document.UniqueName("Pasted Layer"), pixels,
             Math.Round((bounds.Left + bounds.Right - pixels.Width) / 2.0), Math.Round((bounds.Top + bounds.Bottom - pixels.Height) / 2.0));
         Apply("Paste Into", () =>
@@ -833,6 +946,9 @@ public sealed partial class EditorSession
         SelectionChanged?.Invoke();
         return layer;
     }
+
+    private SKBitmap PastePixels(SKBitmap image) => Pixels.ProfileOf(image).Equals(document.Profile) ? Pixels.Clone(image)
+        : Pixels.ConvertWorking(image, Pixels.DepthOf(image), document.Profile);
 
     /// <summary>Ctrl+J: the selected pixels on a new layer, or a duplicate of the layer when nothing is selected.</summary>
     public void LayerViaCopy()

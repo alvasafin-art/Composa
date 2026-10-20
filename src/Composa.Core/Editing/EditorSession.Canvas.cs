@@ -13,14 +13,17 @@ public sealed partial class EditorSession
     public void Crop(SKRectI rect, string name = "Crop")
     {
         rect = new SKRectI(rect.Left, rect.Top, rect.Left + Math.Clamp(rect.Width, 1, Document.MaxSide), rect.Top + Math.Clamp(rect.Height, 1, Document.MaxSide));
+        ValidateCanvasDepth(rect.Width, rect.Height, document.WorkingDepth);
         if (rect == document.Bounds) return;
         Apply(name, () =>
         {
             var shift = SKMatrix.CreateTranslation(-rect.Left, -rect.Top);
             foreach (var layer in document.AllLayers())
             {
+                var maskMatrix = layer.MaskMatrix;
                 if (layer.Pixels != null) layer.Transform = layer.Transform.Translated(-rect.Left, -rect.Top);
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, rect.Width, rect.Height, shift, 255);
+                else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, rect.Width, rect.Height, shift, 255);
+                if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskMatrix.PostConcat(shift));
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, rect.Width, rect.Height, shift);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], rect.Width, rect.Height, shift) ?? Pixels.NewMask(rect.Width, rect.Height);
@@ -74,6 +77,7 @@ public sealed partial class EditorSession
     {
         width = Math.Clamp(width, 1, Document.MaxSide);
         height = Math.Clamp(height, 1, Document.MaxSide);
+        ValidateCanvasDepth(width, height, document.WorkingDepth);
         if (width == document.Width && height == document.Height)
         {
             if (resolution is { } only && only != document.Resolution) Apply("Image Size", () => document.Resolution = Math.Clamp(only, 1, 9600));
@@ -85,6 +89,8 @@ public sealed partial class EditorSession
             var scale = SKMatrix.CreateScale((float)sx, (float)sy);
             foreach (var layer in document.AllLayers())
             {
+                var explicitMask = layer.MaskTransform != null;
+                var maskPlacement = layer.MaskMatrix;
                 if (layer.Pixels is { } pixels)
                 {
                     var t = layer.Transform;
@@ -114,21 +120,21 @@ public sealed partial class EditorSession
                         if (layer.Text is { } text && (text.IsBox || Math.Abs(sx - sy) < 1e-6))
                         {
                             layer.Text = text.Scaled(sx, sy);
-                            var rendered = RenderText(layer.Text);
+                            var rendered = RenderWorkingText(layer.Text);
                             (w, h) = (rendered.Width, rendered.Height);
                             layer.Pixels = rendered;
                         }
                         else if (layer.Shape is { } shape)
                         {
                             layer.Shape = shape with { CornerRadius = shape.CornerRadius * Math.Min(sx, sy), LineWidth = shape.LineWidth * Math.Min(sx, sy) };
-                            layer.Pixels = RenderShape(layer.Shape, w, h);
+                            layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
                         }
                         else
                         {
                             layer.Text = null; // Stretched unevenly, text can no longer be redrawn from its settings.
                             layer.Pixels = Resample(pixels, w, h);
                         }
-                        if (layer.Mask != null) layer.Mask = Resample(layer.Mask, w, h);
+                        if (!explicitMask && layer.Mask != null) layer.Mask = Resample(layer.Mask, w, h);
                         layer.Transform = LayerTransform.Identity(w, h) with { X = Math.Round(t.X * sx), Y = Math.Round(t.Y * sy) };
                     }
                     else if (Math.Abs(sx - sy) > 1e-6 && (t.Rotation != 0 || t.Distort != null))
@@ -138,9 +144,10 @@ public sealed partial class EditorSession
                         var bounds = Geometry.RoundOut(layer.Bounds);
                         var plain = layer.Clone();
                         plain.Visible = true; plain.Opacity = 1; plain.Blend = BlendMode.Normal; plain.Clipped = false; plain.Mask = null;
+                        plain.BlendIf = new();
                         using var drawn = DocumentRenderer.RenderLayers(document, [plain], bounds);
                         int w = Math.Max(1, (int)Math.Round(bounds.Width * sx)), h = Math.Max(1, (int)Math.Round(bounds.Height * sy));
-                        if (layer.Mask != null)
+                        if (!explicitMask && layer.Mask != null)
                         {
                             using var maskDrawn = Pixels.NewMask(bounds.Width, bounds.Height);
                             using (var canvas = new SKCanvas(maskDrawn))
@@ -166,7 +173,8 @@ public sealed partial class EditorSession
                         };
                     }
                 }
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, width, height, scale, 0);
+                else if (layer.Mask != null && !explicitMask) layer.Mask = RemapDocumentMask(layer.Mask, width, height, scale, 0);
+                if (explicitMask) layer.PlaceMask(maskPlacement.PostConcat(scale));
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, width, height, scale);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], width, height, scale) ?? Pixels.NewMask(width, height);
@@ -183,11 +191,11 @@ public sealed partial class EditorSession
 
     public static SKBitmap Resample(SKBitmap source, int width, int height)
     {
-        var result = new SKBitmap(source.Info.WithSize(width, height));
+        var result = Pixels.NewLike(source, width, height);
         var sampling = width < source.Width || height < source.Height
             ? new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear)
             : new SKSamplingOptions(SKCubicResampler.CatmullRom);
-        if (!source.ScalePixels(result, sampling)) throw new InvalidOperationException("The image could not be resampled.");
+        if (!source.ScalePixels(result, sampling)) { result.Dispose(); throw new InvalidOperationException("The image could not be resampled."); }
         return result;
     }
 
@@ -210,8 +218,10 @@ public sealed partial class EditorSession
                 : SKMatrix.CreateScale(1, -1, 0, document.Height / 2f);
             foreach (var layer in document.AllLayers())
             {
+                var maskPlacement = layer.MaskMatrix;
                 if (layer.Pixels != null) layer.Transform = Mirror(layer.Transform, horizontally, horizontally ? document.Width : document.Height);
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, document.Width, document.Height, mirror, 255);
+                else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, document.Width, document.Height, mirror, 255);
+                if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskPlacement.PostConcat(mirror));
             }
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, document.Width, document.Height, mirror);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], document.Width, document.Height, mirror) ?? Pixels.NewMask(document.Width, document.Height);
@@ -232,6 +242,7 @@ public sealed partial class EditorSession
             var turn = clockwise ? new SKMatrix(0, -1, height, 1, 0, 0, 0, 0, 1) : new SKMatrix(0, 1, 0, -1, 0, width, 0, 0, 1);
             foreach (var layer in document.AllLayers())
             {
+                var maskPlacement = layer.MaskMatrix;
                 if (layer.Pixels != null)
                 {
                     var t = layer.Transform;
@@ -241,7 +252,8 @@ public sealed partial class EditorSession
                     if (rotation <= -180) rotation += 360;
                     layer.Transform = t with { X = center.X - t.Width / 2, Y = center.Y - t.Height / 2, Rotation = rotation };
                 }
-                else if (layer.Mask != null) layer.Mask = RemapDocumentMask(layer.Mask, height, width, turn, 255);
+                else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, height, width, turn, 255);
+                if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskPlacement.PostConcat(turn));
             }
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, height, width, turn);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], height, width, turn) ?? Pixels.NewMask(height, width);
@@ -258,6 +270,10 @@ public sealed partial class EditorSession
     /// <summary>Turns the selected layers in place, each around its own center.</summary>
     public void RotateLayers(double degrees)
     {
+        if (IndependentMaskTarget is { } maskLayer)
+        {
+            var t = EditingControlTransform(maskLayer); SetMaskTransform(maskLayer, t with { Rotation = (t.Rotation + degrees) % 360 }); return;
+        }
         var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).ToList();
         if (layers.Count == 0) return;
         Apply("Rotate Layer", () =>
@@ -277,6 +293,11 @@ public sealed partial class EditorSession
     /// <summary>Flips the selected layers in place, each around its own center.</summary>
     public void FlipLayers(bool horizontally)
     {
+        if (IndependentMaskTarget is { } maskLayer)
+        {
+            var t = EditingControlTransform(maskLayer);
+            SetMaskTransform(maskLayer, Mirror(t, horizontally, horizontally ? 2 * t.X + t.Width : 2 * t.Y + t.Height)); return;
+        }
         var layers = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).ToList();
         if (layers.Count == 0) return;
         Apply(horizontally ? "Flip Layer Horizontal" : "Flip Layer Vertical", () =>

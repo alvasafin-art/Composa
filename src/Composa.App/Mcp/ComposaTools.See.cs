@@ -3,6 +3,7 @@ using System.Text;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Painting;
+using Composa.Rendering;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using SkiaSharp;
@@ -17,7 +18,7 @@ namespace Composa.App.Mcp;
 public sealed partial class ComposaTools
 {
     [McpServerTool(Name = "sample_color", ReadOnly = true, Idempotent = true)]
-    [Description("The colors at canvas points, each averaged over a small disc: from what is on screen, or from one layer's own pixels so a photo under your strokes can still be read. Take skin, hair and shadow colors from the picture with it instead of guessing them.")]
+    [Description("The colors at canvas points, each averaged over a small disc, as document working RGB numbers: from the composite, or one layer's pixels so a photo under your strokes can still be read. The document profile is in describe_document. Take skin, hair and shadow colors from the picture with it instead of guessing them.")]
     public Task<string> SampleColor(
         [Description("The points as [[x, y], ...] in canvas pixels")] double[][] points,
         [Description("Radius of the disc averaged around each point, 0 to 50 pixels")] double radius = 2,
@@ -28,6 +29,9 @@ public sealed partial class ComposaTools
         if (points.Length == 0 || points.Any(p => p.Length != 2)) throw new McpException("points is a list of [x, y] pairs with at least one pair.");
         if (points.Length > 500) throw new McpException("At most 500 points go in one call.");
         var (pixels, toPixels) = Source(s, layer);
+        using var working = !Pixels.ProfileOf(pixels).Equals(s.Document.Profile)
+            ? layer == null ? s.Flatten() : Pixels.ConvertWorking(pixels, Pixels.DepthOf(pixels), s.Document.Profile) : null;
+        pixels = working ?? pixels;
         var r = (float)(Math.Clamp(radius, 0, 50) * Math.Sqrt(Math.Abs(toPixels.ScaleX * toPixels.ScaleY - toPixels.SkewX * toPixels.SkewY)));
         var text = new StringBuilder();
         foreach (var point in points)
@@ -51,9 +55,17 @@ public sealed partial class ComposaTools
             {
                 float dx = x + 0.5f - center.X, dy = y + 0.5f - center.Y;
                 if (dx * dx + dy * dy > radius * radius + 0.25f) continue;
-                var p = src + (long)y * pixels.RowBytes + x * 4;
                 // Premultiplied sums average to the straight color of what is there, weighted by how much is there.
-                red += p[0]; green += p[1]; blue += p[2]; alpha += p[3];
+                if (pixels.ColorType == SKColorType.RgbaF32)
+                {
+                    var p = (float*)(src + (long)y * pixels.RowBytes) + x * 4;
+                    red += p[0] * 255; green += p[1] * 255; blue += p[2] * 255; alpha += p[3] * 255;
+                }
+                else
+                {
+                    var p = src + (long)y * pixels.RowBytes + x * 4;
+                    red += p[0]; green += p[1]; blue += p[2]; alpha += p[3];
+                }
                 count++;
             }
         if (count == 0 || alpha <= 0) return "transparent";
@@ -108,9 +120,9 @@ public sealed partial class ComposaTools
     private static (SKBitmap Pixels, SKMatrix ToPixels) Source(EditorSession s, string? layer)
     {
         if (layer == null) return (s.Composite(), SKMatrix.Identity);
-        var target = Find(s, layer);
+        var target = Find(s, layer).WarpAppearance();
         if (target.Pixels == null) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer without pixels of its own; leave layer out to read what is on screen.");
         if (!target.Matrix.TryInvert(out var toPixels)) throw new McpException($"\"{target.Name}\" is too small to read.");
-        return (target.Pixels, toPixels);
+        return (target.RenderFilterPixels()!, toPixels);
     }
 }

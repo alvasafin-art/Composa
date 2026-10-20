@@ -43,6 +43,17 @@ public sealed class SideDock : UserControl
 
     public DockSection Section(string title) => sections.Single(s => s.Title == title);
 
+    public Dictionary<string, DockPanelState> CaptureLayout() => sections.ToDictionary(section => section.Title, section => section.State);
+
+    public void RestoreLayout(IReadOnlyDictionary<string, DockPanelState> states)
+    {
+        foreach (var section in sections)
+            if (states.TryGetValue(section.Title, out var state) && state != null)
+                section.State = state with { Height = double.IsFinite(state.Height) ? Math.Clamp(state.Height, DockSection.MinHeight, 600) : 220 };
+        Layout();
+        foreach (var section in sections) section.RaiseChanged();
+    }
+
     public void SetVisible(DockSection section, bool visible)
     {
         if (section.State.Visible == visible) return;

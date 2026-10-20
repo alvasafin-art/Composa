@@ -3,7 +3,7 @@ using SkiaSharp;
 
 namespace Composa.Selections;
 
-public static class MagicWand
+public static partial class MagicWand
 {
     /// <summary>
     /// Selects pixels whose color is within <paramref name="tolerance"/> (0–255, the largest channel difference)
@@ -11,6 +11,7 @@ public static class MagicWand
     /// </summary>
     public static unsafe SKBitmap Select(SKBitmap source, int seedX, int seedY, int tolerance, bool contiguous, bool smooth = true)
     {
+        if (source.ColorType == SKColorType.RgbaF32) return SelectHighPrecision(source, seedX, seedY, tolerance, contiguous, smooth);
         int width = source.Width, height = source.Height;
         var result = Pixels.NewMask(width, height);
         if (seedX < 0 || seedY < 0 || seedX >= width || seedY >= height) return result;

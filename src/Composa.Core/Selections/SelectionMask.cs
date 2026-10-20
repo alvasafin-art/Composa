@@ -162,10 +162,13 @@ public static class SelectionMask
         using var canvas = new SKCanvas(result);
         if (fromMask)
         {
-            if (layer.Mask == null) return null;
+            if (layer.RenderRasterMask(ignoreDisabled: true) is not { } mask) return null;
+            var outside = (byte)Math.Clamp(Math.Round(255 - (255 - layer.MaskDefault) * Math.Clamp(layer.MaskDensity, 0, 1)), 0, 255);
+            canvas.Clear(SKColors.Black.WithAlpha(outside));
             var matrix = DocumentRenderer.MaskMatrix(layer);
             canvas.SetMatrix(in matrix);
-            canvas.DrawImage(Pixels.ImageOf(layer.Mask), 0, 0, new SKSamplingOptions(SKFilterMode.Linear));
+            using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+            canvas.DrawImage(Pixels.ImageOf(mask), 0, 0, new SKSamplingOptions(SKFilterMode.Linear), paint);
         }
         else
         {

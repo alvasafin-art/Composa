@@ -139,7 +139,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             path = Files().Resolve(path);
             if (Path.GetExtension(path).ToLowerInvariant() is not (".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp"))
                 throw new InvalidOperationException("addImageFile supports PNG/JPEG/WebP/BMP. Use the native import_file tool for other image formats.");
-            var image = ImageFiles.Load(path);
+            var image = ImageFiles.Load(path, preserveProfile: true);
             try { CheckRaster(editor, image.Width, image.Height); }
             catch { image.Dispose(); throw; } // Still uncommitted, safe to release.
             return LayerJson(editor.AddImageLayer(Path.GetFileNameWithoutExtension(path), image));
@@ -184,7 +184,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         {
             if (attachedImages == null || index < 0 || index >= attachedImages.Count || attachedImages[index] is not { } path)
                 throw new InvalidOperationException("Choose an image explicitly attached to this chat message.");
-            var image = ImageFiles.Load(path);
+            var image = ImageFiles.Load(path, preserveProfile: true);
             try { CheckRaster(editor, image.Width, image.Height); }
             catch { image.Dispose(); throw; }
             return LayerJson(editor.AddImageLayer(Path.GetFileNameWithoutExtension(path), image));

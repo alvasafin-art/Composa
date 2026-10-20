@@ -64,9 +64,9 @@ public sealed partial class ComposaTools
     });
 
     [McpServerTool(Name = "export_image")]
-    [Description("Exports the document flattened to an image file: PNG, JPEG or WebP, by the path's extension. The document itself is untouched; save_document keeps the layers.")]
+    [Description("Exports the document flattened to PNG, JPEG, WebP or TIFF, by the path's extension. PNG/TIFF retain the document's 16-bit precision. The document itself is untouched; save_document keeps the layers.")]
     public async Task<string> ExportImage(
-        [Description("Absolute path ending in .png, .jpg or .webp")] string path,
+        [Description("Absolute path ending in .png, .jpg, .webp, .tif or .tiff")] string path,
         [Description("JPEG and WebP quality from 1 to 100")] int quality = 90,
         [Description("Replace a file that exists at the path")] bool overwrite = false,
         int? document = null)
@@ -77,19 +77,20 @@ public sealed partial class ComposaTools
             ".png" => ExportFormat.Png,
             ".jpg" or ".jpeg" => ExportFormat.Jpeg,
             ".webp" => ExportFormat.Webp,
-            _ => throw new McpException("The path must end in .png, .jpg or .webp; save_document writes a project file.")
+            ".tif" or ".tiff" => ExportFormat.Tiff,
+            _ => throw new McpException("The path must end in .png, .jpg, .webp, .tif or .tiff; save_document writes a project file.")
         };
         if (quality is < 1 or > 100) throw new McpException("quality is from 1 to 100.");
         Fresh(path, null, overwrite);
-        var (title, flat) = await OnUi(() =>
+        var (title, flat, resolution) = await OnUi(() =>
         {
             var s = Session(document);
             if (window.IsDragging || s.IsInteracting) throw new McpException("Finish the current edit before exporting the image.");
-            return (s.Title, s.Flatten());
+            return (s.Title, s.Flatten(), s.Document.Resolution);
         });
         try
         {
-            await Task.Run(() => ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : quality));
+            await Task.Run(() => ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : quality, resolution));
             return $"Exported \"{title}\" as a {flat.Width}×{flat.Height} px {format.ToString().ToUpperInvariant()} to {path}.";
         }
         catch (Exception error) when (error is not McpException) { throw new McpException($"Couldn't export {Path.GetFileName(path)}: {error.Message}"); }

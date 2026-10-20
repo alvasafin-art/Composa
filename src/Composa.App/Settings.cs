@@ -13,11 +13,16 @@ public sealed class Settings
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }
+    public bool CanvasOnly { get; set; }
+    public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
     public int JpegQuality { get; set; } = 90;
     public bool ShowPixelGrid { get; set; } = true;
     /// <summary>Toggles that belong to the person rather than to a document, kept the way Photoshop keeps its tool options.</summary>
     public bool ShowTransformControls { get; set; } = true;
     public bool AutoSelect { get; set; } = true;
+    public bool AutoUpdateLinkedSources { get; set; } = true;
+    public DisplayColorMode DisplayColorMode { get; set; } = DisplayColorMode.Automatic;
+    public string? DisplayProfilePath { get; set; }
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.EfficientSamS;
     public ToolPaletteSettings? ToolPalette { get; set; }
     public int PromptSelectionRevision { get; set; } = 1;
@@ -251,6 +256,9 @@ public sealed class Settings
 
 /// <summary>How one panel of the side dock was left: shown or not, collapsed to its header or not, and its height when open.</summary>
 public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220);
+
+/// <summary>View chrome only. Documents, pixels, tool options and shortcuts never belong to a workspace.</summary>
+public sealed record WorkspaceLayout(Dictionary<string, DockPanelState> Panels, bool CanvasOnly);
 
 public sealed record AiLoraSetting(string Name = "", double Strength = 1, bool Enabled = true);
 public sealed record AiPromptSetting(bool Enabled, string Text);

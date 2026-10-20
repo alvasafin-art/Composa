@@ -57,7 +57,7 @@ public static class GridSettingsDialog
             // The picker shows on the canvas as it goes; a color other than the one in use becomes the Custom color.
             var before = appearance;
             GridAppearance Custom(SKColor color) => before with { Preset = GridColorPreset.Custom, CustomColor = (uint)color | 0xFF000000 };
-            var picked = await Prompts.Color(dialog, "Grid Color", before.Color, color => Change(Custom(color), grid));
+            var picked = await Prompts.Color(dialog, "Grid Color", before.Color, color => Change(Custom(color), grid), Composa.ColorManagement.RgbProfile.Srgb);
             Change(picked is { } color && color != before.Color ? Custom(color) : before, grid);
         };
         styleBox = Ui.Combo(styles, appearance.Style, GridAppearance.DisplayName, s => { if (!updating) Change(appearance with { Style = s }, grid); }, 150);

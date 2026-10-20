@@ -84,10 +84,23 @@ public sealed partial class EditorSession
     /// </summary>
     private (SKBitmap Source, bool Owned) SelectionSample()
     {
-        if (SampleAllLayers || ActiveLayer is not { Pixels: not null } layer) return (Composite(), false);
+        if (EditingAlphaChannel is { } alpha) return (MaskToColor(document.AlphaChannels[alpha]), true);
+        if (IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels))
+        {
+            using var composite = SampleAllLayers || ActiveLayer is not { Pixels: not null } active ? CompositePixels() : ComponentLayerSample(active);
+            return (Pixels.ExtractChannel(composite, EditingRgbChannels), true);
+        }
+        if (SampleAllLayers || ActiveLayer is not { Pixels: not null } layer)
+            return document.WorkingDepth == ColorDepth.Sixteen ? (CompositePixels(), true) : (Composite(), false);
         var copy = layer.Clone();
         copy.Visible = true; copy.Opacity = 1; copy.Blend = BlendMode.Normal; copy.Clipped = false; copy.Mask = null; copy.Effects = null;
         return (DocumentRenderer.RenderLayers(document, [copy], document.Bounds), true);
+    }
+
+    private SKBitmap ComponentLayerSample(Layer layer)
+    {
+        var copy = layer.Clone(); copy.Visible = true; copy.Opacity = 1; copy.Blend = BlendMode.Normal; copy.Clipped = false; copy.Mask = null; copy.Effects = null;
+        return DocumentRenderer.RenderLayers(document, [copy], document.Bounds);
     }
 
     /// <summary>Magic Wand at a document point, sampling the active layer or the whole image.</summary>

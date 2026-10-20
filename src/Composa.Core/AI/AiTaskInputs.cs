@@ -240,7 +240,9 @@ public static class AiTaskInputPreparer
             ? AiDimensions.FromMaximumSide(request.ExpansionMinimumSide, (request.ExpansionBounds ?? session.Document.Bounds).Width, (request.ExpansionBounds ?? session.Document.Bounds).Height)
             : (Width: 0, Height: 0);
 
-        var flattened = session.Flatten();
+        // Models consume display-referred RGB8; this owned boundary copy never replaces document pixels.
+        using var precise = session.Flatten();
+        var flattened = Pixels.DisplayCopy(precise);
         var context = Pixels.Clone(flattened);
         var active = RenderActiveLayer(session);
         var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null
@@ -345,14 +347,15 @@ public static class AiTaskInputPreparer
             hidden.Visible = false;
             overrides[layer.Id] = hidden;
         }
-        return DocumentRenderer.Flatten(session.Document, new RenderOptions { Overrides = overrides });
+        using var rendered = DocumentRenderer.Flatten(session.Document, new RenderOptions { Overrides = overrides });
+        return Pixels.DisplayCopy(rendered);
     }
 
     private static SKBitmap PrepareReference(SKBitmap source, double? megapixels)
     {
-        if (megapixels == null) return Pixels.Clone(source);
+        if (megapixels == null) return Pixels.DisplayCopy(source);
         var (width, height) = AiDimensions.FromMegapixels(megapixels.Value, source.Width, source.Height);
-        if (width == source.Width && height == source.Height) return Pixels.Clone(source);
+        if (width == source.Width && height == source.Height) return Pixels.DisplayCopy(source);
         var target = Pixels.NewColor(width, height);
         using var canvas = new SKCanvas(target);
         canvas.DrawImage(Pixels.ImageOf(source), new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell));
@@ -447,7 +450,7 @@ public static class RemoveObjectPreprocessor
         var feather = Math.Clamp(settings.Feather, 0, 256);
         var expanded = dilation > 0 ? SelectionMask.Expand(rawMask, dilation) : Pixels.Clone(rawMask);
         var mask = feather > 0 ? SelectionMask.Feather(expanded, feather) : Pixels.Clone(expanded);
-        var image = Pixels.Clone(source);
+        var image = Pixels.DisplayCopy(source); // Explicit RGB8 model-conditioning boundary.
         Fill(image, expanded, settings.FillMode == RemoveObjectFillMode.Neutral ? new SKColor(127, 127, 127) : settings.FillColor,
             settings.FillMode == RemoveObjectFillMode.Transparent);
         expanded.Dispose();

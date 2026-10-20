@@ -18,6 +18,11 @@ public sealed partial class CanvasView
         var phase = antsPhase;
 
         CaptureGuidesAndGrid(steps, view, hair);
+        if (session.WarpEdit != null)
+        {
+            CaptureWarpOverlay(steps, view, hair);
+            return canvas => { foreach (var step in steps) step(canvas); };
+        }
         CapturePenOverlay(steps, view, hair);
 
         if (aiContextBounds is { } aiBounds && session.Selection != null && !session.IsPaintingSelection && drag == Drag.None)
@@ -40,7 +45,7 @@ public sealed partial class CanvasView
             var shift = dragModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift);
             SKPoint from = view.MapPoint(snapFrom), to = view.MapPoint(LineEnd(shift));
             var width = (float)Math.Max(1, session.ShapeLineWidth * UnitsPerPixel);
-            var color = session.Foreground;
+            var color = session.Document.Profile.ConvertColor(session.Foreground, DisplayProfile);
             steps.Add(canvas =>
             {
                 using var paint = new SKPaint { Color = color, StrokeWidth = width, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, IsAntialias = true };
@@ -55,7 +60,7 @@ public sealed partial class CanvasView
             var rect = drag == Drag.Shape ? MarqueeRect(shift, alt) : MarqueeRect(drag != Drag.AiRectangle && ConstrainsMarquee(dragModifiers), false);
             var ellipse = drag == Drag.Marquee ? session.MarqueeKind == MarqueeKind.Ellipse : drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.Ellipse;
             var radius = drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.RoundedRectangle ? (float)session.ShapeCornerRadius : 0;
-            var fill = drag == Drag.Shape ? session.Foreground : (SKColor?)null;
+            var fill = drag == Drag.Shape ? session.Document.Profile.ConvertColor(session.Foreground, DisplayProfile) : (SKColor?)null;
             steps.Add(canvas =>
             {
                 using var path = new SKPath();

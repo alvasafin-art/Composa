@@ -29,7 +29,7 @@ Tone curves use a natural cubic spline and allow the black/white endpoint handle
 
 ## Refined masks and saved selections
 
-**Select > Select and Mask** offers Gray, Black, White and Mask preview backgrounds. Smooth, Feather, Contrast and Shift edge alter the outline. Refine with image edges adjusts uncertain boundaries while retaining certain interiors. Decontaminate edge colors borrows nearby interior color and outputs a new layer, preserving the source. Output can otherwise be a selection, an unlocked pixel layer's mask or a cutout layer.
+**Select > Select and Mask** has zoom/pan, Gray/Black/White/Mask/Overlay/Trimap previews, local foreground/background/refine brushes and stroke undo. AI matting uses bundled ViTMatte locally; AI fine detail adds slower original-scale inference for fine mesh. Classic RGB matting, Image edges and Keep edge are also available. Radius, Smooth, Feather, Contrast and Shift edge control the result. Previews run in the background and stale work is cancelled; 100% enables full-resolution preview, and final output always uses the original grid. Decontaminate has an adjustable amount and requires a new RGB layer with an editable mask, preserving the source. Output can otherwise be a selection or an unlocked raster layer's mask. See [model and workflow details](ai-models.md).
 
 **Select > Save Selection** stores a named alpha channel. **Load Selection** restores it with replace/add/subtract/intersect and can delete stored channels. Channels follow crop, image size, canvas rotation and flips, and participate in Undo.
 

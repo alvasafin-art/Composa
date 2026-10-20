@@ -15,7 +15,15 @@ and each component's own upstream source is linked from ImageMagick-NOTICE.txt.
 
 On-device subject selection
 
-Every build includes ONNX Runtime, two subject models and two promptable segmentation models. These Apache-2.0 models run on the CPU locally, without sending images anywhere or downloading models at runtime. The full Apache-2.0 and ONNX Runtime licence texts are included in model-licenses/.
+Release packages include ONNX Runtime, SAM Quality (EfficientSAM S encoder/decoder) and ViTMatte Small for trimap-guided edge refinement. These models run on the CPU locally, without sending images anywhere or downloading models at runtime. The full Apache-2.0 and ONNX Runtime licence texts are included in model-licenses/.
+
+models/vitmatte_small.onnx: ViTMatte Small Composition-1k, Hust Vision Lab.
+Weights: Apache-2.0, https://huggingface.co/hustvl/vitmatte-small-composition-1k
+Original implementation: Copyright (c) 2023 Hust Vision Lab, MIT.
+Source: https://github.com/hustvl/ViTMatte
+ONNX export: Xenova / Hugging Face, revision 6bc1297f6140f055a227b6d2cfe8c093281f35d2.
+103,885,865 bytes; SHA-256 bf28d2e0be2c073286e88d60ad649d7123da2749a2d99133fd1098d5887e0225
+Composa uses the weights through ONNX Runtime; no upstream Python implementation is bundled.
 
 ONNX Runtime 1.30.0, Copyright (c) Microsoft Corporation, MIT licence.
 Source: https://github.com/microsoft/onnxruntime

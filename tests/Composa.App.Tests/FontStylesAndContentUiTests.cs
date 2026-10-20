@@ -49,6 +49,7 @@ public class FontStylesAndContentUiTests
         }
         var second = session.AddText(new SKPoint(70, 160), new TextStyle { Text = "Second", FontFamily = family, Size = 40 });
         Dispatcher.UIThread.RunJobs(); Assert.Equal(choices.Count, Styles(window).Items.Count);
+        Assert.Equal(FontCatalog.Closest(family, second.Text!.Face).Name, Styles(window).SelectedItem);
         session.SelectLayer(layer.Id); Dispatcher.UIThread.RunJobs();
         Assert.Equal(session.ActiveLayer!.Text!.FontFamily, Families(window).SelectedItem);
         Assert.False(session.IsEditingText);

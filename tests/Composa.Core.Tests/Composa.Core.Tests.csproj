@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Composa.Core\Composa.Core.csproj" />
+    <None Update="Fixtures/Precision/*.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/Precision/*.psd" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -81,7 +81,15 @@ public sealed class ComfyClient : IComfyConnection
     /// <summary>Comfy image-mask workflows read RGB channels; Alpha8 must therefore be uploaded as opaque grayscale.</summary>
     internal static byte[] EncodeUploadPng(SKBitmap bitmap)
     {
-        if (bitmap.ColorType != SKColorType.Alpha8) return ImageFiles.Encode(bitmap, ExportFormat.Png);
+        if (bitmap.ColorType != SKColorType.Alpha8)
+        {
+            if (!Pixels.IsSrgb8(bitmap))
+            {
+                using var modelInput = Pixels.DisplayCopy(bitmap);
+                return ImageFiles.Encode(modelInput, ExportFormat.Png);
+            }
+            return ImageFiles.Encode(bitmap, ExportFormat.Png);
+        }
         using var gray = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Gray8, SKAlphaType.Opaque));
         var source = bitmap.GetPixelSpan();
         var target = gray.GetPixelSpan();
@@ -198,7 +206,7 @@ public sealed class ComfyClient : IComfyConnection
         using var response = await http.GetAsync(Address.Api(query), cancellationToken);
         await EnsureSuccess(response, cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        return ImageFiles.Load(stream, image.Filename);
+        return ImageFiles.Load(stream, image.Filename, Composa.Model.ColorDepth.Eight);
     }
 
     private async Task<JsonDocument> GetJson(string path, CancellationToken cancellationToken)

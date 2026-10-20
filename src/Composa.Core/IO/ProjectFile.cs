@@ -5,6 +5,7 @@ using Composa.Filters;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.IO;
 
@@ -21,9 +22,11 @@ public static class ProjectFile
     /// 2 added guides, 3 added the Gaussian Blur, Motion Blur and Add Noise adjustment layers and the Inner Glow effect,
     /// 4 added letters in their own colors (<see cref="TextStyle.ColorRuns"/>), 5 letters in their own faces
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
-    /// 9 character size runs and separate fill opacity for imported Photoshop effects.
+    /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
+    /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
+    /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data, custom hue ranges and embedded LUTs.
     /// </summary>
-    public const int Version = 10;
+    public const int Version = 13;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -38,6 +41,8 @@ public static class ProjectFile
         public string Format { get; set; } = ProjectFile.Format;
         public int Version { get; set; } = ProjectFile.Version;
         public string ColorSpace { get; set; } = "sRGB";
+        public string? ColorProfileFile { get; set; }
+        public ColorDepth BitDepth { get; set; } = ColorDepth.Eight;
         public int Width { get; set; }
         public int Height { get; set; }
         public double Resolution { get; set; } = 72;
@@ -52,6 +57,7 @@ public static class ProjectFile
     private sealed class SmartRecord
     {
         public Guid Id { get; set; }
+        public SmartObjectLink? Link { get; set; }
         public Manifest Content { get; set; } = new();
     }
 
@@ -64,11 +70,19 @@ public static class ProjectFile
         public bool Visible { get; set; } = true;
         public double Opacity { get; set; } = 1;
         public double FillOpacity { get; set; } = 1;
+        public BlendIfSettings? BlendIf { get; set; }
         public BlendMode Blend { get; set; }
         public LayerTransform? Transform { get; set; }
+        public WarpMesh? Warp { get; set; }
         public string? ImageFile { get; set; }
         public string? MaskFile { get; set; }
+        public bool MaskLinked { get; set; } = true;
+        public bool MaskFollowsWarp { get; set; } = true;
+        public LayerTransform? MaskTransform { get; set; }
+        public byte MaskDefault { get; set; }
         public bool? MaskEnabled { get; set; }
+        public double MaskDensity { get; set; } = 1;
+        public double MaskFeather { get; set; }
         public bool? Clipped { get; set; }
         public bool? Collapsed { get; set; }
         public LayerLocks Locks { get; set; }
@@ -76,9 +90,16 @@ public static class ProjectFile
         public SmartFilter[]? SmartFilters { get; set; }
         public int FilterPaddingX { get; set; }
         public int FilterPaddingY { get; set; }
+        public string? SmartFilterMaskFile { get; set; }
+        public bool SmartFilterMaskEnabled { get; set; } = true;
+        public byte SmartFilterMaskDefault { get; set; } = 255;
+        public double SmartFilterMaskX { get; set; }
+        public double SmartFilterMaskY { get; set; }
         public VectorPath? VectorMask { get; set; }
         public bool? VectorMaskEnabled { get; set; }
+        public bool VectorMaskFollowsWarp { get; set; } = true;
         public Adjustment? Adjustment { get; set; }
+        public string? LookupFile { get; set; }
         public ShapeStyle? Shape { get; set; }
         public TextStyle? Text { get; set; }
         public LayerEffects? Effects { get; set; }
@@ -103,13 +124,33 @@ public static class ProjectFile
         var written = new Dictionary<SKBitmap, string>(ReferenceEqualityComparer.Instance);
         var sources = new Dictionary<SmartObjectSource, string>(ReferenceEqualityComparer.Instance);
         var objects = new Dictionary<string, SmartRecord>();
+        var profiles = new Dictionary<RgbProfile, string>();
+        var lookups = new Dictionary<string, string>(); long lookupBytes = 0;
+
+        string StoreLookup(CubeLut table)
+        {
+            if (lookups.TryGetValue(table.Fingerprint, out var known)) return known;
+            lookupBytes += table.AssetBytes;
+            if (lookupBytes > DocumentLimits.MaxDocumentLutBytes) throw new InvalidDataException($"The project LUTs exceed {DocumentLimits.MaxDocumentLutBytes / 1024 / 1024} MB.");
+            var name = lookups.Count + ".lut"; lookups.Add(table.Fingerprint, name);
+            using var entry = zip.CreateEntry("lookups/" + name, CompressionLevel.Optimal).Open(); table.WriteBinary(entry); return name;
+        }
+
+        string? StoreProfile(RgbProfile profile)
+        {
+            if (profile.Equals(RgbProfile.Srgb)) return null;
+            if (profiles.TryGetValue(profile, out var known)) return known;
+            var name = profiles.Count + ".icc"; profiles.Add(profile, name);
+            using var entry = zip.CreateEntry("profiles/" + name, CompressionLevel.Optimal).Open(); entry.Write(profile.Icc);
+            return name;
+        }
 
         string StoreSource(SmartObjectSource source)
         {
             if (sources.TryGetValue(source, out var existing)) return existing;
             var key = "object-" + sources.Count;
             sources.Add(source, key);
-            var record = new SmartRecord { Id = source.Id }; objects.Add(key, record);
+            var record = new SmartRecord { Id = source.Id, Link = source.Link }; objects.Add(key, record);
             record.Content = RecordDocument(source.OpenDocument());
             return key;
         }
@@ -128,17 +169,26 @@ public static class ProjectFile
         {
             Id = layer.Id, Name = layer.Name, Tags = layer.Tags.Count > 0 ? layer.Tags.Order().ToList() : null,
             Kind = layer.Kind, Visible = layer.Visible, Opacity = layer.Opacity, FillOpacity = layer.FillOpacity, Blend = layer.Blend,
+            BlendIf = layer.BlendIf.IsIdentity ? null : layer.BlendIf,
             Transform = layer.Pixels != null ? layer.Transform : null,
-            ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null) ? Store(layer.Pixels, $"{written.Count}.png") : null,
+            Warp = layer.Warp,
+            ImageFile = layer.Pixels != null && (!layer.IsSmartObject || layer.FilterSource != null || !ReferenceEquals(layer.Pixels, layer.SmartObject!.Preview)) ? Store(layer.Pixels, $"{written.Count}.png") : null,
             FilterSourceFile = layer.FilterSource != null ? Store(layer.FilterSource, $"{written.Count}.filter-source.png") : null,
             SmartFilters = layer.SmartFilters.Length == 0 ? null : layer.SmartFilters,
             FilterPaddingX = layer.FilterPaddingX, FilterPaddingY = layer.FilterPaddingY,
-            VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled,
+            SmartFilterMaskFile = layer.SmartFilterMask != null ? Store(layer.SmartFilterMask, $"{written.Count}.filter-mask.png") : null,
+            SmartFilterMaskEnabled = layer.SmartFilterMaskEnabled, SmartFilterMaskDefault = layer.SmartFilterMaskDefault,
+            SmartFilterMaskX = layer.SmartFilterMaskX, SmartFilterMaskY = layer.SmartFilterMaskY,
+            VectorMask = layer.VectorMask, VectorMaskEnabled = layer.VectorMask == null ? null : layer.VectorMaskEnabled, VectorMaskFollowsWarp = layer.VectorMaskFollowsWarp,
             MaskFile = layer.Mask != null ? Store(layer.Mask, $"{written.Count}.mask.png") : null,
+            MaskLinked = layer.MaskLinked, MaskFollowsWarp = layer.MaskFollowsWarp, MaskTransform = layer.MaskTransform, MaskDefault = layer.MaskDefault,
             MaskEnabled = layer.Mask != null ? layer.MaskEnabled : null, Locks = layer.Locks,
+            MaskDensity = layer.MaskDensity, MaskFeather = layer.MaskFeather,
             Clipped = layer.Clipped ? true : null,
             Collapsed = layer.Collapsed ? true : null,
-            Adjustment = layer.Adjustment, Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
+            Adjustment = layer.Adjustment is ColorLookupAdjustment lookup ? lookup with { Table = null } : layer.Adjustment,
+            LookupFile = layer.Adjustment is ColorLookupAdjustment { Table: { } table } ? StoreLookup(table) : null,
+            Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
             Children = layer.IsGroup ? layer.Children.Select(Record).ToList() : null,
             SmartObject = layer.SmartObject is { } source ? StoreSource(source) : null
         };
@@ -146,6 +196,8 @@ public static class ProjectFile
         Manifest RecordDocument(Document value) => new()
         {
             Width = value.Width, Height = value.Height, Resolution = value.Resolution,
+            BitDepth = value.WorkingDepth,
+            ColorSpace = value.Profile.Name, ColorProfileFile = StoreProfile(value.Profile),
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
             Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null,
             AlphaChannels = value.AlphaChannels.Count == 0 ? null : value.AlphaChannels.ToDictionary(p => p.Key, p => Store(p.Value, $"{written.Count}.channel.png"))
@@ -178,8 +230,31 @@ public static class ProjectFile
         var cache = new Dictionary<string, SKBitmap>();
         var sources = new Dictionary<string, SmartObjectSource>();
         var visiting = new HashSet<string>();
+        var profiles = new Dictionary<(string File, string Name), RgbProfile>();
+        var lookups = new Dictionary<string, CubeLut>(); long lookupBytes = 0;
         long allocatedPixels = 0;
         var count = 0;
+
+        CubeLut FetchLookup(string name)
+        {
+            if (name.Contains("..") || name.Contains('/') || name.Contains('\\')) throw new InvalidDataException("The project refers to an unsafe LUT path.");
+            if (lookups.TryGetValue(name, out var known)) return known;
+            var entry = zip.GetEntry("lookups/" + name) ?? throw new InvalidDataException("The project lookup table is missing.");
+            if (entry.Length < 1 || entry.Length > DocumentLimits.MaxLutBytes + DocumentLimits.MaxLutLineLength + 128 || lookupBytes + entry.Length > DocumentLimits.MaxDocumentLutBytes)
+                throw new InvalidDataException("The project LUTs exceed the supported memory budget.");
+            using var input = entry.Open(); var table = CubeLut.ReadBinary(input); lookupBytes += entry.Length; lookups.Add(name, table); return table;
+        }
+
+        RgbProfile FetchProfile(string? name, string title)
+        {
+            if (name == null) return RgbProfile.Srgb;
+            if (name.Contains("..") || name.Contains('/') || name.Contains('\\')) throw new InvalidDataException("The project refers to an unsafe profile path.");
+            if (profiles.TryGetValue((name, title), out var known)) return known;
+            var entry = zip.GetEntry("profiles/" + name) ?? throw new InvalidDataException("The project color profile is missing.");
+            if (entry.Length < 132 || entry.Length > DocumentLimits.MaxIccBytes) throw new InvalidDataException("The project color profile has an invalid size.");
+            var bytes = new byte[entry.Length]; using (var input = entry.Open()) input.ReadExactly(bytes);
+            return profiles[(name, title)] = RgbProfile.FromIcc(bytes, title);
+        }
 
         SKBitmap Fetch(string name, bool mask)
         {
@@ -189,8 +264,8 @@ public static class ProjectFile
             using var buffer = new MemoryStream();
             using (var input = image.Open()) input.CopyTo(buffer);
             buffer.Position = 0;
-            var bitmap = mask ? DecodeMask(buffer) : ImageFiles.Load(buffer, name);
-            allocatedPixels += (long)bitmap.Width * bitmap.Height;
+            var bitmap = mask ? DecodeMask(buffer) : Png16Codec.TryDecode(buffer, name, preserveProfile: true) ?? ImageFiles.Load(buffer, name, preserveProfile: true);
+            allocatedPixels += ((long)bitmap.ByteCount + 3) / 4;
             cache[name] = bitmap;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
             return bitmap;
@@ -204,23 +279,35 @@ public static class ProjectFile
             if (manifest.SmartObjects == null || !manifest.SmartObjects.TryGetValue(key, out var record))
                 throw new InvalidDataException("Embedded smart object content is missing.");
             var value = BuildDocument(record.Content);
-            var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id);
+            var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id, record.Link);
             sources.Add(key, source); visiting.Remove(key);
-            allocatedPixels += (long)source.Width * source.Height;
+            allocatedPixels += ((long)source.Preview.ByteCount + 3) / 4;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
             return source;
         }
 
-        Layer Build(LayerRecord record, int depth)
+        Layer Build(LayerRecord record, int depth, int version)
         {
             if (++count > 10_000 || depth > 64) throw new InvalidDataException("The project has too many layers.");
+            var adjustment = record.Adjustment;
+            if (adjustment is ColorLookupAdjustment lookup)
+            {
+                if (lookup.Table != null) throw new InvalidDataException("Project lookup samples must be stored as an embedded asset.");
+                adjustment = lookup with { Table = record.LookupFile == null ? null : FetchLookup(record.LookupFile), Strength = double.IsFinite(lookup.Strength) ? Math.Clamp(lookup.Strength, 0, 100) : 0,
+                    Space = Enum.IsDefined(lookup.Space) ? lookup.Space : LookupRgbSpace.Srgb };
+            }
+            else if (record.LookupFile != null) throw new InvalidDataException("A LUT asset requires a Color Lookup adjustment.");
             var layer = new Layer
             {
                 Id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, Name = record.Name, Kind = record.Kind, Visible = record.Visible,
-                Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, FillOpacity = double.IsFinite(record.FillOpacity) ? Math.Clamp(record.FillOpacity, 0, 1) : 1, Blend = record.Blend,
+                Opacity = double.IsFinite(record.Opacity) ? Math.Clamp(record.Opacity, 0, 1) : 1, FillOpacity = double.IsFinite(record.FillOpacity) ? Math.Clamp(record.FillOpacity, 0, 1) : 1,
+                Blend = version <= 10 && record.Kind == LayerKind.Group && record.Blend == BlendMode.Normal ? BlendMode.PassThrough : record.Blend,
+                BlendIf = record.BlendIf?.Normalized() ?? new(),
                 MaskEnabled = record.MaskEnabled ?? true, Clipped = record.Clipped ?? false, Collapsed = record.Collapsed ?? false, Locks = record.Locks & LayerLocks.All,
-                Adjustment = record.Adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
-                VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true
+                MaskDensity = double.IsFinite(record.MaskDensity) ? Math.Clamp(record.MaskDensity, 0, 1) : 1,
+                MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0,
+                Adjustment = adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
+                VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true, VectorMaskFollowsWarp = record.VectorMaskFollowsWarp
             };
             if (record.Tags != null)
                 foreach (var tag in record.Tags.Take(64)) if (LayerTags.Normalize(tag) is { } normalized) layer.Tags.Add(normalized);
@@ -228,7 +315,8 @@ public static class ProjectFile
             {
                 if (record.Kind != LayerKind.Raster || record.Text != null || record.Shape != null)
                     throw new InvalidDataException("A smart object cannot also be a group, adjustment, text or shape layer.");
-                layer.SmartObject = Source(record.SmartObject); layer.Pixels = layer.SmartObject.Preview;
+                layer.SmartObject = Source(record.SmartObject);
+                layer.Pixels = record.ImageFile == null ? layer.SmartObject.Preview : Fetch(record.ImageFile, mask: false);
                 layer.Transform = IsUsable(record.Transform) ? record.Transform! : LayerTransform.Identity(layer.Pixels.Width, layer.Pixels.Height);
                 if (record.Effects is { } effects && !effects.IsEmpty) layer.Effects = effects.Clamped();
             }
@@ -241,16 +329,32 @@ public static class ProjectFile
             else if (record.Kind == LayerKind.Raster) throw new InvalidDataException($"Layer \"{record.Name}\" has no image.");
             if (record.Kind == LayerKind.Adjustment && record.Adjustment == null) throw new InvalidDataException($"Adjustment layer \"{record.Name}\" has no settings.");
             if (record.MaskFile != null) layer.Mask = Fetch(record.MaskFile, mask: true);
+            layer.MaskLinked = record.MaskLinked;
+            layer.MaskFollowsWarp = record.MaskFollowsWarp;
+            layer.MaskDefault = record.MaskDefault;
+            layer.MaskTransform = IsUsableMaskTransform(record.MaskTransform) ? record.MaskTransform : null;
+            if (layer.Mask != null && !layer.MaskLinked && layer.MaskTransform == null) layer.PlaceMask(layer.MaskMatrix);
             if (record.FilterSourceFile != null)
             {
                 layer.FilterSource = Fetch(record.FilterSourceFile, mask: false);
-                layer.SmartFilters = record.SmartFilters?.Take(64).Where(f => Enum.IsDefined(f.Settings.Kind)).ToArray() ?? [];
+                layer.SmartFilters = record.SmartFilters?.Take(64).Where(f => Enum.IsDefined(f.Settings.Kind)).Select(f => f.Normalized()).ToArray() ?? [];
                 layer.FilterPaddingX = Math.Clamp(record.FilterPaddingX, 0, DocumentLimits.MaxSide);
                 layer.FilterPaddingY = Math.Clamp(record.FilterPaddingY, 0, DocumentLimits.MaxSide);
+                if (record.SmartFilterMaskFile != null) layer.SmartFilterMask = Fetch(record.SmartFilterMaskFile, mask: true);
+                layer.SmartFilterMaskEnabled = record.SmartFilterMaskEnabled; layer.SmartFilterMaskDefault = record.SmartFilterMaskDefault;
+                layer.SmartFilterMaskX = double.IsFinite(record.SmartFilterMaskX) ? Math.Clamp(record.SmartFilterMaskX, -DocumentLimits.MaxSide, DocumentLimits.MaxSide) : 0;
+                layer.SmartFilterMaskY = double.IsFinite(record.SmartFilterMaskY) ? Math.Clamp(record.SmartFilterMaskY, -DocumentLimits.MaxSide, DocumentLimits.MaxSide) : 0;
                 if (record.ImageFile != null) layer.Pixels = Fetch(record.ImageFile, mask: false);
             }
             if (record.Kind == LayerKind.Group && record.Children != null)
-                foreach (var child in record.Children) layer.Children.Add(Build(child, depth + 1));
+                foreach (var child in record.Children) layer.Children.Add(Build(child, depth + 1, version));
+            if (record.Warp != null)
+            {
+                if (layer.Pixels == null) throw new InvalidDataException("A Warp surface requires a pixel layer.");
+                var bounds = Geometry.RoundOut(layer.GeometryForWarp(record.Warp).Bounds);
+                if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height, layer.Pixels.BytesPerPixel)) throw new InvalidDataException("The Warp surface exceeds supported dimensions or memory.");
+                layer.Warp = record.Warp;
+            }
             return layer;
         }
 
@@ -258,8 +362,10 @@ public static class ProjectFile
         {
             if (!DocumentLimits.FitsSurface(value.Width, value.Height) || value.Format != Format || value.Version > Version)
                 throw new InvalidDataException("Invalid embedded document size or format.");
-            var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72 };
-            foreach (var record in value.Layers) result.Layers.Add(Build(record, 0));
+            var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72,
+                Depth = value.BitDepth == ColorDepth.Sixteen ? ColorDepth.Sixteen : ColorDepth.Eight,
+                Profile = FetchProfile(value.ColorProfileFile, value.ColorSpace) };
+            foreach (var record in value.Layers) result.Layers.Add(Build(record, 0, value.Version));
             if (value.AlphaChannels != null)
                 foreach (var pair in value.AlphaChannels.Take(64))
                     if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Key.Length <= 200) result.AlphaChannels[pair.Key] = Fetch(pair.Value, mask: true);
@@ -283,6 +389,9 @@ public static class ProjectFile
         t != null && new[] { t.X, t.Y, t.Width, t.Height, t.Rotation }.All(double.IsFinite)
         && t.Width >= 1 && t.Height >= 1 && t.Width <= 1_000_000 && t.Height <= 1_000_000 && Math.Abs(t.X) <= 10_000_000 && Math.Abs(t.Y) <= 10_000_000
         && (t.Distort == null || (t.Distort.Length == 8 && t.Distort.All(float.IsFinite)));
+
+    private static bool IsUsableMaskTransform(LayerTransform? t) => t != null && IsUsable(t with { Width = Math.Max(1, t.Width), Height = Math.Max(1, t.Height) })
+        && t.Width > 1e-10 && t.Height > 1e-10;
 
     private static byte[] EncodeMask(SKBitmap mask)
     {

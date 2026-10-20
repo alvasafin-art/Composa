@@ -24,7 +24,7 @@ public interface IReleaseSource
 
 public sealed class GitHubReleaseSource : IReleaseSource
 {
-    private const string Endpoint = "https://api.github.com/repos/dvdstelt/Composa/releases/latest";
+    private const string Endpoint = "https://api.github.com/repos/" + AppInfo.GitHubRepository + "/releases/latest";
 
     private sealed record Payload(
         [property: JsonPropertyName("tag_name")] string? TagName,

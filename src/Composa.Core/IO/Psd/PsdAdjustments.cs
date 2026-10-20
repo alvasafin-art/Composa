@@ -97,16 +97,18 @@ internal static class PsdAdjustments
         var colorized = Triple(ref cursor);
         var master = Triple(ref cursor);
         var shifts = new HslShift[7];
+        var bands = Enumerable.Range(1, 6).Select(i => HueBand.Default((HueRange)i)).ToArray();
         shifts[(int)HueRange.Master] = colorize ? colorized : master;
         if (version >= 2)
         {
             for (var range = 1; range < 7 && cursor.Remaining >= 14; range++)
             {
-                cursor.Skip(8); // the range's four hue boundaries; the bands here have fixed widths
+                try { bands[range - 1] = HueBand.FromEdges(cursor.I16(), cursor.I16(), cursor.I16(), cursor.I16()); }
+                catch (ArgumentException) { return null; } // Unsupported/corrupt bands retain Photoshop's appearance fallback.
                 shifts[range] = Triple(ref cursor);
             }
         }
-        return new HueSaturationAdjustment { Shifts = shifts, Colorize = colorize };
+        return new HueSaturationAdjustment { Shifts = shifts, Bands = bands, Colorize = colorize };
     }
 
     /// <summary>Brightness and contrast as signed shorts, on Photoshop's -150…150 and -50…100 legacy scales, mapped to -100…100.</summary>

@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Composa.IO;
+using Composa.Model;
 
 namespace Composa.App.Dialogs;
 
@@ -25,7 +26,7 @@ public static class RawDevelopDialog
             Width = PreviewWidth, Height = PreviewHeight, CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Color.Parse("#1C1C1C")),
             Child = image, ClipToBounds = true
         };
-        var info = Ui.Label($"{raw.Width} × {raw.Height} pixels, developed at 16 bits per channel", Palette.Secondary);
+        var info = Ui.Label($"{raw.Width} × {raw.Height} pixels · 16-bit source", Palette.Secondary);
 
         // Each slider move develops a preview on a worker; only the newest request is shown, older ones are dropped.
         var revision = 0;
@@ -42,7 +43,7 @@ public static class RawDevelopDialog
                 var wanted = ++revision;
                 var chosen = settings;
                 var bitmap = await Task.Run(() => raw.Develop(chosen, preview));
-                if (wanted == revision) image.Source = Ui.ToAvaloniaBitmap(bitmap, preview);
+                if (wanted == revision) image.Source = Ui.ToAvaloniaBitmap(bitmap, preview, Ui.DisplayProfile(owner));
                 bitmap.Dispose();
             } while (pending);
             rendering = false;
@@ -56,15 +57,28 @@ public static class RawDevelopDialog
         var tint = Ui.SliderField("Tint", settings.Tint, -100, 100, v => Update(settings with { Tint = v }), 1, "0", 400);
         var reset = Ui.TextButton("Reset", () =>
         {
-            Update(new RawDevelopSettings());
+            Update(new RawDevelopSettings { OutputDepth = settings.OutputDepth });
             exposure.Value = 0; temperature.Value = 0; tint.Value = 0;
         });
         var note = Ui.Label("Cooler to warmer, and green to magenta, away from the camera's own white balance.", Palette.Secondary);
         note.TextWrapping = TextWrapping.Wrap;
         note.MaxWidth = PreviewWidth;
 
-        var body = Ui.Column(12, frame, info, exposure, temperature, tint, Ui.Row(12, reset, note));
-        var dialog = new DialogWindow($"Develop {fileName}", body, "Import");
+        DialogWindow? dialog = null;
+        void ValidatePrecision()
+        {
+            var valid = DocumentLimits.FitsSurface(raw.Width, raw.Height, settings.OutputDepth == ColorDepth.Sixteen ? 16 : 4);
+            if (dialog != null) dialog.CanAccept = valid;
+            info.Text = $"{raw.Width} × {raw.Height} pixels · 16-bit source" + (valid ? "" : " · Choose 8-bit output for this frame size.");
+        }
+        var precision = Ui.Combo(new[] { ColorDepth.Sixteen, ColorDepth.Eight }, settings.OutputDepth, d => $"RGB · {(int)d} bits/channel", d =>
+        {
+            settings = settings with { OutputDepth = d };
+            ValidatePrecision();
+        }, 220);
+        var body = Ui.Column(12, frame, info, exposure, temperature, tint, Ui.Row(12, Ui.Label("Import as", Palette.Secondary), precision), Ui.Row(12, reset, note));
+        dialog = new DialogWindow($"Develop {fileName}", body, "Import");
+        ValidatePrecision();
         dialog.Opened += (_, _) => Render();
         var accepted = await dialog.Ask(owner);
         timer.Stop();

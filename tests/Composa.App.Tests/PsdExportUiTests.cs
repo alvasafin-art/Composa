@@ -147,7 +147,7 @@ public class PsdExportUiTests
     }
 
     [Fact]
-    public void RGB_16_bit_layers_created_by_ImageMagick_open_with_a_precision_conversion_report()
+    public void RGB_16_bit_layers_created_by_ImageMagick_open_without_losing_precision()
     {
         Assert.NotNull(BundledImageMagick.TryLoad());
         using var images = new Magick.MagickImageCollection();
@@ -165,7 +165,9 @@ public class PsdExportUiTests
         Assert.Equal(["Background", "Blue"], imported.Layers.Select(l => l.Name));
         Assert.Equal(SKColors.Blue, imported.Layers[1].Pixels!.GetPixel(1, 1));
         Assert.Equal((3d, 2d), (imported.Layers[1].Transform.X, imported.Layers[1].Transform.Y));
-        Assert.Contains(imported.Conversions, n => n.Message.Contains("16-bit"));
+        Assert.Equal(ColorDepth.Sixteen, imported.ToDocument().Depth);
+        Assert.All(imported.Layers, l => Assert.Equal(SKColorType.RgbaF32, l.Pixels!.ColorType));
+        Assert.DoesNotContain(imported.Conversions, n => n.Message.Contains("8-bit channels"));
         imported.Discard();
     }
 

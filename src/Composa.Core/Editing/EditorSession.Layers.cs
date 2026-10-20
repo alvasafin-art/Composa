@@ -24,19 +24,26 @@ public sealed partial class EditorSession
         LayersChanged?.Invoke();
     }
 
-    public void SelectLayer(Guid id, bool extend = false, bool range = false)
+    public void SelectLayer(Guid id, bool extend = false, bool range = false, IReadOnlyList<Guid>? rangeOrder = null)
     {
+        if (WarpEdit != null) CommitWarp();
         if (document.Find(id) == null) return;
+        if (channelTransform != null) CommitTransform();
         SelectedEffect = null;
         if (TextEdit != null && textLayer?.Id != id) FinishText();
         if (range && document.ActiveLayerId is { } anchor)
         {
-            var order = document.AllLayers().Select(l => l.Id).ToList();
+            var order = rangeOrder == null ? document.AllLayers().Select(l => l.Id).ToList()
+                : rangeOrder.Where(candidate => document.Find(candidate) != null).Distinct().ToList();
             int from = order.IndexOf(anchor), to = order.IndexOf(id);
-            if (from > to) (from, to) = (to, from);
-            for (var i = from; i <= to; i++) document.SelectedLayerIds.Add(order[i]);
-            for (var i = from; i <= to; i++) if (!document.SelectionOrder.Contains(order[i])) document.SelectionOrder.Add(order[i]);
-            document.ActiveLayerId = id;
+            if (from < 0 || to < 0) document.SetActive(id);
+            else
+            {
+                if (from > to) (from, to) = (to, from);
+                for (var i = from; i <= to; i++) document.SelectedLayerIds.Add(order[i]);
+                for (var i = from; i <= to; i++) if (!document.SelectionOrder.Contains(order[i])) document.SelectionOrder.Add(order[i]);
+                document.ActiveLayerId = id;
+            }
         }
         else if (extend)
         {
@@ -59,6 +66,8 @@ public sealed partial class EditorSession
     /// <summary>Clears the layer selection after a click on empty canvas space.</summary>
     public void ClearLayerSelection()
     {
+        if (WarpEdit != null) CommitWarp();
+        if (channelTransform != null) CommitTransform();
         FinishText();
         document.SetActive(null);
         SelectedEffect = null;
@@ -81,7 +90,9 @@ public sealed partial class EditorSession
 
     public Layer AddBlankLayer()
     {
-        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewColor(document.Width, document.Height));
+        var units = (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1);
+        if (document.RasterPixels() + units > DocumentLimits.DocumentPixelBudget) throw new InvalidOperationException("The new layer exceeds the document raster memory budget.");
+        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewWorkingColor(document.Width, document.Height, document.WorkingDepth, document.Profile));
         Apply("New Layer", () => document.InsertAboveActive(layer));
         LayersChanged?.Invoke();
         return layer;
@@ -93,6 +104,15 @@ public sealed partial class EditorSession
     /// </summary>
     public Layer AddImageLayer(string name, SKBitmap pixels, SKPoint? center = null, bool fit = true, double scale = 1)
     {
+        var converted = pixels.ColorType is not (SKColorType.Rgba8888 or SKColorType.RgbaF32) || !Pixels.ProfileOf(pixels).Equals(document.Profile);
+        if (converted) pixels = Pixels.ConvertWorking(pixels, Pixels.DepthOf(pixels), document.Profile);
+        var existing = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        document.CollectBitmaps(existing, new(), includeSelection: false);
+        if (!existing.Contains(pixels) && document.RasterPixels() + ((long)pixels.ByteCount + 3) / 4 > DocumentLimits.DocumentPixelBudget)
+        {
+            if (converted) pixels.Dispose();
+            throw new InvalidOperationException("The imported layer exceeds the document raster memory budget.");
+        }
         var layer = Layer.Raster(name, pixels);
         if (fit) scale *= Math.Min(1, Math.Min((double)document.Width / pixels.Width, (double)document.Height / pixels.Height));
         double w = pixels.Width * scale, h = pixels.Height * scale;
@@ -107,6 +127,7 @@ public sealed partial class EditorSession
     /// <param name="commit">False leaves the edit open, so a settings dialog can still <see cref="Cancel"/> the whole layer.</param>
     public Layer AddAdjustmentLayer(Adjustment adjustment, bool commit = true)
     {
+        CheckLookupBudget(adjustment);
         var layer = Layer.ForAdjustment(adjustment);
         layer.Name = document.UniqueName(adjustment.DisplayName);
         Begin("New Adjustment Layer");
@@ -122,8 +143,25 @@ public sealed partial class EditorSession
     public void SetAdjustment(Layer layer, Adjustment adjustment)
     {
         if (PixelsLocked(layer)) return;
+        CheckLookupBudget(adjustment, layer);
         layer.Adjustment = adjustment;
         InvalidateAll();
+    }
+
+    private void CheckLookupBudget(Adjustment adjustment, Layer? replaced = null)
+    {
+        if (adjustment is not ColorLookupAdjustment { Table: { } candidate }) return;
+        var tables = new Dictionary<string, CubeLut> { [candidate.Fingerprint] = candidate }; var visited = new HashSet<SmartObjectSource>();
+        void Collect(Document value)
+        {
+            foreach (var layer in value.AllLayers())
+            {
+                if (!ReferenceEquals(layer, replaced) && layer.Adjustment is ColorLookupAdjustment { Table: { } table }) tables.TryAdd(table.Fingerprint, table);
+                if (layer.SmartObject is { } source && visited.Add(source)) Collect(source.OpenDocument());
+            }
+        }
+        Collect(document);
+        if (tables.Values.Sum(t => (long)t.AssetBytes) > DocumentLimits.MaxDocumentLutBytes) throw new InvalidOperationException($"The document lookup tables exceed {DocumentLimits.MaxDocumentLutBytes / 1024 / 1024} MB. Remove an unused table first.");
     }
 
     public void DeleteSelectedLayers()
@@ -215,7 +253,7 @@ public sealed partial class EditorSession
 
     public void SetBlend(Layer layer, BlendMode blend)
     {
-        if (IsLocked(layer) || layer.Blend == blend) return;
+        if (IsLocked(layer) || layer.Blend == blend || blend == BlendMode.PassThrough && !layer.IsGroup) return;
         Apply("Blend Mode", () => layer.Blend = blend);
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
@@ -477,6 +515,16 @@ public sealed partial class EditorSession
     private static unsafe void TrimToContent(Layer layer)
     {
         if (layer.Pixels is not { } pixels || !layer.Transform.IsPureTranslation(pixels.Width, pixels.Height)) return;
+        if (pixels.ColorType == SKColorType.RgbaF32)
+        {
+            var content = Pixels.ContentBounds(pixels);
+            if (content.IsEmpty || content == new SKRectI(0, 0, pixels.Width, pixels.Height)) return;
+            var cropped = Pixels.NewLike(pixels, content.Width, content.Height);
+            using (var canvas = new SKCanvas(cropped)) canvas.DrawBitmap(pixels, -content.Left, -content.Top);
+            layer.Pixels = cropped;
+            layer.Transform = LayerTransform.Identity(content.Width, content.Height) with { X = layer.Transform.X + content.Left, Y = layer.Transform.Y + content.Top };
+            return;
+        }
         int left = pixels.Width, top = pixels.Height, right = -1, bottom = -1;
         var data = (byte*)pixels.GetPixels();
         for (var y = 0; y < pixels.Height; y++)
@@ -490,7 +538,7 @@ public sealed partial class EditorSession
             bottom = y;
         }
         if (right < 0 || (left == 0 && top == 0 && right == pixels.Width - 1 && bottom == pixels.Height - 1)) return;
-        var trimmed = Pixels.NewColor(right - left + 1, bottom - top + 1);
+        var trimmed = Pixels.NewLike(pixels, right - left + 1, bottom - top + 1);
         using (var canvas = new SKCanvas(trimmed)) canvas.DrawBitmap(pixels, -left, -top);
         layer.Pixels = trimmed;
         layer.Transform = LayerTransform.Identity(trimmed.Width, trimmed.Height) with { X = layer.Transform.X + left, Y = layer.Transform.Y + top };
@@ -509,6 +557,8 @@ public sealed partial class EditorSession
             else if (document.Selection != null) layer.Mask = SelectionInLayerSpace(layer)!;
             else layer.Mask = Pixels.NewMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
             layer.MaskEnabled = true;
+            layer.MaskDensity = 1; layer.MaskFeather = 0;
+            layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0;
         });
         EditingMask = true;
         Invalidate(AffectedArea(layer));
@@ -535,7 +585,7 @@ public sealed partial class EditorSession
             var pixels = Pixels.Clone(layer.Pixels);
             using (var canvas = new SKCanvas(pixels))
             using (var paint = new SKPaint { BlendMode = SKBlendMode.DstIn })
-                canvas.DrawBitmap(layer.Mask, new SKRect(0, 0, pixels.Width, pixels.Height), paint);
+                canvas.DrawBitmap(layer.AlignedRasterMask(ignoreDisabled: true)!, new SKRect(0, 0, pixels.Width, pixels.Height), paint);
             layer.Pixels = pixels;
             layer.Mask = null;
         });
@@ -548,6 +598,20 @@ public sealed partial class EditorSession
     {
         if (IsLocked(layer) || layer.Mask == null || layer.MaskEnabled == enabled) return;
         Apply(enabled ? "Enable Layer Mask" : "Disable Layer Mask", () => layer.MaskEnabled = enabled);
+        Invalidate(AffectedArea(layer));
+        LayersChanged?.Invoke();
+    }
+
+    public void SetMaskLinked(Layer layer, bool linked)
+    {
+        if (IsLocked(layer) || layer.Mask == null || layer.MaskLinked == linked) return;
+        var matrix = layer.MaskMatrix;
+        if (linked && layer.Pixels != null && !layer.Transform.Matrix(1, 1).TryInvert(out _)) return;
+        Apply(linked ? "Link Layer Mask" : "Unlink Layer Mask", () =>
+        {
+            layer.MaskLinked = linked;
+            layer.PlaceMask(matrix);
+        });
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
     }

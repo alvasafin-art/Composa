@@ -11,6 +11,7 @@ using Composa.Model;
 using Composa.Rendering;
 using Geometry = Composa.Model.Geometry;
 using Composa.Selections;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.App.Controls;
@@ -44,6 +45,17 @@ public sealed partial class CanvasView : Control
     private (float Scale, SKPoint Origin, int Width, int Height) viewKey;
     private SKRectI viewDirty;
     private bool viewStale = true;
+    private RgbProfile displayProfile = RgbProfile.Srgb;
+    public RgbProfile DisplayProfile
+    {
+        get => displayProfile;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (displayProfile.Equals(value)) return;
+            displayProfile = value; viewCache = null; viewStale = true; InvalidateVisual();
+        }
+    }
 
     public CanvasView()
     {
@@ -170,6 +182,29 @@ public sealed partial class CanvasView : Control
 
     public Point ToScreen(SKPoint p) => new(origin.X + p.X * UnitsPerPixel, origin.Y + p.Y * UnitsPerPixel);
     public SKPoint ToDocument(Point p) => new((float)((p.X - origin.X) / UnitsPerPixel), (float)((p.Y - origin.Y) / UnitsPerPixel));
+
+    /// <summary>The image area of the viewport, excluding rulers, in document coordinates.</summary>
+    public SKRect VisibleDocumentRect
+    {
+        get
+        {
+            if (session == null) return SKRect.Empty;
+            var a = ToDocument(new Point(RulerInset, RulerInset)); var b = ToDocument(new Point(Bounds.Width, Bounds.Height));
+            return SKRect.Intersect(new(a.X, a.Y, b.X, b.Y), new(0, 0, session.Document.Width, session.Document.Height));
+        }
+    }
+    public SKPoint ViewportCenter => ToDocument(new Point((RulerInset + Bounds.Width) / 2, (RulerInset + Bounds.Height) / 2));
+
+    /// <summary>Navigator panning keeps as much of the image visible as the viewport permits; it is view state only.</summary>
+    public void CenterOn(SKPoint point)
+    {
+        if (session == null || IsDragging || !float.IsFinite(point.X) || !float.IsFinite(point.Y)) return;
+        var w = Math.Max(1, Bounds.Width - RulerInset) / UnitsPerPixel; var h = Math.Max(1, Bounds.Height - RulerInset) / UnitsPerPixel;
+        double Center(double value, double viewport, int size) => viewport >= size ? size / 2d : Math.Clamp(value, viewport / 2, size - viewport / 2);
+        var x = Center(point.X, w, session.Document.Width); var y = Center(point.Y, h, session.Document.Height);
+        origin = new Point((RulerInset + Bounds.Width) / 2 - x * UnitsPerPixel, (RulerInset + Bounds.Height) / 2 - y * UnitsPerPixel);
+        ClampOrigin(); InvalidateVisual(); ViewChanged?.Invoke();
+    }
 
     public void Fit()
     {
@@ -319,7 +354,10 @@ public sealed partial class CanvasView : Control
             {
                 canvas.Save();
                 canvas.ClipRect(screenRect);
-                using var image = SKImage.FromPixels(cache.PeekPixels());
+                // The cache already contains display-device RGB. An untagged presentation prevents
+                // Skia converting those values back to the UI surface's nominal sRGB space.
+                using var raw = new SKPixmap(cache.Info.WithColorSpace(null), cache.GetPixels(), cache.RowBytes);
+                using var image = SKImage.FromPixels(raw);
                 canvas.DrawImage(image, cacheSource, cacheTarget, new SKSamplingOptions(nearest ? SKFilterMode.Nearest : SKFilterMode.Linear));
                 canvas.Restore();
             }
@@ -377,7 +415,7 @@ public sealed partial class CanvasView : Control
         if (viewCache == null || viewCache.Width < width || viewCache.Height < height)
         {
             // The old bitmap may still be in use by the render thread, so it is left to the garbage collector.
-            viewCache = Pixels.NewColor(Math.Max(width, viewCache?.Width ?? 0) + 64, Math.Max(height, viewCache?.Height ?? 0) + 64);
+            viewCache = Pixels.NewWorkingColor(Math.Max(width, viewCache?.Width ?? 0) + 64, Math.Max(height, viewCache?.Height ?? 0) + 64, ColorDepth.Eight, displayProfile);
             viewStale = true;
         }
         var key = (scale, viewOrigin, width, height);

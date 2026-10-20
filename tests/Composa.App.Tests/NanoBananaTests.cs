@@ -31,7 +31,7 @@ public class NanoBananaTests
         var nodes=new JsonObject { ["GeminiNanoBanana2V2"]=definition,["LoadImage"]=new JsonObject(),["SaveImage"]=new JsonObject() };
         using var json=JsonDocument.Parse(nodes.ToJsonString()); return ComfyClient.ParseCapabilities(json.RootElement);
     }
-    private static AiTaskService Service(PartnerImageTests.Connection connection,bool key=true)=>new(()=>"http://localhost:8188",Catalog().Root,_=>connection)
+    private static AiTaskService Service(PartnerImageTests.Connection connection,bool key=true)=>new(()=>"http://localhost:8188",Catalog().Root,_=>connection,(input,_,_)=>Pixels.Clone(input.ObjectAlpha))
         {SelectedEngine=Pack(),ApiKey=()=>key ? "test-only-comfy-key" : null};
 
     [Fact]

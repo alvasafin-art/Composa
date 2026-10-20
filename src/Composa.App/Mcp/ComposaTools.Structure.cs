@@ -2,7 +2,10 @@ using System.ComponentModel;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Text;
+using Composa.ColorManagement;
 using Composa.App.Automation;
+using Composa.IO;
+using Composa.IO.Psd;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
@@ -10,22 +13,74 @@ namespace Composa.App.Mcp;
 
 public sealed partial class ComposaTools
 {
-    [McpServerTool(Name = "smart_object")]
-    [Description("Embedded smart objects: convert the named layer(s) preserving editable contents; copy makes an independent smart source. Ordinary duplicate_layer shares the source. Edit contents in its tab and Ctrl+S to update all parent instances. action: convert or copy.")]
-    public Task<string> SmartObject(string action, string[] layers, int? document = null) => OnUi(() =>
+    [McpServerTool(Name = "set_color_profile")]
+    [Description("Assign or convert the document's RGB ICC profile as one undoable edit. profile: sRGB, Display P3, RGB (1998), or an explicit ICC/ICM file path. Assign keeps raster numbers. Convert preserves color within gamut; flatten=true preserves the composite, while false keeps editable layers and may change blends/adjustments. Embedded smart contents retain their profiles.")]
+    public Task<string> SetColorProfile(string profile, string mode = "convert", bool flatten = true, int? document = null) => OnUi(() =>
     {
-        var s = Editable(document);
-        if (layers.Length == 0) throw new McpException("Give at least one layer.");
-        var targets = layers.Select(layer => Find(s, layer)).Distinct().ToArray();
+        if (mode is not ("assign" or "convert")) throw new McpException("mode is assign or convert.");
+        var destination = RgbProfile.BuiltIn.FirstOrDefault(p => p.Name.Equals(profile, StringComparison.OrdinalIgnoreCase));
+        if (destination == null)
+        {
+            if (Path.GetExtension(profile).ToLowerInvariant() is not (".icc" or ".icm")) throw new McpException("Use sRGB, Display P3, RGB (1998), or an ICC/ICM file path.");
+            var file = new FileInfo(profile);
+            if (!file.Exists || file.Length > DocumentLimits.MaxIccBytes) throw new McpException("The ICC file is missing or exceeds the profile size limit.");
+            destination = RgbProfile.FromIcc(File.ReadAllBytes(profile));
+        }
+        var session = Editable(document);
+        if (mode == "assign") session.AssignColorProfile(destination); else session.ConvertColorProfile(destination, flatten);
+        return $"RGB profile: {session.Document.Profile.Name}. {mode}.";
+    });
+
+    [McpServerTool(Name = "set_color_depth")]
+    [Description("Converts the document to RGB 8 or 16 bits/channel as one undoable edit. Embedded smart-object originals retain their own precision. Conversion to 8 bits rounds working pixel values.")]
+    public Task<string> SetColorDepth(int bitDepth, int? document = null) => OnUi(() =>
+    {
+        if (bitDepth is not (8 or 16)) throw new McpException("bitDepth must be 8 or 16.");
+        var session = Editable(document); session.ChangeColorDepth((ColorDepth)bitDepth);
+        return $"Document uses RGB {bitDepth} bits/channel.";
+    });
+
+    [McpServerTool(Name = "smart_object")]
+    [Description("Smart objects: convert layer(s), copy one independent source, place a file (linked=true by default), replace contents, relink to a file, update from the linked file, embed or info. All except place/convert take one layer in layers. path is required for place/replace/relink. Ordinary duplicate_layer shares the source; updates affect every shared instance and preserve placement/masks/filters. Files remain usable from cache when offline. Source files are never written by this tool. PSD and RAW file operations need the File menu's review.")]
+    public Task<string> SmartObject(string action, string[]? layers = null, int? document = null, string? path = null, bool linked = true,
+        bool discardLocal = false) => OnUi(async () =>
+    {
+        var s = action == "info" ? Session(document) : Editable(document);
+        if (action is not ("convert" or "copy" or "place" or "replace" or "relink" or "update" or "embed" or "info")) throw new McpException("Use convert, copy, place, replace, relink, update, embed or info.");
+        var targets = (layers ?? []).Select(layer => Find(s, layer)).Distinct().ToArray();
+        if (action != "place" && targets.Length == 0) throw new McpException("Give at least one layer.");
+        if (action is not ("place" or "convert") && targets.Length != 1) throw new McpException("This action takes one smart object.");
+        if (action is "place" or "replace" or "relink")
+        {
+            path = Absolute(path ?? throw new McpException("Give the source file's absolute path."));
+            if (PsdImport.IsPsd(path) || RawImporter.IsRaw(path)) throw new McpException("Photoshop and camera RAW sources need review; use the File menu.");
+        }
         Layer result;
-        if (action == "convert")
+        if (action == "place") result = await window.PlaceSmartObjectPath(path!, linked, s, review: false) ?? throw new McpException("Source was not placed.");
+        else if (action == "convert")
         {
             s.SelectLayer(targets[0].Id);
             foreach (var target in targets.Skip(1)) s.SelectLayer(target.Id, extend: true);
             result = s.ConvertToSmartObject();
         }
         else if (action == "copy" && targets.Length == 1) result = s.DuplicateSmartObjectIndependent(targets[0]);
-        else throw new McpException("Use convert with layer names/ids, or copy with one smart object.");
+        else
+        {
+            result = targets[0]; var source = result.SmartObject ?? throw new McpException("Select a smart object.");
+            if (action == "info")
+            {
+                var status = source.Link == null ? null : await Task.Run(() => LinkedSmartObjectFile.Probe(source.Link, verifyHash: true));
+                return $"Smart source {source.Id}: {source.Width}×{source.Height} px. " + (source.Link == null ? "Embedded." : $"Linked: {source.Link.Path}. {status!.State}. {status.Detail}");
+            }
+            if (action == "embed") s.SetSmartObjectLink(source, null);
+            else if (action is "replace" or "relink") await window.ReplaceSmartObjectPath(result, path!, action == "relink", s, review: false);
+            else if (action == "update")
+            {
+                if (source.Link == null) throw new McpException("This smart object is embedded.");
+                if (PsdImport.IsPsd(source.Link.Path) || RawImporter.IsRaw(source.Link.Path)) throw new McpException("Photoshop and camera RAW sources need review; use the File menu.");
+                await window.UpdateLinkedSmartObject(s, source, review: false, discardLocal: discardLocal);
+            }
+        }
         return $"Smart object \"{result.Name}\" [{Id(result)}], content {result.SmartObject!.Width}×{result.SmartObject.Height} px, source {result.SmartObject.Id}.";
     });
 
@@ -74,7 +129,7 @@ public sealed partial class ComposaTools
     private static IEnumerable<Layer> Descendants(Layer layer) => new[] { layer }.Concat(layer.Children.SelectMany(Descendants));
 
     [McpServerTool(Name = "layer_mask")]
-    [Description("Manages a layer's mask: add (uses current selection, otherwise reveals all), hide_all, delete, apply (bake into pixel alpha), enable or disable. Selection and layer masks are separate.")]
+    [Description("Manages a layer's mask: add (uses current selection, otherwise reveals all), hide_all, delete, apply (bake into pixel alpha), enable, disable, link or unlink (preserves the mask's document position). Selection and layer masks are separate.")]
     public Task<string> LayerMask(string layer, string action, int? document = null) => OnUi(() =>
     {
         var s = Editable(document); var target = Find(s, layer);
@@ -92,10 +147,12 @@ public sealed partial class ComposaTools
                 s.ApplyMask(target); break;
             case "enable": s.SetMaskEnabled(target, true); break;
             case "disable": s.SetMaskEnabled(target, false); break;
-            default: throw new McpException("action: add, hide_all, delete, apply, enable or disable.");
+            case "link": s.SetMaskLinked(target, true); break;
+            case "unlink": s.SetMaskLinked(target, false); break;
+            default: throw new McpException("action: add, hide_all, delete, apply, enable, disable, link or unlink.");
         }
         s.EditingMask = false;
-        return $"Mask {action}: \"{target.Name}\"; hasMask={target.Mask != null}, enabled={target.MaskEnabled}.";
+        return $"Mask {action}: \"{target.Name}\"; hasMask={target.Mask != null}, enabled={target.MaskEnabled}, linked={target.MaskLinked}.";
     });
 
     [McpServerTool(Name = "rasterize_layer")]

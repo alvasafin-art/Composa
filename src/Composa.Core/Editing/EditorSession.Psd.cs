@@ -18,6 +18,12 @@ public sealed partial class EditorSession
     public Layer PlacePhotoshop(PsdImport import, string name, SKPoint? center = null)
     {
         var incoming = import.Layers;
+        if (!import.Profile.Equals(document.Profile))
+        {
+            var contents = new EditorSession(import.ToDocument());
+            contents.ConvertColorProfile(document.Profile, flatten: false); incoming = contents.Document.Layers;
+            if (document.RasterPixels() + contents.Document.RasterPixels() > DocumentLimits.DocumentPixelBudget) throw PsdException.TooLarge();
+        }
         if (document.AllLayers().Count() + Document.Flatten(incoming).Count() + 1 > MaxLayers) throw PsdException.TooLarge();
         var group = Layer.Group(name);
         Apply("Import Photoshop File", () =>
@@ -30,8 +36,7 @@ public sealed partial class EditorSession
                 if (!box.IsEmpty)
                 {
                     double dx = Math.Round(at.X - box.MidX), dy = Math.Round(at.Y - box.MidY);
-                    foreach (var leaf in Document.Flatten(incoming).Where(l => l.Pixels != null))
-                        leaf.Transform = leaf.Transform with { X = leaf.Transform.X + dx, Y = leaf.Transform.Y + dy };
+                    foreach (var leaf in Document.Flatten(incoming)) leaf.TranslateContent(dx, dy);
                 }
             }
             group.Children.AddRange(incoming);

@@ -19,6 +19,7 @@ public sealed class SceneEditInput : IDisposable
     public SKBitmap Before { get; private set; } = null!;
     public SKBitmap Background { get; private set; } = null!;
     public SKBitmap Foreground { get; private set; } = null!;
+    public SKBitmap ModelForeground { get; private set; } = null!;
     public SKBitmap ObjectAlpha { get; private set; } = null!;
     public SKBitmap SubjectMask { get; private set; } = null!;
     public SKBitmap ShadowMask { get; private set; } = null!;
@@ -39,6 +40,10 @@ public sealed class SceneEditInput : IDisposable
 
     private void Build(Document document, AiTaskRequest request, CancellationToken token)
     {
+        // Validate lighting color transforms before a model upload or paid generation starts.
+        _ = document.Profile.Transfer;
+        _ = new Composa.ColorManagement.LinearRgbTransform(document.Profile, Composa.ColorManagement.RgbProfile.Srgb);
+        _ = new Composa.ColorManagement.LinearRgbTransform(Composa.ColorManagement.RgbProfile.Srgb, document.Profile);
         var settings=request.Scene.Normalized();
         WholeImage=request.Task==AiTaskKind.Relight && settings.Scope==RelightScope.WholeImage;
         var selected=SceneSource.SelectedObject(document);
@@ -48,7 +53,7 @@ public sealed class SceneEditInput : IDisposable
         if (!WholeImage && active!.Blend!=BlendMode.Normal)
             throw new InvalidOperationException("Scene editing needs a Normal image layer. Keep a copy of the original blend before converting it.");
         // New full-canvas intermediates plus the eventual output are bounded independently of model resolution.
-        if (document.RasterPixels()+10L*document.Width*document.Height>DocumentLimits.DocumentPixelBudget)
+        if (document.RasterPixels()+10L*document.Width*document.Height*(document.WorkingDepth==ColorDepth.Sixteen?4:1)>DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException($"Scene editing exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget. Use a smaller document.");
         SourceLayerId=active?.Id;
         if(!WholeImage) PreviousResultIds=SceneSource.PreviousResults(document,selected!,active!);
@@ -56,14 +61,15 @@ public sealed class SceneEditInput : IDisposable
         var clean=document.Clone();
         foreach(var id in PreviousResultIds) clean.Find(id)!.Visible=false;
         if(!WholeImage&&active!=null) {var source=clean.Find(active.Id)!;source.Visible=true;source.Effects=null;source.Transform=SceneSource.Transform(SourceFrame,source.Pixels!.Width,source.Pixels.Height);}
-        Before=Own(DocumentRenderer.Flatten(clean));
+        var workingBefore=Own(DocumentRenderer.Flatten(clean));
+        Before=Own(Pixels.DisplayCopy(workingBefore));
         var backdrop=clean.Clone();
         if(active!=null) backdrop.Find(active.Id)!.Visible=false;
-        Background=Own(DocumentRenderer.Flatten(backdrop));
-        IsCutout=!WholeImage && (active!.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
+        using(var workingBackdrop=DocumentRenderer.Flatten(backdrop)) Background=Own(Pixels.DisplayCopy(workingBackdrop));
+        IsCutout=!WholeImage && (active!.HasWarp || active.Mask!=null || active.VectorMask!=null || HasTransparency(active.Pixels!));
         if(IsCutout)
         {
-            var isolated=new Document(document.Width,document.Height);
+            var isolated=new Document(document.Width,document.Height) {Depth=document.WorkingDepth,Profile=document.Profile};
             var copy=clean.Find(active!.Id)!.Clone(); copy.Effects=null; copy.Clipped=false; copy.Visible=true;
             isolated.Layers.Add(copy);
             Foreground=Own(DocumentRenderer.Flatten(isolated));
@@ -73,7 +79,7 @@ public sealed class SceneEditInput : IDisposable
         }
         else
         {
-            Foreground=Before;
+            Foreground=workingBefore;
             // In an opaque photograph the ground belongs to that same raster, not the layers underneath it.
             if(!WholeImage) Background=Before;
             if(WholeImage) SubjectMask=Own(Alpha(Before));
@@ -87,6 +93,7 @@ public sealed class SceneEditInput : IDisposable
             }
             ObjectAlpha=SubjectMask;
         }
+        ModelForeground=Pixels.IsSrgb8(Foreground)?Foreground:Own(Pixels.DisplayCopy(Foreground));
         token.ThrowIfCancellationRequested();
         SubjectBounds=SelectionMask.Bounds(SubjectMask,16);
         if(SubjectBounds.IsEmpty || !WholeImage && HasNearFullCoverage(SubjectMask))
@@ -136,8 +143,8 @@ public sealed class SceneEditInput : IDisposable
 
     public static bool HasTransparency(SKBitmap image)
     {
-        var data=image.GetPixelSpan();
-        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) if(data[y*image.RowBytes+x*4+3]<255) return true;
+        var data=new PixelBuffer(image);
+        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) if(data.Read(x,y).A<1) return true;
         return false;
     }
     private static bool HasNearFullCoverage(SKBitmap mask)
@@ -148,8 +155,8 @@ public sealed class SceneEditInput : IDisposable
     }
     public static SKBitmap Alpha(SKBitmap image)
     {
-        var mask=Pixels.NewMask(image.Width,image.Height); var source=image.GetPixelSpan(); var target=mask.GetPixelSpan();
-        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) target[y*mask.RowBytes+x]=source[y*image.RowBytes+x*4+3];
+        var mask=Pixels.NewMask(image.Width,image.Height); var source=new PixelBuffer(image); var target=mask.GetPixelSpan();
+        for(var y=0;y<image.Height;y++) for(var x=0;x<image.Width;x++) target[y*mask.RowBytes+x]=(byte)Math.Clamp(MathF.Round(source.Read(x,y).A*255),0,255);
         Pixels.Invalidate(mask); return mask;
     }
     private static void Multiply(SKBitmap target,SKBitmap other)

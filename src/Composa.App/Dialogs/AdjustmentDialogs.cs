@@ -10,7 +10,7 @@ using SkiaSharp;
 namespace Composa.App.Dialogs;
 
 /// <summary>Editors for every adjustment and filter. Each reports changes live so the canvas can preview them.</summary>
-public static class AdjustmentDialogs
+public static partial class AdjustmentDialogs
 {
     private static readonly string[] Channels = ["RGB", "Red", "Green", "Blue"];
 
@@ -27,7 +27,7 @@ public static class AdjustmentDialogs
         {
             LevelsAdjustment levels => LevelsEditor(levels, histogram, Update),
             CurvesAdjustment curves => CurvesEditor(curves, histogram, Update),
-            HueSaturationAdjustment hue => HueEditor(hue, Update),
+            HueSaturationAdjustment hue => HueEditor(owner, hue, Update),
             // Reset puts a slider back to the value a new adjustment starts with, not to what the dialog opened with.
             ExposureAdjustment exposure => Sliders(
                 ("Exposure", exposure.Exposure, -5, 5, 0.01, "0.00", v => Update(exposure = exposure with { Exposure = v }), new ExposureAdjustment().Exposure),
@@ -49,6 +49,8 @@ public static class AdjustmentDialogs
             GradientMapAdjustment map => GradientMapEditor(owner, map, foreground, background, Update),
             BlackAndWhiteAdjustment bw => BlackAndWhiteEditor(bw, Update),
             ColorBalanceAdjustment balance => ColorBalanceEditor(balance, Update),
+            ChannelMixerAdjustment mixer => ChannelMixerEditor(mixer, Update),
+            ColorLookupAdjustment lookup => ColorLookupEditor(owner, lookup, Update),
             _ => Ui.Label("This adjustment has no settings.", Palette.Secondary)
         };
         var previewBox = Ui.Check("Preview", true, v => { preview = v; timer.Stop(); timer.Start(); });
@@ -138,7 +140,7 @@ public static class AdjustmentDialogs
             Ui.Label("Drag a point · arrows adjust (Shift: 10) · Ctrl-click or Delete removes it.", Palette.Secondary));
     }
 
-    private static Control HueEditor(HueSaturationAdjustment hue, Action<Adjustment> update)
+    private static Control HueEditor(Window owner, HueSaturationAdjustment hue, Action<Adjustment> update)
     {
         var range = HueRange.Master;
         var rows = new StackPanel { Spacing = 8 };
@@ -163,16 +165,42 @@ public static class AdjustmentDialogs
             rows.Children.Add(hueField);
             rows.Children.Add(saturation);
             rows.Children.Add(Ui.SliderField("Lightness", shift.Lightness, -100, 100, v => Set(shift with { Lightness = v }), 1, "0", FieldWidth, Controls.SliderTracks.Lightness, reset: 0));
+            if (range != HueRange.Master && !hue.Colorize)
+            {
+                var band = hue.BandFor(range); var defaults = HueBand.Default(range);
+                var editor = new Controls.HueBandEditor(band, Ui.WorkingProfile(owner), Ui.DisplayProfile(owner)) { Name = "HueBand", Width = FieldWidth };
+                var fields = new List<Controls.SliderField>();
+                void SetBand(HueBand next)
+                {
+                    band = next.Normalized(); update(hue = hue.WithBand(range, band)); editor.Band = band;
+                    var values = new[] { band.Start, band.FadeIn, band.Width, band.FadeOut };
+                    for (var i = 0; i < fields.Count; i++) fields[i].Value = values[i];
+                }
+                editor.Changed += SetBand;
+                rows.Children.Add(Ui.Label("Hue range and feathering", Palette.Secondary)); rows.Children.Add(editor);
+                var labels = new[] { "Range start", "Fade in", "Full range", "Fade out" };
+                var values = new[] { band.Start, band.FadeIn, band.Width, band.FadeOut }; var resets = new[] { defaults.Start, defaults.FadeIn, defaults.Width, defaults.FadeOut };
+                for (var i = 0; i < labels.Length; i++)
+                {
+                    var index = i;
+                    var field = Ui.SliderField(labels[i], values[i], 0, 360, v => SetBand(index switch { 0 => band with { Start = v }, 1 => band with { FadeIn = v }, 2 => band with { Width = v }, _ => band with { FadeOut = v } }), .1, "0.0", FieldWidth, reset: resets[i]);
+                    fields.Add(field); rows.Children.Add(field);
+                }
+                rows.Children.Add(Ui.TextButton("Reset hue range", () => SetBand(defaults)));
+            }
         }
         var picker = Ui.Combo(Enum.GetValues<HueRange>(), HueRange.Master, r => r.ToString(), r => { range = r; Build(); });
         var colorize = Ui.Check("Colorize", hue.Colorize, v =>
         {
             var master = hue.Shifts[0];
             hue = (hue with { Colorize = v }).WithShift(HueRange.Master, master with { Hue = v ? Math.Max(0, master.Hue) : Math.Min(180, master.Hue) });
+            if (v) { range = HueRange.Master; picker.SelectedIndex = 0; }
+            picker.IsEnabled = !v;
             update(hue);
             Build();
         });
         Build();
+        picker.IsEnabled = !hue.Colorize;
         return Ui.Column(10, Ui.Row(10, Ui.Label("Range", Palette.Secondary), picker, colorize), rows);
     }
 
@@ -240,8 +268,8 @@ public static class AdjustmentDialogs
         var bar = new Border { Height = 28, Width = 320, CornerRadius = new CornerRadius(4) };
         void Paint()
         {
-            var dark = new SKColor(map.Reversed ? map.Highlights : map.Shadows).ToAvalonia();
-            var light = new SKColor(map.Reversed ? map.Shadows : map.Highlights).ToAvalonia();
+            var dark = new SKColor(map.Reversed ? map.Highlights : map.Shadows).ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner));
+            var light = new SKColor(map.Reversed ? map.Shadows : map.Highlights).ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner));
             bar.Background = new LinearGradientBrush
             {
                 StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative),
@@ -282,8 +310,8 @@ public static class AdjustmentDialogs
         void Update(FilterSettings value) { current = value; timer.Stop(); timer.Start(); }
         var panel = new StackPanel { Spacing = 8 };
         // A filter opens with its defaults, so Reset puts a slider back to the value it opened with.
-        void Slider(string label, double value, double min, double max, Func<double, FilterSettings> apply, double step = 1, string format = "0") =>
-            panel.Children.Add(Ui.SliderField(label, value, min, max, v => Update(apply(v)), step, format, FieldWidth, reset: value));
+        void Slider(string label, double value, double min, double max, Func<double, FilterSettings> apply, double step = 1, string format = "0", double? reset = null) =>
+            panel.Children.Add(Ui.SliderField(label, value, min, max, v => Update(apply(v)), step, format, FieldWidth, reset: reset ?? value));
         switch (initial.Kind)
         {
             case FilterKind.GaussianBlur:
@@ -299,6 +327,11 @@ public static class AdjustmentDialogs
                 Slider("Amount", initial.Amount, 0, 200, v => current with { Amount = v });
                 Slider("Radius", initial.Radius, 0.5, 20, v => current with { Radius = v }, 0.1, "0.0");
                 break;
+            case FilterKind.HighPass:
+                Slider("Radius", initial.Radius, .1, 250, v => current with { Radius = v }, .1, "0.0", reset: 2);
+                var highPassHint = Ui.Label("Neutral gray carries no detail. Use Overlay or Soft Light for sharpening.", Palette.Secondary); highPassHint.TextWrapping = TextWrapping.Wrap; highPassHint.Width = FieldWidth;
+                panel.Children.Add(highPassHint);
+                break;
             case FilterKind.AddNoise:
                 Slider("Amount", initial.Amount, 0, 100, v => current with { Amount = v });
                 panel.Children.Add(Ui.Row(10, Ui.Label("Distribution", Palette.Secondary),
@@ -307,7 +340,7 @@ public static class AdjustmentDialogs
                 break;
             case FilterKind.Vignette:
                 var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Brushes.White, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
-                void PaintSwatch() => swatch.Background = new SolidColorBrush(new SKColor(current.VignetteColor).ToAvalonia());
+                void PaintSwatch() => swatch.Background = new SolidColorBrush(new SKColor(current.VignetteColor).ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner)));
                 PaintSwatch();
                 ToolTip.SetTip(swatch, "Choose the vignette color");
                 swatch.PointerPressed += async (_, _) =>

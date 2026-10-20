@@ -30,8 +30,8 @@
   </developer>
 
   <launchable type="desktop-id">composa.desktop</launchable>
-  <url type="homepage">https://github.com/dvdstelt/Composa</url>
-  <url type="bugtracker">https://github.com/dvdstelt/Composa/issues</url>
+  <url type="homepage">https://github.com/alvasafin-art/Composa</url>
+  <url type="bugtracker">https://github.com/alvasafin-art/Composa/issues</url>
 
   <provides>
     <binary>composa</binary>
@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.1" date="2026-10-20">
+      <description><p>TEST: RGB16 and ICC editing, independent masks and channels, linked Smart Objects, Warp/Liquify, color tools, Navigator/search/workspaces, and Change Background cleanup based on the actual generated subject silhouette. Larger remaining editor features are deferred. New native saves use CMPS format 13.</p></description>
+    </release>
     <release version="1.2.1-preview.30" date="2026-10-15">
       <description><p>Preserve faint contact shadows in Harmonize without changing its prompt or workflow. Restore Photoshop script dialog preferences on cleanup errors and release image-exchange COM references.</p></description>
     </release>

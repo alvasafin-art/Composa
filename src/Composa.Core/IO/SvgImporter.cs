@@ -24,7 +24,7 @@ public static class SvgImporter
         var name = Path.GetFileName(path);
         var magick = ImageMagick.Current ?? throw new InvalidDataException($"{name} is an SVG file. Opening one needs ImageMagick, which is not installed.");
         // Drawn at its declared size first: that is what the file says it is, and it is the answer when there is nothing to fit.
-        var declared = ImageFiles.Load(new MemoryStream(magick.Rasterize(path, 1)), name);
+        var declared = ImageFiles.Load(new MemoryStream(magick.Rasterize(path, 1)), name, ColorDepth.Eight);
         try
         {
             var scale = fitting is { } fit ? Math.Min((double)fit.Width / declared.Width, (double)fit.Height / declared.Height) : 1;
@@ -32,7 +32,7 @@ public static class SvgImporter
             if (!DocumentLimits.FitsSurface(width, height) || (long)width * height > remainingPixels)
                 throw new InvalidDataException($"{name} would be larger than the supported {DocumentLimits.MaxSide:N0} pixels a side and {DocumentLimits.MaxSurfaceMegapixels} megapixels, or than the document has room for.");
             if (Math.Abs(scale - 1) < 0.005) return declared;
-            var fitted = ImageFiles.Load(new MemoryStream(magick.Rasterize(path, scale)), name);
+            var fitted = ImageFiles.Load(new MemoryStream(magick.Rasterize(path, scale)), name, ColorDepth.Eight);
             declared.Dispose();
             return fitted;
         }

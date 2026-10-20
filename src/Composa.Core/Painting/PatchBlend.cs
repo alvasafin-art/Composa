@@ -6,10 +6,12 @@ using SkiaSharp;
 namespace Composa.Painting;
 
 /// <summary>Transfers donor texture, solving the boundary color correction over the repair region.</summary>
-public static unsafe class PatchBlend
+public static unsafe partial class PatchBlend
 {
     public static SKBitmap Blend(SKBitmap original, SKBitmap donor, SKBitmap mask, SKPointI offset, int iterations = 48, bool preserveAlpha = true, CancellationToken cancellation = default, SKBitmap? boundaryExclusion = null)
     {
+        if (original.ColorType == SKColorType.RgbaF32 || donor.ColorType == SKColorType.RgbaF32)
+            return BlendHighPrecision(original, donor, mask, offset, iterations, preserveAlpha, cancellation, boundaryExclusion);
         var bounds = SelectionMask.Bounds(mask, 1); bounds.Inflate(2, 2);
         bounds = Geometry.Intersect(bounds, new SKRectI(0, 0, original.Width, original.Height));
         if (bounds.IsEmpty) return Pixels.Clone(original);

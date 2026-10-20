@@ -30,6 +30,8 @@ public sealed partial class MainWindow
     private Guid? optionsLayer;
     private int jpegQuality = 90;
     private MenuItem? recentMenu;
+    private const string FindCommandId = "Find Command";
+    private MenuItem? canvasOnlyItem;
 
     private bool HasDocument => session != null;
 
@@ -46,11 +48,11 @@ public sealed partial class MainWindow
             menu.Items.Add(top);
             return top;
         }
-        MenuItem Item(string name, Action run, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, Func<bool>? enabled = null, bool needsDocument = true, string? id = null)
+        MenuItem Item(string name, Action run, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, Func<bool>? enabled = null, bool needsDocument = true, string? id = null, bool viewOnly = false)
         {
             var gesture = key == Key.None ? null : new KeyGesture(key, modifiers);
             var guard = needsDocument ? () => HasDocument && (enabled?.Invoke() ?? true) : enabled;
-            var command = new Shortcut(id ?? name.TrimEnd('…'), name.TrimEnd('…'), "Menus", gesture, run, guard);
+            var command = new Shortcut(id ?? name.TrimEnd('…'), name.TrimEnd('…'), "Menus", gesture, run, guard, viewOnly: viewOnly);
             commands.Add(command);
             var item = new MenuItem { Header = name, InputGesture = gesture };
             item.Click += (_, _) => Execute(command);
@@ -71,6 +73,8 @@ public sealed partial class MainWindow
             Item("Open…", () => _ = Open(), Key.O, ctrl, needsDocument: false),
             recentMenu = Sub("Open Recent"),
             Item("Place Images as Layers…", () => _ = PlaceImages()),
+            Item("Place Linked Smart Object…", () => _ = ChooseSmartObjectFile(true)),
+            Item("Place Embedded Smart Object…", () => _ = ChooseSmartObjectFile(false)),
             Line(),
             Item("Save", () => _ = Save(session!, false), Key.S, ctrl),
             Item("Save As…", () => _ = Save(session!, true), Key.S, ctrl | shift),
@@ -79,6 +83,7 @@ public sealed partial class MainWindow
             Item("Export PNG…", () => _ = Export(ExportFormat.Png), Key.E, ctrl | shift),
             Item("Export JPEG…", () => _ = Export(ExportFormat.Jpeg), Key.S, ctrl | shift | alt),
             Item("Export WebP…", () => _ = Export(ExportFormat.Webp)),
+            Item("Export TIFF…", () => _ = Export(ExportFormat.Tiff)),
             Line(),
             Item("Close Project", () => _ = CloseSession(session!), Key.W, ctrl),
             Item("Quit", Close, Key.Q, ctrl, needsDocument: false));
@@ -127,6 +132,8 @@ public sealed partial class MainWindow
             Item("Exposure…", () => _ = Adjust(AdjustmentKind.Exposure), enabled: () => session!.CanEditPixels),
             Item("Black & White…", () => _ = Adjust(AdjustmentKind.BlackAndWhite), enabled: () => session!.CanEditPixels),
             Item("Color Balance…", () => _ = Adjust(AdjustmentKind.ColorBalance), enabled: () => session!.CanEditPixels),
+            Item("Channel Mixer…", () => _ = Adjust(AdjustmentKind.ChannelMixer), enabled: () => session!.CanEditPixels),
+            Item("Color Lookup…", () => _ = Adjust(AdjustmentKind.ColorLookup), enabled: () => session!.CanEditPixels),
             Item("Gradient Map…", () => _ = Adjust(AdjustmentKind.GradientMap), enabled: () => session!.CanEditPixels),
             Item("Grain…", () => _ = Adjust(AdjustmentKind.Grain), enabled: () => session!.CanEditPixels),
             Item("Invert", () => session!.Adjust(new InvertAdjustment()), Key.I, ctrl, () => session!.CanEditPixels),
@@ -134,6 +141,11 @@ public sealed partial class MainWindow
             Line(),
             Item("Canvas Size…", () => _ = CanvasSize(), Key.C, ctrl | alt),
             Item("Image Size…", () => _ = ImageSize(), Key.I, ctrl | alt),
+            Sub("RGB Precision",
+                Item("8 Bits/Channel", () => session!.ChangeColorDepth(ColorDepth.Eight)),
+                Item("16 Bits/Channel", () => session!.ChangeColorDepth(ColorDepth.Sixteen))),
+            Item("Assign Color Profile…", () => _ = EditColorProfile(assign: true)),
+            Item("Convert Color Profile…", () => _ = EditColorProfile(assign: false)),
             Item("Trim…", () => _ = Trim()),
             Item("Reveal All", () => { if (session!.RevealAll()) canvas.Fit(); }, enabled: () => session!.CanRevealAll),
             Item("Duplicate", () => AddSession(session!.Duplicate())),
@@ -143,7 +155,7 @@ public sealed partial class MainWindow
             Item("Flip Canvas Horizontal", () => session!.FlipCanvas(true)),
             Item("Flip Canvas Vertical", () => session!.FlipCanvas(false)));
 
-        Top("F_ilter", new object[] { Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
+        Top("F_ilter", new object[] { Item("Liquify…", () => _ = Liquify(), enabled: () => session!.CanLiquify), Line(), Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
             .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels))).ToArray());
 
         Top("_AI",
@@ -174,11 +186,14 @@ public sealed partial class MainWindow
             Item("Edit Adjustment…", () => _ = EditAdjustmentLayer(session!.ActiveLayer!, false), enabled: () => session!.ActiveLayer?.IsAdjustment == true),
             Line(),
             Item("Transform Layer", () => { canvas.ShowTransformControls = true; SelectTool(Tool.Move); }, Key.T, ctrl),
+            Item("Warp…", StartWarp, enabled: () => session!.CanWarp),
             Item("Duplicate Layer / Layer via Copy", () => session!.LayerViaCopy(), Key.J, ctrl, () => session!.ActiveLayer != null),
             Item("Rename Layer…", layers.BeginRename, Key.F2, enabled: () => session!.ActiveLayer != null),
             Item("Delete Layer", layers.DeleteLayerOrMask, enabled: () => session!.ActiveLayer != null),
             Line(),
             Item("Add Layer Mask", () => session!.AddMask(session.ActiveLayer!), enabled: () => session!.ActiveLayer is { Mask: null }),
+            Item("Link Layer Mask", () => session!.SetMaskLinked(session.ActiveLayer!, true), enabled: () => session!.ActiveLayer is { Mask: not null, MaskLinked: false }),
+            Item("Unlink Layer Mask", () => session!.SetMaskLinked(session.ActiveLayer!, false), enabled: () => session!.ActiveLayer is { Mask: not null, MaskLinked: true }),
             Item("Invert Layer Mask", () => { session!.EditingMask = true; session.Adjust(new InvertAdjustment()); }, enabled: () => session!.ActiveLayer?.Mask != null),
             Item("Apply Layer Mask", () => session!.ApplyMask(session.ActiveLayer!), enabled: () => session!.ActiveLayer is { Mask: not null, Pixels: not null }),
             clipItem,
@@ -196,9 +211,14 @@ public sealed partial class MainWindow
                 .Append(Line()).Append(Item("Delete Effect", () => session!.RemoveSelectedEffect(), enabled: () => session!.SelectedEffect != null)).ToArray()),
             Item("Edit Text…", () => BeginTextEdit(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.Text != null),
             Item("Rasterize Layer", () => session!.RasterizeShape(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsLive == true),
-            Item("Convert to Smart Object", () => session!.ConvertToSmartObject(), enabled: () => session!.SelectedRoots().Count > 0),
+            Sub("Smart Objects", Item("Convert to Smart Object", () => session!.ConvertToSmartObject(), enabled: () => session!.SelectedRoots().Count > 0),
             Item("Edit Smart Object Contents…", () => OpenSmartObject(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
             Item("New Smart Object via Copy", () => session!.DuplicateSmartObjectIndependent(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("Replace Smart Object Contents…", () => _ = ChooseSmartObjectFile(false, session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("Relink Smart Object…", () => _ = ChooseSmartObjectFile(true, session!.ActiveLayer!, relink: true), enabled: () => session!.ActiveLayer?.IsSmartObject == true),
+            Item("Update Linked Smart Object", () => _ = UpdateLinkedFromUi(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.SmartObject?.Link != null),
+            Item("Embed Linked Smart Object", () => session!.SetSmartObjectLink(session.ActiveLayer!.SmartObject!, null), enabled: () => session!.ActiveLayer?.SmartObject?.Link != null),
+            Item("Linked Source Info…", () => _ = LinkedSourceInfo(session!.ActiveLayer!), enabled: () => session!.ActiveLayer?.SmartObject?.Link != null)),
             Item("Rotate Layer 90° Clockwise", () => session!.RotateLayers(90)),
             Item("Rotate Layer 90° Counterclockwise", () => session!.RotateLayers(-90)),
             Item("Rotate Layer 180°", () => session!.RotateLayers(180)),
@@ -216,24 +236,30 @@ public sealed partial class MainWindow
                 session.View = flip(session.View);
                 canvas.ViewOptionsChanged(rulersShown);
                 RememberToolSettings();
-            }, key, modifiers, id: id);
+            }, key, modifiers, id: id, viewOnly: true);
             item.ToggleType = MenuItemToggleType.CheckBox;
             viewToggles.Add((item, get));
             return item;
         }
+        canvasOnlyItem = Item("Canvas Only", () => SetCanvasOnly(!settings.CanvasOnly), Key.F6, needsDocument: false, viewOnly: true);
+        canvasOnlyItem.ToggleType = MenuItemToggleType.CheckBox; canvasOnlyItem.IsChecked = settings.CanvasOnly;
         Top("_View",
-            Item("Fit Canvas", canvas.Fit, Key.D0, ctrl),
-            Item("Actual Pixels", () => canvas.ZoomTo(1), Key.D1, ctrl),
-            Item("Zoom In", canvas.ZoomIn, Key.OemPlus, ctrl),
-            Item("Zoom Out", canvas.ZoomOut, Key.OemMinus, ctrl),
+            Item("Find Command…", () => _ = FindCommand(), Key.P, ctrl | shift, needsDocument: false, viewOnly: true),
+            canvasOnlyItem,
+            Line(),
+            Item("Fit Canvas", canvas.Fit, Key.D0, ctrl, viewOnly: true),
+            Item("Actual Pixels", () => canvas.ZoomTo(1), Key.D1, ctrl, viewOnly: true),
+            Item("Zoom In", canvas.ZoomIn, Key.OemPlus, ctrl, viewOnly: true),
+            Item("Zoom Out", canvas.ZoomOut, Key.OemMinus, ctrl, viewOnly: true),
             Line(), grid,
-            Item("Show Transform Controls", () => { canvas.ShowTransformControls = !canvas.ShowTransformControls; canvas.InvalidateVisual(); RebuildOptions(); RememberToolSettings(); }, Key.H, ctrl),
+            Item("Show Transform Controls", () => { canvas.ShowTransformControls = !canvas.ShowTransformControls; canvas.InvalidateVisual(); RebuildOptions(); RememberToolSettings(); }, Key.H, ctrl, viewOnly: true),
             Line(),
             ViewToggle("Rulers", v => v.ShowRulers, v => v with { ShowRulers = !v.ShowRulers }, Key.R, ctrl),
             Sub("Show",
                 ViewToggle("Grid", v => v.ShowGrid, v => v with { ShowGrid = !v.ShowGrid }, Key.OemQuotes, ctrl, "Show Grid"),
                 ViewToggle("Guides", v => v.ShowGuides, v => v with { ShowGuides = !v.ShowGuides }, Key.OemSemicolon, ctrl, "Show Guides")),
             Item("Grid Settings…", () => _ = ShowGridSettings()),
+            Item("Display Color…", () => _ = EditDisplayColor(), needsDocument: false, viewOnly: true),
             Line(),
             ViewToggle("Snap", v => v.Snap, v => v with { Snap = !v.Snap }, Key.OemSemicolon, ctrl | shift),
             Sub("Snap To",
@@ -245,9 +271,9 @@ public sealed partial class MainWindow
             ViewToggle("Lock Guides", v => v.LockGuides, v => v with { LockGuides = !v.LockGuides }, Key.OemSemicolon, ctrl | alt),
             Item("Clear Guides", () => session!.ClearGuides(), enabled: () => session!.CanClearGuides));
         // '+' is Shift and '=' on most keyboards, so Zoom In answers with Shift held too.
-        commands.Add(new Shortcut("Zoom In (with Shift)", "Zoom In", "Menus", new KeyGesture(Key.OemPlus, ctrl | shift), canvas.ZoomIn, () => HasDocument, hidden: true));
-        commands.Add(new Shortcut("Zoom In (keypad)", "Zoom In", "Menus", new KeyGesture(Key.Add, ctrl), canvas.ZoomIn, () => HasDocument, hidden: true));
-        commands.Add(new Shortcut("Zoom Out (keypad)", "Zoom Out", "Menus", new KeyGesture(Key.Subtract, ctrl), canvas.ZoomOut, () => HasDocument, hidden: true));
+        commands.Add(new Shortcut("Zoom In (with Shift)", "Zoom In", "Menus", new KeyGesture(Key.OemPlus, ctrl | shift), canvas.ZoomIn, () => HasDocument, hidden: true, viewOnly: true));
+        commands.Add(new Shortcut("Zoom In (keypad)", "Zoom In", "Menus", new KeyGesture(Key.Add, ctrl), canvas.ZoomIn, () => HasDocument, hidden: true, viewOnly: true));
+        commands.Add(new Shortcut("Zoom Out (keypad)", "Zoom Out", "Menus", new KeyGesture(Key.Subtract, ctrl), canvas.ZoomOut, () => HasDocument, hidden: true, viewOnly: true));
 
         // A package manager owns updates for a .deb or .rpm, so there is nothing to switch on there.
         var autoUpdates = new MenuItem
@@ -270,13 +296,14 @@ public sealed partial class MainWindow
 
         MenuItem PanelToggle(string title)
         {
-            var item = Item(title, () => dock.SetVisible(dock.Section(title), !dock.Section(title).State.Visible), needsDocument: false);
+            var item = Item(title, () => dock.SetVisible(dock.Section(title), !dock.Section(title).State.Visible), needsDocument: false, viewOnly: true);
             item.ToggleType = MenuItemToggleType.CheckBox;
             panelToggles.Add((item, title));
             return item;
         }
         scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
-        Top("_Window", PanelToggle("History"));
+        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"), Line(),
+            Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
             Item("Check for Updates…", () => _ = CheckForUpdatesNow(), needsDocument: false),
@@ -404,6 +431,7 @@ public sealed partial class MainWindow
         foreach (var (item, command) in menuItems) item.IsEnabled = command.Enabled?.Invoke() ?? true;
         foreach (var (item, isChecked) in viewToggles) item.IsChecked = session != null && isChecked(session.View);
         foreach (var (item, section) in panelToggles) item.IsChecked = dock.Section(section).State.Visible;
+        if (canvasOnlyItem != null) canvasOnlyItem.IsChecked = settings.CanvasOnly;
         if (session == null) return;
         undoItem!.Header = session.History.CanUndo ? $"Undo {session.History.UndoName}" : "Undo";
         redoItem!.Header = session.History.CanRedo ? $"Redo {session.History.RedoName}" : "Redo";
@@ -414,9 +442,9 @@ public sealed partial class MainWindow
     private void Execute(Shortcut command)
     {
         if (Content is Control { IsEnabled: false }) return;
-        if (command.Enabled?.Invoke() == false || canvas.IsDragging) return;
+        if (command.Enabled?.Invoke() == false || IsDragging) return;
         problem = note = null;
-        try { command.Run(); }
+        try { if (!command.ViewOnly) { session?.CommitChannelControlEdit(); if (session != null && !CommitWarp(session)) return; } command.Run(); }
         catch (Exception error) { _ = Prompts.Alert(this, command.Title, error.Message); }
         UpdateStatus();
     }
@@ -441,8 +469,9 @@ public sealed partial class MainWindow
     private void OnSessionLayersChanged()
     {
         RefreshAiUi();
-        if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen)) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape) RebuildOptions();
+        UpdateColors();
+        if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen or Tool.Text)) return;
+        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }
@@ -455,6 +484,15 @@ public sealed partial class MainWindow
         { if (e.Key == Key.Escape) automationCancellation?.Cancel(); e.Handled = true; return; }
         var focused = FocusManager?.GetFocusedElement();
         if (SwallowAlt(e)) return;
+        if (channelInspectorDragging)
+        {
+            if (e.Key == Key.Escape)
+            {
+                channelInspectorDragging = false; var pointer = channelInspectorPointer; channelInspectorPointer = null;
+                pointer?.Capture(null); session?.CancelTransform();
+            }
+            e.Handled = true; return;
+        }
         if (aiFloatingHost.IsVisible && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
         {
             e.Handled = true;
@@ -470,6 +508,12 @@ public sealed partial class MainWindow
         if (focused is Control control && control.FindAncestorOfType<MenuItem>() != null) return;
         // A slider field that was just dragged keeps the keys that step or jump its value; letters still reach the tool shortcuts.
         if (focused is Controls.SliderField && e.Key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Home or Key.End) return;
+        if (focused is ComboBox && session?.WarpEdit != null && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
+        if (navigator.OwnsPanKeys(focused) && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
+
+        // Searching does not finish a canvas text edit or a retained transform.
+        var viewCommand = commands.FirstOrDefault(c => c.ViewOnly && c.Matches(e));
+        if (viewCommand != null) { Execute(viewCommand); e.Handled = true; return; }
 
         if (canvas.HandleKeyDown(e)) { e.Handled = true; return; }
         // While text is being typed, letters are text, not tool keys or shortcuts; the key stays unhandled so the
@@ -508,6 +552,7 @@ public sealed partial class MainWindow
         if (session == null) return;
         if (session.SelectedEffect != null) { session.RemoveSelectedEffect(); return; }
         if (session.Selection != null && session.CanEditPixels) session.ClearSelection();
+        else if (session.IsEditingAlphaChannel || session.IsEditingComponent) session.Fill(SKColors.Black, "Clear Channel");
         else if (session.Selection == null) layers.DeleteLayerOrMask();
     }
 
@@ -523,7 +568,7 @@ public sealed partial class MainWindow
     private async Task NewCanvas()
     {
         var result = await CanvasDialogs.NewCanvas(this, session?.Background ?? SKColors.White, await ClipboardImageSize());
-        if (result != null) AddSession(EditorSession.NewCanvas(result.Width, result.Height, result.Background));
+        if (result != null) AddSession(EditorSession.NewCanvas(result.Width, result.Height, result.Background, result.Depth));
     }
 
     private async Task Open()
@@ -567,9 +612,9 @@ public sealed partial class MainWindow
         {
             var pixels = RawImporter.IsRaw(path) ? await DevelopRaw(path)
                 : SvgImporter.IsSvg(path) ? await Busy(() => Task.Run(() => SvgImporter.Render(path))) // At the size the file declares.
-                : ImageFiles.Load(path);
+                : ImageFiles.Load(path, preserveProfile: true);
             if (pixels == null) return null;
-            var document = new Document(pixels.Width, pixels.Height);
+            var document = new Document(pixels.Width, pixels.Height) { Depth = Pixels.DepthOf(pixels), Profile = Pixels.ProfileOf(pixels) };
             var layer = Layer.Raster(Path.GetFileNameWithoutExtension(path), pixels);
             document.Layers.Add(layer);
             document.SetActive(layer.Id);
@@ -620,7 +665,7 @@ public sealed partial class MainWindow
                     if (target != session) { fitted.Dispose(); continue; }
                     session.AddImageLayer(name, fitted, at);
                 }
-                else session.AddImageLayer(name, ImageFiles.Load(path), at);
+                else session.AddImageLayer(name, ImageFiles.Load(path, preserveProfile: true), at);
             }
             catch (Exception error) { _ = Prompts.Alert(this, "Import couldn't finish", error.Message); }
         }
@@ -635,20 +680,20 @@ public sealed partial class MainWindow
     {
         var raw = await Busy(() => Task.Run(() => RawImporter.Decode(path)));
         if (await RawDevelopDialog.Show(this, Path.GetFileName(path), raw) is not { } settings) return null;
-        return await Busy(() => Task.Run(() => raw.Develop(settings)));
+        return await Busy(() => Task.Run(() => raw.Develop(settings, depth: settings.OutputDepth)));
     }
 
     /// <summary>Reads a Photoshop file and, when anything has to be converted, asks before going on. Null means the user declined.</summary>
     private async Task<PsdImport?> ImportPhotoshop(string path, long pixelBudget)
     {
-        var import = await Task.Run(() => PsdImport.Load(path, pixelBudget));
+        var import = await Task.Run(() => PsdImport.Load(path, pixelBudget, preserveProfile: true));
         if (import.Conversions.Count == 0) return import;
         var merged = false;
         if (await PsdConversionDialog.Confirm(this, Path.GetFileName(path), import.Conversions, chooseMerged: value => merged = value))
         {
             if (!merged) return import;
             import.Discard();
-            return await Task.Run(() => PsdImport.LoadAppearance(path, pixelBudget));
+            return await Task.Run(() => PsdImport.LoadAppearance(path, pixelBudget, preserveProfile: true));
         }
         import.Discard();
         return null;
@@ -683,9 +728,12 @@ public sealed partial class MainWindow
 
     private async Task<bool> Save(EditorSession target, bool saveAs, bool photoshop = false)
     {
+        if (IsDragging) return false;
+        target.CommitChannelControlEdit();
+        if (!CommitWarp(target)) return false;
         if (!saveAs && embeddedTabs.ContainsKey(target))
         {
-            try { return SaveSmartObjectContents(target); }
+            try { return await SaveSmartObjectContents(target); }
             catch (Exception updateError) { await Prompts.Alert(this, "Couldn't update smart object", updateError.Message); return false; }
         }
         var path = target.FilePath;
@@ -746,7 +794,9 @@ public sealed partial class MainWindow
         var extension = Path.GetExtension(path);
         if (!extension.Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
             return new IOException("Save a .cmps project or a .psd Photoshop document.");
-        if (canvas.IsDragging) return new IOException("Finish dragging on the canvas before saving.");
+        if (IsDragging) return new IOException("Finish dragging the canvas or controls before saving.");
+        target.CommitChannelControlEdit();
+        if (!CommitWarp(target)) return new InvalidOperationException("Couldn't apply Warp before saving.");
         target.FinishText();
         var snapshot = target.Document.Clone();
         var state = target.History.CurrentId;
@@ -771,7 +821,7 @@ public sealed partial class MainWindow
             if (await CanvasDialogs.JpegQuality(this, jpegQuality, preview) is not { } quality) return;
             jpegQuality = quality;
         }
-        var extension = format switch { ExportFormat.Jpeg => "jpg", ExportFormat.Webp => "webp", _ => "png" };
+        var extension = format switch { ExportFormat.Jpeg => "jpg", ExportFormat.Webp => "webp", ExportFormat.Tiff => "tif", _ => "png" };
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export " + extension.ToUpperInvariant(), SuggestedFileName = session.Title + "." + extension, DefaultExtension = extension,
@@ -783,7 +833,7 @@ public sealed partial class MainWindow
             Busy(() =>
             {
                 using var flat = session.Flatten();
-                ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : jpegQuality);
+                ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : jpegQuality, session.Document.Resolution);
             });
         }
         catch (Exception error) { await Prompts.Alert(this, "Couldn't export", error.Message); }
@@ -860,7 +910,7 @@ public sealed partial class MainWindow
                     using var stream = new MemoryStream();
                     bitmap.Save(stream, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
                     stream.Position = 0;
-                    external = new ClipboardImage(ImageFiles.Load(stream, "clipboard"), new SKPointI(int.MinValue / 2, int.MinValue / 2));
+                    external = new ClipboardImage(ImageFiles.Load(stream, "clipboard", preserveProfile: true), new SKPointI(int.MinValue / 2, int.MinValue / 2));
                 }
             }
         }
@@ -872,7 +922,7 @@ public sealed partial class MainWindow
             _ => session.Paste(external)
         };
         if (pasted == null) ShowProblem("The clipboard has no image.");
-        else SelectTool(Tool.Move);
+        else if (!session.IsEditingAlphaChannel && !session.IsEditingComponent) SelectTool(Tool.Move);
     }
 
     /// <summary>
@@ -931,13 +981,14 @@ public sealed partial class MainWindow
     private Histogram? HistogramOfActive()
     {
         if (session?.ActiveLayer is not { } layer) return null;
-        if (layer.Pixels != null && !session.IsEditingMask) return Histogram.Of(layer.Pixels);
+        if (session.EditingMaskBitmap is { } mask) return Histogram.Of(mask);
+        if (layer.Pixels != null) return Histogram.Of(layer.RenderFilterPixels()!);
         return Histogram.Of(session.Composite());
     }
 
     private void AutoLevels()
     {
-        if (session?.ActiveLayer?.Pixels is { } pixels) session.Adjust(LevelsAdjustment.Auto(Histogram.Of(pixels)));
+        if ((session?.EditingMaskBitmap ?? session?.ActiveLayer?.RenderFilterPixels()) is { } pixels) session!.Adjust(LevelsAdjustment.Auto(Histogram.Of(pixels)));
     }
 
     private async Task Adjust(AdjustmentKind kind)
@@ -965,7 +1016,7 @@ public sealed partial class MainWindow
             var seed = (uint)Random.Shared.Next();
             var grade = await CameraRawDialog.Show(this, lastCameraRaw, original,
                 settings => Busy(() => target.PreviewFilter(new FilterSettings { Kind = kind, CameraRaw = settings, Seed = seed })),
-                () => target.ActiveLayer is { } layer ? (target.IsEditingMask ? layer.Mask : layer.Pixels) : null);
+                () => target.IsEditingMask ? target.EditingMaskBitmap : target.ActiveLayer?.Pixels);
             if (grade == null) { target.CancelPreview(); return; }
             lastCameraRaw = grade;
             if (grade.IsIdentity) { target.CancelPreview(); return; }
@@ -973,7 +1024,7 @@ public sealed partial class MainWindow
             target.CommitPreview();
             return;
         }
-        var initial = new FilterSettings { Kind = kind, Radius = kind == FilterKind.Sharpen ? 2 : kind == FilterKind.MotionBlur ? 30 : 8, Amount = kind == FilterKind.Sharpen ? 60 : 20, Seed = (uint)Random.Shared.Next() };
+        var initial = new FilterSettings { Kind = kind, Radius = kind is FilterKind.Sharpen or FilterKind.HighPass ? 2 : kind == FilterKind.MotionBlur ? 30 : 8, Amount = kind == FilterKind.Sharpen ? 60 : 20, Seed = (uint)Random.Shared.Next() };
         var result = await AdjustmentDialogs.EditFilter(this, initial, settings => Busy(() => target.PreviewFilter(settings)));
         // A filter left at nothing (a vignette of zero) closes as Cancel does, without an undo step.
         if (result == null || result.IsIdentity) target.CancelPreview();

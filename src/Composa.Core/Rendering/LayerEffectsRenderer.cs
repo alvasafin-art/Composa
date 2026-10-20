@@ -72,11 +72,11 @@ public static class LayerEffectsRenderer
         if (inset == 0) inset = 2;
         long width = pixels.Width + inset * 2L, height = pixels.Height + inset * 2L;
         if (width * height > MaxPixels || width > Document.MaxSide * 2 || height > Document.MaxSide * 2) return null;
-        var result = Pixels.NewColor((int)width, (int)height);
+        var result = Pixels.NewLike(pixels, (int)width, (int)height);
         using var canvas = new SKCanvas(result);
 
         // The layer as it is shown: its pixels through its mask, with room around them for the effects.
-        using var shown = Pixels.NewColor((int)width, (int)height);
+        using var shown = Pixels.NewLike(pixels, (int)width, (int)height);
         using (var shownCanvas = new SKCanvas(shown))
         {
             shownCanvas.DrawBitmap(pixels, inset, inset);
@@ -94,7 +94,7 @@ public static class LayerEffectsRenderer
         {
             var (dx, dy) = shadow.Offset;
             using var moved = Shifted(coverage, (float)dx, (float)dy, (float)(shadow.Blur / 2));
-            Tint(canvas, moved, shadow.Color, shadow.Opacity);
+            Tint(canvas, moved, shadow.Color, shadow.Opacity, pixels.ColorSpace);
         }
         if (visible.OuterGlow is { Opacity: > 0, Size: > 0 } glow)
         {
@@ -104,7 +104,7 @@ public static class LayerEffectsRenderer
             using (var cutCanvas = new SKCanvas(soft))
             using (var cut = new SKPaint { BlendMode = SKBlendMode.DstOut })
                 cutCanvas.DrawBitmap(coverage, 0, 0, cut);
-            Tint(canvas, soft, glow.Color, glow.Opacity);
+            Tint(canvas, soft, glow.Color, glow.Opacity, pixels.ColorSpace);
         }
         // An outside stroke sits behind the layer's own pixels; an inside one is drawn over them, or the pixels would
         // simply cover it.
@@ -112,7 +112,7 @@ public static class LayerEffectsRenderer
         if (stroke is { Inside: false })
         {
             using var ring = Ring(coverage, stroke);
-            Tint(canvas, ring, stroke.Color, stroke.Opacity);
+            Tint(canvas, ring, stroke.Color, stroke.Opacity, pixels.ColorSpace);
         }
         if (visible.GradientOverlay is { Opacity: > 0 } gradient)
         {
@@ -122,8 +122,8 @@ public static class LayerEffectsRenderer
             var reach = (Math.Abs(dx) * pixels.Width + Math.Abs(dy) * pixels.Height) / 2f * (float)(gradient.Scale / 100);
             var colors = (gradient.Ramp ?? GradientRamp.Between(gradient.StartColor, gradient.EndColor)).ShaderColors(gradient.Reverse);
             using var shader = gradient.Radial
-                ? SKShader.CreateRadialGradient(center, Math.Max(pixels.Width, pixels.Height) / 2f * (float)(gradient.Scale / 100), colors, null, SKShaderTileMode.Clamp)
-                : SKShader.CreateLinearGradient(new SKPoint(center.X - dx * reach, center.Y - dy * reach), new SKPoint(center.X + dx * reach, center.Y + dy * reach), colors, null, SKShaderTileMode.Clamp);
+                ? Pixels.WorkingGradient(shown, center, center, colors, true, Math.Max(pixels.Width, pixels.Height) / 2f * (float)(gradient.Scale / 100))
+                : Pixels.WorkingGradient(shown, new SKPoint(center.X - dx * reach, center.Y - dy * reach), new SKPoint(center.X + dx * reach, center.Y + dy * reach), colors, false);
             using var shownCanvas = new SKCanvas(shown);
             using var paint = new SKPaint { Shader = shader, BlendMode = SKBlendMode.SrcATop, Color = SKColors.White.WithAlpha((byte)Math.Round(gradient.Opacity * 255)) };
             shownCanvas.DrawRect(SKRect.Create(0, 0, shown.Width, shown.Height), paint);
@@ -146,7 +146,7 @@ public static class LayerEffectsRenderer
                 using var cut = new SKPaint { BlendMode = SKBlendMode.DstOut };
                 insideCanvas.DrawBitmap(soft, 0, 0, cut);
             }
-            Tint(canvas, inside, innerGlow.Color, innerGlow.Opacity);
+            Tint(canvas, inside, innerGlow.Color, innerGlow.Opacity, pixels.ColorSpace);
         }
         if (visible.InnerShadow is { Opacity: > 0 } inner)
         {
@@ -160,12 +160,12 @@ public static class LayerEffectsRenderer
                 using var cut = new SKPaint { BlendMode = SKBlendMode.DstOut };
                 insideCanvas.DrawBitmap(moved, 0, 0, cut);
             }
-            Tint(canvas, inside, inner.Color, inner.Opacity);
+            Tint(canvas, inside, inner.Color, inner.Opacity, pixels.ColorSpace);
         }
         if (stroke is { Inside: true })
         {
             using var ring = Ring(coverage, stroke);
-            Tint(canvas, ring, stroke.Color, stroke.Opacity);
+            Tint(canvas, ring, stroke.Color, stroke.Opacity, pixels.ColorSpace);
         }
         canvas.Flush();
         return (result, inset);
@@ -175,6 +175,18 @@ public static class LayerEffectsRenderer
     {
         var color = new SKColor(overlay.Color); var amount = (float)Math.Clamp(overlay.Opacity, 0, 1);
         var keep = (float)Math.Clamp(fillOpacity, 0, 1) * (1 - amount); var data = (byte*)image.GetPixels();
+        if (image.ColorType == SKColorType.RgbaF32)
+        {
+            var pixels = new PixelBuffer(image);
+            for (var y = 0; y < image.Height; y++)
+            for (var x = 0; x < image.Width; x++)
+            {
+                var p = pixels.Read(x, y);
+                pixels.Write(x, y, new(p.R * keep + color.Red / 255f * p.A * amount,
+                    p.G * keep + color.Green / 255f * p.A * amount, p.B * keep + color.Blue / 255f * p.A * amount, p.A * (keep + amount)));
+            }
+            return;
+        }
         for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++)
         {
             var p = data + (long)y * image.RowBytes + x * 4; var alpha = p[3];
@@ -224,12 +236,15 @@ public static class LayerEffectsRenderer
     }
 
     /// <summary>Fills the coverage with a color at an opacity.</summary>
-    private static void Tint(SKCanvas canvas, SKBitmap coverage, uint color, double opacity)
+    private static void Tint(SKCanvas canvas, SKBitmap coverage, uint color, double opacity, SKColorSpace? workingSpace)
     {
         var tint = new SKColor(color).WithAlpha((byte)Math.Round(Math.Clamp(opacity, 0, 1) * 255));
-        // SrcIn keeps the coverage's alpha and replaces its color, whatever a mask-only bitmap draws as.
-        using var filter = SKColorFilter.CreateBlendMode(tint, SKBlendMode.SrcIn);
-        using var paint = new SKPaint { ColorFilter = filter };
-        canvas.DrawBitmap(coverage, 0, 0, paint);
+        // The color-filter overload only accepts implicit sRGB. Compose shaders so wide-gamut
+        // working colors survive, and the coverage still supplies exactly the mask's alpha.
+        using var mask = coverage.ToShader();
+        using var colorShader = SKShader.CreateColor((SKColorF)tint, workingSpace);
+        using var shader = SKShader.CreateBlend(SKBlendMode.SrcIn, mask, colorShader);
+        using var paint = new SKPaint { Shader = shader };
+        canvas.DrawRect(SKRect.Create(0, 0, coverage.Width, coverage.Height), paint);
     }
 }

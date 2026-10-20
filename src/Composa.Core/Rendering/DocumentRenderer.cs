@@ -1,4 +1,5 @@
 using Composa.Model;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.Rendering;
@@ -17,12 +18,16 @@ internal sealed class Tile : IDisposable
     /// <summary>In target pixels.</summary>
     public SKRectI Area { get; }
     public RenderView View { get; }
+    public ColorDepth Depth { get; }
+    private readonly RgbProfile profile;
 
-    public Tile(SKRectI area, RenderView view, bool mask = false)
+    public Tile(SKRectI area, RenderView view, bool mask = false, ColorDepth depth = ColorDepth.Eight, RgbProfile? profile = null)
     {
         Area = area;
         View = view;
-        Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewColor(area.Width, area.Height);
+        Depth = depth;
+        this.profile = profile ?? RgbProfile.Srgb;
+        Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
         Canvas = new SKCanvas(Bitmap);
         Canvas.Translate(-area.Left, -area.Top);
         Canvas.Scale(view.Scale);
@@ -30,7 +35,7 @@ internal sealed class Tile : IDisposable
     }
 
     /// <summary>A sibling buffer over the same area.</summary>
-    public Tile Sibling(bool mask = false) => new(Area, View, mask);
+    public Tile Sibling(bool mask = false) => new(Area, View, mask, Depth, profile);
 
     /// <summary>Draws a bitmap covering the same area straight onto this tile, pixel for pixel.</summary>
     public void DrawRaw(SKBitmap bitmap, SKPaint? paint = null)
@@ -59,12 +64,12 @@ public sealed class RenderOptions
 }
 
 /// <summary>Flattens the layer tree: blend modes, opacity, masks, clipping masks, folders and adjustment layers.</summary>
-public static class DocumentRenderer
+public static partial class DocumentRenderer
 {
     /// <summary>A new bitmap holding the whole flattened document.</summary>
     public static SKBitmap Flatten(Document document, RenderOptions? options = null)
     {
-        var target = Pixels.NewColor(document.Width, document.Height);
+        var target = Pixels.NewWorkingColor(document.Width, document.Height, document.WorkingDepth, document.Profile);
         Render(document, target, document.Bounds, options);
         return target;
     }
@@ -90,6 +95,7 @@ public static class DocumentRenderer
         var margin = (int)Math.Ceiling(SamplingMargin(document, options) * view.Scale);
         var canvas = Geometry.RoundOut(new SKRect(-view.Origin.X * view.Scale, -view.Origin.Y * view.Scale,
             (document.Width - view.Origin.X) * view.Scale, (document.Height - view.Origin.Y) * view.Scale));
+        var depth = document.WorkingDepth;
         Parallel.For(0, bands, band =>
         {
             var top = area.Top + band * bandHeight;
@@ -102,11 +108,12 @@ public static class DocumentRenderer
                 padded.Inflate(margin, margin);
                 padded = Geometry.Union(part, Geometry.Intersect(padded, canvas));
             }
-            using var tile = new Tile(padded, view);
+            using var tile = new Tile(padded, view, depth: depth, profile: document.Profile);
             RenderNodes(document.Layers, tile, options);
             tile.Canvas.Flush();
             CopyRows(tile.Bitmap, new SKPointI(part.Left - padded.Left, part.Top - padded.Top), target, part);
         });
+        Pixels.ClampColor(target, area);
         Pixels.Invalidate(target);
     }
 
@@ -127,15 +134,24 @@ public static class DocumentRenderer
     {
         var source = (byte*)from.GetPixels();
         var destination = (byte*)to.GetPixels();
-        long bytes = (long)area.Width * 4;
+        var targetSpace = to.ColorType == SKColorType.Alpha8 ? null : to.ColorSpace ?? RgbProfile.Srgb.Space;
+        if (from.ColorType != to.ColorType || !RgbProfile.SameSpace(from.ColorSpace, targetSpace))
+        {
+            using var sourcePixels = from.PeekPixels();
+            var at = (nint)(destination + (long)area.Top * to.RowBytes + (long)area.Left * to.BytesPerPixel);
+            if (!sourcePixels.ReadPixels(to.Info.WithSize(area.Width, area.Height).WithColorSpace(targetSpace), at, to.RowBytes, fromOrigin.X, fromOrigin.Y))
+                throw new InvalidOperationException("The rendered pixels could not be converted for display.");
+            return;
+        }
+        long bytes = (long)area.Width * from.BytesPerPixel;
         for (var y = 0; y < area.Height; y++)
-            Buffer.MemoryCopy(source + (long)(y + fromOrigin.Y) * from.RowBytes + (long)fromOrigin.X * 4, destination + (long)(y + area.Top) * to.RowBytes + (long)area.Left * 4, bytes, bytes);
+            Buffer.MemoryCopy(source + (long)(y + fromOrigin.Y) * from.RowBytes + (long)fromOrigin.X * from.BytesPerPixel, destination + (long)(y + area.Top) * to.RowBytes + (long)area.Left * to.BytesPerPixel, bytes, bytes);
     }
 
     /// <summary>Renders only the given layers (and their clipped followers) over a document-space area, for merges and copies.</summary>
     public static SKBitmap RenderLayers(Document document, IEnumerable<Layer> layers, SKRectI area)
     {
-        using var tile = new Tile(new SKRectI(0, 0, area.Width, area.Height), new RenderView(1, new SKPoint(area.Left, area.Top)));
+        using var tile = new Tile(new SKRectI(0, 0, area.Width, area.Height), new RenderView(1, new SKPoint(area.Left, area.Top)), depth: document.WorkingDepth, profile: document.Profile);
         RenderNodes(layers.ToList(), tile, null);
         tile.Canvas.Flush();
         return Pixels.Clone(tile.Bitmap);
@@ -155,7 +171,9 @@ public static class DocumentRenderer
             if (layer.Clipped) continue; // A clipped layer with no base shows nothing.
             if (!layer.Visible || layer.Opacity <= 0) continue;
             clipped.RemoveAll(l => !l.Visible || l.Opacity <= 0);
-            RenderUnit(layer, clipped, tile, options);
+            if (layer.HasWarp || clipped.Any(l => l.HasWarp))
+                RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped.Select(l => l.WarpAppearanceForView(tile.View.Scale)).ToList(), tile, options);
+            else RenderUnit(layer, clipped, tile, options);
         }
     }
 
@@ -169,21 +187,21 @@ public static class DocumentRenderer
         // Effects are drawn from an image that already has the mask applied, so the mask is not applied again.
         var effects = EffectsOf(layer);
         var hasMask = layer.RenderMask() != null && effects == null;
-        if (layer.IsGroup && !hasMask && layer.Opacity >= 1 && layer.Blend == BlendMode.Normal && clipped.Count == 0)
+        if (layer.IsGroup && !hasMask && layer.Opacity >= 1 && layer.BlendIf.IsIdentity && layer.Blend == BlendMode.PassThrough && clipped.Count == 0)
         {
             RenderNodes(layer.Children, tile, options); // Pass-through folder.
             return;
         }
-        if (layer.Kind == LayerKind.Raster && !hasMask && clipped.Count == 0 && !layer.Blend.IsCustom())
+        if (layer.Kind == LayerKind.Raster && !hasMask && layer.BlendIf.IsIdentity && clipped.Count == 0 && !layer.Blend.IsCustom())
         {
-            DrawPixels(layer, tile.Canvas, layer.Opacity, layer.Blend, effects);
+            DrawPixels(layer, tile.Canvas, layer.Opacity, layer.Blend, effects, tile.Depth == ColorDepth.Sixteen);
             return;
         }
 
-        // A Normal folder is rendered over a copy of what lies beneath it and then mixed back in by its mask and
+        // A Pass Through folder is rendered over a copy of what lies beneath it and then mixed back in by its mask and
         // opacity. For ordinary layers that equals compositing the folder on its own, and it is what lets adjustment
         // layers inside the folder see (and change) the picture below them.
-        if (layer.IsGroup && layer.Blend == BlendMode.Normal && clipped.Count == 0)
+        if (layer.IsGroup && layer.Blend == BlendMode.PassThrough && clipped.Count == 0)
         {
             tile.Canvas.Flush();
             using var seeded = tile.Sibling();
@@ -196,7 +214,7 @@ public static class DocumentRenderer
 
         using var content = tile.Sibling();
         if (layer.IsGroup) RenderNodes(layer.Children, content, options);
-        else DrawPixels(layer, content.Canvas, 1, BlendMode.Normal, effects);
+        else DrawPixels(layer, content.Canvas, 1, BlendMode.Normal, effects, content.Depth == ColorDepth.Sixteen);
         if (hasMask) MultiplyByMask(layer, content);
 
         if (clipped.Count > 0)
@@ -213,11 +231,23 @@ public static class DocumentRenderer
                 using var over = tile.Sibling();
                 var topEffects = EffectsOf(top);
                 if (top.IsGroup) RenderNodes(top.Children, over, options);
-                else DrawPixels(top, over.Canvas, 1, BlendMode.Normal, topEffects);
+                else DrawPixels(top, over.Canvas, 1, BlendMode.Normal, topEffects, over.Depth == ColorDepth.Sixteen);
                 if (top.RenderMask() != null && topEffects == null) MultiplyByMask(top, over);
                 over.Canvas.Flush();
-                if (top.Blend.IsCustom()) { content.Canvas.Flush(); SeparableBlend.Composite(content.Bitmap, over.Bitmap, top.Blend, top.Opacity); continue; }
+                if (!top.BlendIf.IsIdentity)
+                {
+                    content.Canvas.Flush();
+                    BlendIfPixels.Apply(over.Bitmap, over.Bitmap, content.Bitmap, top.BlendIf);
+                }
+                if (top.Blend.IsCustom())
+                {
+                    content.Canvas.Flush();
+                    var grid = tile.DocumentGrid;
+                    SeparableBlend.Composite(content.Bitmap, over.Bitmap, top.Blend, top.Opacity, new((float)grid.X, (float)grid.Y), grid.Step);
+                    continue;
+                }
                 using var blend = new SKPaint { BlendMode = top.Blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(top.Opacity)) };
+                if (tile.Depth == ColorDepth.Sixteen) blend.ColorF = new(1, 1, 1, (float)Math.Clamp(top.Opacity, 0, 1));
                 content.DrawRaw(over.Bitmap, blend);
             }
             using var restore = new SKPaint { BlendMode = SKBlendMode.DstIn };
@@ -225,14 +255,21 @@ public static class DocumentRenderer
         }
 
         content.Canvas.Flush();
+        if (!layer.BlendIf.IsIdentity)
+        {
+            tile.Canvas.Flush();
+            BlendIfPixels.Apply(content.Bitmap, content.Bitmap, tile.Bitmap, layer.BlendIf);
+        }
         if (layer.Blend.IsCustom())
         {
             // Skia has no equivalent for these modes, so the layer's finished content is combined by hand.
             tile.Canvas.Flush();
-            SeparableBlend.Composite(tile.Bitmap, content.Bitmap, layer.Blend, layer.Opacity);
+            var grid = tile.DocumentGrid;
+            SeparableBlend.Composite(tile.Bitmap, content.Bitmap, layer.Blend, layer.Opacity, new((float)grid.X, (float)grid.Y), grid.Step);
             return;
         }
         using var paint = new SKPaint { BlendMode = layer.Blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(layer.Opacity)) };
+        if (tile.Depth == ColorDepth.Sixteen) paint.ColorF = new(1, 1, 1, (float)Math.Clamp(layer.Opacity, 0, 1));
         tile.DrawRaw(content.Bitmap, paint);
     }
 
@@ -241,6 +278,17 @@ public static class DocumentRenderer
     /// <summary>Straightens premultiplied pixels and gives every covered pixel full alpha.</summary>
     private static unsafe void MakeOpaque(SKBitmap bitmap)
     {
+        if (bitmap.ColorType == SKColorType.RgbaF32)
+        {
+            var colors = new PixelBuffer(bitmap);
+            for (var y = 0; y < bitmap.Height; y++)
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var value = colors.Read(x, y);
+                if (value.A > 0) colors.Write(x, y, value.Straight with { A = 1 });
+            }
+            return;
+        }
         var pixels = (byte*)bitmap.GetPixels();
         for (var y = 0; y < bitmap.Height; y++)
         {
@@ -260,7 +308,8 @@ public static class DocumentRenderer
     /// <summary>tile = tile × (1 - m) + replacement × m, where m is the layer's mask times its opacity.</summary>
     private static void Mix(Tile tile, SKBitmap replacement, Layer layer, bool hasMask)
     {
-        if (!hasMask && layer.Opacity >= 1)
+        if (tile.Depth == ColorDepth.Sixteen) { MixHighPrecision(tile, replacement, layer, hasMask); return; }
+        if (!hasMask && layer.Opacity >= 1 && layer.BlendIf.IsIdentity)
         {
             tile.DrawRaw(replacement, Replace);
             return;
@@ -269,6 +318,7 @@ public static class DocumentRenderer
         coverage.Canvas.Clear(SKColors.Black.WithAlpha(ToByte(layer.Opacity)));
         if (hasMask) MultiplyByMask(layer, coverage);
         coverage.Canvas.Flush();
+        BlendIfPixels.Apply(coverage.Bitmap, replacement, tile.Bitmap, layer.BlendIf);
         using (var canvas = new SKCanvas(replacement))
         using (var keep = new SKPaint { BlendMode = SKBlendMode.DstIn })
             canvas.DrawBitmap(coverage.Bitmap, 0, 0, keep);
@@ -279,7 +329,20 @@ public static class DocumentRenderer
 
     private static byte ToByte(double opacity) => (byte)Math.Clamp(Math.Round(opacity * 255), 0, 255);
 
-    private static double ScaleOf(SKMatrix matrix) => Math.Sqrt(Math.Abs(matrix.ScaleX * matrix.ScaleY - matrix.SkewX * matrix.SkewY));
+    private static double ScaleOf(SKMatrix m)
+    {
+        if (m.Persp0 == 0 && m.Persp1 == 0)
+        {
+            var affine = Math.Sqrt(Math.Abs((double)m.ScaleX * m.ScaleY - (double)m.SkewX * m.SkewY));
+            return Math.Abs(affine - 1) < 1e-6 ? 1 : affine;
+        }
+        // The Jacobian determinant at the source origin. The affine 2×2 corner alone changes when a
+        // perspective is translated on screen, which selected different sampling/mip levels for render bands.
+        double a = m.ScaleX, b = m.SkewX, c = m.TransX, d = m.SkewY, e = m.ScaleY, f = m.TransY, g = m.Persp0, h = m.Persp1, i = m.Persp2;
+        var determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+        var scale = Math.Abs(i) > 1e-12 ? Math.Sqrt(Math.Abs(determinant / (i * i * i))) : 1;
+        return Math.Abs(scale - 1) < 1e-6 ? 1 : scale;
+    }
 
     /// <summary>The sampling for drawing a bitmap through a matrix: exact pixels when nothing is resampled, smooth otherwise.</summary>
     public static SKSamplingOptions SamplingFor(SKMatrix matrix)
@@ -312,13 +375,14 @@ public static class DocumentRenderer
 
     /// <summary>The layer's pixels with its effects drawn around them, or null when it has none (or they cannot be drawn).</summary>
     private static (SKBitmap Image, int Inset)? EffectsOf(Layer layer) =>
-        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.Pixels, layer.RenderMask(), layer.Effects, layer.FillOpacity);
+        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.RenderFilterPixels()!, layer.RenderMask(), layer.Effects, layer.FillOpacity);
 
-    private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, (SKBitmap Image, int Inset)? effects)
+    private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, (SKBitmap Image, int Inset)? effects, bool highPrecision)
     {
         if (layer.Pixels == null) return;
         if (effects == null) opacity *= layer.FillOpacity;
         using var paint = new SKPaint { BlendMode = blend.ToSkia(), Color = SKColors.White.WithAlpha(ToByte(opacity)), IsAntialias = true };
+        if (highPrecision) paint.ColorF = new(1, 1, 1, (float)Math.Clamp(opacity, 0, 1));
         void Draw(SKCanvas target)
         {
             if (effects is { } built)
@@ -331,7 +395,7 @@ public static class DocumentRenderer
                 // While a stroke is in progress the effects are those of the pixels at its start; the wet paint goes over them.
                 if (Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
             }
-            else DrawBitmap(target, layer.Pixels, paint);
+            else if (!layer.DrawSmartFilterPixels(target, paint)) DrawBitmap(target, layer.Pixels, paint);
         }
         var pixels = layer.Pixels;
         var corners = layer.Transform.Distort == null ? null : layer.Transform.Corners(pixels.Width, pixels.Height);
@@ -361,24 +425,24 @@ public static class DocumentRenderer
     }
 
     /// <summary>The matrix placing a layer's mask on the document: the pixel transform for raster layers, identity otherwise.</summary>
-    public static SKMatrix MaskMatrix(Layer layer)
-    {
-        if (layer.Mask == null || layer.Pixels == null) return SKMatrix.Identity;
-        return layer.Transform.Matrix(layer.Mask.Width, layer.Mask.Height);
-    }
+    public static SKMatrix MaskMatrix(Layer layer) => layer.MaskMatrix;
 
     private static void MultiplyByMask(Layer layer, Tile content)
     {
         var mask = layer.RenderMask()!;
-        var matrix = layer.Pixels == null ? SKMatrix.Identity : layer.Transform.Matrix(mask.Width, mask.Height);
+        var matrix = layer.Pixels == null ? layer.MaskMatrix : layer.Transform.Matrix(mask.Width, mask.Height);
         var canvas = content.Canvas;
         if (layer.Pixels == null)
         {
-            // A folder's or adjustment's mask hides everything beyond its own extent.
-            canvas.Save();
-            canvas.ClipRect(new SKRect(0, 0, mask.Width, mask.Height), SKClipOperation.Difference);
-            canvas.Clear(SKColors.Transparent);
-            canvas.Restore();
+            using var coverage = content.Sibling(mask: true);
+            var outside = (byte)Math.Clamp(Math.Round(255 - (255 - layer.MaskDefault) * Math.Clamp(layer.MaskDensity, 0, 1)), 0, 255);
+            coverage.Canvas.Clear(SKColors.Black.WithAlpha(outside));
+            coverage.Canvas.Concat(in matrix);
+            using (var sourcePaint = new SKPaint { BlendMode = SKBlendMode.Src }) DrawBitmap(coverage.Canvas, mask, sourcePaint);
+            coverage.Canvas.Flush();
+            using var multiply = new SKPaint { BlendMode = SKBlendMode.DstIn };
+            content.DrawRaw(coverage.Bitmap, multiply);
+            return;
         }
         canvas.Save();
         canvas.Concat(in matrix);
@@ -395,6 +459,6 @@ public static class DocumentRenderer
         var (originX, originY, step) = tile.DocumentGrid;
         // Bands already run side by side, so the adjustment itself stays on this thread.
         layer.Adjustment.Apply(adjusted, new SKRectI(0, 0, adjusted.Width, adjusted.Height), originX, originY, step, parallel: tile.Area.Height * (long)tile.Area.Width > 2_000_000);
-        Mix(tile, adjusted, layer, layer.Mask != null && layer.MaskEnabled);
+        Mix(tile, adjusted, layer, layer.RenderMask() != null);
     }
 }

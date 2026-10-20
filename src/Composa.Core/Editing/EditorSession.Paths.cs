@@ -18,14 +18,14 @@ public sealed partial class EditorSession
         if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The path exceeds the surface size limit.");
         var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height)).ToArray() };
         var style = new ShapeStyle(ShapeKind.Path, (uint)Foreground, 0) { Path = local, FillEnabled = documentPath.Closed, Stroke = (uint)Foreground, StrokeWidth = 2 };
-        var layer = Layer.Raster(document.UniqueName("Path"), RenderShape(style, width, height), left, top); layer.Shape = style;
+        var layer = Layer.Raster(document.UniqueName("Path"), RenderWorkingShape(style, width, height), left, top); layer.Shape = style;
         Apply("New Path", () => document.InsertAboveActive(layer)); InvalidateAll(); LayersChanged?.Invoke(); return layer;
     }
     public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;
-        if (mask) layer.VectorMask = path;
-        else if (layer.Shape is { } style) { layer.Shape = style with { Path = path }; layer.Pixels = RenderShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
+        if (mask) { if (layer.VectorMask == null) layer.VectorMaskFollowsWarp = !layer.HasWarp; layer.VectorMask = path; }
+        else if (layer.Shape is { } style) { layer.Shape = style with { Path = path }; layer.Pixels = RenderWorkingShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
         InvalidateAll(); LayersChanged?.Invoke();
     }
     public void CompletePathEdit(Layer layer)
@@ -49,7 +49,7 @@ public sealed partial class EditorSession
             var moved = Pixels.NewMask(w, h); using var canvas = new SKCanvas(moved); canvas.DrawBitmap(mask, -left, -top); layer.Mask = moved;
         }
         if (layer.VectorMask != null) layer.VectorMask = Remap(layer.VectorMask);
-        layer.Shape = layer.Shape with { Path = Remap(geometry) }; layer.Pixels = RenderShape(layer.Shape, w, h);
+        layer.Shape = layer.Shape with { Path = Remap(geometry) }; layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
         layer.Transform = layer.Transform with { X = center.X - width / 2, Y = center.Y - height / 2, Width = width, Height = height };
         InvalidateAll(); LayersChanged?.Invoke();
     }
@@ -72,7 +72,7 @@ public sealed partial class EditorSession
             var outgoing = matrix.MapPoint((float)n.OutX * source.Pixels.Width, (float)n.OutY * source.Pixels.Height);
             return new(anchor.X / target.Pixels.Width, anchor.Y / target.Pixels.Height, incoming.X / target.Pixels.Width, incoming.Y / target.Pixels.Height, outgoing.X / target.Pixels.Width, outgoing.Y / target.Pixels.Height);
         }
-        Apply("Vector Mask", () => target.VectorMask = geometry with { Nodes = geometry.Nodes.Select(Convert).ToArray() }); InvalidateAll(); LayersChanged?.Invoke();
+        Apply("Vector Mask", () => { target.VectorMask = geometry with { Nodes = geometry.Nodes.Select(Convert).ToArray() }; target.VectorMaskFollowsWarp = !target.HasWarp; }); InvalidateAll(); LayersChanged?.Invoke();
     }
     public void RemoveVectorMask(Layer layer)
     {
@@ -83,6 +83,10 @@ public sealed partial class EditorSession
     {
         if (ActiveLayer is not { Pixels: { } pixels } layer || PixelsLocked(layer) || !layer.Matrix.TryInvert(out var inverse)) return;
         var mask = SelectionMask.Remap(selection, pixels.Width, pixels.Height, inverse) ?? Pixels.NewMask(pixels.Width, pixels.Height);
-        Apply("Refine Layer Mask", () => { layer.Mask = mask; layer.MaskEnabled = true; }); InvalidateAll(); LayersChanged?.Invoke();
+        var candidate = document.Clone(); candidate.Find(layer.Id)!.Mask = mask;
+        if (candidate.RasterPixels() > DocumentLimits.DocumentPixelBudget) { mask.Dispose(); throw new InvalidOperationException("The refined mask exceeds the document raster memory budget."); }
+        Apply("Refine Layer Mask", () =>
+        { layer.Mask = mask; layer.MaskEnabled = true; layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0; layer.MaskDensity = 1; layer.MaskFeather = 0; });
+        InvalidateAll(); LayersChanged?.Invoke();
     }
 }

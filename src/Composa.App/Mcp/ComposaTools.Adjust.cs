@@ -19,6 +19,54 @@ public sealed partial class ComposaTools
     private const string AsLayer = "Add an adjustment layer above the layer instead of changing its pixels; it then affects every layer below and can be edited later";
     private const string TargetLayer = "The layer to work on; the active one when left out";
 
+    [McpServerTool(Name = "adjust_color_lookup")]
+    [Description("Load a .cube RGB color lookup (1D, tetrahedral 3D, or 1D shaper + 3D). The table is embedded in the project. space is srgb (most photo LUTs), workingRgb, displayP3 or rgb1998, matching both LUT input/output encoding. Does not infer camera Log encoding. strength 0..100; alpha and working precision are retained. asLayer keeps it editable.")]
+    public async Task<string> AdjustColorLookup(string path, double strength = 100, string space = "srgb", [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null, CancellationToken cancellationToken = default)
+    {
+        path = Absolute(path);
+        if (!Path.GetExtension(path).Equals(".cube", StringComparison.OrdinalIgnoreCase)) throw new McpException("Choose a .cube lookup file.");
+        if (!double.IsFinite(strength) || strength is < 0 or > 100 || !Enum.TryParse<LookupRgbSpace>(space, true, out var rgb) || !Enum.IsDefined(rgb)) throw new McpException("strength is 0..100; space is srgb, workingRgb, displayP3 or rgb1998.");
+        return await LoadColorLookup(() => Task.Run(() => CubeLut.Load(path, cancellationToken), cancellationToken), strength, rgb, asLayer, layer, document, cancellationToken);
+    }
+
+    // The loader owns IO only. Capturing and adopting on either side of it keeps a slow file from editing
+    // another tab, a newly selected layer, or a document that the person changed while it was being read.
+    internal async Task<string> LoadColorLookup(Func<Task<CubeLut>> load, double strength, LookupRgbSpace rgb, bool asLayer, string? layer, int? document, CancellationToken cancellationToken = default)
+    {
+        var captured = await OnUi(() =>
+        {
+            var s = Editable(document); var target = layer == null ? s.ActiveLayer ?? throw new McpException("No layer is active.") : Find(s, layer);
+            return (Session: s, s.Revision, Layer: target.Id);
+        });
+        CubeLut table;
+        try { table = await load(); }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { throw new McpException("Couldn't load the Cube table: " + e.Message); }
+        return await OnUi(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!window.Sessions.Contains(captured.Session) || !ReferenceEquals(Session(document), captured.Session)) throw new McpException("The target document changed while the LUT loaded. Run the command again.");
+            var s = Editable(document);
+            if (s.Revision != captured.Revision || s.Document.Find(captured.Layer) == null || layer == null && s.ActiveLayer?.Id != captured.Layer)
+                throw new McpException("The document or target layer changed while the LUT loaded. Run the command again.");
+            return ApplyAdjustment(s, layer, asLayer, new ColorLookupAdjustment { Table = table, Strength = strength, Space = rgb });
+        });
+    }
+
+    [McpServerTool(Name = "adjust_channel_mixer")]
+    [Description("Channel Mixer: each output row is [red,green,blue,constant] in percent, -200..200. Rows read the original channels simultaneously. Unspecified RGB rows remain identity. monochrome uses gray (default [40,40,20,0]) for all outputs. Alpha is preserved; asLayer keeps the adjustment editable.")]
+    public Task<string> AdjustChannelMixer(double[]? red = null, double[]? green = null, double[]? blue = null, double[]? gray = null, bool monochrome = false,
+        [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null)
+    {
+        ChannelMix Row(double[]? values, ChannelMix fallback)
+        {
+            if (values == null) return fallback;
+            if (values.Length != 4 || values.Any(v => !double.IsFinite(v) || v is < ChannelMix.Min or > ChannelMix.Max)) throw new McpException("Each mixer row is [red,green,blue,constant], all finite percentages -200..200.");
+            return new(values[0], values[1], values[2], values[3]);
+        }
+        var settings = new ChannelMixerAdjustment { Monochrome = monochrome };
+        return Adjust(document, layer, asLayer, settings with { Red = Row(red, settings.Red), Green = Row(green, settings.Green), Blue = Row(blue, settings.Blue), Gray = Row(gray, settings.Gray) });
+    }
+
     // ---- Adjustments ------------------------------------------------------------------------------------------------
 
     [McpServerTool(Name = "adjust_brightness_contrast")]
@@ -37,11 +85,20 @@ public sealed partial class ComposaTools
         double hue = 0, double saturation = 0, double lightness = 0,
         [Description("master, reds, yellows, greens, cyans, blues or magentas")] string range = "master",
         bool colorize = false,
-        [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null)
+        [Description(AsLayer)] bool asLayer = false, [Description(TargetLayer)] string? layer = null, int? document = null,
+        [Description("Optional [fadeStart,fullStart,fullEnd,fadeEnd] in clockwise hue degrees 0..360 for a named color range; can cross red. Not used with master/colorize.")] double[]? boundaries = null)
     {
-        if (!Enum.TryParse<HueRange>(range.Trim(), true, out var hueRange)) throw new McpException("range is master, reds, yellows, greens, cyans, blues or magentas.");
+        if (!Enum.TryParse<HueRange>(range.Trim(), true, out var hueRange) || !Enum.IsDefined(hueRange)) throw new McpException("range is master, reds, yellows, greens, cyans, blues or magentas.");
+        if (colorize) hueRange = HueRange.Master;
         var shift = new HslShift(colorize ? Math.Clamp(hue, 0, 360) : Math.Clamp(hue, -180, 180), Math.Clamp(saturation, -100, 100), Math.Clamp(lightness, -100, 100));
-        return Adjust(document, layer, asLayer, new HueSaturationAdjustment { Colorize = colorize }.WithShift(hueRange, shift));
+        var settings = new HueSaturationAdjustment { Colorize = colorize }.WithShift(hueRange, shift);
+        if (boundaries != null)
+        {
+            if (hueRange == HueRange.Master || boundaries.Length != 4 || boundaries.Any(v => !double.IsFinite(v) || v is < 0 or > 360)) throw new McpException("boundaries needs four hue angles for a named color range, without colorize.");
+            try { settings = settings.WithBand(hueRange, HueBand.FromEdges(boundaries[0], boundaries[1], boundaries[2], boundaries[3])); }
+            catch (ArgumentException) { throw new McpException("Hue boundaries must form one clockwise interval."); }
+        }
+        return Adjust(document, layer, asLayer, settings);
     }
 
     [McpServerTool(Name = "adjust_levels")]
@@ -114,6 +171,11 @@ public sealed partial class ComposaTools
     public Task<string> FilterBlur([Description("0.1 to 250")] double radius = 8, [Description(TargetLayer)] string? layer = null, int? document = null) =>
         Filter(document, layer, new FilterSettings { Kind = FilterKind.GaussianBlur, Radius = Math.Clamp(radius, 0.1, 250) });
 
+    [McpServerTool(Name = "filter_high_pass")]
+    [Description("High Pass retains image details around neutral gray (radius 0.1..250 pixels), preserving the source alpha and working RGB precision. Apply to a duplicate and use Overlay/Soft Light for sharpening, or use smart_filter to retain an editable stack.")]
+    public Task<string> FilterHighPass(double radius = 2, [Description(TargetLayer)] string? layer = null, int? document = null) =>
+        Filter(document, layer, new FilterSettings { Kind = FilterKind.HighPass, Radius = Math.Clamp(radius, .1, 250) });
+
     [McpServerTool(Name = "filter_motion_blur")]
     [Description("Motion Blur over a distance in pixels at an angle in degrees.")]
     public Task<string> FilterMotionBlur([Description("1 to 2000")] double distance = 30, [Description("-180 to 180")] double angle = 0, [Description(TargetLayer)] string? layer = null, int? document = null) =>
@@ -183,28 +245,39 @@ public sealed partial class ComposaTools
         _ => throw new McpException("channel is rgb, red, green or blue.")
     };
 
-    private Task<string> Adjust(int? document, string? layer, bool asLayer, Adjustment adjustment) => OnUi(() =>
+    private Task<string> Adjust(int? document, string? layer, bool asLayer, Adjustment adjustment) => OnUi(() => ApplyAdjustment(Editable(document), layer, asLayer, adjustment));
+
+    private static string ApplyAdjustment(EditorSession s, string? layer, bool asLayer, Adjustment adjustment)
     {
-        var s = Editable(document);
-        var target = Target(s, layer);
-        if (asLayer)
+        var active = s.ActiveLayer; using var scope = UsePaintTarget(s, "pixels");
+        try
         {
-            var added = s.AddAdjustmentLayer(adjustment);
-            return $"Added adjustment layer \"{added.Name}\" above \"{target.Name}\", now active.";
+            var target = Target(s, layer);
+            if (asLayer)
+            {
+                var added = s.AddAdjustmentLayer(adjustment);
+                return $"Added adjustment layer \"{added.Name}\" above \"{target.Name}\", now active.";
+            }
+            if (!s.CanEditPixels)
+                throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so its pixels cannot be adjusted in place. Set asLayer for an adjustment layer above it, or rasterize it first.");
+            s.Adjust(adjustment);
+            return $"Applied {adjustment.DisplayName} to \"{target.Name}\".";
         }
-        if (!s.CanEditPixels)
-            throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so its pixels cannot be adjusted in place. Set asLayer for an adjustment layer above it, or rasterize it first.");
-        s.Adjust(adjustment);
-        return $"Applied {adjustment.DisplayName} to \"{target.Name}\".";
-    });
+        finally { if (!asLayer && layer != null) { if (active == null) s.ClearLayerSelection(); else if (s.ActiveLayer != active) s.SelectLayer(active.Id); } }
+    }
 
     private Task<string> Filter(int? document, string? layer, FilterSettings settings) => OnUi(() =>
     {
         var s = Editable(document);
-        var target = Target(s, layer);
-        if (!s.CanEditPixels) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so a filter cannot change its pixels. Rasterize it first.");
-        s.ApplyFilter(settings);
-        return $"Applied {FilterSettings.DisplayName(settings.Kind)} to \"{target.Name}\".";
+        var active = s.ActiveLayer; using var scope = UsePaintTarget(s, "pixels");
+        try
+        {
+            var target = Target(s, layer);
+            if (!s.CanEditPixels) throw new McpException($"\"{target.Name}\" is a {Kind(target)} layer, so a filter cannot change its pixels. Rasterize it first.");
+            s.ApplyFilter(settings);
+            return $"Applied {FilterSettings.DisplayName(settings.Kind)} to \"{target.Name}\".";
+        }
+        finally { if (layer != null) { if (active == null) s.ClearLayerSelection(); else if (s.ActiveLayer != active) s.SelectLayer(active.Id); } }
     });
 
     /// <summary>The named layer, made active as the menus need it to be, or the active layer.</summary>

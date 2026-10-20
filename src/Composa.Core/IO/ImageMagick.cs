@@ -9,6 +9,10 @@ public enum ImageMagickOutput
     Png,
     /// <summary>A 16-bit PAM, which keeps a camera RAW decode's range for the develop step.</summary>
     Pam16,
+    /// <summary>A full precision PNG, retaining alpha and the embedded ICC profile for the RGB decoder.</summary>
+    Png16,
+    /// <summary>A PNG retaining the source's declared 8/16-bit depth, alpha and profile.</summary>
+    PngSource,
 }
 
 /// <summary>One way of reaching ImageMagick: the installed command line, or the library bundled with the Windows and macOS builds.</summary>
@@ -74,9 +78,30 @@ public sealed class ImageMagickTool : IImageMagick
 
     public byte[] Convert(string path, ImageMagickOutput output)
     {
-        string[] arguments = output == ImageMagickOutput.Png
-            ? [path + "[0]", "-auto-orient", "png:-"]
-            : [path + "[0]", "-auto-orient", "-depth", "16", "pam:-"];
+        if (output == ImageMagickOutput.PngSource)
+        {
+            var encodedDepth = System.Text.Encoding.ASCII.GetString(Run(path, ["-ping", path + "[0]", "-format", "%z", "info:"], 60_000)).Trim();
+            var bits = int.TryParse(encodedDepth, out var sourceDepth) && sourceDepth > 8 ? "16" : "8";
+            return Run(path, [path + "[0]", "-auto-orient", "-depth", bits, "-define", "png:bit-depth=" + bits, "png:-"], 180_000);
+        }
+        if (output == ImageMagickOutput.Pam16)
+        {
+            // PAM has no ICC container. A real profile transform must happen before writing samples;
+            // -colorspace alone does not interpret a tagged Adobe RGB or Display P3 source.
+            var profile = Path.Combine(Path.GetTempPath(), "composa-srgb-" + Guid.NewGuid().ToString("N") + ".icc");
+            try
+            {
+                File.WriteAllBytes(profile, Psd.PsdExport.SrgbProfileBytes.ToArray());
+                return Run(path, [path + "[0]", "-auto-orient", "-profile", profile, "-colorspace", "sRGB", "-depth", "16", "pam:-"], 180_000);
+            }
+            finally { File.Delete(profile); }
+        }
+        string[] arguments = output switch
+        {
+            ImageMagickOutput.Png => [path + "[0]", "-auto-orient", "png:-"],
+            ImageMagickOutput.Png16 => [path + "[0]", "-auto-orient", "-depth", "16", "-define", "png:bit-depth=16", "png:-"],
+            _ => [path + "[0]", "-auto-orient", "-depth", "16", "-colorspace", "sRGB", "pam:-"]
+        };
         // A RAW decode is several seconds of work on a large sensor, so it gets longer than an image.
         return Run(path, arguments, output == ImageMagickOutput.Png ? 60_000 : 180_000);
     }

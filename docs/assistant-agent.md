@@ -27,6 +27,22 @@ The native agent may call `finish_task` to explicitly end a turn; the host runs 
 
 ## Acceptance suite
 
+`warp_layer` edits an interpolating grid with `[column,row,canvasX,canvasY]` node positions or removes it with
+`reset=true`. It retains the undeformed editable source inside a smart object and commits one Undo step without
+changing the person's active layer. `get_document_state` includes existing Warp nodes in canvas coordinates and
+the layer's control bounds. Source masks stay editable inside the smart object; a new outer mask remains above
+Warp and can be painted at the visible pointer position.
+
+`liquify_layer` accepts ordered push/reconstruct/freeze/thaw strokes in canvas coordinates. Protection and
+reconstruction operate on one sparse displacement field; colors are sampled from the immutable original.
+`restoreAll` resets distortion, `thawAll` removes local protection. The current selection protects unselected
+pixels. One call commits one Undo step and preserves the active layer/channel target; a changed document
+rejects the background result. Live content requires editing its smart source or an explicit rasterization.
+
+`adjust_hue_saturation` accepts optional `boundaries: [fadeStart,fullStart,fullEnd,fadeEnd]` in clockwise hue
+degrees for a named color family. The interval may cross red (360°/0°); master/colorize do not use local
+boundaries. All local families classify the original color before applying their shifts.
+
 `AgentCapabilityTests` checks schema parity/discovery, live tool promotion, whole JSON receipts, target identity/pagination, batch filtering/order/stepping, all-target validation, independent final verification, repair/recheck, verified no-ops, inspect-only safety and script memory accounting. `McpTests` invokes inspection, verification, querying and batch editing through the real stdio bridge and per-test pipe. `get_script_api` returns the complete small reference in one call, without fragment pagination.
 
 `AgentAcceptanceTests` runs the production agent against a real local model and grades editor data, not the model's summary:

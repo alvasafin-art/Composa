@@ -17,6 +17,7 @@ public static partial class PsdExport
     private static string? NativeProblem(Layer layer, Document document)
     {
         if (layer.Pixels == null) return "The live layer has no render cache.";
+        if (layer.HasWarp) return "The Warp surface cannot be represented by a native Photoshop text or shape transform.";
         if (layer.FilterSource != null) return "Smart filters are exported as the rendered appearance.";
         if (layer.Shape?.Path != null || layer.VectorMask != null) return "Editable custom paths and vector masks keep their settings in Composa and export their rendered appearance to PSD.";
         if (layer.FillOpacity < 1) return "Separate fill opacity is preserved in the raster appearance rather than native Photoshop text or shape settings.";
@@ -121,15 +122,19 @@ public static partial class PsdExport
         var faces = new List<TextFace> { s.Face };
         foreach (var run in segments) if (!faces.Contains(run.Face)) faces.Add(run.Face);
         object Color(uint color) => Dict(("Type", 1), ("Values", new object[] { 1.0, (color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0 }));
-        object Sheet(TextFace face, uint color, double? fontSize = null) => Dict(
-            ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? s.Size), ("FauxBold", face.FontStyle == null && face.Bold && TextLayout.TypefaceFor(face).FontWeight < (int)SKFontStyleWeight.SemiBold),
-            ("FauxItalic", face.FontStyle == null && face.Italic && TextLayout.TypefaceFor(face).FontSlant == SKFontStyleSlant.Upright),
+        object Sheet(TextFace face, uint color, double? fontSize = null)
+        {
+            var intrinsic = PsdFonts.IntrinsicFace(TextLayout.TypefaceFor(face));
+            return Dict(
+            ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? s.Size), ("FauxBold", face.FontStyle == null && face.Bold && !intrinsic.Bold),
+            ("FauxItalic", face.FontStyle == null && face.Italic && !intrinsic.Italic),
             ("AutoLeading", s.Leading == 0), ("Leading", s.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
             ("Tracking", s.Tracking * 1000 / (fontSize ?? s.Size)), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
             ("FontCaps", 0), ("FontBaseline", 0), ("Underline", false), ("Strikethrough", false), ("Ligatures", true), ("DLigatures", false),
             ("BaselineDirection", 2), ("Tsume", 0.0), ("StyleRunAlignment", 2), ("Language", 0), ("NoBreak", false),
             ("FillColor", Color(color)), ("StrokeColor", Color(s.Color)), ("FillFlag", true), ("StrokeFlag", false), ("FillFirst", true),
             ("YUnderline", 1), ("OutlineWidth", 1.0), ("CharacterDirection", 0), ("HindiNumbers", false), ("Kashida", 1), ("DiacriticPos", 2));
+        }
         var paragraphProperties = Dict(("Justification", s.Alignment == TextAlignment.Right ? 1 : s.Alignment == TextAlignment.Center ? 2 : 0),
             ("FirstLineIndent", 0.0), ("StartIndent", 0.0), ("EndIndent", 0.0), ("SpaceBefore", 0.0), ("SpaceAfter", 0.0),
             ("AutoHyphenate", false), ("AutoLeading", 1.2), ("LeadingType", 0), ("WordSpacing", new object[] { .8, 1.0, 1.33 }),

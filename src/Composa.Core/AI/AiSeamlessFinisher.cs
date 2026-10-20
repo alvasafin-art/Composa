@@ -9,6 +9,14 @@ public static class AiSeamlessFinisher
 {
     public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false)
     {
+        // Generated/model pixels are RGB8. A caller may retain a precise reference; read an owned
+        // display copy for model residual analysis, never reinterpret its float memory as bytes.
+        if (!Pixels.IsSrgb8(generated) || !Pixels.IsSrgb8(reference))
+        {
+            using var resultDisplay = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
+            using var referenceDisplay = !Pixels.IsSrgb8(reference) ? Pixels.DisplayCopy(reference) : null;
+            return Match(resultDisplay ?? generated, referenceDisplay ?? reference, coverage, decodedArea, seamWidth, matchFlatBackground, continueUniformStrip);
+        }
         if (generated.Width != reference.Width || generated.Height != reference.Height
             || coverage.Width != reference.Width || coverage.Height != reference.Height)
             throw new ArgumentException("Generated pixels, reference and coverage must share coordinates.");

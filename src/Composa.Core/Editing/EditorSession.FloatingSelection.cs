@@ -16,7 +16,7 @@ public sealed partial class EditorSession
 
     /// <summary>True when dragging inside the selection should move the selected pixels rather than the whole layer.</summary>
     public bool CanMovePixels =>
-        document.Selection != null && !IsEditingMask && ActiveLayer is { Pixels: { } pixels, IsLive: false } layer
+        document.Selection != null && !IsEditingMask && !IsEditingComponent && ActiveLayer is { Pixels: { } pixels, IsLive: false } layer
         && layer.Transform.IsPureTranslation(pixels.Width, pixels.Height) && document.IsEffectivelyVisible(layer);
 
     /// <summary>Lifts the selected pixels off the active layer so they can be dragged; with <paramref name="duplicate"/> the originals stay.</summary>
@@ -30,7 +30,7 @@ public sealed partial class EditorSession
         var bounds = SelectionMask.Bounds(selection);
         if (bounds.IsEmpty) { Cancel(); return false; }
 
-        floatPixels = Pixels.NewColor(bounds.Width, bounds.Height);
+        floatPixels = Pixels.NewLike(original, bounds.Width, bounds.Height);
         using (var canvas = new SKCanvas(floatPixels))
         {
             canvas.DrawBitmap(original, -bounds.Left, -bounds.Top);

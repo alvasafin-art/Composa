@@ -41,6 +41,7 @@ public static class ImageTrim
     public static unsafe SKRectI? Bounds(SKBitmap image, TrimOptions options)
     {
         if (!options.TrimsAny || image.Width == 0 || image.Height == 0) return null;
+        if (image.ColorType == SKColorType.RgbaF32) return HighPrecisionBounds(image, options);
         int width = image.Width, height = image.Height;
         var pixels = (byte*)image.GetPixels();
         var stride = image.RowBytes;
@@ -83,6 +84,29 @@ public static class ImageTrim
         using var canvas = new SKCanvas(alpha);
         canvas.DrawBitmap(image, 0, 0);
         return alpha;
+    }
+
+    private static SKRectI? HighPrecisionBounds(SKBitmap image, TrimOptions options)
+    {
+        var content = Rendering.Pixels.ContentBounds(image);
+        if (options.BasedOn != TrimBasedOn.TransparentPixels)
+        {
+            var pixels = new Rendering.PixelBuffer(image);
+            var target = options.BasedOn == TrimBasedOn.TopLeftPixelColor ? pixels.Read(0, 0) : pixels.Read(image.Width - 1, image.Height - 1);
+            var tolerance = options.Tolerance / 255f;
+            int left = image.Width, top = image.Height, right = 0, bottom = 0;
+            for (var y = 0; y < image.Height; y++)
+            for (var x = 0; x < image.Width; x++)
+            {
+                var p = pixels.Read(x, y);
+                if (Math.Abs(p.R - target.R) <= tolerance && Math.Abs(p.G - target.G) <= tolerance && Math.Abs(p.B - target.B) <= tolerance && Math.Abs(p.A - target.A) <= tolerance) continue;
+                left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x + 1); bottom = y + 1;
+            }
+            content = right <= left ? SKRectI.Empty : new(left, top, right, bottom);
+        }
+        if (content.IsEmpty) return null;
+        return new SKRectI(options.Left ? content.Left : 0, options.Top ? content.Top : 0,
+            options.Right ? content.Right : image.Width, options.Bottom ? content.Bottom : image.Height);
     }
 }
 

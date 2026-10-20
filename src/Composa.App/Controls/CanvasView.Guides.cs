@@ -29,6 +29,7 @@ public sealed partial class CanvasView
         else if (!Rulers && rulersWereShown) origin -= new Vector(RulerThickness, RulerThickness);
         ClampOrigin();
         InvalidateVisual();
+        ViewChanged?.Invoke();
     }
 
     /// <summary>Which ruler a control point lies on, if any: the top strip makes horizontal guides, the left one vertical.</summary>
@@ -135,7 +136,7 @@ public sealed partial class CanvasView
             var xs = grid.Lines(document.Width).Select(v => (float)v).ToArray();
             var ys = grid.Lines(document.Height).Select(v => (float)v).ToArray();
             float width = document.Width, height = document.Height;
-            var color = appearance.Color;
+            var color = Composa.ColorManagement.RgbProfile.Srgb.ConvertColor(appearance.Color, DisplayProfile);
             var dashes = GridAppearance.Dashes(appearance.Style);
             steps.Add(canvas =>
             {

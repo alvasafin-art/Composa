@@ -17,6 +17,16 @@ public static class DocumentLimits
 
     /// <summary>Largest single surface. At four bytes a pixel one allocation is at most 800 MB, and a filter holds a few of them at once.</summary>
     public const long MaxSurfacePixels = 200_000_000;
+    public const long MaxSurfaceBytes = MaxSurfacePixels * 4;
+    public const int MaxIccBytes = 4 * 1024 * 1024;
+    public const int MaxLut1DSize = 65536;
+    public const int MaxLut3DSize = 128;
+    public const int MaxLutBytes = 32 * 1024 * 1024;
+    public const int MaxDocumentLutBytes = 128 * 1024 * 1024;
+    public const int MaxLutTextBytes = 256 * 1024 * 1024;
+    public const int MaxLutLineLength = 4096;
+    public const int MaxWarpGridDivisions = 8;
+    public const double MaxWarpCoordinate = 16;
 
     /// <summary>
     /// Total raster one document may hold, summed over every imported layer and mask. Only documents that genuinely
@@ -32,6 +42,9 @@ public static class DocumentLimits
     /// <summary>Whether one surface of these dimensions may exist at all.</summary>
     public static bool FitsSurface(long width, long height) =>
         width >= 1 && height >= 1 && width <= MaxSide && height <= MaxSide && width * height <= MaxSurfacePixels;
+
+    public static bool FitsSurface(long width, long height, int bytesPerPixel) =>
+        FitsSurface(width, height) && width * height * bytesPerPixel <= MaxSurfaceBytes;
 
     private static long PhysicalMemory()
     {

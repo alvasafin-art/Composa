@@ -31,6 +31,8 @@ public sealed partial class AiTaskService
         try
         {
             using var scene=await Task.Run(()=>SceneEditInput.Prepare(snapshot,request,linked.Token),linked.Token);
+            if(request.Task==AiTaskKind.ChangeBackground && requireSceneSubjectModels)
+                await Task.Run(()=>SceneBackgroundSubject.EnsureAvailable(linked.Token),linked.Token);
             using var client=Client();
             if(ConnectedServerUrl!=client.Address.ToString() || ServerCapabilities==null || ConnectionState!=ComfyConnectionState.Connected)
                 await TestConnectionAsync(linked.Token,client.Address.ToString());
@@ -134,7 +136,8 @@ public sealed partial class AiTaskService
                 {
                     // First the model arranges the environment around the actual PNG. Only then remove its cache.
                     var margin=native==null?16:(int)Math.Ceiling(16*scene.Before.Width/(double)native.ContentSize.Width);
-                    using var plate=await Task.Run(()=>new SceneBackgroundPlate(scene,generated.Image,margin,linked.Token),linked.Token);
+                    using var temporarySubject=await Task.Run(()=>sceneSubjectFinder(scene,generated.Image,linked.Token),linked.Token);
+                    using var plate=await Task.Run(()=>new SceneBackgroundPlate(scene,generated.Image,margin,linked.Token,temporarySubject),linked.Token);
                     var cleanupRequest=request with {ReferenceImages=[],ReferenceImage=null,Prompt=SceneEditingWorkflow.CleanupPrompt(request),AdditionalPrompt=""};
                     using var cleanupNative=engine.PaidApi?null:new SceneEditingWorkflow(scene,cleanupRequest,plate.Image,plate.Mask);
                     using var cleanupInputs=engine.PaidApi?new AiTaskInputs {SourceImage=Pixels.Clone(plate.Image),ContextImage=Pixels.Clone(plate.Image),CanvasWidth=scene.Before.Width,CanvasHeight=scene.Before.Height,TargetBounds=scene.Before.Info.Rect,Prompt=cleanupRequest.Prompt}:null;
@@ -170,9 +173,9 @@ public sealed partial class AiTaskService
     }
     private sealed record SceneGeneration(SKBitmap Image,SKBitmap? Baseline):IDisposable
     {public void Dispose() {Image.Dispose();Baseline?.Dispose();}}
-    private static AiTaskInputs SceneApiInputs(SceneEditInput scene,AiTaskRequest request) => new()
+    internal static AiTaskInputs SceneApiInputs(SceneEditInput scene,AiTaskRequest request) => new()
     {
-        SourceImage=Pixels.Clone(scene.InitialImage),ContextImage=Pixels.Clone(scene.Before),
+        SourceImage=Pixels.DisplayCopy(scene.InitialImage),ContextImage=Pixels.DisplayCopy(scene.Before),
         CanvasWidth=scene.Before.Width,CanvasHeight=scene.Before.Height,TargetBounds=scene.Before.Info.Rect,
         Prompt=SceneEditingWorkflow.Prompt(request)+SceneEditingWorkflow.LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : ""),Seed=request.Settings.Seed,
         ReferenceImages=request.ReferenceImages.Select(image=>SceneEditingWorkflow.CopyReference(image,request.ReferenceMegapixels)).ToArray()

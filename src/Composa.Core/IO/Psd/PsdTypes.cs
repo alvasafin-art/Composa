@@ -49,6 +49,7 @@ internal sealed class PsdLayer
     public bool Clipping;
     public bool Hidden;
     public string BlendKey = "norm";
+    public BlendIfSettings BlendIf = new();
     public List<(short Id, int Length)> Channels = [];
     public Dictionary<string, byte[]> Extra = [];
     public bool HasMask;
@@ -61,6 +62,8 @@ internal sealed class PsdLayer
     public byte MaskDefault = 255;
     public bool MaskDisabled;
     public bool MaskLinked = true;
+    public double MaskDensity = 1;
+    public double MaskFeather;
     /// <summary>The mask came from rendering other data (a vector mask's raster), so it is not the user's own.</summary>
     public bool MaskFromRender;
     /// <summary>Section divider type from <c>lsct</c>: 1 open folder, 2 closed folder, 3 the hidden divider under a folder's contents.</summary>

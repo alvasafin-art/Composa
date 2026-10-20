@@ -21,18 +21,20 @@ public sealed partial class EditorSession
         if (roots.Count == 1 && roots[0].Pixels is { } pixels)
         {
             var original = roots[0];
-            content = new Document(pixels.Width, pixels.Height) { Resolution = document.Resolution };
+            content = new Document(pixels.Width, pixels.Height) { Resolution = document.Resolution, Depth = document.WorkingDepth, Profile = document.Profile };
             var inner = original.Clone(newIds: true);
             inner.Transform = LayerTransform.Identity(pixels.Width, pixels.Height);
             inner.Mask = null; inner.VectorMask = null; inner.Effects = null; inner.Visible = true; inner.Opacity = 1; inner.FillOpacity = 1; inner.Blend = BlendMode.Normal; inner.Clipped = false;
+            inner.BlendIf = new();
             content.Layers.Add(inner); content.SetActive(inner.Id);
             instance = original.Clone(); instance.Text = null; instance.Shape = null;
             instance.FilterSource = null; instance.SmartFilters = []; instance.FilterPaddingX = instance.FilterPaddingY = 0;
+            instance.SmartFilterMask = null;
         }
         else
         {
             // Preserve document-space adjustment/group masks and the complete layer structure.
-            content = new Document(document.Width, document.Height) { Resolution = document.Resolution };
+            content = new Document(document.Width, document.Height) { Resolution = document.Resolution, Depth = document.WorkingDepth, Profile = document.Profile };
             content.Layers.AddRange(roots.Select(layer => layer.Clone(newIds: true)));
             content.SetActive(content.Layers[^1].Id);
             instance = new Layer { Kind = LayerKind.Raster, Name = roots.Count == 1 ? roots[0].Name : "Smart Object",
@@ -57,13 +59,19 @@ public sealed partial class EditorSession
     }
 
     public void UpdateSmartObject(SmartObjectSource expected, Document content)
+        => ReplaceSmartObject(expected, content, expected.Link is { } link ? link with { HasLocalEdits = true } : null, "Update Smart Object");
+
+    public void ReplaceSmartObject(SmartObjectSource expected, Document content, SmartObjectLink? link = null, string name = "Replace Smart Object Contents")
     {
         FinishText();
         var instances = document.AllLayers().Where(layer => layer.SmartObject?.Id == expected.Id).ToList();
         if (instances.Count == 0) throw new InvalidOperationException("This smart object no longer exists in the parent document.");
         if (instances.Any(layer => !ReferenceEquals(layer.SmartObject, expected)))
             throw new InvalidOperationException("The parent smart object changed (for example through Undo). Reopen its contents before saving; your open contents remain available.");
-        var replacement = SmartObjectSource.Create(content, expected.Id);
+        var replacement = SmartObjectSource.Create(content, expected.Id, link);
+        SKBitmap preview;
+        try { preview = WorkingPreview(replacement.Preview); }
+        catch { replacement.Preview.Dispose(); throw; }
         var candidate = document.Clone();
         try
         {
@@ -78,16 +86,25 @@ public sealed partial class EditorSession
                         target.VectorMask = vector with { Nodes = vector.Nodes.Select(n => new BezierNode((n.X * layer.Pixels!.Width - layer.FilterPaddingX) / oldSource.Width, (n.Y * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height,
                             (n.InX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.InY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height, (n.OutX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.OutY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height)).ToArray() };
                 }
-                if (layer.Mask is { } mask)
+                if (layer.MaskTransform == null && layer.Mask is { } mask)
                 {
                     var resized = Pixels.NewMask(replacement.Width, replacement.Height);
                     using var canvas = new SKCanvas(resized);
                     var sx = (float)replacement.Width / oldSource.Width; var sy = (float)replacement.Height / oldSource.Height;
                     canvas.Scale(sx, sy); canvas.DrawBitmap(mask, -layer.FilterPaddingX, -layer.FilterPaddingY); target.Mask = resized;
                 }
-                target.SmartObject = replacement; target.Pixels = replacement.Preview;
-                if (layer.FilterSource != null) target.FilterSource = replacement.Preview;
+                if (layer.SmartFilterMask is { } filterMask && (oldSource.Width != replacement.Width || oldSource.Height != replacement.Height))
+                {
+                    var sx = (double)replacement.Width / oldSource.Width; var sy = (double)replacement.Height / oldSource.Height;
+                    var width = Math.Max(1, (int)Math.Round(filterMask.Width * sx)); var height = Math.Max(1, (int)Math.Round(filterMask.Height * sy));
+                    if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The resized smart filter mask exceeds the surface limit.");
+                    target.SmartFilterMask = Resample(filterMask, width, height);
+                    target.SmartFilterMaskX *= sx; target.SmartFilterMaskY *= sy;
+                }
+                target.SmartObject = replacement; target.Pixels = preview;
+                if (layer.FilterSource != null) target.FilterSource = preview;
                 target.FilterPaddingX = target.FilterPaddingY = 0;
+                if (layer.MaskLinked && layer.MaskTransform != null) target.PlaceMask(layer.MaskMatrix);
             }
             foreach (var layer in instances.Where(l => l.FilterSource != null)) RenderSmartFilters(candidate.Find(layer.Id)!, candidate);
             EnsureSmartBudget(candidate);
@@ -99,20 +116,55 @@ public sealed partial class EditorSession
             {
                 var target = candidate.Find(layer.Id)!;
                 if (target.Mask != null && !ReferenceEquals(target.Mask, layer.Mask)) target.Mask.Dispose();
-                if (target.Pixels != null && !ReferenceEquals(target.Pixels, layer.Pixels) && !ReferenceEquals(target.Pixels, replacement.Preview)) target.Pixels.Dispose();
+                if (target.SmartFilterMask != null && !ReferenceEquals(target.SmartFilterMask, layer.SmartFilterMask)) target.SmartFilterMask.Dispose();
+                if (target.Pixels != null && !ReferenceEquals(target.Pixels, layer.Pixels) && !ReferenceEquals(target.Pixels, replacement.Preview) && !ReferenceEquals(target.Pixels, preview)) target.Pixels.Dispose();
             }
+            if (!ReferenceEquals(preview, replacement.Preview)) preview.Dispose();
             throw;
         }
-        Apply("Update Smart Object", () =>
+        Apply(name, () =>
         {
             foreach (var layer in instances)
             {
                 var target = candidate.Find(layer.Id)!;
                 layer.SmartObject = replacement; layer.Pixels = target.Pixels; layer.Mask = target.Mask; layer.VectorMask = target.VectorMask;
+                layer.MaskTransform = target.MaskTransform;
+                layer.SmartFilterMask = target.SmartFilterMask; layer.SmartFilterMaskX = target.SmartFilterMaskX; layer.SmartFilterMaskY = target.SmartFilterMaskY;
                 layer.FilterSource = target.FilterSource; layer.FilterPaddingX = target.FilterPaddingX; layer.FilterPaddingY = target.FilterPaddingY; layer.Transform = target.Transform;
             }
         });
         InvalidateAll(); LayersChanged?.Invoke();
+    }
+
+    public Layer PlaceSmartObject(Document content, string name, SmartObjectLink? link = null, SKPoint? center = null, bool fit = true)
+    {
+        FinishText();
+        var source = SmartObjectSource.Create(content, link: link); SKBitmap preview;
+        try { preview = WorkingPreview(source.Preview); }
+        catch { source.Preview.Dispose(); throw; }
+        var scale = fit ? Math.Min(1, Math.Min((double)document.Width / source.Width, (double)document.Height / source.Height)) : 1;
+        var point = center ?? new SKPoint(document.Width / 2f, document.Height / 2f);
+        var width = source.Width * scale; var height = source.Height * scale;
+        var layer = Layer.Raster(name, preview); layer.SmartObject = source;
+        layer.Transform = new() { X = Math.Round(point.X - width / 2), Y = Math.Round(point.Y - height / 2), Width = width, Height = height };
+        var candidate = document.Clone(); candidate.InsertAboveActive(layer);
+        try { EnsureSmartBudget(candidate); }
+        catch { if (!ReferenceEquals(preview, source.Preview)) preview.Dispose(); source.Preview.Dispose(); throw; }
+        Apply(link == null ? "Place Embedded Smart Object" : "Place Linked Smart Object", () => document.InsertAboveActive(layer));
+        EditingMask = false; InvalidateAll(); LayersChanged?.Invoke(); return layer;
+    }
+
+    /// <summary>Changes linkage without regenerating or modifying shared pixels.</summary>
+    public void SetSmartObjectLink(SmartObjectSource expected, SmartObjectLink? link)
+    {
+        FinishText();
+        var instances = document.AllLayers().Where(l => l.SmartObject?.Id == expected.Id).ToArray();
+        if (instances.Length == 0 || instances.Any(l => !ReferenceEquals(l.SmartObject, expected)))
+            throw new InvalidOperationException("The smart object changed; select its current revision.");
+        if (instances.Any(PixelsLocked)) throw new InvalidOperationException("Unlock the smart object before changing its link.");
+        var replacement = expected.WithLink(link); if (Equals(replacement.Link, expected.Link)) return;
+        Apply(link == null ? "Embed Smart Object" : "Relink Smart Object", () => { foreach (var layer in instances) layer.SmartObject = replacement; });
+        LayersChanged?.Invoke();
     }
 
     public Layer DuplicateSmartObjectIndependent(Layer layer)
@@ -120,16 +172,22 @@ public sealed partial class EditorSession
         if (document.Find(layer.Id) != layer || layer.SmartObject is not { } source) throw new ArgumentException("Select a smart object.");
         var independent = SmartObjectSource.Create(source.OpenDocument());
         var copy = layer.Clone(newIds: true); copy.Name += " independent copy"; copy.SmartObject = independent;
-        if (copy.FilterSource != null) copy.FilterSource = independent.Preview; else copy.Pixels = independent.Preview;
+        SKBitmap preview;
+        try { preview = WorkingPreview(independent.Preview); }
+        catch { independent.Preview.Dispose(); throw; }
+        if (copy.FilterSource != null) copy.FilterSource = preview; else copy.Pixels = preview;
         var candidate = document.Clone(); candidate.InsertAboveActive(copy);
         try { EnsureSmartBudget(candidate); }
-        catch { independent.Preview.Dispose(); throw; }
+        catch { if (!ReferenceEquals(preview, independent.Preview)) preview.Dispose(); independent.Preview.Dispose(); throw; }
         Apply("New Smart Object via Copy", () =>
         {
             var siblings = document.SiblingsOf(layer.Id)!; siblings.Insert(siblings.IndexOf(layer) + 1, copy); document.SetActive(copy.Id);
         });
         InvalidateAll(); LayersChanged?.Invoke(); return copy;
     }
+
+    private SKBitmap WorkingPreview(SKBitmap image) => Pixels.DepthOf(image) == document.WorkingDepth && Pixels.ProfileOf(image).Equals(document.Profile)
+        ? image : Pixels.ConvertWorking(image, document.WorkingDepth, document.Profile);
 
     private static SKBitmap? ResizeSmartMask(SKBitmap? mask, SmartObjectSource before, SmartObjectSource after)
     {

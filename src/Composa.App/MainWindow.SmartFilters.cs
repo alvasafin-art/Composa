@@ -1,4 +1,5 @@
 using Composa.App.Dialogs;
+using Avalonia.Controls;
 using Composa.Filters;
 using Composa.Model;
 
@@ -6,12 +7,35 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
+    private async Task SmartFilterBlending(Layer layer, SmartFilter filter)
+    {
+        var target = session!;
+        if (target.IsInteracting || target.PixelsLocked(layer) || !layer.SmartFilters.Any(f => f.Id == filter.Id)) return;
+        var original = layer.SmartFilters; var edited = filter;
+        target.Begin("Smart Filter Blending");
+        void Preview()
+        {
+            Busy(() => target.PreviewSmartFilters(layer, original.Select(f => f.Id == filter.Id ? edited : f).ToArray()));
+        }
+        var rows = new StackPanel { Spacing = 12 };
+        rows.Children.Add(Ui.Label(FilterSettings.DisplayName(filter.Settings.Kind), Palette.Secondary));
+        rows.Children.Add(Ui.Combo(BlendModeExtensions.Groups.SelectMany(g => g).Where(b => b != BlendMode.PassThrough).ToArray(), filter.Blend, b => b.DisplayName(), b => { edited = edited with { Blend = b }; Preview(); }, 330));
+        rows.Children.Add(Ui.SliderField("Opacity", filter.Opacity * 100, 0, 100, v => { edited = edited with { Opacity = v / 100 }; Preview(); }, 1, "0", 330, reset: 100));
+        try
+        {
+            if (await new DialogWindow("Smart Filter Blending", rows).Ask(this) && edited != filter) { Preview(); target.Commit(); }
+            else target.Cancel();
+        }
+        catch { target.Cancel(); throw; }
+        target.NotifyLayersChanged();
+    }
+
     private async Task SmartFilter(FilterKind kind, Layer? chosen = null, SmartFilter? existing = null)
     {
         var target = session!; var layer = chosen ?? target.ActiveLayer;
         if (layer?.Pixels == null || target.PixelsLocked(layer)) return;
         var old = layer.SmartFilters; var id = existing?.Id ?? Guid.NewGuid();
-        var initial = existing?.Settings ?? new FilterSettings { Kind = kind, Seed = (uint)Random.Shared.Next() };
+        var initial = existing?.Settings ?? new FilterSettings { Kind = kind, Radius = kind == FilterKind.HighPass ? 2 : 8, Seed = (uint)Random.Shared.Next() };
         target.Begin(existing == null ? "Add Smart Filter" : "Change Smart Filter");
         void Preview(FilterSettings settings)
         {

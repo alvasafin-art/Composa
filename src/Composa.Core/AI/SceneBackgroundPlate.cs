@@ -9,14 +9,16 @@ public sealed class SceneBackgroundPlate : IDisposable
 {
     public SKBitmap Image {get;}
     public SKBitmap Mask {get;}
-    public SceneBackgroundPlate(SceneEditInput input,SKBitmap layout,int margin,CancellationToken token=default)
+    public SceneBackgroundPlate(SceneEditInput input,SKBitmap layout,int margin,CancellationToken token=default,SKBitmap? generatedSubjectMask=null)
     {
+        if (generatedSubjectMask != null && (generatedSubjectMask.ColorType != SKColorType.Alpha8 || generatedSubjectMask.Width != layout.Width || generatedSubjectMask.Height != layout.Height))
+            throw new ArgumentException("The generated subject mask must be Alpha8 in layout coordinates.");
         using var binary=Pixels.NewMask(layout.Width,layout.Height);
         var pixels=binary.GetPixelSpan();
         for(var y=0;y<layout.Height;y++)
         {
             token.ThrowIfCancellationRequested();
-            for(var x=0;x<layout.Width;x++) pixels[y*binary.RowBytes+x]=input.ObjectAlpha.GetPixel(x,y).Alpha>0?(byte)255:(byte)0;
+            for(var x=0;x<layout.Width;x++) pixels[y*binary.RowBytes+x]=input.ObjectAlpha.GetPixel(x,y).Alpha>0 || generatedSubjectMask?.GetPixel(x,y).Alpha>0?(byte)255:(byte)0;
         }
         Pixels.Invalidate(binary);
         // Remove the object with a padded silhouette, not its entire bounding rectangle:

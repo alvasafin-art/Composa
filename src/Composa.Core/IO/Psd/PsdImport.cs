@@ -1,6 +1,7 @@
 using Composa.Editing;
 using Composa.Model;
 using Composa.Rendering;
+using Composa.ColorManagement;
 using SkiaSharp;
 
 namespace Composa.IO.Psd;
@@ -15,6 +16,8 @@ public sealed class PsdImport
     public int Width { get; }
     public int Height { get; }
     public double Resolution { get; }
+    public ColorDepth Depth { get; private init; } = ColorDepth.Eight;
+    public RgbProfile Profile { get; private set; } = RgbProfile.Srgb;
     public IReadOnlyList<Guide> Guides { get; private init; } = [];
     /// <summary>Root layers, bottom to top, with folders holding their children. Meant to be placed once.</summary>
     public List<Layer> Layers { get; }
@@ -38,23 +41,23 @@ public sealed class PsdImport
     public static PsdImport Load(byte[] data) => Load(data, DocumentLimits.DocumentPixelBudget);
 
     /// <param name="pixelBudget">How much raster the file may add: the document budget, less what the target document already holds.</param>
-    public static PsdImport Load(string path, long pixelBudget)
+    public static PsdImport Load(string path, long pixelBudget, bool preserveProfile = false)
     {
         var info = new FileInfo(path);
         if (info.Length > int.MaxValue) throw PsdException.TooLarge();
-        return Load(File.ReadAllBytes(path), pixelBudget);
+        return Load(File.ReadAllBytes(path), pixelBudget, preserveProfile);
     }
 
-    public static PsdImport Load(byte[] data, long pixelBudget)
-        => LoadNested(data, pixelBudget, 0);
+    public static PsdImport Load(byte[] data, long pixelBudget, bool preserveProfile = false)
+        => LoadNested(data, pixelBudget, 0, preserveProfile);
 
-    private static PsdImport LoadNested(byte[] data, long pixelBudget, int depth)
+    private static PsdImport LoadNested(byte[] data, long pixelBudget, int depth, bool preserveProfile)
     {
         if (depth >= SmartObjectSource.MaxDepth) throw new PsdException("The Photoshop file contains too many nested smart objects.");
         var file = PsdReader.Read(data, pixelBudget);
         try
         {
-            var import = Build(file, pixelBudget, depth);
+            var import = Build(file, pixelBudget, depth, preserveProfile);
             if (import.ToDocument().RasterPixels() > pixelBudget) { import.Discard(); throw PsdException.TooLarge(); }
             return import;
         }
@@ -67,18 +70,18 @@ public sealed class PsdImport
     }
 
     /// <summary>The Photoshop-authored merged appearance as one layer, without reconstructing unsupported features.</summary>
-    public static PsdImport LoadAppearance(string path, long pixelBudget)
+    public static PsdImport LoadAppearance(string path, long pixelBudget, bool preserveProfile = false)
     {
         if (new FileInfo(path).Length > int.MaxValue) throw PsdException.TooLarge();
-        return LoadAppearance(File.ReadAllBytes(path), pixelBudget);
+        return LoadAppearance(File.ReadAllBytes(path), pixelBudget, preserveProfile);
     }
 
-    public static PsdImport LoadAppearance(byte[] data, long pixelBudget)
+    public static PsdImport LoadAppearance(byte[] data, long pixelBudget, bool preserveProfile = false)
     {
         var file = PsdReader.Read(data, pixelBudget, mergedOnly: true);
-        var import = Build(file, pixelBudget);
+        var import = Build(file, pixelBudget, preserveProfile: preserveProfile);
         return new PsdImport(import.Width, import.Height, import.Resolution, import.Layers,
-            [.. import.Conversions, new PsdConversion("Document", "Opened Photoshop's merged appearance as one layer. The original Photoshop layers were not imported.")]) { Guides = import.Guides };
+            [.. import.Conversions, new PsdConversion("Document", "Opened Photoshop's merged appearance as one layer. The original Photoshop layers were not imported.")]) { Guides = import.Guides, Depth = import.Depth, Profile = import.Profile };
     }
 
     /// <summary>Frees the layers' pixels when the import is not going ahead.</summary>
@@ -98,7 +101,7 @@ public sealed class PsdImport
     /// <summary>A new document holding the layers, the topmost root layer active.</summary>
     public Document ToDocument()
     {
-        var document = new Document(Width, Height) { Resolution = Resolution };
+        var document = new Document(Width, Height) { Resolution = Resolution, Depth = Depth, Profile = Profile };
         document.Layers.AddRange(Layers);
         document.Guides.AddRange(Guides);
         document.SetActive(Layers.LastOrDefault()?.Id);
@@ -112,8 +115,8 @@ public sealed class PsdImport
         ["idiv"] = BlendMode.ColorBurn, ["sLit"] = BlendMode.SoftLight, ["hLit"] = BlendMode.HardLight, ["smud"] = BlendMode.Exclusion,
         ["hue "] = BlendMode.Hue, ["sat "] = BlendMode.Saturation, ["colr"] = BlendMode.Color, ["lum "] = BlendMode.Luminosity,
         ["lbrn"] = BlendMode.LinearBurn, ["lddg"] = BlendMode.LinearDodge, ["vLit"] = BlendMode.VividLight, ["lLit"] = BlendMode.LinearLight,
-        ["pLit"] = BlendMode.PinLight, ["hMix"] = BlendMode.HardMix, ["fsub"] = BlendMode.Subtract, ["fdiv"] = BlendMode.Divide
-        // Dissolve, Darker Color and Lighter Color have no equivalent here and fall through to Normal with a conversion listed.
+        ["pLit"] = BlendMode.PinLight, ["hMix"] = BlendMode.HardMix, ["fsub"] = BlendMode.Subtract, ["fdiv"] = BlendMode.Divide,
+        ["pass"] = BlendMode.PassThrough, ["dkCl"] = BlendMode.DarkerColor, ["lgCl"] = BlendMode.LighterColor, ["diss"] = BlendMode.Dissolve
     };
 
     internal static string BlendKey(BlendMode mode) => Blends.First(pair => pair.Value == mode).Key;
@@ -127,12 +130,11 @@ public sealed class PsdImport
     private static readonly string[] EffectKeys = ["lfx2", "lrFX", "lmfx"];
     private static readonly string[] OtherFillKeys = ["GdFl", "PtFl"];
 
-    private static PsdImport Build(PsdFile file, long pixelBudget, int depth = 0)
+    private static PsdImport Build(PsdFile file, long pixelBudget, int depth = 0, bool preserveProfile = false)
     {
         var conversions = new List<PsdConversion>();
-        if (file.Depth == 16) conversions.Add(new PsdConversion("Document", "16-bit RGB channels are converted to the editor's 8-bit channels. Save the original PSD to retain its full precision."));
         var canvas = new SKSizeI(file.Width, file.Height);
-        var remaining = pixelBudget - file.Layers.Sum(l => (long)(l.Image?.Width ?? 0) * (l.Image?.Height ?? 0));
+        var remaining = pixelBudget - file.Layers.Sum(l => ((long)(l.Image?.ByteCount ?? 0) + 3) / 4 + ((long)(l.MaskImage?.ByteCount ?? 0) + 3) / 4);
         var embedded = PsdSmartObjects.Embedded(file);
         var sources = new Dictionary<string, SmartObjectSource>(StringComparer.Ordinal);
 
@@ -141,7 +143,7 @@ public sealed class PsdImport
             // A flattened file: the merged image is all there is, and it becomes the one layer.
             var flat = new List<Layer>();
             if (file.Composite != null) flat.Add(Layer.Raster("Background", file.Composite));
-            return Complete(file, flat, conversions);
+            return Complete(file, flat, conversions, preserveProfile);
         }
 
         // Photoshop lists layers bottom to top: a folder's hidden divider comes first, then its contents, then the
@@ -172,14 +174,14 @@ public sealed class PsdImport
                 if (pending.TryGetValue(id, out var children)) layer.Children.AddRange(children);
                 target = openGroups.Count > 0 ? pending[openGroups.Peek()] : roots;
                 if (record.BlendKey != "pass" && !Blends.ContainsKey(record.BlendKey)) conversions.Add(new PsdConversion(name, $"Folder blend mode \"{record.BlendKey.Trim()}\" isn't supported. The folder will be pass-through."));
-                layer.Blend = Blends.GetValueOrDefault(record.BlendKey, BlendMode.Normal);
+                layer.Blend = record.BlendKey == "pass" ? BlendMode.PassThrough : Blends.GetValueOrDefault(record.BlendKey, BlendMode.PassThrough);
                 record.Image?.Dispose();
             }
             else
             {
                 layer = BuildLayer(record, name, canvas, ref remaining, conversions);
                 if (SmartObjectKeys.Any(record.Extra.ContainsKey))
-                    layer = ImportSmartObject(record, layer, name, embedded, sources, ref remaining, depth, conversions);
+                    layer = ImportSmartObject(record, layer, name, embedded, sources, ref remaining, depth, conversions, preserveProfile);
                 if (layer == null) continue;
                 if (!Blends.ContainsKey(record.BlendKey) && record.BlendKey != "pass")
                     conversions.Add(new PsdConversion(name, $"Blend mode \"{record.BlendKey.Trim()}\" isn't supported and will be applied as Normal."));
@@ -190,6 +192,7 @@ public sealed class PsdImport
             if (layer.Pixels != null) layer.Effects = PsdEffects.Read(record, file.GlobalLightAngle, conversions);
             else if (EffectKeys.Any(record.Extra.ContainsKey)) conversions.Add(new(name, "Effects on folders/adjustments are not supported."));
             layer.Opacity = Opacity(record);
+            layer.BlendIf = record.BlendIf;
             if (EffectKeys.Any(record.Extra.ContainsKey)) layer.FillOpacity = record.Fill / 255.0;
             ApplyMask(record, layer, canvas, conversions);
             target.Add(layer);
@@ -197,13 +200,19 @@ public sealed class PsdImport
         // A file whose folders never closed is damaged: keep their contents at the top level rather than lose them.
         while (openGroups.Count > 0) roots.AddRange(pending[openGroups.Pop()]);
         ResolveClipping(roots, clipping, conversions);
-        return Complete(file, roots, conversions);
+        return Complete(file, roots, conversions, preserveProfile);
     }
 
-    private static PsdImport Complete(PsdFile file, List<Layer> layers, List<PsdConversion> conversions)
+    private static PsdImport Complete(PsdFile file, List<Layer> layers, List<PsdConversion> conversions, bool preserveProfile)
     {
-        var import = new PsdImport(file.Width, file.Height, file.Resolution, layers, conversions) { Guides = file.Guides };
-        try { PsdColor.Apply(layers, file.ColorProfile, conversions); return import; }
+        var import = new PsdImport(file.Width, file.Height, file.Resolution, layers, conversions)
+        { Guides = file.Guides, Depth = file.Depth == 16 ? ColorDepth.Sixteen : ColorDepth.Eight };
+        try
+        {
+            if (preserveProfile) { import.Profile = PsdColor.ReadProfile(file.ColorProfile); PsdColor.Preserve(layers, import.Profile); }
+            else PsdColor.Apply(layers, file.ColorProfile, conversions);
+            return import;
+        }
         catch { import.Discard(); throw; }
     }
 
@@ -240,7 +249,7 @@ public sealed class PsdImport
         if (kind == PsdLayerKind.Text)
         {
             // Horizontal type keeps its wording, font, size, color, alignment, tracking and leading, so it can be retyped.
-            var available = remaining + (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+            var available = remaining + (long)(record.Image?.ByteCount ?? 0) / 4;
             if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref available) is { } text)
             {
                 remaining = available;
@@ -254,7 +263,7 @@ public sealed class PsdImport
 
         if (kind is PsdLayerKind.Vector or PsdLayerKind.Fill)
         {
-            var cached = (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+            var cached = (long)(record.Image?.ByteCount ?? 0) / 4;
             if (PsdVector.LiveShape(extra, canvas, remaining + cached) is { } live)
             {
                 record.Image?.Dispose();
@@ -290,7 +299,7 @@ public sealed class PsdImport
 
     /// <summary>The layer as a live shape: redrawn sharp whenever it is scaled.</summary>
     private static Layer? ImportSmartObject(PsdLayer record, Layer? fallback, string name, Dictionary<string, byte[]> embedded,
-        Dictionary<string, SmartObjectSource> sources, ref long remaining, int depth, List<PsdConversion> conversions)
+        Dictionary<string, SmartObjectSource> sources, ref long remaining, int depth, List<PsdConversion> conversions, bool preserveProfile)
     {
         void Note(string message) => conversions.Add(new(name, message));
         var placement = PsdSmartObjects.Placement(record);
@@ -298,7 +307,7 @@ public sealed class PsdImport
         { Note("The smart object's warp, vector mask or smart filters are preserved in its Photoshop compatibility pixels; its source cannot be edited here."); return fallback; }
         if (placement.Id == null || placement.Quad == null || !embedded.TryGetValue(placement.Id, out var data))
         { Note("The smart object has no usable embedded content/placement (it may be externally linked). Photoshop compatibility pixels were kept."); return fallback; }
-        var cache = (long)(record.Image?.Width ?? 0) * (record.Image?.Height ?? 0);
+        var cache = (long)(record.Image?.ByteCount ?? 0) / 4;
         var initialRemaining = remaining;
         var available = remaining + cache;
         PsdImport? inner = null;
@@ -311,20 +320,20 @@ public sealed class PsdImport
                 Document contents;
                 if (PsdReader.Matches(data))
                 {
-                    inner = LoadNested(data, available, depth + 1); contents = inner.ToDocument();
+                    inner = LoadNested(data, available, depth + 1, preserveProfile); contents = inner.ToDocument();
                     foreach (var conversion in inner.Conversions) Note("Embedded content: " + conversion.Message);
                 }
                 else
                 {
                     using var stream = new MemoryStream(data, writable: false);
-                    var image = ImageFiles.Load(stream, "Embedded smart object");
-                    if ((long)image.Width * image.Height * 2 > available) { image.Dispose(); throw PsdException.TooLarge(); }
-                    contents = new Document(image.Width, image.Height); contents.Layers.Add(Layer.Raster("Contents", image));
+                    var image = ImageFiles.Load(stream, "Embedded smart object", preserveProfile: preserveProfile);
+                    if (((long)image.ByteCount + 3) / 4 * 2 > available) { image.Dispose(); throw PsdException.TooLarge(); }
+                    contents = new Document(image.Width, image.Height) { Depth = Pixels.DepthOf(image), Profile = Pixels.ProfileOf(image) }; contents.Layers.Add(Layer.Raster("Contents", image));
                 }
-                if (contents.RasterPixels() + (long)contents.Width * contents.Height > available) throw PsdException.TooLarge();
+                if (contents.RasterPixels() + (long)contents.Width * contents.Height * (contents.WorkingDepth == ColorDepth.Sixteen ? 4 : 1) > available) throw PsdException.TooLarge();
                 createdContents = contents;
                 source = created = SmartObjectSource.Create(contents);
-                var cost = contents.RasterPixels() + (long)source.Width * source.Height;
+                var cost = contents.RasterPixels() + (long)source.Preview.ByteCount / 4;
                 remaining = available - cost;
             }
             else remaining += cache;
@@ -359,49 +368,24 @@ public sealed class PsdImport
     }
 
     /// <summary>
-    /// Photoshop keeps a mask over its own rectangle with a default value outside it; here a mask shares its layer's
-    /// pixel grid (or the document's, for folders and adjustments), so the plane is placed into one of that size.
+    /// Retains Photoshop's independent mask plane, rectangle and outside coverage. Linking changes how future
+    /// layer transforms move the mask; PSD rectangle coordinates themselves remain document coordinates.
     /// </summary>
     private static void ApplyMask(PsdLayer record, Layer layer, SKSizeI canvas, List<PsdConversion> conversions)
     {
         if (!record.HasMask || record.MaskFromRender) { record.MaskImage?.Dispose(); return; }
-        int width, height, dx, dy;
-        if (layer.Pixels is { } pixels)
+        layer.Mask = record.MaskImage ?? Pixels.NewMask(1, 1, record.MaskDefault);
+        layer.MaskLinked = record.MaskLinked; layer.MaskDefault = record.MaskDefault;
+        var placement = SKMatrix.CreateTranslation(record.MaskLeft, record.MaskTop);
+        if (layer.Pixels != null && !layer.Transform.Matrix(1, 1).TryInvert(out _))
         {
-            width = pixels.Width; height = pixels.Height;
-            dx = record.MaskLeft - (int)Math.Round(layer.Transform.X); dy = record.MaskTop - (int)Math.Round(layer.Transform.Y);
+            layer.MaskLinked = false;
+            conversions.Add(new(layer.Name, "The degenerate layer transform cannot link its mask; the mask keeps its document position."));
         }
-        else
-        {
-            width = canvas.Width; height = canvas.Height;
-            dx = record.MaskLeft; dy = record.MaskTop;
-        }
-        var mask = Pixels.NewMask(width, height, record.MaskDefault);
-        if (record.MaskImage is { } plane)
-        {
-            using (plane)
-            {
-                if ((layer.IsLive || layer.IsSmartObject) && layer.Pixels is { } source && !layer.Transform.IsPureTranslation(source.Width, source.Height) && layer.Matrix.TryInvert(out var inverse))
-                {
-                    // PSD masks are in document coordinates. Move coverage back into the live layer's local grid.
-                    using var surface = new SKCanvas(mask);
-                    surface.SetMatrix(SKMatrix.CreateTranslation(record.MaskLeft, record.MaskTop).PostConcat(inverse));
-                    using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-                    using var image = SKImage.FromBitmap(plane);
-                    surface.DrawImage(image, 0, 0, new SKSamplingOptions(SKFilterMode.Linear), paint);
-                }
-                else
-                {
-                    using var surface = new SKCanvas(mask);
-                    using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-                    surface.DrawBitmap(plane, dx, dy, paint);
-                }
-            }
-            Pixels.Invalidate(mask);
-        }
-        layer.Mask = mask;
+        layer.PlaceMask(placement);
         layer.MaskEnabled = !record.MaskDisabled;
-        if (!record.MaskLinked) conversions.Add(new PsdConversion(layer.Name, "The mask was unlinked from its layer in Photoshop; here it moves with the layer."));
+        layer.MaskDensity = record.MaskDensity;
+        layer.MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0;
     }
 
     /// <summary>A clipped layer follows the sibling below it here, so clipping onto a folder or an adjustment has no base to keep.</summary>

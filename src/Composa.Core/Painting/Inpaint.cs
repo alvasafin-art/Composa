@@ -33,11 +33,13 @@ public static unsafe class Inpaint
         var m = (byte*)mask.GetPixels();
 
         var src = (byte*)source.GetPixels();
+        var floating = source.ColorType == SKColorType.RgbaF32;
+        var colors = new PixelBuffer(source);
         var excluded = donorExclusion == null ? null : (byte*)donorExclusion.GetPixels();
         var stride = source.RowBytes;
         bool Known(int x, int y) => m[(long)(y + area.Top) * mask.RowBytes + x + area.Left] == 0
             && (excluded == null || excluded[(long)(y + area.Top) * donorExclusion!.RowBytes + x + area.Left] == 0)
-            && src[(long)(y + area.Top) * stride + (x + area.Left) * 4 + 3] > 0;
+            && (floating ? colors.Read(x + area.Left, y + area.Top).A > 0 : src[(long)(y + area.Top) * stride + (x + area.Left) * 4 + 3] > 0);
 
         // Border samples: known pixels inside the working area (the ring around the hole).
         var border = new List<(int X, int Y)>();
@@ -73,27 +75,38 @@ public static unsafe class Inpaint
         for (var x = 0; x < w; x++)
         {
             var i = y * w + x;
-            var target = src + (long)(y + area.Top) * stride + (x + area.Left) * 4;
+            var target = src + (long)(y + area.Top) * stride + (x + area.Left) * source.BytesPerPixel;
+            var targetColor = floating ? colors.Read(x + area.Left, y + area.Top) * 255 : default;
             if (offset is { } o)
             {
-                var from = src + (long)(y + area.Top + o.Y) * stride + (x + area.Left + o.X) * 4;
-                for (var c = 0; c < 4; c++) patch[i * 4 + c] = from[c];
+                var from = src + (long)(y + area.Top + o.Y) * stride + (x + area.Left + o.X) * source.BytesPerPixel;
+                var donorColor = floating ? colors.Read(x + area.Left + o.X, y + area.Top + o.Y) * 255 : default;
+                for (var c = 0; c < 4; c++) patch[i * 4 + c] = floating ? donorColor[c] : from[c];
             }
             if (!Known(x, y)) continue;
             weight[i] = 1;
-            for (var c = 0; c < 4; c++) difference[i * 4 + c] = target[c] - patch[i * 4 + c];
+            for (var c = 0; c < 4; c++) difference[i * 4 + c] = (floating ? targetColor[c] : target[c]) - patch[i * 4 + c];
         }
         PushPull.Fill(difference, weight, w, h, 4);
 
         var dst = (byte*)result.GetPixels();
+        var output = new PixelBuffer(result);
         for (var y = 0; y < h; y++)
         for (var x = 0; x < w; x++)
         {
             var i = y * w + x;
             var cover = m[(long)(y + area.Top) * mask.RowBytes + x + area.Left] / 255f;
             if (cover <= 0) continue;
-            var p = dst + (long)(y + area.Top) * stride + (x + area.Left) * 4;
+            var p = dst + (long)(y + area.Top) * stride + (x + area.Left) * source.BytesPerPixel;
             var alpha = Math.Clamp(patch[i * 4 + 3] + difference[i * 4 + 3], 0, 255);
+            if (floating)
+            {
+                var filled = new PixelValue(Math.Clamp(patch[i * 4] + difference[i * 4], 0, alpha) / 255,
+                    Math.Clamp(patch[i * 4 + 1] + difference[i * 4 + 1], 0, alpha) / 255,
+                    Math.Clamp(patch[i * 4 + 2] + difference[i * 4 + 2], 0, alpha) / 255, alpha / 255);
+                output.Write(x + area.Left, y + area.Top, output.Read(x + area.Left, y + area.Top) * (1 - cover) + filled * cover);
+                continue;
+            }
             for (var c = 0; c < 4; c++)
             {
                 var filled = Math.Clamp(patch[i * 4 + c] + difference[i * 4 + c], 0, c == 3 ? 255 : alpha);
@@ -118,6 +131,8 @@ public static unsafe class Inpaint
     private static SKPointI? BestOffset(SKBitmap source, SKBitmap mask, SKRectI area, List<(int X, int Y)> border, out double error, CancellationToken cancellation, bool structureMatch)
     {
         var src = (byte*)source.GetPixels();
+        var floating = source.ColorType == SKColorType.RgbaF32;
+        var colors = new PixelBuffer(source);
         var m = (byte*)mask.GetPixels();
         var stride = source.RowBytes;
         int reachX = Math.Clamp(area.Width * 2, 24, 160), reachY = Math.Clamp(area.Height * 2, 24, 160);
@@ -137,16 +152,19 @@ public static unsafe class Inpaint
             foreach (var (x, y) in holeSamples)
             {
                 if (m[(long)(y + oy) * mask.RowBytes + x + ox] > 0) return double.MaxValue;
-                if (src[(long)(y + oy) * stride + (x + ox) * 4 + 3] < 250 && src[(long)y * stride + x * 4 + 3] >= 250) return double.MaxValue;
+                if (floating ? colors.Read(x + ox, y + oy).A < 250 / 255f && colors.Read(x, y).A >= 250 / 255f
+                    : src[(long)(y + oy) * stride + (x + ox) * 4 + 3] < 250 && src[(long)y * stride + x * 4 + 3] >= 250) return double.MaxValue;
             }
             double sum = 0;
             Span<double> shift = stackalloc double[4];
             shift.Clear();
             foreach (var (bx, by) in border)
             {
-                var a = src + (long)(by + area.Top) * stride + (bx + area.Left) * 4;
-                var b = src + (long)(by + area.Top + oy) * stride + (bx + area.Left + ox) * 4;
-                for (var c = 0; c < 4; c++) { double d = a[c] - b[c]; sum += d * d; shift[c] += d; }
+                var a = src + (long)(by + area.Top) * stride + (bx + area.Left) * source.BytesPerPixel;
+                var b = src + (long)(by + area.Top + oy) * stride + (bx + area.Left + ox) * source.BytesPerPixel;
+                var ca = floating ? colors.Read(bx + area.Left, by + area.Top) * 255 : default;
+                var cb = floating ? colors.Read(bx + area.Left + ox, by + area.Top + oy) * 255 : default;
+                for (var c = 0; c < 4; c++) { double d = floating ? ca[c] - cb[c] : a[c] - b[c]; sum += d * d; shift[c] += d; }
             }
             if (structureMatch)
                 for (var c = 0; c < 3; c++) sum -= .94 * shift[c] * shift[c] / border.Count;

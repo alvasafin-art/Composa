@@ -4,7 +4,7 @@ using SkiaSharp;
 
 namespace Composa.Filters;
 
-public enum FilterKind { GaussianBlur, MotionBlur, AddNoise, Sharpen, Vignette, BloomGlow, TonalContrast, LensCorrection, CameraRaw, RemoveBackground, Painterly }
+public enum FilterKind { GaussianBlur, MotionBlur, AddNoise, Sharpen, Vignette, BloomGlow, TonalContrast, LensCorrection, CameraRaw, RemoveBackground, Painterly, HighPass }
 
 /// <summary>Settings for the destructive Filter menu commands. Unused values are ignored by each kind.</summary>
 public sealed record FilterSettings
@@ -74,6 +74,7 @@ public sealed record FilterSettings
 
     public static string DisplayName(FilterKind kind) => kind switch
     {
+        FilterKind.HighPass => "High Pass",
         FilterKind.GaussianBlur => "Gaussian Blur",
         FilterKind.MotionBlur => "Motion Blur",
         FilterKind.AddNoise => "Add Noise",
@@ -87,7 +88,7 @@ public sealed record FilterSettings
     };
 }
 
-public static unsafe class ImageFilters
+public static unsafe partial class ImageFilters
 {
     /// <summary>
     /// Runs a filter over RGBA premultiplied pixels and returns the new bitmap with how far it grew on the left and
@@ -95,6 +96,17 @@ public static unsafe class ImageFilters
     /// </summary>
     public static (SKBitmap Result, int GrowX, int GrowY) Run(SKBitmap source, FilterSettings settings)
     {
+        if (source.ColorType == SKColorType.RgbaF32 && settings.Kind == FilterKind.GaussianBlur)
+        {
+            var sigma = Math.Max(.1, settings.Radius);
+            var clamp = settings.ClampEdges && HasOpaqueBorder(source);
+            var pad = clamp ? 0 : (int)Math.Ceiling(sigma * 3);
+            var result = Pixels.NewLike(source, source.Width + pad * 2, source.Height + pad * 2);
+            using (var canvas = new SKCanvas(result)) canvas.DrawBitmap(source, pad, pad);
+            FloatGaussian.ApplyInPlace(result, sigma, clamp);
+            return (result, pad, pad);
+        }
+        if (source.ColorType == SKColorType.RgbaF32) return RunHighPrecision(source, settings);
         switch (settings.Kind)
         {
             case FilterKind.GaussianBlur when settings.ClampEdges && HasOpaqueBorder(source):
@@ -103,7 +115,7 @@ public static unsafe class ImageFilters
                 // colors continued outwards. Spreading it into transparency would leave a see-through frame.
                 var sigma = (float)Math.Max(0.1, settings.Radius);
                 using var filter = SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp);
-                var result = Pixels.NewColor(source.Width, source.Height);
+                var result = Pixels.NewLike(source);
                 using var canvas = new SKCanvas(result);
                 using var paint = new SKPaint { ImageFilter = filter, BlendMode = SKBlendMode.Src };
                 canvas.DrawBitmap(source, 0, 0, paint);
@@ -120,6 +132,8 @@ public static unsafe class ImageFilters
                 return MotionBlur(source, settings.Radius, settings.Angle, settings.ClampEdges && HasOpaqueBorder(source));
             case FilterKind.Sharpen:
                 return (Sharpen(source, settings.Radius, settings.Amount / 100 * 2), 0, 0);
+            case FilterKind.HighPass:
+                return (HighPass(source, settings.Radius), 0, 0);
             case FilterKind.AddNoise:
                 return (AddNoise(source, settings.Amount, settings.Gaussian, settings.Monochrome, settings.Seed), 0, 0);
             case FilterKind.LensCorrection:
@@ -143,7 +157,7 @@ public static unsafe class ImageFilters
 
     private static SKBitmap Draw(SKBitmap source, int padX, int padY, SKImageFilter filter)
     {
-        var result = Pixels.NewColor(source.Width + padX * 2, source.Height + padY * 2);
+        var result = Pixels.NewLike(source, source.Width + padX * 2, source.Height + padY * 2);
         using var canvas = new SKCanvas(result);
         using var paint = new SKPaint { ImageFilter = filter };
         canvas.DrawBitmap(source, padX, padY, paint);
@@ -153,6 +167,13 @@ public static unsafe class ImageFilters
     /// <summary>True when every pixel along the four edges is fully opaque.</summary>
     private static bool HasOpaqueBorder(SKBitmap source)
     {
+        if (source.ColorType == SKColorType.RgbaF32)
+        {
+            var colors = new PixelBuffer(source);
+            for (var x = 0; x < source.Width; x++) if (colors.Read(x, 0).A < 1 || colors.Read(x, source.Height - 1).A < 1) return false;
+            for (var y = 0; y < source.Height; y++) if (colors.Read(0, y).A < 1 || colors.Read(source.Width - 1, y).A < 1) return false;
+            return true;
+        }
         var pixels = (byte*)source.GetPixels();
         int w = source.Width, h = source.Height, stride = source.RowBytes;
         for (var x = 0; x < w; x++)
@@ -165,6 +186,7 @@ public static unsafe class ImageFilters
     /// <summary>Softens a bitmap in place with a Gaussian of <paramref name="sigma"/>, its edges continued outward so nothing fades into transparency.</summary>
     public static void BlurInPlace(SKBitmap bitmap, float sigma)
     {
+        if (bitmap.ColorType == SKColorType.RgbaF32) { FloatGaussian.ApplyInPlace(bitmap, Math.Max(.1, sigma)); return; }
         sigma = Math.Max(0.1f, sigma);
         using var filter = SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp);
         using var source = Pixels.Clone(bitmap);
@@ -190,11 +212,12 @@ public static unsafe class ImageFilters
 
     internal static (SKBitmap Result, int GrowX, int GrowY) MotionBlur(SKBitmap source, double distance, double angle, bool clamp)
     {
+        if (source.ColorType == SKColorType.RgbaF32) return HighMotionBlur(source, distance, angle, clamp);
         var length = Math.Max(1, (int)Math.Round(distance));
         double radians = angle * Math.PI / 180, dx = Math.Cos(radians), dy = -Math.Sin(radians);
         int padX = clamp ? 0 : (int)Math.Ceiling(Math.Abs(dx) * length / 2) + 1, padY = clamp ? 0 : (int)Math.Ceiling(Math.Abs(dy) * length / 2) + 1;
         int w = source.Width + padX * 2, h = source.Height + padY * 2;
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         var src = (byte*)source.GetPixels();
         var dst = (byte*)result.GetPixels();
         int srcStride = source.RowBytes, dstStride = result.RowBytes, sw = source.Width, sh = source.Height;
@@ -274,8 +297,9 @@ public static unsafe class ImageFilters
 
     private static SKBitmap LensCorrection(SKBitmap source, double distortion)
     {
+        if (source.ColorType == SKColorType.RgbaF32) return HighLensCorrection(source, distortion);
         int w = source.Width, h = source.Height;
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         byte* src = (byte*)source.GetPixels(), dst = (byte*)result.GetPixels();
         double cx = w / 2.0, cy = h / 2.0, norm = Math.Sqrt(cx * cx + cy * cy);
         var k = distortion * 0.5;
@@ -406,12 +430,12 @@ public static unsafe class ImageFilters
                 for (var c = 0; c < 4; c++) p[c] = (byte)Math.Round(p[c] * weight);
             }
         });
-        using var glow = Pixels.NewColor(w, h);
+        using var glow = Pixels.NewLike(source, w, h);
         using (var filter = SKImageFilter.CreateBlur(sigma, sigma, clamp ? SKShaderTileMode.Clamp : SKShaderTileMode.Decal))
         using (var canvas = new SKCanvas(glow))
         using (var paint = new SKPaint { ImageFilter = filter, BlendMode = SKBlendMode.Src })
             canvas.DrawBitmap(lights, pad, pad, paint);
-        var result = Pixels.NewColor(w, h);
+        var result = Pixels.NewLike(source, w, h);
         using (var canvas = new SKCanvas(result)) canvas.DrawBitmap(source, pad, pad);
         byte* dst = (byte*)result.GetPixels(), soft = (byte*)glow.GetPixels();
         var gain = Math.Max(0, intensity);
@@ -496,6 +520,13 @@ public static unsafe class ImageFilters
     /// </summary>
     public static SKBitmap Backdrop(SKBitmap source, int tol)
     {
+        if (source.ColorType == SKColorType.RgbaF32)
+        {
+            // The tolerance is explicitly in display byte units; only classification uses this copy.
+            // Applying its mask still keeps the untouched float color pixels.
+            using var display = Pixels.DisplayCopy(source);
+            return Backdrop(display, tol);
+        }
         int w = source.Width, h = source.Height;
         var background = Pixels.NewMask(w, h);
         var seeds = new List<(int, int)>();

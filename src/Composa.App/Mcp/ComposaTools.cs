@@ -66,7 +66,7 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         var doc = s.Document;
         var text = new StringBuilder();
         text.Append('"').Append(s.Title).Append("\": ").Append(doc.Width).Append('×').Append(doc.Height).Append(" px at ")
-            .Append(doc.Resolution.ToString("0.#")).Append(" ppi");
+            .Append(doc.Resolution.ToString("0.#")).Append(" ppi, RGB ").Append((int)doc.WorkingDepth).Append(" bits/channel, ").Append(doc.Profile.Name);
         if (doc.Selection != null && !SelectionMask.Bounds(doc.Selection).IsEmpty)
         {
             var b = SelectionMask.Bounds(doc.Selection);
@@ -96,8 +96,11 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
             if (layer.Opacity < 1) text.Append(", opacity ").Append((layer.Opacity * 100).ToString("0")).Append('%');
             if (layer.Blend != BlendMode.Normal) text.Append(", blend ").Append(layer.Blend.DisplayName());
             if (layer.Mask != null) text.Append(", masked");
+            if (layer.Warp is { } warp) text.Append(", Warp grid ").Append(warp.Columns).Append('×').Append(warp.Rows);
             if (layer.Clipped) text.Append(", clipped to the layer below");
             if (layer.Effects != null) text.Append(", with effects");
+            if (layer.SmartFilters.Length > 0) text.Append(", ").Append(layer.SmartFilters.Length).Append(" smart filters (smart_filter list)");
+            if (layer.SmartObject?.Link is { } link) text.Append(", linked to ").Append(link.Path).Append(link.HasLocalEdits ? " (local cached edits)" : "");
             text.AppendLine();
             if (layer.IsGroup) Describe(text, doc, layer.Children, depth + 1);
         }
@@ -112,12 +115,14 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     public Task<string> NewDocument(
         [Description("Width in pixels")] int width,
         [Description("Height in pixels")] int height,
-        [Description("Background color as #rrggbb; leave it out for a transparent canvas")] string? background = null) => OnUi(() =>
+        [Description("Background color as #rrggbb; leave it out for a transparent canvas")] string? background = null,
+        [Description("RGB precision: 8 or 16 bits per channel")] int bitDepth = 8) => OnUi(() =>
     {
         if (window.IsDragging) throw new McpException("The person is dragging on the canvas; try again in a moment.");
-        if (!DocumentLimits.FitsSurface(width, height))
+        if (bitDepth is not (8 or 16)) throw new McpException("bitDepth must be 8 or 16.");
+        if (!DocumentLimits.FitsSurface(width, height, bitDepth == 16 ? 16 : 4))
             throw new McpException($"A canvas is at most {DocumentLimits.MaxSide} px on a side and {DocumentLimits.MaxSurfaceMegapixels} megapixels; {width}×{height} px is not.");
-        var s = EditorSession.NewCanvas(width, height, background == null ? null : ParseColor(background));
+        var s = EditorSession.NewCanvas(width, height, background == null ? null : ParseColor(background), (ColorDepth)bitDepth);
         window.AddSession(s);
         return $"Created document {window.Sessions.Count}: \"{s.Title}\" {width}×{height} px, now active.";
     });
@@ -139,8 +144,8 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
         // Decoding is the slow part and needs no document, so it runs off the UI thread, as the window's own import does.
         // An SVG is drawn at the size it will be placed at, so a scaled one is as sharp as a full-size one.
         var svgFit = new SKSizeI(Math.Max(1, (int)Math.Round(canvas.Width * Math.Min(scale, 1))), Math.Max(1, (int)Math.Round(canvas.Height * Math.Min(scale, 1))));
-        var pixels = await Task.Run(() => SvgImporter.IsSvg(path) ? SvgImporter.Render(path, svgFit, budget) : ImageFiles.Load(path));
-        if ((long)pixels.Width * pixels.Height > budget)
+        var pixels = await Task.Run(() => SvgImporter.IsSvg(path) ? SvgImporter.Render(path, svgFit, budget) : ImageFiles.Load(path, preserveProfile: true));
+        if (((long)pixels.ByteCount + 3) / 4 > budget)
         {
             pixels.Dispose();
             throw new McpException($"{Path.GetFileName(path)} is {pixels.Width}×{pixels.Height} px, more than the {budget / 1_000_000} megapixels the document can still hold.");
@@ -173,10 +178,12 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     [Description("Fills the active layer with a color, within the selection when there is one. A text layer is recolored instead of filled.")]
     public Task<string> FillLayer(
         [Description("A color as #rrggbb or #aarrggbb")] string color,
-        int? document = null) => OnUi(() =>
+        int? document = null,
+        [Description("pixels, layerMask, filterMask, red, green, blue, alpha:NAME or active")] string target = "pixels") => OnUi(() =>
     {
         var s = Editable(document);
-        if (s.ActiveLayer is not { } layer) throw new McpException("No layer is active.");
+        using var scope = UsePaintTarget(s, target);
+        if (s.PixelEditLayer is not { } layer) throw new McpException("No layer or alpha channel is active.");
         if (!s.CanFill) throw new McpException($"\"{layer.Name}\" cannot be filled: it is a {Kind(layer)} layer.");
         s.Fill(ParseColor(color));
         return $"Filled \"{layer.Name}\" with {color}.";

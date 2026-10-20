@@ -3,11 +3,12 @@ using System.Text;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.IO.Psd;
 
 /// <summary>
-/// Layered 8-bit RGB Photoshop interchange, written from Adobe's published specification. Channel rows go straight
+/// Layered 8/16-bit RGB Photoshop interchange, written from Adobe's published specification. Channel rows go straight
 /// to a seekable stream: saving does not hold a second copy of every layer or an entire compressed file in memory.
 /// Native horizontal type and vector shapes carry editable descriptors alongside their raster caches. Unsupported
 /// live features and effects are rendered into their own layers. Corrections that depend on the backdrop need a
@@ -27,6 +28,10 @@ public static partial class PsdExport
         if (NeedsAppearance(document)) notes.Add(new("Document", "Adjustments are applied to a merged appearance layer. Source layers are kept in a hidden folder; adjustment settings stay in the Composa project."));
         foreach (var layer in document.AllLayers())
         {
+            if (layer.HasWarp) notes.Add(new(layer.Name, "Warp and its enabled masks are exported as the rendered appearance. The retained source, mesh and disabled mask settings stay in the Composa project."));
+            if (layer.Mask != null && (layer.MaskDensity < 1 || layer.MaskFeather > 0)
+                && (layer.Effects?.Visible() is { IsEmpty: false } || !new Record(layer, SKRectI.Empty).NativeMaskProperties))
+                notes.Add(new(layer.Name, "Mask density and feather are applied to the exported appearance; their original values stay in the Composa project."));
             if (layer.FilterSource != null) notes.Add(new(layer.Name, "Smart filters are exported as the rendered appearance; their editable source and settings stay in the Composa project."));
             if (layer.VectorMask != null) notes.Add(new(layer.Name, "Vector masks are applied to the exported appearance; their editable paths stay in the Composa project."));
             if (layer.IsAdjustment) { notes.Add(new(layer.Name, "Adjustment settings cannot be represented exactly in Photoshop and are not exported as editable adjustments.")); continue; }
@@ -61,10 +66,15 @@ public static partial class PsdExport
 
     private sealed record Record(Layer Layer, SKRectI Bounds, int Section = 0, bool Appearance = false)
     {
-        public bool HasEffects => Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
-        public bool HasMask => Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
+        public bool HasEffects => Layer.HasWarp || Layer.Effects?.Visible() is { IsEmpty: false } || Layer.VectorMask != null && Layer.VectorMaskEnabled;
+        public bool HasMask => !Layer.HasWarp && Layer.Mask != null && !(HasEffects && Layer.MaskEnabled);
+        public bool NativeMaskProperties => Layer.MaskTransform != null ? LayerTransform.FromMatrix(Layer.MaskMatrix, Layer.Mask!.Width, Layer.Mask.Height).IsPureTranslation(Layer.Mask.Width, Layer.Mask.Height)
+            : Layer.Pixels == null || Layer.Transform.IsPureTranslation(Layer.Pixels.Width, Layer.Pixels.Height);
         public List<(short Id, long Position)> Channels { get; } = [];
-        public SKRectI MaskBounds => Layer.IsGroup ? new(0, 0, Layer.Mask!.Width, Layer.Mask.Height) : Bounds;
+        public SKRectI MaskBounds => Layer.MaskTransform != null ? Geometry.RoundOut(LayerTransform.FromMatrix(Layer.MaskMatrix, Layer.Mask!.Width, Layer.Mask.Height).Bounds(Layer.Mask.Width, Layer.Mask.Height))
+            : Layer.IsGroup ? new(0, 0, Layer.Mask!.Width, Layer.Mask.Height) : Bounds;
+        public byte MaskDefault => NativeMaskProperties ? Layer.MaskDefault
+            : (byte)Math.Clamp(Math.Round(255 - (255 - Layer.MaskDefault) * Math.Clamp(Layer.MaskDensity, 0, 1)), 0, 255);
     }
 
     private static List<Record> Records(Document document)
@@ -101,6 +111,7 @@ public static partial class PsdExport
         // A negative layer count advertises the merged transparency, including an entirely empty canvas.
         if (records.Count == 0) records.Add(new(Layer.Group(AppearanceLayer), document.Bounds, Appearance: true));
         if (records.Count > PsdReader.MaxLayers) throw new PsdException($"Photoshop export supports at most {PsdReader.MaxLayers:N0} layer records, including folder dividers.");
+        foreach (var record in records.Where(r => r.HasMask)) Validate(record.MaskBounds);
         return records;
     }
 
@@ -115,33 +126,39 @@ public static partial class PsdExport
         if (!stream.CanWrite || !stream.CanSeek) throw new ArgumentException("Photoshop export needs a writable, seekable stream.", nameof(stream));
         if (!DocumentLimits.FitsSurface(document.Width, document.Height)) throw PsdException.TooLarge();
         var records = Records(document);
+        var depth = (int)document.WorkingDepth;
+        if ((long)document.Width * document.Height * (depth == 16 ? 16 : 4) > DocumentLimits.MaxSurfaceBytes) throw PsdException.TooLarge();
+        if (records.Any(r => (long)r.Bounds.Width * r.Bounds.Height * (depth == 16 ? 16 : 4) > DocumentLimits.MaxSurfaceBytes)) throw PsdException.TooLarge();
         var output = new Output(stream);
         using var merged = new MergedImage(document);
         output.Id("8BPS"); output.U16(1); output.Zeros(6); output.U16(4);
-        output.I32(document.Height); output.I32(document.Width); output.U16(8); output.U16(3); output.U32(0);
+        output.I32(document.Height); output.I32(document.Width); output.U16((ushort)depth); output.U16(3); output.U32(0);
         output.Block(() => Resources(output, document));
+        void LayerInfo()
+        {
+            output.U16(unchecked((ushort)-records.Count));
+            foreach (var record in records) WriteRecord(output, record, document);
+            foreach (var record in records)
+            {
+                using var prepared = Prepare(document, record, merged);
+                foreach (var (id, position) in record.Channels)
+                {
+                    var start = output.Position;
+                    var bitmap = id == -2 ? prepared.Mask : prepared.Image;
+                    if (bitmap == null) output.U16(0);
+                    else WritePlanes(output, bitmap, [id], depth: depth);
+                    output.Patch(position, output.Position - start);
+                }
+            }
+        }
         output.Block(() =>
         {
-            output.Block(() =>
-            {
-                output.U16(unchecked((ushort)-records.Count));
-                foreach (var record in records) WriteRecord(output, record, document);
-                foreach (var record in records)
-                {
-                    using var prepared = Prepare(document, record, merged);
-                    foreach (var (id, position) in record.Channels)
-                    {
-                        var start = output.Position;
-                        var bitmap = id == -2 ? prepared.Mask : prepared.Image;
-                        if (bitmap == null) output.U16(0);
-                        else WritePlanes(output, bitmap, [id]);
-                        output.Patch(position, output.Position - start);
-                    }
-                }
-            }, even: true);
+            if (depth == 16) output.U32(0); // High-depth records live in the Lr16 additional-info block.
+            else output.Block(LayerInfo, even: true);
             output.U32(0); // global layer mask
+            if (depth == 16) output.Additional("Lr16", LayerInfo);
         });
-        WritePlanes(output, merged.Image, [0, 1, 2, -1], matte: true);
+        WritePlanes(output, merged.Image, [0, 1, 2, -1], matte: true, depth: depth);
         output.CheckSize();
     }
 
@@ -156,7 +173,7 @@ public static partial class PsdExport
 
     private static void Resources(Output output, Document document)
     {
-        output.Resource(1039, () => output.Bytes(SrgbProfile.Value));
+        output.Resource(1039, () => output.Bytes(document.Profile.Icc));
         output.Resource(1005, () =>
         {
             var resolution = (uint)Math.Round(Math.Clamp(document.Resolution, 1, 9600) * 65536);
@@ -187,7 +204,7 @@ public static partial class PsdExport
         {
             output.U16(unchecked((ushort)id)); record.Channels.Add((id, output.Position)); output.U32(0);
         }
-        var blend = layer.IsGroup && layer.Blend == BlendMode.Normal && record.Section is 1 or 2 ? "pass" : PsdImport.BlendKey(layer.Blend);
+        var blend = layer.IsGroup && layer.Blend == BlendMode.PassThrough && record.Section is 1 or 2 ? "pass" : PsdImport.BlendKey(layer.Blend);
         output.Id("8BIM"); output.Id(blend);
         output.U8((byte)Math.Clamp(Math.Round(layer.Opacity * 255), 0, 255));
         output.U8(layer.Clipped ? (byte)1 : (byte)0); output.U8(layer.Visible ? (byte)0 : (byte)2); output.U8(0);
@@ -195,11 +212,29 @@ public static partial class PsdExport
         {
             if (record.HasMask)
             {
-                output.U32(20); output.Rect(record.MaskBounds); output.U8(0);
-                output.U8(layer.MaskEnabled ? (byte)0 : (byte)2); output.U16(0);
+                var properties = record.NativeMaskProperties && (layer.MaskDensity < 1 || layer.MaskFeather > 0);
+                output.Block(() =>
+                {
+                    output.Rect(record.MaskBounds); output.U8(record.MaskDefault);
+                    output.U8((byte)((layer.MaskEnabled ? 0 : 2) | (layer.MaskLinked ? 0 : 1) | (properties ? 16 : 0)));
+                    if (properties)
+                    {
+                        output.U8(3); output.U8((byte)Math.Clamp(Math.Round(layer.MaskDensity * 255), 0, 255)); output.F64(layer.MaskFeather);
+                        output.U8((byte)((layer.MaskEnabled ? 0 : 2) | (layer.MaskLinked ? 0 : 1))); output.U8(record.MaskDefault); output.Rect(record.MaskBounds);
+                    }
+                    else output.U16(0);
+                });
             }
             else output.U32(0);
-            output.U32(0); // default blending ranges
+            if (layer.BlendIf.IsIdentity) output.U32(0);
+            else
+            {
+                output.U32(32);
+                foreach (var pair in new[] { layer.BlendIf.Gray, layer.BlendIf.Red, layer.BlendIf.Green, layer.BlendIf.Blue })
+                foreach (var range in new[] { pair.ThisLayer, pair.Underlying })
+                foreach (var value in new[] { range.Black, range.BlackEnd, range.WhiteStart, range.White })
+                    output.U8((byte)Math.Clamp(Math.Round(value), 0, 255));
+            }
             var name = Encoding.Latin1.GetBytes(layer.Name[..Math.Min(255, layer.Name.Length)]);
             output.U8((byte)name.Length); output.Bytes(name); output.Zeros((4 - (name.Length + 1) % 4) % 4);
             output.Additional("luni", () => output.Unicode(layer.Name));
@@ -232,18 +267,37 @@ public static partial class PsdExport
         try
         {
             if (record.Appearance) { result.Image = merged.Image; return result; }
-            if (record.Section != 0) { result.Mask = record.HasMask ? layer.Mask : null; return result; }
+            if (record.HasMask && layer.MaskTransform != null)
+            {
+                var bounds = record.MaskBounds;
+                var source = record.NativeMaskProperties ? layer.Mask! : layer.RenderRasterMask(ignoreDisabled: true)!;
+                var outside = record.NativeMaskProperties ? layer.MaskDefault : (byte)Math.Clamp(Math.Round(255 - (255 - layer.MaskDefault) * Math.Clamp(layer.MaskDensity, 0, 1)), 0, 255);
+                result.Mask = Pixels.NewMask(bounds.Width, bounds.Height, outside); result.OwnMask = true;
+                using var canvas = new SKCanvas(result.Mask);
+                var matrix = layer.MaskMatrix.PostConcat(SKMatrix.CreateTranslation(-bounds.Left, -bounds.Top));
+                canvas.SetMatrix(in matrix);
+                using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+                canvas.DrawImage(Pixels.ImageOf(source), 0, 0, DocumentRenderer.SamplingFor(matrix), paint);
+            }
+            if (record.Section != 0) { result.Mask ??= record.HasMask ? layer.Mask : null; return result; }
             if (layer.Pixels == null) return result;
             var direct = !record.HasEffects && layer.FillOpacity >= 1 && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height);
-            if (direct) result.Image = layer.Pixels;
+            if (direct) result.Image = layer.RenderFilterPixels();
             else
             {
                 var shown = layer.Clone();
                 shown.Visible = true; shown.Opacity = 1; shown.Blend = BlendMode.Normal; shown.Clipped = false;
+                shown.BlendIf = new(); // Photoshop evaluates the native ranges against its real backdrop.
                 if (!record.HasEffects) shown.Mask = null;
                 result.Image = DocumentRenderer.RenderLayers(document, [shown], record.Bounds); result.OwnImage = true;
             }
-            if (record.HasMask)
+            if (result.Image != null && !RgbProfile.SameSpace(result.Image.ColorSpace, document.Profile.Space))
+            {
+                var converted = Pixels.ConvertWorking(result.Image, document.WorkingDepth, document.Profile);
+                if (result.OwnImage) result.Image.Dispose();
+                result.Image = converted; result.OwnImage = true;
+            }
+            if (record.HasMask && result.Mask == null)
             {
                 if (direct && layer.Mask!.Width == layer.Pixels.Width && layer.Mask.Height == layer.Pixels.Height) result.Mask = layer.Mask;
                 else
@@ -254,16 +308,18 @@ public static partial class PsdExport
                     var maskedLayer = layer.Clone();
                     maskedLayer.Visible = true; maskedLayer.Opacity = 1; maskedLayer.Blend = BlendMode.Normal;
                     maskedLayer.Clipped = false; maskedLayer.Effects = null; maskedLayer.MaskEnabled = true;
+                    maskedLayer.BlendIf = new();
+                    if (record.NativeMaskProperties) { maskedLayer.MaskDensity = 1; maskedLayer.MaskFeather = 0; }
                     using var masked = DocumentRenderer.RenderLayers(document, [maskedLayer], record.Bounds);
+                    var barePixels = new PixelBuffer(result.Image!);
+                    var coveredPixels = new PixelBuffer(masked);
                     for (var y = 0; y < result.Mask.Height; y++)
                     {
-                        var bare = result.Image!.GetPixelSpan().Slice(y * result.Image.RowBytes);
-                        var covered = masked.GetPixelSpan().Slice(y * masked.RowBytes);
                         var target = result.Mask.GetPixelSpan().Slice(y * result.Mask.RowBytes);
                         for (var x = 0; x < result.Mask.Width; x++)
                         {
-                            var a = bare[x * 4 + 3];
-                            target[x] = a == 0 ? (byte)0 : (byte)Math.Min(255, (covered[x * 4 + 3] * 255 + a / 2) / a);
+                            var a = barePixels.Read(x, y).A;
+                            target[x] = a <= 0 ? (byte)0 : (byte)Math.Clamp(MathF.Round(coveredPixels.Read(x, y).A / a * 255), 0, 255);
                         }
                     }
                     Pixels.Invalidate(result.Mask);
@@ -275,22 +331,31 @@ public static partial class PsdExport
     }
 
     /// <summary>PackBits counts precede rows. Only one row and its encoded form are allocated, reused for every plane.</summary>
-    private static void WritePlanes(Output output, SKBitmap bitmap, short[] ids, bool matte = false)
+    private static void WritePlanes(Output output, SKBitmap bitmap, short[] ids, bool matte = false, int depth = 8)
     {
         output.U16(1);
         var counts = output.Position;
         output.Zeros(checked(ids.Length * bitmap.Height * 2));
-        var row = new byte[bitmap.Width];
-        var packed = new byte[bitmap.Width + (bitmap.Width + 127) / 128 + 1];
+        var row = new byte[bitmap.Width * (depth / 8)];
+        var packed = new byte[row.Length + (row.Length + 127) / 128 + 1];
         var rowCounts = new ushort[ids.Length * bitmap.Height];
         var index = 0;
+        var color = bitmap.ColorType == SKColorType.Alpha8 ? default : new PixelBuffer(bitmap);
         foreach (var id in ids)
         for (var y = 0; y < bitmap.Height; y++, index++)
         {
-            var pixels = bitmap.GetPixelSpan().Slice(y * bitmap.RowBytes, bitmap.Width * (bitmap.ColorType == SKColorType.Alpha8 ? 1 : 4));
+            var pixels = bitmap.GetPixelSpan().Slice(y * bitmap.RowBytes);
             for (var x = 0; x < bitmap.Width; x++)
             {
-                if (id == -2) row[x] = pixels[x];
+                if (depth == 16 || bitmap.ColorType == SKColorType.RgbaF32)
+                {
+                    var p = id == -2 ? default : color.Read(x, y);
+                    var v = id == -2 ? pixels[x] / 255f : id == -1 ? p.A
+                        : matte ? p[id] + 1 - p.A : p.A <= 0 ? 0 : p[id] / p.A;
+                    if (depth == 16) BinaryPrimitives.WriteUInt16BigEndian(row.AsSpan(x * 2), (ushort)Math.Clamp(MathF.Round(v * 65535), 0, 65535));
+                    else row[x] = (byte)Math.Clamp(MathF.Round(v * 255), 0, 255);
+                }
+                else if (id == -2) row[x] = pixels[x];
                 else
                 {
                     var a = pixels[x * 4 + 3];

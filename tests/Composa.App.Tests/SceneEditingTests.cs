@@ -96,6 +96,15 @@ public class SceneEditingTests
         Assert.Equal(2,connection.Executions);Assert.True(source.Visible);Assert.Equal(state,s.History.CurrentId);Assert.Equal(before.Bytes,s.Flatten().Bytes);
     }
     [Fact]
+    public async Task Unreliable_temporary_subject_isolation_does_not_apply_a_partial_background()
+    {
+        var s=Scene();var source=s.ActiveLayer!;var state=s.History.CurrentId;using var before=s.Flatten();var connection=new Connection();
+        var service=new AiTaskService(()=>"http://localhost:8188",Engines,_=>connection,(_,_,_)=>throw new InvalidOperationException("Unreliable temporary subject"));
+        service.SelectedEngine=service.Engines.Find("flux2-klein-intel-xpu");
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>service.RunAsync(new EditorCommandService(s),new() {Task=AiTaskKind.ChangeBackground},TestContext.Current.CancellationToken));
+        Assert.Equal(1,connection.Executions);Assert.True(source.Visible);Assert.Equal(state,s.History.CurrentId);using var after=s.Flatten();Assert.Equal(before.Bytes,after.Bytes);
+    }
+    [Fact]
     public async Task Scene_variants_use_one_atomic_commit_and_reuse_uploads()
     {
         var s=Scene(); var state=s.History.CurrentId; using var before=s.Flatten();
@@ -138,7 +147,7 @@ public class SceneEditingTests
         finally {w.Close();}
     }
     private static AiTaskService Service(Connection connection)
-    {var service=new AiTaskService(()=>"http://localhost:8188",Engines,_=>connection);service.SelectedEngine=service.Engines.Find("flux2-klein-intel-xpu");return service;}
+    {var service=new AiTaskService(()=>"http://localhost:8188",Engines,_=>connection,(input,_,_)=>Pixels.Clone(input.ObjectAlpha));service.SelectedEngine=service.Engines.Find("flux2-klein-intel-xpu");return service;}
     private sealed class Connection : IComfyConnection
     {
         public ComfyServerAddress Address=>ComfyServerAddress.Parse("http://localhost:8188");

@@ -15,7 +15,7 @@ internal static class EditorDocumentInspection
     internal const string ChecksSchema = """
         {"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{
         "layer":{"type":["string","null"],"description":"Target: full layer id or unique name, e.g. Tile. Use null for canvas, guides or selection."},
-        "property":{"type":"string","enum":["width","height","resolution","layerCount","guideCount","hasSelection","showGuides","guidesLocked","name","kind","visible","opacity","blend","insideCanvas","hasMask","maskEnabled","shape.fill","shape.kind","text.value","text.color","text.size","transform.x","transform.y","transform.width","transform.height","transform.rotation"]},
+        "property":{"type":"string","enum":["width","height","resolution","layerCount","guideCount","hasSelection","showGuides","guidesLocked","name","kind","visible","opacity","blend","insideCanvas","hasMask","maskEnabled","maskLinked","hasWarp","warp.columns","warp.rows","shape.fill","shape.kind","text.value","text.color","text.size","transform.x","transform.y","transform.width","transform.height","transform.rotation"]},
         "operator":{"type":"string","enum":["equals","near","exists","absent"]},
         "expected":{"type":["string","number","boolean","null"],"description":"Actual scalar value, e.g. 2, true or #FFFF00. Not an object with a value property."},
         "tolerance":{"type":"number","minimum":0}},"required":["layer","property"],"additionalProperties":false}}
@@ -45,6 +45,8 @@ internal static class EditorDocumentInspection
         width = s.Document.Width, height = s.Document.Height, resolution = s.Document.Resolution,
         activeLayerId = s.Document.ActiveLayerId, layerCount = s.Document.AllLayers().Count(),
         hasSelection = s.Selection != null,
+        editingAlphaChannel = s.EditingAlphaChannel, editingRgbChannels = s.EditingRgbChannels.ToString(), visibleRgbChannels = s.VisibleRgbChannels.ToString(),
+        alphaChannelOverlay = s.AlphaChannelOverlay, alphaChannels = s.Document.AlphaChannels.Keys,
         selection = s.Selection == null ? null : Bounds(SelectionMask.Bounds(s.Selection)),
         guideCount = s.Guides.Count, guides = s.Guides.Select(g => new { id = g.Id, axis = g.Axis.ToString().ToLowerInvariant(), position = g.Position }),
         showGuides = s.View.ShowGuides, guidesLocked = s.View.LockGuides
@@ -55,13 +57,22 @@ internal static class EditorDocumentInspection
         id = layer.Id, name = layer.Name, parentId = s.Document.ParentOf(layer.Id)?.Id,
         kind = Kind(layer),
         visible = layer.Visible, opacity = layer.Opacity, blend = layer.Blend.ToString(), tags = layer.Tags,
+        hasWarp = layer.HasWarp,
         transform = new { x = layer.Transform.X, y = layer.Transform.Y, width = layer.Transform.Width, height = layer.Transform.Height, rotation = layer.Transform.Rotation },
+        warp = layer.Warp == null || layer.Pixels == null ? null : new { columns = layer.Warp.Columns, rows = layer.Warp.Rows,
+            points = layer.Warp.Points.Select((p, i) => { var point = layer.WarpNodePosition(p);
+                return new { column = i % (layer.Warp.Columns + 1), row = i / (layer.Warp.Columns + 1), x = point.X, y = point.Y }; }) },
+        controlBounds = Bounds(layer.ControlBounds),
         bounds = Bounds(ContentBounds(layer)), insideCanvas = InsideCanvas(s, ContentBounds(layer)),
         shape = layer.Shape == null ? null : new { kind = layer.Shape.Kind.ToString(), fill = Color(layer.Shape.Fill) },
         text = layer.Text == null ? null : new { value = fullText ? layer.Text.Text : layer.Text.Text[..Math.Min(400, layer.Text.Text.Length)],
             length = layer.Text.Text.Length, truncated = !fullText && layer.Text.Text.Length > 400, size = layer.Text.Size, color = Color(layer.Text.Color), font = layer.Text.FontFamily },
-        hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled,
-        smartSourceId = layer.SmartObject?.Id, children = layer.Children.Select(child => child.Id)
+        hasMask = layer.Mask != null, maskEnabled = layer.MaskEnabled, maskLinked = layer.MaskLinked,
+        smartFilters = layer.SmartFilters.Select(f => new { id = f.Id, kind = f.Settings.Kind.ToString(), f.Enabled, f.Opacity, blend = f.Blend.ToString() }),
+        hasSmartFilterMask = layer.SmartFilterMask != null, smartFilterMaskEnabled = layer.SmartFilterMaskEnabled,
+        smartSourceId = layer.SmartObject?.Id,
+        smartSourceLink = layer.SmartObject?.Link is not { } link ? null : new { path = link.Path, hasLocalEdits = link.HasLocalEdits, useMergedAppearance = link.UseMergedAppearance },
+        children = layer.Children.Select(child => child.Id)
     })!.AsObject();
 
     internal static string Kind(Layer layer) => layer.IsSmartObject ? "smartObject" : layer.IsGroup ? "group" : layer.IsAdjustment ? "adjustment" : layer.Text != null ? "text" : layer.Shape != null ? "shape" : "raster";

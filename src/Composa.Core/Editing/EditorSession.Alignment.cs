@@ -20,6 +20,14 @@ public sealed partial class EditorSession
     public void AlignObjects(ObjectAlignment alignment, AlignmentReference reference)
     {
         FinishText();
+        if (IndependentMaskTarget is { Mask: { } mask } maskLayer)
+        {
+            if (reference != AlignmentReference.Canvas) return;
+            var t = EditingControlTransform(maskLayer); var b = t.Bounds(mask.Width, mask.Height);
+            var dx = alignment switch { ObjectAlignment.Left => -b.Left, ObjectAlignment.Center => document.Width / 2f - b.MidX, ObjectAlignment.Right => document.Width - b.Right, _ => 0 };
+            var dy = alignment switch { ObjectAlignment.Top => -b.Top, ObjectAlignment.Middle => document.Height / 2f - b.MidY, ObjectAlignment.Bottom => document.Height - b.Bottom, _ => 0 };
+            SetMaskTransform(maskLayer, t.Translated(dx, dy)); return;
+        }
         var roots = SelectedRoots().Where(l => !AlignmentBounds(l).IsEmpty).ToList();
         if (roots.Count == 0 || reference == AlignmentReference.SecondSelected && roots.Count < 2) return;
         var orderedRoots = document.SelectionOrder.Select(id => roots.FirstOrDefault(l => Document.Flatten([l]).Any(c => c.Id == id)))
@@ -41,6 +49,7 @@ public sealed partial class EditorSession
     public void DistributeObjectGaps(bool horizontal)
     {
         FinishText();
+        if (IndependentMaskTarget != null) return;
         var ordered = SelectedRoots().Select(l => (Layer: l, Bounds: AlignmentBounds(l))).Where(p => !p.Bounds.IsEmpty)
             .OrderBy(p => horizontal ? p.Bounds.Left : p.Bounds.Top).ToList();
         if (ordered.Count < 3) return;
@@ -67,7 +76,7 @@ public sealed partial class EditorSession
         foreach (var (root, x, y) in moves)
         {
             var all = Document.Flatten([root]).ToList();
-            Transform = new TransformEdit(this, all.Where(l => l.Pixels != null).ToList(), all.Where(l => l.Pixels == null && l.Mask != null).ToList());
+            Transform = new TransformEdit(this, all.Where(l => l.Pixels != null).ToList(), all.Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked).ToList());
             Transform.MoveBy(x, y);
             Transform = null;
         }

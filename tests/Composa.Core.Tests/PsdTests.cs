@@ -2,6 +2,7 @@ using Composa.Editing;
 using Composa.Filters;
 using Composa.IO.Psd;
 using Composa.Model;
+using Composa.Selections;
 using Composa.Rendering;
 using SkiaSharp;
 using static Composa.Core.Tests.TestImages;
@@ -56,10 +57,8 @@ public class PsdTests
         AssertColor(SKColors.Blue, child.Pixels!.GetPixel(0, 0));
         var top = import.Layers[2];
         Assert.False(top.Visible);
-        Assert.Equal(BlendMode.Normal, top.Blend);
-        var conversion = Assert.Single(import.Conversions);
-        Assert.Equal("Ünïcode ✓", conversion.LayerName);
-        Assert.Contains("diss", conversion.Message);
+        Assert.Equal(BlendMode.Dissolve, top.Blend);
+        Assert.Empty(import.Conversions);
 
         var document = import.ToDocument();
         Assert.Equal(top.Id, document.ActiveLayerId);
@@ -97,17 +96,19 @@ public class PsdTests
 
         var import = Load(writer);
         var masked = import.Layers[0];
-        Assert.Equal((40, 40), (masked.Mask!.Width, masked.Mask.Height));  // The mask shares the layer's pixel grid.
-        Assert.Equal(255, masked.Mask.GetPixel(5, 5).Alpha);                // Outside the mask's own rectangle: the default.
-        Assert.Equal(0, masked.Mask.GetPixel(15, 15).Alpha);                // Inside it: the plane, placed at (20,20) - (10,10).
+        Assert.Equal((10, 10), (masked.Mask!.Width, masked.Mask.Height)); // The original mask plane stays independent.
+        Assert.Equal(255, masked.AlignedRasterMask()!.GetPixel(5, 5).Alpha);
+        Assert.Equal(0, masked.AlignedRasterMask()!.GetPixel(15, 15).Alpha);
         Assert.True(masked.MaskEnabled);
         var off = import.Layers[1];
         Assert.False(off.MaskEnabled);
-        Assert.Contains(import.Conversions, c => c.LayerName == "Off" && c.Message.Contains("unlinked"));
+        Assert.False(off.MaskLinked);
+        Assert.DoesNotContain(import.Conversions, c => c.LayerName == "Off" && c.Message.Contains("unlinked"));
         var folder = import.Layers[2];
-        Assert.Equal((100, 80), (folder.Mask!.Width, folder.Mask.Height));  // Folder masks share the document's grid.
-        Assert.Equal(0, folder.Mask.GetPixel(10, 10).Alpha);
-        Assert.Equal(255, folder.Mask.GetPixel(50, 50).Alpha);
+        Assert.Equal((30, 30), (folder.Mask!.Width, folder.Mask.Height));
+        using var folderCoverage = SelectionMask.FromLayer(import.ToDocument(), folder, fromMask: true);
+        Assert.Equal(0, folderCoverage!.GetPixel(10, 10).Alpha);
+        Assert.Equal(255, folderCoverage.GetPixel(50, 50).Alpha);
         Assert.Null(import.Layers[3].Mask);                                 // A mask rendered from other data is not the user's.
     }
 
@@ -412,8 +413,9 @@ public class PsdTests
     [InlineData(3, 1)]
     public void A_file_over_budget_crops_its_layers_and_masks_to_the_canvas_and_says_so(int compression, int version)
     {
-        // 6 x 3 pixels plus a 6 x 3 mask is 36; cropped to the canvas, 4 x 3 twice is 24. The budget sits between.
-        var import = PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 24);
+        // Budget units are four bytes: RGBA costs 18, Alpha8 costs ceil(18/4).
+        // Cropped to the canvas: 12 RGBA units + 3 mask units.
+        var import = PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 15);
         var layer = Assert.Single(import.Layers);
         Assert.Equal((0d, 1d, 4d, 3d), (layer.Transform.X, layer.Transform.Y, layer.Transform.Width, layer.Transform.Height));
         using var source = Gradient(6, 3);
@@ -425,8 +427,7 @@ public class PsdTests
             }
         var note = Assert.Single(import.Conversions);
         Assert.Equal(("Overhang", PsdImport.CroppedNote), (note.LayerName, note.Message));
-        // Cropped, the file still needs 24 pixels: one less and it is refused.
-        Assert.Throws<PsdException>(() => PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 23));
+        Assert.Throws<PsdException>(() => PsdImport.Load(Overhang(compression, version).Build(), pixelBudget: 14));
     }
 
     [Fact]
@@ -479,8 +480,8 @@ public class PsdTests
         Assert.Equal("Large picture", picture.Name);                        // The key after the 8-byte-length block still reads.
         Assert.Equal(gradient.Bytes, picture.Pixels!.Bytes);
         Assert.Equal((2d, 3d), (picture.Transform.X, picture.Transform.Y));
-        Assert.Equal(0, picture.Mask!.GetPixel(15, 15).Alpha);
-        Assert.Equal(255, picture.Mask.GetPixel(0, 0).Alpha);
+        Assert.Equal(0, picture.AlignedRasterMask()!.GetPixel(15, 15).Alpha);
+        Assert.Equal(255, picture.AlignedRasterMask()!.GetPixel(0, 0).Alpha);
         Assert.Empty(import.Conversions);
         Assert.Contains(".psb", Composa.IO.ImageFiles.ImportExtensions);
     }

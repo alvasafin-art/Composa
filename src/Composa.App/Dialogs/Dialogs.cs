@@ -87,8 +87,19 @@ public static class Prompts
     }
 
     /// <param name="preview">Called with the working color as it changes while the dialog is open, so what it colors can follow along. The caller puts the original back on Cancel.</param>
-    public static async Task<SKColor?> Color(Window owner, string title, SKColor initial, Action<SKColor>? preview = null)
+    public static async Task<SKColor?> Color(Window owner, string title, SKColor initial, Action<SKColor>? preview = null, Composa.ColorManagement.RgbProfile? profile = null)
     {
+        profile ??= Ui.WorkingProfile(owner);
+        var display = Ui.DisplayProfile(owner);
+        if (!profile.Equals(Composa.ColorManagement.RgbProfile.Srgb) || !display.Equals(Composa.ColorManagement.RgbProfile.Srgb))
+        {
+            var picker = new Controls.WorkingColorPicker(initial, profile, display);
+            var after = new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) };
+            picker.Changed += color => { after.Background = new SolidColorBrush(color.ToDisplay(profile, display)); preview?.Invoke(color); };
+            var rows = Ui.Column(10, picker, Ui.Row(10, Ui.Label("Before / After", Palette.Secondary),
+                new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) }, after));
+            return await new DialogWindow(title, rows).Ask(owner) ? picker.Color : null;
+        }
         // Saturation across and brightness up in the square, hue on the strip, as Photoshop lays it out. The control's
         // default puts brightness on the strip, where a black starting color leaves it at zero and every click in the
         // square stays black.
@@ -120,7 +131,7 @@ public static class Prompts
     }
 }
 
-public sealed record NewCanvasResult(int Width, int Height, SKColor? Background);
+public sealed record NewCanvasResult(int Width, int Height, SKColor? Background, ColorDepth Depth = ColorDepth.Eight);
 
 public static class CanvasDialogs
 {
@@ -174,9 +185,21 @@ public static class CanvasDialogs
         widthBox.ValueChanged += FollowSize;
         heightBox.ValueChanged += FollowSize;
         var background = Ui.Combo(new[] { "Transparent", "White", "Background color" }, "Transparent", s => s, s => fill = s == "White" ? 1 : s == "Transparent" ? 0 : 2, 220);
-        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Background", background));
-        if (!await new DialogWindow("New Canvas", grid, "Create").Ask(owner)) return null;
-        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor);
+        var depth = ColorDepth.Eight;
+        DialogWindow? dialog = null;
+        var limit = Ui.Label("", Palette.Secondary); limit.MaxWidth = 300; limit.TextWrapping = TextWrapping.Wrap;
+        void Validate()
+        {
+            var valid = DocumentLimits.FitsSurface(width, height, depth == ColorDepth.Sixteen ? 16 : 4);
+            if (dialog != null) dialog.CanAccept = valid;
+            limit.Text = valid ? "" : $"Choose a smaller canvas. This RGB mode supports up to {DocumentLimits.MaxSurfaceBytes / (depth == ColorDepth.Sixteen ? 16 : 4) / 1_000_000:N0} megapixels.";
+        }
+        var precision = Ui.Combo(new[] { ColorDepth.Eight, ColorDepth.Sixteen }, depth, d => $"RGB · {(int)d} bits/channel", d => { depth = d; Validate(); }, 220);
+        widthBox.ValueChanged += (_, _) => Validate(); heightBox.ValueChanged += (_, _) => Validate();
+        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Background", background), ("Color mode", precision));
+        dialog = new DialogWindow("New Canvas", Ui.Column(8, grid, limit), "Create"); Validate();
+        if (!await dialog.Ask(owner)) return null;
+        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor, depth);
     }
 
     public static async Task<(int Width, int Height, Anchor Anchor)?> CanvasSize(Window owner, int currentWidth, int currentHeight)
@@ -243,6 +266,7 @@ public static class CanvasDialogs
     /// <summary>Picks the JPEG quality while showing what the compression does to the picture and how large the file gets.</summary>
     public static async Task<int?> JpegQuality(Window owner, int initial, SKBitmap flattened)
     {
+        var display = Ui.DisplayProfile(owner);
         var quality = initial;
         var preview = new Image { Width = 520, Height = 340, Stretch = Stretch.Uniform };
         var info = Ui.Label("Measuring…", Palette.Secondary);
@@ -262,7 +286,7 @@ public static class CanvasDialogs
             {
                 var encoded = Composa.IO.ImageFiles.Encode(flattened, Composa.IO.ExportFormat.Jpeg, q);
                 using var decoded = SKBitmap.Decode(encoded);
-                return (encoded.LongLength, decoded == null ? null : Ui.ToAvaloniaBitmap(decoded, 1040));
+                return (encoded.LongLength, decoded == null ? null : Ui.ToAvaloniaBitmap(decoded, 1040, display));
             });
             inFlight = Task.WhenAll(inFlight, work);
             var (bytes, shown) = await work;

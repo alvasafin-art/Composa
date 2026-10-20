@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Composa.Model;
 using SkiaSharp;
+using Composa.ColorManagement;
 
 namespace Composa.Rendering;
 
@@ -15,13 +16,14 @@ public static partial class Pixels
 
     private static unsafe SKRectI ScanContent(SKBitmap image)
     {
+        if (image.ColorType == SKColorType.RgbaF32) return ScanHighPrecisionContent(image);
         if (image.ColorType != SKColorType.Rgba8888) return new(0, 0, image.Width, image.Height);
-        int left = image.Width, top = image.Height, right = 0, bottom = 0;
+        int width = image.Width, height = image.Height, stride = image.RowBytes, left = width, top = height, right = 0, bottom = 0;
         var pixels = (byte*)image.GetPixels();
-        for (var y = 0; y < image.Height; y++)
+        for (var y = 0; y < height; y++)
         {
-            var row = pixels + (long)y * image.RowBytes;
-            for (var x = 0; x < image.Width; x++)
+            var row = pixels + (long)y * stride;
+            for (var x = 0; x < width; x++)
             {
                 if (row[x * 4 + 3] == 0) continue;
                 left = Math.Min(left, x); top = Math.Min(top, y);
@@ -30,12 +32,19 @@ public static partial class Pixels
         }
         return right <= left ? SKRectI.Empty : new(left, top, right, bottom);
     }
-    public static SKImageInfo ColorInfo(int width, int height) => new(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+    // An explicit destination space is essential: a null space makes SKCodec retain
+    // Adobe RGB / Display P3 channel values without converting their appearance.
+    private static readonly SKColorSpace workingSpace = SKColorSpace.CreateSrgb();
+    public static SKImageInfo ColorInfo(int width, int height, ColorDepth depth = ColorDepth.Eight, SKColorSpace? space = null) =>
+        new(width, height, depth == ColorDepth.Sixteen ? SKColorType.RgbaF32 : SKColorType.Rgba8888, SKAlphaType.Premul, space ?? workingSpace);
     public static SKImageInfo MaskInfo(int width, int height) => new(width, height, SKColorType.Alpha8, SKAlphaType.Premul);
 
-    public static SKBitmap NewColor(int width, int height)
+    public static SKBitmap NewColor(int width, int height, ColorDepth depth = ColorDepth.Eight, SKColorSpace? space = null)
     {
-        var bitmap = new SKBitmap(ColorInfo(Math.Max(1, width), Math.Max(1, height)));
+        if (depth == ColorDepth.Sixteen && !Model.DocumentLimits.FitsSurface(Math.Max(1, width), Math.Max(1, height), 16))
+            throw new InvalidOperationException("The high precision surface exceeds the supported memory or dimensions.");
+        var bitmap = new SKBitmap(ColorInfo(Math.Max(1, width), Math.Max(1, height), depth, space));
+        TagProfile(bitmap, space == null ? RgbProfile.Srgb : RgbProfile.ForSpace(space));
         Fill(bitmap, 0);
         return bitmap;
     }
@@ -91,6 +100,7 @@ public static partial class Pixels
     public static unsafe SKBitmap Clone(SKBitmap source)
     {
         var copy = new SKBitmap(source.Info);
+        RetainProfile(source, copy);
         byte* from = (byte*)source.GetPixels(), to = (byte*)copy.GetPixels();
         long height = source.Height;
         if (source.RowBytes != copy.RowBytes)
@@ -177,6 +187,7 @@ public static partial class Pixels
     public static void Invalidate(SKBitmap bitmap)
     {
         extents.Remove(bitmap);
+        componentBounds.Remove(bitmap);
         Invalidated?.Invoke(bitmap);
         lock (bitmap)
         {
@@ -203,6 +214,8 @@ public static partial class Pixels
         if (scale >= 0.5f) return;
         foreach (var layer in document.AllLayers())
         {
+            // Warp builds its own reduced material. Preparing an unused source pyramid wastes a full-image pass.
+            if (layer.HasWarp || !document.IsEffectivelyVisible(layer)) continue;
             foreach (var bitmap in new[] { layer.Pixels, layer.Mask })
             {
                 if (bitmap == null || IsLive(bitmap)) continue;
@@ -218,6 +231,21 @@ public static partial class Pixels
     {
         int width = Math.Max(1, source.Width / 2), height = Math.Max(1, source.Height / 2), bpp = source.BytesPerPixel;
         var half = new SKBitmap(source.Info.WithSize(width, height));
+        if (source.ColorType == SKColorType.RgbaF32)
+        {
+            var input = new PixelBuffer(source); var output = new PixelBuffer(half);
+            int highLastX = source.Width - 1, highLastY = source.Height - 1;
+            Parallel.For(0, height, y =>
+            {
+                int y0 = Math.Min(y * 2, highLastY), y1 = Math.Min(y * 2 + 1, highLastY);
+                for (var x = 0; x < width; x++)
+                {
+                    int x0 = Math.Min(x * 2, highLastX), x1 = Math.Min(x * 2 + 1, highLastX);
+                    output.Write(x, y, (input.Read(x0, y0) + input.Read(x1, y0) + input.Read(x0, y1) + input.Read(x1, y1)) * .25f);
+                }
+            });
+            return half;
+        }
         byte* from = (byte*)source.GetPixels(), to = (byte*)half.GetPixels();
         int fromStride = source.RowBytes, toStride = half.RowBytes;
         int lastX = source.Width - 1, lastY = source.Height - 1;

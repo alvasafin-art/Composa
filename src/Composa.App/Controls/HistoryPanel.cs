@@ -171,7 +171,7 @@ public sealed class HistoryPanel : UserControl
         "Healing Brush" => Icons.HealingBrush,
         "Spot Healing Brush" or "Patch" or "Content-Aware Fill" or "New Retouch Layer" => Icons.Heal,
         "New Path" or "Edit Path" => Icons.Line,
-        "Add Smart Filter" or "Change Smart Filter" or "Delete Smart Filter" => Icons.Effects,
+        "Add Smart Filter" or "Change Smart Filter" or "Delete Smart Filter" or "Smart Filter Blending" or "Reorder Smart Filters" => Icons.Effects,
         "Liquify" => Icons.Liquify,
         "Blur" or "Fill" => Icons.Drop,
         "Smudge" => Icons.Smudge,
@@ -188,11 +188,15 @@ public sealed class HistoryPanel : UserControl
         "Magic Wand" => Icons.Wand,
         "Selection Brush" => Icons.SelectionBrush,
         "Assistant edit" or "Run Script" => Icons.Effects,
+        "Blending Options" => Icons.Layers,
+        "8 Bits/Channel" or "16 Bits/Channel" => Icons.Adjust,
+        "Assign Color Profile" or "Convert Color Profile" => Icons.Adjust,
         "Object Selection" or "Select Subject" => Icons.ObjectSelect,
+        "Select and Mask" => Icons.Mask,
         "Move Selection Pixels" or "Duplicate Selection" => Icons.Move,
         "Deselect" or "Color Range" => Icons.Marquee,
         "Crop" or "Trim" or "Canvas Size" or "Image Size" or "Reveal All" => Icons.Crop,
-        "Duplicate and Move" or "Move" or "Nudge" or "Scale" or "Rotate" or "Distort" or "Transform" or "Align Objects" or "Distribute Horizontal Gaps" or "Distribute Vertical Gaps" => Icons.Move,
+        "Duplicate and Move" or "Move" or "Nudge" or "Scale" or "Rotate" or "Distort" or "Transform" or "Warp" or "Align Objects" or "Distribute Horizontal Gaps" or "Distribute Vertical Gaps" => Icons.Move,
         _ when name.StartsWith("Select", StringComparison.Ordinal) || name.EndsWith("Selection", StringComparison.Ordinal) => Icons.Marquee,
         _ when name.Contains("Text", StringComparison.Ordinal) => Icons.Text,
         _ when name.Contains("Guide", StringComparison.Ordinal) => Icons.Ruler,
@@ -203,6 +207,7 @@ public sealed class HistoryPanel : UserControl
         // adjustment layer is "New Adjustment Layer".
         _ when FilterNames.Contains(name) || EffectNames.Any(effect => name.EndsWith(effect, StringComparison.Ordinal)) => Icons.Effects,
         _ when name.Contains("Adjustment", StringComparison.Ordinal) || AdjustmentNames.Contains(name) => Icons.Adjust,
+        _ when name.Contains("Channel", StringComparison.Ordinal) => Icons.Mask,
         _ => Icons.Layers
     };
 }

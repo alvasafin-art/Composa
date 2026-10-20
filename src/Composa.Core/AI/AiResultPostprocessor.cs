@@ -99,11 +99,11 @@ public static class AiResultPostprocessor
         // rather than abruptly stopping the feather at the transparent boundary.
         var overlap = Math.Clamp(blend, 0, Math.Max(1, Math.Min(64, Math.Min(emptyMask.Width, emptyMask.Height) / 16)));
         var mask = EditMask(emptyMask, overlap, overlap);
-        var coverage = mask.GetPixelSpan(); var empty = emptyMask.GetPixelSpan(); var pixels = context.GetPixelSpan();
+        var coverage = mask.GetPixelSpan(); var empty = emptyMask.GetPixelSpan(); var pixels = new PixelBuffer(context);
         // Empty canvas has no underlying color to feather into. Do not leave translucent holes
         // or a black matte there; conditioning stays soft, but fully requested empty pixels fill fully.
         for (var y = 0; y < mask.Height; y++) for (var x = 0; x < mask.Width; x++)
-            if (pixels[y * context.RowBytes + x * 4 + 3] == 0)
+            if (pixels.Read(x, y).A == 0)
                 coverage[y * mask.RowBytes + x] = empty[y * emptyMask.RowBytes + x];
         Pixels.Invalidate(mask); return mask;
     }
@@ -112,6 +112,24 @@ public static class AiResultPostprocessor
     {
         if (generated.Width != context.Width || generated.Height != context.Height || mask.Width != context.Width || mask.Height != context.Height)
             throw new ArgumentException("Final edit mask, context and result must share pixel coordinates.");
+        if (!Pixels.ProfileOf(generated).Equals(Pixels.ProfileOf(context)))
+        {
+            var depth = generated.ColorType == SKColorType.RgbaF32 || context.ColorType == SKColorType.RgbaF32 ? Model.ColorDepth.Sixteen : Model.ColorDepth.Eight;
+            using var converted = Pixels.ConvertWorking(generated, depth, Pixels.ProfileOf(context));
+            return Constrain(converted, context, mask);
+        }
+        if (generated.ColorType == SKColorType.RgbaF32 || context.ColorType == SKColorType.RgbaF32)
+        {
+            var precise = Pixels.NewWorkingColor(context.Width, context.Height, Model.ColorDepth.Sixteen, Pixels.ProfileOf(context));
+            var original = new PixelBuffer(context); var edited = new PixelBuffer(generated); var target = new PixelBuffer(precise);
+            for (var y = 0; y < precise.Height; y++)
+            for (var x = 0; x < precise.Width; x++)
+            {
+                var t = mask.GetPixel(x, y).Alpha / 255f;
+                target.Write(x, y, original.Read(x, y) * (1 - t) + edited.Read(x, y) * t);
+            }
+            Pixels.Invalidate(precise); return precise;
+        }
         var result = Pixels.Clone(context); var output = result.GetPixelSpan(); var source = generated.GetPixelSpan(); var cover = mask.GetPixelSpan();
         for (var y = 0; y < result.Height; y++)
         for (var x = 0; x < result.Width; x++)
@@ -132,6 +150,12 @@ public static class AiResultPostprocessor
     /// </summary>
     public static SKBitmap CompositedMask(SKBitmap generated, SKBitmap context, SKBitmap? support = null, SKBitmap? alphaEditRegion = null)
     {
+        if (!Pixels.IsSrgb8(generated) || !Pixels.IsSrgb8(context))
+        {
+            using var resultDisplay = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
+            using var contextDisplay = !Pixels.IsSrgb8(context) ? Pixels.DisplayCopy(context) : null;
+            return CompositedMask(resultDisplay ?? generated, contextDisplay ?? context, support, alphaEditRegion);
+        }
         if (generated.Width != context.Width || generated.Height != context.Height)
             throw new ArgumentException("A composited result must match the original canvas dimensions.");
         if (support != null && (support.Width != context.Width || support.Height != context.Height)) throw new ArgumentException("Mask support must match the canvas.");
@@ -164,6 +188,12 @@ public static class AiResultPostprocessor
     public static SKBitmap MatchRemoval(SKBitmap generated, SKBitmap context, SKBitmap mask, long seed,
         SKRectI? generatedArea = null, double strength = 1)
     {
+        if (!Pixels.IsSrgb8(generated) || !Pixels.IsSrgb8(context))
+        {
+            using var resultDisplay = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
+            using var contextDisplay = !Pixels.IsSrgb8(context) ? Pixels.DisplayCopy(context) : null;
+            return MatchRemoval(resultDisplay ?? generated, contextDisplay ?? context, mask, seed, generatedArea, strength);
+        }
         if (generated.Width != context.Width || generated.Height != context.Height || mask.Width != context.Width || mask.Height != context.Height)
             return Pixels.Clone(generated);
 
