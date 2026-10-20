@@ -129,7 +129,7 @@ Beyond the macOS app, this version adds Ctrl-drag to move a layer with any tool,
 
 ## Download
 
-Every release publishes these on the [releases page](https://github.com/dvdstelt/Composa/releases), for x86-64 and arm64. None of them needs .NET installed.
+Every release publishes these on [this fork's releases page](https://github.com/alvasafin-art/Composa/releases), for x86-64 and arm64. None of them needs .NET installed.
 
 | Format | For | Notes |
 | --- | --- | --- |
@@ -188,7 +188,7 @@ That installs under `~/.local`, so it needs no root. Set `PREFIX` to install els
 
 Composa checks once a day whether a newer version has been released, and shows a dismissable strip when there is one. It never downloads or installs anything: the only action it offers is opening the release page in your browser.
 
-The check is a single anonymous `GET` to `https://api.github.com/repos/dvdstelt/Composa/releases/latest`. It sends no version number, no identifier, no machine details and no telemetry of any kind, and GitHub sees only what any visitor to that URL would show. If the request fails, nothing is reported and nothing is retried until the next day.
+The check is a single anonymous `GET` to `https://api.github.com/repos/alvasafin-art/Composa/releases/latest`. It sends no version number, no identifier, no machine details and no telemetry of any kind, and GitHub sees only what any visitor to that URL would show. If the request fails, nothing is reported and nothing is retried until the next day. This endpoint lists stable releases; TEST previews are available on the fork's releases page.
 
 Turn it off under **Help > Check for Updates Automatically**, or set `COMPOSA_DISABLE_UPDATE_CHECK=1`, which is there so a distribution packager can switch it off without patching code. **Help > Check for Updates** still works when the automatic check is off.
 

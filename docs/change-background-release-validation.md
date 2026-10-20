@@ -25,6 +25,8 @@ Evidence for this release is confined to `artifacts/change-background-release`; 
 
 Core regressions cover changed silhouettes outside the old footprint, disconnected neighbors, preserved holes/context, immutable inputs, mismatched grids and cancellation. App contracts cover local and partner paths, atomic second-pass failure and failed isolation. Paid-provider image quality is not tested by these simulated contracts.
 
+Full local validation after the fix: **848 Core and 705 App passed**. Sixteen opt-in App checks were skipped in that ordinary run; the two photographic Change Background runs above were executed separately. The existing application output/model directory was reused, rather than recreating large test build/model copies.
+
 The release gate includes full Core/App checks, Linux/Windows CI and all twelve platform packages plus their checksum manifest. The Windows x64 release job extracts its actual portable archive, verifies version and bundled model presence, waits for the editor's UI event loop and checks clean shutdown. ARM64 packages are built but their Windows runtime is not exercised on the x64 runner.
 
 Generic generation can still invent scene details or unsuitable lighting. Object isolation is not a universal semantic guarantee for heavily occluded, transparent, duplicated or substantially relocated subjects. The broader audit's Artboards, Actions/batch, Selective Color, editable fill layers, soft proof and remaining acceptance corpus are deferred; see [the implementation ledger](rgb-implementation.md).

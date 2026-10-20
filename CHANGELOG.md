@@ -10,6 +10,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 - Change Background now segments the actual temporary foreground object after the model arranges the scene. Cleanup covers both its generated silhouette and the original PNG footprint, so a changed pose/size cannot leave a duplicate product behind the unchanged source. Disconnected neighboring objects remain context. Local SAM is verified before generation; unreliable isolation, cancellation or a failed second pass leaves the document untouched.
 - PSD preserves synthetic bold/italic styles using the installed PostScript face identity, and the Type bar follows newly selected/created text layers.
+- Release links and stable-update checks use this fork rather than the original upstream project. TEST previews remain manual downloads from the releases page.
 
 ### Added
 
