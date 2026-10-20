@@ -295,7 +295,7 @@ public sealed partial class MainWindow
             return item;
         }
         scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
-        Top("_Window", PanelToggle("Channels"), PanelToggle("History"));
+        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
             Item("Check for Updates…", () => _ = CheckForUpdatesNow(), needsDocument: false),
@@ -500,6 +500,7 @@ public sealed partial class MainWindow
         // A slider field that was just dragged keeps the keys that step or jump its value; letters still reach the tool shortcuts.
         if (focused is Controls.SliderField && e.Key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Home or Key.End) return;
         if (focused is ComboBox && session?.WarpEdit != null && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
+        if (navigator.OwnsPanKeys(focused) && e.Key is Key.Up or Key.Down or Key.Left or Key.Right) return;
 
         if (canvas.HandleKeyDown(e)) { e.Handled = true; return; }
         // While text is being typed, letters are text, not tool keys or shortcuts; the key stays unhandled so the

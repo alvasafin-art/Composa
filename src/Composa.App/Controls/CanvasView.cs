@@ -183,6 +183,29 @@ public sealed partial class CanvasView : Control
     public Point ToScreen(SKPoint p) => new(origin.X + p.X * UnitsPerPixel, origin.Y + p.Y * UnitsPerPixel);
     public SKPoint ToDocument(Point p) => new((float)((p.X - origin.X) / UnitsPerPixel), (float)((p.Y - origin.Y) / UnitsPerPixel));
 
+    /// <summary>The image area of the viewport, excluding rulers, in document coordinates.</summary>
+    public SKRect VisibleDocumentRect
+    {
+        get
+        {
+            if (session == null) return SKRect.Empty;
+            var a = ToDocument(new Point(RulerInset, RulerInset)); var b = ToDocument(new Point(Bounds.Width, Bounds.Height));
+            return SKRect.Intersect(new(a.X, a.Y, b.X, b.Y), new(0, 0, session.Document.Width, session.Document.Height));
+        }
+    }
+    public SKPoint ViewportCenter => ToDocument(new Point((RulerInset + Bounds.Width) / 2, (RulerInset + Bounds.Height) / 2));
+
+    /// <summary>Navigator panning keeps as much of the image visible as the viewport permits; it is view state only.</summary>
+    public void CenterOn(SKPoint point)
+    {
+        if (session == null || IsDragging || !float.IsFinite(point.X) || !float.IsFinite(point.Y)) return;
+        var w = Math.Max(1, Bounds.Width - RulerInset) / UnitsPerPixel; var h = Math.Max(1, Bounds.Height - RulerInset) / UnitsPerPixel;
+        double Center(double value, double viewport, int size) => viewport >= size ? size / 2d : Math.Clamp(value, viewport / 2, size - viewport / 2);
+        var x = Center(point.X, w, session.Document.Width); var y = Center(point.Y, h, session.Document.Height);
+        origin = new Point((RulerInset + Bounds.Width) / 2 - x * UnitsPerPixel, (RulerInset + Bounds.Height) / 2 - y * UnitsPerPixel);
+        ClampOrigin(); InvalidateVisual(); ViewChanged?.Invoke();
+    }
+
     public void Fit()
     {
         if (!FitCore()) return;

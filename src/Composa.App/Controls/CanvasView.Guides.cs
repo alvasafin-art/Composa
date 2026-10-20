@@ -29,6 +29,7 @@ public sealed partial class CanvasView
         else if (!Rulers && rulersWereShown) origin -= new Vector(RulerThickness, RulerThickness);
         ClampOrigin();
         InvalidateVisual();
+        ViewChanged?.Invoke();
     }
 
     /// <summary>Which ruler a control point lies on, if any: the top strip makes horizontal guides, the left one vertical.</summary>

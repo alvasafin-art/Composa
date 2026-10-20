@@ -22,6 +22,8 @@ public sealed class SliderField : Control
     public const double DragThreshold = 3;
     /// <summary>How much slower the value moves under the pointer while Alt is held.</summary>
     public const double FineScale = 0.1;
+    /// <summary>For positive ranges spanning several orders of magnitude, such as zoom. Typing and key steps stay in the displayed units.</summary>
+    public bool Logarithmic { get; init; }
 
     private static readonly IBrush FieldBrush = new SolidColorBrush(Color.Parse("#1F1F1F"));
     private static readonly IBrush FillBrush = new SolidColorBrush(Color.Parse("#2E4A6B"));
@@ -200,7 +202,7 @@ public sealed class SliderField : Control
         context.DrawRectangle(FieldBrush, null, outline, radius, radius);
         if (!editing)
         {
-            var fraction = max > min ? (value - min) / (max - min) : 0;
+            var fraction = max > min ? Logarithmic && min > 0 ? Math.Log(value / min) / Math.Log(max / min) : (value - min) / (max - min) : 0;
             var fillWidth = Math.Round(bounds.Width * Math.Clamp(fraction, 0, 1));
             using (context.PushClip(new RoundedRect(outline, radius)))
             {
@@ -278,11 +280,12 @@ public sealed class SliderField : Control
             lastX = pressAt.X;
             InvalidateVisual();
         }
-        var unitsPerPixel = (max - min) / Math.Max(1, Bounds.Width);
+        var logarithmic = Logarithmic && min > 0 && max > min;
+        var unitsPerPixel = (logarithmic ? 1 : max - min) / Math.Max(1, Bounds.Width);
         var scale = e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? FineScale : 1;
         dragTravel += (position.X - lastX) * unitsPerPixel * scale;
         lastX = position.X;
-        SetFromUser(dragStart + dragTravel);
+        SetFromUser(logarithmic ? dragStart * Math.Pow(max / min, dragTravel) : dragStart + dragTravel);
         e.Handled = true;
     }
 

@@ -25,6 +25,7 @@ public sealed partial class MainWindow : Window
     private readonly LayersPanel layers = new() { Width = 296 };
     private readonly HistoryPanel history = new();
     private readonly ChannelsPanel channels = new();
+    private readonly NavigatorPanel navigator;
     /// <summary>The right-hand column: the Layers panel with the panels of the Window menu under it.</summary>
     private readonly SideDock dock;
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
@@ -111,7 +112,10 @@ public sealed partial class MainWindow : Window
         var channelsSection = new DockSection("Channels", channels, settings.Dock.GetValueOrDefault("Channels") ?? new DockPanelState { Visible = false, Height = 250 });
         channelsSection.Changed += () => { settings.Dock["Channels"] = channelsSection.State; settings.Save(); };
         // The column has the Layers panel's width, so a long step name is cut off rather than widening it.
-        dock = new SideDock(layers, channelsSection, historySection) { Width = layers.Width };
+        navigator = new NavigatorPanel(canvas);
+        var navigatorSection = new DockSection("Navigator", navigator, settings.Dock.GetValueOrDefault("Navigator") ?? new DockPanelState { Visible = false, Height = 220 });
+        navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
+        dock = new SideDock(layers, navigatorSection, channelsSection, historySection) { Width = layers.Width };
         AddAt(center, dock, 4);
         history.GoToRequested += GoToHistory;
 
@@ -302,6 +306,7 @@ public sealed partial class MainWindow : Window
         layers.Session = session;
         history.Session = session;
         channels.Session = session;
+        navigator.Session = session;
         welcome.IsVisible = session == null;
         RebuildTabs();
         RebuildOptions();

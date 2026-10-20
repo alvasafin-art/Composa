@@ -50,7 +50,7 @@ public sealed partial class MainWindow
     {
         displayDescription = description;
         if (DisplayProfile.Equals(profile)) return;
-        DisplayProfile = profile; canvas.DisplayProfile = profile; layers.DisplayProfile = profile; channels.DisplayProfile = profile;
+        DisplayProfile = profile; canvas.DisplayProfile = profile; layers.DisplayProfile = profile; channels.DisplayProfile = profile; navigator.DisplayProfile = profile;
         foreach (var reference in aiReferences) reference.UpdateDisplay(profile);
         RefreshAiReferenceUi();
         UpdateColors(); RebuildOptions();
