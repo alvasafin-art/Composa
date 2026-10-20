@@ -4,6 +4,23 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.1] - 2026-10-20 · TEST
+
+### Fixed
+
+- Change Background now segments the actual temporary foreground object after the model arranges the scene. Cleanup covers both its generated silhouette and the original PNG footprint, so a changed pose/size cannot leave a duplicate product behind the unchanged source. Disconnected neighboring objects remain context. Local SAM is verified before generation; unreliable isolation, cancellation or a failed second pass leaves the document untouched.
+- PSD preserves synthetic bold/italic styles using the installed PostScript face identity, and the Type bar follows newly selected/created text layers.
+
+### Added
+
+- RGB16 working precision across editing, rendering, history and native projects; 16-bit PNG/TIFF/PSD interchange, retained ICC profiles, explicit Assign/Convert and display conversion. Automatic monitor ICC is available on Windows; custom display ICC is portable.
+- Independent raster masks and transforms, Density/Feather, explicit Normal/Pass Through groups, Blend If and Fill; Smart Filter masks, ordering, opacity/blend; linked Smart Objects with revision/conflict checks.
+- RGB/alpha channel editing, photographic Select and Mask with bundled ViTMatte/decontamination, retained Warp meshes and original-source Liquify with Freeze/Thaw/Reconstruct.
+- Editable hue ranges, Channel Mixer presets, high precision High Pass and embedded 1D/3D Cube LUTs with explicit RGB space.
+- Color-managed Navigator, command search, Canvas Only, layer search by name/tag/type and saved panel workspaces.
+
+Native projects now use CMPS format 13; older builds cannot open newly saved projects. This TEST preview ships the completed stages. Artboards, Actions/batch, editable fill layers, Selective Color, soft proof and the rest of the broader Photoshop-replacement audit are deferred; this release does not claim Photoshop parity or universal AI scene quality. Validation and limits: `docs/rgb-implementation.md` and `docs/change-background-release-validation.md`.
+
 ## [1.2.1-preview.30] - 2026-10-15 · TEST
 
 ### Fixed

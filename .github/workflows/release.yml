@@ -122,6 +122,43 @@ jobs:
           test -n "$(find dist -name '*-${{ matrix.rid }}.zip')"       || { echo "no zip";       exit 1; }
           test -n "$(find dist -name '*-${{ matrix.rid }}-setup.exe')" || { echo "no installer"; exit 1; }
 
+      # Exercise the archive that will be attached, on a native x64 runner. Keeping this on CI
+      # avoids another large local download/extraction merely to check the release executable.
+      - name: Smoke test the Windows portable archive
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        env:
+          EXPECTED_TAG: ${{ github.event.release.tag_name || inputs.draft_tag }}
+        run: |
+          $archives = @(Get-ChildItem dist -Filter '*-win-x64.zip' -File)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one Windows x64 archive.' }
+          $archive = $archives[0]
+          $smokeRoot = Join-Path $env:RUNNER_TEMP ('composa-smoke-' + [guid]::NewGuid().ToString('N'))
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $smokeRoot
+          $executables = @(Get-ChildItem $smokeRoot -Recurse -Filter composa.exe -File)
+          if ($executables.Count -ne 1) { throw 'Expected exactly one portable editor executable.' }
+          $exe = $executables[0]
+          $folder = Split-Path $exe.FullName
+          $version = (Get-Item (Join-Path $folder 'composa.dll')).VersionInfo.ProductVersion.Split('+')[0]
+          if ($env:EXPECTED_TAG -and $version -ne $env:EXPECTED_TAG.TrimStart('v')) { throw "Wrong package version: $version" }
+          foreach ($model in @('efficient_sam_vits_encoder.onnx', 'efficient_sam_vits_decoder.onnx', 'vitmatte_small.onnx')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $folder ('models/' + $model)))) { throw "Missing bundled model: $model" }
+          }
+          $app = Start-Process -FilePath $exe.FullName -WorkingDirectory $folder -WindowStyle Hidden -PassThru
+          try {
+            if (-not $app.WaitForInputIdle(30000)) { throw 'The portable editor did not reach its UI event loop.' }
+            Start-Sleep -Seconds 2
+            $app.Refresh()
+            if ($app.HasExited) { throw "The portable editor exited on startup: $($app.ExitCode)" }
+            Write-Host "Portable editor $version started from the final archive."
+            if (-not $app.CloseMainWindow() -or -not $app.WaitForExit(10000)) { throw 'The portable editor did not close cleanly.' }
+            if ($app.ExitCode -ne 0) { throw "The portable editor exited with code $($app.ExitCode)" }
+          } finally {
+            $app.Refresh()
+            if (-not $app.HasExited) { $app.Kill(); $app.WaitForExit() }
+            $app.Dispose()
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: composa-${{ matrix.rid }}

@@ -12,6 +12,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
 {
     private readonly Func<string> serverUrl;
     private readonly Func<string, IComfyConnection> clientFactory;
+    private readonly Func<SceneEditInput, SKBitmap, CancellationToken, SKBitmap> sceneSubjectFinder;
+    private readonly bool requireSceneSubjectModels;
     public EngineCatalog Engines { get; }
     public IReadOnlyList<PromptPreset> Presets { get; }
     public EngineProfile? SelectedEngine { get; set; }
@@ -46,10 +48,13 @@ public sealed partial class AiTaskService : IAiTaskRunner
 
     public AiTaskService(Func<string> serverUrl, string engineRoot) : this(serverUrl, engineRoot, url => new ComfyClient(url)) { }
 
-    internal AiTaskService(Func<string> serverUrl, string engineRoot, Func<string, IComfyConnection> clientFactory)
+    internal AiTaskService(Func<string> serverUrl, string engineRoot, Func<string, IComfyConnection> clientFactory,
+        Func<SceneEditInput, SKBitmap, CancellationToken, SKBitmap>? sceneSubjectFinder = null)
     {
         this.serverUrl = serverUrl;
         this.clientFactory = clientFactory;
+        this.sceneSubjectFinder = sceneSubjectFinder ?? SceneBackgroundSubject.Locate;
+        requireSceneSubjectModels = sceneSubjectFinder == null;
         Engines = new EngineCatalog(engineRoot);
         Presets = AppPromptPresets.Load(Path.Combine(Directory.GetParent(engineRoot)?.FullName ?? engineRoot, "presets"));
         SelectedEngine = Engines.Profiles.FirstOrDefault();

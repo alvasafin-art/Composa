@@ -68,7 +68,7 @@ public class PartnerImageTests
             """ };
         return new() { Version = "1.0", NodeTypes = Pack().RequiredNodeTypes.ToHashSet(), NodeDefinitions = new() { ["OpenAIGPTImageNodeV2"] = definitions } };
     }
-    internal static AiTaskService Service(Connection connection, bool key = true) => new(() => "http://localhost:8188", Catalog().Root, _ => connection)
+    internal static AiTaskService Service(Connection connection, bool key = true) => new(() => "http://localhost:8188", Catalog().Root, _ => connection, (input, _, _) => Pixels.Clone(input.ObjectAlpha))
         { SelectedEngine = Pack(), ApiKey = () => key ? "test-only-comfy-key" : null };
 
     [Fact]
