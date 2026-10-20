@@ -151,7 +151,7 @@ public sealed partial class MainWindow
             Item("Flip Canvas Horizontal", () => session!.FlipCanvas(true)),
             Item("Flip Canvas Vertical", () => session!.FlipCanvas(false)));
 
-        Top("F_ilter", new object[] { Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
+        Top("F_ilter", new object[] { Item("Liquify…", () => _ = Liquify(), enabled: () => session!.CanLiquify), Line(), Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
             .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels))).ToArray());
 
         Top("_AI",

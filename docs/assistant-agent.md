@@ -33,6 +33,12 @@ changing the person's active layer. `get_document_state` includes existing Warp 
 the layer's control bounds. Source masks stay editable inside the smart object; a new outer mask remains above
 Warp and can be painted at the visible pointer position.
 
+`liquify_layer` accepts ordered push/reconstruct/freeze/thaw strokes in canvas coordinates. Protection and
+reconstruction operate on one sparse displacement field; colors are sampled from the immutable original.
+`restoreAll` resets distortion, `thawAll` removes local protection. The current selection protects unselected
+pixels. One call commits one Undo step and preserves the active layer/channel target; a changed document
+rejects the background result. Live content requires editing its smart source or an explicit rasterization.
+
 `AgentCapabilityTests` checks schema parity/discovery, live tool promotion, whole JSON receipts, target identity/pagination, batch filtering/order/stepping, all-target validation, independent final verification, repair/recheck, verified no-ops, inspect-only safety and script memory accounting. `McpTests` invokes inspection, verification, querying and batch editing through the real stdio bridge and per-test pipe. `get_script_api` returns the complete small reference in one call, without fragment pagination.
 
 `AgentAcceptanceTests` runs the production agent against a real local model and grades editor data, not the model's summary:

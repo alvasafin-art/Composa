@@ -17,6 +17,7 @@ internal sealed class MaskRefineView(int pixelWidth, int pixelHeight) : Control
     private bool fit = true, painting, panning;
     private readonly List<(SKPoint From, SKPoint To)> liveStroke = [];
     public double BrushSize { get; set; } = 30;
+    public bool ShowStrokeOverlay { get; set; } = true;
     public event Action<SKPoint, SKPoint, bool>? Stroke;
     public event Action? StrokeStarted, StrokeEnded;
     public double Zoom => zoom;
@@ -41,7 +42,7 @@ internal sealed class MaskRefineView(int pixelWidth, int pixelHeight) : Control
         {
             if (bitmap != null) context.DrawImage(bitmap, new Rect(origin, new Size(pixelWidth * zoom, pixelHeight * zoom)));
             var strokePen = new Pen(new SolidColorBrush(Color.FromArgb(100, 120, 180, 255)), Math.Max(1, BrushSize * zoom), lineCap: PenLineCap.Round);
-            foreach (var segment in liveStroke) context.DrawLine(strokePen, ToView(segment.From), ToView(segment.To));
+            if (ShowStrokeOverlay) foreach (var segment in liveStroke) context.DrawLine(strokePen, ToView(segment.From), ToView(segment.To));
             if (IsPointerOver && !panning)
             {
                 var radius = BrushSize * zoom / 2;

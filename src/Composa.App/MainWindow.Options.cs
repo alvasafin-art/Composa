@@ -90,6 +90,11 @@ public sealed partial class MainWindow
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
                     Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v), Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
                 if (s.Tool == Tool.SpotHealing) Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
+                if (s.Tool == Tool.Smear && s.SmearMode == SmearMode.Liquify)
+                {
+                    var workspace = Ui.TextButton("Freeze / Reconstruct…", () => _ = Liquify()); workspace.Name = "LiquifyWorkspace";
+                    workspace.IsEnabled = s.CanLiquify; Add(workspace); refreshOptions += () => workspace.IsEnabled = s.CanLiquify;
+                }
                 refreshOptions += () =>
                 {
                     size.Value = Math.Min(500, s.Brush.Size);
