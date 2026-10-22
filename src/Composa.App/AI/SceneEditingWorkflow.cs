@@ -168,8 +168,12 @@ internal sealed class SceneEditingWorkflow : IDisposable
         // The complete composited image supplies the scene. Do not turn this targeted edit into
         // a second scene description or append generic workflow locks/negative instructions.
         var prompt="integrate object into scene";
-        if(!string.IsNullOrWhiteSpace(request.Prompt)&&!request.Prompt.Trim().Equals(prompt,StringComparison.OrdinalIgnoreCase)) prompt+=". "+request.Prompt.Trim();
-        if(request.Scene.LightAngle is { } angle) prompt+=FormattableString.Invariant($". Light from {angle:0} degrees counterclockwise from image right.");
+        var settings=request.Scene.Normalized();
+        prompt+=settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows
+            ? ". Add a natural contact and cast shadow connected to the object's base, matching the scene lighting. Keep the object in its original position and preserve the surrounding background."
+            : ". Match the object's lighting without adding a shadow outside it. Keep the object in its original position and preserve the surrounding background.";
+        if(!string.IsNullOrWhiteSpace(request.Prompt)&&!request.Prompt.Trim().Equals("integrate object into scene",StringComparison.OrdinalIgnoreCase)) prompt+=". "+request.Prompt.Trim();
+        if(settings.LightAngle is { } angle) prompt+=FormattableString.Invariant($". Light from {angle:0} degrees counterclockwise from image right.");
         return prompt;
     }
     internal static string CleanupPrompt(AiTaskRequest request)=>"Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.";

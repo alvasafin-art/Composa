@@ -21,6 +21,8 @@ The model menu offers **SAM Quality** (local EfficientSAM S) and installed **BiR
 
 SAM Quality uses ONNX Runtime locally and requires no Python, PyTorch, ComfyUI, runtime download or GPU. S adds about 101 MiB of weights. Sessions load on first use and remain cached; one image embedding speeds repeated prompts. Selection consumes additional CPU/RAM while running; idle selection performs no inference. BiRefNet runs on the configured ComfyUI server.
 
+Enable **Precise edges** beside the model picker to refine SAM's result automatically with the already bundled ViTMatte. It retains soft alpha for hair and translucent edges, applies as one Undo step and preserves original pixels. This local option works for point/rectangle prompts and Select Subject; it takes longer and is remembered between tools, tabs and launches. Cancel or changing the source discards both stages. The default quick mode remains crisp. No additional models are bundled.
+
 SAM selections receive their own committed mask; inference temporaries are disposed separately. Real encoder/decoder tests cover portrait and landscape object geometry, and selection history survives inference cleanup. Folder choices (including Bucket instead of Gradient, Eraser, marquee and lasso variants) follow document tabs, survive closing all documents, and are saved between launches.
 
 The floating AI selection panel collapses to its draggable header. This preference survives new selections, document tabs and relaunch, until its arrow is clicked again. Selection Brush and Object Selection AI expose Expand, Contract and Feather through **Modify**. Layer flip buttons sit after the alignment group. Foreground/background swatches follow the tool buttons, whose height adapts to ordinary window heights.

@@ -4,6 +4,20 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.2] - 2026-10-22 · TEST
+
+### Added
+
+- Local Object Selection has a remembered **Precise edges** option: EfficientSAM identifies the object and the already bundled ViTMatte refines the boundary automatically, including soft alpha. Point, rectangle and Select Subject results support selection modes and one Undo step. Cancellation or changed source/layer/tab discards both stages. No new model weights are included.
+
+### Fixed
+
+- Harmonize explicitly requests a connected contact/cast shadow again, while respecting disabled shadows and Light Only. Original pixels and separate editable output are retained.
+- Photoshop exchange hands PNG/PSD to the running Photoshop executable instead of synchronous COM Open. Actual Photoshop panel behavior still requires verification on the installed version.
+- Layer name/tag search, kind filtering and reset share one compact row. Scene dialogs move secondary lighting/shadow/FLUX controls into Advanced; cancelling the main prompt discards nested Advanced drafts.
+
+The previous archive increase is accounted for by the existing ViTMatte model for Select and Mask. This update reuses it. CPU performance and edge quality depend on the image; manual Select and Mask corrections remain available. See `docs/object-selection-models.md` and `docs/feedback-fixes.md`.
+
 ## [1.3.0-preview.1] - 2026-10-20 · TEST
 
 ### Fixed

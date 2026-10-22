@@ -48,7 +48,10 @@ public class SceneEditingTests
         var catalog=new EngineCatalog(Engines);var engine=catalog.Find("flux2-klein-intel-xpu")!;var graph=catalog.ReadWorkflow(engine,engine.Workflow("sceneEdit"));
         native.Bind(graph,"source.png","mask.png",request with {AdditionalPrompt="generic instructions must not override this edit"});SceneEditingWorkflow.References(graph,new Dictionary<string,string>());
         Assert.Equal("positive",graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
-        Assert.Equal("integrate object into scene",graph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
+        var prompt=graph["prompt"]!["inputs"]!["text"]!.GetValue<string>();
+        Assert.StartsWith("integrate object into scene",prompt);
+        Assert.Contains("contact and cast shadow",prompt);
+        Assert.DoesNotContain("generic instructions",prompt);
         Assert.Equal("",graph["negative"]!["inputs"]!["text"]!.GetValue<string>());
         using var plate=new SceneBackgroundPlate(input,input.Before,8);
         var cleanup=request with {Task=AiTaskKind.ChangeBackground};using var cleanupNative=new SceneEditingWorkflow(input,cleanup,plate.Image,plate.Mask);
@@ -60,6 +63,21 @@ public class SceneEditingTests
         Assert.Equal(255,cleanupNative.Mask.GetPixel(cleanupNative.ContentSize.Width/2,cleanupNative.ContentSize.Height/2).Alpha);
         Assert.Equal(1,cleanupGraph["sampler"]!["inputs"]!["denoise"]!.GetValue<double>());
         Assert.Equal("Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.",cleanupGraph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
+    }
+    [Fact]
+    public void Harmonize_respects_shadow_controls_for_native_and_paid_workflows()
+    {
+        foreach(var task in new[] {AiTaskKind.Harmonize,AiTaskKind.MatchToScene})
+        foreach(var shadows in new[] {true,false})
+        foreach(var mode in new[] {SceneMatchMode.LightAndShadows,SceneMatchMode.LightOnly})
+        {
+            var request=new AiTaskRequest {Task=task,Scene=new() {AddShadows=shadows,MatchMode=mode},Prompt="Preserve the label"};
+            foreach(var prompt in new[] {SceneEditingWorkflow.HarmonizePrompt(request),SceneEditingWorkflow.Prompt(request)})
+            {
+                Assert.Equal(shadows&&mode==SceneMatchMode.LightAndShadows,prompt.Contains("cast shadow",StringComparison.OrdinalIgnoreCase));
+                Assert.Contains("Preserve the label",prompt);
+            }
+        }
     }
     [Fact]
     public void Scene_input_keeps_every_canvas_edge_without_stretching_objects_or_cropping_the_context()
@@ -114,6 +132,19 @@ public class SceneEditingTests
         Assert.Equal(3,s.ActiveLayer.Children.Count); Assert.Single(s.ActiveLayer.Children,layer=>layer.Visible);
         s.Undo(); Assert.Equal(state,s.History.CurrentId); Assert.Equal(before.Bytes,s.Flatten().Bytes);
     }
+    [Fact]
+    public async Task Harmonize_inserts_the_generated_shadow_as_a_separate_undoable_layer()
+    {
+        var session=Scene();var original=session.ActiveLayer!;var bytes=original.Pixels!.Bytes;var state=session.History.CurrentId;
+        var connection=new Connection {AddShadow=true};var service=Service(connection);
+        await service.RunAsync(new EditorCommandService(session),new() {Task=AiTaskKind.Harmonize,
+            Settings=new() {Width=100,Height=80,Values=new() {["imageOriginalSize"]=false}}},TestContext.Current.CancellationToken);
+        var shadow=Assert.Single(session.Document.AllLayers(),layer=>layer.Tags.Contains("scene-shadow"));
+        Assert.True(Composa.Rendering.Pixels.ContentBounds(shadow.Pixels!).Width>0);
+        Assert.Contains(session.Document.AllLayers(),layer=>layer.Tags.Contains("scene-object"));
+        Assert.Equal(bytes,original.Pixels.Bytes);
+        session.Undo();Assert.Equal(state,session.History.CurrentId);Assert.True(session.Document.Find(original.Id)!.Visible);
+    }
     [AvaloniaTheory]
     [InlineData("matchToScene({scene:{denoise:0.7}})")]
     [InlineData("relight('soft studio',{scene:{preset:'SoftboxLeft'}})")]
@@ -127,6 +158,7 @@ public class SceneEditingTests
     }
     [AvaloniaTheory]
     [InlineData(AiTaskKind.MatchToScene)]
+    [InlineData(AiTaskKind.Harmonize)]
     [InlineData(AiTaskKind.Relight)]
     [InlineData(AiTaskKind.ChangeBackground)]
     public async Task Scene_dialogs_offer_practical_controls_and_cancel_without_saving(AiTaskKind task)
@@ -139,12 +171,43 @@ public class SceneEditingTests
             var dialog=Assert.Single(w.OwnedWindows);
             var labels=dialog.GetVisualDescendants().OfType<TextBlock>().Select(label=>label.Text).ToArray();
             if(task==AiTaskKind.Relight) Assert.Contains("Lighting preset",labels);
-            if(task==AiTaskKind.MatchToScene) Assert.Contains("Mode",labels);
-            if(task==AiTaskKind.ChangeBackground) Assert.Contains("Preserve subject",labels);
+            Assert.DoesNotContain("Mode",labels);
+            Assert.DoesNotContain("Local FLUX",labels);
+            Assert.DoesNotContain("Shadow area",labels);
+            Assert.DoesNotContain("Preserve subject",labels);
             Assert.True(Screenshots.Save(dialog,"scene-dialog-"+task)); dialog.Close(false); Assert.Null(await pending);
             Assert.Equal(before,JsonSerializer.Serialize(w.Settings.AiOperations));
         }
         finally {w.Close();}
+    }
+    [AvaloniaFact]
+    public async Task Scene_advanced_edits_return_to_the_prompt_and_cancel_discards_the_draft()
+    {
+        var window=new MainWindow {Width=1280,Height=900};window.Settings.CheckForUpdates=false;window.Show();
+        try
+        {
+            var settings=new Settings();var before=JsonSerializer.Serialize(settings.AiOperations);
+            var pending=AiDialogs.Prompt(window,AiTaskKind.Harmonize,settings,100,80,service:window.AiTasks);Dispatcher.UIThread.RunJobs();
+            var prompt=Assert.Single(window.OwnedWindows);
+            async Task EditAdvanced(bool change)
+            {
+                prompt.GetVisualDescendants().OfType<Button>().Single(b=>b.Content as string=="Advanced…")
+                    .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                var advanced=Assert.Single(prompt.OwnedWindows);
+                var shadows=advanced.GetVisualDescendants().OfType<CheckBox>().Single(c=>c.Content as string=="Create a separate shadow layer");
+                if(change) shadows.IsChecked=false;
+                else Assert.False(shadows.IsChecked);
+                Assert.Contains(advanced.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text=="FLUX denoise");
+                Assert.True(Screenshots.Save(advanced,"harmonize-advanced-compact"));
+                advanced.Close(true);await Task.Yield();Dispatcher.UIThread.RunJobs();
+            }
+            await EditAdvanced(true);await EditAdvanced(false);
+            Assert.Equal(before,JsonSerializer.Serialize(settings.AiOperations));
+            prompt.Close(false);Assert.Null(await pending);
+            Assert.Equal(before,JsonSerializer.Serialize(settings.AiOperations));
+        }
+        finally {window.Close();}
     }
     private static AiTaskService Service(Connection connection)
     {var service=new AiTaskService(()=>"http://localhost:8188",Engines,_=>connection,(input,_,_)=>Pixels.Clone(input.ObjectAlpha));service.SelectedEngine=service.Engines.Find("flux2-klein-intel-xpu");return service;}
@@ -152,7 +215,7 @@ public class SceneEditingTests
     {
         public ComfyServerAddress Address=>ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout {get;set;}
-        public bool Fail,Cancel; public int FailAt,Uploads,Executions; private SKBitmap? source;
+        public bool Fail,Cancel,AddShadow; public int FailAt,Uploads,Executions; private SKBitmap? source;
         public Task<(ComfyServerInfo,ComfyServerCapabilities)> TestConnectionAsync(CancellationToken token=default)
         {
             var catalog=new EngineCatalog(Engines); var pack=catalog.Find("flux2-klein-intel-xpu")!;
@@ -167,7 +230,16 @@ public class SceneEditingTests
             Assert.Equal("sourceEncode",workflow["noiseMask"]!["inputs"]!["samples"]![0]!.GetValue<string>());
             return Task.FromResult(new ComfyExecutionResult("fixture",JsonDocument.Parse("{}"),[new("fixture.png","","output","save"),new("baseline.png","","output","baseline")]));
         }
-        public Task<SKBitmap> DownloadAsync(ComfyImageReference image,CancellationToken token=default)=>Task.FromResult(Pixels.Clone(source!));
+        public Task<SKBitmap> DownloadAsync(ComfyImageReference image,CancellationToken token=default)
+        {
+            var result=Pixels.Clone(source!);
+            if(AddShadow && image.NodeId=="save")
+            {
+                for(var y=53;y<67;y++)for(var x=30;x<58;x++)result.SetPixel(x,y,new(60,60,60));
+                Pixels.Invalidate(result);
+            }
+            return Task.FromResult(result);
+        }
         public void Dispose() {source?.Dispose();source=null;}
     }
 }

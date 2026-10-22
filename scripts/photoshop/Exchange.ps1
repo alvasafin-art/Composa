@@ -11,7 +11,6 @@ function Fail([string]$message) { throw $message }
 # Direct per-user pipe: no second Composa process, startup handshake race or polling.
 $needsBridge = $Direction -eq 'ToComposa' -or -not $ImagePath
 $pipe = $null; $writer = $null; $reader = $null
-$photoshop = $null; $openedDocument = $null
 try {
     $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
     $photoshopProcesses = @(Get-Process Photoshop -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId })
@@ -73,18 +72,24 @@ public static class ComposaExchangeWindows {
             $null = Request 'tools/call' @{name=$tool; arguments=@{path=$temporary}}
         }
         if (-not (Test-Path -LiteralPath $temporary -PathType Leaf)) { throw 'The image exchange file is missing.' }
-        try { $photoshop = [Runtime.InteropServices.Marshal]::GetActiveObject('Photoshop.Application') }
-        catch { $photoshop = New-Object -ComObject Photoshop.Application }
-        # Retain and explicitly release both COM wrappers. Never close the user's newly
-        # opened document or change Photoshop's dialog mode, tools or workspace.
-        $openedDocument = $photoshop.Open($temporary); $photoshop.Visible = $true
+        # Open through Photoshop's normal file handoff, outside its COM automation context.
+        # Avoid a synchronous automation call while Photoshop imports layered documents.
+        # Use the running instance's executable, not the default .psd/.png association.
+        $photoshopProcess = $photoshopProcesses | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+        if (-not $photoshopProcess) { $photoshopProcess = $photoshopProcesses | Select-Object -First 1 }
+        $photoshopExecutable = $photoshopProcess.Path
+        if (-not $photoshopExecutable -or -not (Test-Path -LiteralPath $photoshopExecutable -PathType Leaf)) { Fail 'Cannot locate the running Photoshop executable. Run both apps as the same Windows user without elevation.' }
+        $temporary = [IO.Path]::GetFullPath($temporary)
+        $handoff = Start-Process -FilePath $photoshopExecutable -ArgumentList ('"' + $temporary + '"') -WindowStyle Hidden -PassThru
+        if ($null -eq $handoff) { Fail 'Could not hand the file to Photoshop.' }
+        $handoff.Dispose()
         foreach ($process in $photoshopProcesses) {
             if ($process.MainWindowHandle -eq [IntPtr]::Zero) { continue }
             if ([ComposaExchangeWindows]::IsIconic($process.MainWindowHandle)) { [void][ComposaExchangeWindows]::ShowWindow($process.MainWindowHandle, 9) }
             [void][ComposaExchangeWindows]::SetForegroundWindow($process.MainWindowHandle)
             break
         }
-        $message = "Opened in Photoshop: $temporary"
+        $message = "Sent to Photoshop: $temporary"
     }
     if ($ReportPath) { [IO.File]::WriteAllText($ReportPath, $message, (New-Object Text.UTF8Encoding($false))) }
     $message
@@ -92,10 +97,5 @@ public static class ComposaExchangeWindows {
     if ($ReportPath) { [IO.File]::WriteAllText($ReportPath, ('ERROR: ' + $_.Exception.Message), (New-Object Text.UTF8Encoding($false))) }
     throw
 } finally {
-    foreach ($comReference in @($openedDocument, $photoshop)) {
-        if ($null -ne $comReference -and [Runtime.InteropServices.Marshal]::IsComObject($comReference)) {
-            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($comReference)
-        }
-    }
     if ($writer) { $writer.Dispose() }; if ($reader) { $reader.Dispose() }; if ($pipe) { $pipe.Dispose() }
 }
