@@ -12,7 +12,7 @@ namespace Composa.App.Dialogs;
 
 public sealed record AiPromptResult(string Prompt, int Width, int Height, long Seed, string? EngineId = null);
 
-public static class AiDialogs
+public static partial class AiDialogs
 {
     private static Border Section(string title, params Control[] controls) => new()
     {
@@ -197,7 +197,7 @@ public static class AiDialogs
         return true;
     }
 
-    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill, AiOperationSettings? initialProfile = null)
+    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill, AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null)
     {
         var paid = service?.SelectedEngine?.PaidApi == true;
         var profile = initialProfile ?? settings.OperationFor(service?.SelectedEngine?.Id, task, paid);
@@ -236,6 +236,9 @@ public static class AiDialogs
         if (service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
             note.Text += " Auto uses Lower VRAM on Intel: the text encoder runs on CPU and VAE works in tiles. This may take longer; Standard keeps normal server placement.";
         var extra = new StackPanel { Spacing = 9 };
+        var scene = profile.Scene.Normalized();
+        if (task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight || task == AiTaskKind.ChangeBackground && !paid)
+            extra.Children.Add(SceneAdvanced(task, scene, paid, value => scene = value));
         var lorasEnabled = profile.LorasEnabled;
         var loras = profile.Loras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
         if (paid)
@@ -260,16 +263,22 @@ public static class AiDialogs
             extra.Children.Add(rows);
             if (names.Count == 0) extra.Children.Add(Ui.Label("Connect / refresh models to read the server's LoRA list.", Palette.Secondary));
         }
-        var body = new ScrollViewer { Content = Ui.Column(12, form, extra, note), MaxHeight = Math.Clamp(owner.Bounds.Height - 160, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        if (task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight)
+            note.Text = "Lighting preserves the source silhouette. A separate shadow layer uses darkening generated near the subject's support. Undo restores the original.";
+        else if (task == AiTaskKind.ChangeBackground)
+            note.Text = "Two passes create the scene and remove the temporary generated subject. Your original subject stays on a separate layer. Paid models bill both passes.";
+        var body = new ScrollViewer { Content = Ui.Column(12, form, extra, note), MaxHeight = Math.Clamp((owner.Owner?.Bounds.Height ?? owner.Bounds.Height) - 160, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         if (!await new DialogWindow($"{task.DisplayName()} · Advanced", body).Ask(owner)) return false;
-        settings.SetOperation(service?.SelectedEngine?.Id, task, profile with
+        var updated = profile with
         {
+            Scene = scene.Normalized(),
             Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference, FluxMemory = fluxMemory,
             Seed = seed, VariantMode = mode, ApiQuality = quality,
             LorasEnabled = lorasEnabled, Loras = !paid && service?.SelectedEngine?.Lora.Supported == true
                 ? loras.Where(lora => lora.Name.Length > 0).ToList() : profile.Loras
-        });
-        settings.Save();
+        };
+        if (acceptDraft != null) acceptDraft(updated);
+        else { settings.SetOperation(service?.SelectedEngine?.Id, task, updated); settings.Save(); }
         return true;
     }
 
@@ -327,32 +336,9 @@ public static class AiDialogs
         var previousEngine = service?.SelectedEngine;
         if (service != null) service.SelectedEngine = service.EngineFor(task);
         var profile = settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true);
-        var sceneTask=task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
         var scene=profile.Scene.Normalized();
-        Action? sceneRefresh=null;
-        var sceneMode=Ui.Combo(Enum.GetValues<SceneMatchMode>(),scene.MatchMode,value=>value switch
-            {SceneMatchMode.LightAndShadows=>"Match light + separate shadow",SceneMatchMode.LightOnly=>"Match light only",_=>"Local tone and color · no AI"},value=>{scene=scene with {MatchMode=value};sceneRefresh?.Invoke();},300);
         var lighting=Ui.Combo(Enum.GetValues<RelightPreset>(),scene.Preset,SceneEditSettings.Name,value=>scene=scene with {Preset=value},300);
-        var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject · PNG / selection / SAM" : "Whole visible image",value=>scene=scene with {Scope=value},300);
-        var denoise=Ui.SliderField("Denoise",scene.Denoise,.1,1,value=>scene=scene with {Denoise=value},.01,"0.00",300);
-        var strength=Ui.SliderField("Strength",scene.Strength*100,0,100,value=>scene=scene with {Strength=value/100},1,"0",300,reset:100);
-        var reach=Ui.SliderField("Canvas reach",scene.ShadowReach*100,10,200,value=>scene=scene with {ShadowReach=value/100},1,"0",300,reset:100);
-        var preserve=new CheckBox {Content="Preserve source detail using a lighting map",IsChecked=scene.PreserveDetails};
-        preserve.IsCheckedChanged+=(_,_)=>scene=scene with {PreserveDetails=preserve.IsChecked==true};
-        var shadows=new CheckBox {Content="Extract a separate contact / cast shadow",IsChecked=scene.AddShadows};
-        shadows.IsCheckedChanged+=(_,_)=>scene=scene with {AddShadows=shadows.IsChecked==true};
-        var autoAngle=new CheckBox {Content="Use scene / preset light direction",IsChecked=scene.LightAngle==null};
-        var angle=Ui.AngleField("Light from",scene.LightAngle??135,0,360,value=>scene=scene with {LightAngle=value},300);
-        angle.IsEnabled=scene.LightAngle!=null;
-        autoAngle.IsCheckedChanged+=(_,_)=>{angle.IsEnabled=autoAngle.IsChecked!=true;scene=scene with {LightAngle=autoAngle.IsChecked==true ? null : ((StackPanel)angle).Children.OfType<Composa.App.Controls.AngleDial>().Single().Value};};
-        var sceneControls=Ui.Column(8);
-        if(task==AiTaskKind.MatchToScene) sceneControls.Children.Add(CanvasDialogs.Form(("Mode",sceneMode)));
-        if(task==AiTaskKind.Relight) sceneControls.Children.Add(CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope)));
-        if(task!=AiTaskKind.ChangeBackground) sceneControls.Children.Add(Ui.Column(8,CanvasDialogs.Form(("Effect",strength)),preserve,shadows,autoAngle,CanvasDialogs.Form(("Direction",angle),("Shadow area",reach))));
-        sceneControls.Children.Add(CanvasDialogs.Form(("Local FLUX",denoise)));
-        sceneControls.Children.Add(new TextBlock {Text=task==AiTaskKind.ChangeBackground
-            ? "Describe the environment, support surface and lighting: for example, a beige studio with a matte stone tabletop and soft window light. The editor supplies the object's placement. Two passes create the scene and its empty background plate. The original PNG stays separate; paid models bill both passes."
-            : "PNG alpha supplies the object mask; a selection can limit it. Otherwise SAM finds the subject. Only permitted floor darkening becomes a shadow layer. Lighting presets guide the model; they are not physical 3D light controls.",TextWrapping=Avalonia.Media.TextWrapping.Wrap,MaxWidth=430,Foreground=Palette.Secondary});
+        var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject" : "Whole visible image",value=>scene=scene with {Scope=value},300);
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
         var rememberedPrompt = task switch { AiTaskKind.GenerateImage => settings.GenerateImagePrompt, AiTaskKind.ImageEdit => settings.ImageEditPrompt, _ => "" };
         var prompt = new TextBox { Text = string.IsNullOrEmpty(initialPrompt) ? rememberedPrompt : initialPrompt,
@@ -407,15 +393,7 @@ public static class AiDialogs
         };
         void LoadProfile(AiOperationSettings next)
         {
-            var loadedScene=next.Scene.Normalized(); scene=loadedScene; sceneMode.SelectedIndex=(int)scene.MatchMode; lighting.SelectedIndex=(int)scene.Preset; scope.SelectedIndex=(int)scene.Scope;
-            denoise.Value=scene.Denoise; strength.Value=scene.Strength*100; reach.Value=scene.ShadowReach*100;
-            preserve.IsChecked=scene.PreserveDetails; shadows.IsChecked=scene.AddShadows;
-            foreach(var control in ((StackPanel)angle).Children)
-            {
-                if(control is Composa.App.Controls.AngleDial dial) dial.Value=loadedScene.LightAngle??135;
-                if(control is Composa.App.Controls.SliderField field) field.Value=loadedScene.LightAngle??135;
-            }
-            autoAngle.IsChecked=loadedScene.LightAngle==null; angle.IsEnabled=loadedScene.LightAngle!=null; scene=loadedScene;
+            scene=next.Scene.Normalized(); lighting.SelectedIndex=(int)scene.Preset; scope.SelectedIndex=(int)scene.Scope;
             profile = next; originalSize = next.OriginalSize; mp = ClosestMegapixels(next.Megapixels);
             variants = Math.Clamp(next.Variants, 1, 3); quality = next.ApiQuality;
             expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : next.ExpansionMode;
@@ -431,8 +409,7 @@ public static class AiDialogs
         var advanced = Ui.TextButton("Advanced…", () => { });
         advanced.Click += async (_, _) =>
         {
-            if (!await Advanced(dialog!, settings, service, task, CaptureProfile())) return;
-            LoadProfile(settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true));
+            await Advanced(dialog!, settings, service, task, CaptureProfile(), LoadProfile);
         };
         var modelHost = new StackPanel();
         if (service != null && service.Engines.Profiles.Where(pack => pack.Binding(task==AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task) != null).ToArray() is { Length: > 0 } packs)
@@ -454,9 +431,6 @@ public static class AiDialogs
             var toneOnly=task==AiTaskKind.MatchToScene && scene.MatchMode==SceneMatchMode.ToneAndColor;
             var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid && !toneOnly;
             prompt.IsEnabled=!toneOnly;
-            strength.IsEnabled=preserve.IsEnabled=shadows.IsEnabled=autoAngle.IsEnabled=reach.IsEnabled=!toneOnly;
-            angle.IsEnabled=!toneOnly && scene.LightAngle!=null;
-            denoise.IsEnabled=!paid && !toneOnly;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];
@@ -494,6 +468,9 @@ public static class AiDialogs
             cost.Text = toneOnly ? "Local Curves correction · no generation or Comfy credits" : paid ? estimate?.Label ?? "Paid API · estimate unavailable" : "Local generation · no Comfy credits";
             note.Text = nano ? "Nano Banana 2 · Gemini 3.1: 1K / 2K / 4K. Variants run sequentially and are billed individually. Undo does not refund credits."
                 : paid ? "GPT: 1:3–3:1, up to 3840 px / 8.29 MP. Quality affects detail, time and price. Undo does not refund credits."
+                : task == AiTaskKind.ChangeBackground ? "Your original subject stays on a separate layer. Paid models bill two passes."
+                : task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene ? "Match the subject to the scene. Shadow and lighting controls are in Advanced."
+                : task == AiTaskKind.Relight ? "Relight the subject or whole image. Fine controls are in Advanced."
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
                     ? "Fill only the selection with surrounding context. Existing canvas size is preserved; the expansion instruction is automatic."
                     : "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
@@ -505,7 +482,8 @@ public static class AiDialogs
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
         var promptSection = Section("Describe the result", prompt); promptSection.IsVisible = prompt.IsVisible;
         var content = Ui.Column(10, Section("Workflow", modelHost), promptSection);
-        if(sceneTask) content.Children.Insert(1,Section(task==AiTaskKind.ChangeBackground ? "Preserve subject" : "Lighting and scene",sceneControls));
+        if(task==AiTaskKind.Relight) content.Children.Insert(1,Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
+        if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText="Describe the background, surface and lighting";
         if (references != null) content.Children.Add(Section("Optional references", references.View));
         content.Children.Add(Section("Output", resolution, dimensions, qualityHost, cost));
         content.Children.Add(note);
@@ -521,7 +499,6 @@ public static class AiDialogs
                 { e.Handled = true; await references.Paste(prompt.IsVisible ? prompt : null); }
             }, RoutingStrategies.Tunnel);
         }
-        sceneRefresh=Refresh;
         RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => { if (prompt.IsVisible) prompt.Focus(); };
         bool accepted;
         EngineProfile? chosenEngine = null;

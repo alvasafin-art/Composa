@@ -24,6 +24,7 @@ public sealed class Settings
     public DisplayColorMode DisplayColorMode { get; set; } = DisplayColorMode.Automatic;
     public string? DisplayProfilePath { get; set; }
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.EfficientSamS;
+    public bool ObjectSelectionPreciseEdges { get; set; }
     public ToolPaletteSettings? ToolPalette { get; set; }
     public int PromptSelectionRevision { get; set; } = 1;
     public string? ObjectSelectionComfyModel { get; set; }

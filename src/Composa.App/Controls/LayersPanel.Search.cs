@@ -9,7 +9,7 @@ namespace Composa.App.Controls;
 public sealed partial class LayersPanel
 {
     private readonly TextBox search = new() { Watermark = "Find layers / #tag", MaxLength = 256, MinWidth = 0 };
-    private readonly ComboBox searchKind = new() { ItemsSource = new[] { "All kinds", "Pixels", "Text", "Shapes", "Adjustments", "Smart Objects", "Groups" }, SelectedIndex = 0, MinWidth = 0 };
+    private readonly ComboBox searchKind = new() { ItemsSource = new[] { "All kinds", "Pixels", "Text", "Shapes", "Adjustments", "Smart Objects", "Groups" }, SelectedIndex = 0, Width = 114, MinWidth = 0, MinHeight = 28, Height = 28, FontSize = 11, Padding = new Thickness(7, 2) };
     private readonly TextBlock searchStatus = new() { Foreground = Palette.Secondary, FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private HashSet<Guid>? filterRows;
     private bool IsFiltering => !string.IsNullOrWhiteSpace(search.Text) || searchKind.SelectedIndex > 0;
@@ -18,14 +18,16 @@ public sealed partial class LayersPanel
     {
         header.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
         header.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        header.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        var queryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 6, 0, 0) };
-        var clear = Ui.TextButton("Clear", () => { search.Text = ""; searchKind.SelectedIndex = 0; });
-        Grid.SetColumn(clear, 1); queryRow.Children.Add(search); queryRow.Children.Add(clear);
+        var queryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,6,Auto,4,Auto"), Margin = new Thickness(0, 6, 0, 0) };
+        search.MinHeight = search.Height = 28; search.FontSize = 11; search.Padding = new Thickness(7, 3);
+        var clear = new Button { Content = "×", Name = "ClearLayerFilter", Width = 24, MinWidth = 0, Height = 28, MinHeight = 0, Padding = new Thickness(0), Classes = { "flat" } };
+        ToolTip.SetTip(clear, "Clear layer filters (Escape)");
+        clear.Click += (_, _) => { search.Text = ""; searchKind.SelectedIndex = 0; };
+        Grid.SetColumn(searchKind, 2); Grid.SetColumn(clear, 4);
+        queryRow.Children.Add(search); queryRow.Children.Add(searchKind); queryRow.Children.Add(clear);
         ToolTip.SetTip(search, "Words match layer names and tags. #tag matches an exact tag. All words must match. Escape clears. Reordering is available after clearing the filter.");
         Grid.SetRow(queryRow, 2); Grid.SetColumnSpan(queryRow, 3); header.Children.Add(queryRow);
-        Grid.SetRow(searchKind, 3); Grid.SetColumnSpan(searchKind, 3); searchKind.Margin = new Thickness(0, 4, 0, 0); header.Children.Add(searchKind);
-        Grid.SetRow(searchStatus, 4); Grid.SetColumnSpan(searchStatus, 3); searchStatus.Margin = new Thickness(0, 4, 0, 0); header.Children.Add(searchStatus);
+        Grid.SetRow(searchStatus, 3); Grid.SetColumnSpan(searchStatus, 3); searchStatus.Margin = new Thickness(0, 3, 0, 0); header.Children.Add(searchStatus);
         search.TextChanged += (_, _) => Rebuild();
         searchKind.SelectionChanged += (_, _) => Rebuild();
         search.KeyDown += (_, e) =>

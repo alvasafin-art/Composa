@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.2" date="2026-10-22">
+      <description><p>TEST: optional local SAM plus ViTMatte precise object edges with one Undo step and no new model weights. Restore explicit Harmonize shadow guidance, replace Photoshop COM opening with a normal file handoff, compact layer filtering and simplify scene dialogs.</p></description>
+    </release>
     <release version="1.3.0-preview.1" date="2026-10-20">
       <description><p>TEST: RGB16 and ICC editing, independent masks and channels, linked Smart Objects, Warp/Liquify, color tools, Navigator/search/workspaces, and Change Background cleanup based on the actual generated subject silhouette. Larger remaining editor features are deferred. New native saves use CMPS format 13.</p></description>
     </release>
