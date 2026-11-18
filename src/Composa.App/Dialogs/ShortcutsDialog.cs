@@ -11,6 +11,7 @@ namespace Composa.App.Dialogs;
 public sealed class Shortcut(string id, string title, string group, KeyGesture? gesture, Action run, Func<bool>? enabled = null, bool hidden = false, bool viewOnly = false)
 {
     public string Id { get; } = id;
+    internal string SearchTerms { get; init; } = "";
     public string Title { get; } = title;
     /// <summary>Which list the shortcut appears in: "Menus" or "Tools and Canvas".</summary>
     public string Group { get; } = group;

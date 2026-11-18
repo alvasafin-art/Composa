@@ -29,7 +29,7 @@ public sealed partial class MainWindow
     private readonly List<(MenuItem Item, string Section)> panelToggles = [];
     private Guid? optionsLayer;
     private int jpegQuality = 90;
-    private MenuItem? recentMenu;
+    private MenuItem? recentMenu, tabbedPanelItem;
     private const string FindCommandId = "Find Command";
     private MenuItem? canvasOnlyItem;
 
@@ -105,6 +105,7 @@ public sealed partial class MainWindow
             Item("Clear", DeletePressed, Key.Delete),
             Item("Content-Aware Fill…", () => _ = ContentAwareFillWorkspace(), Key.Back, shift, () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
             Line(),
+            Item("Preferences…", () => _ = ShowAiSettings(3), needsDocument: false, viewOnly: true),
             Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), needsDocument: false, id: "Keyboard Shortcuts (Edit menu)"));
 
         Top("_Select",
@@ -304,7 +305,13 @@ public sealed partial class MainWindow
             return item;
         }
         scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
-        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"), Line(),
+        tabbedPanelItem = Item("Group panels in tabs", () =>
+        {
+            dock.SetTabbed(!dock.Tabbed);
+            settings.TabbedPanels = dock.Tabbed; settings.Save();
+        }, needsDocument: false, viewOnly: true);
+        tabbedPanelItem.ToggleType = MenuItemToggleType.CheckBox;
+        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"), Line(), tabbedPanelItem,
             Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
@@ -432,6 +439,7 @@ public sealed partial class MainWindow
         }
         foreach (var (item, command) in menuItems) item.IsEnabled = command.Enabled?.Invoke() ?? true;
         foreach (var (item, isChecked) in viewToggles) item.IsChecked = session != null && isChecked(session.View);
+        if (tabbedPanelItem != null) tabbedPanelItem.IsChecked = dock.Tabbed;
         foreach (var (item, section) in panelToggles) item.IsChecked = dock.Section(section).State.Visible;
         if (canvasOnlyItem != null) canvasOnlyItem.IsChecked = settings.CanvasOnly;
         if (session == null) return;
@@ -650,6 +658,7 @@ public sealed partial class MainWindow
             document.SetActive(layer.Id);
             AddSession(opened = new EditorSession(document) { SuggestedName = Path.GetFileNameWithoutExtension(path) });
         }
+        if (Settings.Persist) _ = RecentPreviews.Remember(path, opened.Document.Clone());
         if (opened.FilePath != null) RecordFileVersion(opened, path);
         settings.AddRecent(Path.GetFullPath(path));
         return opened;
@@ -889,6 +898,7 @@ public sealed partial class MainWindow
             target.MarkSaved(path, state);
             RecordFileVersion(target, path);
         }
+        if (Settings.Persist) _ = RecentPreviews.Remember(path, snapshot);
         if (!target.IsModified) recovery?.Forget(target);
         settings.AddRecent(Path.GetFullPath(path));
         return null;

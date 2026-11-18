@@ -1,5 +1,6 @@
 {
   "id":"seedvr2-native",
+  "modelName": "SeedVR2",
   "displayName":"SeedVR2 · Official ComfyUI",
   "manifestVersion":1,
   "requiredNodeTypes":["LoadImage","SaveImage","ImageScale","ResizeImageMaskNode","JoinImageWithAlpha","UNETLoader","VAELoader","VAEEncodeTiled","VAEDecodeTiled","KSampler","SeedVR2Preprocess","SeedVR2Conditioning","SeedVR2PostProcessing"],

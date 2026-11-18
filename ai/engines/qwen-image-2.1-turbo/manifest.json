@@ -1,5 +1,6 @@
 {
   "id": "qwen-image-2.1-turbo",
+  "modelName": "Qwen Image 2.1 Turbo",
   "displayName": "Qwen Image 2.1 Turbo",
   "manifestVersion": 1,
   "minimumComfyVersion": "0.43.0",

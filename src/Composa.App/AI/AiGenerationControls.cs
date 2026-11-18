@@ -75,15 +75,34 @@ internal static class AiGenerationControls
         return Ui.Row(4, run, variants);
     }
 
-    internal static void StyleModelPicker(ComboBox picker, IReadOnlyList<EngineProfile> packs)
+    internal static void PresentImageModels(ComboBox picker, ImageModelChoice[] models)
+    {
+        // Items carry the route and server identifier even when two files share a display name.
+        Control Row(ImageModelChoice? model, bool details)
+        {
+            if (model == null) return new TextBlock();
+            var name = Ui.Label(model.Name);
+            name.TextTrimming = TextTrimming.CharacterEllipsis;
+            name.MaxWidth = details ? 310 : 155;
+            ToolTip.SetTip(name, model.Identifier);
+            if (!details) return name;
+            return Ui.Column(3, name, Ui.Label(model.Engine.PaidApi ? "Comfy credits" : "ComfyUI server", Palette.Secondary, 11));
+        }
+        picker.ItemsSource = models;
+        picker.ItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, true));
+        picker.SelectionBoxItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, false));
+        StyleModelField(picker, "Image model");
+    }
+
+    internal static void StyleModelPicker(ComboBox picker, IReadOnlyList<EngineProfile> packs, Func<EngineProfile, string> modelName)
     {
         Control Row(string? name, bool detail)
         {
             var pack = packs.FirstOrDefault(p => p.DisplayName == name);
-            var title = Ui.Label(pack?.Id == "chatgpt-image-2.5" ? "GPT Image 2.5" : name ?? "");
+            var title = Ui.Label(pack == null ? name ?? "" : modelName(pack));
             title.TextTrimming = TextTrimming.CharacterEllipsis;
             if (pack == null) return title;
-            Control text = detail ? Ui.Column(2, title, Ui.Label(pack.PaidApi ? "Comfy credits" : "Local workflow", Palette.Secondary)) : title;
+            Control text = detail ? Ui.Column(2, title, Ui.Label(pack.PaidApi ? "Comfy credits" : "ComfyUI server", Palette.Secondary)) : title;
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("18,8,*"), Margin = new Thickness(0, detail ? 3 : 0) };
             row.Children.Add(Icons.Create(Icons.Layers, 16, pack.PaidApi ? Palette.Accent : Palette.Secondary));
             Grid.SetColumn(text, 2); row.Children.Add(text);
@@ -91,7 +110,7 @@ internal static class AiGenerationControls
         }
         picker.ItemTemplate = new FuncDataTemplate<string>((name, _) => Row(name, true));
         picker.SelectionBoxItemTemplate = new FuncDataTemplate<string>((name, _) => Row(name, false));
-        StyleModelField(picker, "Workflow model");
+        StyleModelField(picker, "Image model");
     }
 
     internal static void StyleModelField(ComboBox picker, string label)

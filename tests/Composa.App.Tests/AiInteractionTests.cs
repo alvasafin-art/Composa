@@ -117,9 +117,8 @@ public class AiInteractionTests
         var settings=new Settings();var pending=AiDialogs.SettingsDialog(w,settings,w.AiTasks);Dispatcher.UIThread.RunJobs();
         var dialog=Assert.Single(w.OwnedWindows);
         dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex=1;Dispatcher.UIThread.RunJobs();
-        dialog.GetVisualDescendants().OfType<Expander>().Single(e => e.Header as string == "Workflow by task").IsExpanded = true; Dispatcher.UIThread.RunJobs();
-        Assert.Contains("Workflow by task",dialog.GetVisualDescendants().OfType<TextBlock>().Select(b=>b.Text));
-        var pickers=dialog.GetVisualDescendants().OfType<ComboBox>().Where(c=>c.Items.Cast<object>().Contains("Use default workflow")).ToArray();
+        dialog.GetVisualDescendants().OfType<Expander>().Single(e => e.Header as string == "Defaults by operation").IsExpanded = true; Dispatcher.UIThread.RunJobs();
+        var pickers=dialog.GetVisualDescendants().OfType<ComboBox>().Where(c=>c.Items.Cast<object>().Contains("Use default model")).ToArray();
         Assert.True(pickers.Length>=10); Assert.Contains(pickers,c=>!c.Items.Cast<object>().Contains("CHAT GPT 2.5"));
         var generation=pickers[0];generation.SelectedItem="FLUX.2 Klein";
         Assert.True(Screenshots.Save(dialog,"ai-workflow-by-task"));
@@ -149,22 +148,49 @@ public class AiInteractionTests
         finally { EditorSession.Clipboard = previous; w.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Making_a_default_model_updates_unassigned_operations_and_preserves_explicit_overrides()
+    {
+        var owner = new MainWindow();
+        owner.Show();
+        try
+        {
+            var settings = new Settings();
+            settings.AiTaskEngineIds[nameof(AiTaskKind.GenerateImage)] = "chatgpt-image-2.5";
+            var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 1);
+            var dialog = Assert.Single(owner.OwnedWindows);
+            Dispatcher.UIThread.RunJobs();
+            var qwen = owner.AiTasks.Engines.Find("qwen-image-2.1-turbo")!;
+            var picker = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible && c.Items.Contains(qwen.DisplayName));
+            picker.SelectedItem = qwen.DisplayName;
+            dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Make default"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            dialog.Close(true);
+            Assert.True(await pending);
+            Assert.Equal(qwen.Id, settings.AiEngineId);
+            Assert.Null(settings.EngineForTask(AiTaskKind.GenerativeFill));
+            Assert.Equal("chatgpt-image-2.5", settings.EngineForTask(AiTaskKind.GenerateImage));
+        }
+        finally { owner.Close(); }
+    }
+
     [AvaloniaTheory]
     [InlineData(AiTaskKind.GenerateImage)]
     [InlineData(AiTaskKind.ImageEdit)]
     [InlineData(AiTaskKind.GenerativeExpand)]
-    public async Task Dialog_model_choice_is_saved_for_its_task_not_the_default(AiTaskKind task)
+    public async Task Dialog_model_choice_applies_to_the_request_and_preserves_configured_defaults(AiTaskKind task)
     {
         var w = new MainWindow { Width = 1280, Height = 900 }; w.Settings.CheckForUpdates = false; w.Show();
         var settings = new Settings(); var original = w.AiTasks.SelectedEngine;
+        var configured = settings.EngineForTask(task);
         var pending = AiDialogs.Prompt(w, task, settings, 600, 400, service: w.AiTasks); Dispatcher.UIThread.RunJobs();
         var dialog = Assert.Single(w.OwnedWindows);
         var picker = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),
-            combo => combo.Items.Cast<object>().Contains("CHAT GPT 2.5"));
+            combo => combo.Items.OfType<ImageModelChoice>().Any());
         var gpt = w.AiTasks.Engines.Find("chatgpt-image-2.5")!;
-        picker.SelectedItem = gpt.DisplayName; dialog.Close(true); var result = await pending;
-        Assert.Equal(gpt.Id, result!.EngineId); Assert.Equal(gpt.Id, settings.EngineForTask(task));
-        Assert.Single(settings.AiTaskEngineIds); Assert.Same(original, w.AiTasks.SelectedEngine); w.Close();
+        picker.SelectedItem = picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == gpt.Id); dialog.Close(true); var result = await pending;
+        Assert.Equal(gpt.Id, result!.EngineId); Assert.Equal(configured, settings.EngineForTask(task));
+        Assert.Empty(settings.AiTaskEngineIds); Assert.Same(original, w.AiTasks.SelectedEngine); w.Close();
     }
 
     [Fact]

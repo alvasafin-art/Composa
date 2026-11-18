@@ -32,6 +32,7 @@ public sealed class Settings
     public Composa.Painting.BrushSettings Brush { get; set; } = new();
     public Dictionary<string, Composa.Painting.BrushSettings> BrushPresets { get; set; } = [];
     /// <summary>The panels under the Layers panel by title: whether each is shown, collapsed to its header, and how tall it is.</summary>
+    public bool TabbedPanels { get; set; }
     public Dictionary<string, DockPanelState> Dock { get; set; } = [];
     /// <summary>Rebound shortcuts by command id: a gesture string, or empty for none. Missing entries keep the default.</summary>
     public Dictionary<string, string> Shortcuts { get; set; } = [];
@@ -51,9 +52,15 @@ public sealed class Settings
     /// <summary>Server-side loader identifiers per normalized endpoint; never filesystem paths on the client.</summary>
     public Dictionary<string, Dictionary<string, string>> ComfyModelSelections { get; set; } = [];
 
-    public IReadOnlyDictionary<string, string> ComfyModelsFor(string serverUrl) =>
-        ComfyModelSelections.TryGetValue(AI.ComfyServerAddress.Parse(serverUrl).ToString(), out var choices)
-            ? choices : new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, string> ComfyModelsFor(string serverUrl)
+    {
+        try
+        {
+            if (ComfyModelSelections.TryGetValue(AI.ComfyServerAddress.Parse(serverUrl).ToString(), out var choices)) return choices;
+        }
+        catch (FormatException) { /* An invalid saved address can be corrected in Connection settings. */ }
+        return new Dictionary<string, string>();
+    }
 
     public void SetComfyModels(string serverUrl, IReadOnlyDictionary<string, string> choices) =>
         ComfyModelSelections[AI.ComfyServerAddress.Parse(serverUrl).ToString()] = new(choices, StringComparer.Ordinal);
@@ -108,6 +115,7 @@ public sealed class Settings
     public double AiMaskContext { get; set; } = 2;
     /// <summary>GPT crop context in source pixels, independent of FLUX context and final mask feathering.</summary>
     public int AiGptContextPadding { get; set; } = AI.PartnerImageInputs.DefaultContextPadding;
+    public Dictionary<string, Dictionary<string, AiOperationSettings>> GenerationPresets { get; set; } = [];
     public Dictionary<string, string> AiTaskEngineIds { get; set; } = [];
     public string? EngineForTask(Composa.AI.AiTaskKind task)
     {
@@ -298,7 +306,7 @@ public sealed class Settings
 public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220);
 
 /// <summary>View chrome only. Documents, pixels, tool options and shortcuts never belong to a workspace.</summary>
-public sealed record WorkspaceLayout(Dictionary<string, DockPanelState> Panels, bool CanvasOnly);
+public sealed record WorkspaceLayout(Dictionary<string, DockPanelState> Panels, bool CanvasOnly, bool TabbedPanels = false);
 
 public sealed record AiLoraSetting(string Name = "", double Strength = 1, bool Enabled = true);
 public sealed record AiPromptSetting(bool Enabled, string Text);

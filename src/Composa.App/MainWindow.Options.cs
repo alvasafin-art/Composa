@@ -15,6 +15,7 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
+    private bool geometryOpen;
     private bool optionsHaveShape;
     private bool optionsHaveWarp;
     private bool optionsEditingText;
@@ -32,6 +33,7 @@ public sealed partial class MainWindow
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
+        StackPanel? inspector = null;
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
@@ -60,8 +62,20 @@ public sealed partial class MainWindow
                 }
                 Add(Title("Move"));
                 if (!s.IsEditingChannel && s.ActiveLayer?.Shape != null) BuildShapeFields(row);
-                BuildTransformFields(row);
-                if (s.IsEditingChannel) break;
+                if (s.IsEditingChannel) { BuildTransformFields(row); break; }
+                var geometry = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Classes = { "options" } };
+                BuildTransformFields(geometry);
+                // Auto Select and the transform handles belong to Move; numeric geometry belongs to its inspector.
+                foreach (var toggle in geometry.Children.OfType<CheckBox>().ToArray())
+                { geometry.Children.Remove(toggle); row.Children.Add(toggle); }
+                if (geometry.Children.Count > 0)
+                {
+                    inspector = geometry;
+                    var properties = Ui.TextButton("Properties", () => { geometryOpen = !geometryOpen; RebuildOptions(); });
+                    properties.Name = "TransformProperties";
+                    ToolTip.SetTip(properties, "Position, size and rotation");
+                    row.Children.Add(properties);
+                }
                 var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
                 BuildAlignmentFields(row);
                 break;
@@ -218,7 +232,16 @@ public sealed partial class MainWindow
                 break;
         }
         if (s.Tool is Tool.Move or Tool.Text)
-            toolOptionsHost.Child = ResponsiveOptions(row);
+        {
+            var actions = ResponsiveOptions(row);
+            if (inspector != null && geometryOpen)
+            {
+                optionsHost.Height = 75;
+                toolOptionsHost.Child = Ui.Column(6, actions, new ScrollViewer { Content = inspector,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
+            }
+            else toolOptionsHost.Child = actions;
+        }
         else toolOptionsHost.Child = new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
         UpdateLayout();

@@ -26,6 +26,47 @@ public sealed class EngineCatalog
         Errors = errors;
     }
 
+    private readonly Dictionary<(string Engine, string Workflow), WorkflowModelSlot?> primarySlots = [];
+
+    internal ImageModelChoice ModelFor(EngineProfile engine, AiTaskKind task, IReadOnlyDictionary<string, string> choices)
+    {
+        string? asset = engine.ApiModel;
+        var title = engine.ModelName;
+        var binding = engine.Binding(task);
+        if (asset == null && binding != null)
+        {
+            var key = (engine.Id, binding.Workflow);
+            if (!primarySlots.TryGetValue(key, out var slot))
+            {
+                try
+                {
+                    var graph = ReadWorkflow(engine, engine.Workflow(binding.Workflow));
+                    slot = WorkflowModels.Slots(graph, engine.Id).FirstOrDefault(s => s.Kind == EngineAssetKind.DiffusionModel);
+                    primarySlots[key] = slot;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or KeyNotFoundException)
+                {
+                    // An unreadable graph still has a model entry. Workflow validation reports the error at launch.
+                }
+            }
+            if (slot != null)
+            {
+                asset = choices.GetValueOrDefault(slot.Key) ?? slot.Default;
+                var filename = asset.Replace('\\', '/').Split('/').Last();
+                if (title == null || filename != slot.Default.Replace('\\', '/').Split('/').Last())
+                    title = Path.GetFileNameWithoutExtension(filename);
+            }
+        }
+        return new ImageModelChoice(title ?? asset ?? engine.DisplayName, asset ?? engine.Id, engine);
+    }
+
+    internal ImageModelChoice[] ImageModels(AiTaskKind task, EngineProfile? preferred, IReadOnlyDictionary<string,string> choices)
+    {
+        return Profiles.Where(p => p.Binding(task) != null).Select(p => ModelFor(p, task, choices))
+            .GroupBy(m => (m.Engine.PaidApi, m.Identifier))
+            .Select(group => group.FirstOrDefault(m => m.Engine.Id == preferred?.Id) ?? group.First()).ToArray();
+    }
+
     public EngineProfile? Find(string? id) => Profiles.FirstOrDefault(profile => profile.Id == id) ?? Profiles.FirstOrDefault();
     public string DirectoryOf(EngineProfile profile) => Path.Combine(Root, profile.Id);
 
@@ -43,6 +84,8 @@ public sealed class EngineCatalog
         .SelectMany(workflow => WorkflowModels.Slots(ReadWorkflow(engine, workflow), engine.Id))
         .DistinctBy(slot => slot.Key).OrderBy(slot => slot.Kind).ThenBy(slot => slot.NodeId, StringComparer.Ordinal).ToArray();
 }
+
+internal sealed record ImageModelChoice(string Name, string Identifier, EngineProfile Engine);
 
 public static class AppPromptPresets
 {

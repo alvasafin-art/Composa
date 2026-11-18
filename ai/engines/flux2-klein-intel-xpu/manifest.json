@@ -1,5 +1,6 @@
 {
   "id": "flux2-klein-intel-xpu",
+  "modelName": "FLUX.2 Klein",
   "displayName": "FLUX.2 Klein",
   "manifestVersion": 1,
   "minimumComfyVersion": "0.37.0",

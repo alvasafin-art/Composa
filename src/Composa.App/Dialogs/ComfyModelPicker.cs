@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Media;
 using Composa.App.AI;
+using Composa.AI;
 
 namespace Composa.App.Dialogs;
 
@@ -47,16 +48,23 @@ public sealed class ComfyModelPicker : StackPanel
         if (service.SelectedEngine is { PaidApi: true } api)
         {
             Children.Add(Ui.Label(api.DisplayName, weight: Avalonia.Media.FontWeight.SemiBold));
-            Children.Add(Note($"Paid Comfy.org Partner Node · {api.ApiModel}\nNo diffusion model, text encoder or VAE files are needed.\nBalance is not exposed by the local ComfyUI API; check Credits in ComfyUI."));
+            Children.Add(Note($"Comfy credits · {api.ApiModel}"));
         }
-        Children.Add(Ui.Label("Models on ComfyUI", weight: Avalonia.Media.FontWeight.SemiBold));
+
         if (!connected) Children.Add(Note("Refresh models to read this server. Lists from another computer are not used."));
         if (service.SelectedEngine is not { } engine) { Children.Add(Note("Select a workflow pack first.")); return; }
-        if (engine.Id == QwenImageWorkflow.EngineId)
-            Children.Add(Note("Qwen Image 2.1 Turbo · local 8-step workflow. Choose matching Turbo diffusion weights, Qwen3-VL and a Qwen 2.1 VAE. Base Qwen and Viggle 6-step LoRAs use different schedules. Requires native Qwen 2.1 nodes, ModelAttentionBackend and PixelDriftFix. Weights are not bundled; the official Qwen weights use the Qwen Research License."));
-        var slots = (engine.PaidApi ? [] : service.Engines.ModelSlots(engine)).Concat(service.Engines.Profiles
-            .Where(profile => profile.Id.StartsWith("seedvr2", StringComparison.Ordinal)).SelectMany(profile => UpscaleModels.Slots(service.Engines, profile)))
-            .DistinctBy(slot => slot.Key).ToArray();
+        foreach (var workflow in engine.Workflows)
+        {
+            var uses = engine.Tasks.Where(t => t.Workflow == workflow.Id).Select(t => t.Task.DisplayName());
+            Children.Add(Note(string.Join(", ", uses) + " · " + workflow.File));
+        }
+        WorkflowModelSlot[] slots;
+        try { slots = engine.PaidApi ? [] : service.Engines.ModelSlots(engine).ToArray(); }
+        catch (Exception error) when (error is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        {
+            Children.Add(Note(error.Message));
+            return;
+        }
         foreach (var slot in slots)
         {
             var available = connected ? service.ServerCapabilities?.ModelChoices.GetValueOrDefault(slot.LoaderKey) : null;
@@ -80,6 +88,8 @@ public sealed class ComfyModelPicker : StackPanel
                     ? (service.ServerCapabilities!.NodeTypes.Contains(slot.NodeType) ? "This loader does not report a model list." : "Missing node: " + slot.NodeType)
                     : resolved == null ? "Not found or ambiguous. Choose a model above; files must match this workflow's architecture."
                     : "Server model: " + resolved;
+                hint.IsVisible = connected && resolved == null;
+                ToolTip.SetTip(combo, hint.Text);
                 hint.Foreground = connected && resolved == null ? Brushes.Orange : Palette.Secondary;
             }
             combo.SelectionChanged += (_, _) =>
@@ -94,7 +104,7 @@ public sealed class ComfyModelPicker : StackPanel
             Children.Add(Ui.Column(4, Ui.Label((slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal) ? service.Engines.Find(slot.EngineId)!.DisplayName + " · " : "")
                 + slot.Label + (slots.Count(other => other.Kind == slot.Kind) > 1 ? " · " + slot.NodeId : "")), combo, hint));
         }
-        Children.Add(Note("The server reads its own models and shared folders. No model files or network drives are needed on this computer."));
+
     }
 
     private static TextBlock Note(string text) => new() { Text = text, MaxWidth = 430, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary };

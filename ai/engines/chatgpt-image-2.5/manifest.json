@@ -1,5 +1,6 @@
 {
   "id": "chatgpt-image-2.5",
+  "modelName": "GPT Image 2.5",
   "displayName": "CHAT GPT 2.5",
   "manifestVersion": 1,
   "paidApi": true,

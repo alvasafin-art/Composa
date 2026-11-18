@@ -217,6 +217,8 @@ public class ComfyModelSelectionTests
             Assert.True(dialog.Bounds.Height <= owner.Bounds.Height);
             var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<TabControl>());
             Assert.Equal(4, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Workflow and model files")).IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
             Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
             Assert.True(Screenshots.Save(dialog, "comfy-complete-settings"));
         }
@@ -241,7 +243,7 @@ public class ComfyModelSelectionTests
         {
             Dispatcher.UIThread.RunJobs();
             var combos = picker.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-            Assert.Equal(7, combos.Length);
+            Assert.Equal(service.Engines.ModelSlots(service.SelectedEngine!).Count, combos.Length);
             Assert.All(combos.Take(5), combo => Assert.True(combo.IsEnabled));
             var selected = combos[0].Items.Cast<object>().Single(item => item.ToString() == "shared/flux-2-klein-9b_int8_convrot.safetensors");
             combos[0].SelectedItem = selected;

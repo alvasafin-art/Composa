@@ -1,3 +1,4 @@
+using Composa.App.AI;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -24,7 +25,7 @@ public class AiOperationSettingsTests
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
             var label=Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("FLUX request including context:")==true);
             Assert.Contains("MP",label.Text); Assert.Contains("816 × 624 px",label.Text);
-            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.Cast<string>().Contains("Original size"));
+            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.OfType<string>().Contains("Original size"));
             size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
             Assert.Equal($"FLUX request including context: 1168 × 880 px · {1.03:0.##} MP",label.Text);
             size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
@@ -33,6 +34,50 @@ public class AiOperationSettingsTests
         }
         finally { window.Close(); }
     }
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Named_preset_is_scoped_to_the_model_and_operation_and_committed_on_accept(bool accept)
+    {
+        var owner = new MainWindow();
+        owner.Show();
+        try
+        {
+            var pack = owner.AiTasks.Engines.Find(Flux)!;
+            owner.AiTasks.SelectedEngine = pack;
+            var settings = new Settings();
+            var operation = AiTaskKind.GenerativeFill;
+            var pending = AiDialogs.Advanced(owner, settings, owner.AiTasks, operation, new AiOperationSettings { Seed = 41 });
+            var dialog = Assert.Single(owner.OwnedWindows);
+            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Presets")).IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.PlaceholderText == "Preset name").Text = "Proof";
+            dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Save preset"))
+                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.Empty(settings.GenerationPresets);
+            dialog.Close(accept);
+            Assert.Equal(accept, await pending);
+            if (accept) Assert.Equal(41, settings.GenerationPresets[$"{Flux}/{operation}"]["Proof"].Seed);
+            else Assert.Empty(settings.GenerationPresets);
+        }
+        finally { owner.Close(); }
+    }
+
+    [Fact]
+    public void Model_picker_shows_the_configured_checkpoint_and_keeps_its_workflow_route()
+    {
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var engine = catalog.Find(Flux)!;
+        var task = AiTaskKind.GenerativeFill;
+        var graph = catalog.ReadWorkflow(engine, engine.Workflow(engine.Binding(task)!.Workflow));
+        var slot = WorkflowModels.Slots(graph, engine.Id).First(s => s.Kind == EngineAssetKind.DiffusionModel);
+        var choices = new Dictionary<string, string> { [slot.Key] = "project/retouch-v2.safetensors" };
+        var model = catalog.ImageModels(task, engine, choices).Single(m => m.Engine.Id == Flux);
+        Assert.Equal("retouch-v2", model.Name);
+        Assert.Equal(choices[slot.Key], model.Identifier);
+        Assert.Same(engine, model.Engine);
+    }
+
     private const string Flux = "flux2-klein-intel-xpu";
     private const string Gpt = "chatgpt-image-2.5";
 
@@ -73,7 +118,7 @@ public class AiOperationSettingsTests
             var pending=AiDialogs.Advanced(window,window.Settings,window.AiTasks,AiTaskKind.GenerativeExpand); Dispatcher.UIThread.RunJobs();
             var dialog=Assert.Single(window.OwnedWindows);
             Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("Mask ")==true || text.Text=="Color match");
-            var memory=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("Lower VRAM"));
+            var memory=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<string>().Contains("Lower VRAM"));
             Assert.Equal("Auto",memory.SelectedItem); memory.SelectedItem="Lower VRAM";
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.SelectedItem as string=="Original size");
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.SelectedItem as string=="List · lower VRAM");
@@ -101,13 +146,13 @@ public class AiOperationSettingsTests
             var before=JsonSerializer.Serialize(settings);
             var pending=AiDialogs.Prompt(window,AiTaskKind.ImageEdit,settings,800,600,service:window.AiTasks); Dispatcher.UIThread.RunJobs();
             var dialog=Assert.Single(window.OwnedWindows);
-            var picker=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("CHAT GPT 2.5"));
-            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("Original size"));
+            var picker=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<ImageModelChoice>().Any());
+            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<string>().Contains("Original size"));
             var variants=Assert.Single(dialog.GetVisualDescendants().OfType<Composa.App.AI.AiVariantButtons>());
             Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
-            picker.SelectedItem=window.AiTasks.Engines.Find(qwen)!.DisplayName;Dispatcher.UIThread.RunJobs();Assert.Equal(AiDimensions.Label(1.5),size.SelectedItem);Assert.Equal(1,variants.Count);
-            picker.SelectedItem=window.AiTasks.Engines.Find(Gpt)!.DisplayName; Dispatcher.UIThread.RunJobs(); Assert.Equal("Original size",size.SelectedItem); Assert.Equal(3,variants.Count);
-            size.SelectedIndex=3; picker.SelectedItem=window.AiTasks.Engines.Find(Flux)!.DisplayName; Dispatcher.UIThread.RunJobs(); Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
+            picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == qwen);Dispatcher.UIThread.RunJobs();Assert.Equal(AiDimensions.Label(1.5),size.SelectedItem);Assert.Equal(1,variants.Count);
+            picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == Gpt); Dispatcher.UIThread.RunJobs(); Assert.Equal("Original size",size.SelectedItem); Assert.Equal(3,variants.Count);
+            size.SelectedIndex=3; picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == Flux); Dispatcher.UIThread.RunJobs(); Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(settings));
         }
         finally { window.Close(); }

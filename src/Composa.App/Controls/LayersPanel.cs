@@ -343,6 +343,7 @@ public sealed partial class LayersPanel : UserControl
             content.Children.Add(link);
             var maskThumb = Thumb(new Image { Source = Thumbnail(layer.Mask), Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
                 layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask);
+            if (layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask) maskThumb.BorderBrush = Palette.Accent;
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
             ToolTip.SetTip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
             maskThumb.AddHandler(PointerPressedEvent, (_, e) =>

@@ -54,7 +54,7 @@ public sealed class CommandSearchWindow : Window
     {
         var words = (query.Text ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries); var text = query.Text?.Trim() ?? "";
         var matching = commands.Select(c => new { Command = c, Title = DisplayTitle(c), Path = PathFor(c) })
-            .Where(c => words.All(word => (c.Title + " " + c.Command.Title + " " + c.Path).Contains(word, StringComparison.OrdinalIgnoreCase)))
+            .Where(c => words.All(word => (c.Title + " " + c.Command.Title + " " + c.Path + " " + c.Command.SearchTerms).Contains(word, StringComparison.OrdinalIgnoreCase)))
             .OrderBy(c => c.Title.Equals(text, StringComparison.OrdinalIgnoreCase) ? 0 : c.Title.StartsWith(text, StringComparison.OrdinalIgnoreCase) ? 1 : 2)
             .ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Path, StringComparer.OrdinalIgnoreCase).ToArray();
         results.Items.Clear();

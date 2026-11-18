@@ -52,6 +52,15 @@ public sealed class SideDock : UserControl
         Layout();
     }
 
+    private string? activeTab;
+    public bool Tabbed { get; private set; }
+    public void SetTabbed(bool tabbed)
+    {
+        if (Tabbed == tabbed) return;
+        Tabbed = tabbed;
+        Layout();
+    }
+
     public DockSection Section(string title) => sections.Single(s => s.Title == title);
 
     public Dictionary<string, DockPanelState> CaptureLayout() => sections.ToDictionary(section => section.Title, section => section.State);
@@ -69,6 +78,7 @@ public sealed class SideDock : UserControl
     {
         if (section.State.Visible == visible) return;
         section.State = section.State with { Visible = visible };
+        if (visible) activeTab = section.Title;
         Layout();
         section.RaiseChanged();
     }
@@ -91,7 +101,26 @@ public sealed class SideDock : UserControl
             if (section.Content.Parent is Panel parent) parent.Children.Remove(section.Content);
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Star) { MinHeight = MinTopHeight });
         if (top.Parent == null) grid.Children.Add(top);
-        foreach (var section in sections.Where(s => s.State.Visible))
+        var visible = sections.Where(s => s.State.Visible).ToArray();
+        if (Tabbed && visible.Length > 0)
+        {
+            var tabs = new TabControl { Name = "SecondaryPanels", ItemsSource = visible.Select(section =>
+            {
+                var host = new Grid();
+                host.Children.Add(section.Content);
+                return new TabItem { Header = section.Title, Content = host };
+            }).ToArray() };
+            tabs.SelectedIndex = Math.Max(0, Array.FindIndex(visible, s => s.Title == activeTab));
+            tabs.SelectionChanged += (_, _) =>
+            {
+                if (tabs.SelectedItem is TabItem { Header: string name }) activeTab = name;
+            };
+            grid.RowDefinitions.Add(new RowDefinition(new GridLength(TabHeight())));
+            Grid.SetRow(tabs, 1); grid.Children.Add(tabs);
+            FitHeight();
+            return;
+        }
+        foreach (var section in visible)
         {
             var open = !section.State.Collapsed;
             // A collapsed section is only its header, so there is nothing to size and the splitter would only mislead.
@@ -114,11 +143,19 @@ public sealed class SideDock : UserControl
         FitHeight();
     }
 
+    private double TabHeight() => Math.Clamp(Bounds.Height - MinTopHeight, 138,
+        Math.Max(160, sections.Where(s => s.State.Visible).Select(s => s.State.Height).DefaultIfEmpty(220).Max()));
+
     private void FitHeight()
     {
         if (Bounds.Height <= 0) return;
         var desired = MinTopHeight + sections.Where(s => s.State.Visible)
             .Sum(s => s.State.Collapsed ? 35 : Math.Max(DockSection.MinHeight, s.State.Height) + 5);
+        if (Tabbed && grid.RowDefinitions.Count == 2)
+        {
+            grid.RowDefinitions[1].Height = new GridLength(TabHeight());
+            desired = MinTopHeight + TabHeight();
+        }
         var compact = desired > Bounds.Height;
         if (compact && top.Parent == grid)
         {

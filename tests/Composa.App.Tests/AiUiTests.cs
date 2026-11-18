@@ -1,3 +1,4 @@
+using Composa.App.AI;
 using Avalonia.Controls;
 using Avalonia;
 using Avalonia.Headless;
@@ -40,10 +41,12 @@ public class AiUiTests
         var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");
         Assert.True(enhance.IsEnabled);
         Assert.True(Grid.GetColumn(enhance) < Grid.GetColumn(alignment));
-        var engines = Assert.Single(combos, combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
+        var engines = Assert.Single(combos, combo => combo.Items.OfType<ImageModelChoice>().Any());
         var defaultEngine = window.AiTasks.SelectedEngine;
-        engines.SelectedItem = "Qwen Image 2.1 Turbo"; Assert.Equal("qwen-image-2.1-turbo",window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id);
-        engines.SelectedItem = "CHAT GPT 2.5"; Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
+        var defaultFill = window.AiTasks.EngineFor(AiTaskKind.GenerativeFill);
+        engines.SelectedItem = engines.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "qwen-image-2.1-turbo"); Assert.Equal("qwen-image-2.1-turbo", Assert.IsType<ImageModelChoice>(engines.SelectedItem).Engine.Id);
+        engines.SelectedItem = engines.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "chatgpt-image-2.5"); Assert.True(Assert.IsType<ImageModelChoice>(engines.SelectedItem).Engine.PaidApi);
+        Assert.Same(defaultFill, window.AiTasks.EngineFor(AiTaskKind.GenerativeFill));
         Assert.Same(defaultEngine, window.AiTasks.SelectedEngine);
         Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerateImage)!.PaidApi);
         Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
@@ -62,7 +65,7 @@ public class AiUiTests
         Assert.Equal(window.Canvas.ToScreen(new SKPoint(280, 130)).Y + 10, Canvas.GetTop(panel), 1);
         window.Canvas.ZoomTo(0.5); Dispatcher.UIThread.RunJobs();
         Assert.Equal(window.Canvas.ToScreen(new SKPoint(280, 130)).Y + 10, Canvas.GetTop(panel), 1);
-        var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Generative AI");
+        var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Edit selection");
         var header = Assert.IsType<Grid>(heading.Parent);
         var at = header.TranslatePoint(new Point(header.ColumnDefinitions[0].ActualWidth - 8, 8), window)!.Value; // blank header, not the title text
         var original = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
@@ -123,7 +126,7 @@ public class AiUiTests
         Assert.Contains("Selection Brush", text);
         Assert.DoesNotContain("References (0/6)", text);
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<ComboBox>(), combo => combo.SelectedItem?.ToString() == "1 MP");
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), box => box.PlaceholderText?.Contains("Describe what you want") == true);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), box => box.PlaceholderText == "Describe the edit…");
         Assert.True(Screenshots.Save(window, "ai-platform-selection-brush"));
     }
 

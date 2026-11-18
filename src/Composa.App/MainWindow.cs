@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Avalonia.Platform.Storage;
 using Composa.App.AI;
 using Composa.App.Assistant;
@@ -118,6 +119,7 @@ public sealed partial class MainWindow : Window
         var navigatorSection = new DockSection("Navigator", navigator, settings.Dock.GetValueOrDefault("Navigator") ?? new DockPanelState { Visible = false, Height = 220 });
         navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
         dock = new SideDock(layers, navigatorSection, channelsSection, historySection) { Width = layers.Width };
+        dock.SetTabbed(settings.TabbedPanels);
         AddAt(center, Chrome(dock), 4);
         history.GoToRequested += GoToHistory;
 
@@ -323,6 +325,7 @@ public sealed partial class MainWindow : Window
         }
         var tool = session?.Tool ?? Tool.Move;
         session = next;
+        fillModelDraft = null;
         aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;
@@ -331,6 +334,7 @@ public sealed partial class MainWindow : Window
         channels.Session = session;
         navigator.Session = session;
         welcome.IsVisible = session == null;
+        dock.IsVisible = session != null;
         RebuildTabs();
         RebuildOptions();
         UpdateColors();
@@ -729,30 +733,44 @@ public sealed partial class MainWindow : Window
 
     private Panel BuildWelcome()
     {
-        var title = Ui.Label("Composa", size: 26, weight: FontWeight.SemiBold);
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        var subtitle = Ui.Label("Create a canvas, open a project or image, or drop files here.", Palette.Secondary);
-        subtitle.HorizontalAlignment = HorizontalAlignment.Center;
-        var buttons = Ui.Row(10, Ui.TextButton("New Canvas…", () => _ = NewCanvas(), accent: true), Ui.TextButton("Open…", () => _ = Open()));
-        buttons.HorizontalAlignment = HorizontalAlignment.Center;
-        var box = Ui.Column(14, title, subtitle, buttons);
-        var recent = settings.RecentFiles.Where(p => File.Exists(p) || Directory.Exists(p)).Take(6).ToList();
-        if (recent.Count > 0)
+        var content = Ui.Column(12);
+        content.HorizontalAlignment = HorizontalAlignment.Center;
+        content.VerticalAlignment = VerticalAlignment.Center;
+        content.Width = 390;
+        content.Children.Add(Ui.Label("Composa", size: 30, weight: FontWeight.SemiBold));
+        content.Children.Add(Ui.Row(8, Ui.TextButton("Open…", () => _ = Open(), accent: true),
+            Ui.TextButton("New Canvas…", () => _ = NewCanvas())));
+        var recent = new StackPanel { Spacing = 2, Margin = new Thickness(0, 12, 0, 0) };
+        void RefreshRecent()
         {
-            var heading = Ui.Label("Recent", Palette.Secondary);
-            heading.HorizontalAlignment = HorizontalAlignment.Center;
-            heading.Margin = new Thickness(0, 18, 0, 0);
-            box.Children.Add(heading);
-            foreach (var path in recent)
+            foreach (var image in recent.GetVisualDescendants().OfType<Image>())
+                if (image.Source is IDisposable bitmap) { image.Source = null; bitmap.Dispose(); }
+            recent.Children.Clear();
+            var paths = settings.RecentFiles.Where(p => File.Exists(p) || Directory.Exists(p)).Take(5).ToList();
+            if (paths.Count == 0) { recent.Children.Add(Ui.Label("Drop an image or project here", Palette.Secondary)); return; }
+            recent.Children.Add(Ui.Label("Recent files", Palette.Secondary, 12, FontWeight.SemiBold));
+            foreach (var path in paths)
             {
-                var link = new Button { Classes = { "flat" }, Content = Ui.Label(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)), Palette.Accent), HorizontalAlignment = HorizontalAlignment.Center, Padding = new Thickness(8, 3) };
-                ToolTip.SetTip(link, path);
-                link.Click += (_, _) => _ = OpenPaths([path]);
-                box.Children.Add(link);
+                var preview = RecentPreviews.Load(path);
+                Control visual = preview == null ? Icons.Create(Icons.Layers, 18, Palette.Secondary)
+                    : new Image { Source = preview, Stretch = Stretch.Uniform };
+                var tile = new Border { Width = 42, Height = 36, Child = visual, CornerRadius = new CornerRadius(4), Background = Palette.PanelRaised };
+                var name = Ui.Label(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)), weight: FontWeight.SemiBold);
+                var folder = Ui.Label(Path.GetDirectoryName(path) ?? "", Palette.Secondary, 11);
+                name.TextTrimming = folder.TextTrimming = TextTrimming.CharacterEllipsis;
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,12,*") };
+                row.Children.Add(tile); AddAt(row, Ui.Column(2, name, folder), 2);
+                var open = new Button { Classes = { "flat" }, Content = row, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Padding = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Stretch };
+                ToolTip.SetTip(open, path); open.Click += (_, _) => _ = OpenPaths([path]);
+                recent.Children.Add(open);
             }
         }
-        box.VerticalAlignment = VerticalAlignment.Center;
-        return new Panel { Children = { box } };
+        content.Children.Add(recent);
+        var panel = new Panel { Children = { content } };
+        panel.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty && panel.IsVisible) RefreshRecent(); };
+        panel.AttachedToVisualTree += (_, _) => { if (panel.IsVisible) RefreshRecent(); };
+        return panel;
     }
 
     private void UpdateColors()

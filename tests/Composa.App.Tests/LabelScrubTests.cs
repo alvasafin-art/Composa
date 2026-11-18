@@ -45,6 +45,9 @@ public class LabelScrubTests
         var x = layer.Transform.X;
         window.SelectTool(Tool.Move);
         Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
         var label = Label(window, "X");
         Assert.NotNull(label.Cursor); // The resize cursor says it drags.
 

@@ -30,28 +30,32 @@ public sealed partial class MainWindow
     private Point? aiFloatingPinnedPosition;
     private Point? aiFloatingDragStart;
     private Point aiFloatingDragPosition;
+    private string? fillModelDraft;
+    private EngineProfile? PanelEngine(AiTaskKind task) => aiTasks.EngineFor(task, task == AiTaskKind.GenerativeFill ? fillModelDraft : null);
     private AiOperationSettings AiOptions(AiTaskKind task, EngineProfile? engine = null)
     {
-        engine ??= aiTasks.EngineFor(task);
+        engine ??= PanelEngine(task);
         return settings.OperationFor(engine?.Id, task, engine?.PaidApi == true);
     }
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
+    private readonly StackPanel aiVariantStrip = new() { Orientation = Orientation.Horizontal, Spacing = 4, IsVisible = false };
+    private readonly ContentControl aiFloatingVariants = new() { IsVisible = false };
     private readonly StackPanel aiProgressHost = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
     private readonly Canvas aiFloatingLayer = new();
     private readonly Border aiFloatingHost = new()
     {
         IsVisible = false, Width = 520, Padding = new Thickness(12), CornerRadius = new CornerRadius(8),
-        Background = new SolidColorBrush(Color.Parse("#292929")), BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")),
+        Background = Palette.Panel, BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")),
         BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
     };
-    private readonly TextBox aiFloatingPrompt = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 54, MaxHeight = 90, PlaceholderText = "Describe what you want to create or edit" };
+    private readonly TextBox aiFloatingPrompt = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 46, MaxHeight = 90, Padding = new Thickness(9, 7), CornerRadius = new CornerRadius(6), PlaceholderText = "Describe the edit…" };
     private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
     private readonly List<AiReferenceItem> aiReferences = [];
     private AiReferenceEditor? aiDialogReferences;
     private bool refreshingAiEngine;
     private StackPanel? aiFloatingBody;
     private ToggleButton? aiFloatingAlignment;
-    private Button? aiFloatingCollapse, aiFloatingAdvanced;
+    private Button? aiFloatingCollapse, aiFloatingAdvanced, aiHeaderReference;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingEnhance, aiFloatingMore;
     private AiVariantButtons? aiVariantButtons;
@@ -89,8 +93,28 @@ public sealed partial class MainWindow
 
     private AiTaskAvailability AiAvailability(AiTaskKind task)
     {
-        var engine = aiTasks.EngineFor(task);
+        var engine = PanelEngine(task);
         return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
+    }
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SKBitmap, Bitmap> variantPreviews = new();
+    private Composa.ColorManagement.RgbProfile? variantDisplay;
+
+    private Button CompareVariants(EditorSession target, Guid group)
+    {
+        var button = Ui.IconButton(Icons.Eye, "Hold to compare with the original", () => { });
+        button.AddHandler(InputElement.PointerPressedEvent, (_, e) =>
+        {
+            if (!e.GetCurrentPoint(button).Properties.IsLeftButtonPressed) return;
+            e.Pointer.Capture(button); target.CompareWithoutVariants(group); e.Handled = true;
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        button.PointerReleased += (_, e) => { target.CompareWithoutVariants(null); e.Pointer.Capture(null); };
+        button.PointerCaptureLost += (_, _) => target.CompareWithoutVariants(null);
+        button.AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Space) { target.CompareWithoutVariants(group); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        button.AddHandler(KeyUpEvent, (_, e) => { if (e.Key == Key.Space) { target.CompareWithoutVariants(null); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        button.LostFocus += (_, _) => target.CompareWithoutVariants(null);
+        button.DetachedFromVisualTree += (_, _) => target.CompareWithoutVariants(null);
+        return button;
     }
 
     private void RefreshAiUi()
@@ -102,16 +126,29 @@ public sealed partial class MainWindow
         if (aiContextHost.Child == null) return;
         aiActionHost.Children.Clear();
         if (session != null) aiActionHost.Children.Add(BuildAiTaskMenu());
+        aiFloatingVariants.Content = null;
+        aiVariantStrip.Children.Clear();
+        aiVariantStrip.IsVisible = session?.AiVariantGroup != null;
+        aiFloatingVariants.IsVisible = aiVariantStrip.IsVisible && ShowSelectionPanel && !settings.AiFloatingCollapsed;
+        if (aiFloatingVariants.IsVisible) aiFloatingVariants.Content = aiVariantStrip;
+        else aiActionHost.Children.Add(aiVariantStrip);
         if (session?.AiVariantGroup is { } variants)
         {
-            aiActionHost.Children.Add(Ui.Label("Variants", Palette.Secondary));
+            if (!Equals(variantDisplay, DisplayProfile)) { variantPreviews.Clear(); variantDisplay = DisplayProfile; }
             for (var i = 0; i < variants.Children.Count; i++)
             {
                 var index = i;
                 var button = Ui.TextButton((i + 1).ToString(), () => session?.SelectAiVariant(variants, index), accent: variants.Children[i].Visible);
+                if (variants.Children[i].Pixels is { } pixels)
+                    button.Content = new Image { Source = variantPreviews.GetValue(pixels, p => Ui.ToAvaloniaBitmap(p, 54, DisplayProfile)),
+                        Width = 30, Height = 22, Stretch = Stretch.Uniform };
+                ToolTip.SetTip(button, $"Variant {i + 1}");
+                Avalonia.Automation.AutomationProperties.SetName(button, $"Variant {i + 1}");
+                button.Padding = new Thickness(2);
                 button.MinWidth = 28; button.IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
-                aiActionHost.Children.Add(button);
+                aiVariantStrip.Children.Add(button);
             }
+            aiVariantStrip.Children.Add(CompareVariants(session, variants.Id));
         }
 
         aiProgressHost.Children.Clear();
@@ -186,8 +223,8 @@ public sealed partial class MainWindow
 
     private Control BuildAiFloatingMenu()
     {
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto"), Background = Brushes.Transparent, MinHeight = 30 };
-        header.Children.Add(Ui.Label("Generative AI", weight: FontWeight.SemiBold));
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto,Auto"), Background = Brushes.Transparent, MinHeight = 30 };
+        header.Children.Add(Ui.Label("Edit selection", weight: FontWeight.SemiBold));
         ToolTip.SetTip(header, "Drag the header to move the panel");
         header.PointerPressed += (_, e) =>
         {
@@ -207,34 +244,38 @@ public sealed partial class MainWindow
         header.PointerReleased += (_, e) =>
         { if (aiFloatingDragStart == null) return; aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
         header.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
-        aiFloatingEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, AiTaskKind.GenerativeFill, () => aiTasks.EngineFor(AiTaskKind.GenerativeFill));
-        AddAt(header, aiFloatingEnhance, 1).Margin = new Thickness(0, 0, 3, 0);
+        aiHeaderReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image · paste with Ctrl+V or drag files here", () => _ = PickAiReferences());
+        AddAt(header, aiHeaderReference, 1).Margin = new Thickness(0, 0, 3, 0);
+        aiFloatingEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, AiTaskKind.GenerativeFill, () => PanelEngine(AiTaskKind.GenerativeFill));
+        AddAt(header, aiFloatingEnhance, 2).Margin = new Thickness(0, 0, 3, 0);
         var advanced = aiFloatingAdvanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
         advanced.MinWidth = 0;
-        AddAt(header, advanced, 3).Margin = new Thickness(0, 0, 5, 0);
-        var close = aiFloatingCollapse = Ui.TextButton("▾", () => { settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed; settings.Save(); RefreshAiFloatingUi(); });
+        AddAt(header, advanced, 4).Margin = new Thickness(0, 0, 5, 0);
+        var close = aiFloatingCollapse = Ui.TextButton("▾", () => { settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed; settings.Save(); RefreshAiUi(); });
         close.Name = "AiFloatingCollapse";
         close.MinWidth = 32;
         ToolTip.SetTip(close, "Collapse panel until you expand it");
-        AddAt(header, close, 4);
+        AddAt(header, close, 5);
 
         aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(AiTaskKind.GenerativeFill, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
         aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", OpenAiFloatingTaskMenu);
         aiVariantButtons = new AiVariantButtons(AiOptions(AiTaskKind.GenerativeFill).Variants, value =>
         {
-            var engine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
+            var engine = PanelEngine(AiTaskKind.GenerativeFill);
             settings.SetOperation(engine?.Id, AiTaskKind.GenerativeFill, AiOptions(AiTaskKind.GenerativeFill, engine) with { Variants = value });
             settings.Save(); RefreshAiFloatingUi();
         });
         var actions = Ui.Row(7, aiFloatingMore, AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons));
         actions.HorizontalAlignment = HorizontalAlignment.Right;
-        aiEngineCombo = Ui.Combo(aiTasks.Engines.Profiles.Where(profile => profile.Binding(AiTaskKind.GenerativeFill) != null).ToArray(), aiTasks.EngineFor(AiTaskKind.GenerativeFill)!, value => value.DisplayName, value =>
+        aiEngineCombo = new ComboBox { Width = 198 };
+        RefreshFillModels();
+        aiEngineCombo.SelectionChanged += (_, _) =>
         {
-            if (refreshingAiEngine) return;
-            settings.AiTaskEngineIds[AiTaskKind.GenerativeFill.ToString()] = value.Id; settings.Save(); RefreshAiUi();
-        }, 198);
-        AiGenerationControls.StyleModelPicker(aiEngineCombo, aiTasks.Engines.Profiles);
-        ToolTip.SetTip(aiEngineCombo, "Choose a workflow for the selection");
+            if (refreshingAiEngine || aiEngineCombo.SelectedItem is not ImageModelChoice model) return;
+            fillModelDraft = model.Engine.Id;
+            RefreshAiUi();
+        };
+        ToolTip.SetTip(aiEngineCombo, "Image model for this edit");
         var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto") };
         aiFloatingFooter = footer; aiFloatingActions = actions;
         aiApiCost.HorizontalAlignment = HorizontalAlignment.Left;
@@ -252,9 +293,24 @@ public sealed partial class MainWindow
             settings.AiAlignMaskedEdits = enabled;
             settings.Save();
         };
-        AddAt(header, aiFloatingAlignment, 2).Margin = new Thickness(0, 0, 5, 0);
-        aiFloatingBody = Ui.Column(9, aiFloatingPrompt, aiReferenceHost, footer);
-        return Ui.Column(9, header, aiFloatingBody);
+        AddAt(header, aiFloatingAlignment, 3).Margin = new Thickness(0, 0, 5, 0);
+        aiFloatingBody = Ui.Column(7, aiFloatingPrompt, aiReferenceHost, footer, aiFloatingVariants);
+        return Ui.Column(7, header, aiFloatingBody);
+    }
+
+    private void RefreshFillModels()
+    {
+        if (aiEngineCombo == null) return;
+        var task = AiTaskKind.GenerativeFill;
+        var engine = PanelEngine(task);
+        var choices = aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl));
+        refreshingAiEngine = true;
+        try
+        {
+            AiGenerationControls.PresentImageModels(aiEngineCombo, choices);
+            aiEngineCombo.SelectedItem = choices.FirstOrDefault(m => m.Engine.Id == engine?.Id);
+        }
+        finally { refreshingAiEngine = false; }
     }
 
     private void OpenAiFloatingTaskMenu()
@@ -274,16 +330,31 @@ public sealed partial class MainWindow
             item.Click += (_, _) => _ = RunAi(task, task == AiTaskKind.RemoveObject ? "" : aiFloatingPrompt.Text ?? "", useInlinePrompt: true);
             flyout.Items.Add(item);
         }
+        if (fillModelDraft != null)
+        {
+            var save = new MenuItem { Header = "Use this model by default" };
+            save.Click += (_, _) =>
+            {
+                settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)] = fillModelDraft!;
+                settings.Save();
+                fillModelDraft = null;
+            };
+            flyout.Items.Add(new Separator()); flyout.Items.Add(save);
+        }
         flyout.ShowAt(aiFloatingMore);
     }
 
+    private bool ShowSelectionPanel => session?.Selection != null && !session.IsPaintingSelection
+        && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
+        && aiTasks.ConnectionState == ComfyConnectionState.Connected;
+
     private void RefreshAiFloatingUi()
     {
-        var visible = session?.Selection != null && session.IsPaintingSelection == false
-            && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
-            && aiTasks.ConnectionState == ComfyConnectionState.Connected;
+        var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
         aiFloatingHost.Width = settings.AiFloatingCollapsed ? 210 : 520;
+        aiReferenceHost.IsVisible = aiReferences.Count > 0;
+        if (aiHeaderReference != null) aiHeaderReference.IsVisible = !settings.AiFloatingCollapsed && aiReferences.Count == 0;
         if (aiFloatingBody != null) aiFloatingBody.IsVisible = !settings.AiFloatingCollapsed;
         if (aiFloatingAlignment != null)
         {
@@ -299,7 +370,7 @@ public sealed partial class MainWindow
         }
         if (!visible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
-        var fillEngine = aiTasks.EngineFor(AiTaskKind.GenerativeFill);
+        var fillEngine = PanelEngine(AiTaskKind.GenerativeFill);
         var fillProfile = AiOptions(AiTaskKind.GenerativeFill, fillEngine);
         if (aiVariantButtons != null)
         {
@@ -308,7 +379,7 @@ public sealed partial class MainWindow
         }
         if (aiEngineCombo != null)
         {
-            var index = aiTasks.Engines.Profiles.Where(profile => profile.Binding(AiTaskKind.GenerativeFill) != null).ToList().FindIndex(profile => profile.Id == aiTasks.EngineFor(AiTaskKind.GenerativeFill)?.Id);
+            var index = aiEngineCombo.Items.OfType<ImageModelChoice>().ToList().FindIndex(model => model.Engine.Id == fillEngine?.Id);
             refreshingAiEngine = true;
             try { if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index; }
             finally { refreshingAiEngine = false; }
@@ -326,6 +397,7 @@ public sealed partial class MainWindow
             AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
             _ => ""
         });
+        aiFloatingStatus.IsVisible = !string.IsNullOrEmpty(aiFloatingStatus.Text);
         aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
         aiApiCost.IsVisible = fillEngine?.PaidApi == true;
         if (aiApiCost.IsVisible)
@@ -354,7 +426,7 @@ public sealed partial class MainWindow
             Grid.SetRow(aiFloatingActions, narrow ? 2 : 1); Grid.SetColumn(aiFloatingActions, narrow ? 0 : 1); Grid.SetColumnSpan(aiFloatingActions, narrow ? 2 : 1);
             aiFloatingActions.Margin = new Thickness(0, narrow ? 7 : 0, 0, 0);
         }
-        var height = Math.Max(settings.AiFloatingCollapsed ? 54 : 190, aiFloatingHost.Bounds.Height);
+        var height = (aiFloatingHost.Bounds.Height > 0 ? aiFloatingHost.Bounds.Height : settings.AiFloatingCollapsed ? 54 : 145);
         var maxLeft = Math.Max(8, canvas.Bounds.Width - width - 8);
         var left = Math.Clamp((topLeft.X + bottomRight.X - width) / 2, 8, maxLeft);
         var below = bottomRight.Y + 10;
@@ -417,7 +489,7 @@ public sealed partial class MainWindow
             ToolTip.SetTip(cell, item.Name);
             items.Children.Add(cell);
         }
-        if (aiReferences.Count < 6)
+        if (aiReferences.Count < 6 && (host != aiReferenceHost || aiReferences.Count > 0))
         {
             var add = Ui.IconButton(Icons.Image, "Add reference image", () => _ = PickAiReferences(), 23);
             add.Width = aiReferences.Count == 0 ? 36 : 56;
@@ -525,13 +597,16 @@ public sealed partial class MainWindow
         e.Handled = true;
     }
 
-    private async Task ShowAiSettings()
+    private async Task ShowAiSettings(int page = 0, string? field = null)
     {
         try
         {
-            if (!await AiDialogs.SettingsDialog(this, settings, aiTasks)) return;
+            if (!await AiDialogs.SettingsDialog(this, settings, aiTasks, page, field)) return;
+            dock.SetTabbed(settings.TabbedPanels);
             aiTasks.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;
             aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
+            fillModelDraft = null;
+            RefreshFillModels();
             RefreshAiUi();
         }
         catch (Exception error) { ShowProblem(error.Message); }
@@ -541,7 +616,7 @@ public sealed partial class MainWindow
     {
         var previous = aiTasks.SelectedEngine;
         var task = session?.Selection != null ? AiTaskKind.GenerativeFill : AiTaskKind.ImageEdit;
-        aiTasks.SelectedEngine = aiTasks.EngineFor(task);
+        aiTasks.SelectedEngine = PanelEngine(task);
         try { await AiDialogs.Advanced(this, settings, aiTasks, task); }
         finally { aiTasks.SelectedEngine = previous; RefreshAiUi(); }
     }
@@ -563,7 +638,7 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.Upscale && session is { } upscaleSession)
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
-            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, aiTasks.EngineFor(task), aiTasks)) return;
+            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, PanelEngine(task), aiTasks)) return;
         }
         var aspect = AiAspect(task);
         var profile = AiOptions(task);
@@ -596,7 +671,7 @@ public sealed partial class MainWindow
             AddSession(EditorSession.NewCanvas(options.Width, options.Height));
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
-        var engine = aiTasks.EngineFor(task, options.EngineId);
+        var engine = options.EngineId == null ? PanelEngine(task) : aiTasks.EngineFor(task, options.EngineId);
         profile = AiOptions(task, engine);
         try
         {
@@ -626,6 +701,7 @@ public sealed partial class MainWindow
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);
+            if (task == AiTaskKind.GenerativeFill && fillModelDraft == engine?.Id && aiTasks.Operation?.Status == AiOperationStatus.Completed) fillModelDraft = null;
             if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop) canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }

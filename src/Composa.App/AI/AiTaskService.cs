@@ -66,7 +66,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
         SelectedEngine = Engines.Profiles.FirstOrDefault();
     }
 
-    internal AiTaskService SettingsPreview() => new(serverUrl, Engines.Root, clientFactory)
+    internal AiTaskService SettingsPreview(Func<string>? address = null) => new(address ?? serverUrl, Engines.Root, clientFactory)
     {
         SelectedEngine = SelectedEngine, ConnectionTimeoutSeconds = ConnectionTimeoutSeconds,
         ModelSelections = ModelSelections, ServerInfo = ServerInfo, ServerCapabilities = ServerCapabilities,

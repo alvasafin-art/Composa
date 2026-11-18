@@ -218,11 +218,13 @@ public class QwenImageTests
             var pending = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs();
             var dialog = Assert.Single(window.OwnedWindows);
             var tabs = dialog.GetVisualDescendants().OfType<TabControl>().Single(tabs => tabs.Name == "AiSettingsTabs"); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
-            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text?.Contains("Qwen Image 2.1 Turbo · local 8-step") == true);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), box => Equals(box.SelectedItem, "Qwen Image 2.1 Turbo"));
             Assert.True(Screenshots.Save(dialog, "qwen21-settings"));
+            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Workflow and model files")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
             var page=(ScrollViewer)((TabItem)tabs.Items.Cast<TabItem>().ElementAt(1)).Content!;
             page.Offset=new(0,1000);Dispatcher.UIThread.RunJobs();Assert.True(Screenshots.Save(dialog,"qwen21-models"));
             tabs.SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "System instructions")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text?.Contains("Qwen-Image-2.1") == true);
             Assert.True(Screenshots.Save(dialog, "prompt-enhancer-settings"));
             dialog.Close(false); Assert.False(await pending);

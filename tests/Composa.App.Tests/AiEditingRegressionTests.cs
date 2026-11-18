@@ -175,16 +175,16 @@ public class AiEditingRegressionTests
             Assert.DoesNotContain("Seed", text); Assert.DoesNotContain("Variants", text);
             Assert.Contains(dialog.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiRun");
             Assert.Contains(dialog.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiVariants3");
-            var packs = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
-            Assert.Equal(window.AiTasks.Engines.Profiles.Where(pack=>pack.Binding(task)!=null).Select(pack=>pack.DisplayName),packs.Items.Cast<string>());
-            Assert.Contains("Qwen Image 2.1 Turbo",packs.Items.Cast<string>());
-            Assert.Contains("Nano Banana 2 · Gemini 3.1",packs.Items.Cast<string>());
-            packs.SelectedItem = "CHAT GPT 2.5"; Dispatcher.UIThread.RunJobs();
+            var packs = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.OfType<ImageModelChoice>().Any());
+            Assert.Equal(window.AiTasks.Engines.Profiles.Where(pack=>pack.Binding(task)!=null).Select(pack=>pack.Id),packs.Items.OfType<ImageModelChoice>().Select(m => m.Engine.Id));
+            Assert.Contains("Qwen Image 2.1 Turbo",packs.Items.OfType<ImageModelChoice>().Select(m => m.Name));
+            Assert.Contains("Nano Banana 2 · Gemini 3.1",packs.Items.OfType<ImageModelChoice>().Select(m => m.Name));
+            packs.SelectedItem = packs.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "chatgpt-image-2.5"); Dispatcher.UIThread.RunJobs();
             Assert.True(window.AiTasks.SelectedEngine!.PaidApi);
             Assert.True(Screenshots.Save(dialog, task == AiTaskKind.GenerateImage ? "gpt-generate-preview6" : "gpt-expand-preview6"));
             if (task == AiTaskKind.GenerativeExpand)
             {
-                var modes = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Cast<string>().Contains("Regenerate whole expanded image"));
+                var modes = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.OfType<string>().Contains("Regenerate whole expanded image"));
                 modes.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
                 Assert.True(Screenshots.Save(dialog, "gpt-expand-whole-preview6"));
             }

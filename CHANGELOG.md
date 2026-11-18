@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- The selection panel keeps the prompt, image model and Run together. Reference thumbnails appear when an image is attached. Generated variants have thumbnail previews and a hold-to-compare control.
+- Image model choices show the configured checkpoint or partner model. A temporary choice belongs to the current request. Preferences brings together connection settings, image models, the prompt enhancer and editor options.
+- Generation settings can save named presets for each model and operation. The prompt enhancer can try a sample using its draft provider settings.
+- The Move tool has an expandable numeric inspector. Side panels can be grouped into tabs, recent files have previews, and Camera Raw offers a larger image preview with before comparison and per-group reset.
+
 ## [1.3.0-preview.4] - 2026-11-18
 
 - Closing a document after Save keeps any edits made during the write. Autosave retries after storage errors. Recovery lets you restore, postpone or delete selected copies.

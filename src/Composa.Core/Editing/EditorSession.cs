@@ -408,10 +408,31 @@ public sealed partial class EditorSession
     /// Renders what a view shows straight from the layers, at the view's own resolution. The canvas uses this rather
     /// than <see cref="Composite"/>, so its cost follows the screen size and not the document size.
     /// </summary>
+    private Guid? comparisonGroup;
+
+    public void CompareWithoutVariants(Guid? groupId)
+    {
+        if (comparisonGroup == groupId) return;
+        comparisonGroup = groupId;
+        CanvasChanged?.Invoke(null);
+    }
+
     public void RenderView(SKBitmap target, SKRectI area, RenderView view)
     {
         if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All) RenderChannelView(target, area, view);
-        else DocumentRenderer.Render(document, target, area, view, CurrentOptions());
+        else
+        {
+            var options = CurrentOptions();
+            if (comparisonGroup is { } id && document.Find(id) is { } group)
+            {
+                var overrides = options?.Overrides ?? new Dictionary<Guid, Layer>();
+                var hidden = group.Clone();
+                hidden.Visible = false;
+                overrides[id] = hidden;
+                options = new RenderOptions { Overrides = overrides };
+            }
+            DocumentRenderer.Render(document, target, area, view, options);
+        }
     }
 
     private RenderOptions? CurrentOptions()

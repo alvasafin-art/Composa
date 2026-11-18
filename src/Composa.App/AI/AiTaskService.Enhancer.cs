@@ -59,14 +59,14 @@ public sealed partial class AiTaskService
         return null;
     }
 
-    private static async Task<string> EnhanceCompatibleAsync(Settings settings, string instructions, string message, CancellationToken token)
+    private static async Task<string> EnhanceCompatibleAsync(Settings settings, string instructions, string message, CancellationToken token, string? draftKey)
     {
         var endpoint = Assistant.ChatCompletionAssistantProvider.Endpoint(settings.EnhancerApiUrl);
-        if (string.IsNullOrWhiteSpace(settings.EnhancerApiModel)) throw new InvalidOperationException("Enter the API model ID in Prompts.");
+        if (string.IsNullOrWhiteSpace(settings.EnhancerApiModel)) throw new InvalidOperationException("Enter the API model ID in AI Settings → Prompt enhancer.");
         using var client = new HttpClient(new HttpClientHandler { UseProxy = !endpoint.IsLoopback, AllowAutoRedirect = false })
             { Timeout = TimeSpan.FromMinutes(5) };
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        if (((Settings.Persist ? UserApiKeys.Read(UserApiKeys.Target("Direct", endpoint)) : null) ?? Environment.GetEnvironmentVariable("AVS_COMPATIBLE_API_KEY")) is { Length: > 0 } key)
+        if ((draftKey ?? (Settings.Persist ? UserApiKeys.Read(UserApiKeys.Target("Direct", endpoint)) : null) ?? Environment.GetEnvironmentVariable("AVS_COMPATIBLE_API_KEY")) is { Length: > 0 } key)
             request.Headers.Authorization = new("Bearer", key);
         request.Content = JsonContent.Create(new { model = settings.EnhancerApiModel.Trim(), max_tokens = Math.Clamp(settings.EnhancerMaxTokens, 16, 16384),
             messages = new[] { new { role = "system", content = instructions }, new { role = "user", content = message } } });
@@ -78,13 +78,13 @@ public sealed partial class AiTaskService
         throw new InvalidDataException("The chat API returned an empty prompt.");
     }
 
-    internal async Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default)
+    internal async Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default, string? directKey = null)
     {
         var instructions = settings.EnhancerInstructions.GetValueOrDefault(engine.Id) ?? DefaultInstructions(engine);
         var message = $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}\nUser request: {draft}";
         var provider = settings.EffectiveEnhancerProvider();
         if (provider == "direct")
-            return await EnhanceCompatibleAsync(settings, instructions, message, token);
+            return await EnhanceCompatibleAsync(settings, instructions, message, token, directKey);
         using var client = Client();
         if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null)
             await TestConnectionAsync(token, overrideUrl: client.Address.ToString());
@@ -92,7 +92,7 @@ public sealed partial class AiTaskService
         {
             if (!Providers.ContainsKey(provider)) throw new InvalidOperationException("Choose a prompt provider in ComfyUI Settings.");
             var model = settings.EnhancerServerModels.GetValueOrDefault(provider);
-            if (string.IsNullOrWhiteSpace(model)) throw new InvalidOperationException("Choose the server model in ComfyUI Settings → Prompts.");
+            if (string.IsNullOrWhiteSpace(model)) throw new InvalidOperationException("Choose the server model in AI Settings → Prompt enhancer.");
             var state = new { version = 1, prompt = message, system_prompt = instructions,
                 settings = new { adapter = provider, model, base_url = provider == "compatible" ? settings.EnhancerServerApiUrl : "",
                     api_mode = settings.EnhancerServerApiMode, max_output_tokens = Math.Clamp(settings.EnhancerMaxTokens, 16, 16384), timeout = 300 } };
@@ -101,13 +101,13 @@ public sealed partial class AiTaskService
             return await ExecuteEnhancerGraph(client, new JsonObject { ["chat"] = helper }, token);
         }
         if (!ChatModels.Contains(settings.EnhancerModel))
-            throw new InvalidOperationException($"Select a chat model offered by this server in ComfyUI Settings → Prompts. Current choice: {settings.EnhancerModel}.");
+            throw new InvalidOperationException($"Select a chat model offered by this server in AI Settings → Prompt enhancer. Current choice: {settings.EnhancerModel}.");
         if (string.IsNullOrWhiteSpace(Credential) && RequestApiKey != null)
         {
             SessionApiKey = (await RequestApiKey(token))?.Trim();
             if (string.IsNullOrWhiteSpace(SessionApiKey)) throw new OperationCanceledException();
         }
-        if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add your Comfy.org key in API access.");
+        if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add your Comfy.org key in AI Settings → Connection → Comfy credits.");
         var config = new JsonObject
         {
             ["instructions"] = instructions,

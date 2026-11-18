@@ -109,6 +109,8 @@ public sealed record EngineLoraSupport
 /// <summary>A lightweight, versioned description of a complete compatible inference pipeline. It contains no weights.</summary>
 public sealed record EngineProfile
 {
+    /// <summary>Human-readable name of the model shipped with this profile.</summary>
+    public string? ModelName { get; init; }
     public string Id { get; init; } = "";
     public string DisplayName { get; init; } = "";
     public int ManifestVersion { get; init; } = 1;

@@ -41,6 +41,9 @@ public class IndependentMaskUiTests
             var moved = layer.MaskMatrix.MapPoint(90, 65);
             Assert.InRange(Math.Abs(moved.X - origin.X - 25), 0, .1); Assert.InRange(Math.Abs(moved.Y - origin.Y - 10), 0, .1);
             Assert.True(Screenshots.Save(window, "independent-mask-transform"));
+            window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties")
+                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
             var x = window.GetVisualDescendants().OfType<NumericUpDown>().First(b => b.Value == (decimal)session.EditingControlTransform(layer).X);
             x.Value += 5; Dispatcher.UIThread.RunJobs();
             Assert.Equal(frame, layer.Transform); Assert.InRange(Math.Abs(layer.MaskMatrix.MapPoint(90, 65).X - moved.X - 5), 0, .1);

@@ -1,5 +1,6 @@
 {
   "id": "chatgpt-image-2.6",
+  "modelName": "GPT Image 2.6 Sunburst",
   "displayName": "GPT Image 2.6 Sunburst",
   "manifestVersion": 1,
   "paidApi": true,

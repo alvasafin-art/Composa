@@ -140,15 +140,15 @@ public class NanoBananaTests
             var pending=AiDialogs.Prompt(window,AiTaskKind.GenerateImage,window.Settings,1600,400,service:window.AiTasks);
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
             var combos=dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
-            var quality=Assert.Single(combos,c=>c.Items.Cast<string>().Contains("2K")); Assert.Equal("2K",quality.SelectedItem);
-            var model=Assert.Single(combos,c=>c.Items.Cast<string>().Contains(Pack().DisplayName));
-            model.SelectedItem=Catalog().Find("chatgpt-image-2.5")!.DisplayName; Dispatcher.UIThread.RunJobs();
+            var quality=Assert.Single(combos,c=>c.Items.OfType<string>().Contains("2K")); Assert.Equal("2K",quality.SelectedItem);
+            var model=Assert.Single(combos,c=>c.Items.OfType<ImageModelChoice>().Any());
+            model.SelectedItem=model.Items.OfType<ImageModelChoice>().Single(m=>m.Engine.Id=="chatgpt-image-2.5"); Dispatcher.UIThread.RunJobs();
             quality.SelectedItem="high";
-            model.SelectedItem=Pack().DisplayName; Dispatcher.UIThread.RunJobs(); Assert.Equal("2K",quality.SelectedItem);
+            model.SelectedItem=model.Items.OfType<ImageModelChoice>().Single(m=>m.Engine.Id==Pack().Id); Dispatcher.UIThread.RunJobs(); Assert.Equal("2K",quality.SelectedItem);
             quality.SelectedItem="4K"; Dispatcher.UIThread.RunJobs();
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(),t=>t.Text?.Contains("Nano Banana: 4K · 4:1")==true);
             Assert.True(Screenshots.Save(dialog,"nano-banana-2-generation-resolution"));
-            model.SelectedItem=Catalog().Find("chatgpt-image-2.5")!.DisplayName; Dispatcher.UIThread.RunJobs(); Assert.Equal("high",quality.SelectedItem);
+            model.SelectedItem=model.Items.OfType<ImageModelChoice>().Single(m=>m.Engine.Id=="chatgpt-image-2.5"); Dispatcher.UIThread.RunJobs(); Assert.Equal("high",quality.SelectedItem);
             dialog.Close(false); Assert.Null(await pending);
         }
         finally {window.Close();}
