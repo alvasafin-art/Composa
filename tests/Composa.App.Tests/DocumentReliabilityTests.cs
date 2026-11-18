@@ -120,7 +120,6 @@ public class DocumentReliabilityTests
     [InlineData(ExportFormat.Tiff, ".tif")]
     public async Task Export_and_reopen_preserve_print_resolution(ExportFormat format, string extension)
     {
-        Composa.IO.ImageMagick.Bundled = BundledImageMagick.TryLoad;
         var path = Temp(extension);
         var window = new MainWindow(); window.Show();
         try

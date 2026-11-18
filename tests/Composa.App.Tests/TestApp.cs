@@ -9,7 +9,12 @@ namespace Composa.App.Tests;
 
 public static class TestApp
 {
-    static TestApp() => Settings.Persist = false;
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void Initialize()
+    {
+        Settings.Persist = false;
+        Composa.IO.ImageMagick.Bundled = BundledImageMagick.TryLoad;
+    }
 
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
         .UseSkia()
