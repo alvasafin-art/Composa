@@ -59,10 +59,10 @@ public sealed partial class MainWindow
                     break;
                 }
                 Add(Title("Move"));
+                if (!s.IsEditingChannel && s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildTransformFields(row);
                 if (s.IsEditingChannel) break;
                 var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
-                if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 BuildAlignmentFields(row);
                 break;
             case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
@@ -217,9 +217,42 @@ public sealed partial class MainWindow
                 Add(Title(s.Tool == Tool.Hand ? "Hand" : "Zoom"), Flat("Fit", canvas.Fit), Flat("100%", () => canvas.ZoomTo(1)), Flat("200%", () => canvas.ZoomTo(2)));
                 break;
         }
-        toolOptionsHost.Child = new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+        if (s.Tool is Tool.Move or Tool.Text)
+            toolOptionsHost.Child = ResponsiveOptions(row);
+        else toolOptionsHost.Child = new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
         UpdateLayout();
+    }
+
+    private static Control ResponsiveOptions(StackPanel row)
+    {
+        var controls = row.Children.ToArray();
+        var extra = new StackPanel { Spacing = 8, Classes = { "options" } };
+        var more = Ui.TextButton("More…", () => { });
+        more.Flyout = new Flyout { Content = new ScrollViewer { Content = extra, MaxHeight = 350 } };
+        more.IsVisible = false;
+        var host = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ClipToBounds = true };
+        host.Children.Add(row); Grid.SetColumn(more, 1); host.Children.Add(more);
+        var fit = controls.Length;
+        void Arrange(double width)
+        {
+            if (width <= 0) return;
+            double used = 0;
+            var count = 0;
+            foreach (var control in controls)
+            {
+                control.Measure(Size.Infinity);
+                var next = used + (count == 0 ? 0 : row.Spacing) + control.DesiredSize.Width;
+                if (next > width - (count == controls.Length - 1 ? 0 : 80)) break;
+                used = next; count++;
+            }
+            if (count == fit) return;
+            row.Children.Clear(); extra.Children.Clear();
+            row.Children.AddRange(controls.Take(count)); extra.Children.AddRange(controls.Skip(count));
+            fit = count; more.IsVisible = count < controls.Length;
+        }
+        host.SizeChanged += (_, e) => Arrange(e.NewSize.Width);
+        return host;
     }
 
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
@@ -494,7 +527,7 @@ public sealed partial class MainWindow
         var w = Field("W", t => t.Width, (t, v) => t with { Width = Math.Max(1, v), Height = Math.Max(1, t.Height * v / Math.Max(1e-6, t.Width)) }, 1, 100000, "0.#");
         var h = Field("H", t => t.Height, (t, v) => t with { Height = Math.Max(1, v) }, 1, 100000, "0.#");
         var angle = Field("∠", t => t.Rotation, (t, v) => t with { Rotation = v }, -360, 360, "0.##");
-        refreshOptions = () =>
+        refreshOptions += () =>
         {
             var live = s.IsEditingChannel ? s.ChannelControlLayer : s.Document.Find(layer.Id);
             if (live == null) return;

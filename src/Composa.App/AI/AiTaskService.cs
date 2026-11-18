@@ -66,6 +66,26 @@ public sealed partial class AiTaskService : IAiTaskRunner
         SelectedEngine = Engines.Profiles.FirstOrDefault();
     }
 
+    internal AiTaskService SettingsPreview() => new(serverUrl, Engines.Root, clientFactory)
+    {
+        SelectedEngine = SelectedEngine, ConnectionTimeoutSeconds = ConnectionTimeoutSeconds,
+        ModelSelections = ModelSelections, ServerInfo = ServerInfo, ServerCapabilities = ServerCapabilities,
+        ConnectedServerUrl = ConnectedServerUrl, ConnectionState = ConnectionState
+    };
+
+    internal void AcceptSettingsPreview(AiTaskService preview, string address)
+    {
+        Interlocked.Increment(ref connectionRevision);
+        ConnectionTimeoutSeconds = preview.ConnectionTimeoutSeconds;
+        SelectedEngine = Engines.Find(preview.SelectedEngine?.Id);
+        var matches = preview.ConnectedServerUrl == address;
+        ConnectedServerUrl = matches ? address : null;
+        ServerInfo = matches ? preview.ServerInfo : null;
+        ServerCapabilities = matches ? preview.ServerCapabilities : null;
+        ConnectionState = matches ? preview.ConnectionState : ComfyConnectionState.Disconnected;
+        StateChanged?.Invoke();
+    }
+
     public async Task<EngineCompatibility?> TestConnectionAsync(CancellationToken cancellationToken = default, string? overrideUrl = null)
     {
         var revision = Interlocked.Increment(ref connectionRevision);

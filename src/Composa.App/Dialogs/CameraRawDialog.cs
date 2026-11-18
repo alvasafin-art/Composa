@@ -22,17 +22,19 @@ public static class CameraRawDialog
 
     /// <param name="original">The layer's pixels before the filter, for the eyedropper and Auto.</param>
     /// <param name="graded">Reads the layer as currently previewed, for the histogram.</param>
-    public static async Task<CameraRawSettings?> Show(Window owner, CameraRawSettings initial, SKBitmap original, Action<CameraRawSettings> changed, Func<SKBitmap?> graded)
+    public static async Task<CameraRawSettings?> Show(Window owner, CameraRawSettings initial, SKBitmap original, Action<CameraRawSettings> changed, Func<SKBitmap?> graded, Func<CameraRawSettings, Task<bool>>? render = null)
     {
         var current = initial;
         var hidden = new HashSet<CameraRawGroup>();
         CameraRawSettings Rendered() => hidden.Aggregate(current, (settings, group) => settings.Without(group));
         var histogram = new HistogramView { Width = 300, Height = 90 };
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
-        timer.Tick += (_, _) =>
+        var closed = false;
+        timer.Tick += async (_, _) =>
         {
             timer.Stop();
-            changed(Rendered());
+            if (render != null) { if (!await render(Rendered()) || closed) return; }
+            else changed(Rendered());
             if (graded() is { } pixels) { histogram.Histogram = Histogram.Of(pixels); histogram.InvalidateVisual(); }
         };
         var eyes = new Dictionary<CameraRawGroup, Button>();
@@ -297,6 +299,7 @@ public static class CameraRawDialog
         var dialog = new DialogWindow("Camera Raw Filter", body);
         dialog.Opened += (_, _) => { timer.Stop(); timer.Start(); };
         var accepted = await dialog.Ask(owner);
+        closed = true;
         timer.Stop();
         return accepted ? Rendered() : null;
     }

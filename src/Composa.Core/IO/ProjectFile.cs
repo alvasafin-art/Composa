@@ -107,12 +107,13 @@ public static class ProjectFile
         public string? SmartObject { get; set; }
     }
 
-    public static void Save(Document document, string path)
+    public static void Save(Document document, string path, Action? beforeReplace = null)
     {
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
             using (var stream = File.Create(temp)) Write(document, stream);
+            beforeReplace?.Invoke();
             File.Move(temp, path, overwrite: true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }

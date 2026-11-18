@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -315,7 +316,7 @@ public sealed class SliderField : Control
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         base.OnPointerWheelChanged(e);
-        if (editing) return;
+        if (editing || (!IsFocused && this.GetVisualAncestors().OfType<ScrollViewer>().Any(s => s.Extent.Height > s.Viewport.Height))) return;
         var delta = e.Delta.Y != 0 ? e.Delta.Y : -e.Delta.X;
         if (delta == 0) return;
         Nudge(delta > 0 ? 1 : -1);

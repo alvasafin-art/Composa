@@ -19,9 +19,9 @@ public class FileDropTests
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Dropping_on_tab_header_or_empty_strip_opens_images_in_order_without_changing_document(bool header)
+    public async Task Dropping_on_tab_header_or_empty_strip_opens_images_in_order_without_changing_document(bool header)
     {
-        WithImages((window, original, paths) =>
+        await WithImages(async (window, original, paths) =>
         {
             var bar = window.GetVisualDescendants().OfType<Grid>().Single(control => control.Name == "DocumentTabBar");
             var target = header ? bar.GetVisualDescendants().OfType<ScrollViewer>().First().GetVisualDescendants().OfType<Button>().First() : (Control)bar;
@@ -33,6 +33,7 @@ public class FileDropTests
             var drop = new DragEventArgs(DragDrop.DropEvent, data, target, new Point(2, 2), KeyModifiers.None);
             target.RaiseEvent(drop); Dispatcher.UIThread.RunJobs();
             Assert.True(drop.Handled);
+            await WaitFor(() => window.Sessions.Count == 3);
             Assert.Equal(3, window.Sessions.Count);
             Assert.Single(original.Document.Layers); Assert.False(original.IsModified);
             Assert.Equal(31, window.Sessions[1].Document.Width);
@@ -44,14 +45,15 @@ public class FileDropTests
     }
 
     [AvaloniaFact]
-    public void Dropping_on_canvas_still_places_layers_and_can_be_undone()
+    public async Task Dropping_on_canvas_still_places_layers_and_can_be_undone()
     {
-        WithImages((window, original, paths) =>
+        await WithImages(async (window, original, paths) =>
         {
             var canvas = window.GetVisualDescendants().OfType<CanvasView>().Single();
             using var data = Files(window, paths);
             canvas.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, data, canvas, new Point(150, 150), KeyModifiers.None));
             Dispatcher.UIThread.RunJobs();
+            await WaitFor(() => original.Document.Layers.Count == 3);
             Assert.Single(window.Sessions); Assert.Same(original, window.Session);
             Assert.Equal(3, original.Document.Layers.Count);
             original.Undo(); original.Undo(); Assert.Single(original.Document.Layers); Assert.False(original.IsModified);
@@ -59,9 +61,9 @@ public class FileDropTests
     }
 
     [AvaloniaFact]
-    public void Dropping_on_empty_window_opens_a_document()
+    public async Task Dropping_on_empty_window_opens_a_document()
     {
-        WithImages((window, original, paths) =>
+        await WithImages(async (window, original, paths) =>
         {
             // A separate empty window exercises the welcome screen without any active document.
             var empty = new MainWindow(); empty.Show();
@@ -70,10 +72,17 @@ public class FileDropTests
                 using var data = Files(empty, paths.Take(1));
                 empty.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, data, empty, new Point(200, 200), KeyModifiers.None));
                 Dispatcher.UIThread.RunJobs();
+                await WaitFor(() => empty.Sessions.Count == 1);
                 Assert.Single(empty.Sessions); Assert.Equal(31, empty.Session!.Document.Width);
             }
             finally { foreach (var session in empty.Sessions) session.MarkEmbeddedSaved(); empty.Close(); }
         });
+    }
+
+    private static async Task WaitFor(Func<bool> loaded)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!loaded()) await Task.Delay(5, timeout.Token);
     }
 
     private static DataTransfer Files(MainWindow window, IEnumerable<string> paths)
@@ -84,7 +93,7 @@ public class FileDropTests
         return data;
     }
 
-    private static void WithImages(Action<MainWindow, EditorSession, string[]> test)
+    private static async Task WithImages(Func<MainWindow, EditorSession, string[], Task> test)
     {
         var paths = new[] { Path.Combine(Path.GetTempPath(), $"composa-drop-{Guid.NewGuid():N}.png"),
             Path.Combine(Path.GetTempPath(), $"composa-drop-{Guid.NewGuid():N}.png") };
@@ -95,7 +104,7 @@ public class FileDropTests
         {
             using var first = Pixels.NewColor(31, 23); first.Erase(SKColors.Red); ImageFiles.Save(first, paths[0], ExportFormat.Png);
             using var second = Pixels.NewColor(47, 35); second.Erase(SKColors.Blue); ImageFiles.Save(second, paths[1], ExportFormat.Png);
-            test(window, original, paths);
+            await test(window, original, paths);
         }
         finally
         {

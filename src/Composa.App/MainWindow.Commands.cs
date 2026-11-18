@@ -570,7 +570,10 @@ public sealed partial class MainWindow
     private async Task NewCanvas()
     {
         var result = await CanvasDialogs.NewCanvas(this, session?.Background ?? SKColors.White, await ClipboardImageSize());
-        if (result != null) AddSession(EditorSession.NewCanvas(result.Width, result.Height, result.Background, result.Depth));
+        if (result == null) return;
+        var created = EditorSession.NewCanvas(result.Width, result.Height, result.Background, result.Depth);
+        created.Document.Resolution = result.Resolution;
+        AddSession(created);
     }
 
     private async Task Open()
@@ -593,10 +596,34 @@ public sealed partial class MainWindow
     /// Opens one file: a project in a tab, an image as a new document, or the tab it is already open in. Null means the
     /// person declined a dialog on the way; anything wrong with the file is thrown, so the caller decides who hears it.
     /// </summary>
+    private static readonly StringComparer FileNames = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private readonly Dictionary<string, Task<EditorSession?>> opening = new(FileNames);
+    private EditorSession? DocumentAt(string path) => sessions.FirstOrDefault(s => s.FilePath != null && FileNames.Equals(Path.GetFullPath(s.FilePath), path));
+
     public async Task<EditorSession?> OpenPath(string path)
     {
+        path = Path.GetFullPath(path);
+        if (DocumentAt(path) is { } open) { SetSession(open); return open; }
+        if (opening.TryGetValue(path, out var pending)) return await pending;
+        ShowNote("Opening " + Path.GetFileName(path) + "…");
+        var load = LoadDocument(path);
+        opening[path] = load;
+        try
+        {
+            var result = await load;
+            if (result != null) ShowNote("Opened " + Path.GetFileName(path));
+            return result;
+        }
+        finally
+        {
+            opening.Remove(path);
+            if (opening.Count == 0 && note == "Opening " + Path.GetFileName(path) + "…") { note = null; UpdateStatus(); }
+        }
+    }
+
+    private async Task<EditorSession?> LoadDocument(string path)
+    {
         EditorSession opened;
-        if (sessions.FirstOrDefault(s => s.FilePath == path) is { } open) { SetSession(open); return open; }
         if (PsdImport.IsPsd(path))
         {
             // Photoshop files open as unsaved documents; what had to be converted is shown before anything is applied.
@@ -606,7 +633,7 @@ public sealed partial class MainWindow
         }
         else if (Path.GetExtension(path).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase))
         {
-            opened = new EditorSession(ProjectFile.Load(path));
+            opened = new EditorSession(await Task.Run(() => ProjectFile.Load(path)));
             opened.MarkSaved(path);
             AddSession(opened);
         }
@@ -614,14 +641,16 @@ public sealed partial class MainWindow
         {
             var pixels = RawImporter.IsRaw(path) ? await DevelopRaw(path)
                 : SvgImporter.IsSvg(path) ? await Busy(() => Task.Run(() => SvgImporter.Render(path))) // At the size the file declares.
-                : ImageFiles.Load(path, preserveProfile: true);
+                : await Task.Run(() => ImageFiles.Load(path, preserveProfile: true));
             if (pixels == null) return null;
-            var document = new Document(pixels.Width, pixels.Height) { Depth = Pixels.DepthOf(pixels), Profile = Pixels.ProfileOf(pixels) };
+            var resolution = await Task.Run(() => ImageResolution.Read(path));
+            var document = new Document(pixels.Width, pixels.Height) { Resolution = resolution, Depth = Pixels.DepthOf(pixels), Profile = Pixels.ProfileOf(pixels) };
             var layer = Layer.Raster(Path.GetFileNameWithoutExtension(path), pixels);
             document.Layers.Add(layer);
             document.SetActive(layer.Id);
             AddSession(opened = new EditorSession(document) { SuggestedName = Path.GetFileNameWithoutExtension(path) });
         }
+        if (opened.FilePath != null) RecordFileVersion(opened, path);
         settings.AddRecent(Path.GetFullPath(path));
         return opened;
     }
@@ -635,16 +664,16 @@ public sealed partial class MainWindow
     /// <summary>Adds images (and Photoshop files, inside a folder each) to the current document as layers, centered on <paramref name="at"/> when given.</summary>
     public async Task PlacePaths(IEnumerable<string> paths, SKPoint? at)
     {
-        if (session == null) return;
+        if (session is not { } target) return;
         foreach (var path in paths)
         {
+            if (session != target) return;
             try
             {
                 var name = Path.GetFileNameWithoutExtension(path);
                 if (PsdImport.IsPsd(path))
                 {
                     // Into an existing document, a Photoshop file's layers arrive inside a folder named after it.
-                    var target = session;
                     // The file's layers join what the document already holds, so they get what is left of its budget.
                     if (await ImportPhotoshop(path, DocumentLimits.DocumentPixelBudget - session.Document.RasterPixels()) is not { } import) continue;
                     if (target != session) { import.Discard(); continue; }
@@ -652,7 +681,6 @@ public sealed partial class MainWindow
                 }
                 else if (RawImporter.IsRaw(path))
                 {
-                    var target = session;
                     if (await DevelopRaw(path) is not { } developed) continue;
                     if (target != session) { developed.Dispose(); continue; }
                     session.AddImageLayer(name, developed, at);
@@ -660,14 +688,18 @@ public sealed partial class MainWindow
                 else if (SvgImporter.IsSvg(path))
                 {
                     // Fitted to the canvas as it is drawn, so a small icon comes in sharp rather than enlarged from a few pixels.
-                    var target = session;
                     var canvas = new SKSizeI(target.Document.Width, target.Document.Height);
                     var budget = DocumentLimits.DocumentPixelBudget - target.Document.RasterPixels();
                     var fitted = await Busy(() => Task.Run(() => SvgImporter.Render(path, canvas, budget)));
                     if (target != session) { fitted.Dispose(); continue; }
                     session.AddImageLayer(name, fitted, at);
                 }
-                else session.AddImageLayer(name, ImageFiles.Load(path, preserveProfile: true), at);
+                else
+                {
+                    var pixels = await Task.Run(() => ImageFiles.Load(path, preserveProfile: true));
+                    if (session != target) { pixels.Dispose(); return; }
+                    target.AddImageLayer(name, pixels, at);
+                }
             }
             catch (Exception error) { _ = Prompts.Alert(this, "Import couldn't finish", error.Message); }
         }
@@ -739,6 +771,11 @@ public sealed partial class MainWindow
             catch (Exception updateError) { await Prompts.Alert(this, "Couldn't update smart object", updateError.Message); return false; }
         }
         var path = target.FilePath;
+        if (!saveAs && path != null && ChangedExternally(target, Path.GetFullPath(path)))
+        {
+            if (!await Prompts.Confirm(this, "File changed on disk", "Save your edits under a different name to keep both versions.", "Save a copy…")) return false;
+            saveAs = true;
+        }
         if (saveAs || path == null)
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
@@ -752,12 +789,13 @@ public sealed partial class MainWindow
             if (!path.EndsWith(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
                 path += photoshop ? PsdExport.Extension : ProjectFile.Extension;
         }
+        var copy = false;
         if (Path.GetExtension(path).Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
         {
             var conversions = PsdExport.Conversions(target.Document);
-            if (conversions.Count > 0 && !await PsdConversionDialog.Confirm(this, Path.GetFileName(path), conversions, exporting: true)) return false;
+            if (conversions.Count > 0 && !await PsdConversionDialog.Confirm(this, Path.GetFileName(path), conversions, exporting: true, saveCopy: () => copy = true)) return false;
         }
-        if (await SaveTo(target, path) is not { } error) return true;
+        if (await SaveTo(target, path, copy) is not { } error) return true;
         await Prompts.Alert(this, "Couldn't save", error.Message);
         return false;
     }
@@ -766,10 +804,39 @@ public sealed partial class MainWindow
     /// Saves the document to a project file, as Ctrl+S does once the path is known, and returns what went wrong or
     /// null. Another save of this document still writing finishes first; this one then saves whatever changed since.
     /// </summary>
-    public async Task<Exception?> SaveTo(EditorSession target, string path)
+    private readonly Dictionary<EditorSession, (string Path, long Size, DateTime Modified)> fileVersions = [];
+    private void RecordFileVersion(EditorSession target, string path)
     {
-        if (saving.TryGetValue(target, out var earlier)) await earlier.Task;
-        var task = Write(target, path);
+        var info = new FileInfo(path);
+        if (info.Exists) fileVersions[target] = (path, info.Length, info.LastWriteTimeUtc);
+    }
+    private bool ChangedExternally(EditorSession target, string path)
+    {
+        if (!fileVersions.TryGetValue(target, out var previous) || !FileNames.Equals(previous.Path, path)) return false;
+        var info = new FileInfo(path);
+        return !info.Exists || info.Length != previous.Size || info.LastWriteTimeUtc != previous.Modified;
+    }
+
+    private async Task WaitForSave(EditorSession target)
+    {
+        while (saving.TryGetValue(target, out var entry))
+        {
+            await entry.Task;
+            if (saving.TryGetValue(target, out var current) && current.Task == entry.Task) saving.Remove(target);
+        }
+    }
+
+    public Task<Exception?> SaveTo(EditorSession target, string path) => SaveTo(target, path, copy: false);
+    private async Task<Exception?> SaveTo(EditorSession target, string path, bool copy)
+    {
+        path = Path.GetFullPath(path);
+        await WaitForSave(target);
+        if (DocumentAt(path) is { } owner && owner != target || saving.Any(pair => pair.Key != target && FileNames.Equals(pair.Value.Path, path)))
+            return new IOException("This file is open in another tab. Choose a different filename.");
+        if (ChangedExternally(target, path)) return new IOException("The file on disk changed. Use Save As and choose a different filename.");
+        if (copy && target.FilePath != null && FileNames.Equals(Path.GetFullPath(target.FilePath), path))
+            return new IOException("Choose a different filename for the PSD copy.");
+        var task = Write(target, path, copy);
         saving[target] = (path, task);
         UpdateStatus();
         try { return await task; }
@@ -791,7 +858,7 @@ public sealed partial class MainWindow
     /// Committed bitmaps are immutable, so the snapshot can be read while editing goes on; only that snapshot counts as
     /// saved, and an edit made meanwhile leaves the document modified. The task never faults: close and quit await it.
     /// </summary>
-    private async Task<Exception?> Write(EditorSession target, string path)
+    private async Task<Exception?> Write(EditorSession target, string path, bool copy)
     {
         var extension = Path.GetExtension(path);
         if (!extension.Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase) && !extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase))
@@ -802,43 +869,80 @@ public sealed partial class MainWindow
         target.FinishText();
         var snapshot = target.Document.Clone();
         var state = target.History.CurrentId;
+        // Also protect Save As targets that another program changes during the encode.
+        var destination = new FileInfo(path);
+        (long, DateTime)? expected = destination.Exists ? (destination.Length, destination.LastWriteTimeUtc) : null;
+        void CheckDestination()
+        {
+            var file = new FileInfo(path);
+            (long, DateTime)? current = file.Exists ? (file.Length, file.LastWriteTimeUtc) : null;
+            if (expected != current) throw new IOException("The destination changed during the save. Choose a different filename.");
+        }
         try { await Task.Run(() =>
         {
-            if (extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase)) PsdExport.Save(snapshot, path);
-            else ProjectFile.Save(snapshot, path);
+            if (extension.Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase)) PsdExport.Save(snapshot, path, CheckDestination);
+            else ProjectFile.Save(snapshot, path, CheckDestination);
         }); }
         catch (Exception error) { return error; }
-        if (!embeddedTabs.ContainsKey(target)) target.MarkSaved(path, state);
-        recovery?.Forget(target);
+        if (!copy && !embeddedTabs.ContainsKey(target))
+        {
+            target.MarkSaved(path, state);
+            RecordFileVersion(target, path);
+        }
+        if (!target.IsModified) recovery?.Forget(target);
         settings.AddRecent(Path.GetFullPath(path));
         return null;
     }
 
     private async Task Export(ExportFormat format)
     {
-        if (this.session is not { } session) return; // Held locally: the active tab may change while a dialog is open.
-        if (format == ExportFormat.Jpeg)
-        {
-            using var preview = session.Flatten();
-            if (await CanvasDialogs.JpegQuality(this, jpegQuality, preview) is not { } quality) return;
-            jpegQuality = quality;
-        }
+        if (session is not { } target) return;
+        var snapshot = target.Document.Clone();
         var extension = format switch { ExportFormat.Jpeg => "jpg", ExportFormat.Webp => "webp", ExportFormat.Tiff => "tif", _ => "png" };
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Export " + extension.ToUpperInvariant(), SuggestedFileName = session.Title + "." + extension, DefaultExtension = extension,
-            FileTypeChoices = [new FilePickerFileType(extension.ToUpperInvariant() + " image") { Patterns = ["*." + extension] }]
-        });
-        if (file?.TryGetLocalPath() is not { } path) return;
+        SKBitmap? flattened = null;
         try
         {
-            Busy(() =>
+            if (format == ExportFormat.Jpeg)
             {
-                using var flat = session.Flatten();
-                ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : jpegQuality, session.Document.Resolution);
+                if (!await ExportStep("Rendering JPEG preview…", _ => { flattened = DocumentRenderer.Flatten(snapshot); })) return;
+                if (await CanvasDialogs.JpegQuality(this, jpegQuality, flattened!) is not { } quality) return;
+                jpegQuality = quality;
+            }
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Export " + extension.ToUpperInvariant(), SuggestedFileName = target.Title + "." + extension, DefaultExtension = extension,
+                FileTypeChoices = [new FilePickerFileType(extension.ToUpperInvariant() + " image") { Patterns = ["*." + extension] }]
             });
+            if (file?.TryGetLocalPath() is not { } path) return;
+            var encodeQuality = format == ExportFormat.Png ? 100 : jpegQuality;
+            if (await ExportStep($"Exporting {Path.GetFileName(path)}…", token =>
+            {
+                flattened ??= DocumentRenderer.Flatten(snapshot);
+                token.ThrowIfCancellationRequested();
+                ImageFiles.Save(flattened, path, format, encodeQuality, snapshot.Resolution, token);
+            })) ShowNote($"Exported {Path.GetFileName(path)}");
         }
         catch (Exception error) { await Prompts.Alert(this, "Couldn't export", error.Message); }
+        finally { flattened?.Dispose(); }
+    }
+
+    private async Task<bool> ExportStep(string message, Action<CancellationToken> work)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var dialog = new DialogWindow("Export", Ui.Label(message), "Cancel", cancellable: false);
+        dialog.Closed += (_, _) => cancellation.Cancel();
+        var shown = dialog.Ask(this);
+        try
+        {
+            await Task.Run(() => work(cancellation.Token), cancellation.Token);
+            return !cancellation.IsCancellationRequested;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
+        finally
+        {
+            if (dialog.IsVisible) dialog.Close(false);
+            await shown;
+        }
     }
 
     // ---- Clipboard ----------------------------------------------------------------------------------------------
@@ -1012,25 +1116,53 @@ public sealed partial class MainWindow
         if (session == null) return;
         var target = session;
         if (!target.BeginFilter(kind)) { ShowProblem("Select a pixel layer or a mask first."); return; }
-        if (kind == FilterKind.CameraRaw)
+        var revision = 0;
+        var serial = new SemaphoreSlim(1);
+        FilterSettings? applied = null;
+        async Task<bool> Render(FilterSettings value)
         {
-            var original = target.PreviewOriginal!;
-            var seed = (uint)Random.Shared.Next();
-            var grade = await CameraRawDialog.Show(this, lastCameraRaw, original,
-                settings => Busy(() => target.PreviewFilter(new FilterSettings { Kind = kind, CameraRaw = settings, Seed = seed })),
-                () => target.IsEditingMask ? target.EditingMaskBitmap : target.ActiveLayer?.Pixels);
-            if (grade == null) { target.CancelPreview(); return; }
-            lastCameraRaw = grade;
-            if (grade.IsIdentity) { target.CancelPreview(); return; }
-            target.PreviewFilter(new FilterSettings { Kind = kind, CameraRaw = grade, Seed = seed });
-            target.CommitPreview();
-            return;
+            var mine = ++revision;
+            await serial.WaitAsync();
+            try
+            {
+                if (mine != revision) return false;
+                if (value == applied) return true;
+                if (!await target.PreviewFilterAsync(value, () => mine == revision)) return false;
+                applied = value;
+                return true;
+            }
+            finally { serial.Release(); }
         }
-        var initial = new FilterSettings { Kind = kind, Radius = kind is FilterKind.Sharpen or FilterKind.HighPass ? 2 : kind == FilterKind.MotionBlur ? 30 : 8, Amount = kind == FilterKind.Sharpen ? 60 : 20, Seed = (uint)Random.Shared.Next() };
-        var result = await AdjustmentDialogs.EditFilter(this, initial, settings => Busy(() => target.PreviewFilter(settings)));
-        // A filter left at nothing (a vignette of zero) closes as Cancel does, without an undo step.
-        if (result == null || result.IsIdentity) target.CancelPreview();
-        else { target.PreviewFilter(result); target.CommitPreview(); }
+
+        async Task<bool> Preview(FilterSettings value)
+        {
+            try { return await Render(value); }
+            catch (Exception error) { ShowProblem(error.Message); return false; }
+        }
+        try
+        {
+            FilterSettings? result;
+            var seed = (uint)Random.Shared.Next();
+            if (kind == FilterKind.CameraRaw)
+            {
+                FilterSettings Grade(CameraRawSettings value) => new() { Kind = kind, CameraRaw = value, Seed = seed };
+                var grade = await CameraRawDialog.Show(this, lastCameraRaw, target.PreviewOriginal!, _ => { },
+                    () => target.IsEditingMask ? target.EditingMaskBitmap : target.ActiveLayer?.Pixels, value => Preview(Grade(value)));
+                if (grade != null) lastCameraRaw = grade;
+                result = grade == null || grade.IsIdentity ? null : Grade(grade);
+            }
+            else
+            {
+                var initial = new FilterSettings { Kind = kind, Radius = kind is FilterKind.Sharpen or FilterKind.HighPass ? 2 : kind == FilterKind.MotionBlur ? 30 : 8, Amount = kind == FilterKind.Sharpen ? 60 : 20, Seed = seed };
+                result = await AdjustmentDialogs.EditFilter(this, initial, value => { _ = Preview(value); });
+            }
+            if (result == null || result.IsIdentity) { revision++; target.CancelPreview(); return; }
+            var enabled = IsEnabled;
+            IsEnabled = false;
+            try { if (await Render(result)) target.CommitPreview(); else target.CancelPreview(); }
+            finally { IsEnabled = enabled; }
+        }
+        catch (Exception error) { revision++; target.CancelPreview(); ShowProblem(error.Message); }
     }
 
     private async Task NewAdjustmentLayer(AdjustmentKind kind)

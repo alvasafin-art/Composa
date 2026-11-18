@@ -7,7 +7,7 @@ namespace Composa.App.Dialogs;
 /// <summary>What a Photoshop file loses on the way in, listed per layer, with the choice to go ahead or not.</summary>
 public static class PsdConversionDialog
 {
-    public static Task<bool> Confirm(Window owner, string fileName, IReadOnlyList<PsdConversion> conversions, bool exporting = false, Action<bool>? chooseMerged = null)
+    public static Task<bool> Confirm(Window owner, string fileName, IReadOnlyList<PsdConversion> conversions, bool exporting = false, Action<bool>? chooseMerged = null, Action? saveCopy = null)
     {
         var rows = new StackPanel { Spacing = 10 };
         foreach (var item in conversions.Take(500))
@@ -31,6 +31,8 @@ public static class PsdConversionDialog
             merged.IsCheckedChanged += (_, _) => chooseMerged(merged.IsChecked == true);
             body.Children.Add(merged);
         }
-        return new DialogWindow($"{(exporting ? "Save" : "Open")} {fileName}?", body, exporting ? "Save PSD" : "Import").Ask(owner);
+        var dialog = new DialogWindow($"{(exporting ? "Save" : "Open")} {fileName}?", body, exporting ? "Save PSD" : "Import");
+        if (saveCopy != null) dialog.AddSecondaryAction("Export PSD copy", () => { saveCopy(); dialog.Close(true); });
+        return dialog.Ask(owner);
     }
 }

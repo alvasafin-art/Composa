@@ -49,7 +49,7 @@ public static partial class PsdExport
     private static bool NeedsAppearance(Document document) => document.AllLayers().Any(l => l.IsAdjustment);
 
     /// <summary>Writes beside the destination and replaces it only after a complete, flushed file exists.</summary>
-    public static void Save(Document document, string path)
+    public static void Save(Document document, string path, Action? beforeReplace = null)
     {
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
@@ -59,6 +59,7 @@ public static partial class PsdExport
                 Write(document, stream);
                 stream.Flush(flushToDisk: true);
             }
+            beforeReplace?.Invoke();
             File.Move(temp, path, overwrite: true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }

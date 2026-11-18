@@ -18,7 +18,21 @@ public sealed class Recovery
     private sealed record Info(string Title, string? OriginalPath, DateTime SavedAt, int ProcessId);
 
     private readonly string directory;
-    private readonly Dictionary<EditorSession, (Guid Id, int Revision)> saved = [];
+    private sealed class Copy(Guid id)
+    {
+        public readonly Guid Id = id;
+        public volatile int Revision = -1;
+        public DateTime? LastSuccess;
+    }
+
+    private readonly Dictionary<EditorSession, Copy> saved = [];
+    public string? Warning { get; private set; }
+
+    public void Adopt(EditorSession session, Entry entry)
+    {
+        if (Guid.TryParse(Path.GetFileNameWithoutExtension(entry.ProjectPath), out var id))
+            saved[session] = new Copy(id) { LastSuccess = entry.SavedAt };
+    }
     private Task running = Task.CompletedTask;
 
     public Recovery(string? directory = null) => this.directory = directory ?? Path.Combine(AppPaths.Cache, "recovery");
@@ -27,32 +41,38 @@ public sealed class Recovery
     public Task Save(IEnumerable<EditorSession> sessions)
     {
         if (!running.IsCompleted) return running; // A large document may still be encoding; try again next time.
-        var work = new List<(Document Snapshot, string Path, Info Info)>();
+        var work = new List<(Copy State, int Revision, Document Snapshot, string Path, Info Info)>();
         foreach (var session in sessions)
         {
             if (!session.IsModified || session.IsInteracting) continue;
-            var known = saved.TryGetValue(session, out var state);
-            if (known && state.Revision == session.Revision) continue;
-            var id = known ? state.Id : Guid.NewGuid();
-            saved[session] = (id, session.Revision);
-            work.Add((session.Document.Clone(), Path.Combine(directory, id + ProjectFile.Extension),
+            if (!saved.TryGetValue(session, out var state)) saved[session] = state = new Copy(Guid.NewGuid());
+            if (state.Revision == session.Revision) continue;
+            work.Add((state, session.Revision, session.Document.Clone(), Path.Combine(directory, state.Id + ProjectFile.Extension),
                 new Info(session.Title, session.FilePath, DateTime.Now, Environment.ProcessId)));
         }
         if (work.Count == 0) return Task.CompletedTask;
         return running = Task.Run(() =>
         {
-            Directory.CreateDirectory(directory);
-            foreach (var (snapshot, path, info) in work)
+            Warning = null;
+            foreach (var (state, revision, snapshot, path, info) in work)
             {
                 try
                 {
+                    Directory.CreateDirectory(directory);
                     ProjectFile.Save(snapshot, path);
-                    File.WriteAllText(Path.ChangeExtension(path, ".json"), JsonSerializer.Serialize(info));
+                    var metadata = Path.ChangeExtension(path, ".json");
+                    File.WriteAllText(metadata + ".tmp", JsonSerializer.Serialize(info));
+                    File.Move(metadata + ".tmp", metadata, true);
+                    state.LastSuccess = info.SavedAt;
+                    state.Revision = revision;
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
                     // Recovery copies are best effort: a full or read-only cache must not interrupt editing.
-                    Console.Error.WriteLine($"Autosave failed: {error.Message}");
+                    Warning = state.LastSuccess is { } last
+                        ? $"Autosave failed for {info.Title}. Last copy {last:t}. Will retry."
+                        : $"Autosave failed for {info.Title}. No recovery copy yet. Will retry.";
+                    Console.Error.WriteLine($"{Warning} {error.Message}");
                 }
             }
         });

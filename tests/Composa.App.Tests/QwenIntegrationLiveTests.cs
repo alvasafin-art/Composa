@@ -22,18 +22,19 @@ public class QwenIntegrationLiveTests
         var token = TestContext.Current.CancellationToken;
         var inputRoot = Environment.GetEnvironmentVariable("COMPOSA_QWEN_INTEGRATION_INPUT")!;
         var outputRoot = Environment.GetEnvironmentVariable("COMPOSA_QWEN_INTEGRATION_OUTPUT")!; Directory.CreateDirectory(outputRoot);
-        var cases = new[] { "indoor-sun", "indoor-diffuse", "outdoor-sun", "outdoor-overcast", "generate", "edit", "fill", "remove", "expand", "relight", "background" };
+        var cases = new[] { "indoor-sun", "indoor-diffuse", "outdoor-sun", "outdoor-overcast", "generate", "edit", "fill", "remove", "expand", "relight", "background", "fill-edge-wide", "edit-reference" };
         if (Environment.GetEnvironmentVariable("COMPOSA_QWEN_INTEGRATION_CASES") is { Length: > 0 } selected) cases = selected.Split(',');
         var metrics = new List<object>();
         foreach (var name in cases)
         {
-            var task = name switch { "generate" => AiTaskKind.GenerateImage, "edit" => AiTaskKind.ImageEdit, "fill" => AiTaskKind.GenerativeFill,
+            var task = name switch { "generate" => AiTaskKind.GenerateImage, "edit" or "edit-reference" => AiTaskKind.ImageEdit, "fill" or "fill-edge-wide" => AiTaskKind.GenerativeFill,
                 "remove" => AiTaskKind.RemoveObject, "expand-selection" or "expand" => AiTaskKind.GenerativeExpand, "relight" => AiTaskKind.Relight,
                 "background" => AiTaskKind.ChangeBackground, _ => AiTaskKind.Harmonize };
-            var document = new Document(768, 576);
+            var width = name == "fill-edge-wide" ? 1536 : 768;
+            var document = new Document(width, 576);
             using var photo = ImageFiles.Load(Path.Combine(inputRoot, task == AiTaskKind.Harmonize ? name + ".png" : "indoor-diffuse.png"));
-            var backdrop = Pixels.NewColor(768, 576);
-            using (var draw = new SKCanvas(backdrop)) draw.DrawImage(Pixels.ImageOf(photo), SKRect.Create(768, 576), new SKSamplingOptions(SKCubicResampler.Mitchell));
+            var backdrop = Pixels.NewColor(width, 576);
+            using (var draw = new SKCanvas(backdrop)) draw.DrawImage(Pixels.ImageOf(photo), SKRect.Create(width, width * photo.Height / (float)photo.Width), new SKSamplingOptions(SKCubicResampler.Mitchell));
             Pixels.Invalidate(backdrop); document.Layers.Add(Layer.Raster("Background", backdrop));
             var png = ImageFiles.Load(Path.Combine(inputRoot, "subject.png")); var subject = Layer.Raster("Original PNG", png);
             using (var alpha = SceneEditInput.Alpha(png))
@@ -43,7 +44,8 @@ public class QwenIntegrationLiveTests
             }
             document.Layers.Add(subject); document.SetActive(subject.Id);
             var session = new EditorSession(document);
-            if (task == AiTaskKind.GenerativeFill) session.SelectRect(new(150, 345, 240, 440));
+            if (name == "fill-edge-wide") session.SelectRect(new(0, 330, 115, 455));
+            else if (task == AiTaskKind.GenerativeFill) session.SelectRect(new(150, 345, 240, 440));
             if (task == AiTaskKind.RemoveObject) session.SelectRect(new(340, 225, 425, 446));
             var prompt = task switch
             {
@@ -54,7 +56,8 @@ public class QwenIntegrationLiveTests
                 _ => ""
             };
             var request = new AiTaskRequest { Task = task, Prompt = prompt, Scene = new() { Preset = task == AiTaskKind.Relight ? RelightPreset.GoldenHour : RelightPreset.MatchScene },
-                Settings = new() { Seed = 73, Width = 768, Height = 576, Values = new() { ["imageOriginalSize"] = false } } };
+                ReferenceImages = name == "edit-reference" ? [png] : [],
+                Settings = new() { Seed = 73, Width = width, Height = 576, Values = new() { ["imageOriginalSize"] = false } } };
             if (name == "expand-selection") session.SelectRect(new(340, 225, 425, 446));
             else if (task == AiTaskKind.GenerativeExpand) request = request with { ExpansionBounds = new(-64, -32, 832, 608), ExpansionMinimumSide = 1024 };
             var folder = Path.Combine(outputRoot, name); Directory.CreateDirectory(folder);
@@ -72,6 +75,14 @@ public class QwenIntegrationLiveTests
             using (var after = DocumentRenderer.Flatten(session.Document))
             {
                 Save(after, "after");
+                if (name == "fill-edge-wide")
+                {
+                    using var before = ImageFiles.Load(Path.Combine(folder, "before.png"));
+                    Assert.Equal(before.Info.Size, after.Info.Size);
+                    for (var y = 0; y < after.Height; y++)
+                    for (var x = 140; x < after.Width; x++)
+                        Assert.Equal(before.GetPixel(x, y), after.GetPixel(x, y));
+                }
                 if (name == "expand-selection")
                 {
                     using var before = ImageFiles.Load(Path.Combine(folder, "before.png"));

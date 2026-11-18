@@ -117,6 +117,7 @@ public class AiInteractionTests
         var settings=new Settings();var pending=AiDialogs.SettingsDialog(w,settings,w.AiTasks);Dispatcher.UIThread.RunJobs();
         var dialog=Assert.Single(w.OwnedWindows);
         dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex=1;Dispatcher.UIThread.RunJobs();
+        dialog.GetVisualDescendants().OfType<Expander>().Single(e => e.Header as string == "Workflow by task").IsExpanded = true; Dispatcher.UIThread.RunJobs();
         Assert.Contains("Workflow by task",dialog.GetVisualDescendants().OfType<TextBlock>().Select(b=>b.Text));
         var pickers=dialog.GetVisualDescendants().OfType<ComboBox>().Where(c=>c.Items.Cast<object>().Contains("Use default workflow")).ToArray();
         Assert.True(pickers.Length>=10); Assert.Contains(pickers,c=>!c.Items.Cast<object>().Contains("CHAT GPT 2.5"));

@@ -89,7 +89,7 @@ public sealed class LlamaServerHost(Settings settings) : IDisposable
         loading = false;
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = !ServerResource("health").IsLoopback }) { Timeout = TimeSpan.FromSeconds(2) };
             using var response = await client.GetAsync(ServerResource("health"), cancellationToken);
             loading = response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable;
             return response.IsSuccessStatusCode;
@@ -119,7 +119,7 @@ public sealed class LlamaServerHost(Settings settings) : IDisposable
 
     private async Task CheckModel(CancellationToken token)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        using var client = new HttpClient(new HttpClientHandler { UseProxy = !ServerResource("props").IsLoopback }) { Timeout = TimeSpan.FromSeconds(3) };
         JsonDocument? properties;
         try
         {
@@ -191,7 +191,7 @@ public sealed class ChatCompletionAssistantProvider(Settings settings, bool loca
 
     public async Task<AssistantPlan> PlanAsync(AssistantRequest request, CancellationToken cancellationToken = default)
     {
-        using var ownedClient = transport == null ? new HttpClient { Timeout = TimeSpan.FromMinutes(20) } : null;
+        using var ownedClient = transport == null ? new HttpClient(new HttpClientHandler { UseProxy = !Endpoint(local ? settings.AssistantServerUrl : settings.AssistantApiUrl).IsLoopback }) { Timeout = TimeSpan.FromMinutes(20) } : null;
         if (request.ScriptOnly && !request.AllowAuthoringReads) request = request with { Tools = [], ToolMessages = [] };
         var client = transport ?? ownedClient!;
         var replyTokens = Math.Clamp(settings.AssistantMaxTokens, 256, 32768);

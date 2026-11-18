@@ -28,12 +28,25 @@ public sealed partial class LayersPanel
         ToolTip.SetTip(search, "Words match layer names and tags. #tag matches an exact tag. All words must match. Escape clears. Reordering is available after clearing the filter.");
         Grid.SetRow(queryRow, 2); Grid.SetColumnSpan(queryRow, 3); header.Children.Add(queryRow);
         Grid.SetRow(searchStatus, 3); Grid.SetColumnSpan(searchStatus, 3); searchStatus.Margin = new Thickness(0, 3, 0, 0); header.Children.Add(searchStatus);
+        var openSearch = Ui.IconButton(Icons.Zoom, "Find and filter layers", () => { });
+        openSearch.HorizontalAlignment = HorizontalAlignment.Left;
+        Grid.SetRow(openSearch, 2); header.Children.Add(openSearch);
+        bool expanded = false;
+        void FitSearch()
+        {
+            var compact = Bounds.Height > 0 && Bounds.Height < 305;
+            queryRow.IsVisible = !compact || expanded || IsFiltering;
+            openSearch.IsVisible = !queryRow.IsVisible;
+        }
+        openSearch.Click += (_, _) => { expanded = true; FitSearch(); search.Focus(); };
+        SizeChanged += (_, _) => FitSearch();
+        clear.Click += (_, _) => { expanded = false; FitSearch(); };
         search.TextChanged += (_, _) => Rebuild();
         searchKind.SelectionChanged += (_, _) => Rebuild();
         search.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape) return;
-            search.Text = ""; searchKind.SelectedIndex = 0; e.Handled = true;
+            search.Text = ""; searchKind.SelectedIndex = 0; expanded = false; FitSearch(); e.Handled = true;
         };
     }
 
@@ -47,8 +60,14 @@ public sealed partial class LayersPanel
             : layer.Name.Contains(word, StringComparison.OrdinalIgnoreCase) || layer.Tags.Any(tag => tag.Contains(word, StringComparison.OrdinalIgnoreCase)));
         var matches = session.Document.AllLayers().Where(Match).ToArray();
         filterRows = matches.Select(layer => layer.Id).ToHashSet();
-        foreach (var match in matches)
-            for (var parent = session.Document.ParentOf(match.Id); parent != null; parent = session.Document.ParentOf(parent.Id)) filterRows.Add(parent.Id);
+        bool IncludeParents(Layer layer)
+        {
+            var matched = filterRows.Contains(layer.Id);
+            foreach (var child in layer.Children) matched |= IncludeParents(child);
+            if (matched) filterRows.Add(layer.Id);
+            return matched;
+        }
+        foreach (var root in session.Document.Layers) IncludeParents(root);
         var outside = session.Document.SelectedLayerIds.Count(id => !filterRows.Contains(id));
         searchStatus.Text = $"{matches.Length} match{(matches.Length == 1 ? "" : "es")}" + (outside > 0 ? $" · {outside} selected outside filter" : "") + " · Clear to reorder";
         pressed = null; dragging = false; dropTarget = null; dropLine.IsVisible = false;
