@@ -22,6 +22,7 @@ internal sealed class PartnerImageInputs : IDisposable
     private readonly SKSizeI nanoPadded;
     internal const int DefaultContextPadding = 0;
     internal const int MaximumContextPadding = 1024;
+    internal SKBitmap SourceReference => original.ContextImage;
     internal SKRectI SourceBounds => crop;
 
     public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null)
@@ -177,7 +178,7 @@ internal sealed class PartnerImageInputs : IDisposable
             using (result)
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, blendMask, crop, plan!.SeamWidth,
-                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground));
+                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground), alignPixels: request.AlignMaskedEdits);
         }
     }
 
@@ -194,9 +195,7 @@ internal sealed class PartnerImageInputs : IDisposable
         var mismatch = Math.Abs((double)source.Width / source.Height / ((double)width / height) - 1);
         if (mismatch > 0.025) throw new InvalidDataException($"The image model returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
         var result = Pixels.NewColor(width, height); using var canvas = new SKCanvas(result);
-        var scale = Math.Max((double)width / source.Width, (double)height / source.Height);
-        var w = (float)(source.Width * scale); var h = (float)(source.Height * scale);
-        canvas.DrawImage(Pixels.ImageOf(source), new SKRect((width - w) / 2, (height - h) / 2, (width + w) / 2, (height + h) / 2), new SKSamplingOptions(SKCubicResampler.Mitchell)); return result;
+        canvas.DrawImage(Pixels.ImageOf(source), SKRect.Create(width, height), new SKSamplingOptions(SKCubicResampler.Mitchell)); return result;
     }
     private static unsafe void Blend(SKBitmap destination, SKBitmap image, SKBitmap? mask, SKRectI bounds)
     {

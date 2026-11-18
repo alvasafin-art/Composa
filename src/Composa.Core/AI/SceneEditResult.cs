@@ -89,8 +89,9 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
             }
             Pixels.Invalidate(objectPixels);
             if(input.WholeImage) return new(layers,0);
-            using var rawShadow=ExtractShadow(input,generated,baseline,settings,ratios,modelToDocument,token,out var count);
-            var shadow=SceneShadowContact.Anchor(rawShadow,input,modelToDocument,token,out count,out var correction);
+            var harmonize=request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
+            using var rawShadow=ExtractShadow(input,generated,baseline,settings,ratios,modelToDocument,harmonize,token,out var count);
+            var shadow=SceneShadowContact.Anchor(rawShadow,input,modelToDocument,token,out count,out var correction,preserveConnectedContact:harmonize);
             if(count>0) layers.Insert(0,new("Contact and Cast Shadow",shadow,Tags:["scene-shadow","editable"]));
             else shadow.Dispose();
             return new(layers,count,correction.X,correction.Y);
@@ -108,13 +109,16 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
         }
         return result;
     }
-    private static SKBitmap ExtractShadow(SceneEditInput input,SKBitmap generated,SKBitmap baseline,SceneEditSettings settings,SceneLightingMap? lighting,double modelToDocument,CancellationToken token,out int count)
+    private static SKBitmap ExtractShadow(SceneEditInput input,SKBitmap generated,SKBitmap baseline,SceneEditSettings settings,SceneLightingMap? lighting,double modelToDocument,bool harmonize,CancellationToken token,out int count)
     {
         count=0;
         if(Composa.Selections.SelectionMask.IsEmpty(input.ShadowMask))return Pixels.NewColor(generated.Width,generated.Height);
         var calibration=new SceneBackgroundCalibration(input,generated,baseline,token);
         var w=generated.Width; var h=generated.Height;
         var coverage=new byte[checked(w*h)];
+        var colors=new SKColor[coverage.Length];
+        using var measured=Pixels.NewMask(w,h);
+        var candidates=harmonize?new byte[coverage.Length]:null;
         var differences=new float[checked(w*h)];var darkness=new float[differences.Length];var energy=new float[differences.Length];
         for(var y=0;y<h;y++)
         {
@@ -127,6 +131,10 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 if(source.Alpha<250 || background.Alpha<250) continue;
                 var l=Luma(background); if(l<.01) continue;
                 var model=generated.GetPixel(x,y); var foreground=input.ModelForeground.GetPixel(x,y); var a=input.ObjectAlpha.GetPixel(x,y).Alpha/255d;
+                // Foreground-dominated alpha makes background unmixing ill-conditioned. Extend neighboring
+                // measured ground through that fringe below, rather than amplify codec errors.
+                if(a>.5)continue;
+                measured.SetPixel(x,y,SKColors.White);
                 var gains=lighting?.At(x,y)??(1d,1d,1d);
                 byte Background(byte observed,byte rebuilt,byte backdrop,byte original,double gain,int channel)
                 {
@@ -140,6 +148,14 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                     Background(model.Green,source.Green,background.Green,foreground.Green,gains.Item2,1),Background(model.Blue,source.Blue,background.Blue,foreground.Blue,gains.Item3,2));
                 differences[y*w+x]=(float)(l-Luma(desiredBackground));
                 darkness[y*w+x]=differences[y*w+x]/(float)l;energy[y*w+x]=Math.Abs(differences[y*w+x]);
+                // A neutral black layer loses colored ambient fill. Solve normal-over in encoded
+                // RGB: choose the smallest alpha that can reproduce all three ground channels.
+                static double Loss(byte before,byte after)=>before>0?1-after/(double)before:0;
+                var opacity=Math.Clamp(Math.Max(Loss(background.Red,desiredBackground.Red),
+                    Math.Max(Loss(background.Green,desiredBackground.Green),Loss(background.Blue,desiredBackground.Blue))),0,1);
+                byte Color(byte before,byte after)=>(byte)Math.Round(Math.Clamp((after-(1-opacity)*before)/Math.Max(1e-6,opacity),0,255));
+                colors[y*w+x]=new(Color(background.Red,desiredBackground.Red),Color(background.Green,desiredBackground.Green),
+                    Color(background.Blue,desiredBackground.Blue),(byte)Math.Round(opacity*255));
             }
         }
         // Filter SIGNED differences before clamping to a shadow. Rectifying first gives every
@@ -159,27 +175,59 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 // Use the neighborhood only to reject incoherent texture. Thresholding its
                 // average erased narrow/faint contact and soft penumbrae in preview.29.
                 var localDarkness=darkness[y*w+x];
-                if(localDarkness<.04||differences[y*w+x]<energy[y*w+x]*.5f)continue;
+                if(localDarkness<(harmonize?.01:.04)||differences[y*w+x]<energy[y*w+x]*.5f)continue;
                 var l=Luma(input.Background.GetPixel(x,y));if(l<.01)continue;
                 // Normal-over compositing attenuates encoded RGB, whereas the estimate is linear-light.
                 // Using linear darkness directly as alpha would make a legitimate shadow nearly black.
-                var attenuation=1-Srgb(l*(1-Math.Clamp(localDarkness,0,.9)))/Srgb(l);
-                coverage[y*w+x]=(byte)Math.Round(Math.Clamp(attenuation,0,1)*permission*settings.Strength);
+                coverage[y*w+x]=(byte)Math.Round(colors[y*w+x].Alpha*(permission/255d)*settings.Strength);
+                if(candidates!=null)candidates[y*w+x]=localDarkness>=.04?(byte)2:(byte)1;
             }
+        }
+        if(candidates!=null)
+        {
+            // Hysteresis keeps weak contact/penumbra only when connected to convincing darkening.
+            // A hard per-pixel cutoff cuts holes into that transition; lowering it globally keeps noise.
+            var queue=new Queue<int>();
+            for(var p=0;p<candidates.Length;p++)if(candidates[p]==2)queue.Enqueue(p);
+            var visited=0;
+            while(queue.Count>0)
+            {
+                var p=queue.Dequeue();if((++visited&4095)==0)token.ThrowIfCancellationRequested();
+                var x=p%w;var y=p/w;
+                for(var dy=-1;dy<=1;dy++)for(var dx=-1;dx<=1;dx++)
+                {
+                    var nx=x+dx;var ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h)continue;
+                    var next=ny*w+nx;if(candidates[next]!=1)continue;
+                    candidates[next]=2;queue.Enqueue(next);
+                }
+            }
+            for(var p=0;p<coverage.Length;p++)if(candidates[p]!=2)coverage[p]=0;
         }
         // Component significance and contact are evaluated after smoothing, against the actual opaque support.
         var result=Pixels.NewColor(w,h);
-        for(var y=0;y<h;y++) for(var x=0;x<w;x++) if(coverage[y*w+x]>0) {result.SetPixel(x,y,new(0,0,0,coverage[y*w+x]));count++;}
+        Pixels.Invalidate(measured);
+        for(var y=0;y<h;y++) for(var x=0;x<w;x++) if(coverage[y*w+x]>0) {result.SetPixel(x,y,colors[y*w+x].WithAlpha(coverage[y*w+x]));count++;}
         Pixels.Invalidate(result);
         if(count==0) return result;
         using var soft=Pixels.NewColor(w,h);
+        using var softPermission=Pixels.NewMask(w,h);
         var sigma=.8f*(float)Math.Clamp(modelToDocument,.5,16);
-        using(var draw=new SKCanvas(soft)) using(var blur=SKImageFilter.CreateBlur(sigma,sigma)) using(var paint=new SKPaint {ImageFilter=blur}) draw.DrawImage(Pixels.ImageOf(result),0,0,paint);
+        using(var blur=SKImageFilter.CreateBlur(sigma,sigma)) using(var paint=new SKPaint {ImageFilter=blur})
+        {
+            using(var draw=new SKCanvas(soft))draw.DrawImage(Pixels.ImageOf(result),0,0,paint);
+            using(var draw=new SKCanvas(softPermission))draw.DrawImage(Pixels.ImageOf(measured),0,0,paint);
+            Pixels.Invalidate(softPermission);
+        }
         Pixels.Invalidate(soft); count=0;
         for(var y=0;y<h;y++) for(var x=0;x<w;x++)
         {
-            var alpha=Math.Min(soft.GetPixel(x,y).Alpha,input.ShadowMask.GetPixel(x,y).Alpha);
-            result.SetPixel(x,y,new(0,0,0,(byte)alpha)); if(alpha>0) count++;
+            var color=soft.GetPixel(x,y);var alpha=(int)color.Alpha;
+            // The hidden object interior is missing ground data, not a zero-strength shadow.
+            // Normalize the blur so a sharp PNG edge does not acquire a lighter contact seam.
+            var weight=softPermission.GetPixel(x,y).Alpha;
+            alpha=weight>0?Math.Clamp((int)Math.Round(alpha*255d/weight),0,255):0;
+            alpha=Math.Min(alpha,input.ShadowMask.GetPixel(x,y).Alpha);
+            result.SetPixel(x,y,color.WithAlpha((byte)alpha)); if(alpha>0) count++;
         }
         Pixels.Invalidate(result); return result;
     }

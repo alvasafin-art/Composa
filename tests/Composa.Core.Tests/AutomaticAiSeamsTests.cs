@@ -9,6 +9,30 @@ namespace Composa.Core.Tests;
 public class AutomaticAiSeamsTests
 {
     [Fact]
+    public void Registration_switch_controls_measured_pixel_translation()
+    {
+        using var reference = Pixels.NewColor(192, 192);
+        var random = new Random(73);
+        for (var y = 0; y < reference.Height; y++) for (var x = 0; x < reference.Width; x++)
+        {
+            var value = (byte)random.Next(256);
+            reference.SetPixel(x, y, new SKColor(value, value, value));
+        }
+        using var shifted = Pixels.NewColor(192, 192);
+        using (var canvas = new SKCanvas(shifted)) canvas.DrawImage(Pixels.ImageOf(reference), 5, -2);
+        using var mask = SelectionMask.FromRect(192, 192, new SKRect(40, 40, 152, 152));
+        using var aligned = AiSeamlessFinisher.Match(shifted, reference, mask, reference.Info.Rect, 3);
+        using var raw = AiSeamlessFinisher.Match(shifted, reference, mask, reference.Info.Rect, 3, alignPixels: false);
+        Assert.Equal(reference.GetPixel(96, 96), aligned.GetPixel(96, 96));
+        Assert.Equal(shifted.GetPixel(96, 96), raw.GetPixel(96, 96));
+        Assert.NotEqual(raw.GetPixel(96, 96), aligned.GetPixel(96, 96));
+        shifted.SetPixel(101, 94, SKColors.Coral);
+        AiSeamlessFinisher.AlignEdit(shifted, reference);
+        Assert.Equal(SKColors.Coral, shifted.GetPixel(96, 96));
+        Assert.Equal(reference.GetPixel(36, 45), shifted.GetPixel(36, 45));
+    }
+
+    [Fact]
     public void Flat_background_drift_is_corrected_without_erasing_real_relighting()
     {
         using var source = Pixels.NewColor(192, 192); source.Erase(new SKColor(200, 200, 200));

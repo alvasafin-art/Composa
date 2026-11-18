@@ -127,6 +127,8 @@ GGUF-модель ассистента не относится к этим сп�
 
 ## Nano Banana и Match to Scene
 
+**Qwen Image 2.1 Turbo** доступен локально для генерации и редактирования, Generative Fill, Remove Object, Expand, Change Background, Harmonize / Match to Scene и Relight. В **ComfyUI Settings → Workflows & models** выберите его для нужных задач, обновите список файлов сервера и укажите совместимые diffusion model, Qwen3-VL и VAE. Используется отдельное расписание Turbo из восьми шагов с denoise 1, без LoRA от шестишагового Viggle. Исходная альфа PNG и отдельный слой тени сохраняются. [Модели, зависимости и промт](../ai/engines/qwen-image-2.1-turbo/README.md).
+
 Поддерживается **Nano Banana 2 / Gemini 3.1 Flash Image** через штатный API-узел ComfyUI. См. [подключение и разрешения](nano-banana.md).
 
 **Match to Scene** работает локально и создаёт редактируемые кривые освещения и цвета без добавления зерна или размытия. См. [принцип работы и проверки](scene-matching.md).

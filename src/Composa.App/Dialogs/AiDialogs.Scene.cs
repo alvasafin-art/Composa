@@ -5,7 +5,7 @@ namespace Composa.App.Dialogs;
 
 public static partial class AiDialogs
 {
-    private static Control SceneAdvanced(AiTaskKind task, SceneEditSettings initial, bool paid, Action<SceneEditSettings> changed)
+    private static Control SceneAdvanced(AiTaskKind task, SceneEditSettings initial, bool paid, Action<SceneEditSettings> changed, bool qwen=false)
     {
         var scene = initial;
         void Update(SceneEditSettings value) { scene = value; changed(value); }
@@ -30,9 +30,14 @@ public static partial class AiDialogs
             controls.Children.Add(preserve); controls.Children.Add(shadows); controls.Children.Add(autoAngle);
             controls.Children.Add(CanvasDialogs.Form(("Direction", angle), ("Shadow area", reach)));
         }
-        if (!paid)
-            controls.Children.Add(CanvasDialogs.Form(("FLUX denoise", Ui.SliderField("Denoise", scene.Denoise, .1, 1,
-                value => Update(scene with { Denoise = value }), .01, "0.00", 300, reset: .8))));
+        if (!paid && !qwen)
+        {
+            var harmonize=task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
+            var denoise=Ui.SliderField("Denoise",harmonize?1:scene.Denoise,.1,1,
+                value=>Update(scene with {Denoise=value}),.01,"0.00",300,reset:harmonize?1:.8);
+            denoise.IsEnabled=!harmonize;
+            controls.Children.Add(CanvasDialogs.Form(("FLUX denoise",denoise)));
+        }
         return Section(task == AiTaskKind.ChangeBackground ? "Background generation" : "Lighting and shadows", controls);
     }
 }

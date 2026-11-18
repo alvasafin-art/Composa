@@ -7,7 +7,7 @@ namespace Composa.AI;
 /// <summary>Automatic registration and a screened harmonic color residual. No texture synthesis or contrast gain.</summary>
 public static class AiSeamlessFinisher
 {
-    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false)
+    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false, bool alignPixels = true)
     {
         // Generated/model pixels are RGB8. A caller may retain a precise reference; read an owned
         // display copy for model residual analysis, never reinterpret its float memory as bytes.
@@ -15,7 +15,7 @@ public static class AiSeamlessFinisher
         {
             using var resultDisplay = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
             using var referenceDisplay = !Pixels.IsSrgb8(reference) ? Pixels.DisplayCopy(reference) : null;
-            return Match(resultDisplay ?? generated, referenceDisplay ?? reference, coverage, decodedArea, seamWidth, matchFlatBackground, continueUniformStrip);
+            return Match(resultDisplay ?? generated, referenceDisplay ?? reference, coverage, decodedArea, seamWidth, matchFlatBackground, continueUniformStrip, alignPixels);
         }
         if (generated.Width != reference.Width || generated.Height != reference.Height
             || coverage.Width != reference.Width || coverage.Height != reference.Height)
@@ -29,15 +29,10 @@ public static class AiSeamlessFinisher
                 result.SetPixel(x, y, coverage.GetPixel(x, y).Alpha == 0 ? reference.GetPixel(x, y) : tone);
             Pixels.Invalidate(result); return result;
         }
-        var (dx, dy) = Registration(generated, reference, coverage, area);
+        var (dx, dy) = alignPixels ? Registration(generated, reference, coverage, area) : (0, 0);
         if (dx != 0 || dy != 0)
         {
-            var source = generated.GetPixelSpan(); var target = result.GetPixelSpan();
-            for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
-            {
-                var sx = Math.Clamp(x + dx, area.Left, area.Right - 1); var sy = Math.Clamp(y + dy, area.Top, area.Bottom - 1);
-                source.Slice(sy * generated.RowBytes + sx * 4, 4).CopyTo(target.Slice(y * result.RowBytes + x * 4, 4));
-            }
+            Shift(generated, result, area, dx, dy);
         }
         var flat = matchFlatBackground && IsFlatContinuation(result, reference, coverage, area);
         var field = Residual.Build(result, reference, coverage, area, seamWidth, flat);
@@ -60,6 +55,33 @@ public static class AiSeamlessFinisher
             }
         }
         Pixels.Invalidate(result); return result;
+    }
+
+    // The caller owns this freshly decoded RGB8 result. Never translate committed layer pixels.
+    public static void AlignEdit(SKBitmap generated, SKBitmap reference)
+    {
+        if (!Pixels.IsSrgb8(generated)) return;
+        using var display = Pixels.IsSrgb8(reference) ? null : Pixels.DisplayCopy(reference);
+        var source = display ?? reference;
+        using var resized = source.Info.Size == generated.Info.Size ? null :
+            source.Resize(generated.Info.Size, new SKSamplingOptions(SKFilterMode.Linear));
+        if (source.Info.Size != generated.Info.Size && resized == null) return;
+        var area = generated.Info.Rect;
+        var (dx, dy) = Registration(generated, resized ?? source, null, area);
+        if (dx == 0 && dy == 0) return;
+        using var snapshot = Pixels.Clone(generated);
+        Shift(snapshot, generated, area, dx, dy);
+        Pixels.Invalidate(generated);
+    }
+
+    private static void Shift(SKBitmap generated, SKBitmap result, SKRectI area, int dx, int dy)
+    {
+        var source = generated.GetPixelSpan(); var target = result.GetPixelSpan();
+        for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
+        {
+            var sx = Math.Clamp(x + dx, area.Left, area.Right - 1); var sy = Math.Clamp(y + dy, area.Top, area.Bottom - 1);
+            source.Slice(sy * generated.RowBytes + sx * 4, 4).CopyTo(target.Slice(y * result.RowBytes + x * 4, 4));
+        }
     }
 
     private static double Luma(SKColor c) => (54 * c.Red + 183 * c.Green + 19 * c.Blue) / 256.0;
@@ -114,15 +136,15 @@ public static class AiSeamlessFinisher
         return delta.Max() - delta.Min() < 4;
     }
 
-    private static (int X, int Y) Registration(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area)
+    private static (int X, int Y) Registration(SKBitmap generated, SKBitmap reference, SKBitmap? mask, SKRectI area)
     {
-        const int radius = 3;
+        var radius = Math.Clamp(Math.Min(area.Width, area.Height) / 32, 3, 6);
         var anchors = new List<(int X, int Y, double Gx, double Gy)>();
         var step = Math.Max(2, Math.Max(area.Width, area.Height) / 64);
         for (var y = area.Top + radius + 1; y < area.Bottom - radius - 1; y += step)
         for (var x = area.Left + radius + 1; x < area.Right - radius - 1; x += step)
         {
-            if (mask.GetPixel(x, y).Alpha != 0 || reference.GetPixel(x, y).Alpha != 255 || generated.GetPixel(x, y).Alpha != 255) continue;
+            if ((mask != null && mask.GetPixel(x, y).Alpha != 0) || reference.GetPixel(x, y).Alpha != 255 || generated.GetPixel(x, y).Alpha != 255) continue;
             var gx = Luma(reference.GetPixel(x + 1, y)) - Luma(reference.GetPixel(x - 1, y));
             var gy = Luma(reference.GetPixel(x, y + 1)) - Luma(reference.GetPixel(x, y - 1));
             if (gx * gx + gy * gy >= 36) anchors.Add((x, y, gx, gy));

@@ -1,13 +1,13 @@
 using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.Rendering;
-using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.App.AI;
 
 internal sealed class SceneEditingWorkflow : IDisposable
 {
+    internal const string HarmonizePrompt="Blend the object naturally into the scene, matching the existing lighting, realistic shadow depth, contact shadows, and subtle reflections of the environment so it feels physically present and fully integrated\n";
     internal SKBitmap Source { get; }
     internal SKBitmap Mask { get; }
     internal SKBitmap? BackgroundReference { get; }
@@ -16,7 +16,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
     private readonly SceneEditInput scene;
     internal List<SKBitmap> ReferenceImages { get; } = [];
 
-    internal SceneEditingWorkflow(SceneEditInput scene,AiTaskRequest request,SKBitmap? imageOverride=null,SKBitmap? maskOverride=null)
+    internal SceneEditingWorkflow(SceneEditInput scene,AiTaskRequest request,SKBitmap? imageOverride=null,SKBitmap? maskOverride=null,bool qwen=false)
     {
         this.scene=scene;
         var initial=imageOverride??scene.InitialImage;
@@ -26,7 +26,8 @@ internal sealed class SceneEditingWorkflow : IDisposable
         var scale=Math.Sqrt(native.Item1*(double)native.Item2/(scene.Before.Width*(double)scene.Before.Height));
         scale=Math.Max(scale,64d/Math.Min(scene.Before.Width,scene.Before.Height));
         ContentSize=((int)Math.Round(scene.Before.Width*scale),(int)Math.Round(scene.Before.Height*scale));
-        PaddedSize=((ContentSize.Width+15)/16*16,(ContentSize.Height+15)/16*16);
+        var grid=qwen?32:16;
+        PaddedSize=((ContentSize.Width+grid-1)/grid*grid,(ContentSize.Height+grid-1)/grid*grid);
         if(!Composa.Model.DocumentLimits.FitsSurface(PaddedSize.Width,PaddedSize.Height))
             throw new InvalidOperationException($"Scene input exceeds the {Composa.Model.DocumentLimits.MaxSurfaceMegapixels} MP / {Composa.Model.DocumentLimits.MaxSide} px limit.");
         try
@@ -46,23 +47,10 @@ internal sealed class SceneEditingWorkflow : IDisposable
         Pixels.Invalidate(Source);
         Mask=Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
         using(var draw=new SKCanvas(Mask)) draw.DrawImage(Pixels.ImageOf(maskOverride??scene.GenerationMask),new SKRect(0,0,ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Linear));
-        if(maskOverride==null && request.Task!=AiTaskKind.ChangeBackground && !scene.WholeImage)
-        {
-            // Preserve a model-space contour anchor; the model may change lighting, not the silhouette/support.
-            using var subject=Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
-            using(var draw=new SKCanvas(subject)) draw.DrawImage(Pixels.ImageOf(scene.ObjectAlpha),SKRect.Create(ContentSize.Width,ContentSize.Height),new SKSamplingOptions(SKFilterMode.Linear));
-            Pixels.Invalidate(subject);
-            using var opaque=Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
-            var opaquePixels=opaque.GetPixelSpan();
-            for(var y=0;y<ContentSize.Height;y++) for(var x=0;x<ContentSize.Width;x++) opaquePixels[y*opaque.RowBytes+x]=subject.GetPixel(x,y).Alpha>=scene.SupportAlpha?(byte)255:(byte)0;
-            Pixels.Invalidate(opaque);
-            using var interior=SelectionMask.Contract(opaque,Math.Clamp(Math.Min(ContentSize.Width,ContentSize.Height)/200,2,4))??Pixels.NewMask(PaddedSize.Width,PaddedSize.Height);
-            var mask=Mask.GetPixelSpan();
-            for(var y=0;y<ContentSize.Height;y++) for(var x=0;x<ContentSize.Width;x++)
-                if(opaque.GetPixel(x,y).Alpha>0) mask[y*Mask.RowBytes+x]=Math.Min(mask[y*Mask.RowBytes+x],interior.GetPixel(x,y).Alpha);
-        }
+        // The final subject uses the original PNG alpha. Freezing a model-space contour ring
+        // instead preserves the old studio lighting and leaves a moat beside the new shadow.
         Pixels.Invalidate(Mask);
-        if(maskOverride==null&&request.Task==AiTaskKind.Relight&&!scene.WholeImage)
+        if(!qwen&&maskOverride==null&&request.Task!=AiTaskKind.ChangeBackground&&!scene.WholeImage)
         {
             var backgroundScale=Math.Min(.5,512d/Math.Max(ContentSize.Width,ContentSize.Height));
             var bw=Math.Max(16,(int)Math.Round(ContentSize.Width*backgroundScale));var bh=Math.Max(16,(int)Math.Round(ContentSize.Height*backgroundScale));
@@ -94,16 +82,28 @@ internal sealed class SceneEditingWorkflow : IDisposable
         graph["source"]!["inputs"]!["image"]=source;
         graph["maskImage"]!["inputs"]!["image"]=mask;
         var harmonize=request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize;
-        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) : harmonize ? HarmonizePrompt(request)
-            : Prompt(request)+LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
+        graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) :
+            (harmonize ? HarmonizePrompt+Prompt(request,scene.LightHint) : Prompt(request,scene.LightHint))+LayoutInstruction(scene)+
+            (request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
         // Cleanup is an image edit: its reference identifies the actual object to remove.
         // At denoise 1 the target mask is fully resampled; the surrounding encoded latent stays context.
-        graph["sampler"]!["inputs"]!["denoise"]=cleanup ? 1 : request.Scene.Normalized().Denoise;
+        var sampler=graph["sampler"]!["inputs"]!;
+        sampler["denoise"]=cleanup || harmonize ? 1 : request.Scene.Normalized().Denoise;
+        if(harmonize && !cleanup)
+        {
+            // Scene editing shares one graph; apply this preset only to Harmonize/Match to Scene.
+            sampler["steps"]=4;
+            sampler["cfg"]=1;
+            sampler["sampler_name"]="euler";
+            sampler["scheduler"]="simple";
+        }
         if(BackgroundReference!=null)
         {
             var explicitLight=request.Scene.LightAngle!=null||request.Task==AiTaskKind.Relight&&request.Scene.Preset!=RelightPreset.MatchScene;
             graph["prompt"]!["inputs"]!["text"]=graph["prompt"]!["inputs"]!["text"]!.GetValue<string>()+
-                (explicitLight?"\nReference image 1 shows the foreground placement. Reference image 2 shows the full background and support-surface perspective. Apply the requested lighting direction and preset to the foreground and its shadow.":"\nReference image 1 shows the object placement. Reference image 2 shows the complete background alone: use its existing illumination and cast shadows as the lighting reference. Adapt the subject to that background's light, rather than imposing the subject's original studio lighting on the scene.");
+                (explicitLight?"\nReference image 1 shows the foreground placement. Reference image 2 shows the full background and support-surface perspective. Apply the requested lighting direction and preset to the foreground and its shadow.":scene.LightHint.SoftContactOnly
+                    ? "\nReference image 1 shows the object placement. Reference image 2 shows the softly illuminated background alone. Match its broad ambient lighting and even support surface, with gentle localized contact shading."
+                    :"\nReference image 1 shows the object placement. Reference image 2 shows the complete background alone: use its existing illumination and cast shadows as the lighting reference. Adapt the subject to that background's light, rather than imposing the subject's original studio lighting on the scene.");
         }
         graph["sampler"]!["inputs"]!["seed"]=request.Settings.Seed<0 ? Random.Shared.NextInt64(long.MaxValue) : (request.Settings.Seed+variant)&long.MaxValue;
     }
@@ -149,7 +149,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
         graph["sampler"]!["inputs"]!["positive"]=new JsonArray(positive,0);
         graph["sampler"]!["inputs"]!["negative"]=new JsonArray(negative,0);
     }
-    internal static string Prompt(AiTaskRequest request)
+    internal static string Prompt(AiTaskRequest request,SceneLightHint? light=null)
     {
         var settings=request.Scene.Normalized();
         var operation=request.Task==AiTaskKind.ChangeBackground
@@ -158,23 +158,12 @@ internal sealed class SceneEditingWorkflow : IDisposable
                 ? "Change the lighting of "+(settings.Scope==RelightScope.WholeImage ? "the image" : "the foreground subject")+". "+settings.LightingInstruction
                 : "Match the existing foreground subject's illumination to the visible background: light direction, exposure, color temperature and reflected light. Keep its exact position, dimensions and support points. Preserve the surrounding scene. Lighting changes belong on its surfaces.";
         var shadow=request.Task==AiTaskKind.ChangeBackground ? "" : settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows
-            ? " Generate one continuous, filled, soft-edged cast shadow starting at the subject's ground-contact points, consistent with "+(settings.LightAngle!=null||request.Task==AiTaskKind.Relight&&settings.Preset!=RelightPreset.MatchScene?"the requested lighting":"the background's existing dominant light")+" and support-surface perspective. Opaque surfaces cast filled shade; respect material translucency."
+            ? light?.SoftContactOnly==true
+                ? " Generate a short faint diffuse contact shadow immediately beneath the base: a small soft ambient-occlusion patch spreading less than one base-width around the support. Preserve the floor's even illumination beyond this localized patch. Match the gentle ambient shadows of the existing objects."
+                : " Generate continuous contact shading and a cast shadow appropriate to "+(settings.LightAngle!=null||request.Task==AiTaskKind.Relight&&settings.Preset!=RelightPreset.MatchScene?"the requested lighting":"the background's existing illumination")+" and support-surface perspective. Match the existing shadows' density, length and softness. Start shading at the subject's support points and respect material translucency."
             : " Do not add a new shadow outside the subject.";
         return operation+shadow+" Preserve identity, material texture, labels and colors. Render ordinary photographic surface shading and a continuous natural background. Keep the object's silhouette and support in their original image coordinates. User guidance: "+request.Prompt+
             (string.IsNullOrWhiteSpace(request.AdditionalPrompt) ? "" : "\nWorkflow guidance: "+request.AdditionalPrompt);
-    }
-    internal static string HarmonizePrompt(AiTaskRequest request)
-    {
-        // The complete composited image supplies the scene. Do not turn this targeted edit into
-        // a second scene description or append generic workflow locks/negative instructions.
-        var prompt="integrate object into scene";
-        var settings=request.Scene.Normalized();
-        prompt+=settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows
-            ? ". Add a natural contact and cast shadow connected to the object's base, matching the scene lighting. Keep the object in its original position and preserve the surrounding background."
-            : ". Match the object's lighting without adding a shadow outside it. Keep the object in its original position and preserve the surrounding background.";
-        if(!string.IsNullOrWhiteSpace(request.Prompt)&&!request.Prompt.Trim().Equals("integrate object into scene",StringComparison.OrdinalIgnoreCase)) prompt+=". "+request.Prompt.Trim();
-        if(settings.LightAngle is { } angle) prompt+=FormattableString.Invariant($". Light from {angle:0} degrees counterclockwise from image right.");
-        return prompt;
     }
     internal static string CleanupPrompt(AiTaskRequest request)=>"Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.";
     internal static string LayoutInstruction(SceneEditInput scene)

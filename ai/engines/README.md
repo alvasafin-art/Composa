@@ -2,7 +2,7 @@
 
 An Engine Pack is a lightweight directory named after its `id`. It contains `manifest.json`, ComfyUI API-format workflow JSON files, and optional task metadata. It never contains model weights.
 
-Bundled packs: **FLUX.2 Klein** (local models; up to three model-only LoRAs) and **[CHAT GPT 2.5](chatgpt-image-2.5/README.md)** (official paid Comfy.org Partner Node; no local weights). The floating selector chooses the whole pack; Advanced adapts to its capabilities. `paidApi`/`apiModel` distinguish the Partner Node path from local inference while old pack ids and saved local-model choices remain valid.
+Generative packs include **FLUX.2 Klein** (local; up to three model-only LoRAs), **[Qwen Image 2.1 Turbo](qwen-image-2.1-turbo/README.md)** (local; native eight-step image generation and editing), **[CHAT GPT 2.5](chatgpt-image-2.5/README.md)** and **Nano Banana 2** (paid Comfy.org Partner Nodes; no local weights). The floating selector chooses the whole pack; Advanced adapts to its capabilities. `paidApi`/`apiModel` distinguish the Partner Node path from local inference while old pack ids and saved local-model choices remain valid.
 
 The manifest declares the complete pipeline rather than a checkpoint filename: required node types and server assets, versioned workflows, supported editor tasks, semantic-to-node input bindings, parameters, output nodes, output mode, and LoRA support. Node references are explicit ComfyUI node ids; Composa never searches display names.
 

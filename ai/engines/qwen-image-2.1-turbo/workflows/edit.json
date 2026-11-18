@@ -1,0 +1,164 @@
+{
+  "model": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_2.1_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "clip": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "vae": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "texture_fix_vae_for_qwen_image_2.1_bf16.safetensors"
+    }
+  },
+  "cache": {
+    "class_type": "QwenImage21Cache",
+    "inputs": {
+      "model": [
+        "model",
+        0
+      ],
+      "device": "auto",
+      "dtype": "default"
+    }
+  },
+  "attention": {
+    "class_type": "ModelAttentionBackend",
+    "inputs": {
+      "model": [
+        "cache",
+        0
+      ],
+      "attention": "comfy kitchen attention"
+    }
+  },
+  "source": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "before.png"
+    }
+  },
+  "conditioning": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": [
+        "clip",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ],
+      "prompt": "",
+      "negative_prompt": "",
+      "resolution": 0,
+      "images.image_1": [
+        "source",
+        0
+      ]
+    }
+  },
+  "noise": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 73
+    }
+  },
+  "guider": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "attention",
+        0
+      ],
+      "conditioning": [
+        "conditioning",
+        0
+      ]
+    }
+  },
+  "sampler": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "sigmas": {
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0.0"
+    }
+  },
+  "sample": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "noise",
+        0
+      ],
+      "guider": [
+        "guider",
+        0
+      ],
+      "sampler": [
+        "sampler",
+        0
+      ],
+      "sigmas": [
+        "sigmas",
+        0
+      ],
+      "latent_image": [
+        "conditioning",
+        2
+      ]
+    }
+  },
+  "decode": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "sample",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    }
+  },
+  "align": {
+    "class_type": "PixelDriftFix",
+    "inputs": {
+      "source_image": [
+        "source",
+        0
+      ],
+      "edited_image": [
+        "decode",
+        0
+      ],
+      "method": "flat_4_points",
+      "max_mesh_points": 400
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "align",
+        0
+      ],
+      "filename_prefix": "Composa/Qwen21/edit"
+    }
+  }
+}
