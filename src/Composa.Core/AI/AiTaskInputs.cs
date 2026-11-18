@@ -44,6 +44,7 @@ public sealed record AiTaskRequest
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
     public string AdditionalPrompt { get; init; } = "";
+    public bool AlignMaskedEdits { get; init; } = true;
     public bool BlackEditRegion { get; init; }
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }

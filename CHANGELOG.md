@@ -4,6 +4,13 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.3] - 2026-11-18
+
+- The floating selection panel and image generation dialogs share prompt enhancement, pixel alignment and generation settings icons. Use **Run** for one result, or select **2** or **3** before running. **Remove Object** is in the selection panel’s overflow menu.
+- The workflow picker distinguishes local models from models that use Comfy credits. Added **GPT Image 2.6 Sunburst** and local **Qwen Image 2.1 Turbo** workflows.
+- Prompt enhancement supports Comfy credits, an OpenAI-compatible endpoint and CLI providers on the ComfyUI server. The default is GPT-6 Luna with workflow-specific instructions. On Windows, saved API keys belong to the current user in Credential Manager.
+- Pixel alignment is available for masked and full-image edits. Selection placement and masked Qwen conditioning have been updated. Scene edits include improvements to lighting and contact shadows.
+
 ## [1.3.0-preview.2] - 2026-10-22 · TEST
 
 ### Added

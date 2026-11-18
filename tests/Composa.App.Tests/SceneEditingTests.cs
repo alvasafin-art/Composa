@@ -35,23 +35,26 @@ public class SceneEditingTests
         Assert.Equal("VAEEncode",graph["sourceEncode"]!["class_type"]!.GetValue<string>());
         Assert.Equal("sourceEncode",graph["noiseMask"]!["inputs"]!["samples"]![0]!.GetValue<string>());
         Assert.Equal("noiseMask",graph["latent"]!["inputs"]!["samples"]![0]!.GetValue<string>());
-        Assert.Equal(.8,graph["sampler"]!["inputs"]!["denoise"]!.GetValue<double>());
+        Assert.Equal(1,graph["sampler"]!["inputs"]!["denoise"]!.GetValue<double>());
         Assert.Equal("sourceEncode",graph["baselineDecode"]!["inputs"]!["samples"]![0]!.GetValue<string>());
         if(native.PaddedSize.Width>native.ContentSize.Width) Assert.Equal(0,native.Mask.GetPixel(native.PaddedSize.Width-1,native.PaddedSize.Height/2).Alpha);
     }
     [Fact]
-    public void Harmonize_uses_the_exact_integration_prompt_and_cleanup_keeps_surrounding_latent_context()
+    public void Harmonize_uses_background_lighting_and_cleanup_keeps_surrounding_latent_context()
     {
         var s=Scene();var request=new AiTaskRequest {Task=AiTaskKind.MatchToScene,Settings=new() {Width=100,Height=80,Values=new() {["imageOriginalSize"]=false}}};
         using var input=SceneEditInput.Prepare(s.Document.Clone(),request);using var native=new SceneEditingWorkflow(input,request);
-        Assert.Null(native.BackgroundReference);
+        Assert.NotNull(native.BackgroundReference);
         var catalog=new EngineCatalog(Engines);var engine=catalog.Find("flux2-klein-intel-xpu")!;var graph=catalog.ReadWorkflow(engine,engine.Workflow("sceneEdit"));
-        native.Bind(graph,"source.png","mask.png",request with {AdditionalPrompt="generic instructions must not override this edit"});SceneEditingWorkflow.References(graph,new Dictionary<string,string>());
-        Assert.Equal("positive",graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        native.Bind(graph,"source.png","mask.png",request);SceneEditingWorkflow.References(graph,new Dictionary<string,string> {{"sceneBackground","background.png"}});
+        Assert.Equal("scene_background_positive",graph["sampler"]!["inputs"]!["positive"]![0]!.GetValue<string>());
+        Assert.Equal("scene_background_negative",graph["sampler"]!["inputs"]!["negative"]![0]!.GetValue<string>());
+        Assert.Equal("background.png",graph["scene_background"]!["inputs"]!["image"]!.GetValue<string>());
         var prompt=graph["prompt"]!["inputs"]!["text"]!.GetValue<string>();
-        Assert.StartsWith("integrate object into scene",prompt);
-        Assert.Contains("contact and cast shadow",prompt);
-        Assert.DoesNotContain("generic instructions",prompt);
+        Assert.StartsWith(SceneEditingWorkflow.HarmonizePrompt,prompt);
+        Assert.Contains(input.LightHint.Instruction,prompt);
+        Assert.Contains("Reference image 2",prompt);
+        Assert.Contains("short faint diffuse contact shadow",prompt);
         Assert.Equal("",graph["negative"]!["inputs"]!["text"]!.GetValue<string>());
         using var plate=new SceneBackgroundPlate(input,input.Before,8);
         var cleanup=request with {Task=AiTaskKind.ChangeBackground};using var cleanupNative=new SceneEditingWorkflow(input,cleanup,plate.Image,plate.Mask);
@@ -65,18 +68,61 @@ public class SceneEditingTests
         Assert.Equal("Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.",cleanupGraph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
     }
     [Fact]
-    public void Harmonize_respects_shadow_controls_for_native_and_paid_workflows()
+    public void Paid_harmonize_keeps_its_existing_shadow_controls()
     {
         foreach(var task in new[] {AiTaskKind.Harmonize,AiTaskKind.MatchToScene})
         foreach(var shadows in new[] {true,false})
         foreach(var mode in new[] {SceneMatchMode.LightAndShadows,SceneMatchMode.LightOnly})
         {
             var request=new AiTaskRequest {Task=task,Scene=new() {AddShadows=shadows,MatchMode=mode},Prompt="Preserve the label"};
-            foreach(var prompt in new[] {SceneEditingWorkflow.HarmonizePrompt(request),SceneEditingWorkflow.Prompt(request)})
-            {
-                Assert.Equal(shadows&&mode==SceneMatchMode.LightAndShadows,prompt.Contains("cast shadow",StringComparison.OrdinalIgnoreCase));
-                Assert.Contains("Preserve the label",prompt);
-            }
+            var prompt=SceneEditingWorkflow.Prompt(request);
+            Assert.Equal(shadows&&mode==SceneMatchMode.LightAndShadows,prompt.Contains("cast shadow",StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("Preserve the label",prompt);
+        }
+    }
+    [Theory]
+    [InlineData(AiTaskKind.Harmonize)]
+    [InlineData(AiTaskKind.MatchToScene)]
+    public async Task Native_harmonize_submits_the_requested_preset_without_stale_overrides(AiTaskKind task)
+    {
+        var connection=new Connection();var service=Service(connection);
+        await service.RunAsync(new EditorCommandService(Scene()),new() {Task=task,Prompt="old prompt",
+            AdditionalPrompt="old workflow guidance",Scene=new() {Denoise=.3,LightAngle=90,AddShadows=false},
+            Settings=new() {Seed=17217315226677,Variants=2,Width=100,Height=80,Values=new() { ["imageOriginalSize"]=false }}},TestContext.Current.CancellationToken);
+        Assert.Equal(2,connection.Workflows.Count);
+        for(var index=0;index<connection.Workflows.Count;index++)
+        {
+            var graph=connection.Workflows[index];var sampler=graph["sampler"]!["inputs"]!;
+            var prompt=graph["prompt"]!["inputs"]!["text"]!.GetValue<string>();
+            Assert.StartsWith(SceneEditingWorkflow.HarmonizePrompt,prompt);
+            Assert.Contains("angle 90 degrees",prompt);
+            Assert.Contains("Do not add a new shadow",prompt);
+            Assert.Equal("scene_background_positive",sampler["positive"]![0]!.GetValue<string>());
+            Assert.Equal("",graph["negative"]!["inputs"]!["text"]!.GetValue<string>());
+            Assert.Equal(4,sampler["steps"]!.GetValue<int>());
+            Assert.Equal(1,sampler["cfg"]!.GetValue<double>());
+            Assert.Equal("euler",sampler["sampler_name"]!.GetValue<string>());
+            Assert.Equal("simple",sampler["scheduler"]!.GetValue<string>());
+            Assert.Equal(1,sampler["denoise"]!.GetValue<double>());
+            Assert.Equal(17217315226677+index,sampler["seed"]!.GetValue<long>());
+        }
+    }
+    [Theory]
+    [InlineData(AiTaskKind.Relight)]
+    [InlineData(AiTaskKind.ChangeBackground)]
+    public async Task Other_scene_tools_keep_their_sampler_settings(AiTaskKind task)
+    {
+        var connection=new Connection();var service=Service(connection);
+        await service.RunAsync(new EditorCommandService(Scene()),new() {Task=task,Prompt="custom lighting",
+            Scene=new() {Denoise=.37},Settings=new() {Seed=17,Width=100,Height=80,Values=new() { ["imageOriginalSize"]=false }}},TestContext.Current.CancellationToken);
+        Assert.Equal(task==AiTaskKind.ChangeBackground?2:1,connection.Workflows.Count);
+        for(var index=0;index<connection.Workflows.Count;index++)
+        {
+            var graph=connection.Workflows[index];var sampler=graph["sampler"]!["inputs"]!;
+            Assert.Equal(8,sampler["steps"]!.GetValue<int>());
+            Assert.Equal(index==0?.37:1,sampler["denoise"]!.GetValue<double>());
+            Assert.Equal(17,sampler["seed"]!.GetValue<long>());
+            Assert.NotEqual(SceneEditingWorkflow.HarmonizePrompt,graph["prompt"]!["inputs"]!["text"]!.GetValue<string>());
         }
     }
     [Fact]
@@ -191,7 +237,7 @@ public class SceneEditingTests
             var prompt=Assert.Single(window.OwnedWindows);
             async Task EditAdvanced(bool change)
             {
-                prompt.GetVisualDescendants().OfType<Button>().Single(b=>b.Content as string=="Advanced…")
+                prompt.GetVisualDescendants().OfType<Button>().Single(b=>b.Name=="AiAdvanced")
                     .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 Dispatcher.UIThread.RunJobs();
                 var advanced=Assert.Single(prompt.OwnedWindows);
@@ -216,6 +262,7 @@ public class SceneEditingTests
         public ComfyServerAddress Address=>ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout {get;set;}
         public bool Fail,Cancel,AddShadow; public int FailAt,Uploads,Executions; private SKBitmap? source;
+        public List<JsonObject> Workflows {get;}=[];
         public Task<(ComfyServerInfo,ComfyServerCapabilities)> TestConnectionAsync(CancellationToken token=default)
         {
             var catalog=new EngineCatalog(Engines); var pack=catalog.Find("flux2-klein-intel-xpu")!;
@@ -226,6 +273,7 @@ public class SceneEditingTests
         {Uploads++;if(semantic=="sourceImage") {source?.Dispose();source=Pixels.Clone(image);}return Task.FromResult(semantic+".png");}
         public Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow,IProgress<AiOperationState>? progress=null,CancellationToken token=default)
         {
+            Workflows.Add(JsonNode.Parse(workflow.ToJsonString())!.AsObject());
             Executions++; if(FailAt==0||Executions==FailAt) {if(Cancel) throw new OperationCanceledException(token);if(Fail) throw new InvalidOperationException("fixture failure");}
             Assert.Equal("sourceEncode",workflow["noiseMask"]!["inputs"]!["samples"]![0]!.GetValue<string>());
             return Task.FromResult(new ComfyExecutionResult("fixture",JsonDocument.Parse("{}"),[new("fixture.png","","output","save"),new("baseline.png","","output","baseline")]));

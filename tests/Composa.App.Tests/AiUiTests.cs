@@ -16,27 +16,34 @@ namespace Composa.App.Tests;
 public class AiUiTests
 {
     [AvaloniaFact]
-    public void Workflow_picker_and_compact_variant_dropdown_follow_the_selected_pack()
+    public void Workflow_picker_and_variant_buttons_follow_the_selected_pack()
     {
         var window = new MainWindow { Width = 1280, Height = 900 }; window.Settings.CheckForUpdates = false; window.Show(); window.AiTasks.SetConnectedForTests();
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
+        var alignment = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
+            button => button.Name == "AiPixelAlignment");
+        alignment.IsChecked = false;
+        Assert.False(window.Settings.AiAlignMaskedEdits);
+        alignment.IsChecked = true;
+        Assert.True(window.Settings.AiAlignMaskedEdits);
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
-        var variants = Assert.Single(combos, combo => combo.Items.Cast<string>().SequenceEqual(new[] { "1", "2", "3" }));
-        Assert.Equal(60, variants.Width); variants.SelectedIndex = 1;
-        var generate = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "Generate");
-        var split = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Border>(), border => border.Name == "AiGenerateSplit");
-        var joined = Assert.IsType<StackPanel>(split.Child);
-        Assert.Equal(0, joined.Spacing);
-        Assert.Equal(generate.Height, variants.Height);
-        var remove = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "Remove");
-        var more = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "••• ▾");
-        Assert.Equal(remove.Height, split.Height);
-        Assert.Equal(more.Height, split.Height);
-        Assert.Equal(new Avalonia.CornerRadius(6, 0, 0, 6), generate.CornerRadius);
-        Assert.Equal(new Avalonia.CornerRadius(0, 6, 6, 0), variants.CornerRadius);
+        var panel = window.AiFloatingPanel;
+        var buttons = panel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().ToArray();
+        var two = buttons.Single(button => button.Name == "AiVariants2");
+        var three = buttons.Single(button => button.Name == "AiVariants3");
+        two.IsChecked = true;
+        Assert.Equal(2, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill).Variants);
+        three.IsChecked = true;
+        Assert.False(two.IsChecked);
+        three.IsChecked = false;
+        Assert.Equal(1, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill).Variants);
+        var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");
+        Assert.True(enhance.IsEnabled);
+        Assert.True(Grid.GetColumn(enhance) < Grid.GetColumn(alignment));
         var engines = Assert.Single(combos, combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
         var defaultEngine = window.AiTasks.SelectedEngine;
-        engines.SelectedIndex = 1; Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
+        engines.SelectedItem = "Qwen Image 2.1 Turbo"; Assert.Equal("qwen-image-2.1-turbo",window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id);
+        engines.SelectedItem = "CHAT GPT 2.5"; Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
         Assert.Same(defaultEngine, window.AiTasks.SelectedEngine);
         Assert.True(window.AiTasks.EngineFor(AiTaskKind.GenerateImage)!.PaidApi);
         Assert.DoesNotContain("Variants", window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
@@ -57,7 +64,7 @@ public class AiUiTests
         Assert.Equal(window.Canvas.ToScreen(new SKPoint(280, 130)).Y + 10, Canvas.GetTop(panel), 1);
         var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Generative AI");
         var header = Assert.IsType<Grid>(heading.Parent);
-        var at = header.TranslatePoint(new Point(header.Bounds.Width - 175, 8), window)!.Value; // blank header, not the title text
+        var at = header.TranslatePoint(new Point(header.ColumnDefinitions[0].ActualWidth - 8, 8), window)!.Value; // blank header, not the title text
         var original = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
         window.MouseDown(at, MouseButton.Left); window.MouseMove(at + new Vector(30, -25), RawInputModifiers.LeftMouseButton); window.MouseUp(at + new Vector(30, -25), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
@@ -111,11 +118,10 @@ public class AiUiTests
         window.SelectTool(Tool.SelectionBrush);
 
         var text = window.GetVisualDescendants().OfType<TextBlock>().Select(item => item.Text).Where(value => value != null).ToList();
-        Assert.Contains("Generate", window.GetVisualDescendants().OfType<Button>().Select(button => button.Content as string));
-        Assert.Contains("Remove", window.GetVisualDescendants().OfType<Button>().Select(button => button.Content as string));
-        Assert.Contains("Advanced…", window.GetVisualDescendants().OfType<Button>().Select(button => button.Content as string));
+        var actions = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Select(button => button.Name).ToArray();
+        Assert.Contains("AiRun", actions); Assert.Contains("AiMore", actions); Assert.Contains("AiAdvanced", actions);
         Assert.Contains("Selection Brush", text);
-        Assert.Contains("References (0/6)", text);
+        Assert.DoesNotContain("References (0/6)", text);
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<ComboBox>(), combo => combo.SelectedItem?.ToString() == "1 MP");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), box => box.PlaceholderText?.Contains("Describe what you want") == true);
         Assert.True(Screenshots.Save(window, "ai-platform-selection-brush"));
@@ -151,6 +157,6 @@ public class AiUiTests
         var remove = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button => ToolTip.GetTip(button)?.ToString() == "Remove reference");
         remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(0, window.AiReferenceCount);
-        Assert.Contains("References (0/6)", window.GetVisualDescendants().OfType<TextBlock>().Select(item => item.Text));
+        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => ToolTip.GetTip(button)?.ToString()?.StartsWith("Add reference image") == true);
     }
 }

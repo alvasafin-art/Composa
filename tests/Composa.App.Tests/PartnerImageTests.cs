@@ -74,7 +74,8 @@ public class PartnerImageTests
     [Fact]
     public void Api_pack_has_one_official_node_no_local_weights_and_local_pack_stays_default()
     {
-        var catalog = Catalog(); Assert.Equal(4, catalog.Profiles.Count); Assert.False(catalog.Profiles[0].PaidApi);
+        var catalog = Catalog(); Assert.Equal("flux2-klein-intel-xpu", catalog.Profiles[0].Id); Assert.False(catalog.Profiles[0].PaidApi);
+        Assert.Contains(catalog.Profiles,pack=>pack.Id=="qwen-image-2.1-turbo" && !pack.PaidApi);
         var engine = Pack(); Assert.True(engine.PaidApi); Assert.Equal("gpt-image-2.5-sunburst", engine.ApiModel);
         Assert.Empty(engine.RequiredAssets); Assert.Empty(catalog.ModelSlots(engine)); Assert.False(engine.Lora.Supported);
         Assert.DoesNotContain("ImageToMask", engine.RequiredNodeTypes);
@@ -374,6 +375,7 @@ public class PartnerImageTests
 
     [Theory]
     [InlineData("chatgpt-image-2.5")]
+    [InlineData("chatgpt-image-2.6")]
     [InlineData("nano-banana-2")]
     public async Task Comfy_key_is_sent_only_in_sensitive_extra_data_for_api_nodes_and_redacted_on_error(string engineId)
     {

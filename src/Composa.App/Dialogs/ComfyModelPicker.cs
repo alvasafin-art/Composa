@@ -52,6 +52,8 @@ public sealed class ComfyModelPicker : StackPanel
         Children.Add(Ui.Label("Models on ComfyUI", weight: Avalonia.Media.FontWeight.SemiBold));
         if (!connected) Children.Add(Note("Refresh models to read this server. Lists from another computer are not used."));
         if (service.SelectedEngine is not { } engine) { Children.Add(Note("Select a workflow pack first.")); return; }
+        if (engine.Id == QwenImageWorkflow.EngineId)
+            Children.Add(Note("Qwen Image 2.1 Turbo · local 8-step workflow. Choose matching Turbo diffusion weights, Qwen3-VL and a Qwen 2.1 VAE. Base Qwen and Viggle 6-step LoRAs use different schedules. Requires native Qwen 2.1 nodes, ModelAttentionBackend and PixelDriftFix. Weights are not bundled; the official Qwen weights use the Qwen Research License."));
         var slots = (engine.PaidApi ? [] : service.Engines.ModelSlots(engine)).Concat(service.Engines.Profiles
             .Where(profile => profile.Id.StartsWith("seedvr2", StringComparison.Ordinal)).SelectMany(profile => UpscaleModels.Slots(service.Engines, profile)))
             .DistinctBy(slot => slot.Key).ToArray();
@@ -67,6 +69,7 @@ public sealed class ComfyModelPicker : StackPanel
             var backendAvailable = !slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal)
                 || service.Engines.Find(slot.EngineId)!.RequiredNodeTypes.All(type => service.ServerCapabilities?.NodeTypes.Contains(type) == true);
             var combo = new ComboBox { Width = 410, ItemsSource = options, SelectedItem = options.First(option => option.Name == saved), IsEnabled = connected && available?.Count > 0 && backendAvailable };
+            AiGenerationControls.StyleModelField(combo, slot.Label);
             ToolTip.SetTip(combo, slot.NodeType + "." + slot.Input + " · node " + slot.NodeId);
             var hint = Note("");
             void Hint()

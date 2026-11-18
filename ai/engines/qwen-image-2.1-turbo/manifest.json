@@ -1,0 +1,147 @@
+{
+  "id": "qwen-image-2.1-turbo",
+  "displayName": "Qwen Image 2.1 Turbo",
+  "manifestVersion": 1,
+  "minimumComfyVersion": "0.43.0",
+  "requiredNodeTypes": [
+    "BasicGuider",
+    "CLIPLoader",
+    "EmptyLatentImage",
+    "KSamplerSelect",
+    "LoadImage",
+    "LoadImageMask",
+    "SetLatentNoiseMask",
+    "ManualSigmas",
+    "ModelAttentionBackend",
+    "PixelDriftFix",
+    "QwenImage21Cache",
+    "RandomNoise",
+    "SamplerCustomAdvanced",
+    "SaveImage",
+    "TextEncodeQwenImage21",
+    "UNETLoader",
+    "VAEDecode",
+    "VAEEncode",
+    "VAELoader"
+  ],
+  "requiredAssets": [
+    {
+      "kind": "diffusionModel",
+      "name": "qwen_image_2.1_turbo_int8_convrot.safetensors"
+    },
+    {
+      "kind": "textEncoder",
+      "name": "qwen3vl_8b_int8_convrot.safetensors"
+    },
+    {
+      "kind": "vae",
+      "name": "texture_fix_vae_for_qwen_image_2.1_bf16.safetensors"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "generate",
+      "version": 1,
+      "file": "workflows/generate.json",
+      "outputNodes": [
+        "save"
+      ]
+    },
+    {
+      "id": "edit",
+      "version": 1,
+      "file": "workflows/edit.json",
+      "outputNodes": [
+        "save"
+      ]
+    },
+    {
+      "id": "sceneEdit",
+      "version": 1,
+      "file": "workflows/scene-edit.json",
+      "outputNodes": [
+        "save",
+        "baseline"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "generateImage",
+      "version": 1,
+      "workflow": "generate",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "imageEdit",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "generativeFill",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {}
+    },
+    {
+      "task": "removeObject",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {}
+    },
+    {
+      "task": "generativeExpand",
+      "version": 1,
+      "workflow": "edit",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "changeBackground",
+      "version": 1,
+      "workflow": "sceneEdit",
+      "outputMode": "layerGroup",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "harmonize",
+      "version": 1,
+      "workflow": "sceneEdit",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "matchToScene",
+      "version": 1,
+      "workflow": "sceneEdit",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "relight",
+      "version": 1,
+      "workflow": "sceneEdit",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    }
+  ],
+  "parameters": [],
+  "lora": {
+    "supported": false,
+    "maximum": 0
+  }
+}

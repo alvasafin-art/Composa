@@ -7,13 +7,14 @@ namespace Composa.AI;
 internal static class SceneShadowContact
 {
     private sealed record Component(List<int> Pixels,long Mass,byte Peak);
-    internal static SKBitmap Anchor(SKBitmap shadow,SceneEditInput input,double modelToDocument,CancellationToken token,out int count,out SKPointI correction)
+    internal static SKBitmap Anchor(SKBitmap shadow,SceneEditInput input,double modelToDocument,CancellationToken token,out int count,out SKPointI correction,bool preserveConnectedContact=false)
     {
         correction=default; count=0;
         var w=shadow.Width;var h=shadow.Height;var b=input.SupportBounds;
         var radius=Math.Clamp((int)Math.Ceiling(Math.Min(b.Height*.2,48*modelToDocument)),2,96);
         byte peak=0;foreach(var value in shadow.GetPixelSpan()) peak=Math.Max(peak,value);
         var threshold=Math.Max(1,Math.Min(8,peak/2));
+        if(preserveConnectedContact)threshold=Math.Min(threshold,2);
         var labels=new int[checked(w*h)];var components=new List<Component>();
         var queue=new Queue<int>();
         for(var y=0;y<h;y++)
@@ -42,13 +43,20 @@ internal static class SceneShadowContact
         {
             var component=components[index];if(component.Pixels.Count<9)continue;
             long contactMass=0;
+            var contactColumns=preserveConnectedContact?new HashSet<int>():null;
             foreach(var p in component.Pixels)
             {
                 var x=p%w;var y=p/w;if(x<b.Left||x>=b.Right)continue;
                 var foot=input.SupportY[x];var alpha=shadow.GetPixel(x,y).Alpha;
+                // A connected soft transition at any actual support (including a shorter rear leg)
+                // already anchors this cast. Moving its dense lobe would destroy that geometry.
+                if(contactColumns!=null&&foot>=0&&y>foot&&y<=foot+2&&alpha>=2)contactColumns.Add(x);
                 if(foot>=b.Bottom-Math.Max(8,b.Height/4)&&y>foot&&y<=foot+2&&alpha>=Math.Max(threshold,component.Peak*.4))contactMass+=alpha;
             }
-            if(contactMass>=Math.Max(threshold*3,component.Mass*.005)) {shifts[index]=default(SKPointI);continue;}
+            if(contactColumns?.Count>=Math.Min(3,b.Width)||contactMass>=Math.Max(threshold*3,component.Mass*.005)) {shifts[index]=default(SKPointI);continue;}
+            // Weak disconnected floor drift is not evidence of a displaced cast. Keep faint
+            // connected penumbrae, but do not move a detached low-contrast patch onto the PNG.
+            if(preserveConnectedContact&&component.Peak<16)continue;
             var best=double.PositiveInfinity;var offset=default(SKPointI);
             foreach(var p in component.Pixels)
             {
@@ -93,12 +101,34 @@ internal static class SceneShadowContact
                     if(label==0||shifts[label-1] is not { } shift)continue;
                     var tx=x+shift.X;var ty=y+shift.Y;if(tx<0||ty<0||tx>=w||ty>=h)continue;
                     var coverage=Math.Min(alpha,input.ShadowMask.GetPixel(tx,ty).Alpha);
-                    if(coverage>result.GetPixel(tx,ty).Alpha)result.SetPixel(tx,ty,new(0,0,0,coverage));
+                    if(coverage>result.GetPixel(tx,ty).Alpha)result.SetPixel(tx,ty,shadow.GetPixel(x,y).WithAlpha(coverage));
                 }
             }
+            if(preserveConnectedContact)BridgeContact(result,input,modelToDocument,token);
             for(var y=0;y<h;y++)for(var x=0;x<w;x++)if(result.GetPixel(x,y).Alpha>0)count++;
             Pixels.Invalidate(result);return result;
         }
         catch{result.Dispose();throw;}
+    }
+
+    private static void BridgeContact(SKBitmap result,SceneEditInput input,double modelToDocument,CancellationToken token)
+    {
+        // Repair only short sampling gaps in an already accepted cast. Read the immutable
+        // registered result so one repaired column cannot grow a new shadow into its neighbors.
+        using var source=Pixels.Clone(result);
+        var reach=Math.Clamp((int)Math.Ceiling(4*modelToDocument),2,24);
+        for(var x=input.SupportBounds.Left;x<input.SupportBounds.Right;x++)
+        {
+            token.ThrowIfCancellationRequested();
+            var start=input.SupportY[x]+1;if(start<=0||start>=result.Height)continue;
+            if(source.GetPixel(x,start).Alpha>0)continue;
+            var end=Math.Min(result.Height-1,start+reach);var next=start+1;
+            for(;next<=end;next++)if(source.GetPixel(x,next).Alpha>0)break;
+            if(next>end)continue;
+            var color=source.GetPixel(x,next);
+            for(var y=start;y<next;y++)
+                if(input.ShadowMask.GetPixel(x,y).Alpha>0)result.SetPixel(x,y,color);
+        }
+        Pixels.Invalidate(result);
     }
 }

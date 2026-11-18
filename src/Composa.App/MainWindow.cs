@@ -73,8 +73,9 @@ public sealed partial class MainWindow : Window
             ModelSelections = settings.ComfyModelsFor,
             EngineIdForTask = settings.EngineForTask,
             AdditionalPromptForPack = id => settings.PromptFor(id) is { Enabled: true } value ? value.Text : "",
-            ApiKey = () => string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment),
-            RequestApiKey = token => Dialogs.AiDialogs.ApiKey(this, token)
+            ApiKey = () => (Settings.Persist ? UserApiKeys.Read(UserApiKeys.Target("Comfy", ComfyServerAddress.Parse(settings.ComfyServerUrl).HttpBase)) : null)
+                ?? (string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment)),
+            RequestApiKey = token => Dialogs.AiDialogs.ApiKey(this, token, settings.ComfyServerUrl)
         };
         aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
         if (aiTasks.SelectedEngine is { } engine)

@@ -96,15 +96,18 @@ public class AiOperationSettingsTests
             var settings = new Settings();
             settings.SetOperation(Flux,AiTaskKind.ImageEdit,settings.OperationFor(Flux,AiTaskKind.ImageEdit) with { OriginalSize=false,Megapixels=0.75,Variants=2 });
             settings.SetOperation(Gpt,AiTaskKind.ImageEdit,settings.OperationFor(Gpt,AiTaskKind.ImageEdit,true) with { OriginalSize=true,Variants=3 });
+            const string qwen="qwen-image-2.1-turbo";
+            settings.SetOperation(qwen,AiTaskKind.ImageEdit,settings.OperationFor(qwen,AiTaskKind.ImageEdit) with {OriginalSize=false,Megapixels=1.5,Variants=1});
             var before=JsonSerializer.Serialize(settings);
             var pending=AiDialogs.Prompt(window,AiTaskKind.ImageEdit,settings,800,600,service:window.AiTasks); Dispatcher.UIThread.RunJobs();
             var dialog=Assert.Single(window.OwnedWindows);
             var picker=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("CHAT GPT 2.5"));
             var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.Cast<string>().Contains("Original size"));
-            var variants=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Width==60);
-            Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal("2",variants.SelectedItem);
-            picker.SelectedIndex=1; Dispatcher.UIThread.RunJobs(); Assert.Equal("Original size",size.SelectedItem); Assert.Equal("3",variants.SelectedItem);
-            size.SelectedIndex=3; picker.SelectedIndex=0; Dispatcher.UIThread.RunJobs(); Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal("2",variants.SelectedItem);
+            var variants=Assert.Single(dialog.GetVisualDescendants().OfType<Composa.App.AI.AiVariantButtons>());
+            Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
+            picker.SelectedItem=window.AiTasks.Engines.Find(qwen)!.DisplayName;Dispatcher.UIThread.RunJobs();Assert.Equal(AiDimensions.Label(1.5),size.SelectedItem);Assert.Equal(1,variants.Count);
+            picker.SelectedItem=window.AiTasks.Engines.Find(Gpt)!.DisplayName; Dispatcher.UIThread.RunJobs(); Assert.Equal("Original size",size.SelectedItem); Assert.Equal(3,variants.Count);
+            size.SelectedIndex=3; picker.SelectedItem=window.AiTasks.Engines.Find(Flux)!.DisplayName; Dispatcher.UIThread.RunJobs(); Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(settings));
         }
         finally { window.Close(); }

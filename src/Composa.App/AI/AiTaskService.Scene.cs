@@ -12,7 +12,8 @@ public sealed partial class AiTaskService
         var engine=EngineFor(request.Task,request.EngineId);
         if(engine==null && request.Task==AiTaskKind.MatchToScene) engine=EngineFor(AiTaskKind.Harmonize,request.EngineId);
         if(engine==null) throw new InvalidOperationException("Choose a scene-editing workflow in AI Settings.");
-        if(!engine.PaidApi && engine.Id!="flux2-klein-intel-xpu") throw new InvalidOperationException("Scene editing currently supports FLUX.2 Klein, GPT and Nano Banana.");
+        var qwen=engine.Id==QwenImageWorkflow.EngineId;
+        if(!engine.PaidApi && engine.Id!="flux2-klein-intel-xpu" && !qwen) throw new InvalidOperationException("Scene editing supports FLUX.2 Klein, Qwen Image 2.1 Turbo, GPT and Nano Banana.");
         if(request.ReferenceImages.Count==0 && request.ReferenceImage is { } legacyReference) request=request with {ReferenceImages=[legacyReference]};
         var maximumReferences=NanoBanana.IsModel(engine.ApiModel) ? 13 : 6;
         if(request.ReferenceImages.Count>maximumReferences) throw new InvalidOperationException($"This scene workflow accepts at most {maximumReferences} references in addition to the source.");
@@ -38,9 +39,9 @@ public sealed partial class AiTaskService
                 await TestConnectionAsync(linked.Token,client.Address.ToString());
             if(ConnectedServerUrl!=client.Address.ToString() || ServerCapabilities is not { } capabilities)
                 throw new InvalidOperationException("The ComfyUI connection changed. Retry on the selected server.");
-            using var native=engine.PaidApi ? null : new SceneEditingWorkflow(scene,request);
+            using var native=engine.PaidApi ? null : new SceneEditingWorkflow(scene,request,qwen:qwen);
             using var apiInputs=engine.PaidApi ? SceneApiInputs(scene,request) : null;
-            var editRequest=request with {Task=AiTaskKind.ImageEdit,Prompt=SceneEditingWorkflow.Prompt(request)};
+            var editRequest=request with {Task=AiTaskKind.ImageEdit,Prompt=SceneEditingWorkflow.Prompt(request,scene.LightHint)};
             using var partner=apiInputs==null ? null : new PartnerImageInputs(apiInputs,editRequest,engine.ApiModel);
             var workflow=engine.PaidApi ? engine.Workflow(engine.Binding(AiTaskKind.ImageEdit)!.Workflow) : engine.Workflow("sceneEdit");
             var baseGraph=Engines.ReadWorkflow(engine,workflow);
@@ -67,10 +68,18 @@ public sealed partial class AiTaskService
                 WorkflowModels.ApplyChoices(graph,engine.Id,ModelSelections(client.Address.ToString()));
                 if(stageNative!=null)
                 {
-                    stageNative.Bind(graph,files["sourceImage"],files["sceneMask"],request,variant,cleanup);
-                    SceneEditingWorkflow.References(graph,files);
+                    if(qwen)
+                        QwenImageWorkflow.Bind(graph,files,QwenImageWorkflow.ScenePrompt(request,scene.WholeImage,cleanup,QwenImageWorkflow.SubjectTarget(scene))+
+                            (request.Task==AiTaskKind.ChangeBackground && !cleanup ? SceneEditingWorkflow.LayoutInstruction(scene) : ""),
+                            request.Settings.Seed<0 ? Random.Shared.NextInt64(long.MaxValue) : (request.Settings.Seed+variant)&long.MaxValue);
+                    else
+                    {
+                        stageNative.Bind(graph,files["sourceImage"],files["sceneMask"],request,variant,cleanup);
+                        SceneEditingWorkflow.References(graph,files);
+                        WorkflowMemory.Apply(graph,request.Settings.Values.GetValueOrDefault("fluxMemory")?.ToString()??"auto",ServerInfo,capabilities);
+                    }
                     WorkflowExecution.Loras(graph,engine,request.Settings.Loras,capabilities);
-                    WorkflowMemory.Apply(graph,request.Settings.Values.GetValueOrDefault("fluxMemory")?.ToString()??"auto",ServerInfo,capabilities);
+                    if(qwen) QwenImageWorkflow.Configure(graph,ServerInfo,request.AlignMaskedEdits && (request.Task!=AiTaskKind.ChangeBackground || cleanup));
                 }
                 else
                 {
@@ -83,11 +92,14 @@ public sealed partial class AiTaskService
                 return graph;
             }
             var images=native!=null ? new Dictionary<string,SKBitmap> {{"sourceImage",native.Source},{"sceneMask",native.Mask}} : partner!.Images;
+            if(qwen) images.Remove("sceneMask");
             if(native?.BackgroundReference is { } backdrop) images["sceneBackground"]=backdrop;
             if(native!=null) for(var reference=0;reference<native.ReferenceImages.Count;reference++) images["referenceImage"+(reference+1)]=native.ReferenceImages[reference];
             if(editor.Session.History.CurrentId!=state || editor.Session.Document.ActiveLayerId!=source || LiveInteraction())
                 throw new InvalidOperationException("The document changed while preparing the scene. No generation was submitted.");
             _=Bind(images.ToDictionary(item=>item.Key,_=>"scene-preflight.png"),0,native,partner,false);
+            if(qwen && request.Task==AiTaskKind.ChangeBackground)
+                _=Bind(new Dictionary<string,string> {{"sourceImage","plate-preflight.png"}},0,native,null,true);
             var uploaded=new Dictionary<string,string>();
             foreach(var (key,image) in images) uploaded[key]=await client.UploadPngAsync(key,image,linked.Token);
             double? credits=null;
@@ -123,6 +135,8 @@ public sealed partial class AiTaskService
                             var reconstructed=await client.DownloadAsync(reference[0],linked.Token);
                             baseline=await Task.Run(()=>stageNative.Finish(reconstructed));
                         }
+                        if (!qwen && request.AlignMaskedEdits && (request.Task != AiTaskKind.ChangeBackground || cleanup))
+                            await Task.Run(() => AiSeamlessFinisher.AlignEdit(image, baseline ?? stagePartner!.SourceReference), linked.Token);
                         EnsureUnchanged();return new(image,baseline);
                     }
                     catch {image?.Dispose();baseline?.Dispose();throw;}
@@ -137,17 +151,21 @@ public sealed partial class AiTaskService
                     // First the model arranges the environment around the actual PNG. Only then remove its cache.
                     var margin=native==null?16:(int)Math.Ceiling(16*scene.Before.Width/(double)native.ContentSize.Width);
                     using var temporarySubject=await Task.Run(()=>sceneSubjectFinder(scene,generated.Image,linked.Token),linked.Token);
-                    using var plate=await Task.Run(()=>new SceneBackgroundPlate(scene,generated.Image,margin,linked.Token,temporarySubject),linked.Token);
+                    using var registered=qwen && request.AlignMaskedEdits ? await Task.Run(()=>new QwenBackgroundFrame(scene,generated.Image,temporarySubject),linked.Token) : null;
+                    var layout=registered?.Image??generated.Image;
+                    using var plate=await Task.Run(()=>new SceneBackgroundPlate(scene,layout,margin,linked.Token,registered?.Subject??temporarySubject),linked.Token);
                     var cleanupRequest=request with {ReferenceImages=[],ReferenceImage=null,Prompt=SceneEditingWorkflow.CleanupPrompt(request),AdditionalPrompt=""};
-                    using var cleanupNative=engine.PaidApi?null:new SceneEditingWorkflow(scene,cleanupRequest,plate.Image,plate.Mask);
+                    using var cleanupNative=engine.PaidApi?null:new SceneEditingWorkflow(scene,cleanupRequest,plate.Image,plate.Mask,qwen:qwen);
                     using var cleanupInputs=engine.PaidApi?new AiTaskInputs {SourceImage=Pixels.Clone(plate.Image),ContextImage=Pixels.Clone(plate.Image),CanvasWidth=scene.Before.Width,CanvasHeight=scene.Before.Height,TargetBounds=scene.Before.Info.Rect,Prompt=cleanupRequest.Prompt}:null;
                     using var cleanupPartner=cleanupInputs==null?null:new PartnerImageInputs(cleanupInputs,cleanupRequest with {Task=AiTaskKind.ImageEdit},engine.ApiModel);
                     var cleanupImages=cleanupNative==null?cleanupPartner!.Images:new Dictionary<string,SKBitmap> {{"sourceImage",cleanupNative.Source},{"sceneMask",cleanupNative.Mask}};
+                    if(qwen) cleanupImages.Remove("sceneMask");
                     _=Bind(cleanupImages.ToDictionary(item=>item.Key,_=>"plate-preflight.png"),index,cleanupNative,cleanupPartner,true);
                     var cleanupFiles=new Dictionary<string,string>(); foreach(var (key,image) in cleanupImages) cleanupFiles[key]=await client.UploadPngAsync(key,image,linked.Token);
                     using var clean=await Generate(cleanupNative,cleanupPartner,cleanupFiles,index,true);
-                    using var background=await Task.Run(()=>plate.Finish(clean.Image,generated.Image,clean.Baseline));
-                    result=await Task.Run(()=>SceneEditResult.Extract(scene,background,request,linked.Token),linked.Token);
+                    using var background=await Task.Run(()=>plate.Finish(clean.Image,layout,clean.Baseline));
+                    result=await Task.Run(()=>registered!=null ? registered.RestoreShadow(scene,background,request,linked.Token)
+                        : SceneEditResult.Extract(scene,background,request,linked.Token),linked.Token);
                 }
                 else
                 {
@@ -177,7 +195,7 @@ public sealed partial class AiTaskService
     {
         SourceImage=Pixels.DisplayCopy(scene.InitialImage),ContextImage=Pixels.DisplayCopy(scene.Before),
         CanvasWidth=scene.Before.Width,CanvasHeight=scene.Before.Height,TargetBounds=scene.Before.Info.Rect,
-        Prompt=SceneEditingWorkflow.Prompt(request)+SceneEditingWorkflow.LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : ""),Seed=request.Settings.Seed,
+        Prompt=SceneEditingWorkflow.Prompt(request,scene.LightHint)+SceneEditingWorkflow.LayoutInstruction(scene)+(request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : ""),Seed=request.Settings.Seed,
         ReferenceImages=request.ReferenceImages.Select(image=>SceneEditingWorkflow.CopyReference(image,request.ReferenceMegapixels)).ToArray()
     };
 }

@@ -76,13 +76,13 @@ public class SmartObjectUiTests
         var window = new MainWindow(); window.Show(); var settings = new Settings();
         var asking = AiDialogs.Prompt(window, Composa.AI.AiTaskKind.GenerativeFill, settings, 320, 160); Dispatcher.UIThread.RunJobs();
         var prompt = Assert.Single(window.OwnedWindows);
-        prompt.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 60).SelectedIndex = 1;
-        prompt.GetVisualDescendants().OfType<Button>().Single(button => button.Content as string == "Advanced…")
+        prompt.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(button => button.Name == "AiVariants2").IsChecked = true;
+        prompt.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiAdvanced")
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs();
         var advanced = Assert.Single(prompt.OwnedWindows);
         advanced.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.SelectedItem?.ToString() == "List · lower VRAM").SelectedIndex = 1;
         advanced.Close(true); Dispatcher.UIThread.RunJobs();
-        Assert.Equal("2", prompt.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Width == 60).SelectedItem);
+        Assert.Equal(2, Assert.Single(prompt.GetVisualDescendants().OfType<Composa.App.AI.AiVariantButtons>()).Count);
         prompt.Close(true); Assert.NotNull(await asking);
         var profile = settings.OperationFor(null,Composa.AI.AiTaskKind.GenerativeFill);
         Assert.Equal(2, profile.Variants); Assert.Equal(Composa.AI.AiVariantMode.Batch, profile.VariantMode); window.Close();

@@ -37,10 +37,10 @@ public class DialogWindow : Window
     }
 
     public bool CanAccept { set => ok.IsEnabled = value; }
-    public void UseGenerationVariants(ComboBox variants)
+    internal void UseGenerationVariants(AI.AiVariantButtons variants)
     {
         var index = Buttons.Children.IndexOf(ok); Buttons.Children.Remove(ok);
-        Buttons.Children.Insert(index, AI.AiGenerationControls.Split(ok, variants));
+        Buttons.Children.Insert(index, AI.AiGenerationControls.RunGroup(ok, variants));
     }
 
     public async Task<bool> Ask(Window owner) => await ShowDialog<bool?>(owner) == true;

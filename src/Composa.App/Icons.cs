@@ -67,6 +67,10 @@ public static class Icons
     public static readonly Icon AlignCenter = new("M4 6 H20 M7 10 H17 M4 14 H20 M8 18 H16");
     public static readonly Icon AlignRight = new("M4 6 H20 M10 10 H20 M4 14 H20 M12 18 H20");
     public static readonly Icon Ruler = new("M3 8 H21 V16 H3 Z M7 8 V12 M11 8 V14 M15 8 V12 M19 8 V14");
+    public static readonly Icon PixelAlignment = new("M3 9 V4 H8 M16 4 H21 V9 M21 15 V20 H16 M8 20 H3 V15 M8 12 H16 M12 8 V16");
+    public static readonly Icon Gear = new("M10 3 H14 L14.6 5.6 L16.2 6.5 L18.7 5.7 L20.7 9.2 L18.8 11 V13 L20.7 14.8 L18.7 18.3 L16.2 17.5 L14.6 18.4 L14 21 H10 L9.4 18.4 L7.8 17.5 L5.3 18.3 L3.3 14.8 L5.2 13 V11 L3.3 9.2 L5.3 5.7 L7.8 6.5 L9.4 5.6 Z M15.2 12 A3.2 3.2 0 1 1 8.8 12 A3.2 3.2 0 1 1 15.2 12 Z");
+    public static readonly Icon Run = new(null, "M7 4 L20 12 L7 20 Z");
+    public static readonly Icon MoreActions = new(null, "M5 10 A2 2 0 1 1 5 14 A2 2 0 1 1 5 10 Z M12 10 A2 2 0 1 1 12 14 A2 2 0 1 1 12 10 Z M19 10 A2 2 0 1 1 19 14 A2 2 0 1 1 19 10 Z");
     public static readonly Icon Layers = new("M12 3.5 L21 8 L12 12.5 L3 8 Z M3 12 L12 16.5 L21 12 M3 16 L12 20.5 L21 16");
     public static readonly Icon Document = new("M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19");
     public static readonly Icon Disk = new("M5 3.5 H16.5 L20.5 7.5 V20.5 H5 Z M8.5 3.5 V8.5 H15.5 V3.5 M8.5 20.5 V14 H16 V20.5");

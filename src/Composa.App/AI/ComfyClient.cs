@@ -24,7 +24,7 @@ public sealed class ComfyClient : IComfyConnection
     public ComfyClient(string serverUrl, HttpClient? httpClient = null, Func<string?>? apiKey = null)
     {
         Address = ComfyServerAddress.Parse(serverUrl);
-        http = httpClient ?? new HttpClient();
+        http = httpClient ?? new HttpClient(new HttpClientHandler { UseProxy = !Address.HttpBase.IsLoopback, AllowAutoRedirect = false });
         ownsHttp = httpClient == null;
         this.apiKey = apiKey ?? (() => null);
     }
@@ -101,7 +101,7 @@ public sealed class ComfyClient : IComfyConnection
     public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)
     {
         var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = clientId.ToString("N") };
-        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2"))
+        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode"))
         {
             var key = apiKey()?.Trim();
             if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone does not authorize external requests.");
@@ -125,6 +125,7 @@ public sealed class ComfyClient : IComfyConnection
     {
         var clientId = Guid.NewGuid();
         using var socket = new ClientWebSocket();
+        if (Address.HttpBase.IsLoopback) socket.Options.Proxy = null;
         using var connecting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         connecting.CancelAfter(ConnectionTimeout);
         await socket.ConnectAsync(Address.Socket(clientId), connecting.Token);
@@ -192,7 +193,7 @@ public sealed class ComfyClient : IComfyConnection
             history?.Dispose();
             history = await HistoryAsync(promptId, cancellationToken);
             var images = FindImages(history.RootElement, promptId);
-            if (images.Count > 0 || attempt == attempts - 1) return new ComfyExecutionResult(promptId, history, images) { CreditsUsed = state.CreditsUsed };
+            if (images.Count > 0 || workflow.ContainsKey("enhanced_prompt") && AiTaskService.EnhancedText(history.RootElement, promptId) != null || attempt == attempts - 1) return new ComfyExecutionResult(promptId, history, images) { CreditsUsed = state.CreditsUsed };
             await Task.Delay(100, cancellationToken);
         }
         throw new InvalidOperationException("ComfyUI history polling ended unexpectedly.");
@@ -250,7 +251,7 @@ public sealed class ComfyClient : IComfyConnection
         foreach (var node in root.EnumerateObject())
         {
             nodes.Add(node.Name);
-            if ((node.Name is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
+            if ((node.Name is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode" or "OpenAIChatConfig" || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
                 && JsonNode.Parse(node.Value.GetRawText()) is JsonObject definition) definitions[node.Name] = definition;
             if (!node.Value.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object) continue;
             foreach (var sectionName in new[] { "required", "optional" })

@@ -173,10 +173,11 @@ public class AiEditingRegressionTests
             Dispatcher.UIThread.RunJobs(); var dialog = Assert.Single(window.OwnedWindows);
             var text = dialog.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToArray();
             Assert.DoesNotContain("Seed", text); Assert.DoesNotContain("Variants", text);
-            var split = dialog.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "AiGenerateSplit");
-            Assert.Equal(26, split.Height);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiRun");
+            Assert.Contains(dialog.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiVariants3");
             var packs = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Cast<string>().Contains("CHAT GPT 2.5"));
-            Assert.Equal(3, packs.ItemCount);
+            Assert.Equal(window.AiTasks.Engines.Profiles.Where(pack=>pack.Binding(task)!=null).Select(pack=>pack.DisplayName),packs.Items.Cast<string>());
+            Assert.Contains("Qwen Image 2.1 Turbo",packs.Items.Cast<string>());
             Assert.Contains("Nano Banana 2 · Gemini 3.1",packs.Items.Cast<string>());
             packs.SelectedItem = "CHAT GPT 2.5"; Dispatcher.UIThread.RunJobs();
             Assert.True(window.AiTasks.SelectedEngine!.PaidApi);

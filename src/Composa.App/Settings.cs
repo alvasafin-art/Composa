@@ -89,6 +89,19 @@ public sealed class Settings
     public int AiGptMaskBlend { get; set; } = 8;
     public bool ComfyAdditionalPromptEnabled { get; set; } = true;
     public string ComfyAdditionalPrompt { get; set; } = Composa.AI.AiPromptDefaults.PreserveAppearance;
+    public bool AiAlignMaskedEdits { get; set; } = true;
+    public string? EnhancerProvider { get; set; }
+    public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
+    public string EnhancerServerApiUrl { get; set; } = "http://127.0.0.1:1234/v1";
+    public string EnhancerServerApiMode { get; set; } = "auto";
+    public string EffectiveEnhancerProvider() => EnhancerProvider ?? (EnhancerUseCompatibleApi ? "direct" : "comfy");
+    public bool EnhancerUseCompatibleApi { get; set; }
+    public string EnhancerApiUrl { get; set; } = "http://127.0.0.1:1234/v1";
+    public string EnhancerApiModel { get; set; } = "";
+    public string EnhancerModel { get; set; } = "gpt-6-luna";
+    public int EnhancerMaxTokens { get; set; } = 4096;
+    public string EnhancerEffort { get; set; } = "default";
+    public Dictionary<string, string> EnhancerInstructions { get; set; } = [];
     public Dictionary<string, AiPromptSetting> AiPackPrompts { get; set; } = [];
     public AiPromptSetting PromptFor(string engineId) => AiPackPrompts.GetValueOrDefault(engineId)
         ?? new(ComfyAdditionalPromptEnabled, ComfyAdditionalPrompt);

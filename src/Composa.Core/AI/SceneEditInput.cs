@@ -123,10 +123,25 @@ public sealed class SceneEditInput : IDisposable
             {
                 // A smooth permission region is not a manufactured shadow. Only model darkening is extracted later.
                 var alpha=objectMask[y*ObjectAlpha.RowBytes+x];
-                if(alpha>=SupportAlpha) continue;
+                if(alpha==255) continue;
+                if(LightHint.Directional)
+                {
+                    // Explicit light/preset direction rules out darkening behind the light.
+                    // Leave a soft contact allowance in every direction around each support.
+                    var anchorX=Math.Clamp(x,b.Left,b.Right-1);
+                    var foot=SupportY[anchorX]>=0?SupportY[anchorX]:b.Bottom-1;
+                    var vx=x-anchorX;var vy=y-foot;
+                    double projection=vx*LightHint.Direction.X+vy*LightHint.Direction.Y;
+                    // Keep a broad ±60° projected cone; unrelated background repaint can
+                    // otherwise pass the forward half-plane while lying beside the cast.
+                    projection-=.5*Math.Sqrt(vx*(double)vx+vy*(double)vy);
+                    var allowance=Math.Max(8,b.Width*.25);
+                    if(projection<=-2*allowance)continue;
+                    var fade=Math.Clamp((projection+2*allowance)/allowance,0,1);
+                    mask[y*ShadowMask.RowBytes+x]=(byte)Math.Round(255*fade*fade*(3-2*fade));
+                    continue;
+                }
                 // The foreground's alpha already attenuates an underlaid shadow. Never cut out its AA fringe twice.
-                var support=SupportY[x]>=0?SupportY[x]:b.Bottom-1;
-                if(alpha>0 && y<=support) continue;
                 mask[y*ShadowMask.RowBytes+x]=255;
             }
             Pixels.Invalidate(ShadowMask);

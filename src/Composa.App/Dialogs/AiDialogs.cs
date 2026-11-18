@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -50,6 +51,52 @@ public static partial class AiDialogs
         return tags;
     }
 
+    internal static ToggleButton AlignmentToggle(Settings settings)
+    {
+        var toggle = new ToggleButton { Name = "AiPixelAlignment", Content = Icons.Create(Icons.PixelAlignment, 18), IsChecked = settings.AiAlignMaskedEdits,
+            Width = 30, Height = 28, Padding = new Thickness(4), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+        Avalonia.Automation.AutomationProperties.SetName(toggle, "Align pixels");
+        ToolTip.SetTip(toggle, "Align pixels · use unchanged image details to correct small shifts before inserting the result.");
+        return toggle;
+    }
+
+    internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, AiTaskKind task, Func<EngineProfile?> engine)
+    {
+        var button = AiGenerationControls.IconAction(Icons.Wand, "AiEnhancePrompt", "Enhance prompt", () => { });
+        var wand = button.Content;
+        string ProviderHint() => "Enhance prompt · " + AiTaskService.Providers.GetValueOrDefault(settings.EffectiveEnhancerProvider());
+        var label = ProviderHint();
+        button.PointerEntered += (_, _) => ToolTip.SetTip(button, ProviderHint());
+        ToolTip.SetTip(button, label);
+        Avalonia.Automation.AutomationProperties.SetName(button, label);
+        bool busy = false;
+        void RefreshButton() => button.IsEnabled = !busy && prompt.IsEnabled;
+        prompt.PropertyChanged += (_, e) => { if (e.Property == TextBox.TextProperty || e.Property == InputElement.IsEnabledProperty) RefreshButton(); };
+        RefreshButton();
+        button.Click += async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(prompt.Text)) { prompt.Focus(); return; }
+            if (busy || engine() is not { } selected || prompt.Text is not { Length: > 0 } original) return;
+            busy = true; RefreshButton(); button.Content = "…";
+            try
+            {
+                var enhanced = await service.EnhanceAsync(settings, selected, task, original);
+                if (TopLevel.GetTopLevel(button) != null && prompt.Text == original && engine()?.Id == selected.Id)
+                {
+                    prompt.SelectAll();
+                    prompt.SelectedText = enhanced;
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception error)
+            {
+                if (TopLevel.GetTopLevel(button) is Window window) await Prompts.Alert(window, "Enhance prompt", error.Message);
+            }
+            finally { busy = false; button.Content = wand; RefreshButton(); }
+        };
+        return button;
+    }
+
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service)
     {
         var originalEngine = service.SelectedEngine;
@@ -59,23 +106,108 @@ public static partial class AiDialogs
         var url = new TextBox { Text = settings.ComfyServerUrl, Width = 330 };
         var timeout = Ui.Number(settings.ComfyConnectionTimeoutSeconds, 1, 120, _ => { }, 1, "0", 80);
         var keyEnvironment = new TextBox { Text = settings.ComfyApiKeyEnvironment, Width = 330 };
-        var sessionKey = new TextBox { PasswordChar = '●', Width = 330, PlaceholderText = "Paste Comfy.org API key · kept for this session only" };
+        var sessionKey = new TextBox { PasswordChar = '●', Width = 330, PlaceholderText = "Enter a new key to save or replace it" };
         var clearKey = false;
-        var clear = Ui.TextButton("Clear session key", () => { sessionKey.Text = ""; clearKey = true; });
-        var keyNote = Ui.Label("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Paste it here for this session, or set the named environment variable. No secret is saved in settings. Browser login is separate. Use HTTPS for servers outside a trusted LAN.", Palette.Secondary);
+        var clear = Ui.TextButton("Forget saved key", () => { sessionKey.Text = ""; clearKey = true; });
+        var keyNote = Ui.Label("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN.", Palette.Secondary);
         keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var promptDrafts = new Dictionary<string, AiPromptSetting>(settings.AiPackPrompts);
         var promptPack = service.SelectedEngine?.Id ?? "";
-        var promptScope = Ui.Label("Workflow: " + service.SelectedEngine?.DisplayName, Palette.Secondary);
+        var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
+        var instructions = new TextBox { AcceptsReturn = true, Height = 104, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Text = instructionDrafts.GetValueOrDefault(promptPack) ?? service.DefaultInstructions(service.SelectedEngine) };
+        var model = new ComboBox { ItemsSource = service.ChatModels.Append(settings.EnhancerModel).Distinct().ToArray(),
+            SelectedItem = settings.EnhancerModel, MinWidth = 180 };
+        AiGenerationControls.StyleModelField(model, "Prompt enhancer model");
+        var tokens = Ui.Number(settings.EnhancerMaxTokens, 16, 16384, _ => { }, 1, "0", 100);
+        var effort = Ui.Combo(new[] { "default", "none", "minimal", "low", "medium", "high", "xhigh", "max" }, settings.EnhancerEffort, s => s, _ => { }, 140);
+        tokens.HorizontalAlignment = HorizontalAlignment.Left;
+        var apiUrl = new TextBox { Text = settings.EnhancerApiUrl, MinWidth = 220 };
+        var apiModel = new TextBox { Text = settings.EnhancerApiModel, PlaceholderText = "Model ID" };
+        var selectedProvider = settings.EffectiveEnhancerProvider();
+        var serverModels = new Dictionary<string,string>(settings.EnhancerServerModels);
+        var serverModel = new TextBox { PlaceholderText = "Model ID", Text = serverModels.GetValueOrDefault(selectedProvider) };
+        var serverUrl = new TextBox { Text = settings.EnhancerServerApiUrl };
+        var serverHelp = Ui.Label("", Palette.Secondary);
+        serverHelp.MaxWidth = 435; serverHelp.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        var apiMode = Ui.Combo(new[] { "auto", "chat", "responses" }, settings.EnhancerServerApiMode, value => value, _ => { }, 130);
+        var detected = new ComboBox { IsVisible = false, MinWidth = 160 };
+        AiGenerationControls.StyleModelField(detected, "Detected server model");
+        detected.SelectionChanged += (_, _) => { if (detected.SelectedItem is string id) serverModel.Text = id; };
+        var discover = Ui.TextButton("Load server models", () => { });
+        var discovery = Ui.Label("", Palette.Secondary);
+        discovery.TextWrapping = Avalonia.Media.TextWrapping.Wrap; discovery.MaxWidth = 435;
+        var discoveryVersion = 0;
+        discover.Click += async (_, _) =>
+        {
+            var revision = ++discoveryVersion;
+            discover.IsEnabled = false; discovery.Text = "Reading the server catalogue…";
+            try
+            {
+                var ids = await AiTaskService.DiscoverServerModels(url.Text ?? "", selectedProvider, serverUrl.Text ?? "");
+                if (revision != discoveryVersion) return;
+                detected.ItemsSource = ids; detected.IsVisible = ids.Length > 0;
+                detected.SelectedItem = ids.Contains(serverModel.Text) ? serverModel.Text : null;
+                discovery.Text = ids.Length == 0 ? "No models reported. Enter a model ID." : $"{ids.Length} server models";
+            }
+            catch (Exception error) { if (revision == discoveryVersion) discovery.Text = error.Message; }
+            finally { if (revision == discoveryVersion) discover.IsEnabled = true; }
+        };
+        Grid EnhancerFields(params (string Label, Control Field)[] rows)
+        {
+            var form = CanvasDialogs.Form(rows);
+            form.ColumnDefinitions[0].Width = new GridLength(138);
+            return form;
+        }
+        var chatFields = EnhancerFields(("Chat model", model), ("Reasoning effort", effort));
+        var directKey = new TextBox { PasswordChar = '●', PlaceholderText = "Enter a key to save or replace it" };
+        var forgetDirect = false;
+        var clearDirect = Ui.TextButton("Forget saved key", () => { directKey.Text = ""; forgetDirect = true; });
+        var apiFields = EnhancerFields(("API base URL", apiUrl), ("Model ID", apiModel), ("Saved API key", directKey), ("", clearDirect));
+        ToolTip.SetTip(apiUrl, "Optional bearer key: AVS_COMPATIBLE_API_KEY");
+        var serverApiFields = EnhancerFields(("Server API base URL", serverUrl), ("API mode", apiMode));
+        var serverFields = Ui.Column(6, serverApiFields, EnhancerFields(("Server model", serverModel)),
+            Ui.Row(6, discover, detected), discovery, serverHelp);
+        var budget = EnhancerFields(("Max output tokens", tokens));
+        void ShowProvider()
+        {
+            apiFields.IsVisible = selectedProvider == "direct";
+            chatFields.IsVisible = selectedProvider == "comfy";
+            serverFields.IsVisible = !apiFields.IsVisible && !chatFields.IsVisible;
+            serverApiFields.IsVisible = selectedProvider == "compatible";
+            serverHelp.Text = selectedProvider switch
+            {
+                "compatible" => "Requests originate on the ComfyUI server. Set AVS_COMPATIBLE_API_KEY there if required.",
+                "openai" => "Uses OPENAI_API_KEY on the ComfyUI server.",
+                _ => "Uses the CLI and its signed-in account on the ComfyUI server."
+            };
+            budget.IsVisible = selectedProvider is not ("codex" or "claude" or "kimi");
+            discoveryVersion++; discover.IsEnabled = true; discovery.Text = ""; detected.IsVisible = false;
+        }
+        var provider = Ui.Combo(AiTaskService.Providers.Keys, selectedProvider, key => AiTaskService.Providers[key],
+            key =>
+            {
+                serverModels[selectedProvider] = serverModel.Text?.Trim() ?? "";
+                selectedProvider = key;
+                serverModel.Text = serverModels.GetValueOrDefault(key);
+                ShowProvider();
+            }, 260);
+        ShowProvider();
+
         var currentPrompt = settings.PromptFor(promptPack);
         var additionalEnabled = new CheckBox { Content = "Append for this workflow pack", IsChecked = currentPrompt.Enabled };
-        var additionalPrompt = new TextBox { Text = currentPrompt.Text, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Width = 430, Height = 115, IsEnabled = currentPrompt.Enabled };
-        void SavePromptDraft() { if (promptPack.Length > 0) promptDrafts[promptPack] = new(additionalEnabled.IsChecked == true, additionalPrompt.Text ?? ""); }
-        void LoadPromptDraft()
+        var additionalPrompt = new TextBox { Name = "AdditionalEditingPrompt", Text = currentPrompt.Text, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Height = 80, IsEnabled = currentPrompt.Enabled };
+        void SavePromptDraft()
         {
-            promptPack = service.SelectedEngine?.Id ?? "";
-            promptScope.Text = "Workflow: " + service.SelectedEngine?.DisplayName;
+            if (promptPack.Length == 0) return;
+            instructionDrafts[promptPack] = instructions.Text ?? "";
+            promptDrafts[promptPack] = new(additionalEnabled.IsChecked == true, additionalPrompt.Text ?? "");
+        }
+        void LoadPromptDraft(EngineProfile? pack)
+        {
+            promptPack = pack?.Id ?? "";
+            instructions.Text = instructionDrafts.GetValueOrDefault(promptPack) ?? service.DefaultInstructions(pack);
             var value = promptDrafts.GetValueOrDefault(promptPack) ?? settings.PromptFor(promptPack);
             additionalPrompt.Text = value.Text; additionalEnabled.IsChecked = value.Enabled; additionalPrompt.IsEnabled = value.Enabled;
         }
@@ -115,6 +247,9 @@ public static partial class AiDialogs
             {
                 service.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
                 await service.TestConnectionAsync(overrideUrl: url.Text);
+                var selectedChat = model.SelectedItem as string ?? settings.EnhancerModel;
+                model.ItemsSource = service.ChatModels.Append(selectedChat).Distinct().ToArray();
+                model.SelectedItem = selectedChat;
                 models.Refresh();
                 RefreshStatus();
             }
@@ -129,14 +264,22 @@ public static partial class AiDialogs
 
         var engineNames = service.Engines.Profiles.Count == 0 ? ["No Engine Packs installed"] : service.Engines.Profiles.Select(p => p.DisplayName).ToArray();
         var selectedName = service.SelectedEngine?.DisplayName ?? engineNames[0];
+        var promptPicker = Ui.Combo(engineNames, selectedName, name => name, name =>
+        {
+            SavePromptDraft();
+            LoadPromptDraft(service.Engines.Profiles.FirstOrDefault(pack => pack.DisplayName == name));
+        }, 250);
         var engine = Ui.Combo(engineNames, selectedName, name => name, name =>
         {
             SavePromptDraft();
             service.SelectedEngine = service.Engines.Profiles.FirstOrDefault(p => p.DisplayName == name);
-            LoadPromptDraft();
+            LoadPromptDraft(service.SelectedEngine);
+            promptPicker.SelectedItem = service.SelectedEngine?.DisplayName;
             models.Refresh();
             RefreshStatus();
         }, 260);
+        AiGenerationControls.StyleModelPicker(engine, service.Engines.Profiles);
+        AiGenerationControls.StyleModelPicker(promptPicker, service.Engines.Profiles);
         engine.IsEnabled = service.Engines.Profiles.Count > 0;
         var connection = CanvasDialogs.Form(
             ("ComfyUI Server URL", url),
@@ -154,11 +297,13 @@ public static partial class AiDialogs
             var missing = assigned != null && packs.All(pack => pack.Id != assigned) ? "Unavailable: " + assigned : null;
             var names = new[] { inherit }.Concat(packs.Select(pack => pack.DisplayName)).Concat(missing == null ? [] : new[] { missing }).ToArray();
             var selected = packs.FirstOrDefault(pack => pack.Id == assigned)?.DisplayName ?? missing ?? inherit;
-            taskRows.Add((task.DisplayName(), Ui.Combo(names, selected, name => name, name =>
+            var assignmentPicker = Ui.Combo(names, selected, name => name, name =>
             {
                 if (name == inherit) taskDrafts[key] = "";
                 else if (packs.FirstOrDefault(pack => pack.DisplayName == name) is { } chosen) taskDrafts[key] = chosen.Id;
-            }, 260)));
+            }, 260);
+            AiGenerationControls.StyleModelPicker(assignmentPicker, packs);
+            taskRows.Add((task.DisplayName(), assignmentPicker));
         }
         var assignmentNote = Ui.Label("Each task keeps its own choice. Changing Fill does not change generation or Expand.", Palette.Secondary);
         assignmentNote.MaxWidth = 430; assignmentNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
@@ -167,7 +312,7 @@ public static partial class AiDialogs
         note.MaxWidth = 430;
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         RefreshStatus();
-        var auth = CanvasDialogs.Form(("Key environment variable", keyEnvironment), ("Session API key", sessionKey), ("", clear));
+        var auth = CanvasDialogs.Form(("Key environment variable", keyEnvironment), ("Saved API key", sessionKey), ("", clear));
         Control Page(params Control[] controls) => new ScrollViewer { Content = Ui.Column(12, controls),
             MaxHeight = Math.Clamp(owner.Bounds.Height - 230, 260, 520), Margin = new Thickness(0, 12, 0, 0),
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
@@ -176,13 +321,36 @@ public static partial class AiDialogs
             new TabItem { Header = "Connection", FontSize = 13, Content = Page(connection, showContext,
                 Ui.Label("Connect first, then choose the server's installed models in Workflows & models.", Palette.Secondary)) },
             new TabItem { Header = "Workflows & models", FontSize = 13, Content = Page(CanvasDialogs.Form(("Default workflow", engine)), assignments, models, note) },
-            new TabItem { Header = "Prompts", FontSize = 13, Content = Page(Ui.Label("Additional image-editing prompt", weight: Avalonia.Media.FontWeight.SemiBold), promptScope, additionalEnabled,
-                additionalPrompt, resetPrompt, Ui.Label("Added to this workflow's image-editing instructions.", Palette.Secondary)) },
+            new TabItem { Header = "Prompts", FontSize = 13, Content = Page(
+                Section("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields, serverFields, budget),
+                Section("Workflow instructions", promptPicker, Ui.Label("System instructions", Palette.Secondary), instructions,
+                    Ui.TextButton("Restore system instructions", () => instructions.Text = service.DefaultInstructions(service.Engines.Find(promptPack)))),
+                Section("Additional editing prompt", additionalEnabled, additionalPrompt, resetPrompt)) },
             new TabItem { Header = "API access", FontSize = 13, Content = Page(Ui.Label("Paid Comfy.org models", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote) }
         } };
         settingsDialog = new DialogWindow("ComfyUI Settings", body, "Save settings"); RefreshStatus();
         if (!await settingsDialog.Ask(owner)) { service.SelectedEngine = originalEngine; return false; }
-        _ = ComfyServerAddress.Parse(url.Text ?? "");
+        try
+        {
+            var address = ComfyServerAddress.Parse(url.Text ?? "");
+            if (selectedProvider == "direct" || !string.IsNullOrWhiteSpace(apiUrl.Text))
+                _ = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
+            if (selectedProvider == "compatible" || !string.IsNullOrWhiteSpace(serverUrl.Text))
+                _ = Assistant.ChatCompletionAssistantProvider.Endpoint(serverUrl.Text ?? "");
+            if (Settings.Persist && (clearKey || !string.IsNullOrWhiteSpace(sessionKey.Text)))
+                UserApiKeys.Write(UserApiKeys.Target("Comfy", address.HttpBase), string.IsNullOrWhiteSpace(sessionKey.Text) ? null : sessionKey.Text.Trim());
+            if (Settings.Persist && (forgetDirect || !string.IsNullOrWhiteSpace(directKey.Text)))
+            {
+                var endpoint = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
+                UserApiKeys.Write(UserApiKeys.Target("Direct", endpoint), string.IsNullOrWhiteSpace(directKey.Text) ? null : directKey.Text.Trim());
+            }
+        }
+        catch (Exception error)
+        {
+            service.SelectedEngine = originalEngine;
+            await Prompts.Alert(owner, "Save API access", error.Message);
+            return false;
+        }
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
         settings.ComfyApiKeyEnvironment = keyEnvironment.Text?.Trim() ?? "";
@@ -192,6 +360,19 @@ public static partial class AiDialogs
         settings.AiTaskEngineIds = taskDrafts;
         settings.AiShowContextBounds = showContext.IsChecked == true;
         SavePromptDraft(); settings.AiPackPrompts = promptDrafts;
+        settings.EnhancerInstructions = instructionDrafts;
+        serverModels[selectedProvider] = serverModel.Text?.Trim() ?? "";
+        settings.EnhancerServerModels = serverModels;
+        settings.EnhancerServerApiMode = apiMode.SelectedItem as string ?? "auto";
+        settings.EnhancerServerApiUrl = serverUrl.Text?.Trim() ?? "";
+        settings.EnhancerProvider = selectedProvider;
+        settings.EnhancerUseCompatibleApi = selectedProvider == "direct";
+        settings.EnhancerApiUrl = apiUrl.Text?.Trim() ?? "";
+        settings.EnhancerApiModel = apiModel.Text?.Trim() ?? "";
+        settings.EnhancerModel = model.SelectedItem as string ?? settings.EnhancerModel;
+        settings.EnhancerMaxTokens = (int)(tokens.Value ?? 4096);
+        settings.EnhancerEffort = effort.SelectedItem as string ?? "default";
+
         models.Save();
         settings.Save();
         return true;
@@ -208,7 +389,8 @@ public static partial class AiDialogs
         var quality = profile.ApiQuality;
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var nano=NanoBanana.IsModel(model);
-        var sequential=nano || task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+        var qwen=service?.SelectedEngine?.Id==QwenImageWorkflow.EngineId;
+        var sequential=nano || qwen || task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
         if(sequential) mode=AiVariantMode.List;
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, nano ? "resolution" : "quality");
         if (qualities.Count == 0) qualities = nano ? ["1K","2K","4K"] : ["low", "medium", "high", "xhigh", "max"];
@@ -238,7 +420,7 @@ public static partial class AiDialogs
         var extra = new StackPanel { Spacing = 9 };
         var scene = profile.Scene.Normalized();
         if (task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight || task == AiTaskKind.ChangeBackground && !paid)
-            extra.Children.Add(SceneAdvanced(task, scene, paid, value => scene = value));
+            extra.Children.Add(SceneAdvanced(task, scene, paid, value => scene = value, qwen));
         var lorasEnabled = profile.LorasEnabled;
         var loras = profile.Loras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
         if (paid)
@@ -267,6 +449,7 @@ public static partial class AiDialogs
             note.Text = "Lighting preserves the source silhouette. A separate shadow layer uses darkening generated near the subject's support. Undo restores the original.";
         else if (task == AiTaskKind.ChangeBackground)
             note.Text = "Two passes create the scene and remove the temporary generated subject. Your original subject stays on a separate layer. Paid models bill both passes.";
+        if(qwen) note.Text += " Qwen 2.1 Turbo uses its fixed 8-step schedule at full denoise, automatic KV cache and sequential variants. Technical padding to multiples of 32 is removed on insertion.";
         var body = new ScrollViewer { Content = Ui.Column(12, form, extra, note), MaxHeight = Math.Clamp((owner.Owner?.Bounds.Height ?? owner.Bounds.Height) - 160, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         if (!await new DialogWindow($"{task.DisplayName()} · Advanced", body).Ask(owner)) return false;
         var updated = profile with
@@ -282,10 +465,10 @@ public static partial class AiDialogs
         return true;
     }
 
-    public static async Task<string?> ApiKey(Window owner, CancellationToken cancellationToken)
+    public static async Task<string?> ApiKey(Window owner, CancellationToken cancellationToken, string? serverUrl = null)
     {
         var key = new TextBox { Width = 390, PasswordChar = '●', PlaceholderText = "Comfy.org API key", Name = "ComfyApiKeyEntry" };
-        var note = Ui.Label("This workflow needs a Comfy.org API key. It will be kept for this program session only, not saved to disk. An OpenAI key cannot be used here.", Palette.Secondary);
+        var note = Ui.Label("Composa saves your Comfy.org key in your user profile for this server. Manage it in ComfyUI Settings → API access.", Palette.Secondary);
         note.MaxWidth = 390; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var dialog = new DialogWindow("Comfy.org API key", Ui.Column(10, note, key), "Continue");
         dialog.CanAccept = false;
@@ -294,7 +477,10 @@ public static partial class AiDialogs
         using var registration = cancellationToken.Register(() => Avalonia.Threading.Dispatcher.UIThread.Post(dialog.Close));
         if (!await dialog.Ask(owner)) return null;
         cancellationToken.ThrowIfCancellationRequested();
-        return key.Text?.Trim();
+        var value = key.Text?.Trim();
+        if (Settings.Persist && serverUrl != null && !string.IsNullOrEmpty(value))
+            UserApiKeys.Write(UserApiKeys.Target("Comfy", ComfyServerAddress.Parse(serverUrl).HttpBase), value);
+        return value;
     }
 
     public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection, EngineProfile? engine = null, AiTaskService? service = null)
@@ -317,6 +503,7 @@ public static partial class AiDialogs
         if (selected != null) { engine = selected.Engine; EngineNote(); }
         Control picker = selected == null ? Ui.Label("Refresh Models on ComfyUI to read available upscale models.") : Ui.Combo(models.ToArray(), selected,
             choice => choice.ToString(), choice => { selected = choice; engine = choice.Engine; EngineNote(); }, 430);
+        if (picker is ComboBox upscaleModels) AiGenerationControls.StyleModelField(upscaleModels, "Upscale model");
         note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var upscaleDialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", picker), ("Scale", scale)), dimensions, note), "Upscale") { CanAccept = selected != null };
         if (!await upscaleDialog.Ask(owner)) return false;
@@ -353,6 +540,7 @@ public static partial class AiDialogs
         var cost = Ui.Label("", Palette.Secondary);
         var sizeOptions = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
         DialogWindow? dialog = null;
+        var alignment = AlignmentToggle(settings);
         var qualityHost = new StackPanel();
         var qualityOptions = new[] { "low", "medium", "high", "xhigh", "max" };
         var qualityCombo = new ComboBox { ItemsSource = qualityOptions, SelectedItem = qualityOptions.Contains(quality) ? quality : "low", Width = 150 };
@@ -383,7 +571,7 @@ public static partial class AiDialogs
         var mode = Ui.Combo(new[] { AiExpansionMode.MaskedRegion, AiExpansionMode.WholeImage }, expansionMode,
             value => value == AiExpansionMode.MaskedRegion ? "Empty area only · preserve image" : "Regenerate whole expanded image",
             value => { expansionMode = value; RefreshExpandChoices(); Refresh(); }, 300);
-        var variantsCombo = Ui.Combo(new[] { 1, 2, 3 }, variants, value => value.ToString(), value => { variants = value; Refresh(); }, 60);
+        var variantButtons = new AiVariantButtons(variants, value => { variants = value; Refresh(); });
         AiOperationSettings CaptureProfile() => profile with
         {
             Scene=scene.Normalized(),
@@ -403,15 +591,20 @@ public static partial class AiDialogs
             qualityCombo.ItemsSource = qualityOptions;
             qualityCombo.SelectedItem = quality;
             size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);
-            variantsCombo.SelectedItem = variants.ToString(); mode.SelectedIndex = expansionMode == AiExpansionMode.WholeImage ? 1 : 0;
+            variantButtons.Count = variants; mode.SelectedIndex = expansionMode == AiExpansionMode.WholeImage ? 1 : 0;
             RefreshExpandChoices(); Refresh();
         }
-        var advanced = Ui.TextButton("Advanced…", () => { });
+        var advanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => { });
         advanced.Click += async (_, _) =>
         {
             await Advanced(dialog!, settings, service, task, CaptureProfile(), LoadProfile);
         };
         var modelHost = new StackPanel();
+        var controls = Ui.Row(4);
+        if (service != null && task != AiTaskKind.GenerativeExpand)
+            controls.Children.Add(EnhanceButton(prompt, settings, service, task, () => service.SelectedEngine));
+        controls.Children.Add(alignment);
+        controls.Children.Add(advanced);
         if (service != null && service.Engines.Profiles.Where(pack => pack.Binding(task==AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task) != null).ToArray() is { Length: > 0 } packs)
         {
             var picker = Ui.Combo(packs, service.SelectedEngine ?? packs[0], pack => pack.DisplayName, pack =>
@@ -420,9 +613,10 @@ public static partial class AiDialogs
                 service.SelectedEngine = pack;
                 LoadProfile(profileDrafts.GetValueOrDefault(pack.Id) ?? settings.OperationFor(pack.Id, task, pack.PaidApi));
             }, 210);
-            modelHost.Children.Add(Ui.Row(12, picker, advanced));
+            AiGenerationControls.StyleModelPicker(picker, packs);
+            modelHost.Children.Add(Ui.Row(10, picker, controls));
         }
-        else modelHost.Children.Add(advanced);
+        else modelHost.Children.Add(controls);
         var resolution = task == AiTaskKind.GenerativeExpand
             ? hasSelection ? CanvasDialogs.Form(("Generation size", expandSize)) : CanvasDialogs.Form(("Expand mode", mode), ("Generation size", expandSize))
             : CanvasDialogs.Form(("Image size", size));
@@ -431,7 +625,9 @@ public static partial class AiDialogs
             var toneOnly=task==AiTaskKind.MatchToScene && scene.MatchMode==SceneMatchMode.ToneAndColor;
             var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid && !toneOnly;
             prompt.IsEnabled=!toneOnly;
+            alignment.IsVisible = !toneOnly && task != AiTaskKind.GenerateImage;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
+            var qwen=service?.SelectedEngine?.Id==QwenImageWorkflow.EngineId;
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];
             if(!qualityCombo.Items.Cast<string>().SequenceEqual(qualityOptions)) qualityCombo.ItemsSource=qualityOptions;
@@ -447,12 +643,13 @@ public static partial class AiDialogs
                     (task == AiTaskKind.GenerativeExpand ? (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0 : originalSize)
                         ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels) : (width, height);
                 dimensions.Text = $"{width} × {height} px · proportions preserved" + (nano ? $"\nNano Banana: {quality} · {NanoBanana.Aspect(width,height)}; technical padding removed on insertion." : paid && api != (width, height) ? $"\nGPT request: {api.Item1} × {api.Item2}; uniform fitting, no stretching." : "");
-                if (!paid && service?.SelectedEngine?.Id == "flux2-klein-intel-xpu" && sourceCanvas is { } canvas && selectionBounds is { } selection
+                if (!paid && (qwen || service?.SelectedEngine?.Id == "flux2-klein-intel-xpu") && sourceCanvas is { } canvas && selectionBounds is { } selection
                     && task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject)
                 {
                     var contextBounds = AutomaticAiMask.Geometry(selection,canvas).Bounds;
                     var generated = AiContextGeometry.FluxSize(contextBounds,selection,width,height,originalSize).Padded;
-                    dimensions.Text = $"FLUX request including context: {generated.Width} × {generated.Height} px · {generated.Width * (double)generated.Height / 1_000_000:0.##} MP";
+                    if(qwen) generated=((generated.Width+31)/32*32,(generated.Height+31)/32*32);
+                    dimensions.Text = $"{(qwen ? "Qwen" : "FLUX")} request including context: {generated.Width} × {generated.Height} px · {generated.Width * (double)generated.Height / 1_000_000:0.##} MP";
                 }
                 if (dialog != null) dialog.CanAccept = true;
             }
@@ -474,9 +671,9 @@ public static partial class AiDialogs
                 : task == AiTaskKind.GenerativeExpand ? hasSelection
                     ? "Fill only the selection with surrounding context. Existing canvas size is preserved; the expansion instruction is automatic."
                     : "Empty-area mode sends a soft mask plus context and preserves existing pixels. Whole-image mode may redraw everything. The generated patch is fitted back without changing the requested canvas size."
-                : hasSelection ? "Original size keeps source pixels. For FLUX, MP sets the total request area including surrounding context. Seed and execution mode are in Advanced."
+                : hasSelection ? "Original size keeps source pixels. For FLUX and Qwen, MP sets the total request area including surrounding context. Seed and execution mode are in Advanced."
                     : "Original size follows the canvas; MP scales its area while keeping proportions. Seed and execution mode are in Advanced.";
-            ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. This image node has no separate reasoning/effort setting." : null);
+            ToolTip.SetTip(note, paid ? "Explicit Custom dimensions, multiples of 16; never Auto or aspect stretching. Generation uses the workflow model settings." : null);
             if(toneOnly) {dimensions.Text="Editable Match Light and Match Color curves";note.Text="Matches tone and neutral color balance locally. It does not generate lighting or shadows.";}
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
@@ -484,11 +681,11 @@ public static partial class AiDialogs
         var content = Ui.Column(10, Section("Workflow", modelHost), promptSection);
         if(task==AiTaskKind.Relight) content.Children.Insert(1,Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
         if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText="Describe the background, surface and lighting";
-        if (references != null) content.Children.Add(Section("Optional references", references.View));
+        if (references != null) content.Children.Add(references.View);
         content.Children.Add(Section("Output", resolution, dimensions, qualityHost, cost));
         content.Children.Add(note);
         var body = new ScrollViewer { Content = content, MaxHeight = Math.Clamp(owner.Bounds.Height - 170, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        dialog = new DialogWindow(task.DisplayName(), body, "Generate"); dialog.UseGenerationVariants(variantsCombo);
+        dialog = new DialogWindow(task.DisplayName(), body, "Run"); dialog.UseGenerationVariants(variantButtons);
         if (references != null)
         {
             references.Owner = dialog;
@@ -511,6 +708,7 @@ public static partial class AiDialogs
         if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = prompt.Text ?? ""; settings.Save(); }
         if (task == AiTaskKind.ImageEdit) { settings.ImageEditPrompt = prompt.Text ?? ""; settings.Save(); }
         if (!accepted) return null;
+        if (alignment.IsVisible) settings.AiAlignMaskedEdits = alignment.IsChecked == true;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         if (chosenEngine != null) settings.AiTaskEngineIds[task.ToString()] = chosenEngine.Id;
         settings.Save();

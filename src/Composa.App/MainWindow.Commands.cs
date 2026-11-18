@@ -158,6 +158,8 @@ public sealed partial class MainWindow
         Top("F_ilter", new object[] { Item("Liquify…", () => _ = Liquify(), enabled: () => session!.CanLiquify), Line(), Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
             .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels))).ToArray());
 
+        var generationSettings = Item("Generation settings…", () => _ = ShowAiAdvanced(), needsDocument: false, id: "AI Advanced");
+        generationSettings.Icon = Icons.Create(Icons.Gear, 16, Palette.Secondary);
         Top("_AI",
             Item("Generate Image…", () => _ = RunAi(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
             Item("Generative Fill…", () => _ = RunAi(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
@@ -175,7 +177,7 @@ public sealed partial class MainWindow
                 ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]
                 : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
-            Item("AI Advanced…", () => _ = ShowAiAdvanced(), needsDocument: false),
+            generationSettings,
             Item("Assistant…", ShowAssistant, needsDocument: false));
 
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
