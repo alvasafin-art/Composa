@@ -192,19 +192,33 @@ public sealed class Settings
     /// <summary>Tests and other hosts switch persistence off so they never touch the user's files.</summary>
     public static bool Persist { get; set; } = true;
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? StorageNotice { get; private set; }
+
     public static Settings Load()
     {
-        if (!Persist) return new Settings();
+        return Persist ? LoadFrom(FilePath) : new Settings();
+    }
+
+    internal static Settings LoadFrom(string path)
+    {
         try
         {
-            var settings = File.Exists(FilePath) ? FromJson(File.ReadAllText(FilePath)) : new Settings();
+            Settings settings;
+            try { settings = File.Exists(path) || File.Exists(path + ".bak") ? FromJson(File.ReadAllText(path)) : new Settings(); }
+            catch (Exception) when (File.Exists(path + ".bak"))
+            {
+                settings = FromJson(File.ReadAllText(path + ".bak"));
+                settings.StorageNotice = "Preferences restored from the last backup.";
+                settings.recoveredPreferences = true;
+            }
             // Explicit launch overrides must win over paths remembered on another computer.
             if (Environment.GetEnvironmentVariable("COMPOSA_LLAMA_SERVER") is { Length: > 0 } server) settings.AssistantServerExecutable = server;
             if (Environment.GetEnvironmentVariable("COMPOSA_LLAMA_MODEL") is { Length: > 0 } model) settings.AssistantModelPath = model;
             if (Environment.GetEnvironmentVariable("COMPOSA_LLAMA_URL") is { Length: > 0 } url) settings.AssistantServerUrl = url;
             return settings;
         }
-        catch { return new Settings(); } // A damaged settings file only costs the remembered preferences.
+        catch { return new Settings { StorageNotice = "Preferences could not be read. Using defaults.", recoveredPreferences = true }; }
     }
 
     internal static Settings FromJson(string json)
@@ -248,15 +262,27 @@ public sealed class Settings
         return value;
     }
 
+    private bool recoveredPreferences;
+
     public void Save()
     {
-        if (!Persist) return;
+        if (Persist) SaveTo(FilePath);
+    }
+
+    internal void SaveTo(string path)
+    {
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            if (File.Exists(path) && !recoveredPreferences) File.Replace(temp, path, path + ".bak");
+            else File.Move(temp, path, true);
+            recoveredPreferences = false;
         }
-        catch { /* Preferences are a convenience; failing to store them must not interrupt editing. */ }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { StorageNotice = "Preferences could not be saved: " + error.Message; }
+        finally { try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
 
     public void AddRecent(string path)

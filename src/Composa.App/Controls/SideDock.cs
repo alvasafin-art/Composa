@@ -27,17 +27,28 @@ public sealed class DockSection(string title, Control content, DockPanelState st
 /// </summary>
 public sealed class SideDock : UserControl
 {
-    private const double MinTopHeight = 160;
+    private const double MinTopHeight = 252;
 
     private readonly Control top;
     private readonly IReadOnlyList<DockSection> sections;
     private readonly Grid grid = new();
+    private readonly DockPanel frame = new();
+    private readonly ScrollViewer sectionScroll = new()
+    {
+        Name = "DockSectionScroll",
+        HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+    };
 
     public SideDock(Control top, params DockSection[] sections)
     {
         this.top = top;
         this.sections = sections;
-        Content = grid;
+        sectionScroll.Content = grid;
+        frame.Children.Add(sectionScroll);
+        DockPanel.SetDock(top, Dock.Top);
+        Content = frame;
+        SizeChanged += (_, _) => FitHeight();
         Layout();
     }
 
@@ -79,7 +90,7 @@ public sealed class SideDock : UserControl
         foreach (var section in sections)
             if (section.Content.Parent is Panel parent) parent.Children.Remove(section.Content);
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Star) { MinHeight = MinTopHeight });
-        grid.Children.Add(top);
+        if (top.Parent == null) grid.Children.Add(top);
         foreach (var section in sections.Where(s => s.State.Visible))
         {
             var open = !section.State.Collapsed;
@@ -100,24 +111,45 @@ public sealed class SideDock : UserControl
                 section.RaiseChanged();
             };
         }
+        FitHeight();
+    }
+
+    private void FitHeight()
+    {
+        if (Bounds.Height <= 0) return;
+        var desired = MinTopHeight + sections.Where(s => s.State.Visible)
+            .Sum(s => s.State.Collapsed ? 35 : Math.Max(DockSection.MinHeight, s.State.Height) + 5);
+        var compact = desired > Bounds.Height;
+        if (compact && top.Parent == grid)
+        {
+            grid.Children.Remove(top);
+            frame.Children.Insert(0, top);
+        }
+        else if (!compact && top.Parent == frame)
+        {
+            frame.Children.Remove(top);
+            grid.Children.Add(top);
+        }
+        top.Height = compact ? Math.Min(MinTopHeight, Bounds.Height * .54) : double.NaN;
+        grid.RowDefinitions[0].MinHeight = compact ? 0 : MinTopHeight;
+        grid.RowDefinitions[0].Height = compact ? new GridLength(0) : GridLength.Star;
+        grid.Height = compact ? desired - MinTopHeight : Bounds.Height;
     }
 
     private Control Build(DockSection section, bool open)
     {
         var chevron = Icons.Create(open ? Icons.ChevronDown : Icons.ChevronRight, 12, Palette.Secondary);
         var title = Ui.Label(section.Title, weight: FontWeight.SemiBold);
-        var header = new Border
+        var header = new Button
         {
-            Background = Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand), Padding = new Thickness(8, 8, 10, 6),
-            Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { chevron, title } }
+            Classes = { "flat" }, HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = Brushes.Transparent, Padding = new Thickness(8, 6, 10, 6),
+            Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { chevron, title } }
         };
-        ToolTip.SetTip(header, open ? "Collapse " + section.Title : "Expand " + section.Title);
-        header.PointerPressed += (_, e) =>
-        {
-            if (!e.GetCurrentPoint(header).Properties.IsLeftButtonPressed) return;
-            SetCollapsed(section, open);
-            e.Handled = true;
-        };
+        var label = (open ? "Collapse " : "Expand ") + section.Title;
+        ToolTip.SetTip(header, label);
+        Avalonia.Automation.AutomationProperties.SetName(header, label);
+        header.Click += (_, _) => SetCollapsed(section, open);
         var panel = new DockPanel { Background = Palette.Panel };
         DockPanel.SetDock(header, Dock.Top);
         panel.Children.Add(header);

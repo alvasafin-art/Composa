@@ -33,6 +33,7 @@ public static class Ui
     public static Button IconButton(Icons.Icon icon, string tip, Action click, double size = 16)
     {
         var button = new Button { Content = Icons.Create(icon, size), Classes = { "flat" } };
+        Avalonia.Automation.AutomationProperties.SetName(button, tip);
         ToolTip.SetTip(button, tip);
         button.Click += (_, _) => click();
         return button;

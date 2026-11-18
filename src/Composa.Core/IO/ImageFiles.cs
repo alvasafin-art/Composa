@@ -86,7 +86,7 @@ public static class ImageFiles
         return result;
     }
 
-    public static byte[] Encode(SKBitmap bitmap, ExportFormat format, int quality = 90, SKColor? matte = null)
+    public static byte[] Encode(SKBitmap bitmap, ExportFormat format, int quality = 90, SKColor? matte = null, double resolution = 72)
     {
         if (format == ExportFormat.Tiff)
         {
@@ -112,12 +112,12 @@ public static class ImageFiles
                 ExportFormat.Webp => SKEncodedImageFormat.Webp,
                 _ => SKEncodedImageFormat.Png
             }, Math.Clamp(quality, 1, 100)) ?? throw new IOException("The image could not be encoded.");
-            return ImageProfiles.Embed(data.ToArray(), format, source.Width, source.Height, Pixels.ProfileOf(source));
+            return ImageProfiles.Embed(data.ToArray(), format, source.Width, source.Height, Pixels.ProfileOf(source), resolution);
         }
         finally { flattened?.Dispose(); }
     }
 
-    public static void Save(SKBitmap bitmap, string path, ExportFormat format, int quality = 90, double resolution = 72)
+    public static void Save(SKBitmap bitmap, string path, ExportFormat format, int quality = 90, double resolution = 72, CancellationToken cancellationToken = default)
     {
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         try
@@ -127,7 +127,8 @@ public static class ImageFiles
                 using var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
                 TiffCodec.Write(bitmap, output, resolution); output.Flush(flushToDisk: true);
             }
-            else File.WriteAllBytes(temp, Encode(bitmap, format, quality));
+            else File.WriteAllBytes(temp, Encode(bitmap, format, quality, resolution: resolution));
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temp, path, overwrite: true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }

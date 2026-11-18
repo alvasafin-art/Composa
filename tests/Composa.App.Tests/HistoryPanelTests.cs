@@ -166,7 +166,7 @@ public class HistoryPanelTests
         Menu("History");
         Assert.Single(window.GetVisualDescendants().OfType<HistoryPanel>());
 
-        var header = window.GetVisualDescendants().OfType<Border>().Single(b => ToolTip.GetTip(b) is "Collapse History");
+        var header = window.GetVisualDescendants().OfType<Button>().Single(b => ToolTip.GetTip(b) is "Collapse History");
         var point = header.TranslatePoint(new Point(20, 10), window)!.Value;
         window.MouseDown(point, MouseButton.Left);
         window.MouseUp(point, MouseButton.Left);

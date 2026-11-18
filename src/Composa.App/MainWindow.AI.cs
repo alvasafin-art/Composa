@@ -504,11 +504,11 @@ public sealed partial class MainWindow
 
     private async Task PasteAiReferenceOrText(TextBox? textBox)
     {
-        if (await PasteAiReference() || textBox == null || Clipboard == null) return;
+        if (textBox == null || Clipboard == null) { await PasteAiReference(); return; }
         try
         {
             var text = await Clipboard.TryGetTextAsync();
-            if (text == null) return;
+            if (string.IsNullOrEmpty(text)) { await PasteAiReference(); return; }
             var current = textBox.Text ?? "";
             var start = Math.Min(textBox.SelectionStart, textBox.SelectionEnd);
             var end = Math.Max(textBox.SelectionStart, textBox.SelectionEnd);

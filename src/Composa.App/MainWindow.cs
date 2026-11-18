@@ -200,31 +200,51 @@ public sealed partial class MainWindow : Window
         if (recovery != null)
         {
             var autosave = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
-            autosave.Tick += (_, _) => recovery.Save(sessions);
+            autosave.Tick += async (_, _) => { await recovery.Save(sessions); UpdateStatus(); };
+            Closed += (_, _) => autosave.Stop();
             autosave.Start();
             Opened += (_, _) => _ = OfferRecovery();
         }
+        if (settings.StorageNotice is { } notice) Opened += (_, _) => ShowNote(notice);
         InitializeDisplayColor();
         InitializeLinkedSources();
     }
 
     private async Task OfferRecovery()
     {
-        var abandoned = recovery!.FindAbandoned();
+        List<Recovery.Entry> abandoned;
+        try { abandoned = await Task.Run(recovery!.FindAbandoned); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { ShowProblem("Couldn't read recovery copies: " + error.Message); return; }
         if (abandoned.Count == 0) return;
-        var names = string.Join("\n", abandoned.Select(e => $"• {e.Title} (autosaved {e.SavedAt:g})"));
-        var recover = await Dialogs.Prompts.Confirm(this, "Recover Unsaved Work",
-            $"Composa did not close normally last time. These documents had unsaved changes:\n\n{names}\n\nRecover them? Choosing Cancel discards the autosaved copies.", "Recover");
-        foreach (var entry in abandoned)
+        var choices = abandoned.Select(entry => (Entry: entry, Check: new CheckBox
+        {
+            Content = $"{entry.Title} · {entry.SavedAt:g}", IsChecked = true
+        })).ToArray();
+        var selected = Ui.Column(4, choices.Select(choice => (Control)choice.Check).ToArray());
+        var dialog = new Dialogs.DialogWindow("Recover unsaved work",
+            Ui.Column(8, Ui.Label("Choose the documents to recover."), new ScrollViewer { Content = selected, MaxHeight = 300 }), "Recover selected");
+        dialog.SetCancelLabel("Later");
+        bool deleting = false;
+        dialog.AddSecondaryAction("Delete selected…", async () =>
+        {
+            if (await Dialogs.Prompts.Confirm(dialog, "Delete recovery copies?", "Permanently delete the selected recovery copies?", "Delete"))
+            { deleting = true; dialog.Close(false); }
+        });
+        var recover = await dialog.Ask(this);
+        if (!recover && !deleting) return;
+        foreach (var (entry, check) in choices.Where(choice => choice.Check.IsChecked == true))
         {
             if (recover)
             {
                 try
                 {
-                    var restored = new EditorSession(Composa.IO.ProjectFile.Load(entry.ProjectPath)) { SuggestedName = entry.Title + " (recovered)" };
+                    var restored = new EditorSession(await Task.Run(() => Composa.IO.ProjectFile.Load(entry.ProjectPath))) { SuggestedName = entry.Title + " (recovered)" };
                     restored.History.BaseName = "Recovered";
                     restored.MarkModified();
                     AddSession(restored);
+                    recovery.Adopt(restored, entry);
+                    continue;
                 }
                 catch (Exception error)
                 {
@@ -429,7 +449,7 @@ public sealed partial class MainWindow : Window
         foreach (var child in embeddedTabs.Where(pair => pair.Value.Parent == item).Select(pair => pair.Key).ToArray())
             if (!await CloseSession(child)) return false;
         // A save still writing finishes first, so its file is never cut short and the prompt knows whether it is needed.
-        while (saving.TryGetValue(item, out var writing)) await writing.Task;
+        await WaitForSave(item);
         // Text still being typed is an open edit: commit it so it counts as a change and is in what gets saved.
         if (item.IsEditingText) item.FinishText();
         if (item.IsModified)
@@ -437,10 +457,15 @@ public sealed partial class MainWindow : Window
             if (item != session) SetSession(item);
             var answer = await Dialogs.Prompts.SaveChanges(this, item.Title);
             if (answer == null) return false;
-            if (answer == true && !await Save(item, saveAs: false)) return false;
+            if (answer == true)
+            {
+                if (!await Save(item, saveAs: false)) return false;
+                if (item.IsModified) { ShowNote("Newer edits are still open. Save again to close."); return false; }
+            }
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        fileVersions.Remove(item);
         foreach (var key in linkedObservations.Keys.Where(key => key.Parent == item).ToArray()) linkedObservations.Remove(key);
         embeddedTabs.Remove(item);
         recovery?.Forget(item);
@@ -530,8 +555,8 @@ public sealed partial class MainWindow : Window
         if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified))) return;
         e.Cancel = true;
         // Saves still writing finish before the window goes, so no file is cut short.
-        while (saving.Count > 0) await Task.WhenAll(saving.Values.Select(w => w.Task).ToList());
-        foreach (var item in sessions.Where(s => s.IsModified).ToList())
+        while (saving.Count > 0) await WaitForSave(saving.Keys.First());
+        while (sessions.FirstOrDefault(s => s.IsModified) is { } item)
             if (!await CloseSession(item)) return;
         closingConfirmed = true;
         Close();
@@ -815,13 +840,13 @@ public sealed partial class MainWindow : Window
         {
             zoomText.Text = "";
             sizeText.Text = "";
-            hintText.Text = "Ready when you are";
+            hintText.Text = problem ?? recovery?.Warning ?? note ?? "Ready when you are";
             return;
         }
         zoomText.Text = canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
         sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · {session.Document.Profile.Name} · {(int)session.Document.WorkingDepth}-bit";
         ToolTip.SetTip(sizeText, sizeText.Text);
-        hintText.Text = problem ?? (saving.Count > 0 ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note ?? Hint(session));
+        hintText.Text = problem ?? recovery?.Warning ?? (saving.Count > 0 ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note ?? Hint(session));
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
     }
 

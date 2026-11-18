@@ -24,11 +24,14 @@ public sealed partial class EditorSession
         LayersChanged?.Invoke();
     }
 
+    public bool UpdatingLayerSelection { get; private set; }
+
     public void SelectLayer(Guid id, bool extend = false, bool range = false, IReadOnlyList<Guid>? rangeOrder = null)
     {
         if (WarpEdit != null) CommitWarp();
         if (document.Find(id) == null) return;
         if (channelTransform != null) CommitTransform();
+        var wasEffect = SelectedEffect != null;
         SelectedEffect = null;
         if (TextEdit != null && textLayer?.Id != id) FinishText();
         if (range && document.ActiveLayerId is { } anchor)
@@ -60,7 +63,9 @@ public sealed partial class EditorSession
         if (document.SelectionAnchorId is not { } first || !document.SelectedLayerIds.Contains(first))
             document.SelectionAnchorId = document.ActiveLayerId;
         if (ActiveLayer?.Mask == null) EditingMask = false;
-        LayersChanged?.Invoke();
+        UpdatingLayerSelection = !wasEffect;
+        try { LayersChanged?.Invoke(); }
+        finally { UpdatingLayerSelection = false; }
     }
 
     /// <summary>Clears the layer selection after a click on empty canvas space.</summary>

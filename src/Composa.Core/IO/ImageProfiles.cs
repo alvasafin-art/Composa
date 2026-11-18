@@ -10,14 +10,15 @@ namespace Composa.IO;
 /// <summary>Explicit output profiles, including formats whose native encoder omits an sRGB ICC chunk.</summary>
 internal static class ImageProfiles
 {
-    internal static byte[] Embed(byte[] encoded, ExportFormat format, int width, int height, RgbProfile colorProfile)
+    internal static byte[] Embed(byte[] encoded, ExportFormat format, int width, int height, RgbProfile colorProfile, double resolution = 72)
     {
+        resolution = double.IsFinite(resolution) ? Math.Clamp(resolution, 1, 9600) : 72;
         var profile = colorProfile.IccBytes();
         using var output = new MemoryStream();
         switch (format)
         {
-            case ExportFormat.Png: WritePng(output, encoded, profile); break;
-            case ExportFormat.Jpeg: WriteJpeg(output, encoded, profile); break;
+            case ExportFormat.Png: WritePng(output, encoded, profile, resolution); break;
+            case ExportFormat.Jpeg: WriteJpeg(output, encoded, profile, resolution); break;
             case ExportFormat.Webp: WriteWebp(output, encoded, profile, width, height); break;
             default: return encoded;
         }
@@ -110,16 +111,22 @@ internal static class ImageProfiles
         finally { input.Position = start; }
     }
 
-    private static void WritePng(Stream output, byte[] encoded, byte[] profile)
+    private static void WritePng(Stream output, byte[] encoded, byte[] profile, double resolution)
     {
         output.Write(encoded.AsSpan(0, 8));
         for (var offset = 8; offset + 12 <= encoded.Length;)
         {
             var length = checked((int)BinaryPrimitives.ReadUInt32BigEndian(encoded.AsSpan(offset, 4)));
             var kind = Encoding.ASCII.GetString(encoded, offset + 4, 4);
-            if (kind is not ("iCCP" or "sRGB")) output.Write(encoded.AsSpan(offset, length + 12));
+            if (kind is not ("iCCP" or "sRGB" or "pHYs")) output.Write(encoded.AsSpan(offset, length + 12));
             if (kind == "IHDR")
             {
+                var density = new byte[9];
+                uint ppm = (uint)Math.Round(resolution / 0.0254);
+                BinaryPrimitives.WriteUInt32BigEndian(density, ppm);
+                BinaryPrimitives.WriteUInt32BigEndian(density.AsSpan(4), ppm);
+                density[8] = 1;
+                WritePngChunk(output, "pHYs", density);
                 using var payload = new MemoryStream();
                 payload.Write("Composa RGB\0\0"u8);
                 using (var zipped = new ZLibStream(payload, CompressionLevel.Optimal, leaveOpen: true)) zipped.Write(profile);
@@ -129,9 +136,13 @@ internal static class ImageProfiles
         }
     }
 
-    private static void WriteJpeg(Stream output, byte[] encoded, byte[] profile)
+    private static void WriteJpeg(Stream output, byte[] encoded, byte[] profile, double resolution)
     {
         output.Write(encoded.AsSpan(0, 2));
+        byte[] jfif = [255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0];
+        BinaryPrimitives.WriteUInt16BigEndian(jfif.AsSpan(12), (ushort)Math.Round(resolution));
+        BinaryPrimitives.WriteUInt16BigEndian(jfif.AsSpan(14), (ushort)Math.Round(resolution));
+        output.Write(jfif);
         // A segment includes its two length bytes and a 14-byte ICC marker/sequence header.
         const int maximum = 65519;
         var count = (profile.Length + maximum - 1) / maximum;
@@ -156,7 +167,8 @@ internal static class ImageProfiles
             var length = BinaryPrimitives.ReadUInt16BigEndian(encoded.AsSpan(offset + 2, 2));
             if (length < 2 || offset + length + 2 > encoded.Length) throw new InvalidDataException("Invalid encoded JPEG segment.");
             var isProfile = marker == 226 && length >= 14 && encoded.AsSpan(offset + 4, 12).SequenceEqual("ICC_PROFILE\0"u8);
-            if (!isProfile) output.Write(encoded.AsSpan(offset, length + 2));
+            var isJfif = marker == 224 && length >= 7 && encoded.AsSpan(offset + 4, 5).SequenceEqual("JFIF\0"u8);
+            if (!isProfile && !isJfif) output.Write(encoded.AsSpan(offset, length + 2));
             offset += length + 2;
         }
         output.Write(encoded.AsSpan(offset));

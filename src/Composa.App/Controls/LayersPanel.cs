@@ -27,6 +27,8 @@ public sealed partial class LayersPanel : UserControl
     private readonly TextBlock opacityText = new() { Width = 36, TextAlignment = TextAlignment.Right, Foreground = Palette.Secondary };
     private readonly Border dropLine = new() { Height = 2, Background = Palette.Accent, IsVisible = false, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
     private readonly Dictionary<Guid, Border> rowFor = [];
+    private HashSet<Guid> highlighted = [];
+    private readonly Dictionary<Guid, (int Depth, bool ParentVisible)> rowPositions = [];
     private bool updating;
     private bool opacityDragging;
     private double opacityStart;
@@ -236,8 +238,6 @@ public sealed partial class LayersPanel : UserControl
 
     private void RebuildRows()
     {
-        rows.Children.Clear();
-        rowFor.Clear();
         updating = true;
         var active = session?.ActiveLayer;
         blend.IsEnabled = opacity.IsEnabled = active != null;
@@ -246,6 +246,26 @@ public sealed partial class LayersPanel : UserControl
         if (!opacityDragging) opacity.Value = (active?.Opacity ?? 1) * 100;
         opacityText.Text = $"{Math.Round(opacity.Value)}%";
         updating = false;
+        if (session?.UpdatingLayerSelection == true && !IsFiltering && renaming == null)
+        {
+            var affected = highlighted.Union(session.Document.SelectedLayerIds).ToArray();
+            if (affected.All(id => !rowFor.TryGetValue(id, out var row) || row.Tag is Layer { HasSmartFilterMask: false }))
+            {
+                foreach (var id in affected)
+                {
+                    if (!rowFor.TryGetValue(id, out var row) || row.Tag is not Layer layer) continue;
+                    var index = rows.Children.IndexOf(row);
+                    var position = rowPositions[id];
+                    rows.Children[index] = BuildRow(layer, position.Depth, position.ParentVisible);
+                }
+                highlighted = [.. session.Document.SelectedLayerIds];
+                return;
+            }
+        }
+        rows.Children.Clear();
+        rowFor.Clear();
+        rowPositions.Clear();
+        highlighted = session == null ? [] : [.. session.Document.SelectedLayerIds];
         PrepareFilter();
         if (session == null) return;
         AddRows(session.Document.Layers, 0, parentVisible: true);
@@ -371,6 +391,7 @@ public sealed partial class LayersPanel : UserControl
             Child = grid, Background = selected ? Palette.Selected : Brushes.Transparent, Padding = new Thickness(4, 3), MinHeight = 40,
             BorderBrush = Palette.Divider, BorderThickness = new Thickness(0, 0, 0, 1), Tag = layer
         };
+        rowPositions[layer.Id] = (depth, parentVisible);
         rowFor[layer.Id] = row;
         row.PointerPressed += (_, e) => RowPressed(layer, row, e);
         row.PointerMoved += (_, e) => RowMoved(e);
@@ -584,8 +605,15 @@ public sealed partial class LayersPanel : UserControl
     /// </summary>
     private ContextMenu BuildMenu(Layer layer)
     {
-        var current = session!;
         var menu = new ContextMenu();
+        PopulateMenu(menu, layer);
+        menu.Opening += (_, _) => { menu.Items.Clear(); PopulateMenu(menu, layer); };
+        return menu;
+    }
+
+    private void PopulateMenu(ContextMenu menu, Layer layer)
+    {
+        var current = session!;
         var locks = new MenuItem { Header = "Lock" };
         foreach (var (flag, title) in new[] { (LayerLocks.Pixels, "Pixels"), (LayerLocks.Position, "Position"), (LayerLocks.Transparency, "Transparency") })
         {
@@ -662,7 +690,6 @@ public sealed partial class LayersPanel : UserControl
         menu.Items.Add(new Separator());
 
         Add(layer.Visible ? "Hide Layer" : "Show Layer", () => current.SetVisible(layer, !layer.Visible));
-        return menu;
     }
 
     // ---- Selection and drag-reorder -----------------------------------------------------------------------------

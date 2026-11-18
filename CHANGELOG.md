@@ -4,6 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4] - 2026-11-18
+
+- Closing a document after Save keeps any edits made during the write. Autosave retries after storage errors. Recovery lets you restore, postpone or delete selected copies.
+- Opening an existing project focuses its tab. Save checks for conflicting tabs and external changes. The PSD conversion dialog can export a copy while keeping the editable project open.
+- New Canvas and Image Size show physical dimensions. PNG, JPEG and TIFF preserve print resolution on export and reopen.
+- Image import, export and filter previews run in the background. JPEG previews reuse the export snapshot. Export can be cancelled before the destination is replaced.
+- Selecting layers updates the affected rows. Compact windows have scrollable dock panels, collapsible layer search and a More menu for tool options.
+- ComfyUI settings validate before closing. Prompt enhancement shows elapsed time and supports cancellation. Preferences have an atomic backup, and local assistant connections bypass the system proxy.
+
 ## [1.3.0-preview.3] - 2026-11-18
 
 - The floating selection panel and image generation dialogs share prompt enhancement, pixel alignment and generation settings icons. Use **Run** for one result, or select **2** or **3** before running. **Remove Object** is in the selection panel’s overflow menu.

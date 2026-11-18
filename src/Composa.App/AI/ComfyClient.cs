@@ -121,7 +121,10 @@ public sealed class ComfyClient : IComfyConnection
         await EnsureSuccess(response, cancellationToken);
     }
 
-    public async Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
+    public Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
+        => ExecuteAsync(workflow, progress, cancellationToken, interruptOnCancel: true);
+
+    internal async Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress, CancellationToken cancellationToken, bool interruptOnCancel)
     {
         var clientId = Guid.NewGuid();
         using var socket = new ClientWebSocket();
@@ -178,7 +181,7 @@ public sealed class ComfyClient : IComfyConnection
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            try { await InterruptAsync(CancellationToken.None); } catch { }
+            if (interruptOnCancel) try { await InterruptAsync(CancellationToken.None); } catch { }
             progress?.Report(state with { Status = AiOperationStatus.Cancelled, Stage = "Cancelled" });
             throw;
         }

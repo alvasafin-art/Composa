@@ -372,6 +372,29 @@ public sealed partial class EditorSession
 
     public void PreviewFilter(FilterSettings settings)
     {
+        var adjusted = FilterForPreview(settings);
+        Preview(source => FilterPixels(source, adjusted));
+    }
+
+    /// <summary>Computes against the immutable preview input. Only the current request may publish its result.</summary>
+    public async Task<bool> PreviewFilterAsync(FilterSettings settings, Func<bool> current)
+    {
+        if (previewLayer is not { } layer || previewOriginal is not { } original || !current()) return false;
+        var adjusted = FilterForPreview(settings);
+        var channels = EditingRgbChannels;
+        var extract = IsEditingComponent && Pixels.IsSingleChannel(channels);
+        var (result, growX, growY) = await Task.Run(() =>
+        {
+            using var component = extract ? Pixels.ExtractChannel(original, channels) : null;
+            return FilterPixels(component ?? original, adjusted);
+        });
+        if (!current() || previewOriginal != original || previewLayer != layer) { result.Dispose(); return false; }
+        ApplyPreviewResult(layer, original, AffectedArea(layer), result, growX, growY, true);
+        return true;
+    }
+
+    private FilterSettings FilterForPreview(FilterSettings settings)
+    {
         // Radii and distances are given in document pixels; a scaled-down photo has several source pixels to each.
         if (previewLayer is { } target)
         {
@@ -390,16 +413,16 @@ public sealed partial class EditorSession
                 settings = settings with { VignetteFillsClear = previewFillsClear, VignetteFrame = frame };
             }
         }
-        PreviewFilterCore(settings);
+        return settings;
     }
 
-    private void PreviewFilterCore(FilterSettings settings) => Preview(source =>
+    private static (SKBitmap Result, int GrowX, int GrowY) FilterPixels(SKBitmap source, FilterSettings settings)
     {
         if (source.ColorType != SKColorType.Alpha8) return ImageFilters.Run(source, settings);
         using var color = MaskToColor(source);
         var (result, growX, growY) = ImageFilters.Run(color, settings);
         using (result) return (ColorToMask(result), growX, growY);
-    });
+    }
 
     public void PreviewContentAwareFill(SKBitmap? donorExclusion = null) => Preview(source =>
     {
@@ -415,6 +438,11 @@ public sealed partial class EditorSession
         var before = AffectedArea(layer);
         using var component = IsEditingComponent && Pixels.IsSingleChannel(EditingRgbChannels) ? Pixels.ExtractChannel(original, EditingRgbChannels) : null;
         var (result, growX, growY) = run(component ?? original);
+        ApplyPreviewResult(layer, original, before, result, growX, growY, mix);
+    }
+
+    private void ApplyPreviewResult(Layer layer, SKBitmap original, SKRectI before, SKBitmap result, int growX, int growY, bool mix)
+    {
         var canGrow = !IsEditingMask && !IsEditingComponent && previewSelection == null && previewOriginalMask == null
             && previewTransform!.IsPureTranslation(original.Width, original.Height);
         if ((growX > 0 || growY > 0) && !canGrow)

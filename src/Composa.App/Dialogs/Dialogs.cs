@@ -36,6 +36,10 @@ public class DialogWindow : Window
         Content = new StackPanel { Margin = new Thickness(20), Children = { body, Buttons } };
     }
 
+    public void SetCancelLabel(string label) => Buttons.Children.OfType<Button>().Single(b => b.IsCancel).Content = label;
+    public void AddSecondaryAction(string label, Action action) => Buttons.Children.Insert(0, Ui.TextButton(label, action));
+    public Func<bool>? ValidateAccept { get; set; }
+
     public bool CanAccept { set => ok.IsEnabled = value; }
     internal void UseGenerationVariants(AI.AiVariantButtons variants)
     {
@@ -46,7 +50,7 @@ public class DialogWindow : Window
     public async Task<bool> Ask(Window owner) => await ShowDialog<bool?>(owner) == true;
 
     /// <summary>OK and Enter. A panel shown without <see cref="Ask"/> overrides these to act instead of closing with a result.</summary>
-    protected virtual void Accept() => Close(true);
+    protected virtual void Accept() { if (ValidateAccept?.Invoke() != false) Close(true); }
     /// <summary>Cancel and Escape.</summary>
     protected virtual void Reject() => Close(false);
 
@@ -131,7 +135,7 @@ public static class Prompts
     }
 }
 
-public sealed record NewCanvasResult(int Width, int Height, SKColor? Background, ColorDepth Depth = ColorDepth.Eight);
+public sealed record NewCanvasResult(int Width, int Height, SKColor? Background, ColorDepth Depth = ColorDepth.Eight, double Resolution = 72);
 
 public static class CanvasDialogs
 {
@@ -164,6 +168,10 @@ public static class CanvasDialogs
         var fill = 0;
         var widthBox = Ui.Number(width, 1, DocumentLimits.MaxSide, v => width = (int)v, width: 120);
         var heightBox = Ui.Number(height, 1, DocumentLimits.MaxSide, v => height = (int)v, width: 120);
+        double resolution = 72;
+        var printSize = Ui.Label("", Palette.Secondary);
+        void UpdatePrintSize() => printSize.Text = $"{width * 25.4 / resolution:0.#} × {height * 25.4 / resolution:0.#} mm";
+        var ppi = Ui.Number(72, 1, 9600, v => { resolution = v; UpdatePrintSize(); }, width: 100);
         var applying = false;
         ComboBox preset = null!;
         preset = Ui.Combo(presets, presets.FirstOrDefault(p => p.W == width && p.H == height, presets[custom]), PresetLabel, p =>
@@ -171,6 +179,8 @@ public static class CanvasDialogs
             if (p.W == 0 || applying) return;
             applying = true;
             widthBox.Value = p.W; heightBox.Value = p.H;
+            if (p.Item1 == "A4 at 300 ppi") ppi.Value = 300;
+            UpdatePrintSize();
             applying = false;
         }, 220);
         // A typed size shows the preset it matches, or Custom.
@@ -190,16 +200,17 @@ public static class CanvasDialogs
         var limit = Ui.Label("", Palette.Secondary); limit.MaxWidth = 300; limit.TextWrapping = TextWrapping.Wrap;
         void Validate()
         {
+            UpdatePrintSize();
             var valid = DocumentLimits.FitsSurface(width, height, depth == ColorDepth.Sixteen ? 16 : 4);
             if (dialog != null) dialog.CanAccept = valid;
             limit.Text = valid ? "" : $"Choose a smaller canvas. This RGB mode supports up to {DocumentLimits.MaxSurfaceBytes / (depth == ColorDepth.Sixteen ? 16 : 4) / 1_000_000:N0} megapixels.";
         }
         var precision = Ui.Combo(new[] { ColorDepth.Eight, ColorDepth.Sixteen }, depth, d => $"RGB · {(int)d} bits/channel", d => { depth = d; Validate(); }, 220);
         widthBox.ValueChanged += (_, _) => Validate(); heightBox.ValueChanged += (_, _) => Validate();
-        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Background", background), ("Color mode", precision));
+        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Resolution", Ui.Row(7, ppi, Ui.Label("ppi"), printSize)), ("Background", background), ("Color mode", precision));
         dialog = new DialogWindow("New Canvas", Ui.Column(8, grid, limit), "Create"); Validate();
         if (!await dialog.Ask(owner)) return null;
-        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor, depth);
+        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor, depth, resolution);
     }
 
     public static async Task<(int Width, int Height, Anchor Anchor)?> CanvasSize(Window owner, int currentWidth, int currentHeight)
@@ -239,26 +250,29 @@ public static class CanvasDialogs
     public static async Task<(int Width, int Height, double Resolution)?> ImageSize(Window owner, int currentWidth, int currentHeight, double resolution)
     {
         int width = currentWidth, height = currentHeight;
+        var printSize = Ui.Label("", Palette.Secondary);
+        void RefreshSize() => printSize.Text = $"{width * 25.4 / resolution:0.#} × {height * 25.4 / resolution:0.#} mm";
+        RefreshSize();
         var constrain = true;
         var syncing = false;
         NumericUpDown widthBox = null!, heightBox = null!;
         widthBox = Ui.Number(width, 1, DocumentLimits.MaxSide, v =>
         {
-            width = (int)v;
+            width = (int)v; RefreshSize();
             if (!constrain || syncing) return;
             syncing = true; heightBox.Value = Math.Max(1, (int)Math.Round(v * currentHeight / currentWidth)); syncing = false;
         }, width: 120);
         heightBox = Ui.Number(height, 1, DocumentLimits.MaxSide, v =>
         {
-            height = (int)v;
+            height = (int)v; RefreshSize();
             if (!constrain || syncing) return;
             syncing = true; widthBox.Value = Math.Max(1, (int)Math.Round(v * currentWidth / currentHeight)); syncing = false;
         }, width: 120);
-        var resolutionBox = Ui.Number(resolution, 1, 9600, v => resolution = v, width: 120);
+        var resolutionBox = Ui.Number(resolution, 1, 9600, v => { resolution = v; RefreshSize(); }, width: 120);
         var body = Ui.Column(12,
             Ui.Label($"Current size: {currentWidth} × {currentHeight} px", Palette.Secondary),
             Form(("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))),
-                ("", Ui.Check("Constrain proportions", true, v => constrain = v)), ("Resolution", Ui.Row(6, resolutionBox, Ui.Label("pixels/inch", Palette.Secondary)))));
+                ("", Ui.Check("Constrain proportions", true, v => constrain = v)), ("Resolution", Ui.Row(6, resolutionBox, Ui.Label("ppi", Palette.Secondary), printSize))));
         if (!await new DialogWindow("Image Size", body).Ask(owner)) return null;
         return (width, height, resolution);
     }
@@ -275,28 +289,43 @@ public static class CanvasDialogs
         Task inFlight = Task.CompletedTask;
         var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
 
-        async void Refresh()
+        async Task EncodeLatest()
         {
-            timer.Stop();
-            var mine = ++generation;
-            var q = quality;
-            info.Text = "Measuring…";
-            // Encoding a large photo takes a moment, so it runs off the UI thread; a newer request supersedes this one.
-            var work = Task.Run(() =>
+            int mine;
+            do
             {
-                var encoded = Composa.IO.ImageFiles.Encode(flattened, Composa.IO.ExportFormat.Jpeg, q);
-                using var decoded = SKBitmap.Decode(encoded);
-                return (encoded.LongLength, decoded == null ? null : Ui.ToAvaloniaBitmap(decoded, 1040, display));
-            });
-            inFlight = Task.WhenAll(inFlight, work);
-            var (bytes, shown) = await work;
-            if (closed || mine != generation) return;
-            if (shown != null) preview.Source = shown;
-            info.Text = $"{flattened.Width} × {flattened.Height} px · {(bytes >= 1024 * 1024 ? $"{bytes / 1048576.0:0.0} MB" : $"{bytes / 1024.0:0} KB")}";
+                mine = generation;
+                var q = quality;
+                try
+                {
+                    var (bytes, shown) = await Task.Run(() =>
+                    {
+                        var encoded = Composa.IO.ImageFiles.Encode(flattened, Composa.IO.ExportFormat.Jpeg, q);
+                        using var decoded = SKBitmap.Decode(encoded);
+                        return (encoded.LongLength, decoded == null ? null : Ui.ToAvaloniaBitmap(decoded, 1040, display));
+                    });
+                    if (closed || mine != generation) { shown?.Dispose(); continue; }
+                    (preview.Source as IDisposable)?.Dispose();
+                    preview.Source = shown;
+                    info.Text = $"{flattened.Width} × {flattened.Height} px · {(bytes >= 1024 * 1024 ? $"{bytes / 1048576.0:0.0} MB" : $"{bytes / 1024.0:0} KB")}";
+                }
+                catch (Exception) { if (!closed) info.Text = "Preview unavailable"; }
+            } while (!closed && mine != generation);
         }
 
+        void Refresh()
+        {
+            timer.Stop();
+            if (!closed && inFlight.IsCompleted) inFlight = EncodeLatest();
+        }
         timer.Tick += (_, _) => Refresh();
-        var row = Ui.SliderField("Quality", initial, 1, 100, v => { quality = (int)v; timer.Stop(); timer.Start(); }, width: 380);
+        var row = Ui.SliderField("Quality", initial, 1, 100, v =>
+        {
+            quality = (int)v;
+            generation++;
+            info.Text = "Measuring…";
+            timer.Stop(); timer.Start();
+        }, width: 380);
         var frame = new Border { Child = preview, Background = new SolidColorBrush(Color.Parse("#1A1A1A")), Padding = new Thickness(1) };
         var dialog = new DialogWindow("Export JPEG", Ui.Column(12, frame, row, info), "Export…");
         dialog.Opened += (_, _) => Refresh();
@@ -304,7 +333,8 @@ public static class CanvasDialogs
         closed = true;
         timer.Stop();
         // The caller disposes the flattened bitmap next; no encode may still be reading it.
-        try { await inFlight; } catch (Exception) { /* A failed preview encode does not block the export itself. */ }
+        await inFlight;
+        (preview.Source as IDisposable)?.Dispose();
         return accepted ? quality : null;
     }
 

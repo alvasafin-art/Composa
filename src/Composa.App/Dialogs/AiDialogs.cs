@@ -66,21 +66,35 @@ public static partial class AiDialogs
         var wand = button.Content;
         string ProviderHint() => "Enhance prompt · " + AiTaskService.Providers.GetValueOrDefault(settings.EffectiveEnhancerProvider());
         var label = ProviderHint();
-        button.PointerEntered += (_, _) => ToolTip.SetTip(button, ProviderHint());
+
         ToolTip.SetTip(button, label);
         Avalonia.Automation.AutomationProperties.SetName(button, label);
-        bool busy = false;
-        void RefreshButton() => button.IsEnabled = !busy && prompt.IsEnabled;
+        CancellationTokenSource? running = null;
+        void RefreshButton() => button.IsEnabled = running != null || prompt.IsEnabled;
+        button.DetachedFromVisualTree += (_, _) => running?.Cancel();
         prompt.PropertyChanged += (_, e) => { if (e.Property == TextBox.TextProperty || e.Property == InputElement.IsEnabledProperty) RefreshButton(); };
         RefreshButton();
         button.Click += async (_, _) =>
         {
+            if (running != null) { running.Cancel(); return; }
             if (string.IsNullOrWhiteSpace(prompt.Text)) { prompt.Focus(); return; }
-            if (busy || engine() is not { } selected || prompt.Text is not { Length: > 0 } original) return;
-            busy = true; RefreshButton(); button.Content = "…";
+            if (engine() is not { } selected || prompt.Text is not { Length: > 0 } original) return;
+            using var request = new CancellationTokenSource();
+            running = request;
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            void Progress()
+            {
+                var tip = $"Stop waiting · {started.Elapsed:m\\:ss}. A submitted server request may still be billed.";
+                ToolTip.SetTip(button, tip);
+                Avalonia.Automation.AutomationProperties.SetName(button, tip);
+            }
+            var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            timer.Tick += (_, _) => Progress();
+            button.Content = "■"; Progress(); timer.Start(); RefreshButton();
             try
             {
-                var enhanced = await service.EnhanceAsync(settings, selected, task, original);
+                var enhanced = await service.EnhanceAsync(settings, selected, task, original, request.Token);
+                request.Token.ThrowIfCancellationRequested();
                 if (TopLevel.GetTopLevel(button) != null && prompt.Text == original && engine()?.Id == selected.Id)
                 {
                     prompt.SelectAll();
@@ -92,14 +106,22 @@ public static partial class AiDialogs
             {
                 if (TopLevel.GetTopLevel(button) is Window window) await Prompts.Alert(window, "Enhance prompt", error.Message);
             }
-            finally { busy = false; button.Content = wand; RefreshButton(); }
+            finally
+            {
+                timer.Stop(); running = null; button.Content = wand;
+                ToolTip.SetTip(button, ProviderHint());
+                Avalonia.Automation.AutomationProperties.SetName(button, ProviderHint());
+                RefreshButton();
+            }
         };
         return button;
     }
 
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service)
     {
-        var originalEngine = service.SelectedEngine;
+        var live = service;
+        service = live.SettingsPreview();
+        using var lifetime = new CancellationTokenSource();
         DialogWindow? settingsDialog = null;
         var showContext = new CheckBox { Content = "Show AI context bounds after selection", IsChecked = settings.AiShowContextBounds };
         var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
@@ -246,7 +268,7 @@ public static partial class AiDialogs
             try
             {
                 service.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
-                await service.TestConnectionAsync(overrideUrl: url.Text);
+                await service.TestConnectionAsync(lifetime.Token, overrideUrl: url.Text);
                 var selectedChat = model.SelectedItem as string ?? settings.EnhancerModel;
                 model.ItemsSource = service.ChatModels.Append(selectedChat).Distinct().ToArray();
                 model.SelectedItem = selectedChat;
@@ -316,11 +338,15 @@ public static partial class AiDialogs
         Control Page(params Control[] controls) => new ScrollViewer { Content = Ui.Column(12, controls),
             MaxHeight = Math.Clamp(owner.Bounds.Height - 230, 260, 520), Margin = new Thickness(0, 12, 0, 0),
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        var readiness = Ui.Label(status.Text ?? "", Palette.Secondary);
+        readiness.MaxWidth = 460; readiness.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        status.PropertyChanged += (_, e) => { if (e.Property == TextBlock.TextProperty) readiness.Text = status.Text; };
+        var workflowAssignments = new Expander { Header = "Workflow by task", Content = assignments, IsExpanded = false };
         var body = new TabControl { Width = 590, Name = "AiSettingsTabs", FontSize = 13, ItemsSource = new[]
         {
             new TabItem { Header = "Connection", FontSize = 13, Content = Page(connection, showContext,
                 Ui.Label("Connect first, then choose the server's installed models in Workflows & models.", Palette.Secondary)) },
-            new TabItem { Header = "Workflows & models", FontSize = 13, Content = Page(CanvasDialogs.Form(("Default workflow", engine)), assignments, models, note) },
+            new TabItem { Header = "Workflows & models", FontSize = 13, Content = Page(CanvasDialogs.Form(("Default workflow", engine)), readiness, workflowAssignments, models, note) },
             new TabItem { Header = "Prompts", FontSize = 13, Content = Page(
                 Section("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields, serverFields, budget),
                 Section("Workflow instructions", promptPicker, Ui.Label("System instructions", Palette.Secondary), instructions,
@@ -328,34 +354,71 @@ public static partial class AiDialogs
                 Section("Additional editing prompt", additionalEnabled, additionalPrompt, resetPrompt)) },
             new TabItem { Header = "API access", FontSize = 13, Content = Page(Ui.Label("Paid Comfy.org models", weight: Avalonia.Media.FontWeight.SemiBold), auth, keyNote) }
         } };
-        settingsDialog = new DialogWindow("ComfyUI Settings", body, "Save settings"); RefreshStatus();
-        if (!await settingsDialog.Ask(owner)) { service.SelectedEngine = originalEngine; return false; }
-        try
+        var validation = Ui.Label("", Avalonia.Media.Brushes.Orange);
+        validation.IsVisible = false; validation.MaxWidth = 520; validation.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        settingsDialog = new DialogWindow("ComfyUI Settings", Ui.Column(5, body, validation), "Save settings");
+        settingsDialog.Closed += (_, _) => lifetime.Cancel();
+        settingsDialog.ValidateAccept = () =>
         {
-            var address = ComfyServerAddress.Parse(url.Text ?? "");
-            if (selectedProvider == "direct" || !string.IsNullOrWhiteSpace(apiUrl.Text))
-                _ = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
-            if (selectedProvider == "compatible" || !string.IsNullOrWhiteSpace(serverUrl.Text))
-                _ = Assistant.ChatCompletionAssistantProvider.Endpoint(serverUrl.Text ?? "");
-            if (Settings.Persist && (clearKey || !string.IsNullOrWhiteSpace(sessionKey.Text)))
-                UserApiKeys.Write(UserApiKeys.Target("Comfy", address.HttpBase), string.IsNullOrWhiteSpace(sessionKey.Text) ? null : sessionKey.Text.Trim());
-            if (Settings.Persist && (forgetDirect || !string.IsNullOrWhiteSpace(directKey.Text)))
+            TextBox field = url;
+            var tab = 0;
+            try
             {
-                var endpoint = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
-                UserApiKeys.Write(UserApiKeys.Target("Direct", endpoint), string.IsNullOrWhiteSpace(directKey.Text) ? null : directKey.Text.Trim());
+                var address = ComfyServerAddress.Parse(url.Text ?? "");
+                Uri? directEndpoint = null;
+                if (selectedProvider == "direct" || forgetDirect || !string.IsNullOrWhiteSpace(directKey.Text))
+                {
+                    tab = 2; field = apiUrl;
+                    directEndpoint = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
+                    if (selectedProvider == "direct" && string.IsNullOrWhiteSpace(apiModel.Text))
+                    { field = apiModel; throw new FormatException("Enter the API model ID."); }
+                }
+                if (selectedProvider == "compatible")
+                {
+                    tab = 2; field = serverUrl;
+                    _ = Assistant.ChatCompletionAssistantProvider.Endpoint(serverUrl.Text ?? "");
+                }
+                if (Settings.Persist)
+                {
+                    var changes = new Dictionary<string, string?>();
+                    if (clearKey || !string.IsNullOrWhiteSpace(sessionKey.Text))
+                        changes[UserApiKeys.Target("Comfy", address.HttpBase)] = string.IsNullOrWhiteSpace(sessionKey.Text) ? null : sessionKey.Text.Trim();
+                    if (forgetDirect || !string.IsNullOrWhiteSpace(directKey.Text))
+                        changes[UserApiKeys.Target("Direct", directEndpoint!)] = string.IsNullOrWhiteSpace(directKey.Text) ? null : directKey.Text.Trim();
+                    var previous = new Dictionary<string, string?>();
+                    try
+                    {
+                        foreach (var (target, value) in changes)
+                        {
+                            var old = UserApiKeys.Read(target);
+                            UserApiKeys.Write(target, value);
+                            previous[target] = old;
+                        }
+                    }
+                    catch { foreach (var (target, value) in previous) UserApiKeys.Write(target, value); throw; }
+                }
+                return true;
             }
-        }
-        catch (Exception error)
-        {
-            service.SelectedEngine = originalEngine;
-            await Prompts.Alert(owner, "Save API access", error.Message);
-            return false;
-        }
+            catch (Exception error)
+            {
+                validation.Text = error.Message; validation.IsVisible = true;
+                if (error is FormatException)
+                {
+                    body.SelectedIndex = tab;
+                    field.Focus(); field.SelectAll();
+                }
+                return false;
+            }
+        };
+        RefreshStatus();
+        if (!await settingsDialog.Ask(owner)) return false;
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
+        service.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;
+        live.AcceptSettingsPreview(service, settings.ComfyServerUrl);
         settings.ComfyApiKeyEnvironment = keyEnvironment.Text?.Trim() ?? "";
-        if (!string.IsNullOrWhiteSpace(sessionKey.Text)) service.SessionApiKey = sessionKey.Text.Trim();
-        else if (clearKey) service.SessionApiKey = null;
+        if (!string.IsNullOrWhiteSpace(sessionKey.Text)) live.SessionApiKey = sessionKey.Text.Trim();
+        else if (clearKey) live.SessionApiKey = null;
         settings.AiEngineId = service.SelectedEngine?.Id;
         settings.AiTaskEngineIds = taskDrafts;
         settings.AiShowContextBounds = showContext.IsChecked == true;
@@ -693,7 +756,7 @@ public static partial class AiDialogs
             dialog.AddHandler(InputElement.KeyDownEvent, async (_, e) =>
             {
                 if (e.Key == Key.V && e.KeyModifiers.HasFlag(KeyModifiers.Control))
-                { e.Handled = true; await references.Paste(prompt.IsVisible ? prompt : null); }
+                { e.Handled = true; await references.Paste(dialog.FocusManager?.GetFocusedElement() as TextBox); }
             }, RoutingStrategies.Tunnel);
         }
         RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => { if (prompt.IsVisible) prompt.Focus(); };
