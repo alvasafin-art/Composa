@@ -4,6 +4,8 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- The editor reuses unchanged History rows and document tabs. Layer context menus build their commands on opening. Large AI selections use faster alpha contour and mask processing, and panning reuses the selection bounds.
+
 - Shared control styles use neutral surfaces for fields and expandable sections. Layers and History use inset selection highlights. The Layers header aligns blend mode, opacity and search filters and places Clear inside the search field.
 
 - The floating selection panel and generation dialogs place the prompt above one toolbar. It groups the model, references and edit tools on the left and Run and variant count on the right. More opens image size options. Hover over image size in the dialog for request dimensions. The selection panel can preview the generation area on the canvas.

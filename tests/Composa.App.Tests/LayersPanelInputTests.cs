@@ -118,8 +118,18 @@ public class LayerContextMenuTests
         var layer = session.AddBlankLayer();
         Dispatcher.UIThread.RunJobs();
         var panel = window.GetVisualDescendants().OfType<LayersPanel>().Single();
-        List<string> Headers() => panel.GetVisualDescendants().OfType<Border>().Single(b => b.Tag == layer).ContextMenu!.Items.OfType<MenuItem>().Select(i => (string)i.Header!).ToList();
-        MenuItem Item(string header) => panel.GetVisualDescendants().OfType<Border>().Single(b => b.Tag == layer).ContextMenu!.Items.OfType<MenuItem>().Single(i => (string)i.Header! == header);
+        List<MenuItem> OpenCommands()
+        {
+            var row = panel.GetVisualDescendants().OfType<Border>().Single(b => b.Tag == layer);
+            var menu = row.ContextMenu!;
+            Assert.Empty(menu.Items);
+            menu.Open(row);
+            var commands = menu.Items.OfType<MenuItem>().ToList();
+            menu.Close();
+            return commands;
+        }
+        List<string> Headers() => OpenCommands().Select(i => (string)i.Header!).ToList();
+        MenuItem Item(string header) => OpenCommands().Single(i => (string)i.Header! == header);
 
         var headers = Headers();
         Assert.Equal(["Duplicate Layer", "Rename…", "Delete Layer"], headers.Take(3));

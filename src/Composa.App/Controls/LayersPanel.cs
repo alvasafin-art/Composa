@@ -618,8 +618,15 @@ public sealed partial class LayersPanel : UserControl
     private ContextMenu BuildMenu(Layer layer)
     {
         var menu = new ContextMenu();
-        PopulateMenu(menu, layer);
-        menu.Opening += (_, _) => { menu.Items.Clear(); PopulateMenu(menu, layer); };
+        // Rows are refreshed during ordinary edits. Only the menu being opened needs
+        // commands or a scan of the other layers for merge, clipping and mask targets.
+        void EnsureCommands(object? sender, EventArgs e)
+        {
+            if (menu.Items.Count == 0) PopulateMenu(menu, layer);
+        }
+        menu.Opening += EnsureCommands;
+        menu.Opened += EnsureCommands; // Programmatic Open bypasses Opening in Avalonia.
+        menu.Closed += (_, _) => menu.Items.Clear();
         return menu;
     }
 

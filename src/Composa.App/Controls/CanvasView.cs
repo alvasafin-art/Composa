@@ -61,7 +61,8 @@ public sealed partial class CanvasView : Control
     {
         Focusable = true;
         ClipToBounds = true;
-        antsTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(120), DispatcherPriority.Background, (_, _) =>
+        antsTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
+        antsTimer.Tick += (_, _) =>
         {
             if (session?.Selection == null && polygon.Count == 0 && session?.TextEdit == null) return;
             // A redraw still pending skips this tick: a slow outline stutters rather than queuing redraws forever.
@@ -69,8 +70,9 @@ public sealed partial class CanvasView : Control
             antsPhase = (antsPhase + 1) % 8;
             antsRedrawPending = true;
             InvalidateVisual();
-        });
-        antsTimer.Start();
+        };
+        AttachedToVisualTree += (_, _) => antsTimer.Start();
+        DetachedFromVisualTree += (_, _) => { antsTimer.Stop(); antsRedrawPending = false; };
         // The Space key-up that ends panning goes wherever focus went, so panning ends with the focus.
         LostFocus += (_, _) =>
         {

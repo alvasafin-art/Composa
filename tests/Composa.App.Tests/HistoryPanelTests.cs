@@ -88,6 +88,23 @@ public class HistoryPanelTests
     }
 
     [AvaloniaFact]
+    public void Trimming_history_keeps_unaffected_rows_and_tracks_the_current_state()
+    {
+        var retained = Rows()[3];
+        session.History.MaxEntries = 5;
+        session.Fill(SKColors.Green, "Green");
+        Pump();
+        Assert.Same(retained, Rows()[2]);
+        Assert.Equal(session.History.Steps, Rows().Select(row => (History.Step)row.Tag!));
+        session.Undo();
+        session.Fill(SKColors.Purple, "Purple");
+        Pump();
+        Assert.Same(retained, Rows()[2]);
+        Assert.Equal(session.History.Steps, Rows().Select(row => (History.Step)row.Tag!));
+        Assert.False(session.History.CanRedo);
+    }
+
+    [AvaloniaFact]
     public void A_scrub_follows_the_pointer_and_stops_at_the_ends()
     {
         var restores = 0;

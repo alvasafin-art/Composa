@@ -80,23 +80,18 @@ public static class SelectionMask
     {
         int left = int.MaxValue, top = int.MaxValue, right = -1, bottom = -1;
         var pixels = (byte*)mask.GetPixels();
-        for (var y = 0; y < mask.Height; y++)
+        int width = mask.Width, height = mask.Height, stride = mask.RowBytes;
+        var firstThreshold = Math.Max((byte)1, threshold);
+        for (var y = 0; y < height; y++)
         {
-            var row = new ReadOnlySpan<byte>(pixels + (long)y * mask.RowBytes, mask.Width);
-            var first = threshold <= 1 ? row.IndexOfAnyExcept((byte)0) : IndexOfAtLeast(row, threshold);
+            var row = new ReadOnlySpan<byte>(pixels + (long)y * stride, width);
+            var first = row.IndexOfAnyInRange(firstThreshold, byte.MaxValue);
             if (first < 0) continue;
-            var last = mask.Width - 1;
-            while (row[last] < threshold) last--;
+            var last = row.LastIndexOfAnyInRange(threshold, byte.MaxValue);
             left = Math.Min(left, first); right = Math.Max(right, last);
             top = Math.Min(top, y); bottom = y;
         }
         return right < 0 ? SKRectI.Empty : new SKRectI(left, top, right + 1, bottom + 1);
-    }
-
-    private static int IndexOfAtLeast(ReadOnlySpan<byte> row, byte threshold)
-    {
-        for (var i = 0; i < row.Length; i++) if (row[i] >= threshold) return i;
-        return -1;
     }
 
     private static SKBitmap Filtered(SKBitmap mask, SKImageFilter filter)
@@ -209,7 +204,7 @@ public static class SelectionMask
                 {
                     if (row[x] != 0) continue;
                     var start = x * block;
-                    if (IndexOfAtLeast(line.Slice(start, Math.Min(block, sourceWidth - start)), 128) >= 0) row[x] = 255;
+                    if (line.Slice(start, Math.Min(block, sourceWidth - start)).ContainsAnyInRange((byte)128, byte.MaxValue)) row[x] = 255;
                 }
             }
         });

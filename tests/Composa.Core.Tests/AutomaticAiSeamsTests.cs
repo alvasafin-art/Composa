@@ -8,6 +8,38 @@ namespace Composa.Core.Tests;
 
 public class AutomaticAiSeamsTests
 {
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(13, 9)]
+    [InlineData(97, 172)]
+    [InlineData(131, 255)]
+    public void Soft_mask_contour_and_normalization_ignore_padding_and_keep_the_relative_threshold(int width, int peak)
+    {
+        const int height = 7;
+        using var mask = new SKBitmap();
+        var stride = width + 11;
+        Assert.True(mask.TryAllocPixels(Pixels.MaskInfo(width, height), stride));
+        var bytes = mask.GetPixelSpan();
+        bytes.Fill(255); // Padding must neither raise the peak nor enter the bounds.
+        for (var y = 0; y < height; y++)
+        {
+            var row = bytes.Slice(y * stride, width);
+            row.Clear();
+            if (y is 2 or 4)
+                for (var x = 0; x < width; x++) row[x] = (byte)(peak * (x + 1) / width);
+        }
+        using var normalized = AutomaticAiMask.Normalize(mask);
+        SKRectI expected = SKRectI.Empty;
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            bool covered = peak != 0 && bytes[y * stride + x] >= (peak + 1) / 2;
+            Assert.Equal(covered ? (byte)255 : (byte)0, normalized.GetPixel(x, y).Alpha);
+            if (covered) expected = Composa.Model.Geometry.Union(expected, new SKRectI(x, y, x + 1, y + 1));
+        }
+        Assert.Equal(expected, AutomaticAiMask.ContourBounds(mask));
+    }
+
     [Fact]
     public void Registration_switch_controls_measured_pixel_translation()
     {

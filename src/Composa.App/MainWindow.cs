@@ -304,12 +304,18 @@ public sealed partial class MainWindow : Window
             }
         }
         sessions.Add(added);
-        added.HistoryChanged += RebuildTabs;
+        added.HistoryChanged += UpdateTabTitles;
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); refreshOptions?.Invoke(); } };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
-        added.SelectionChanged += () => { if (added == session) { refreshOptions?.Invoke(); RefreshAiUi(); } };
+        added.SelectionChanged += () =>
+        {
+            if (added != session) return;
+            floatingBoundsMask = null;
+            refreshOptions?.Invoke();
+            RefreshAiUi();
+        };
         SetSession(added);
     }
 
@@ -328,6 +334,7 @@ public sealed partial class MainWindow : Window
         previewRevision++;
         previewContext = null;
         session = next;
+        floatingBoundsMask = null;
         fillModelDraft = null;
         aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
@@ -370,12 +377,25 @@ public sealed partial class MainWindow : Window
         ShowTool(target.Tool);
     }
 
+    private readonly List<(EditorSession Document, TextBlock Title, MenuItem Folder)> tabTitles = [];
+
+    private void UpdateTabTitles()
+    {
+        foreach (var (item, title, folder) in tabTitles)
+        {
+            title.Text = item.Title + (item.IsModified ? " •" : "");
+            folder.IsEnabled = item.FilePath != null;
+        }
+        Title = session == null ? "Composa" : $"{session.Title}{(session.IsModified ? " •" : "")} - Composa";
+    }
+
     private void RebuildTabs()
     {
         tabs.Children.Clear();
+        tabTitles.Clear();
         foreach (var item in sessions)
         {
-            var label = Ui.Label(item.Title + (item.IsModified ? " •" : ""), item == session ? Palette.Foreground : Palette.Secondary);
+            var label = Ui.Label("", item == session ? Palette.Foreground : Palette.Secondary);
             var close = new Button { Classes = { "flat" }, Padding = new Thickness(3), Content = Icons.Create(Icons.Close, 10), VerticalAlignment = VerticalAlignment.Center };
             close.Click += (_, e) => { _ = CloseSession(item); e.Handled = true; };
             var tab = new Border
@@ -395,10 +415,11 @@ public sealed partial class MainWindow : Window
                 if (pressed.IsMiddleButtonPressed) _ = CloseSession(item);
                 else if (pressed.IsLeftButtonPressed && item != session) SetSession(item);
             };
-            tab.ContextMenu = TabMenu(item);
+            tab.ContextMenu = TabMenu(item, out var folder);
+            tabTitles.Add((item, label, folder));
             tabs.Children.Add(tab);
         }
-        Title = session == null ? "Composa" : $"{session.Title}{(session.IsModified ? " •" : "")} - Composa";
+        UpdateTabTitles();
     }
 
     /// <summary>A click or a scrub in the History panel. Like any command it waits for a drag on the canvas to end.</summary>
@@ -414,7 +435,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>What a right-click on a tab offers, for that document whether or not it is the current one.</summary>
-    private ContextMenu TabMenu(EditorSession item)
+    private ContextMenu TabMenu(EditorSession item, out MenuItem folder)
     {
         MenuItem Entry(string header, Action run, bool enabled = true)
         {
@@ -422,6 +443,7 @@ public sealed partial class MainWindow : Window
             entry.Click += (_, _) => run();
             return entry;
         }
+        folder = Entry("Open Containing Folder", () => _ = OpenContainingFolder(item.FilePath!), item.FilePath != null);
         return new ContextMenu
         {
             Items =
@@ -429,7 +451,7 @@ public sealed partial class MainWindow : Window
                 Entry("Copy Image", () => _ = CopyImage(item)),
                 Entry("Duplicate", () => AddSession(item.Duplicate())),
                 new Separator(),
-                Entry("Open Containing Folder", () => _ = OpenContainingFolder(item.FilePath!), item.FilePath != null),
+                folder,
                 new Separator(),
                 Entry("Close", () => _ = CloseSession(item)),
                 Entry("Close Others", () => _ = CloseOthers(item), sessions.Count > 1)
@@ -481,7 +503,7 @@ public sealed partial class MainWindow : Window
         foreach (var key in linkedObservations.Keys.Where(key => key.Parent == item).ToArray()) linkedObservations.Remove(key);
         embeddedTabs.Remove(item);
         recovery?.Forget(item);
-        item.HistoryChanged -= RebuildTabs;
+        item.HistoryChanged -= UpdateTabTitles;
         if (lastToolSource == item) lastToolSource = null;
         if (item == session) SetSession(sessions.Count == 0 ? null : sessions[Math.Clamp(index, 0, sessions.Count - 1)]);
         else RebuildTabs();

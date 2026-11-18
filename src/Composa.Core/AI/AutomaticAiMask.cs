@@ -1,3 +1,4 @@
+using System.Numerics;
 using Composa.Rendering;
 using Composa.Selections;
 using SkiaSharp;
@@ -32,22 +33,48 @@ public static class AutomaticAiMask
     {
         var result = Pixels.NewMask(selection.Width, selection.Height);
         var source = selection.GetPixelSpan(); var output = result.GetPixelSpan();
-        byte peak = 0;
-        for (var y = 0; y < selection.Height; y++) for (var x = 0; x < selection.Width; x++)
-            peak = Math.Max(peak, source[y * selection.RowBytes + x]);
+        int width = selection.Width, height = selection.Height, stride = selection.RowBytes, outputStride = result.RowBytes;
+        var peak = PeakAlpha(source, width, height, stride);
         if (peak == 0) return result;
-        var threshold = (peak + 1) / 2;
-        for (var y = 0; y < selection.Height; y++) for (var x = 0; x < selection.Width; x++)
-            output[y * result.RowBytes + x] = source[y * selection.RowBytes + x] >= threshold ? (byte)255 : (byte)0;
+        var threshold = (byte)((peak + 1) / 2);
+        var levels = new Vector<byte>(threshold);
+        for (var y = 0; y < height; y++)
+        {
+            var row = source.Slice(y * stride, width);
+            var target = output.Slice(y * outputStride, width);
+            var x = 0;
+            for (; Vector.IsHardwareAccelerated && x <= width - Vector<byte>.Count; x += Vector<byte>.Count)
+                Vector.GreaterThanOrEqual(new Vector<byte>(row[x..]), levels).CopyTo(target[x..]);
+            for (; x < width; x++) target[x] = row[x] >= threshold ? byte.MaxValue : (byte)0;
+        }
         Pixels.Invalidate(result); return result;
     }
 
     public static SKRectI ContourBounds(SKBitmap selection)
     {
-        byte peak = 0; var pixels = selection.GetPixelSpan();
-        for (var y = 0; y < selection.Height; y++) for (var x = 0; x < selection.Width; x++)
-            peak = Math.Max(peak, pixels[y * selection.RowBytes + x]);
+        var peak = PeakAlpha(selection.GetPixelSpan(), selection.Width, selection.Height, selection.RowBytes);
         return peak == 0 ? SKRectI.Empty : SelectionMask.Bounds(selection, (byte)((peak + 1) / 2));
+    }
+
+    private static byte PeakAlpha(ReadOnlySpan<byte> pixels, int width, int height, int stride)
+    {
+        byte peak = 0;
+        for (var y = 0; y < height; y++)
+        {
+            var row = pixels.Slice(y * stride, width);
+            var maxima = Vector<byte>.Zero;
+            var x = 0;
+            for (; Vector.IsHardwareAccelerated && x <= width - Vector<byte>.Count; x += Vector<byte>.Count)
+                maxima = Vector.Max(maxima, new Vector<byte>(row[x..]));
+            if (x != 0)
+            {
+                if (Vector.EqualsAny(maxima, new Vector<byte>(byte.MaxValue))) return byte.MaxValue;
+                for (var lane = 0; lane < Vector<byte>.Count; lane++) peak = Math.Max(peak, maxima[lane]);
+            }
+            for (; x < width; x++) peak = Math.Max(peak, row[x]);
+            if (peak == byte.MaxValue) break;
+        }
+        return peak;
     }
 
     public static AiMaskPlan Geometry(SKRectI selection, SKRectI canvas)
@@ -101,12 +128,16 @@ public static class AutomaticAiMask
         var result = expansion ? AiResultPostprocessor.ExpansionEditMask(core, reference, plan.SeamWidth)
             : AiResultPostprocessor.OutwardEditMask(core, 0, plan.SeamWidth);
         var coverage = result.GetPixelSpan(); var requested = core.GetPixelSpan(); var colors = reference.GetPixelSpan();
-        for (var y = 0; y < result.Height; y++) for (var x = 0; x < result.Width; x++)
+        int width = result.Width, height = result.Height, outputStride = result.RowBytes;
+        int coreStride = core.RowBytes, referenceStride = reference.RowBytes;
+        for (var y = 0; y < height; y++)
         {
-            // A translucent source cannot be replaced by layering an opaque feather
-            // without increasing its alpha. Protect it outside the requested core.
-            if (requested[y * core.RowBytes + x] == 0 && colors[y * reference.RowBytes + x * 4 + 3] < 255)
-                coverage[y * result.RowBytes + x] = 0;
+            var input = requested.Slice(y * coreStride, width);
+            var output = coverage.Slice(y * outputStride, width);
+            var rgba = colors.Slice(y * referenceStride, width * 4);
+            // Protect translucent source pixels outside the requested core.
+            for (var x = 0; x < width; x++)
+                if (input[x] == 0 && rgba[x * 4 + 3] < 255) output[x] = 0;
         }
         Pixels.Invalidate(result); return result;
     }

@@ -27,6 +27,8 @@ public sealed partial class MainWindow
     internal int AiReferenceCount => aiReferences.Count;
     internal Border AiFloatingPanel => aiFloatingHost;
     internal Task RunAiForTests(AiTaskKind task) => RunAi(task);
+    private SKBitmap? floatingBoundsMask;
+    private SKRectI floatingBounds;
     private Point? aiFloatingPinnedPosition;
     private Point? aiFloatingDragStart;
     private Point aiFloatingDragPosition;
@@ -455,7 +457,12 @@ public sealed partial class MainWindow
     private void RefreshAiFloatingPosition()
     {
         if (!aiFloatingHost.IsVisible || session?.Selection is not { } selection) return;
-        var bounds = SelectionMask.Bounds(selection);
+        if (!ReferenceEquals(selection, floatingBoundsMask))
+        {
+            floatingBounds = SelectionMask.Bounds(selection);
+            floatingBoundsMask = selection;
+        }
+        var bounds = floatingBounds;
         if (bounds.IsEmpty) return;
         var topLeft = canvas.ToScreen(new SKPoint(bounds.Left, bounds.Top));
         var bottomRight = canvas.ToScreen(new SKPoint(bounds.Right, bounds.Bottom));

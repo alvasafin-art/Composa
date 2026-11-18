@@ -25,6 +25,10 @@ public sealed class HistoryPanel : UserControl
     private readonly StackPanel rows = new() { Background = Brushes.Transparent };
     private readonly ScrollViewer scroll;
     private readonly TextBlock dropped = new() { Text = "Older steps are no longer kept", Foreground = Palette.Secondary, FontSize = 11, Margin = new Thickness(10, 0, 10, 4), IsVisible = false };
+    private readonly record struct RowState(History.Step Step, bool First, bool Current, bool Ahead, bool Saved);
+    private readonly List<RowState> displayed = [];
+    private Control? scrollTarget;
+    private bool scrollPosted;
     private bool scrubbing;
     private int? pendingIndex;
     private bool pendingPosted;
@@ -70,6 +74,10 @@ public sealed class HistoryPanel : UserControl
         {
             if (session == value) return;
             if (session != null) session.HistoryChanged -= Rebuild;
+            rows.Children.Clear();
+            displayed.Clear();
+            scrollTarget = null;
+            pendingIndex = null;
             session = value;
             if (session != null) session.HistoryChanged += Rebuild;
             Rebuild();
@@ -103,20 +111,41 @@ public sealed class HistoryPanel : UserControl
 
     private void Rebuild()
     {
-        rows.Children.Clear();
         dropped.IsVisible = session?.History.EarlierStepsDropped == true;
         if (session == null) return;
         var steps = session.History.Steps;
         var current = session.History.CurrentIndex;
-        Control? currentRow = null;
+        // When the oldest step expires, its successor becomes the base. Keep the surviving
+        // rows attached so a brush stroke at the history limit does not recreate the list.
+        var first = 0;
+        while (first < displayed.Count && displayed[first].Step.Id < steps[0].Id) first++;
+        if (first > 0)
+        {
+            displayed.RemoveRange(0, first);
+            rows.Children.RemoveRange(0, first);
+        }
+        if (displayed.Count > steps.Count)
+        {
+            var count = displayed.Count - steps.Count;
+            displayed.RemoveRange(steps.Count, count);
+            rows.Children.RemoveRange(steps.Count, count);
+        }
         for (var i = 0; i < steps.Count; i++)
         {
-            var row = Row(steps[i], i == 0, i == current, i > current, session.IsSavedState(steps[i].Id));
-            rows.Children.Add(row);
-            if (i == current) currentRow = row;
+            var state = new RowState(steps[i], i == 0, i == current, i > current, session.IsSavedState(steps[i].Id));
+            if (i < displayed.Count && displayed[i] == state) continue;
+            var row = Row(state.Step, state.First, state.Current, state.Ahead, state.Saved);
+            if (i == displayed.Count) { displayed.Add(state); rows.Children.Add(row); }
+            else { displayed[i] = state; rows.Children[i] = row; }
         }
-        // A new step lands at the bottom, so the list follows it down.
-        if (currentRow != null) Dispatcher.UIThread.Post(() => currentRow.BringIntoView(), DispatcherPriority.Loaded);
+        scrollTarget = rows.Children[current];
+        if (scrollPosted) return;
+        scrollPosted = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            scrollPosted = false;
+            scrollTarget?.BringIntoView();
+        }, DispatcherPriority.Loaded);
     }
 
     private static Control Row(History.Step step, bool first, bool current, bool ahead, bool saved)

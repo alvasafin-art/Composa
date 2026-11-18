@@ -26,7 +26,8 @@ public class BlendingUiTests
         Dispatcher.UIThread.RunJobs();
         var panel = window.GetVisualDescendants().OfType<LayersPanel>().Single();
         var row = panel.GetVisualDescendants().OfType<Border>().Single(b => b.Tag is Layer);
-        row.ContextMenu!.Items.OfType<MenuItem>().Single(m => m.Header as string == "Mask Properties…")
+        row.ContextMenu!.Open(row);
+        row.ContextMenu.Items.OfType<MenuItem>().Single(m => m.Header as string == "Mask Properties…")
             .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         var dialog = window.OwnedWindows.Single();
@@ -61,7 +62,8 @@ public class BlendingUiTests
         Dispatcher.UIThread.RunJobs();
         var panel = window.GetVisualDescendants().OfType<LayersPanel>().Single();
         var row = panel.GetVisualDescendants().OfType<Border>().Single(b => b.Tag is Layer);
-        var command = row.ContextMenu!.Items.OfType<MenuItem>().Single(m => m.Header as string == "Blending Options…");
+        row.ContextMenu!.Open(row);
+        var command = row.ContextMenu.Items.OfType<MenuItem>().Single(m => m.Header as string == "Blending Options…");
         command.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         var dialog = window.OwnedWindows.Single();
