@@ -12,7 +12,7 @@ namespace Composa.App.Tests;
 public class AiOperationSettingsTests
 {
     [AvaloniaFact]
-    public async Task Fill_dialog_shows_total_request_resolution_in_both_size_modes()
+    public async Task Fill_size_tooltip_reports_the_request_in_both_modes_without_a_permanent_output_section()
     {
         var window=new MainWindow(); window.Settings.CheckForUpdates=false; window.Show();
         try
@@ -20,14 +20,14 @@ public class AiOperationSettingsTests
             window.Settings.SetOperation(Flux,AiTaskKind.GenerativeFill,window.Settings.OperationFor(Flux,AiTaskKind.GenerativeFill)
                 with { OriginalSize=false,Megapixels=0.5,MaskGrow=4,MaskBlend=8,MaskBlur=4,MaskContext=1.2 });
             var before=JsonSerializer.Serialize(window.Settings);
-            var pending=AiDialogs.Prompt(window,AiTaskKind.GenerativeFill,window.Settings,264,176,service:window.AiTasks,
+            var pending=AiDialogs.Prompt(window,AiTaskKind.GenerativeFill,window.Settings,264,176,"Replace the plant with a ceramic vase",service:window.AiTasks,
                 hasSelection:true,sourceCanvas:new(0,0,1537,991),selectionBounds:new(600,350,864,526));
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
-            var label=Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text?.StartsWith("FLUX request including context:")==true);
-            Assert.Contains("MP",label.Text); Assert.Contains("816 × 624 px",label.Text);
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Expander>(), e => Equals(e.Header, "Output details"));
             var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.OfType<string>().Contains("Original size"));
+            Assert.Contains("816 × 624 px", Assert.IsType<string>(ToolTip.GetTip(size)));
             size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
-            Assert.Equal($"FLUX request including context: 1168 × 880 px · {1.03:0.##} MP",label.Text);
+            Assert.Contains("1168 × 880 px", Assert.IsType<string>(ToolTip.GetTip(size)));
             size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog,"flux-selection-resolution-and-context"));
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(window.Settings));
@@ -51,13 +51,26 @@ public class AiOperationSettingsTests
             var dialog = Assert.Single(owner.OwnedWindows);
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Presets")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<CheckBox>().Single(b => Equals(b.Content, "Align pixels")).IsChecked = false;
+            dialog.GetVisualDescendants().OfType<AiVariantButtons>().Single().Count = 2;
+            // Click the actual control so its change is also propagated to the draft.
+            var triple = dialog.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(b => b.Name == "AiVariants3");
+            triple.IsChecked = true;
             dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.PlaceholderText == "Preset name").Text = "Proof";
             dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Save preset"))
                 .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             Assert.Empty(settings.GenerationPresets);
             dialog.Close(accept);
             Assert.Equal(accept, await pending);
-            if (accept) Assert.Equal(41, settings.GenerationPresets[$"{Flux}/{operation}"]["Proof"].Seed);
+            if (accept)
+            {
+                var key = owner.AiTasks.Engines.ModelFor(pack, operation, settings.ComfyModelsFor(settings.ComfyServerUrl)).ModelKey;
+                var saved = settings.GenerationPresets[$"{key}/{operation}"]["Proof"];
+                Assert.Equal(41, saved.Seed);
+                Assert.False(saved.AlignPixels);
+                Assert.Equal(3, saved.Variants);
+                Assert.False(settings.AiAlignMaskedEdits);
+            }
             else Assert.Empty(settings.GenerationPresets);
         }
         finally { owner.Close(); }
@@ -76,6 +89,44 @@ public class AiOperationSettingsTests
         Assert.Equal("retouch-v2", model.Name);
         Assert.Equal(choices[slot.Key], model.Identifier);
         Assert.Same(engine, model.Engine);
+    }
+
+    [Fact]
+    public void Operation_readiness_only_requires_the_nodes_in_the_executed_graph()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "ai", "engines");
+        var service = new AiTaskService(() => "http://localhost:8188", root);
+        var pack = service.Engines.Find(QwenImageWorkflow.EngineId)!;
+        var nodes = pack.RequiredNodeTypes.ToHashSet();
+        nodes.Remove("PixelDriftFix");
+        var capabilities = new ComfyServerCapabilities { Version = "0.43.0", NodeTypes = nodes };
+        service.SetConnectedForTests(capabilities);
+        var profile = new AiOperationSettings();
+        var edit = service.OperationCompatibility(pack, AiTaskKind.GenerativeFill, new Dictionary<string,string>(), profile);
+        Assert.True(edit.IsCompatible, string.Join(", ", edit.Missing));
+        nodes.Remove("SetLatentNoiseMask");
+        edit = service.OperationCompatibility(pack, AiTaskKind.GenerativeFill, new Dictionary<string,string>(), profile);
+        Assert.Contains("node SetLatentNoiseMask", edit.Missing);
+        Assert.True(service.OperationCompatibility(pack, AiTaskKind.GenerateImage, new Dictionary<string,string>(), profile).IsCompatible);
+    }
+
+    [Fact]
+    public void A_saved_model_cannot_silently_switch_to_another_checkpoint_on_the_same_route()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "ai", "engines");
+        var service = new AiTaskService(() => "http://localhost:8188", root);
+        var pack = service.Engines.Find(Flux)!;
+        var task = AiTaskKind.GenerativeFill;
+        var slot = WorkflowModels.Slots(service.Engines.ReadWorkflow(pack, EngineCatalog.WorkflowFor(pack, task)), pack.Id)
+            .First(s => s.Kind == EngineAssetKind.DiffusionModel);
+        var files = new Dictionary<string,string> { [slot.Key] = "retouch.safetensors" };
+        service.ModelSelections = _ => files;
+        service.EngineIdForTask = _ => pack.Id;
+        service.ModelKeyForTask = _ => "server:retouch.safetensors";
+        Assert.Same(pack, service.EngineFor(task));
+        files[slot.Key] = "another.safetensors";
+        Assert.Null(service.EngineFor(task));
+        Assert.Same(pack, service.EngineFor(task, pack.Id));
     }
 
     private const string Flux = "flux2-klein-intel-xpu";

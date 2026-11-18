@@ -178,8 +178,30 @@ public sealed partial class MainWindow
         RefreshAiFloatingUi();
     }
 
+    private SKRectI? previewContext;
+    private int previewRevision;
+
+    internal async Task PreviewAiContext(SKRectI bounds)
+    {
+        var revision = ++previewRevision;
+        previewContext = bounds;
+        RefreshAiContextBounds();
+        aiFloatingHost.IsVisible = false;
+        try { await Task.Delay(TimeSpan.FromSeconds(2)); }
+        finally
+        {
+            if (revision == previewRevision)
+            {
+                previewContext = null;
+                RefreshAiContextBounds();
+                RefreshAiFloatingUi();
+            }
+        }
+    }
+
     private void RefreshAiContextBounds()
     {
+        if (previewContext is { } preview) { canvas.AiContextBounds = preview; return; }
         SKRectI? context = null;
         if (settings.AiShowContextBounds && aiTasks.ConnectionState == ComfyConnectionState.Connected
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
@@ -303,7 +325,7 @@ public sealed partial class MainWindow
         if (aiEngineCombo == null) return;
         var task = AiTaskKind.GenerativeFill;
         var engine = PanelEngine(task);
-        var choices = aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl));
+        var choices = aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
         refreshingAiEngine = true;
         try
         {
@@ -330,12 +352,23 @@ public sealed partial class MainWindow
             item.Click += (_, _) => _ = RunAi(task, task == AiTaskKind.RemoveObject ? "" : aiFloatingPrompt.Text ?? "", useInlinePrompt: true);
             flyout.Items.Add(item);
         }
+        var preview = new MenuItem { Header = "Preview generation area" };
+        preview.Click += (_, _) =>
+        {
+            if (session?.Selection is not { } mask) return;
+            var selection = AutomaticAiMask.ContourBounds(mask);
+            if (!selection.IsEmpty) _ = PreviewAiContext(AutomaticAiMask.Geometry(selection, session.Document.Bounds).Bounds);
+        };
+        flyout.Items.Add(new Separator());
+        flyout.Items.Add(preview);
         if (fillModelDraft != null)
         {
             var save = new MenuItem { Header = "Use this model by default" };
             save.Click += (_, _) =>
             {
-                settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)] = fillModelDraft!;
+                if (aiEngineCombo?.SelectedItem is not ImageModelChoice choice) return;
+                settings.AiTaskModelKeys[nameof(AiTaskKind.GenerativeFill)] = choice.ModelKey;
+                settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)] = choice.Engine.Id;
                 settings.Save();
                 fillModelDraft = null;
             };
@@ -344,7 +377,7 @@ public sealed partial class MainWindow
         flyout.ShowAt(aiFloatingMore);
     }
 
-    private bool ShowSelectionPanel => session?.Selection != null && !session.IsPaintingSelection
+    private bool ShowSelectionPanel => previewContext == null && session?.Selection != null && !session.IsPaintingSelection
         && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
         && aiTasks.ConnectionState == ComfyConnectionState.Connected;
 
@@ -693,8 +726,7 @@ public sealed partial class MainWindow
                 {
                     Width = options.Width, Height = options.Height, Seed = seed,
                     Variants = Math.Clamp(profile.Variants, 1, 3), VariantMode = profile.VariantMode,
-                    Loras = engine?.Lora.Supported == true && profile.LorasEnabled
-                        ? profile.Loras.Take(3).Select(lora => new AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [],
+                    Loras = profile.ActiveLoras(engine),
                     UpscaleFactor = profile.UpscaleFactor == 4 ? 4 : 2,
                     Values = new Dictionary<string, object?> { ["fluxMemory"] = profile.FluxMemory,
                         ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }

@@ -17,6 +17,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
     public EngineCatalog Engines { get; }
     public IReadOnlyList<PromptPreset> Presets { get; }
     public EngineProfile? SelectedEngine { get; set; }
+    internal Func<IReadOnlyDictionary<string,string>?> PreferredModelRoutes { get; set; } = () => null;
+    public Func<AiTaskKind, string?> ModelKeyForTask { get; set; } = _ => null;
     public Func<AiTaskKind, string?> EngineIdForTask { get; set; } = _ => null;
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
     {
@@ -24,6 +26,12 @@ public sealed partial class AiTaskService : IAiTaskRunner
         var id = overrideId ?? EngineIdForTask(task);
         if (id == "seedvr2") id = "seedvr2-native";
         var engine = id == null ? SelectedEngine : Engines.Profiles.FirstOrDefault(pack => pack.Id == id);
+        if (overrideId == null && ModelKeyForTask(task) is { } key)
+        {
+            var choices = ModelSelections(serverUrl());
+            var bindingTask = task == AiTaskKind.SelectSubject ? AiTaskKind.ObjectSelection : task;
+            return Engines.ImageModels(bindingTask, engine, choices, PreferredModelRoutes()).FirstOrDefault(model => model.ModelKey == key)?.Engine;
+        }
         if (id == null && task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.Upscale && engine?.Binding(task) == null)
             engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
         return engine;
@@ -103,7 +111,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
             ConnectedServerUrl = client.Address.ToString();
             ConnectionState = ComfyConnectionState.Connected;
             StateChanged?.Invoke();
-            return SelectedEngine == null ? null : Compatibility(SelectedEngine, ModelSelections(ConnectedServerUrl));
+            try { return SelectedEngine == null ? null : Compatibility(SelectedEngine, ModelSelections(ConnectedServerUrl)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or KeyNotFoundException)
+            {
+                return new(false, [error.Message]);
+            }
         }
         catch (Exception error) when ((error is HttpRequestException or OperationCanceledException) && !cancellationToken.IsCancellationRequested)
         {
@@ -250,55 +262,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
             WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
-                var values = inputs.Values(files);
-                foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
-                if (apiInputs == null)
-                {
-                    // Original pixel sizes still need latent-friendly dimensions. Inpaint uses
-                    // original context dimensions, not a tiny selection's width stretched to the crop.
-                    var width = inputs.CanvasWidth; var height = inputs.CanvasHeight;
-                    if (graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
-                        && Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false)
-                        && request.Task != AiTaskKind.GenerativeExpand)
-                    {
-                        var contextBounds = inputs.MaskPlan?.Bounds ?? editor.Session.Document.Bounds;
-                        width = Math.Max(64, contextBounds.Width); height = Math.Max(64, contextBounds.Height);
-                    }
-                    var original = request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide == 0
-                        : Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false);
-                    if (original && request.Task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject))
-                        (width, height) = AiDimensions.OriginalGenerationSize(width, height);
-                    values["width"] = Math.Max(16, (int)(original ? Math.Ceiling(width / 16.0) : Math.Round(width / 16.0)) * 16);
-                    values["height"] = Math.Max(16, (int)(original ? Math.Ceiling(height / 16.0) : Math.Round(height / 16.0)) * 16);
-                }
-                values["seed"] = (seed + index) & long.MaxValue;
-                if (editable == null && request.Task is (AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand)) values["maskGrow"] = 0;
-                var boundGraph = qwenInputs != null ? qwenInputs.Bind(graph, files, (seed + index) & long.MaxValue)
-                    : apiInputs == null ? WorkflowBinder.Bind(graph, binding, values) : apiInputs.Bind(graph, engine, files, (seed + index) & long.MaxValue);
-                if (request.Task == AiTaskKind.GenerativeExpand && !engine.PaidApi && !qwen && request.ExpansionMode == AiExpansionMode.MaskedRegion)
-                {
-                    var expandedInputs = new AiTaskInputs { ContextImage = inputs.PreprocessedImage!, SelectionMask = inputs.PreprocessedMask,
-                        PreprocessedMask = inputs.PreprocessedMask, TargetBounds = SelectionMask.Bounds(inputs.PreprocessedMask!, 1) };
-                    WorkflowExecution.MaskedEdit(boundGraph, expandedInputs, request, capabilities);
-                }
-                WorkflowExecution.Loras(boundGraph, engine, request.Settings.Loras, capabilities);
-                if (qwen) QwenImageWorkflow.Configure(boundGraph, ServerInfo, align: false);
-                if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
-                    WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
-                editable?.Bind(boundGraph, files.GetValueOrDefault("conditioningImage"));
-                if (engine.Id == "flux2-klein-intel-xpu")
-                {
-                    WorkflowExecution.NativeFluxSchedule(boundGraph);
-                    WorkflowMemory.Apply(boundGraph, request.Settings.Values.GetValueOrDefault("fluxMemory")?.ToString() ?? "auto", ServerInfo, capabilities);
-                }
-                if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
-                if (request.Task == AiTaskKind.Upscale)
-                    WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);
-                if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
-                {
-                    boundGraph["upscale"]!["inputs"]!["resize_type.multiplier"] = request.Settings.UpscaleFactor;
-                }
-                WorkflowModels.ResolvePaths(boundGraph, capabilities);
+                var boundGraph = BuildExecutionGraph(graph, engine, binding, inputs, request, files, (seed + index) & long.MaxValue,
+                    capabilities, editor.Session.Document.Bounds, editable, qwenInputs, apiInputs, variants);
                 var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
                 if (!compatibility.IsCompatible) throw new InvalidOperationException(CompatibilityMessage(engine, compatibility)
                     + "\nChoose the missing models or refresh the server list in AI → ComfyUI Settings.");
@@ -415,6 +380,125 @@ public sealed partial class AiTaskService : IAiTaskRunner
     }
 
     public void Cancel() => running?.Cancel();
+
+    private JsonObject BuildExecutionGraph(JsonObject graph, EngineProfile engine, EngineTaskBinding binding, AiTaskInputs inputs,
+        AiTaskRequest request, IReadOnlyDictionary<string, string> files, long seed, ComfyServerCapabilities capabilities, SKRectI documentBounds,
+        EditableMaskedWorkflow? editable, QwenImageInputs? qwenInputs, PartnerImageInputs? apiInputs, int variants)
+    {
+        var qwen = engine.Id == QwenImageWorkflow.EngineId;
+        var values = inputs.Values(files);
+        foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
+        if (apiInputs == null)
+        {
+            // Original pixel sizes still need latent-friendly dimensions. Inpaint uses
+            // original context dimensions, not a tiny selection's width stretched to the crop.
+            var width = inputs.CanvasWidth; var height = inputs.CanvasHeight;
+            if (graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
+                && Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false)
+                && request.Task != AiTaskKind.GenerativeExpand)
+            {
+                var contextBounds = inputs.MaskPlan?.Bounds ?? documentBounds;
+                width = Math.Max(64, contextBounds.Width); height = Math.Max(64, contextBounds.Height);
+            }
+            var original = request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide == 0
+                : Convert.ToBoolean(values.GetValueOrDefault("imageOriginalSize") ?? false);
+            if (original && request.Task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject))
+                (width, height) = AiDimensions.OriginalGenerationSize(width, height);
+            values["width"] = Math.Max(16, (int)(original ? Math.Ceiling(width / 16.0) : Math.Round(width / 16.0)) * 16);
+            values["height"] = Math.Max(16, (int)(original ? Math.Ceiling(height / 16.0) : Math.Round(height / 16.0)) * 16);
+        }
+        values["seed"] = seed;
+        if (editable == null && request.Task is (AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand)) values["maskGrow"] = 0;
+        var boundGraph = qwenInputs != null ? qwenInputs.Bind(graph, files, seed)
+            : apiInputs == null ? WorkflowBinder.Bind(graph, binding, values) : apiInputs.Bind(graph, engine, files, seed);
+        if (request.Task == AiTaskKind.GenerativeExpand && !engine.PaidApi && !qwen && request.ExpansionMode == AiExpansionMode.MaskedRegion)
+        {
+            var expandedInputs = new AiTaskInputs { ContextImage = inputs.PreprocessedImage!, SelectionMask = inputs.PreprocessedMask,
+                PreprocessedMask = inputs.PreprocessedMask, TargetBounds = SelectionMask.Bounds(inputs.PreprocessedMask!, 1) };
+            WorkflowExecution.MaskedEdit(boundGraph, expandedInputs, request, capabilities);
+        }
+        WorkflowExecution.Loras(boundGraph, engine, request.Settings.Loras, capabilities);
+        if (qwen) QwenImageWorkflow.Configure(boundGraph, ServerInfo, align: false);
+        if (engine.Id == "flux2-klein-intel-xpu" && binding.OutputIsComposited)
+            WorkflowExecution.MaskedEdit(boundGraph, inputs, request, capabilities);
+        editable?.Bind(boundGraph, files.GetValueOrDefault("conditioningImage"));
+        if (engine.Id == "flux2-klein-intel-xpu")
+        {
+            WorkflowExecution.NativeFluxSchedule(boundGraph);
+            WorkflowMemory.Apply(boundGraph, request.Settings.Values.GetValueOrDefault("fluxMemory")?.ToString() ?? "auto", ServerInfo, capabilities);
+        }
+        if (request.Settings.VariantMode == AiVariantMode.Batch) WorkflowExecution.Batch(boundGraph, variants);
+        if (request.Task == AiTaskKind.Upscale)
+            WorkflowExecution.Upscale(boundGraph, request.Settings.UpscaleFactor, inputs.SourceImage.Width, inputs.SourceImage.Height);
+        if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
+        {
+            boundGraph["upscale"]!["inputs"]!["resize_type.multiplier"] = request.Settings.UpscaleFactor;
+        }
+        WorkflowModels.ResolvePaths(boundGraph, capabilities);
+        return boundGraph;
+    }
+
+    internal EngineCompatibility OperationCompatibility(EngineProfile engine, AiTaskKind operation, IReadOnlyDictionary<string, string> choices, AiOperationSettings profile)
+    {
+        if (ServerCapabilities is not { } capabilities) return new(false, ["Connect to ComfyUI"]);
+        var binding = engine.Binding(operation);
+        if (binding == null) return new(false, ["No workflow for this operation"]);
+        var scene = operation is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+        var task = scene && engine.PaidApi ? AiTaskKind.ImageEdit : operation;
+        if (task != operation) binding = engine.Binding(task)!;
+        var graph = Engines.ReadWorkflow(engine, EngineCatalog.WorkflowFor(engine, operation));
+        WorkflowModels.ApplyChoices(graph, engine.Id, choices);
+        var missing = EngineCompatibility.Check(engine with { RequiredAssets = [], RequiredNodeTypes = [] }, capabilities with { Version = capabilities.Version ?? ServerInfo?.Version }).Missing.ToList();
+        var nano = NanoBanana.IsModel(engine.ApiModel);
+        if (engine.PaidApi)
+        {
+            if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
+                missing.Add("API model " + engine.ApiModel);
+            else
+            {
+                if (!nano && !PartnerPricing.Choices(capabilities, engine.ApiModel, "size").Contains("Custom"))
+                    missing.Add("Server support for custom dimensions");
+                var quality = nano ? NanoBanana.Resolution(profile.ApiQuality) : profile.ApiQuality;
+                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, nano ? "resolution" : "quality").Contains(quality))
+                    missing.Add("Server support for quality " + quality);
+            }
+        }
+        var loras = profile.ActiveLoras(engine);
+        if (scene && !engine.PaidApi)
+        {
+            if (engine.Id == QwenImageWorkflow.EngineId)
+            {
+                QwenImageWorkflow.Bind(graph, new Dictionary<string, string> { ["sourceImage"] = "preview.png" }, "", 1);
+                QwenImageWorkflow.Configure(graph, ServerInfo, align: profile.AlignPixels ?? true);
+            }
+            else WorkflowMemory.Apply(graph, profile.FluxMemory, ServerInfo, capabilities);
+            WorkflowExecution.Loras(graph, engine, loras, capabilities);
+        }
+        else
+        {
+            // Use the production binder with a small in-memory sample. No uploads or jobs are submitted.
+            using var source = Pixels.NewColor(96, 96);
+            using var mask = SelectionMask.FromRect(96, 96, new(30, 25, 70, 65));
+            var masked = task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
+            var inputs = new AiTaskInputs { SourceImage = source, ContextImage = source, CanvasWidth = 96, CanvasHeight = 96,
+                SelectionMask = masked ? mask : null, PreprocessedMask = mask, PreprocessedImage = source, BackgroundMask = mask, AlphaMask = mask,
+                TargetBounds = masked ? new(30, 25, 70, 65) : source.Info.Rect, ExpansionBounds = source.Info.Rect };
+            var request = new AiTaskRequest { Task = task, ExpansionMinimumSide = 96, Settings = new AiGenerationSettings { Width = 96, Height = 96,
+                UpscaleFactor = profile.UpscaleFactor, Loras = loras, Variants = Math.Clamp(profile.Variants, 1, 3),
+                  VariantMode = nano || engine.Id == QwenImageWorkflow.EngineId ? AiVariantMode.List : profile.VariantMode,
+                  Values = new() { ["apiQuality"] = profile.ApiQuality, ["fluxMemory"] = profile.FluxMemory } } };
+            using var api = engine.PaidApi ? new PartnerImageInputs(inputs, request, engine.ApiModel) : null;
+            using var qwen = engine.Id == QwenImageWorkflow.EngineId ? new QwenImageInputs(inputs, request) : null;
+            using var editable = masked && engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
+                ? new EditableMaskedWorkflow(inputs, request) : null;
+            var files = (qwen?.Images.Keys.AsEnumerable() ?? api?.Images.Keys.AsEnumerable() ?? inputs.Images().Keys)
+                .ToDictionary(k => k, k => "preview.png", StringComparer.OrdinalIgnoreCase);
+            graph = BuildExecutionGraph(graph, engine, binding, inputs, request, files, 1, capabilities, source.Info.Rect, editable, qwen, api, request.Settings.Variants);
+        }
+        WorkflowModels.ResolvePaths(graph, capabilities);
+        missing.AddRange(EngineCompatibility.CheckWorkflow(graph, capabilities).Missing);
+        return new(missing.Count == 0, missing.Distinct().ToArray());
+    }
 
     internal void SetConnectedForTests(ComfyServerCapabilities? capabilities = null)
     {

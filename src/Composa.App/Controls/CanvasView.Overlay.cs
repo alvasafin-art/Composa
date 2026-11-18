@@ -32,10 +32,16 @@ public sealed partial class CanvasView
             {
                 using var line = new SKPaint { Color = new SKColor(172, 148, 255, 215), StrokeWidth = hair,
                     Style = SKPaintStyle.Stroke, IsAntialias = true, PathEffect = SKPathEffect.CreateDash([5 * hair, 4 * hair], 0) };
+                using var outline = new SKPaint { Color = new SKColor(28, 20, 49, 175), StrokeWidth = 2 * hair, Style = SKPaintStyle.Stroke };
+                canvas.DrawRect(screen, outline);
                 canvas.DrawRect(screen, line);
                 using var font = new SKFont(SKTypeface.Default, 11 * hair);
                 using var label = new SKPaint { Color = line.Color, IsAntialias = true };
-                canvas.DrawText("AI context", screen.Left + 4 * hair, screen.Top - 4 * hair, font, label);
+                var baseline = Math.Max(13 * hair, screen.Top - 4 * hair);
+                using var plate = new SKPaint { Color = new SKColor(29, 24, 41, 225), IsAntialias = true };
+                canvas.DrawRoundRect(new SKRect(screen.Left, baseline - 12 * hair, screen.Left + font.MeasureText("AI context") + 8 * hair, baseline + 3 * hair), 2 * hair, 2 * hair, plate);
+                label.Color = new SKColor(225, 215, 255);
+                canvas.DrawText("AI context", screen.Left + 4 * hair, baseline, font, label);
             });
         }
 

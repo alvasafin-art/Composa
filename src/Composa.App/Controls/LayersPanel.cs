@@ -342,8 +342,7 @@ public sealed partial class LayersPanel : UserControl
             link.Click += (_, _) => current.SetMaskLinked(layer, !layer.MaskLinked);
             content.Children.Add(link);
             var maskThumb = Thumb(new Image { Source = Thumbnail(layer.Mask), Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
-                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask);
-            if (layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask) maskThumb.BorderBrush = Palette.Accent;
+                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask, mask: true);
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
             ToolTip.SetTip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
             maskThumb.AddHandler(PointerPressedEvent, (_, e) =>
@@ -484,7 +483,7 @@ public sealed partial class LayersPanel : UserControl
         if (layer.SmartFilterMask is { } mask)
         {
             var thumbnail = Thumb(new Image { Source = Thumbnail(mask), Stretch = Stretch.Uniform, Opacity = layer.SmartFilterMaskEnabled ? 1 : .35 },
-                current.ActiveLayer?.Id == layer.Id && current.IsEditingSmartFilterMask);
+                current.ActiveLayer?.Id == layer.Id && current.IsEditingSmartFilterMask, mask: true);
             ToolTip.SetTip(thumbnail, "Smart filter mask: paint black to hide filtering, white to reveal it; Shift-click to disable");
             thumbnail.PointerPressed += (_, e) =>
             {
@@ -548,14 +547,22 @@ public sealed partial class LayersPanel : UserControl
         effectDropRow = null;
     }
 
-    private static Border Thumb(Control child, bool highlighted, Action? click = null)
+    private static Border Thumb(Control child, bool highlighted, bool mask = false)
     {
         var border = new Border
         {
             Width = 34, Height = 34, Child = child, Background = new SolidColorBrush(Color.Parse("#4A4A4A")), ClipToBounds = true,
             BorderBrush = highlighted ? Brushes.White : new SolidColorBrush(Color.Parse("#161616")), BorderThickness = new Thickness(highlighted ? 2 : 1)
         };
-        _ = click;
+        if (highlighted && mask)
+        {
+            border.Name = "ActiveMaskThumbnail";
+            border.CornerRadius = new CornerRadius(7);
+            border.BorderBrush = Palette.Accent;
+            border.Child = null;
+            border.Child = new Border { CornerRadius = new CornerRadius(5), BorderBrush = Brushes.White,
+                BorderThickness = new Thickness(1), ClipToBounds = true, Child = child };
+        }
         return border;
     }
 

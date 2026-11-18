@@ -32,6 +32,8 @@ public class ObjectPropertiesUiTests
         SliderField Field(string label) => window.GetVisualDescendants().OfType<SliderField>().Single(f => f.Label == label);
         CheckBox Check(string label) => window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == label);
         Assert.Empty(window.OwnedWindows);
+        Click(window, window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties"));
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(20, Field("Corner radius").Value);
         Assert.Equal(2, Field("Stroke width").Value);
         Assert.True(Field("Corner radius").TranslatePoint(new Point(Field("Corner radius").Bounds.Width, 0), window)!.Value.X < 1190);

@@ -34,6 +34,7 @@ public sealed partial class MainWindow
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
         StackPanel? inspector = null;
+        StackPanel? appearance = null;
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
@@ -61,7 +62,11 @@ public sealed partial class MainWindow
                     break;
                 }
                 Add(Title("Move"));
-                if (!s.IsEditingChannel && s.ActiveLayer?.Shape != null) BuildShapeFields(row);
+                if (!s.IsEditingChannel && s.ActiveLayer?.Shape != null)
+                {
+                    appearance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                    BuildShapeFields(appearance, row);
+                }
                 if (s.IsEditingChannel) { BuildTransformFields(row); break; }
                 var geometry = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Classes = { "options" } };
                 BuildTransformFields(geometry);
@@ -236,8 +241,9 @@ public sealed partial class MainWindow
             var actions = ResponsiveOptions(row);
             if (inspector != null && geometryOpen)
             {
-                optionsHost.Height = 75;
-                toolOptionsHost.Child = Ui.Column(6, actions, new ScrollViewer { Content = inspector,
+                optionsHost.Height = appearance == null ? 75 : 108;
+                var fields = appearance == null ? inspector : Ui.Column(5, inspector, appearance);
+                toolOptionsHost.Child = Ui.Column(6, actions, new ScrollViewer { Content = fields,
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
             }
             else toolOptionsHost.Child = actions;
@@ -279,7 +285,7 @@ public sealed partial class MainWindow
     }
 
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
-    private void BuildShapeFields(StackPanel row)
+    private void BuildShapeFields(StackPanel row, StackPanel? quick = null)
     {
         var s = session!;
         var id = s.ActiveLayer!.Id;
@@ -315,7 +321,10 @@ public sealed partial class MainWindow
             refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToDisplay(s.Document.Profile, DisplayProfile)); };
             return swatch;
         }
-        row.Children.Add(Ui.Separator());
+        if (quick != null)
+            quick.Children.Add(Ui.Row(5, Ui.Label(style.Kind == ShapeKind.Line ? "Color" : "Fill", Palette.Secondary),
+                Swatch("Fill", st => st.Fill, (st, c) => st with { Fill = c, FillEnabled = true })));
+        else row.Children.Add(Ui.Separator());
         if (style.Kind == ShapeKind.Line)
         {
             row.Children.Add(Ui.Row(5, Ui.Label("Color", Palette.Secondary), Swatch("Line", st => st.Fill, (st, c) => st with { Fill = c })));

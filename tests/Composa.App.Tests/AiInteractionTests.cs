@@ -19,6 +19,31 @@ namespace Composa.App.Tests;
 
 public class AiInteractionTests
 {
+    [AvaloniaFact]
+    public async Task Previewing_generation_area_restores_canvas_and_preserves_selection()
+    {
+        var window = new MainWindow();
+        window.Settings.CheckForUpdates = false;
+        window.Settings.AiShowContextBounds = false;
+        window.Show();
+        try
+        {
+            var editor = EditorSession.NewCanvas(400, 300, SKColors.White);
+            window.AddSession(editor);
+            editor.SelectRect(new SKRect(90, 80, 120, 130));
+            var selection = editor.Selection;
+            var history = editor.History.CurrentId;
+            var area = AutomaticAiMask.Geometry(new(90, 80, 120, 130), editor.Document.Bounds).Bounds;
+            var preview = window.PreviewAiContext(area);
+            Assert.Equal(area, window.Canvas.AiContextBounds);
+            await preview;
+            Assert.Null(window.Canvas.AiContextBounds);
+            Assert.Same(selection, editor.Selection);
+            Assert.Equal(history, editor.History.CurrentId);
+        }
+        finally { window.Close(); }
+    }
+
     [Theory]
     [InlineData(SelectionMode.Replace, false, true)]
     [InlineData(SelectionMode.Add, true, true)]
@@ -120,7 +145,7 @@ public class AiInteractionTests
         dialog.GetVisualDescendants().OfType<Expander>().Single(e => e.Header as string == "Defaults by operation").IsExpanded = true; Dispatcher.UIThread.RunJobs();
         var pickers=dialog.GetVisualDescendants().OfType<ComboBox>().Where(c=>c.Items.Cast<object>().Contains("Use default model")).ToArray();
         Assert.True(pickers.Length>=10); Assert.Contains(pickers,c=>!c.Items.Cast<object>().Contains("CHAT GPT 2.5"));
-        var generation=pickers[0];generation.SelectedItem="FLUX.2 Klein";
+        var generation=pickers[0];generation.SelectedItem=generation.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "flux2-klein-intel-xpu");
         Assert.True(Screenshots.Save(dialog,"ai-workflow-by-task"));
         dialog.Close(accept);Assert.Equal(accept,await pending);
         if(accept) { Assert.Equal("flux2-klein-intel-xpu",settings.EngineForTask(AiTaskKind.GenerateImage));Assert.Single(settings.AiTaskEngineIds); }
@@ -161,8 +186,8 @@ public class AiInteractionTests
             var dialog = Assert.Single(owner.OwnedWindows);
             Dispatcher.UIThread.RunJobs();
             var qwen = owner.AiTasks.Engines.Find("qwen-image-2.1-turbo")!;
-            var picker = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible && c.Items.Contains(qwen.DisplayName));
-            picker.SelectedItem = qwen.DisplayName;
+            var picker = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible && c.Items.OfType<ImageModelChoice>().Any(m => m.Engine.Id == qwen.Id));
+            picker.SelectedItem = picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == qwen.Id);
             dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Make default"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             dialog.Close(true);

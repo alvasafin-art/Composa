@@ -146,7 +146,8 @@ public class NanoBananaTests
             quality.SelectedItem="high";
             model.SelectedItem=model.Items.OfType<ImageModelChoice>().Single(m=>m.Engine.Id==Pack().Id); Dispatcher.UIThread.RunJobs(); Assert.Equal("2K",quality.SelectedItem);
             quality.SelectedItem="4K"; Dispatcher.UIThread.RunJobs();
-            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(),t=>t.Text?.Contains("Nano Banana: 4K · 4:1")==true);
+            var size = combos.Single(c => c.Items.OfType<string>().Contains("Original size"));
+            Assert.Contains("Nano Banana: 4K · 4:1", Assert.IsType<string>(ToolTip.GetTip(size)));
             Assert.True(Screenshots.Save(dialog,"nano-banana-2-generation-resolution"));
             model.SelectedItem=model.Items.OfType<ImageModelChoice>().Single(m=>m.Engine.Id=="chatgpt-image-2.5"); Dispatcher.UIThread.RunJobs(); Assert.Equal("high",quality.SelectedItem);
             dialog.Close(false); Assert.Null(await pending);

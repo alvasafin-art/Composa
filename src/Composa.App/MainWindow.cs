@@ -73,6 +73,8 @@ public sealed partial class MainWindow : Window
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
             ModelSelections = settings.ComfyModelsFor,
             EngineIdForTask = settings.EngineForTask,
+            PreferredModelRoutes = () => settings.AiModelRoutes,
+            ModelKeyForTask = task => settings.AiTaskModelKeys.GetValueOrDefault((task == AiTaskKind.SelectSubject ? AiTaskKind.ObjectSelection : task).ToString()),
             AdditionalPromptForPack = id => settings.PromptFor(id) is { Enabled: true } value ? value.Text : "",
             ApiKey = () => (Settings.Persist ? UserApiKeys.Read(UserApiKeys.Target("Comfy", ComfyServerAddress.Parse(settings.ComfyServerUrl).HttpBase)) : null)
                 ?? (string.IsNullOrWhiteSpace(settings.ComfyApiKeyEnvironment) ? null : Environment.GetEnvironmentVariable(settings.ComfyApiKeyEnvironment)),
@@ -324,6 +326,8 @@ public sealed partial class MainWindow : Window
             if (session.ColorRange != null) session.CommitColorRange();
         }
         var tool = session?.Tool ?? Tool.Move;
+        previewRevision++;
+        previewContext = null;
         session = next;
         fillModelDraft = null;
         aiFloatingPinnedPosition = null;

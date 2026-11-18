@@ -116,6 +116,9 @@ public sealed class Settings
     /// <summary>GPT crop context in source pixels, independent of FLUX context and final mask feathering.</summary>
     public int AiGptContextPadding { get; set; } = AI.PartnerImageInputs.DefaultContextPadding;
     public Dictionary<string, Dictionary<string, AiOperationSettings>> GenerationPresets { get; set; } = [];
+    // The model key identifies an API model or a checkpoint. Engine ids remain routing hints for installed workflows.
+    public Dictionary<string, string> AiModelRoutes { get; set; } = [];
+    public Dictionary<string, string> AiTaskModelKeys { get; set; } = [];
     public Dictionary<string, string> AiTaskEngineIds { get; set; } = [];
     public string? EngineForTask(Composa.AI.AiTaskKind task)
     {
@@ -313,6 +316,7 @@ public sealed record AiPromptSetting(bool Enabled, string Text);
 
 public sealed record AiOperationSettings
 {
+    public bool? AlignPixels { get; init; }
     public Composa.AI.SceneEditSettings Scene { get; init; } = new();
     public bool OriginalSize { get; init; } = true;
     public double Megapixels { get; init; } = 1;
@@ -327,6 +331,9 @@ public sealed record AiOperationSettings
     public long Seed { get; init; } = -1;
     public int Variants { get; init; } = 1;
     public Composa.AI.AiVariantMode VariantMode { get; init; } = Composa.AI.AiVariantMode.List;
+    internal IReadOnlyList<Composa.AI.AiLora> ActiveLoras(Composa.AI.EngineProfile? engine) =>
+        engine?.Lora.Supported == true && LorasEnabled
+            ? Loras.Take(3).Select(lora => new Composa.AI.AiLora(lora.Name, lora.Strength, lora.Enabled)).ToArray() : [];
     public bool LorasEnabled { get; init; }
     public List<AiLoraSetting> Loras { get; init; } = [];
     public string ApiQuality { get; init; } = "low";

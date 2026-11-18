@@ -43,7 +43,7 @@ public sealed partial class AiTaskService
             using var apiInputs=engine.PaidApi ? SceneApiInputs(scene,request) : null;
             var editRequest=request with {Task=AiTaskKind.ImageEdit,Prompt=SceneEditingWorkflow.Prompt(request,scene.LightHint)};
             using var partner=apiInputs==null ? null : new PartnerImageInputs(apiInputs,editRequest,engine.ApiModel);
-            var workflow=engine.PaidApi ? engine.Workflow(engine.Binding(AiTaskKind.ImageEdit)!.Workflow) : engine.Workflow("sceneEdit");
+            var workflow=EngineCatalog.WorkflowFor(engine, request.Task);
             var baseGraph=Engines.ReadWorkflow(engine,workflow);
             if(engine.PaidApi)
             {

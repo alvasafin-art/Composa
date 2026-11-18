@@ -26,7 +26,15 @@ public sealed class EngineCatalog
         Errors = errors;
     }
 
-    private readonly Dictionary<(string Engine, string Workflow), WorkflowModelSlot?> primarySlots = [];
+    internal static EngineWorkflow WorkflowFor(EngineProfile engine, AiTaskKind task)
+    {
+        var scene = task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+        if (scene && !engine.PaidApi) return engine.Workflow("sceneEdit");
+        return engine.Workflow(engine.Binding(scene ? AiTaskKind.ImageEdit : task)?.Workflow
+            ?? throw new InvalidDataException($"No workflow for {task.DisplayName()}."));
+    }
+
+    private readonly Dictionary<(string Engine, AiTaskKind Operation), WorkflowModelSlot?> primarySlots = [];
 
     internal ImageModelChoice ModelFor(EngineProfile engine, AiTaskKind task, IReadOnlyDictionary<string, string> choices)
     {
@@ -35,13 +43,15 @@ public sealed class EngineCatalog
         var binding = engine.Binding(task);
         if (asset == null && binding != null)
         {
-            var key = (engine.Id, binding.Workflow);
+            var key = (engine.Id, task);
             if (!primarySlots.TryGetValue(key, out var slot))
             {
                 try
                 {
-                    var graph = ReadWorkflow(engine, engine.Workflow(binding.Workflow));
-                    slot = WorkflowModels.Slots(graph, engine.Id).FirstOrDefault(s => s.Kind == EngineAssetKind.DiffusionModel);
+                    var graph = ReadWorkflow(engine, WorkflowFor(engine, task));
+                    var slots = WorkflowModels.Slots(graph, engine.Id);
+                    slot = slots.FirstOrDefault(s => s.Kind == EngineAssetKind.DiffusionModel)
+                        ?? slots.FirstOrDefault(s => s.Kind is EngineAssetKind.Upscaler or EngineAssetKind.BackgroundRemoval);
                     primarySlots[key] = slot;
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or KeyNotFoundException)
@@ -53,18 +63,19 @@ public sealed class EngineCatalog
             {
                 asset = choices.GetValueOrDefault(slot.Key) ?? slot.Default;
                 var filename = asset.Replace('\\', '/').Split('/').Last();
-                if (title == null || filename != slot.Default.Replace('\\', '/').Split('/').Last())
+                if (title == null || slot.Kind != EngineAssetKind.DiffusionModel || filename != slot.Default.Replace('\\', '/').Split('/').Last())
                     title = Path.GetFileNameWithoutExtension(filename);
             }
         }
         return new ImageModelChoice(title ?? asset ?? engine.DisplayName, asset ?? engine.Id, engine);
     }
 
-    internal ImageModelChoice[] ImageModels(AiTaskKind task, EngineProfile? preferred, IReadOnlyDictionary<string,string> choices)
+    internal ImageModelChoice[] ImageModels(AiTaskKind task, EngineProfile? preferred, IReadOnlyDictionary<string,string> choices, IReadOnlyDictionary<string,string>? routes = null)
     {
         return Profiles.Where(p => p.Binding(task) != null).Select(p => ModelFor(p, task, choices))
-            .GroupBy(m => (m.Engine.PaidApi, m.Identifier))
-            .Select(group => group.FirstOrDefault(m => m.Engine.Id == preferred?.Id) ?? group.First()).ToArray();
+            .GroupBy(m => m.ModelKey)
+            .Select(group => group.FirstOrDefault(m => m.Engine.Id == routes?.GetValueOrDefault(group.Key))
+                ?? group.FirstOrDefault(m => m.Engine.Id == preferred?.Id) ?? group.First()).ToArray();
     }
 
     public EngineProfile? Find(string? id) => Profiles.FirstOrDefault(profile => profile.Id == id) ?? Profiles.FirstOrDefault();
@@ -85,7 +96,11 @@ public sealed class EngineCatalog
         .DistinctBy(slot => slot.Key).OrderBy(slot => slot.Kind).ThenBy(slot => slot.NodeId, StringComparer.Ordinal).ToArray();
 }
 
-internal sealed record ImageModelChoice(string Name, string Identifier, EngineProfile Engine);
+internal sealed record ImageModelChoice(string Name, string Identifier, EngineProfile Engine)
+{
+    public string ModelKey => (Engine.PaidApi ? "api:" : "server:") + Identifier.Replace('\\', '/');
+}
+
 
 public static class AppPromptPresets
 {

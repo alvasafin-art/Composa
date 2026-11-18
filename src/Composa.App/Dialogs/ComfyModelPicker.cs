@@ -14,6 +14,13 @@ public sealed class ComfyModelPicker : StackPanel
     private readonly Dictionary<string, Dictionary<string, string>> drafts = new(StringComparer.Ordinal);
     private readonly HashSet<string> changed = new(StringComparer.Ordinal);
     public event Action? ChoicesChanged;
+    private AiTaskKind? operation;
+    public void SetOperation(AiTaskKind? value)
+    {
+        if (operation == value) return;
+        operation = value;
+        Refresh();
+    }
     private sealed record Option(string? Name, string Label) { public override string ToString() => Label; }
 
     public ComfyModelPicker(Settings settings, AiTaskService service, Func<string> serverUrl)
@@ -53,13 +60,18 @@ public sealed class ComfyModelPicker : StackPanel
 
         if (!connected) Children.Add(Note("Refresh models to read this server. Lists from another computer are not used."));
         if (service.SelectedEngine is not { } engine) { Children.Add(Note("Select a workflow pack first.")); return; }
-        foreach (var workflow in engine.Workflows)
-        {
-            var uses = engine.Tasks.Where(t => t.Workflow == workflow.Id).Select(t => t.Task.DisplayName());
-            Children.Add(Note(string.Join(", ", uses) + " · " + workflow.File));
-        }
         WorkflowModelSlot[] slots;
-        try { slots = engine.PaidApi ? [] : service.Engines.ModelSlots(engine).ToArray(); }
+        try
+        {
+            var scoped = operation is { } task && engine.Binding(task) != null ? EngineCatalog.WorkflowFor(engine, task) : null;
+            foreach (var workflow in scoped == null ? engine.Workflows : [scoped])
+            {
+                var path = new SelectableTextBlock { Text = workflow.File, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary };
+                Children.Add(path);
+            }
+            slots = engine.PaidApi ? [] : scoped == null ? service.Engines.ModelSlots(engine).ToArray()
+                : WorkflowModels.Slots(service.Engines.ReadWorkflow(engine, scoped), engine.Id).ToArray();
+        }
         catch (Exception error) when (error is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException)
         {
             Children.Add(Note(error.Message));

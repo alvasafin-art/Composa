@@ -18,10 +18,11 @@ public sealed class CommandSearchWindow : Window
     private readonly TextBlock status = Ui.Label("", Palette.Secondary);
     private readonly IReadOnlyList<Shortcut> commands;
     private readonly Func<Shortcut, bool> canRun;
+    private readonly Func<Shortcut, string> reason;
 
-    public CommandSearchWindow(IReadOnlyList<Shortcut> commands, Func<Shortcut, bool> canRun)
+    public CommandSearchWindow(IReadOnlyList<Shortcut> commands, Func<Shortcut, bool> canRun, Func<Shortcut, string> reason)
     {
-        this.commands = commands.Where(c => !c.Hidden).ToArray(); this.canRun = canRun;
+        this.commands = commands.Where(c => !c.Hidden).ToArray(); this.canRun = canRun; this.reason = reason;
         Title = "Find Command"; Width = 620; SizeToContent = SizeToContent.Height; CanResize = false; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children = { query, results, status, Ui.Label("↑ ↓ to choose · Enter to run · Esc to close", Palette.Secondary) } };
         query.TextChanged += (_, _) => Rebuild();
@@ -70,7 +71,7 @@ public sealed class CommandSearchWindow : Window
         results.SelectedIndex = matching.Length > 0 ? 0 : -1; RefreshStatus();
     }
     private void RefreshStatus()
-    { status.Text = results.SelectedItem is ListBoxItem { Tag: Shortcut c } && !canRun(c) ? "Unavailable in the current editor state" : results.ItemCount == 0 ? "No matching commands" : $"{results.ItemCount} commands"; }
+    { status.Text = results.SelectedItem is ListBoxItem { Tag: Shortcut c } && !canRun(c) ? reason(c) : results.ItemCount == 0 ? "No matching commands" : $"{results.ItemCount} commands"; }
     private void RunSelected()
     { if (results.SelectedItem is not ListBoxItem { Tag: Shortcut command }) return; if (!canRun(command)) { RefreshStatus(); return; } Close(command); }
 }

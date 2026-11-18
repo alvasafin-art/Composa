@@ -48,11 +48,11 @@ public sealed partial class MainWindow
             menu.Items.Add(top);
             return top;
         }
-        MenuItem Item(string name, Action run, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, Func<bool>? enabled = null, bool needsDocument = true, string? id = null, bool viewOnly = false)
+        MenuItem Item(string name, Action run, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, Func<bool>? enabled = null, bool needsDocument = true, string? id = null, bool viewOnly = false, string? unavailableReason = null)
         {
             var gesture = key == Key.None ? null : new KeyGesture(key, modifiers);
             var guard = needsDocument ? () => HasDocument && (enabled?.Invoke() ?? true) : enabled;
-            var command = new Shortcut(id ?? name.TrimEnd('…'), name.TrimEnd('…'), "Menus", gesture, run, guard, viewOnly: viewOnly);
+            var command = new Shortcut(id ?? name.TrimEnd('…'), name.TrimEnd('…'), "Menus", gesture, run, guard, viewOnly: viewOnly) { UnavailableReason = unavailableReason };
             commands.Add(command);
             var item = new MenuItem { Header = name, InputGesture = gesture };
             item.Click += (_, _) => Execute(command);
@@ -92,16 +92,16 @@ public sealed partial class MainWindow
         redoItem = Item("Redo", () => session!.Redo(), Key.Z, ctrl | shift, () => session!.CanRedo);
         commands.Add(new Shortcut("Redo (Ctrl+Y)", "Redo", "Menus", new KeyGesture(Key.Y, ctrl), () => session!.Redo(), () => HasDocument && session!.CanRedo, hidden: true));
         Top("_Edit", undoItem, redoItem, Line(),
-            Item("Cut", () => _ = Cut(), Key.X, ctrl, () => session!.CanCopy),
-            Item("Copy", () => _ = Copy(merged: false), Key.C, ctrl, () => session!.CanCopy),
+            Item("Cut", () => _ = Cut(), Key.X, ctrl, () => session!.CanCopy, unavailableReason: "Select a layer or channel to copy."),
+            Item("Copy", () => _ = Copy(merged: false), Key.C, ctrl, () => session!.CanCopy, unavailableReason: "Select a layer or channel to copy."),
             Item("Copy Merged", () => _ = Copy(merged: true), Key.C, ctrl | shift),
             Item("Paste", () => _ = Paste(), Key.V, ctrl),
             Sub("Paste Special",
                 Item("Paste in Place", () => _ = Paste(PasteKind.InPlace), Key.V, ctrl | shift),
-                Item("Paste Into", () => _ = Paste(PasteKind.Into), Key.V, ctrl | alt | shift, () => session!.Selection != null)),
+                Item("Paste Into", () => _ = Paste(PasteKind.Into), Key.V, ctrl | alt | shift, () => session!.Selection != null, unavailableReason: "Make a selection first.")),
             Line(),
-            Item("Fill with Foreground Color", () => session!.Fill(session.Foreground, "Fill"), Key.Back, alt, () => session!.CanFill),
-            Item("Fill with Background Color", () => session!.Fill(session.Background, "Fill"), Key.Back, ctrl, () => session!.CanFill),
+            Item("Fill with Foreground Color", () => session!.Fill(session.Foreground, "Fill"), Key.Back, alt, () => session!.CanFill, unavailableReason: "Select an editable layer or mask to fill."),
+            Item("Fill with Background Color", () => session!.Fill(session.Background, "Fill"), Key.Back, ctrl, () => session!.CanFill, unavailableReason: "Select an editable layer or mask to fill."),
             Item("Clear", DeletePressed, Key.Delete),
             Item("Content-Aware Fill…", () => _ = ContentAwareFillWorkspace(), Key.Back, shift, () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
             Line(),
@@ -110,35 +110,35 @@ public sealed partial class MainWindow
 
         Top("_Select",
             Item("All", () => session!.SelectAll(), Key.A, ctrl),
-            Item("Deselect", () => session!.Deselect(), Key.D, ctrl, () => session!.Selection != null),
+            Item("Deselect", () => session!.Deselect(), Key.D, ctrl, () => session!.Selection != null, unavailableReason: "Make a selection first."),
             Item("Inverse", () => session!.InvertSelection(), Key.I, ctrl | shift),
             Line(),
             Item("Layer's Pixels", () => session!.SelectLayerPixels(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.Pixels != null),
             Item("Layer's Mask", () => session!.SelectLayerMask(session.ActiveLayer!), enabled: () => session!.ActiveLayer?.Mask != null),
             Item("Subject", SelectSubject, Key.A, ctrl | alt),
             Item("Color Range…", ShowColorRange, enabled: () => session!.CanSelectColorRange),
-            Item("Save Selection…", () => _ = SaveSelectionChannel(), enabled: () => session!.Selection != null),
+            Item("Save Selection…", () => _ = SaveSelectionChannel(), enabled: () => session!.Selection != null, unavailableReason: "Make a selection first."),
             Item("Load Selection…", () => _ = LoadSelectionChannel(), enabled: () => session!.Document.AlphaChannels.Count > 0),
-            Item("Select and Mask…", () => _ = RefineSelection(), enabled: () => session!.Selection != null),
+            Item("Select and Mask…", () => _ = RefineSelection(), enabled: () => session!.Selection != null, unavailableReason: "Make a selection first."),
             Line(),
-            Item("Expand…", () => _ = ModifySelection("Expand Selection", "Expand by", () => session!.SelectionExpandAmount, 500, v => { session!.SelectionExpandAmount = v; session.ExpandSelection(v); }), enabled: () => session!.Selection != null),
-            Item("Contract…", () => _ = ModifySelection("Contract Selection", "Contract by", () => session!.SelectionContractAmount, 500, v => { session!.SelectionContractAmount = v; session.ContractSelection(v); }), enabled: () => session!.Selection != null),
-            Item("Feather…", () => _ = ModifySelection("Feather Selection", "Feather radius", () => session!.SelectionFeatherAmount, 250, v => { session!.SelectionFeatherAmount = v; session.FeatherSelection(v); }), Key.F6, shift, () => session!.Selection != null));
+            Item("Expand…", () => _ = ModifySelection("Expand Selection", "Expand by", () => session!.SelectionExpandAmount, 500, v => { session!.SelectionExpandAmount = v; session.ExpandSelection(v); }), enabled: () => session!.Selection != null, unavailableReason: "Make a selection first."),
+            Item("Contract…", () => _ = ModifySelection("Contract Selection", "Contract by", () => session!.SelectionContractAmount, 500, v => { session!.SelectionContractAmount = v; session.ContractSelection(v); }), enabled: () => session!.Selection != null, unavailableReason: "Make a selection first."),
+            Item("Feather…", () => _ = ModifySelection("Feather Selection", "Feather radius", () => session!.SelectionFeatherAmount, 250, v => { session!.SelectionFeatherAmount = v; session.FeatherSelection(v); }), Key.F6, shift, () => session!.Selection != null, unavailableReason: "Make a selection first."));
 
         Top("_Image",
-            Item("Curves…", () => _ = Adjust(AdjustmentKind.Curves), Key.M, ctrl, () => session!.CanEditPixels),
-            Item("Levels…", () => _ = Adjust(AdjustmentKind.Levels), Key.L, ctrl, () => session!.CanEditPixels),
-            Item("Hue/Saturation…", () => _ = Adjust(AdjustmentKind.HueSaturation), Key.U, ctrl, () => session!.CanEditPixels),
-            Item("Brightness/Contrast…", () => _ = Adjust(AdjustmentKind.BrightnessContrast), enabled: () => session!.CanEditPixels),
-            Item("Exposure…", () => _ = Adjust(AdjustmentKind.Exposure), enabled: () => session!.CanEditPixels),
-            Item("Black & White…", () => _ = Adjust(AdjustmentKind.BlackAndWhite), enabled: () => session!.CanEditPixels),
-            Item("Color Balance…", () => _ = Adjust(AdjustmentKind.ColorBalance), enabled: () => session!.CanEditPixels),
-            Item("Channel Mixer…", () => _ = Adjust(AdjustmentKind.ChannelMixer), enabled: () => session!.CanEditPixels),
-            Item("Color Lookup…", () => _ = Adjust(AdjustmentKind.ColorLookup), enabled: () => session!.CanEditPixels),
-            Item("Gradient Map…", () => _ = Adjust(AdjustmentKind.GradientMap), enabled: () => session!.CanEditPixels),
-            Item("Grain…", () => _ = Adjust(AdjustmentKind.Grain), enabled: () => session!.CanEditPixels),
-            Item("Invert", () => session!.Adjust(new InvertAdjustment()), Key.I, ctrl, () => session!.CanEditPixels),
-            Item("Auto Levels", AutoLevels, Key.L, ctrl | shift, () => session!.CanEditPixels),
+            Item("Curves…", () => _ = Adjust(AdjustmentKind.Curves), Key.M, ctrl, () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Levels…", () => _ = Adjust(AdjustmentKind.Levels), Key.L, ctrl, () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Hue/Saturation…", () => _ = Adjust(AdjustmentKind.HueSaturation), Key.U, ctrl, () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Brightness/Contrast…", () => _ = Adjust(AdjustmentKind.BrightnessContrast), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Exposure…", () => _ = Adjust(AdjustmentKind.Exposure), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Black & White…", () => _ = Adjust(AdjustmentKind.BlackAndWhite), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Color Balance…", () => _ = Adjust(AdjustmentKind.ColorBalance), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Channel Mixer…", () => _ = Adjust(AdjustmentKind.ChannelMixer), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Color Lookup…", () => _ = Adjust(AdjustmentKind.ColorLookup), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Gradient Map…", () => _ = Adjust(AdjustmentKind.GradientMap), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Grain…", () => _ = Adjust(AdjustmentKind.Grain), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Invert", () => session!.Adjust(new InvertAdjustment()), Key.I, ctrl, () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
+            Item("Auto Levels", AutoLevels, Key.L, ctrl | shift, () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."),
             Line(),
             Item("Canvas Size…", () => _ = CanvasSize(), Key.C, ctrl | alt),
             Item("Image Size…", () => _ = ImageSize(), Key.I, ctrl | alt),
@@ -148,7 +148,7 @@ public sealed partial class MainWindow
             Item("Assign Color Profile…", () => _ = EditColorProfile(assign: true)),
             Item("Convert Color Profile…", () => _ = EditColorProfile(assign: false)),
             Item("Trim…", () => _ = Trim()),
-            Item("Reveal All", () => { if (session!.RevealAll()) canvas.Fit(); }, enabled: () => session!.CanRevealAll),
+            Item("Reveal All", () => { if (session!.RevealAll()) canvas.Fit(); }, enabled: () => session!.CanRevealAll, unavailableReason: "There are no pixels outside the canvas."),
             Item("Duplicate", () => AddSession(session!.Duplicate())),
             Line(),
             Item("Rotate Canvas 90° Clockwise", () => { session!.RotateCanvas(true); canvas.Fit(); }),
@@ -157,7 +157,7 @@ public sealed partial class MainWindow
             Item("Flip Canvas Vertical", () => session!.FlipCanvas(false)));
 
         Top("F_ilter", new object[] { Item("Liquify…", () => _ = Liquify(), enabled: () => session!.CanLiquify), Line(), Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
-            .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels))).ToArray());
+            .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."))).ToArray());
 
         var generationSettings = Item("Generation settings…", () => _ = ShowAiAdvanced(), needsDocument: false, id: "AI Advanced");
         generationSettings.Icon = Icons.Create(Icons.Gear, 16, Palette.Secondary);
@@ -272,7 +272,7 @@ public sealed partial class MainWindow
                 ViewToggle("Document Bounds", v => v.SnapToDocumentBounds, v => v with { SnapToDocumentBounds = !v.SnapToDocumentBounds }, id: "Snap To Document Bounds")),
             Line(),
             ViewToggle("Lock Guides", v => v.LockGuides, v => v with { LockGuides = !v.LockGuides }, Key.OemSemicolon, ctrl | alt),
-            Item("Clear Guides", () => session!.ClearGuides(), enabled: () => session!.CanClearGuides));
+            Item("Clear Guides", () => session!.ClearGuides(), enabled: () => session!.CanClearGuides, unavailableReason: "This document has no guides to clear."));
         // '+' is Shift and '=' on most keyboards, so Zoom In answers with Shift held too.
         commands.Add(new Shortcut("Zoom In (with Shift)", "Zoom In", "Menus", new KeyGesture(Key.OemPlus, ctrl | shift), canvas.ZoomIn, () => HasDocument, hidden: true, viewOnly: true));
         commands.Add(new Shortcut("Zoom In (keypad)", "Zoom In", "Menus", new KeyGesture(Key.Add, ctrl), canvas.ZoomIn, () => HasDocument, hidden: true, viewOnly: true));

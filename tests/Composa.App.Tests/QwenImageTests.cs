@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -218,7 +219,7 @@ public class QwenImageTests
             var pending = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs();
             var dialog = Assert.Single(window.OwnedWindows);
             var tabs = dialog.GetVisualDescendants().OfType<TabControl>().Single(tabs => tabs.Name == "AiSettingsTabs"); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
-            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), box => Equals(box.SelectedItem, "Qwen Image 2.1 Turbo"));
+            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), box => box.SelectedItem is ImageModelChoice { Name: "Qwen Image 2.1 Turbo" });
             Assert.True(Screenshots.Save(dialog, "qwen21-settings"));
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Workflow and model files")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
             var page=(ScrollViewer)((TabItem)tabs.Items.Cast<TabItem>().ElementAt(1)).Content!;
@@ -306,6 +307,37 @@ public class QwenImageTests
         var text = await service.EnhanceAsync(settings, service.Engines.Find(QwenImageWorkflow.EngineId)!, AiTaskKind.ImageEdit,
             "Change the blue circle to red. Keep the white background.");
         Assert.Contains("red", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [AvaloniaFact]
+    public async Task Model_settings_search_selects_Qwen_and_reports_masked_operation_readiness()
+    {
+        var connection = new Connection { MissingAlignment = true };
+        var settings = new Settings { ComfyServerUrl = connection.Address.ToString() };
+        var service = new AiTaskService(() => settings.ComfyServerUrl, Engines, _ => connection);
+        service.SelectedEngine = service.Engines.Find("flux2-klein-intel-xpu");
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+        var owner = new Window { Width = 1100, Height = 800 }; owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service);
+            var dialog = Assert.Single(owner.OwnedWindows);
+            var search = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "SettingsSearch");
+            search.Text = "qwen"; Dispatcher.UIThread.RunJobs();
+            var matches = dialog.GetVisualDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsMatches");
+            Assert.Single(matches.Items);
+            search.Focus();
+            dialog.KeyPressQwerty(Avalonia.Input.PhysicalKey.Enter, Avalonia.Input.RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            var operation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(b => b.Name == "ModelOperation");
+            operation.SelectedItem = AiTaskKind.GenerativeFill; Dispatcher.UIThread.RunJobs();
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), b => b.Text == "Ready");
+            Assert.True(Screenshots.Save(dialog, "studio2-model-readiness"));
+            dialog.Close(false); Assert.False(await pending);
+            Assert.Equal("flux2-klein-intel-xpu", service.SelectedEngine.Id);
+            Assert.Empty(connection.Graphs); Assert.Empty(connection.Uploads);
+        }
+        finally { owner.Close(); }
     }
 
     private sealed class Connection : IComfyConnection

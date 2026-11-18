@@ -49,7 +49,7 @@ public class CommandSearchTests
         var window = new MainWindow(); window.Show();
         try
         {
-            var dialog = Open(window); Query(dialog).Text = "Invert"; Pump(); dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None); Pump(); Assert.True(dialog.IsVisible); Assert.Null(window.Session); Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Unavailable in the current editor state");
+            var dialog = Open(window); Query(dialog).Text = "Invert"; Pump(); dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None); Pump(); Assert.True(dialog.IsVisible); Assert.Null(window.Session); Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Open or create a document first.");
             Query(dialog).Text = "this command does not exist"; Pump(); Assert.Empty(Rows(dialog)); dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None); Assert.True(dialog.IsVisible);
             Query(dialog).Text = "Zoom In"; Pump(); Assert.Single(Rows(dialog)); Query(dialog).Text = "Find Command"; Pump(); Assert.Empty(Rows(dialog));
             Query(dialog).Text = "New Canvas"; Pump(); dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None); await Until(() => window.OwnedWindows.Any(w => w is DialogWindow));
