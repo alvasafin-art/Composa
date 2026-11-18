@@ -20,15 +20,26 @@ public class AiOperationSettingsTests
             window.Settings.SetOperation(Flux,AiTaskKind.GenerativeFill,window.Settings.OperationFor(Flux,AiTaskKind.GenerativeFill)
                 with { OriginalSize=false,Megapixels=0.5,MaskGrow=4,MaskBlend=8,MaskBlur=4,MaskContext=1.2 });
             var before=JsonSerializer.Serialize(window.Settings);
-            var pending=AiDialogs.Prompt(window,AiTaskKind.GenerativeFill,window.Settings,264,176,"Replace the plant with a ceramic vase",service:window.AiTasks,
+            var pending=AiDialogs.Prompt(window,AiTaskKind.GenerativeFill,window.Settings,264,176,"Replace the plant with a ceramic vase.\nKeep the light and shadows.",service:window.AiTasks,
                 hasSelection:true,sourceCanvas:new(0,0,1537,991),selectionBounds:new(600,350,864,526));
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
+            var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
+            Assert.Equal(2, prompt.MinLines);
+            var scroller = prompt.GetVisualDescendants().OfType<ScrollViewer>().Single();
+            Assert.True(scroller.Extent.Height <= scroller.Viewport.Height + 1);
             Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Expander>(), e => Equals(e.Header, "Output details"));
-            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),combo=>combo.Items.OfType<string>().Contains("Original size"));
+            var more = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiMore");
+            var flyout = Assert.IsType<Flyout>(more.Flyout);
+            Assert.False(flyout.IsOpen);
+            flyout.ShowAt(more);
+            Dispatcher.UIThread.RunJobs();
+            var size = Assert.IsType<StackPanel>(flyout.Content).GetVisualDescendants().OfType<ComboBox>().Single(c => c.Items.OfType<string>().Contains("Original size"));
+            Assert.True(flyout.IsOpen);
             Assert.Contains("816 × 624 px", Assert.IsType<string>(ToolTip.GetTip(size)));
             size.SelectedItem="Original size"; Dispatcher.UIThread.RunJobs();
             Assert.Contains("1168 × 880 px", Assert.IsType<string>(ToolTip.GetTip(size)));
             size.SelectedItem=AiDimensions.Label(0.5); Dispatcher.UIThread.RunJobs();
+            flyout.Hide();
             Assert.True(Screenshots.Save(dialog,"flux-selection-resolution-and-context"));
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(window.Settings));
         }
@@ -198,7 +209,9 @@ public class AiOperationSettingsTests
             var pending=AiDialogs.Prompt(window,AiTaskKind.ImageEdit,settings,800,600,service:window.AiTasks); Dispatcher.UIThread.RunJobs();
             var dialog=Assert.Single(window.OwnedWindows);
             var picker=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<ImageModelChoice>().Any());
-            var size=Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<string>().Contains("Original size"));
+            var more = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiMore");
+            var fields = Assert.IsType<StackPanel>(Assert.IsType<Flyout>(more.Flyout).Content);
+            var size=Assert.Single(fields.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<string>().Contains("Original size"));
             var variants=Assert.Single(dialog.GetVisualDescendants().OfType<Composa.App.AI.AiVariantButtons>());
             Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
             picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == qwen);Dispatcher.UIThread.RunJobs();Assert.Equal(AiDimensions.Label(1.5),size.SelectedItem);Assert.Equal(1,variants.Count);

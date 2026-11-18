@@ -39,6 +39,7 @@ internal sealed class AiVariantButtons : StackPanel
             var button = new ToggleButton { Name = "AiVariants" + number, Content = number.ToString(),
                 Width = 30, Height = 28, MinWidth = 0, MinHeight = 0, Padding = new Thickness(0),
                 HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+            button.Classes.Add("tool");
             AutomationProperties.SetName(button, $"{number} variants");
             ToolTip.SetTip(button, $"Select {number} variants · click again for one");
             button.IsCheckedChanged += (_, _) =>
@@ -55,6 +56,31 @@ internal sealed class AiVariantButtons : StackPanel
 
 internal static class AiGenerationControls
 {
+    internal static TextBox PromptField(string placeholder)
+    {
+        var field = new TextBox
+        {
+            AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinLines = 2, MinHeight = 50, MaxHeight = 104,
+            Padding = new Thickness(9, 5), CornerRadius = new CornerRadius(4), PlaceholderText = placeholder
+        };
+        field.Resources["TextControlBackgroundFocused"] = Palette.Window;
+        field.Resources["TextControlBorderBrushFocused"] = Palette.Secondary;
+        field.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(1);
+        return field;
+    }
+
+    internal static Border DragHandle()
+    {
+        var marks = Ui.Column(2);
+        for (var i = 0; i < 5; i++)
+            marks.Children.Add(new Border { Width = 5, Height = 2, Background = Palette.Secondary, CornerRadius = new CornerRadius(1) });
+        marks.VerticalAlignment = VerticalAlignment.Center;
+        var grip = new Border { Name = "AiDragHandle", Width = 13, Height = 28, Background = Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll), Child = marks };
+        ToolTip.SetTip(grip, "Drag to move");
+        return grip;
+    }
+
     internal static Button IconAction(Icons.Icon icon, string name, string label, Action click)
     {
         var button = Ui.IconButton(icon, label, click, 18);
@@ -68,6 +94,11 @@ internal static class AiGenerationControls
     internal static StackPanel RunGroup(Button run, AiVariantButtons variants)
     {
         run.Name = "AiRun";
+        run.Classes.Remove("accent");
+        run.Background = Palette.PanelRaised;
+        run.BorderBrush = Palette.Secondary;
+        run.BorderThickness = new Thickness(1);
+        run.CornerRadius = new CornerRadius(4);
         run.Content = Ui.Row(5, Icons.Create(Icons.Run, 12, Brushes.White), Ui.Label("Run", Brushes.White));
         run.MinHeight = run.Height = 28; run.MinWidth = 64; run.Padding = new Thickness(9, 0);
         run.HorizontalContentAlignment = HorizontalAlignment.Center; run.VerticalContentAlignment = VerticalAlignment.Center;
@@ -84,7 +115,7 @@ internal static class AiGenerationControls
             var name = Ui.Label(model.Name);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = details ? 310 : 155;
-            ToolTip.SetTip(name, model.Identifier);
+            ToolTip.SetTip(name, model.Name == model.Identifier ? model.Name : $"{model.Name}\n{model.Identifier}");
             if (!details) return name;
             return Ui.Column(3, name, Ui.Label(model.Engine.PaidApi ? "Comfy credits" : "ComfyUI server", Palette.Secondary, 11));
         }
@@ -120,5 +151,42 @@ internal static class AiGenerationControls
         picker.VerticalContentAlignment = VerticalAlignment.Center;
         picker.Background = Palette.Panel;
         AutomationProperties.SetName(picker, label);
+    }
+}
+
+/// <summary>Align the action group to the right, moving it below the tools when the canvas is narrow.</summary>
+internal sealed class AiPromptToolbar : Panel
+{
+    private readonly Control tools;
+    private readonly Control actions;
+    private const double Gap = 5;
+
+    public AiPromptToolbar(Control tools, Control actions)
+    {
+        this.tools = tools;
+        this.actions = actions;
+        Children.Add(tools);
+        Children.Add(actions);
+    }
+
+    protected override Size MeasureOverride(Size available)
+    {
+        tools.Measure(available);
+        actions.Measure(available);
+        var width = tools.DesiredSize.Width + Gap + actions.DesiredSize.Width;
+        var height = width > available.Width ? tools.DesiredSize.Height + Gap + actions.DesiredSize.Height
+            : Math.Max(tools.DesiredSize.Height, actions.DesiredSize.Height);
+        return new Size(Math.Min(width, available.Width), height);
+    }
+
+    protected override Size ArrangeOverride(Size size)
+    {
+        var left = tools.DesiredSize;
+        var right = actions.DesiredSize;
+        var wrap = left.Width + Gap + right.Width > size.Width;
+        tools.Arrange(new Rect(0, 0, Math.Min(left.Width, size.Width), left.Height));
+        actions.Arrange(new Rect(Math.Max(0, size.Width - right.Width), wrap ? left.Height + Gap : 0,
+            Math.Min(right.Width, size.Width), right.Height));
+        return size;
     }
 }

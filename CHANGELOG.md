@@ -4,7 +4,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
-- Generation dialogs keep model, prompt tools and image size in one row. Hover over image size for request dimensions. The selection panel can preview the generation area on the canvas.
+- The floating selection panel and generation dialogs place the prompt above one toolbar. It groups the model, references and edit tools on the left and Run and variant count on the right. More opens image size options. Hover over image size in the dialog for request dimensions. The selection panel can preview the generation area on the canvas.
 - Preferences can find model, connection and editor controls. Per-operation readiness identifies missing files and nodes. Model assignments and generation presets follow the selected model across workflow routes.
 - Move properties include shape appearance and geometry. The active mask thumbnail has a distinct outline.
 

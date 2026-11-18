@@ -41,10 +41,17 @@ public class DialogWindow : Window
     public Func<bool>? ValidateAccept { get; set; }
 
     public bool CanAccept { set => ok.IsEnabled = value; }
-    internal void UseGenerationVariants(AI.AiVariantButtons variants)
+    internal void PlaceGenerationActions(Panel host, AI.AiVariantButtons variants)
     {
-        var index = Buttons.Children.IndexOf(ok); Buttons.Children.Remove(ok);
-        Buttons.Children.Insert(index, AI.AiGenerationControls.RunGroup(ok, variants));
+        var cancel = Buttons.Children.OfType<Button>().Single(b => b.IsCancel);
+        Buttons.Children.Clear();
+        Buttons.IsVisible = false;
+        cancel.Classes.Add("flat");
+        cancel.MinWidth = 48;
+        cancel.Height = 28;
+        host.Children.Add(cancel);
+        host.Children.Add(AI.AiGenerationControls.RunGroup(ok, variants));
+        ((StackPanel)Content!).Margin = new Thickness(8);
     }
 
     public async Task<bool> Ask(Window owner) => await ShowDialog<bool?>(owner) == true;

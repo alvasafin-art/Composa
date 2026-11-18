@@ -44,23 +44,22 @@ public sealed partial class MainWindow
     private readonly Canvas aiFloatingLayer = new();
     private readonly Border aiFloatingHost = new()
     {
-        IsVisible = false, Width = 520, Padding = new Thickness(12), CornerRadius = new CornerRadius(8),
+        IsVisible = false, Width = 520, Padding = new Thickness(7), CornerRadius = new CornerRadius(5),
         Background = Palette.Panel, BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")),
         BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
     };
-    private readonly TextBox aiFloatingPrompt = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 46, MaxHeight = 90, Padding = new Thickness(9, 7), CornerRadius = new CornerRadius(6), PlaceholderText = "Describe the edit…" };
+    private readonly TextBox aiFloatingPrompt = AiGenerationControls.PromptField("Describe the edit…");
     private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
     private readonly List<AiReferenceItem> aiReferences = [];
     private AiReferenceEditor? aiDialogReferences;
     private bool refreshingAiEngine;
-    private StackPanel? aiFloatingBody;
+    private WrapPanel? aiFloatingTools;
     private ToggleButton? aiFloatingAlignment;
-    private Button? aiFloatingCollapse, aiFloatingAdvanced, aiHeaderReference;
+    private Button? aiFloatingCollapse, aiHeaderReference;
     private string? aiLastError;
-    private Button? aiFloatingGenerate, aiFloatingEnhance, aiFloatingMore;
+    private Button? aiFloatingGenerate, aiFloatingMore;
     private AiVariantButtons? aiVariantButtons;
     private ComboBox? aiEngineCombo;
-    private Grid? aiFloatingFooter;
     private StackPanel? aiFloatingActions;
     private readonly TextBlock aiApiCost = new() { Foreground = Palette.Secondary, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 225 };
     private readonly TextBlock aiFloatingStatus = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 230 };
@@ -245,39 +244,35 @@ public sealed partial class MainWindow
 
     private Control BuildAiFloatingMenu()
     {
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto,Auto"), Background = Brushes.Transparent, MinHeight = 30 };
-        header.Children.Add(Ui.Label("Edit selection", weight: FontWeight.SemiBold));
-        ToolTip.SetTip(header, "Drag the header to move the panel");
-        header.PointerPressed += (_, e) =>
+        var grip = AiGenerationControls.DragHandle();
+        grip.PointerPressed += (_, e) =>
         {
-            if (e.Source is Avalonia.Visual visual && visual.GetVisualAncestors().OfType<Button>().Any()) return;
-            if (e.Source is Button) return;
             if (!e.GetCurrentPoint(aiFloatingLayer).Properties.IsLeftButtonPressed) return;
             aiFloatingDragStart = e.GetPosition(aiFloatingLayer);
             aiFloatingDragPosition = new Point(Avalonia.Controls.Canvas.GetLeft(aiFloatingHost), Avalonia.Controls.Canvas.GetTop(aiFloatingHost));
-            e.Pointer.Capture(header); e.Handled = true;
+            e.Pointer.Capture(grip); e.Handled = true;
         };
-        header.PointerMoved += (_, e) =>
+        grip.PointerMoved += (_, e) =>
         {
             if (aiFloatingDragStart is not { } start) return;
             aiFloatingPinnedPosition = aiFloatingDragPosition + (e.GetPosition(aiFloatingLayer) - start);
             RefreshAiFloatingPosition(); e.Handled = true;
         };
-        header.PointerReleased += (_, e) =>
+        grip.PointerReleased += (_, e) =>
         { if (aiFloatingDragStart == null) return; aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
-        header.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
+        grip.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
         aiHeaderReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image · paste with Ctrl+V or drag files here", () => _ = PickAiReferences());
-        AddAt(header, aiHeaderReference, 1).Margin = new Thickness(0, 0, 3, 0);
-        aiFloatingEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, AiTaskKind.GenerativeFill, () => PanelEngine(AiTaskKind.GenerativeFill));
-        AddAt(header, aiFloatingEnhance, 2).Margin = new Thickness(0, 0, 3, 0);
-        var advanced = aiFloatingAdvanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
+        var enhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, AiTaskKind.GenerativeFill, () => PanelEngine(AiTaskKind.GenerativeFill));
+        var advanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
         advanced.MinWidth = 0;
-        AddAt(header, advanced, 4).Margin = new Thickness(0, 0, 5, 0);
         var close = aiFloatingCollapse = Ui.TextButton("▾", () => { settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed; settings.Save(); RefreshAiUi(); });
         close.Name = "AiFloatingCollapse";
-        close.MinWidth = 32;
+        close.Classes.Add("flat");
+        close.MinWidth = 25;
+        close.Height = 28;
+        close.Padding = new Thickness(3, 0);
+        close.VerticalContentAlignment = VerticalAlignment.Center;
         ToolTip.SetTip(close, "Collapse panel until you expand it");
-        AddAt(header, close, 5);
 
         aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(AiTaskKind.GenerativeFill, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
         aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", OpenAiFloatingTaskMenu);
@@ -287,9 +282,8 @@ public sealed partial class MainWindow
             settings.SetOperation(engine?.Id, AiTaskKind.GenerativeFill, AiOptions(AiTaskKind.GenerativeFill, engine) with { Variants = value });
             settings.Save(); RefreshAiFloatingUi();
         });
-        var actions = Ui.Row(7, aiFloatingMore, AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons));
-        actions.HorizontalAlignment = HorizontalAlignment.Right;
-        aiEngineCombo = new ComboBox { Width = 198 };
+        var run = AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons);
+        aiEngineCombo = new ComboBox { Width = 141 };
         RefreshFillModels();
         aiEngineCombo.SelectionChanged += (_, _) =>
         {
@@ -298,14 +292,6 @@ public sealed partial class MainWindow
             RefreshAiUi();
         };
         ToolTip.SetTip(aiEngineCombo, "Image model for this edit");
-        var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto") };
-        aiFloatingFooter = footer; aiFloatingActions = actions;
-        aiApiCost.HorizontalAlignment = HorizontalAlignment.Left;
-        aiApiCost.Margin = new Thickness(0, 0, 0, 5); footer.Children.Add(aiApiCost);
-        aiFloatingStatus.HorizontalAlignment = HorizontalAlignment.Right;
-        aiFloatingStatus.Margin = new Thickness(0, 0, 67, 5); AddAt(footer, aiFloatingStatus, 1);
-        Grid.SetRow(aiEngineCombo, 1); footer.Children.Add(aiEngineCombo);
-        Grid.SetRow(actions, 1); AddAt(footer, actions, 1);
         RefreshAiReferenceUi();
         aiFloatingAlignment = AiDialogs.AlignmentToggle(settings);
         aiFloatingAlignment.IsCheckedChanged += (_, _) =>
@@ -315,9 +301,16 @@ public sealed partial class MainWindow
             settings.AiAlignMaskedEdits = enabled;
             settings.Save();
         };
-        AddAt(header, aiFloatingAlignment, 3).Margin = new Thickness(0, 0, 5, 0);
-        aiFloatingBody = Ui.Column(7, aiFloatingPrompt, aiReferenceHost, footer, aiFloatingVariants);
-        return Ui.Column(7, header, aiFloatingBody);
+        aiFloatingTools = new WrapPanel { Orientation = Orientation.Horizontal };
+        aiFloatingTools.Children.AddRange([aiEngineCombo, aiHeaderReference, enhance, aiFloatingAlignment, advanced]);
+        var leading = new DockPanel();
+        DockPanel.SetDock(grip, Dock.Left);
+        leading.Children.Add(grip);
+        leading.Children.Add(aiFloatingTools);
+        aiFloatingActions = run;
+        var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
+        aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
+        return Ui.Column(4, aiFloatingPrompt, bar, aiReferenceHost, aiApiCost, aiFloatingStatus, aiFloatingVariants);
     }
 
     private void RefreshFillModels()
@@ -352,6 +345,24 @@ public sealed partial class MainWindow
             item.Click += (_, _) => _ = RunAi(task, task == AiTaskKind.RemoveObject ? "" : aiFloatingPrompt.Text ?? "", useInlinePrompt: true);
             flyout.Items.Add(item);
         }
+        var fill = AiOptions(AiTaskKind.GenerativeFill);
+        var sizes = new MenuItem { Header = "Image size" };
+        foreach (var size in new[] { 0.0 }.Concat(AiDimensions.MegapixelOptions))
+        {
+            var option = new MenuItem { Header = size == 0 ? "Original size" : AiDimensions.Label(size),
+                ToggleType = MenuItemToggleType.Radio, IsChecked = size == 0 ? fill.OriginalSize : !fill.OriginalSize && fill.Megapixels == size };
+            option.Click += (_, _) =>
+            {
+                var engine = PanelEngine(AiTaskKind.GenerativeFill);
+                var current = AiOptions(AiTaskKind.GenerativeFill, engine);
+                settings.SetOperation(engine?.Id, AiTaskKind.GenerativeFill, current with
+                    { OriginalSize = size == 0, Megapixels = size == 0 ? current.Megapixels : size });
+                settings.Save();
+            };
+            sizes.Items.Add(option);
+        }
+        flyout.Items.Add(new Separator());
+        flyout.Items.Add(sizes);
         var preview = new MenuItem { Header = "Preview generation area" };
         preview.Click += (_, _) =>
         {
@@ -359,7 +370,6 @@ public sealed partial class MainWindow
             var selection = AutomaticAiMask.ContourBounds(mask);
             if (!selection.IsEmpty) _ = PreviewAiContext(AutomaticAiMask.Geometry(selection, session.Document.Bounds).Bounds);
         };
-        flyout.Items.Add(new Separator());
         flyout.Items.Add(preview);
         if (fillModelDraft != null)
         {
@@ -385,20 +395,18 @@ public sealed partial class MainWindow
     {
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
-        aiFloatingHost.Width = settings.AiFloatingCollapsed ? 210 : 520;
-        aiReferenceHost.IsVisible = aiReferences.Count > 0;
+        aiReferenceHost.IsVisible = !settings.AiFloatingCollapsed && aiReferences.Count > 0;
+        aiFloatingPrompt.IsVisible = !settings.AiFloatingCollapsed;
+        if (aiFloatingActions != null) aiFloatingActions.IsVisible = !settings.AiFloatingCollapsed;
         if (aiHeaderReference != null) aiHeaderReference.IsVisible = !settings.AiFloatingCollapsed && aiReferences.Count == 0;
-        if (aiFloatingBody != null) aiFloatingBody.IsVisible = !settings.AiFloatingCollapsed;
-        if (aiFloatingAlignment != null)
-        {
-            aiFloatingAlignment.IsVisible = !settings.AiFloatingCollapsed;
-            aiFloatingAlignment.IsChecked = settings.AiAlignMaskedEdits;
-        }
-        if (aiFloatingEnhance != null) aiFloatingEnhance.IsVisible = !settings.AiFloatingCollapsed;
-        if (aiFloatingAdvanced != null) aiFloatingAdvanced.IsVisible = !settings.AiFloatingCollapsed;
+        if (aiFloatingTools != null) aiFloatingTools.IsVisible = !settings.AiFloatingCollapsed;
+        if (aiFloatingAlignment != null) aiFloatingAlignment.IsChecked = settings.AiAlignMaskedEdits;
+        if (aiFloatingMore != null) aiFloatingMore.IsVisible = !settings.AiFloatingCollapsed;
         if (aiFloatingCollapse != null)
         {
-            aiFloatingCollapse.Content = settings.AiFloatingCollapsed ? "▸" : "▾";
+            if (settings.AiFloatingCollapsed) aiFloatingCollapse.Content = "Edit selection  ▸";
+            else if (aiFloatingCollapse.Content is not Control) aiFloatingCollapse.Content = Icons.Create(Icons.ChevronDown, 14);
+            Avalonia.Automation.AutomationProperties.SetName(aiFloatingCollapse, settings.AiFloatingCollapsed ? "Expand panel" : "Collapse panel");
             ToolTip.SetTip(aiFloatingCollapse, settings.AiFloatingCollapsed ? "Expand panel" : "Collapse panel until you expand it");
         }
         if (!visible) return;
@@ -419,8 +427,7 @@ public sealed partial class MainWindow
             aiEngineCombo.IsEnabled = !busy;
         }
         if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(AiTaskKind.GenerativeFill).Available;
-        if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy && Enum.GetValues<AiTaskKind>().Any(task =>
-            task is not (AiTaskKind.GenerativeFill or AiTaskKind.SelectSubject) && AiAvailability(task).Available);
+        if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
         var operation = aiTasks.Operation;
         aiFloatingStatus.Text = aiLastError ?? (operation?.Status switch
         {
@@ -430,9 +437,9 @@ public sealed partial class MainWindow
             AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
             _ => ""
         });
-        aiFloatingStatus.IsVisible = !string.IsNullOrEmpty(aiFloatingStatus.Text);
+        aiFloatingStatus.IsVisible = !settings.AiFloatingCollapsed && !string.IsNullOrEmpty(aiFloatingStatus.Text);
         aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
-        aiApiCost.IsVisible = fillEngine?.PaidApi == true;
+        aiApiCost.IsVisible = !settings.AiFloatingCollapsed && fillEngine?.PaidApi == true;
         if (aiApiCost.IsVisible)
         {
             var count = 1 + aiReferences.Count; // cropped source and genuine user references only
@@ -451,15 +458,9 @@ public sealed partial class MainWindow
         if (bounds.IsEmpty) return;
         var topLeft = canvas.ToScreen(new SKPoint(bounds.Left, bounds.Top));
         var bottomRight = canvas.ToScreen(new SKPoint(bounds.Right, bounds.Bottom));
-        var width = settings.AiFloatingCollapsed ? 210 : Math.Max(340, Math.Min(520, canvas.Bounds.Width - 16));
+        var width = Math.Min(settings.AiFloatingCollapsed ? 210 : 520, Math.Max(1, canvas.Bounds.Width - 16));
         aiFloatingHost.Width = width;
-        if (aiFloatingFooter != null && aiFloatingActions != null)
-        {
-            var narrow = width < 420;
-            Grid.SetRow(aiFloatingActions, narrow ? 2 : 1); Grid.SetColumn(aiFloatingActions, narrow ? 0 : 1); Grid.SetColumnSpan(aiFloatingActions, narrow ? 2 : 1);
-            aiFloatingActions.Margin = new Thickness(0, narrow ? 7 : 0, 0, 0);
-        }
-        var height = (aiFloatingHost.Bounds.Height > 0 ? aiFloatingHost.Bounds.Height : settings.AiFloatingCollapsed ? 54 : 145);
+        var height = (aiFloatingHost.Bounds.Height > 0 ? aiFloatingHost.Bounds.Height : settings.AiFloatingCollapsed ? 44 : 82);
         var maxLeft = Math.Max(8, canvas.Bounds.Width - width - 8);
         var left = Math.Clamp((topLeft.X + bottomRight.X - width) / 2, 8, maxLeft);
         var below = bottomRight.Y + 10;
@@ -522,7 +523,7 @@ public sealed partial class MainWindow
             ToolTip.SetTip(cell, item.Name);
             items.Children.Add(cell);
         }
-        if (aiReferences.Count < 6 && (host != aiReferenceHost || aiReferences.Count > 0))
+        if (aiReferences.Count is > 0 and < 6)
         {
             var add = Ui.IconButton(Icons.Image, "Add reference image", () => _ = PickAiReferences(), 23);
             add.Width = aiReferences.Count == 0 ? 36 : 56;
@@ -623,6 +624,13 @@ public sealed partial class MainWindow
         catch { /* A clipboard that changed mid-paste is harmless. */ }
     }
 
+    internal void EnableAiReferenceDrop(Control host)
+    {
+        DragDrop.SetAllowDrop(host, true);
+        host.AddHandler(DragDrop.DropEvent, OnAiReferenceDrop);
+        host.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; });
+    }
+
     private void OnAiReferenceDrop(object? sender, DragEventArgs e)
     {
         var paths = e.DataTransfer.TryGetFiles()?.Select(file => file.TryGetLocalPath()).OfType<string>() ?? [];
@@ -684,10 +692,7 @@ public sealed partial class MainWindow
         else
         {
             var host = new StackPanel { Name = "AiDialogReferences", Spacing = 5, MaxWidth = 430 };
-            DragDrop.SetAllowDrop(host, true);
-            host.AddHandler(DragDrop.DropEvent, OnAiReferenceDrop);
-            host.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; });
-            aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText);
+            aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText, PickAiReferences);
             BuildAiReferenceUi(host);
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,

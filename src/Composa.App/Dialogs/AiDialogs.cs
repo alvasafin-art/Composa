@@ -55,6 +55,7 @@ public static partial class AiDialogs
     {
         var toggle = new ToggleButton { Name = "AiPixelAlignment", Content = Icons.Create(Icons.PixelAlignment, 18), IsChecked = settings.AiAlignMaskedEdits,
             Width = 30, Height = 28, Padding = new Thickness(4), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+        toggle.Classes.Add("tool");
         Avalonia.Automation.AutomationProperties.SetName(toggle, "Align pixels");
         ToolTip.SetTip(toggle, "Align pixels · use unchanged image details to correct small shifts before inserting the result.");
         return toggle;
@@ -993,9 +994,8 @@ public static partial class AiDialogs
         var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject" : "Whole visible image",value=>scene=scene with {Scope=value},300);
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
         var rememberedPrompt = task switch { AiTaskKind.GenerateImage => settings.GenerateImagePrompt, AiTaskKind.ImageEdit => settings.ImageEditPrompt, _ => "" };
-        var prompt = new TextBox { Text = string.IsNullOrEmpty(initialPrompt) ? rememberedPrompt : initialPrompt,
-            AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Width = 430, MinHeight = 66, MaxHeight = 116, Padding = new Thickness(10, 8),
-            CornerRadius = new CornerRadius(6), Background = Palette.Panel, PlaceholderText = "Describe the result…" };
+        var prompt = AiGenerationControls.PromptField("Describe the result…");
+        prompt.Text = string.IsNullOrEmpty(initialPrompt) ? rememberedPrompt : initialPrompt;
         var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
         var variants = Math.Clamp(profile.Variants, 1, 3); var quality = profile.ApiQuality;
         var expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : profile.ExpansionMode;
@@ -1015,6 +1015,11 @@ public static partial class AiDialogs
         qualityHost.Children.Add(Ui.Row(8, Ui.Label("Quality", Palette.Secondary), qualityCombo));
         var size = new ComboBox { Width = 115, ItemsSource = sizeOptions, SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp) };
         var expandSize = new ComboBox { Width = 245 };
+        Button? addReference = null;
+        var more = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "Image size and quality", () => { });
+        var actions = Ui.Row(3, more);
+        var imageSize = Ui.Row(8, Ui.Label("Image size", Palette.Secondary), size);
+        more.Flyout = new Flyout { Content = Ui.Column(7, imageSize, qualityHost), Placement = PlacementMode.BottomEdgeAlignedRight };
         AiGenerationControls.StyleModelField(size, "Image size");
         qualityCombo.SelectionChanged += (_, _) =>
         {
@@ -1077,8 +1082,17 @@ public static partial class AiDialogs
                 if (updated.AlignPixels is { } align) alignment.IsChecked = align;
             });
         };
-        var modelHost = new StackPanel();
-        var controls = Ui.Row(4);
+        var grip = AiGenerationControls.DragHandle();
+        grip.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed) dialog?.BeginMoveDrag(e);
+        };
+        var controls = Ui.Row(2, grip);
+        if (references != null)
+        {
+            addReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image", () => _ = references.Pick());
+            controls.Children.Add(addReference);
+        }
         if (service != null && task != AiTaskKind.GenerativeExpand)
             controls.Children.Add(EnhanceButton(prompt, settings, service, task, () => service.SelectedEngine));
         controls.Children.Add(alignment);
@@ -1088,7 +1102,7 @@ public static partial class AiDialogs
             var chosen = service.SelectedEngine;
             var choices = service.Engines.ImageModels(task == AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task,
                 chosen, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
-            var picker = new ComboBox { Width = 186 };
+            var picker = new ComboBox { Width = 145 };
             AiGenerationControls.PresentImageModels(picker, choices);
             picker.SelectedItem = choices.FirstOrDefault(m => m.Engine.Id == chosen?.Id) ?? choices.FirstOrDefault();
             picker.SelectionChanged += (_, _) =>
@@ -1098,14 +1112,7 @@ public static partial class AiDialogs
                 service.SelectedEngine = model.Engine;
                 LoadProfile(profileDrafts.GetValueOrDefault(model.Engine.Id) ?? settings.OperationFor(model.Engine.Id, task, model.Engine.PaidApi));
             };
-            var row = Ui.Row(6, picker, controls);
-            if (task != AiTaskKind.GenerativeExpand) row.Children.Add(size);
-            modelHost.Children.Add(row);
-        }
-        else
-        {
-            if (task != AiTaskKind.GenerativeExpand) controls.Children.Add(size);
-            modelHost.Children.Add(controls);
+            controls.Children.Insert(1, picker);
         }
         var resolution = hasSelection ? CanvasDialogs.Form(("Generation size", expandSize))
             : CanvasDialogs.Form(("Expand mode", mode), ("Generation size", expandSize));
@@ -1116,7 +1123,13 @@ public static partial class AiDialogs
             prompt.IsEnabled=!toneOnly;
             alignment.IsVisible = !toneOnly && task != AiTaskKind.GenerateImage;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
-            size.IsVisible = !toneOnly;
+            imageSize.IsVisible = !toneOnly && task != AiTaskKind.GenerativeExpand;
+            more.IsVisible = imageSize.IsVisible || qualityHost.IsVisible;
+            if (references != null)
+            {
+                references.View.IsVisible = references.Count > 0;
+                if (addReference != null) addReference.IsVisible = references.Count == 0;
+            }
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];
             if(!qualityCombo.Items.Cast<string>().SequenceEqual(qualityOptions)) qualityCombo.ItemsSource=qualityOptions;
@@ -1160,19 +1173,20 @@ public static partial class AiDialogs
             cost.Text = paid ? estimate?.Label ?? "Paid API · estimate unavailable" : "";
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
-        var content = Ui.Column(10, prompt, modelHost);
-        if(task==AiTaskKind.Relight) content.Children.Insert(1,Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
+        var content = Ui.Column(5, prompt, new AiPromptToolbar(controls, actions));
+        content.Width = Math.Clamp(owner.Bounds.Width > 0 ? owner.Bounds.Width - 32 : 532, 285, 532);
+        if(task==AiTaskKind.Relight) content.Children.Add(Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
         if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText="Describe the background, surface and lighting";
         if (references != null) content.Children.Add(references.View);
         if (task == AiTaskKind.GenerativeExpand) content.Children.Add(resolution);
-        content.Children.Add(qualityHost);
         content.Children.Add(cost);
         content.Children.Add(sizeError);
         var body = new ScrollViewer { Content = content, MaxHeight = Math.Clamp(owner.Bounds.Height - 170, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        dialog = new DialogWindow(task.DisplayName(), body, "Run"); dialog.UseGenerationVariants(variantButtons);
+        dialog = new DialogWindow(task.DisplayName(), body, "Run"); dialog.PlaceGenerationActions(actions, variantButtons);
         if (references != null)
         {
             references.Owner = dialog;
+            if (owner is MainWindow mainWindow) mainWindow.EnableAiReferenceDrop(dialog);
             references.Changed += Refresh;
             dialog.AddHandler(InputElement.KeyDownEvent, async (_, e) =>
             {

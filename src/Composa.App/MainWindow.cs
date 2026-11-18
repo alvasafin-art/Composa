@@ -103,8 +103,8 @@ public sealed partial class MainWindow : Window
 
         welcome = BuildWelcome();
         aiFloatingHost.Child = BuildAiFloatingMenu();
-        DragDrop.SetAllowDrop(aiFloatingHost, true);
-        aiFloatingHost.AddHandler(DragDrop.DropEvent, OnAiReferenceDrop);
+        EnableAiReferenceDrop(aiFloatingHost);
+        aiFloatingHost.SizeChanged += (_, _) => RefreshAiFloatingPosition();
         aiFloatingLayer.Children.Add(aiFloatingHost);
         var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer } };
         var center = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto") };

@@ -139,7 +139,9 @@ public class NanoBananaTests
             window.Settings.SetOperation(Pack().Id,AiTaskKind.GenerateImage,window.Settings.OperationFor(Pack().Id,AiTaskKind.GenerateImage,true) with {ApiQuality="2K"});
             var pending=AiDialogs.Prompt(window,AiTaskKind.GenerateImage,window.Settings,1600,400,service:window.AiTasks);
             Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(window.OwnedWindows);
-            var combos=dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
+            var more = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiMore");
+            var fields = Assert.IsType<StackPanel>(Assert.IsType<Flyout>(more.Flyout).Content);
+            var combos=dialog.GetVisualDescendants().Concat(fields.GetVisualDescendants()).OfType<ComboBox>().ToArray();
             var quality=Assert.Single(combos,c=>c.Items.OfType<string>().Contains("2K")); Assert.Equal("2K",quality.SelectedItem);
             var model=Assert.Single(combos,c=>c.Items.OfType<ImageModelChoice>().Any());
             model.SelectedItem=model.Items.OfType<ImageModelChoice>().Single(m=>m.Engine.Id=="chatgpt-image-2.5"); Dispatcher.UIThread.RunJobs();

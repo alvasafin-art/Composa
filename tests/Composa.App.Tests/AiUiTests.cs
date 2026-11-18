@@ -40,7 +40,9 @@ public class AiUiTests
         Assert.Equal(1, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill).Variants);
         var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");
         Assert.True(enhance.IsEnabled);
-        Assert.True(Grid.GetColumn(enhance) < Grid.GetColumn(alignment));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(enhance.TranslatePoint(new Point(enhance.Bounds.Width, 0), panel)!.Value.X
+            <= alignment.TranslatePoint(new Point(0, 0), panel)!.Value.X);
         var engines = Assert.Single(combos, combo => combo.Items.OfType<ImageModelChoice>().Any());
         var defaultEngine = window.AiTasks.SelectedEngine;
         var defaultFill = window.AiTasks.EngineFor(AiTaskKind.GenerativeFill);
@@ -60,14 +62,21 @@ public class AiUiTests
         window.AiTasks.SetConnectedForTests();
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session);
         session.SelectRect(new SKRect(120, 60, 280, 130));
+        var prompt = window.AiFloatingPanel.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
+        Dispatcher.UIThread.RunJobs();
+        var initialHeight = prompt.Bounds.Height;
+        prompt.Text = "Place a ceramic vase on the table.\nKeep the original lighting.";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(initialHeight, prompt.Bounds.Height);
+        var scroller = prompt.GetVisualDescendants().OfType<ScrollViewer>().Single();
+        Assert.True(scroller.Extent.Height <= scroller.Viewport.Height + 1);
         Assert.True(Screenshots.Save(window, "ai-panel-below-selection"));
         var panel = window.AiFloatingPanel;
         Assert.Equal(window.Canvas.ToScreen(new SKPoint(280, 130)).Y + 10, Canvas.GetTop(panel), 1);
         window.Canvas.ZoomTo(0.5); Dispatcher.UIThread.RunJobs();
         Assert.Equal(window.Canvas.ToScreen(new SKPoint(280, 130)).Y + 10, Canvas.GetTop(panel), 1);
-        var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Edit selection");
-        var header = Assert.IsType<Grid>(heading.Parent);
-        var at = header.TranslatePoint(new Point(header.ColumnDefinitions[0].ActualWidth - 8, 8), window)!.Value; // blank header, not the title text
+        var grip = panel.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "AiDragHandle");
+        var at = grip.TranslatePoint(new Point(grip.Bounds.Width / 2, grip.Bounds.Height / 2), window)!.Value;
         var original = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
         window.MouseDown(at, MouseButton.Left); window.MouseMove(at + new Vector(30, -25), RawInputModifiers.LeftMouseButton); window.MouseUp(at + new Vector(30, -25), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
@@ -75,7 +84,7 @@ public class AiUiTests
         var pinned = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
         session.SelectRect(new SKRect(320, 210, 400, 290)); Dispatcher.UIThread.RunJobs();
         Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
-        var close = header.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiFloatingCollapse");
+        var close = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiFloatingCollapse");
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         session.SelectRect(new SKRect(100, 10, 200, 70)); Dispatcher.UIThread.RunJobs();
         Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
