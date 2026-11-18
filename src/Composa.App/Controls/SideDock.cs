@@ -124,7 +124,7 @@ public sealed class SideDock : UserControl
         {
             var open = !section.State.Collapsed;
             // A collapsed section is only its header, so there is nothing to size and the splitter would only mislead.
-            var splitter = new GridSplitter { ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext, Height = 5, Background = Palette.Window, IsEnabled = open };
+            var splitter = new GridSplitter { ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext, Height = 5, Background = Palette.Panel, IsEnabled = open };
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             Grid.SetRow(splitter, grid.RowDefinitions.Count - 1);
             grid.Children.Add(splitter);

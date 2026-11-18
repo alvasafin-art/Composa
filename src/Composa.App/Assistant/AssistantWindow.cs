@@ -61,10 +61,9 @@ public sealed class AssistantWindow : Window
             this.conversation.Entries.Clear(); pending.Clear(); files.Clear(); prompt.Text = "";
             RenderAttachments(); RenderMessages(); status.Text = "New chat";
         });
-        var preferences = Ui.TextButton("⚙", () => _ = ShowSettings()); preferences.MinWidth = 36;
-        ToolTip.SetTip(preferences, "Assistant provider and settings");
+        var preferences = Ui.IconButton(Icons.Gear, "Assistant provider and settings", () => _ = ShowSettings());
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8 };
-        header.Children.Add(Ui.Label("Assistant", weight: FontWeight.SemiBold));
+        header.Children.Add(Ui.Label("Assistant", size: 16, weight: FontWeight.SemiBold));
         At(header, newChat, column: 1); At(header, preferences, column: 2);
         scroll = new ScrollViewer { Content = messages, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var applyEdits = Ui.Check("Apply requested edits", settings.AssistantApplyEdits, value => { settings.AssistantApplyEdits = value; settings.Save(); });
@@ -145,7 +144,7 @@ public sealed class AssistantWindow : Window
             attachments.Children.Add(new Border
             {
                 CornerRadius = new CornerRadius(5), Padding = new Thickness(6), Margin = new Thickness(0, 0, 6, 4),
-                Background = new SolidColorBrush(Color.Parse("#333333")),
+                Background = Palette.PanelRaised,
                 Child = Ui.Row(6, Ui.Label(file.Content.Name), remove)
             });
         }
@@ -331,7 +330,7 @@ public sealed class AssistantWindow : Window
             copy.MinWidth = 0; body.Children.Add(copy);
             messages.Children.Add(new Border
             {
-                Background = new SolidColorBrush(Color.Parse(entry.Role == "user" ? "#303B48" : "#292929")),
+                Background = entry.Role == "user" ? Palette.Selected : Palette.Panel,
                 Padding = new Thickness(12), CornerRadius = new CornerRadius(8), Child = body
             });
         }

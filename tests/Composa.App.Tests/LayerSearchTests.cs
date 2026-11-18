@@ -28,6 +28,17 @@ public class LayerSearchTests
             var panel = Panel(window); var query = Query(panel); var kind = Kind(panel); var state = session.History.CurrentId;
             using var before = session.Flatten();
             query.Text = "RED #PRODUCT"; Pump(); Assert.Equal(new[] { group.Id, product.Id }, Rows(panel).Select(row => ((Layer)row.Tag!).Id)); Assert.True(group.Collapsed);
+            var blend = panel.GetVisualDescendants().OfType<ComboBox>().Single(c => c != kind);
+            var thumb = panel.GetVisualDescendants().OfType<Slider>().Single().GetVisualDescendants().OfType<Avalonia.Controls.Primitives.Thumb>().Single();
+            var percentage = panel.GetVisualDescendants().OfType<TextBlock>().Single(b => b.Text == "100%");
+            var clear = panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ClearLayerFilter");
+            double Mid(Control control) => control.TranslatePoint(new Point(0, control.Bounds.Height / 2), panel)!.Value.Y;
+            double Left(Control control) => control.TranslatePoint(default, panel)!.Value.X;
+            Assert.InRange(Math.Abs(Mid(blend) - Mid(thumb)), 0, 1);
+            Assert.InRange(Math.Abs(Mid(thumb) - Mid(percentage)), 0, 1);
+            Assert.InRange(Math.Abs(Mid(query) - Mid(kind)), 0, 1);
+            Assert.InRange(Math.Abs(Mid(query) - Mid(clear)), 0, 1);
+            Assert.Equal(Left(blend), Left(query));
             Assert.True(Screenshots.Save(window, "layers-search-tag-rgb16"));
             kind.SelectedIndex = 2; Pump(); Assert.Empty(Rows(panel));
             kind.SelectedIndex = 1; Pump(); Assert.Equal(2, Rows(panel).Count);
@@ -58,8 +69,44 @@ public class LayerSearchTests
         finally { session.MarkSaved("search.cmps", session.History.CurrentId); window.Close(); }
     }
 
+    [AvaloniaFact]
+    public void Compact_panel_can_open_and_clear_its_filter()
+    {
+        var panel = new LayersPanel();
+        var window = new Window { Content = panel, Width = 296, Height = 260 };
+        window.Show();
+        try
+        {
+            Pump();
+            var query = Query(panel);
+            var open = panel.GetVisualDescendants().OfType<Button>().Single(b =>
+                Avalonia.Automation.AutomationProperties.GetName(b) == "Find and filter layers");
+            Assert.True(open.IsEffectivelyVisible);
+            Assert.False(query.IsEffectivelyVisible);
+            ClickButton(open);
+            Assert.True(query.IsEffectivelyVisible);
+            query.Text = "#product";
+            Pump();
+            var clear = panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ClearLayerFilter");
+            Assert.True(clear.IsEffectivelyVisible);
+            ClickButton(clear);
+            Assert.Equal("", query.Text);
+            Assert.True(open.IsEffectivelyVisible);
+            Assert.False(query.IsEffectivelyVisible);
+        }
+        finally { window.Close(); }
+
+        void ClickButton(Button button)
+        {
+            var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            Pump();
+        }
+    }
+
     private static LayersPanel Panel(MainWindow window) => window.GetVisualDescendants().OfType<LayersPanel>().Single();
-    private static TextBox Query(LayersPanel panel) => panel.GetVisualDescendants().OfType<TextBox>().Single(box => box.Watermark == "Find layers / #tag");
+    private static TextBox Query(LayersPanel panel) => panel.GetVisualDescendants().OfType<TextBox>().Single(box => box.PlaceholderText == "Find layers / #tag");
     private static ComboBox Kind(LayersPanel panel) => panel.GetVisualDescendants().OfType<ComboBox>().Single(box => box.ItemsSource is string[]);
     private static List<Border> Rows(LayersPanel panel) => panel.GetVisualDescendants().OfType<Border>().Where(row => row.Tag is Layer).ToList();
     private static Point Center(MainWindow window, Border row) => row.TranslatePoint(new Point(150, row.Bounds.Height / 2), window)!.Value;

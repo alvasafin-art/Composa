@@ -45,7 +45,8 @@ public sealed partial class MainWindow
     private readonly Border aiFloatingHost = new()
     {
         IsVisible = false, Width = 520, Padding = new Thickness(7), CornerRadius = new CornerRadius(5),
-        Background = Palette.Panel, BorderBrush = new SolidColorBrush(Color.Parse("#4A4A4A")),
+        Background = Palette.Panel, BorderBrush = Palette.Edge,
+        BoxShadow = BoxShadows.Parse("0 3 12 0 #44000000"),
         BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
     };
     private readonly TextBox aiFloatingPrompt = AiGenerationControls.PromptField("Describe the edit…");

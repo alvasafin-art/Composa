@@ -129,6 +129,7 @@ public sealed partial class MainWindow : Window
         BuildAiContextBar();
         combinedOptions.Children.Add(toolOptionsHost);
         var assistantButton = Ui.TextButton("Assistant", ShowAssistant);
+        assistantButton.Classes.Add("flat");
         assistantButton.MinWidth = 0;
         ToolTip.SetTip(assistantButton, "Open the local editing Assistant");
         generativeExpandButton = Ui.TextButton("Generative expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
@@ -137,15 +138,13 @@ public sealed partial class MainWindow : Window
         var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, assistantButton);
         AddAt(combinedOptions, intelligentTools, 1);
         optionsHost.Child = combinedOptions;
-        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*,Auto") };
         root.Children.Add(BuildMenu());
         AddRow(root, Chrome(updateNotice), 1);
         AddRow(root, Chrome(BuildTabBar()), 2);
         AddRow(root, Chrome(optionsHost), 3);
-        AddRow(root, Chrome(Ui.Separator(false)), 4);
-        AddRow(root, center, 5);
-        AddRow(root, Chrome(Ui.Separator(false)), 6);
-        AddRow(root, Chrome(BuildStatusBar()), 7);
+        AddRow(root, center, 4);
+        AddRow(root, Chrome(BuildStatusBar()), 5);
         Content = root;
         aiFloatingLayer.IsVisible = !settings.CanvasOnly;
 
@@ -384,6 +383,11 @@ public sealed partial class MainWindow : Window
                 Child = Ui.Row(8, label, close), Padding = new Thickness(12, 4, 6, 4), CornerRadius = new CornerRadius(6),
                 Background = item == session ? Palette.PanelRaised : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand)
             };
+            if (item != session)
+            {
+                tab.PointerEntered += (_, _) => tab.Background = Palette.Hover;
+                tab.PointerExited += (_, _) => tab.Background = Brushes.Transparent;
+            }
             tab.PointerPressed += (_, e) =>
             {
                 // A right-click opens the tab's menu without switching to it, as browsers do.

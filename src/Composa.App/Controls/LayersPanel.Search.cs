@@ -8,41 +8,53 @@ namespace Composa.App.Controls;
 
 public sealed partial class LayersPanel
 {
-    private readonly TextBox search = new() { Watermark = "Find layers / #tag", MaxLength = 256, MinWidth = 0 };
-    private readonly ComboBox searchKind = new() { ItemsSource = new[] { "All kinds", "Pixels", "Text", "Shapes", "Adjustments", "Smart Objects", "Groups" }, SelectedIndex = 0, Width = 114, MinWidth = 0, MinHeight = 28, Height = 28, FontSize = 11, Padding = new Thickness(7, 2) };
+    private readonly TextBox search = new() { PlaceholderText = "Find layers / #tag", MaxLength = 256, MinWidth = 0 };
+    private readonly ComboBox searchKind = new() { ItemsSource = new[] { "All kinds", "Pixels", "Text", "Shapes", "Adjustments", "Smart Objects", "Groups" }, SelectedIndex = 0, MinWidth = 0, Height = HeaderFieldHeight, FontSize = 12, Padding = new Thickness(8, 0), HorizontalAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly TextBlock searchStatus = new() { Foreground = Palette.Secondary, FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private HashSet<Guid>? filterRows;
     private bool IsFiltering => !string.IsNullOrWhiteSpace(search.Text) || searchKind.SelectedIndex > 0;
 
     private void AddSearchHeader(Grid header)
     {
-        header.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        header.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        var queryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,6,Auto,4,Auto"), Margin = new Thickness(0, 6, 0, 0) };
-        search.MinHeight = search.Height = 28; search.FontSize = 11; search.Padding = new Thickness(7, 3);
-        var clear = new Button { Content = "×", Name = "ClearLayerFilter", Width = 24, MinWidth = 0, Height = 28, MinHeight = 0, Padding = new Thickness(0), Classes = { "flat" } };
+        var queryRow = new Grid { Margin = new Thickness(0, 6, 0, 0), Height = HeaderFieldHeight };
+        search.MinHeight = search.Height = HeaderFieldHeight;
+        search.FontSize = 12;
+        search.VerticalContentAlignment = VerticalAlignment.Center;
+        search.Padding = new Thickness(8, 0, 25, 0);
+        var clear = Ui.IconButton(Icons.Close, "Clear layer filters", () => { search.Text = ""; searchKind.SelectedIndex = 0; }, 11);
+        clear.Name = "ClearLayerFilter";
+        clear.Width = 24; clear.MinWidth = 0; clear.Height = HeaderFieldHeight;
+        clear.HorizontalAlignment = HorizontalAlignment.Right;
+        clear.VerticalContentAlignment = VerticalAlignment.Center;
+        clear.HorizontalContentAlignment = HorizontalAlignment.Center;
+        clear.Padding = new Thickness(0);
         ToolTip.SetTip(clear, "Clear layer filters (Escape)");
-        clear.Click += (_, _) => { search.Text = ""; searchKind.SelectedIndex = 0; };
-        Grid.SetColumn(searchKind, 2); Grid.SetColumn(clear, 4);
-        queryRow.Children.Add(search); queryRow.Children.Add(searchKind); queryRow.Children.Add(clear);
+        queryRow.Children.Add(search); queryRow.Children.Add(clear);
         ToolTip.SetTip(search, "Words match layer names and tags. #tag matches an exact tag. All words must match. Escape clears. Reordering is available after clearing the filter.");
-        Grid.SetRow(queryRow, 2); Grid.SetColumnSpan(queryRow, 3); header.Children.Add(queryRow);
-        Grid.SetRow(searchStatus, 3); Grid.SetColumnSpan(searchStatus, 3); searchStatus.Margin = new Thickness(0, 3, 0, 0); header.Children.Add(searchStatus);
+        Grid.SetRow(queryRow, 2); header.Children.Add(queryRow);
+        Grid.SetRow(searchKind, 2); Grid.SetColumn(searchKind, 1);
+        searchKind.Margin = new Thickness(0, 6, 0, 0); header.Children.Add(searchKind);
+        Grid.SetRow(searchStatus, 3); Grid.SetColumnSpan(searchStatus, 2); searchStatus.Margin = new Thickness(0, 4, 0, 0); header.Children.Add(searchStatus);
         var openSearch = Ui.IconButton(Icons.Zoom, "Find and filter layers", () => { });
-        openSearch.HorizontalAlignment = HorizontalAlignment.Left;
-        Grid.SetRow(openSearch, 2); header.Children.Add(openSearch);
+        openSearch.HorizontalAlignment = HorizontalAlignment.Right;
+        openSearch.Height = 22; openSearch.MinHeight = 0; openSearch.Padding = new Thickness(3);
+        Grid.SetColumn(openSearch, 1); header.Children.Add(openSearch);
         bool expanded = false;
         void FitSearch()
         {
             var compact = Bounds.Height > 0 && Bounds.Height < 305;
             queryRow.IsVisible = !compact || expanded || IsFiltering;
+            searchKind.IsVisible = queryRow.IsVisible;
             openSearch.IsVisible = !queryRow.IsVisible;
+            clear.IsVisible = IsFiltering;
+            search.Padding = new Thickness(8, 0, clear.IsVisible ? 25 : 8, 0);
         }
         openSearch.Click += (_, _) => { expanded = true; FitSearch(); search.Focus(); };
         SizeChanged += (_, _) => FitSearch();
         clear.Click += (_, _) => { expanded = false; FitSearch(); };
-        search.TextChanged += (_, _) => Rebuild();
-        searchKind.SelectionChanged += (_, _) => Rebuild();
+        FitSearch();
+        search.TextChanged += (_, _) => { FitSearch(); Rebuild(); };
+        searchKind.SelectionChanged += (_, _) => { FitSearch(); Rebuild(); };
         search.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape) return;

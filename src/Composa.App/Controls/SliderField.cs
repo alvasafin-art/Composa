@@ -26,9 +26,7 @@ public sealed class SliderField : Control
     /// <summary>For positive ranges spanning several orders of magnitude, such as zoom. Typing and key steps stay in the displayed units.</summary>
     public bool Logarithmic { get; init; }
 
-    private static readonly IBrush FieldBrush = new SolidColorBrush(Color.Parse("#1F1F1F"));
-    private static readonly IBrush FillBrush = new SolidColorBrush(Color.Parse("#2E4A6B"));
-    private static readonly IPen BorderPen = new Pen(new SolidColorBrush(Color.Parse("#454545")));
+    private static readonly IBrush FillBrush = new SolidColorBrush(Color.Parse("#394F69"));
     private static readonly IPen FocusPen = new Pen(Palette.Accent);
     private static readonly IPen HoverPen = new Pen(new SolidColorBrush(Color.Parse("#6A6A6A")));
     private static readonly IBrush TextShadowBrush = new SolidColorBrush(Color.Parse("#B0000000"));
@@ -200,7 +198,7 @@ public sealed class SliderField : Control
         var bounds = new Rect(Bounds.Size);
         var radius = 4.0;
         var outline = bounds.Deflate(0.5);
-        context.DrawRectangle(FieldBrush, null, outline, radius, radius);
+        context.DrawRectangle(Palette.Field, null, outline, radius, radius);
         if (!editing)
         {
             var fraction = max > min ? Logarithmic && min > 0 ? Math.Log(value / min) / Math.Log(max / min) : (value - min) / (max - min) : 0;
@@ -241,8 +239,8 @@ public sealed class SliderField : Control
                 context.DrawText(number, numberPoint);
             }
         }
-        var pen = dragging || editing || IsFocused ? FocusPen : hovered ? HoverPen : BorderPen;
-        context.DrawRectangle(null, pen, outline, radius, radius);
+        if (dragging || editing || IsFocused || hovered)
+            context.DrawRectangle(null, dragging || editing || IsFocused ? FocusPen : HoverPen, outline, radius, radius);
     }
 
     protected override void OnPointerEntered(PointerEventArgs e) { base.OnPointerEntered(e); hovered = true; InvalidateVisual(); }

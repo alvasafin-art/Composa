@@ -530,7 +530,7 @@ public static partial class AiDialogs
             section.HorizontalAlignment = HorizontalAlignment.Stretch;
             section.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             section.Background = Palette.Panel;
-            section.Padding = new Thickness(12, 8);
+            section.Padding = new Thickness(10, 6);
         }
         var groupedPanels = new CheckBox { Content = "Group side panels in tabs", IsChecked = settings.TabbedPanels };
         var linkedSources = new CheckBox { Content = "Automatically refresh linked files", IsChecked = settings.AutoUpdateLinkedSources };

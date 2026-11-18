@@ -142,7 +142,7 @@ public sealed class HistoryPanel : UserControl
         }
         var row = new Border
         {
-            Height = RowHeight, Padding = new Thickness(12, 0, 10, 0), Child = grid, Cursor = new Cursor(StandardCursorType.Hand),
+            Height = RowHeight, Margin = new Thickness(4, 0), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 0, 6, 0), Child = grid, Cursor = new Cursor(StandardCursorType.Hand),
             Background = current ? Palette.Selected : Brushes.Transparent, Tag = step
         };
         if (!current)

@@ -64,7 +64,7 @@ internal static class AiGenerationControls
             Padding = new Thickness(9, 5), CornerRadius = new CornerRadius(4), PlaceholderText = placeholder
         };
         field.Resources["TextControlBackgroundFocused"] = Palette.Window;
-        field.Resources["TextControlBorderBrushFocused"] = Palette.Secondary;
+        field.Resources["TextControlBorderBrushFocused"] = Palette.Accent;
         field.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(1);
         return field;
     }
@@ -96,7 +96,7 @@ internal static class AiGenerationControls
         run.Name = "AiRun";
         run.Classes.Remove("accent");
         run.Background = Palette.PanelRaised;
-        run.BorderBrush = Palette.Secondary;
+        run.BorderBrush = Palette.Edge;
         run.BorderThickness = new Thickness(1);
         run.CornerRadius = new CornerRadius(4);
         run.Content = Ui.Row(5, Icons.Create(Icons.Run, 12, Brushes.White), Ui.Label("Run", Brushes.White));
@@ -149,7 +149,7 @@ internal static class AiGenerationControls
         picker.Height = 30; picker.MinHeight = 0; picker.CornerRadius = new CornerRadius(6);
         picker.Padding = new Thickness(9, 0, 5, 0);
         picker.VerticalContentAlignment = VerticalAlignment.Center;
-        picker.Background = Palette.Panel;
+        picker.Background = Palette.Field;
         AutomationProperties.SetName(picker, label);
     }
 }

@@ -29,6 +29,7 @@ public class DialogWindow : Window
         if (cancellable)
         {
             var cancel = Ui.TextButton("Cancel", Reject);
+            cancel.Classes.Add("flat");
             cancel.IsCancel = true;
             Buttons.Children.Add(cancel);
         }
@@ -46,7 +47,6 @@ public class DialogWindow : Window
         var cancel = Buttons.Children.OfType<Button>().Single(b => b.IsCancel);
         Buttons.Children.Clear();
         Buttons.IsVisible = false;
-        cancel.Classes.Add("flat");
         cancel.MinWidth = 48;
         cancel.Height = 28;
         host.Children.Add(cancel);

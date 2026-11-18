@@ -76,7 +76,7 @@ public sealed partial class MainWindow
                 if (geometry.Children.Count > 0)
                 {
                     inspector = geometry;
-                    var properties = Ui.TextButton("Properties", () => { geometryOpen = !geometryOpen; RebuildOptions(); });
+                    var properties = Flat("Properties", () => { geometryOpen = !geometryOpen; RebuildOptions(); });
                     properties.Name = "TransformProperties";
                     ToolTip.SetTip(properties, "Position, size and rotation");
                     row.Children.Add(properties);
@@ -478,6 +478,8 @@ public sealed partial class MainWindow
     private static Button Flat(string text, Action action)
     {
         var button = Ui.TextButton(text, action);
+        button.Classes.Add("flat");
+        button.Padding = new Thickness(8, 0);
         button.MinWidth = 0;
         return button;
     }

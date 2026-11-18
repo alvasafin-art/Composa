@@ -22,9 +22,10 @@ public sealed partial class LayersPanel : UserControl
 {
     private EditorSession? session;
     private readonly StackPanel rows = new();
+    private const double HeaderFieldHeight = 28;
     private readonly ComboBox blend;
     private readonly Slider opacity;
-    private readonly TextBlock opacityText = new() { Width = 36, TextAlignment = TextAlignment.Right, Foreground = Palette.Secondary };
+    private readonly TextBlock opacityText = new() { Width = 33, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right, Foreground = Palette.Secondary };
     private readonly Border dropLine = new() { Height = 2, Background = Palette.Accent, IsVisible = false, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
     private readonly Dictionary<Guid, Border> rowFor = [];
     private HashSet<Guid> highlighted = [];
@@ -90,13 +91,22 @@ public sealed partial class LayersPanel : UserControl
             if (group > 0) { items.Add(new ComboBoxItem { Content = Ui.Separator(false), IsEnabled = false, Padding = new Thickness(0, 4), MinHeight = 0 }); blendAt.Add(null); }
             foreach (var mode in BlendModeExtensions.Groups[group]) { items.Add(new ComboBoxItem { Content = mode.DisplayName() }); blendAt.Add(mode); }
         }
-        blend = new ComboBox { ItemsSource = items, HorizontalAlignment = HorizontalAlignment.Stretch };
+        blend = new ComboBox { ItemsSource = items, HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+            MinWidth = 0, Height = HeaderFieldHeight, Padding = new Thickness(8, 0) };
         blend.SelectionChanged += (_, _) =>
         {
             if (updating || session?.ActiveLayer is not { } layer || blend.SelectedIndex < 0 || blendAt[blend.SelectedIndex] is not { } mode) return;
             foreach (var target in session.SelectedRoots()) session.SetBlend(target, mode);
         };
-        opacity = new Slider { Minimum = 0, Maximum = 100, Value = 100, VerticalAlignment = VerticalAlignment.Center };
+        opacity = new Slider { Minimum = 0, Maximum = 100, Value = 100, MinHeight = 0, Height = HeaderFieldHeight, MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
+        // The stock slider reserves two fixed tick rows even when ticks are hidden.
+        // Share the spare space around its track so the thumb stays on the label's centre line.
+        opacity.Resources["SliderPreContentMargin"] = GridLength.Star;
+        opacity.Resources["SliderPostContentMargin"] = GridLength.Star;
+        opacity.Resources["SliderHorizontalHeight"] = HeaderFieldHeight;
+        opacity.Resources["SliderHorizontalThumbHeight"] = 14d;
+        opacity.Resources["SliderHorizontalThumbWidth"] = 14d;
         opacity.ValueChanged += (_, e) =>
         {
             opacityText.Text = $"{Math.Round(e.NewValue)}%";
@@ -108,24 +118,20 @@ public sealed partial class LayersPanel : UserControl
         opacity.LostFocus += (_, _) => EndOpacityDrag();
         opacity.KeyUp += (_, _) => EndOpacityDrag();
 
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto"), Margin = new Thickness(10, 8, 10, 6) };
-        var title = Ui.Label("Layers", weight: FontWeight.SemiBold);
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,1.06*"), ColumnSpacing = 8,
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), Margin = new Thickness(10, 8, 10, 6) };
+        var title = Ui.Label("Layers", size: 13, weight: FontWeight.SemiBold);
         title.Margin = new Thickness(0, 0, 0, 6);
-        Grid.SetColumnSpan(title, 3);
-        var blendRow = new Grid { ColumnDefinitions = new ColumnDefinitions("112,10,Auto,*,Auto") };
-        blendRow.Children.Add(blend);
-        var opacityLabel = Ui.Label("Opacity", Palette.Secondary);
-        Grid.SetColumn(opacityLabel, 2);
-        blendRow.Children.Add(opacityLabel);
-        Grid.SetColumn(opacity, 3);
-        opacity.Margin = new Thickness(6, 0, 0, 0);
-        blendRow.Children.Add(opacity);
-        Grid.SetColumn(opacityText, 4);
-        blendRow.Children.Add(opacityText);
-        Grid.SetRow(blendRow, 1);
-        Grid.SetColumnSpan(blendRow, 3);
         header.Children.Add(title);
-        header.Children.Add(blendRow);
+        Grid.SetRow(blend, 1);
+        header.Children.Add(blend);
+
+        var opacityRow = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 4,
+            Height = HeaderFieldHeight, VerticalAlignment = VerticalAlignment.Center };
+        opacityRow.Children.Add(Ui.Label("Opacity", Palette.Secondary));
+        Grid.SetColumn(opacity, 1); opacityRow.Children.Add(opacity);
+        Grid.SetColumn(opacityText, 2); opacityRow.Children.Add(opacityText);
+        Grid.SetColumn(opacityRow, 1); Grid.SetRow(opacityRow, 1); header.Children.Add(opacityRow);
         AddSearchHeader(header);
 
         var adjustmentMenu = new ContextMenu();
@@ -173,12 +179,10 @@ public sealed partial class LayersPanel : UserControl
         var scroll = new ScrollViewer { Content = list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         scroll.PointerPressed += (_, e) => { if (e.Source == scroll || e.Source == list) Focus(); };
 
-        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto,Auto"), Background = Palette.Panel };
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Background = Palette.Panel };
         layout.Children.Add(header);
-        var top = Ui.Separator(false); Grid.SetRow(top, 1); layout.Children.Add(top);
-        Grid.SetRow(scroll, 2); layout.Children.Add(scroll);
-        var bottom = Ui.Separator(false); Grid.SetRow(bottom, 3); layout.Children.Add(bottom);
-        Grid.SetRow(footer, 4); layout.Children.Add(footer);
+        Grid.SetRow(scroll, 1); layout.Children.Add(scroll);
+        Grid.SetRow(footer, 2); layout.Children.Add(footer);
         Content = layout;
     }
 
@@ -389,7 +393,7 @@ public sealed partial class LayersPanel : UserControl
         var row = new Border
         {
             Child = grid, Background = selected ? Palette.Selected : Brushes.Transparent, Padding = new Thickness(4, 3), MinHeight = 40,
-            BorderBrush = Palette.Divider, BorderThickness = new Thickness(0, 0, 0, 1), Tag = layer
+            CornerRadius = new CornerRadius(4), Margin = new Thickness(4, 0), Tag = layer
         };
         rowPositions[layer.Id] = (depth, parentVisible);
         rowFor[layer.Id] = row;
@@ -416,7 +420,7 @@ public sealed partial class LayersPanel : UserControl
         var row = new Border
         {
             Child = content, Background = selected ? Palette.Selected : Brushes.Transparent, Padding = new Thickness(4, 1), Height = 24,
-            BorderBrush = Palette.Divider, BorderThickness = new Thickness(0, 0, 0, 1), Tag = (layer, kind)
+            CornerRadius = new CornerRadius(4), Margin = new Thickness(4, 0), Tag = (layer, kind)
         };
         ToolTip.SetTip(row, "Click to select, double-click to edit, Alt-drag onto another layer to copy the " + LayerEffects.DisplayName(kind).ToLowerInvariant());
         row.PointerPressed += (_, e) =>
@@ -542,8 +546,8 @@ public sealed partial class LayersPanel : UserControl
     private void ClearEffectDrop()
     {
         if (effectDropRow == null) return;
-        effectDropRow.BorderBrush = Palette.Divider;
-        effectDropRow.BorderThickness = new Thickness(0, 0, 0, 1);
+        effectDropRow.BorderBrush = null;
+        effectDropRow.BorderThickness = new Thickness(0);
         effectDropRow = null;
     }
 
@@ -764,7 +768,7 @@ public sealed partial class LayersPanel : UserControl
             dropTarget = (target, drop);
             dropLine.IsVisible = drop != LayerDrop.Into;
             dropLine.Margin = new Thickness(0, (drop == LayerDrop.Above ? top : row.Bounds.Bottom) - 1, 0, 0);
-            foreach (var other in rows.Children.OfType<Border>()) { other.BorderBrush = Palette.Divider; other.BorderThickness = new Thickness(0, 0, 0, 1); }
+            foreach (var other in rows.Children.OfType<Border>()) { other.BorderBrush = null; other.BorderThickness = new Thickness(0); }
             if (drop == LayerDrop.Into) { row.BorderBrush = Palette.Accent; row.BorderThickness = new Thickness(1); dropLine.IsVisible = false; }
             break;
         }
