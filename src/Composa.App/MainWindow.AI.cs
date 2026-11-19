@@ -50,7 +50,7 @@ public sealed partial class MainWindow
     private readonly Canvas aiFloatingLayer = new();
     private readonly Border aiFloatingHost = new()
     {
-        IsVisible = false, Width = 520, Padding = new Thickness(7), CornerRadius = new CornerRadius(5),
+        IsVisible = false, Width = 520, Padding = new Thickness(AiGenerationControls.EditorSpacing), CornerRadius = new CornerRadius(5),
         Background = Palette.Panel, BorderBrush = Palette.Edge,
         BoxShadow = BoxShadows.Parse("0 3 12 0 #44000000"),
         BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
@@ -339,7 +339,7 @@ public sealed partial class MainWindow
         aiFloatingActions = run;
         var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
         aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return Ui.Column(4, aiFloatingPrompt, bar, aiReferenceHost, aiApiCost, aiFloatingStatus, aiFloatingVariants);
+        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingPrompt, bar, aiReferenceHost, aiApiCost, aiFloatingStatus, aiFloatingVariants);
     }
 
     private void RefreshEditorModels()
@@ -486,7 +486,7 @@ public sealed partial class MainWindow
         {
             // Four reference cells fit in the standard 296 px dock. Keep the user's base height for the editor itself.
             var rows = (aiReferences.Count + 3) / 4;
-            dock.SetExtraHeight(generationSection, rows * 65 + (aiFloatingVariants.IsVisible ? 34 : 0)
+            dock.SetExtraHeight(generationSection, rows * (56 + AiGenerationControls.EditorSpacing) + (aiFloatingVariants.IsVisible ? 34 : 0)
                 + (aiApiCost.IsVisible ? 18 : 0) + (aiFloatingStatus.IsVisible ? 18 : 0));
         }
         ToolTip.SetTip(aiFloatingStatus, aiFloatingStatus.Text);
@@ -541,7 +541,8 @@ public sealed partial class MainWindow
     {
         host.Children.Clear();
         Avalonia.Automation.AutomationProperties.SetName(host, $"Reference images ({aiReferences.Count}/6)");
-        var items = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var items = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
+            ItemSpacing = AiGenerationControls.EditorSpacing, LineSpacing = AiGenerationControls.EditorSpacing };
         foreach (var item in aiReferences.ToArray())
         {
             const double side = 56, radius = 6;
@@ -566,7 +567,7 @@ public sealed partial class MainWindow
             };
             remove.SetValue(Panel.ZIndexProperty, 1);
             ToolTip.SetTip(remove, "Remove reference");
-            var cell = new Grid { Width = side, Height = side, Margin = new Thickness(0, 0, 7, 5) };
+            var cell = new Grid { Width = side, Height = side };
             var show = new Button { Content = preview, Padding = new Thickness(0), CornerRadius = new CornerRadius(radius),
                 BorderThickness = new Thickness(0), Background = Brushes.Transparent,
                 HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
@@ -591,7 +592,6 @@ public sealed partial class MainWindow
             add.Padding = new Thickness(0);
             add.VerticalContentAlignment = VerticalAlignment.Center;
             add.HorizontalContentAlignment = HorizontalAlignment.Center;
-            add.Margin = new Thickness(0, 0, 7, 5);
             add.FontSize = 22;
             ToolTip.SetTip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
             if (host == aiReferenceHost) aiInlineAddReference = add;
@@ -747,7 +747,7 @@ public sealed partial class MainWindow
             options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed);
         else
         {
-            var host = new StackPanel { Name = "AiDialogReferences", Spacing = 5, MaxWidth = 430 };
+            var host = new StackPanel { Name = "AiDialogReferences" };
             aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText, PickAiReferences);
             BuildAiReferenceUi(host);
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,

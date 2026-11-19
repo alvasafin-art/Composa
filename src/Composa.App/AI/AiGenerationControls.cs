@@ -56,6 +56,8 @@ internal sealed class AiVariantButtons : StackPanel
 
 internal static class AiGenerationControls
 {
+    internal const int EditorSpacing = 8;
+
     internal static TextBox PromptField(string placeholder)
     {
         var field = new TextBox

@@ -67,6 +67,29 @@ public class GenerationDockTests
     private static string Operation(Control view) =>
         AutomationProperties.GetName(view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation"))!;
 
+    internal static void CheckReferenceSpacing(Control host, Window window)
+    {
+        var model = host.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible);
+        var thumbnails = host.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible &&
+            (ToolTip.GetTip(b)?.ToString()?.StartsWith("Preview reference:") == true ||
+             Equals(ToolTip.GetTip(b), "Add another reference image"))).ToArray();
+        var first = thumbnails.First().TranslatePoint(default, window)!.Value;
+        var modelBottom = model.TranslatePoint(new Point(0, model.Bounds.Height), window)!.Value;
+        Assert.Equal(8, first.Y - modelBottom.Y, 2);
+        for (int i = 1; i < thumbnails.Length; i++)
+        {
+            var previous = thumbnails[i - 1];
+            var from = previous.TranslatePoint(default, window)!.Value;
+            var to = thumbnails[i].TranslatePoint(default, window)!.Value;
+            if (from.Y == to.Y) Assert.Equal(8, to.X - from.X - previous.Bounds.Width, 2);
+            else
+            {
+                Assert.Equal(first.X, to.X, 2);
+                Assert.Equal(8, to.Y - from.Y - previous.Bounds.Height, 2);
+            }
+        }
+    }
+
     [AvaloniaFact]
     public void Dock_follows_document_content_selection_history_and_tab_switches()
     {
@@ -142,6 +165,7 @@ public class GenerationDockTests
             Assert.False(window.AiFloatingVisible); Assert.Same(prompt, Prompt(section.Content));
             Assert.Equal(initial, Thumbnails(section.Content));
             CheckBadge(section.Content);
+            CheckReferenceSpacing(section.Content, window);
             Assert.True(Screenshots.Save(window, "generation-dock-references"));
             prompt.Text = "Keep the green reference.";
             section.Content.GetVisualDescendants().OfType<Button>().Last(b => Equals(ToolTip.GetTip(b), "Remove reference"))
@@ -151,6 +175,7 @@ public class GenerationDockTests
             dock.SetCollapsed(section, true); Pump();
             Assert.True(window.AiFloatingVisible); Assert.Same(prompt, Prompt(window.AiFloatingPanel));
             CheckBadge(window.AiFloatingPanel);
+            CheckReferenceSpacing(window.AiFloatingPanel, window);
             Assert.True(Screenshots.Save(window, "generation-floating-references"));
             Assert.Equal("Keep the green reference.", prompt.Text); Assert.Equal(remaining, Thumbnails(window.AiFloatingPanel));
             dock.SetCollapsed(section, false); Pump();
@@ -161,6 +186,8 @@ public class GenerationDockTests
             Assert.True(window.AiFloatingVisible);
             tabs.SelectedIndex = entries.FindIndex(t => Equals(t.Header, "AI Generation")); Pump();
             Assert.False(window.AiFloatingVisible); Assert.Same(prompt, Prompt(section.Content)); Assert.Equal(remaining, Thumbnails(section.Content));
+            for (int i = 0; i < 5; i++) Add(SKColors.Blue);
+            Pump(); CheckReferenceSpacing(section.Content, window);
             dock.SetVisible(section, false); Pump();
             Assert.True(window.AiFloatingVisible); Assert.Equal("Keep the green reference.", Prompt(window.AiFloatingPanel).Text);
         }

@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Composa.AI;
+using Composa.App.AI;
 using Composa.App.Controls;
 using Composa.Rendering;
 
@@ -65,9 +66,9 @@ public sealed partial class MainWindow
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,6,Auto") };
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiFloatingActions!), 2);
-        var body = Ui.Column(6, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiReferenceHost),
+        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiReferenceHost),
             DockSlot(aiApiCost), DockSlot(aiFloatingStatus), DockSlot(aiFloatingVariants));
-        body.Margin = new Thickness(9, 5, 9, 8);
+        body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         EnableAiReferenceDrop(view);

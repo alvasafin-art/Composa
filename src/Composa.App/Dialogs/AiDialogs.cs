@@ -1187,7 +1187,7 @@ public static partial class AiDialogs
             cost.Text = paid ? estimate?.Label ?? "Paid API · estimate unavailable" : "";
         }
         prompt.IsVisible = task != AiTaskKind.GenerativeExpand;
-        var content = Ui.Column(5, prompt, new AiPromptToolbar(controls, actions));
+        var content = Ui.Column(AiGenerationControls.EditorSpacing, prompt, new AiPromptToolbar(controls, actions));
         content.Width = Math.Clamp(owner.Bounds.Width > 0 ? owner.Bounds.Width - 32 : 532, 285, 532);
         if(task==AiTaskKind.Relight) content.Children.Add(Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
         if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText="Describe the background, surface and lighting";
