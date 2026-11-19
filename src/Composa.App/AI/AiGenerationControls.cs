@@ -62,6 +62,7 @@ internal static class AiGenerationControls
             button.Name = $"AiVariants{count}";
             button.Classes.Add("flat");
             button.MinWidth = 0; button.Width = 30; button.Height = 28; button.Padding = new Thickness(0);
+            button.VerticalContentAlignment = VerticalAlignment.Center;
             var label = $"Run {count} variants";
             AutomationProperties.SetName(button, label);
             ToolTip.SetTip(button, label);
