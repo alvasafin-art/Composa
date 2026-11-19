@@ -82,13 +82,16 @@ public class UiRegressionTests
         panel.BeginRename();
         Dispatcher.UIThread.RunJobs();
         Assert.IsType<TextBox>(window.FocusManager?.GetFocusedElement()).Text = "Clouds";
-        var other = Rows()[2];
+        // A virtualizing panel may create presenters in a different order from their
+        // screen positions. Click the background row, outside the active name editor.
+        var other = Rows().Single(row => ReferenceEquals(row.Tag, session.Document.Layers[0]));
         var point = other.TranslatePoint(new Point(150, other.Bounds.Height / 2), window)!.Value;
         window.MouseDown(point, MouseButton.Left);
         window.MouseUp(point, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(3, Rows().Count);
         Assert.Equal("Clouds", session.Document.Find(renamed.Id)!.Name);
+        Assert.Equal(session.Document.Layers[0].Id, session.Document.ActiveLayerId);
     }
 
     [AvaloniaFact]
