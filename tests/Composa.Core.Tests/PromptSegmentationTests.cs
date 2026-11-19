@@ -103,6 +103,13 @@ public class PromptSegmentationTests
         using var image = Pixels.NewColor(160, 96); image.Erase(SKColors.White);
         using (var canvas = new SKCanvas(image)) { using var paint = new SKPaint { Color = SKColors.Red }; canvas.DrawRect(45, 20, 65, 50, paint); }
         var embedding = PromptSegmentation.Encode(image, model);
+        if (kind == PromptModelKind.EfficientSamS)
+        {
+            using var identical = Pixels.Clone(image);
+            Assert.Same(embedding, PromptSegmentation.Encode(identical, model, embedding, default));
+            identical.Erase(SKColors.Blue);
+            Assert.NotSame(embedding, PromptSegmentation.Encode(identical, model, embedding, default));
+        }
         using var point = PromptSegmentation.Decode(embedding, model, image.Width, image.Height, new SKPoint(70, 40), null);
         using var box = PromptSegmentation.Decode(embedding, model, image.Width, image.Height, null, new SKRectI(40, 15, 115, 75));
         Assert.Equal(image.Width, point.Width); Assert.Equal(image.Height, point.Height);

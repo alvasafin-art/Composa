@@ -10,6 +10,34 @@ namespace Composa.Core.Tests;
 
 public class PreciseObjectSelectionTests
 {
+    [Fact]
+    public async Task Small_box_on_large_canvas_selects_only_the_prompted_object_at_its_document_position()
+    {
+        var session = EditorSession.NewCanvas(1600, 420);
+        var image = Pixels.NewColor(1600, 420);
+        image.Erase(SKColors.White);
+        using (var canvas = new SKCanvas(image))
+        using (var paint = new SKPaint { Color = SKColors.DarkRed, IsAntialias = true })
+        {
+            canvas.DrawCircle(1190, 275, 42, paint);
+            canvas.DrawCircle(1290, 275, 42, paint);
+        }
+        session.AddImageLayer("Two objects", image, new(800, 210), fit: false);
+        var box = new SKRectI(1145, 228, 1236, 322);
+        var crop = PromptSegmentation.SearchArea(session.Document.Bounds, box);
+        Assert.NotEqual(session.Document.Bounds, crop);
+        Assert.True(crop.Left < box.Left && crop.Right > box.Right);
+        await session.SelectPromptObjectAsync(PromptModels.EfficientSamS, null, box, SelectionMode.Replace, preciseEdges: true);
+        var selection = Assert.IsType<SKBitmap>(session.Selection);
+        Assert.Equal(255, selection.GetPixel(1190, 275).Alpha);
+        Assert.Equal(0, selection.GetPixel(1290, 275).Alpha);
+        var bounds = SelectionMask.Bounds(selection, 128);
+        Assert.InRange(bounds.Width, 80, 87);
+        Assert.InRange(bounds.Height, 80, 87);
+        Assert.True(PromptSegmentation.TouchesCrop(new(0, 30, 80, 55), crop, session.Document.Bounds));
+        Assert.False(PromptSegmentation.TouchesCrop(new(10, 30, 80, 55), crop, session.Document.Bounds));
+    }
+
     private static EditorSession Scene()
     {
         var document=new Document(160,120) {Depth=ColorDepth.Sixteen,Profile=RgbProfile.DisplayP3};

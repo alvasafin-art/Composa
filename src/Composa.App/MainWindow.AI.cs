@@ -711,7 +711,7 @@ public sealed partial class MainWindow
         if (await AiDialogs.LayerTags(this, layer, settings) is { } tags) session.SetLayerTags(layer, tags);
     }
 
-    private async Task RunAi(AiTaskKind task, string initialPrompt = "", bool useInlinePrompt = false, SKRectI? selectionRegion = null, SelectionMode selectionOperation = SelectionMode.Replace, int runCount = 1)
+    private async Task RunAi(AiTaskKind task, string initialPrompt = "", bool useInlinePrompt = false, SKRectI? selectionRegion = null, SelectionMode selectionOperation = SelectionMode.Replace, int runCount = 1, SKPointI? selectionPoint = null)
     {
         if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
@@ -763,7 +763,7 @@ public sealed partial class MainWindow
                 Scene=profile.Scene.Normalized(),
                 AlignMaskedEdits = settings.AiAlignMaskedEdits,
                 EngineId = engine?.Id,
-                SelectionRegion = selectionRegion, SelectionOperation = selectionOperation,
+                SelectionRegion = selectionRegion, SelectionOperation = selectionOperation, SelectionPoint = selectionPoint,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : options.Prompt,
                 ExpansionMode = profile.ExpansionMode,
                 ExpansionMinimumSide = profile.ExpansionMode == AiExpansionMode.WholeImage ? profile.WholeExpansionMinimumSide : profile.ExpansionMinimumSide,

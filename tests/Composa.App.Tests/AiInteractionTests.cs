@@ -83,6 +83,11 @@ public class AiInteractionTests
             Assert.Equal(new SKRectI(100,100,160,140), requests[^1].Region);
         }
         Assert.Equal(new[] { SelectionMode.Replace, SelectionMode.Add, SelectionMode.Subtract, SelectionMode.Subtract }, requests.Select(r=>r.Mode));
+        // Fast reverse drag: the OS delivers the final position only on button-up.
+        w.MouseDown(At(250, 220), MouseButton.Left);
+        w.MouseMove(At(210, 190), RawInputModifiers.LeftMouseButton);
+        w.MouseUp(At(110, 70), MouseButton.Left);
+        Assert.Equal(new SKRectI(110, 70, 250, 220), requests[^1].Region);
         Assert.Equal(history,s.History.Count); Assert.Same(previous,s.Selection); w.Close();
     }
 

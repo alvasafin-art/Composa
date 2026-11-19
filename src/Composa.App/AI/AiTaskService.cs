@@ -548,6 +548,15 @@ public sealed partial class AiTaskService : IAiTaskRunner
             }
             else mask = ToMask(images[0], session.Document.Width, session.Document.Height);
             foreach (var image in images) image.Dispose();
+            if (task == AiTaskKind.ObjectSelection && inputs?.SelectionPoint is { } point)
+            {
+                // BiRefNet returns the foreground of the entire search image. Keep the
+                // clicked instance and its translucent fringe when several objects stand out.
+                SKBitmap? instance;
+                using (mask) instance = ObjectSelection.FromMatte(mask, point.X, point.Y, 0, connectivityThreshold: 8);
+                if (instance == null) return;
+                mask = instance;
+            }
             session.ApplyAiSelection(task, mask, inputs?.SelectionOperation ?? SelectionMode.Replace);
             return;
         }

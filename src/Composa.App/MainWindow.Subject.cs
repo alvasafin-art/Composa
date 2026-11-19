@@ -19,9 +19,8 @@ public sealed partial class MainWindow
         _ => SubjectDetect.Any
     };
 
-    private sealed record ObjectModelChoice(ObjectSelectionSource Source, string Label, string? ServerModel = null, string? SlotKey = null);
+    private sealed record ObjectModelChoice(ObjectSelectionSource Source, string Label, string? ServerModel = null, string? SlotKey = null, bool QuickOutline = false);
     private ComboBox? objectModelsCombo;
-    private CheckBox? objectPreciseEdges;
     private string? objectModelChoicesStamp;
     private bool refreshingObjectModels;
     private List<ObjectModelChoice> objectModelChoices = [];
@@ -33,7 +32,8 @@ public sealed partial class MainWindow
     {
         var choices = new List<ObjectModelChoice>
         {
-            new(ObjectSelectionSource.EfficientSamS, "SAM Quality · Local")
+            new(ObjectSelectionSource.EfficientSamS, "Automatic · Local"),
+            new(ObjectSelectionSource.EfficientSamS, "Quick outline · Local", QuickOutline: true)
         };
         var engine = ObjectSelectionEngine();
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
@@ -56,14 +56,13 @@ public sealed partial class MainWindow
         if (objectModelsCombo == null) return;
         if (settings.ObjectSelectionModel is not (ObjectSelectionSource.EfficientSamS or ObjectSelectionSource.ComfyUI))
         { settings.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS; settings.Save(); }
-        RefreshPreciseEdges();
         var choices = AvailableObjectModels();
-        var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + settings.ObjectSelectionModel + settings.ObjectSelectionComfyModel;
+        var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + settings.ObjectSelectionModel + settings.ObjectSelectionComfyModel + settings.ObjectSelectionQuickOutline;
         if (objectModelChoicesStamp == stamp) return;
         objectModelChoicesStamp = stamp; objectModelChoices = choices;
         refreshingObjectModels = true;
         objectModelsCombo.ItemsSource = choices.Select(c => c.Label).ToArray();
-        objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Source == settings.ObjectSelectionModel && (c.ServerModel == null || c.ServerModel == settings.ObjectSelectionComfyModel));
+        objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Source == settings.ObjectSelectionModel && (c.Source == ObjectSelectionSource.ComfyUI ? c.ServerModel == settings.ObjectSelectionComfyModel : c.QuickOutline == settings.ObjectSelectionQuickOutline));
         objectModelsCombo.PlaceholderText = settings.ObjectSelectionModel == ObjectSelectionSource.ComfyUI
             ? settings.ObjectSelectionComfyModel ?? "Connect ComfyUI to list models" : "Choose an installed model";
         refreshingObjectModels = false;
@@ -71,17 +70,14 @@ public sealed partial class MainWindow
 
     private Control ObjectSelectionModelMenu()
     {
-        var combo = objectModelsCombo = new ComboBox { Width = 250, Name = "ObjectSelectionModel" };
-        var precise = objectPreciseEdges = Ui.Check("Precise edges", settings.ObjectSelectionPreciseEdges,
-            value => { settings.ObjectSelectionPreciseEdges = value; settings.Save(); });
-        precise.Name = "ObjectSelectionPreciseEdges";
-        ToolTip.SetTip(precise, "Automatically refine hair, soft edges and transparency after local SAM selection. Takes longer; no server is needed.");
+        var combo = objectModelsCombo = new ComboBox { Width = 200, Name = "ObjectSelectionModel" };
         objectModelChoicesStamp = null;
         combo.SelectionChanged += (_, _) =>
         {
             if (refreshingObjectModels || combo.SelectedIndex < 0 || combo.SelectedIndex >= objectModelChoices.Count) return;
             var choice = objectModelChoices[combo.SelectedIndex];
             settings.ObjectSelectionModel = choice.Source;
+            if (choice.Source == ObjectSelectionSource.EfficientSamS) settings.ObjectSelectionQuickOutline = choice.QuickOutline;
             settings.ObjectSelectionComfyModel = choice.ServerModel;
             if (choice.SlotKey != null && choice.ServerModel != null)
             {
@@ -96,18 +92,11 @@ public sealed partial class MainWindow
                 }
             }
             if (session != null) session.Detect = LocalDetect;
-            RefreshPreciseEdges();
             settings.Save();
         };
         RefreshObjectModelChoices();
-        ToolTip.SetTip(combo, "Local models work without ComfyUI. Server entries are the actual installed background-removal weights.");
-        return Ui.Row(6, Ui.Label("Model", Palette.Secondary), combo, precise);
-    }
-
-    private void RefreshPreciseEdges()
-    {
-        if (objectPreciseEdges != null)
-            objectPreciseEdges.IsEnabled = settings.ObjectSelectionModel == ObjectSelectionSource.EfficientSamS && TrimapMatting.IsAvailable;
+        ToolTip.SetTip(combo, "Click an object or drag a box around it. Automatic refines hair and soft edges locally. Quick outline makes a crisp selection.");
+        return combo;
     }
 
     internal async Task RunObjectSelection(SKRectI? region, SelectionMode mode, SKPointI? point = null)
@@ -117,11 +106,12 @@ public sealed partial class MainWindow
         if (settings.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi or ObjectSelectionSource.EfficientSamS)
         {
             localSelectionBusy = true;
+            refreshOptions?.Invoke();
             try
             {
                 var model = settings.ObjectSelectionModel switch { ObjectSelectionSource.MobileSam => PromptModels.MobileSam,
                     ObjectSelectionSource.EfficientSamTi => PromptModels.EfficientSamTi, _ => PromptModels.EfficientSamS };
-                var precise = settings.ObjectSelectionPreciseEdges;
+                var precise = !settings.ObjectSelectionQuickOutline && TrimapMatting.IsAvailable;
                 await ProgressWindow.Run(this, "Selecting with " + model.Name + "…", async (c, progress) =>
                 {
                     await target.SelectPromptObjectAsync(model, point, region ?? (point == null ? target.Document.Bounds : null), mode, c,
@@ -131,7 +121,7 @@ public sealed partial class MainWindow
             }
             catch (OperationCanceledException) { }
             catch (Exception error) { ShowProblem("Object selection failed: " + error.Message); }
-            finally { localSelectionBusy = false; }
+            finally { localSelectionBusy = false; refreshOptions?.Invoke(); }
             return;
         }
         if (settings.ObjectSelectionModel == ObjectSelectionSource.PlainBackdrop && region == null)
@@ -154,7 +144,7 @@ public sealed partial class MainWindow
                 if (p.X < 0 || p.Y < 0 || p.X >= target.Document.Width || p.Y >= target.Document.Height) return;
                 region = target.Document.Bounds;
             }
-            await RunAi(AiTaskKind.ObjectSelection, useInlinePrompt: true, selectionRegion: region ?? target.Document.Bounds, selectionOperation: mode);
+            await RunAi(AiTaskKind.ObjectSelection, useInlinePrompt: true, selectionRegion: region ?? target.Document.Bounds, selectionOperation: mode, selectionPoint: point);
             return;
         }
         target.Detect = LocalDetect;

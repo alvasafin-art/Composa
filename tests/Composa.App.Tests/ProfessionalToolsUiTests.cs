@@ -74,7 +74,7 @@ public class ProfessionalToolsUiTests
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show(); window.AddSession(EditorSession.NewCanvas(160, 100, SKColors.White));
         window.Session!.WandMode = WandMode.Object; window.SelectTool(Tool.Wand); Dispatcher.UIThread.RunJobs();
         var choice = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
-        Assert.Equal("SAM Quality · Local", Assert.Single(choice.Items.Cast<string>()));
+        Assert.Equal("Automatic · Local", choice.SelectedItem);
         Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         Screenshots.Save(window, "professional-object-selection-models"); window.Close();
     }

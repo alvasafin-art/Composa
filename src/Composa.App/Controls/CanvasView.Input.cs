@@ -423,6 +423,13 @@ public sealed partial class CanvasView
         }
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+        if (drag == Drag.AiRectangle)
+        {
+            // A fast drag can release beyond the last delivered move event.
+            cursorScreen = e.GetPosition(this);
+            currentDocument = ToDocument(cursorScreen);
+            snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
+        }
         var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
         if (!(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) drag = Drag.None;

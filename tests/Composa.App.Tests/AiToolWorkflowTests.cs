@@ -54,6 +54,35 @@ public class AiToolWorkflowTests
         Assert.Null(full.SegmentationSourceBounds); Assert.Equal((300, 200), (full.SourceImage.Width, full.SourceImage.Height));
     }
 
+    [Theory]
+    [InlineData(35, true)]
+    [InlineData(65, false)]
+    public void Server_point_selects_only_the_clicked_instance_and_keeps_its_soft_fringe(int x, bool hit)
+    {
+        var session = EditorSession.NewCanvas(140, 70, SKColors.White);
+        session.SelectRect(new(0, 0, 5, 5));
+        var original = session.Selection;
+        using var inputs = AiTaskInputPreparer.Prepare(session, new()
+        {
+            Task = AiTaskKind.ObjectSelection, SelectionPoint = new(x, 35), SelectionRegion = session.Document.Bounds
+        });
+        var returned = Pixels.NewColor(140, 70);
+        returned.Erase(SKColors.Black);
+        using (var canvas = new SKCanvas(returned))
+        using (var paint = new SKPaint { Color = new SKColor(45, 45, 45) })
+        {
+            canvas.DrawRect(10, 10, 50, 50, paint);
+            paint.Color = SKColors.White;
+            canvas.DrawRect(20, 20, 30, 30, paint);
+            canvas.DrawRect(85, 15, 40, 40, paint);
+        }
+        AiTaskService.Insert(new EditorCommandService(session), AiTaskKind.ObjectSelection, AiOutputMode.Selection, [returned], inputs.TargetBounds, inputs);
+        if (!hit) { Assert.Same(original, session.Selection); return; }
+        Assert.Equal(255, session.Selection!.GetPixel(35, 35).Alpha);
+        Assert.Equal(45, session.Selection.GetPixel(12, 35).Alpha);
+        Assert.Equal(0, session.Selection.GetPixel(95, 35).Alpha);
+    }
+
     [AvaloniaFact]
     public void Crop_starts_with_largest_aspect_frame_and_new_tools_have_distinct_icons()
     {

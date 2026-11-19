@@ -42,7 +42,7 @@ public class LocalSubjectUiTests
         ComboBox Menu() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
         Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         Assert.Equal(0, Menu().SelectedIndex); Assert.True(window.Canvas.ObjectSelectionAvailable!());
-        Assert.Equal("SAM Quality · Local", Assert.Single(Menu().Items.Cast<string>()));
+        Assert.Equal(new[] { "Automatic · Local", "Quick outline · Local" }, Menu().Items.Cast<string>());
         var second = EditorSession.NewCanvas(400, 300); window.AddSession(second);
         Assert.Equal(0, Menu().SelectedIndex); Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         window.SelectTool(Tool.Wand); second.WandMode = WandMode.Object; window.SelectTool(Tool.Wand);
@@ -73,7 +73,7 @@ public class LocalSubjectUiTests
         }
         session.AddImageLayer("photo", scene, new SKPoint(160, 120)); window.AddSession(session);
         window.SelectTool(Tool.ObjectSelectionAi);
-        window.GetVisualDescendants().OfType<CheckBox>().Single(c=>c.Name=="ObjectSelectionPreciseEdges").IsChecked=precise;
+        window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel").SelectedIndex = precise ? 0 : 1;
         var history = session.History.Count;
         await Pump(window.RunObjectSelection(new SKRectI(60, 20, 260, 200), SelectionMode.Replace));
         Assert.True(session.Selection!.GetPixel(160, 100).Alpha > 200);
@@ -84,21 +84,60 @@ public class LocalSubjectUiTests
     }
 
     [AvaloniaFact]
-    public void Precise_edges_is_remembered_across_tools_tabs_and_settings_and_is_disabled_for_server_models()
+    public async Task A_rough_selection_can_target_one_of_two_objects_without_switching_tools()
+    {
+        var window = new MainWindow(); window.Settings.CheckForUpdates = false; window.Show();
+        var session = EditorSession.NewCanvas(340, 180);
+        var scene = Pixels.NewColor(340, 180); scene.Erase(SKColors.White);
+        using (var draw = new SKCanvas(scene))
+        using (var paint = new SKPaint { Color = SKColors.DarkRed, IsAntialias = true })
+        {
+            draw.DrawCircle(85, 90, 43, paint);
+            draw.DrawCircle(250, 90, 43, paint);
+        }
+        session.AddImageLayer("Pair", scene, new(170, 90)); window.AddSession(session);
+        try
+        {
+            Button Find() => window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "FindObjectInSelection");
+            foreach (var tool in new[] { Tool.Marquee, Tool.SelectionBrush, Tool.Lasso })
+            {
+                window.SelectTool(tool);
+                Assert.False(Find().IsEnabled);
+            }
+            session.SelectRect(new(197, 36, 304, 144));
+            var rough = session.Selection;
+            Assert.True(Find().IsEnabled);
+            Find().RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            var timeout = System.Diagnostics.Stopwatch.StartNew();
+            while (session.Selection == rough && timeout.Elapsed < TimeSpan.FromSeconds(60))
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+            Assert.NotSame(rough, session.Selection);
+            Assert.Equal(255, session.Selection!.GetPixel(250, 90).Alpha);
+            Assert.Equal(0, session.Selection.GetPixel(85, 90).Alpha);
+            Assert.Equal(0, session.Selection.GetPixel(198, 37).Alpha);
+            session.Undo(); Assert.Same(rough, session.Selection);
+        }
+        finally { session.MarkSaved("objects.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void Quick_outline_is_remembered_across_tools_tabs_and_settings()
     {
         var window=new MainWindow {Width=1440,Height=900};window.Settings.CheckForUpdates=false;window.Show();
         try
         {
             window.AddSession(EditorSession.NewCanvas(320,240));window.SelectTool(Tool.ObjectSelectionAi);
-            CheckBox Precise()=>window.GetVisualDescendants().OfType<CheckBox>().Single(c=>c.Name=="ObjectSelectionPreciseEdges");
-            Assert.False(Precise().IsChecked);Assert.True(Precise().IsEnabled);Precise().IsChecked=true;
-            window.SelectTool(Tool.Brush);window.AddSession(EditorSession.NewCanvas(400,300));
-            window.Session!.WandMode=WandMode.Object;window.SelectTool(Tool.Wand);
-            Assert.True(Precise().IsChecked);Assert.True(Precise().IsEnabled);
-            Assert.True(Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(window.Settings)).ObjectSelectionPreciseEdges);
-            Assert.True(Screenshots.Save(window,"sam-precise-edges-options"));
-            window.Settings.ObjectSelectionModel=ObjectSelectionSource.ComfyUI;window.SelectTool(Tool.ObjectSelectionAi);
-            Assert.True(Precise().IsChecked);Assert.False(Precise().IsEnabled);
+            ComboBox Menu() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
+            Assert.Equal("Automatic · Local", Menu().SelectedItem);
+            Menu().SelectedIndex = 1;
+            window.SelectTool(Tool.Brush); window.AddSession(EditorSession.NewCanvas(400, 300));
+            window.Session!.WandMode = WandMode.Object; window.SelectTool(Tool.Wand);
+            Assert.Equal("Quick outline · Local", Menu().SelectedItem);
+            Assert.True(Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(window.Settings)).ObjectSelectionQuickOutline);
+            Assert.True(Screenshots.Save(window, "sam-precise-edges-options"));
         }
         finally {window.Close();}
     }
@@ -138,7 +177,7 @@ public class LocalSubjectUiTests
         {
             foreach(var precise in new[] {false,true})
             {
-                window.GetVisualDescendants().OfType<CheckBox>().Single(c=>c.Name=="ObjectSelectionPreciseEdges").IsChecked=precise;
+                window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel").SelectedIndex = precise ? 0 : 1;
                 await Pump(window.RunObjectSelection(null,SelectionMode.Replace,new(image.Width/2,image.Height/2)));
                 Assert.NotNull(session.Selection);Assert.True(session.Selection.GetPixel(image.Width/2,image.Height/2).Alpha>200);
                 Assert.Equal(0,session.Selection.GetPixel(5,5).Alpha);Assert.Equal(bytes,source.Bytes);

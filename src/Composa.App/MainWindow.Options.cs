@@ -37,6 +37,16 @@ public sealed partial class MainWindow
         StackPanel? appearance = null;
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Eraser or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
+        void AddFindObject()
+        {
+            var find = Flat("Find object", SelectSubject);
+            find.Name = "FindObjectInSelection";
+            ToolTip.SetTip(find, "Use the bounds of your current selection to find the object and refine its edges.");
+            void Refresh() => find.IsEnabled = s.Selection != null && canvas.ObjectSelectionAvailable?.Invoke() == true;
+            refreshOptions += Refresh;
+            Refresh();
+            Add(find);
+        }
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
         if (embeddedTabs.TryGetValue(s, out var embedded))
         {
@@ -164,6 +174,7 @@ public sealed partial class MainWindow
                     }
                 }
                 else Add(Ui.SliderField("Feather", s.Feather, 0, 100, v => s.Feather = v));
+                AddFindObject();
                 Add(Ui.Separator());
                 // Modify buttons with their amounts, as in the macOS tool bar; both need a selection.
                 Control Modify(string title, Func<int> get, Action<int> set, int max, Action apply)
@@ -185,8 +196,12 @@ public sealed partial class MainWindow
                     Ui.SliderField("Size", s.SelectionBrushSize, 1, 1000, value => s.SelectionBrushSize = value),
                     Ui.SliderField("Feather", s.SelectionBrushFeather, 0, 250, value => s.SelectionBrushFeather = value),
                     Ui.Label(s.Tool == Tool.RemoveObject ? "Release to remove with AI" : "Shift adds · Alt subtracts", Palette.Secondary));
-                if (s.Tool == Tool.SelectionBrush) Add(Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
-                    value => value.ToString(), value => s.SelectionBrushMode = value, 100));
+                if (s.Tool == Tool.SelectionBrush)
+                {
+                    Add(Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
+                        value => value.ToString(), value => s.SelectionBrushMode = value, 100));
+                    AddFindObject();
+                }
                 Add(Ui.Separator(), SelectionModifyMenu(), Flat("Deselect", s.Deselect));
                 break;
             case Tool.Bucket:

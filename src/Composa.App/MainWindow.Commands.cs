@@ -1073,7 +1073,8 @@ public sealed partial class MainWindow
 
     private void SelectSubject()
     {
-        _ = RunObjectSelection(null, Composa.Selections.SelectionMode.Replace);
+        var area = session?.Selection is { } selection ? Composa.Selections.SelectionMask.Bounds(selection) : (SkiaSharp.SKRectI?)null;
+        _ = RunObjectSelection(area, Composa.Selections.SelectionMode.Replace);
     }
 
     private Histogram? HistogramOfActive()

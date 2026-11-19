@@ -57,11 +57,11 @@ public static class ObjectSelection
     /// matte's own soft edge for a short way around it, tightened or loosened by <paramref name="edgeOffset"/> pixels.
     /// Null when the point is on the backdrop or outside the picture.
     /// </summary>
-    public static unsafe SKBitmap? FromMatte(SKBitmap matte, int x, int y, int edgeOffset)
+    public static unsafe SKBitmap? FromMatte(SKBitmap matte, int x, int y, int edgeOffset, byte connectivityThreshold = 128)
     {
         if (x < 0 || y < 0 || x >= matte.Width || y >= matte.Height) return null;
         if (((byte*)matte.GetPixels())[(long)y * matte.RowBytes + x] < 128) return null;
-        using var piece = ConnectedPiece(matte, x, y);
+        using var piece = ConnectedPiece(matte, x, y, connectivityThreshold);
         var steps = Math.Min(10, Math.Abs(edgeOffset));
         if (steps > 0)
         {
@@ -82,13 +82,13 @@ public static class ObjectSelection
     }
 
     /// <summary>The 4-connected run of set mask pixels around a seed, as a new mask.</summary>
-    private static unsafe SKBitmap ConnectedPiece(SKBitmap mask, int seedX, int seedY)
+    private static unsafe SKBitmap ConnectedPiece(SKBitmap mask, int seedX, int seedY, byte threshold = 128)
     {
         int width = mask.Width, height = mask.Height;
         var result = Pixels.NewMask(width, height);
         byte* src = (byte*)mask.GetPixels(), dst = (byte*)result.GetPixels();
         int srcStride = mask.RowBytes, dstStride = result.RowBytes;
-        bool Set(int px, int py) => src[(long)py * srcStride + px] >= 128;
+        bool Set(int px, int py) => src[(long)py * srcStride + px] >= threshold;
         if (!Set(seedX, seedY)) return result;
         var stack = new Stack<(int X, int Y)>();
         stack.Push((seedX, seedY));

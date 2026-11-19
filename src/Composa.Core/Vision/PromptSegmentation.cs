@@ -2,15 +2,79 @@ using Composa.Rendering;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
+using System.Security.Cryptography;
 
 namespace Composa.Vision;
 
-public sealed record ImageEmbedding(float[] Data, int Width, int Height);
+public sealed record ImageEmbedding(float[] Data, int Width, int Height)
+{
+    internal byte[]? InputHash { get; init; }
+}
 
 /// <summary>Encoder/prompt-decoder pipelines with aspect-correct SAM logit reconstruction.</summary>
 public static unsafe class PromptSegmentation
 {
-    public static ImageEmbedding Encode(SKBitmap image, PromptModel model, CancellationToken cancellation = default)
+    // Preserve small-object detail that would otherwise disappear when the whole image is
+    // resized for the encoder. Keep context beyond all four sides of a drawn box.
+    internal static SKRectI SearchArea(SKRectI canvas, SKRectI? box)
+    {
+        if (box is not { } area || Math.Max(canvas.Width, canvas.Height) <= 1024) return canvas;
+        // Keep global context when the object already spans 96 encoder pixels.
+        // Aggressive zoom here can drop attached parts, such as dark feet in fur.
+        var canvasSide = Math.Max(canvas.Width, canvas.Height);
+        if (Math.Max(area.Width, area.Height) >= canvasSide * (96.0 / 1024)) return canvas;
+        var margin = Math.Max(128, canvasSide / 6);
+        area.Inflate(margin, margin);
+        area = SKRectI.Intersect(area, canvas);
+        return Math.Max(area.Width, area.Height) < .75 * Math.Max(canvas.Width, canvas.Height) ? area : canvas;
+    }
+
+    internal static bool TouchesCrop(SKRectI mask, SKRectI crop, SKRectI canvas) =>
+        mask.IsEmpty || (crop.Left > canvas.Left && mask.Left <= 1) || (crop.Top > canvas.Top && mask.Top <= 1)
+        || (crop.Right < canvas.Right && mask.Right >= crop.Width - 1) || (crop.Bottom < canvas.Bottom && mask.Bottom >= crop.Height - 1);
+
+    internal static SKBitmap Subset(SKBitmap source, SKRectI area)
+    {
+        var view = new SKBitmap();
+        if (source.ExtractSubset(view, area))
+        {
+            Pixels.RetainProfile(source, view);
+            return view;
+        }
+        view.Dispose();
+        throw new InvalidOperationException("Cannot read object selection context.");
+    }
+
+    internal static SKBitmap Place(SKBitmap mask, SKRectI area, SKRectI canvas)
+    {
+        if (area == canvas) return Pixels.Clone(mask);
+        var result = Pixels.NewMask(canvas.Width, canvas.Height);
+        using var draw = new SKCanvas(result);
+        draw.DrawBitmap(mask, area.Left, area.Top);
+        return result;
+    }
+
+    internal static SKBitmap RefineEdges(SKBitmap image, SKBitmap outline, CancellationToken cancellation)
+    {
+        var canvas = SKRectI.Create(image.Width, image.Height);
+        var area = Selections.SelectionMask.Bounds(outline);
+        if (area.IsEmpty) return Pixels.Clone(outline);
+        var radius = Math.Clamp(Math.Max(area.Width, area.Height) / 18, 8, 32);
+        // Known background outside this margin cannot contribute alpha. Give ViTMatte
+        // additional RGB context on both sides of the unknown trimap band.
+        area.Inflate(radius + 64, radius + 64);
+        area = SKRectI.Intersect(area, canvas);
+        if (area == canvas) return TrimapMatting.Refine(image, outline, radius, cancellation: cancellation, fineDetail: true);
+        using var crop = Subset(image, area);
+        using var mask = Subset(outline, area);
+        using var alpha = TrimapMatting.Refine(crop, mask, radius, cancellation: cancellation, fineDetail: true);
+        return Place(alpha, area, canvas);
+    }
+
+    public static ImageEmbedding Encode(SKBitmap image, PromptModel model, CancellationToken cancellation = default) =>
+        Encode(image, model, null, cancellation);
+
+    internal static ImageEmbedding Encode(SKBitmap image, PromptModel model, ImageEmbedding? previous, CancellationToken cancellation)
     {
         var scale = 1024.0 / Math.Max(image.Width, image.Height);
         var w = Math.Max(1, (int)Math.Round(image.Width * scale)); var h = Math.Max(1, (int)Math.Round(image.Height * scale));
@@ -18,6 +82,12 @@ public static unsafe class PromptSegmentation
         resized.Erase(SKColors.White);
         using (var canvas = new SKCanvas(resized)) using (var input = SKImage.FromBitmap(image))
             canvas.DrawImage(input, new SKRect(0, 0, w, h), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        cancellation.ThrowIfCancellationRequested();
+        // Selection history can change while a sampled composition stays identical.
+        // Compare exactly what the encoder sees, including document color conversion.
+        var hash = SHA256.HashData(resized.GetPixelSpan());
+        if (previous?.InputHash is { } priorHash && previous.Width == w && previous.Height == h && hash.AsSpan().SequenceEqual(priorHash))
+            return previous;
         var data = new float[w * h * 3]; var pixels = (byte*)resized.GetPixels();
         var mobile = model.Kind == PromptModelKind.MobileSam;
         for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
@@ -26,7 +96,7 @@ public static unsafe class PromptSegmentation
         var inputName = mobile ? "input_image" : "batched_images";
         var result = Run(model.Encoder, [NamedOnnxValue.CreateFromTensor(inputName, tensor)], ["image_embeddings"], cancellation)[0];
         if (!result.Dimensions.SequenceEqual(new[] { 1, 256, 64, 64 })) throw new InvalidDataException("Unexpected SAM image embedding dimensions.");
-        return new(result.Data, w, h);
+        return new(result.Data, w, h) { InputHash = hash };
     }
 
     public static SKBitmap Decode(ImageEmbedding image, PromptModel model, int width, int height, SKPoint? point, SKRectI? box, CancellationToken cancellation = default)

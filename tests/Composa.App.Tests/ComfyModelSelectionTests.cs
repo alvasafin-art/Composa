@@ -278,7 +278,7 @@ public class ComfyModelSelectionTests
         Assert.Contains("birefnet.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("shared/birefnet-hr.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("birefnet-matting.safetensors · ComfyUI", Menu().Items.Cast<string>());
-        Assert.Equal(4, Menu().Items.Count);
+        Assert.Equal(5, Menu().Items.Count);
         Assert.DoesNotContain(Menu().Items.Cast<string>(), name => name.Contains("isnet", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("ComfyUI", Menu().Items.Cast<string>());
         Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";

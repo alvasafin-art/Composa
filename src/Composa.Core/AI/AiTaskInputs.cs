@@ -40,6 +40,7 @@ public sealed record AiTaskRequest
     public string? EngineId { get; init; }
     /// <summary>Independent AI-selection search rectangle; does not replace the current document selection.</summary>
     public SKRectI? SelectionRegion { get; init; }
+    public SKPointI? SelectionPoint { get; init; }
     public SelectionMode SelectionOperation { get; init; } = SelectionMode.Replace;
     public string Prompt { get; init; } = "";
     public string NegativePrompt { get; init; } = "";
@@ -137,6 +138,7 @@ public sealed class AiTaskInputs : IDisposable
     public SKBitmap SourceImage { get; init; } = null!;
     public SKBitmap ContextImage { get; init; } = null!;
     public SKBitmap? ActiveLayerImage { get; init; }
+    public SKPointI? SelectionPoint { get; init; }
     public SelectionMode SelectionOperation { get; init; } = SelectionMode.Replace;
     public SKBitmap? SelectionMask { get; init; }
     /// <summary>Original cutout matte for the preserved subject; never used for model conditioning.</summary>
@@ -306,7 +308,7 @@ public static class AiTaskInputPreparer
             SourceImage = source,
             ContextImage = context,
             ActiveLayerImage = active,
-            SelectionOperation = request.SelectionOperation,
+            SelectionOperation = request.SelectionOperation, SelectionPoint = request.SelectionPoint,
             SelectionMask = selection,
             SubjectMatte = request.Task == AiTaskKind.ChangeBackground && session.Selection != null ? Pixels.Clone(session.Selection) : null,
             BackgroundMask = background,
