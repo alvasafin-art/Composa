@@ -129,6 +129,26 @@ public class LayersPanelInputTests
     }
 
     [AvaloniaFact]
+    public void Restoring_search_reuses_a_recent_row_and_respects_edits_made_while_hidden()
+    {
+        var layer = session.ActiveLayer!;
+        var row = Rows().Single(item => item.Tag == layer);
+        var query = panel.GetVisualDescendants().OfType<TextBox>().Single(box => box.PlaceholderText == "Find layers / #tag");
+        query.Text = "Background"; PumpLayout();
+        Assert.DoesNotContain(Rows(), item => item.Tag == layer);
+        query.Text = ""; PumpLayout();
+        Assert.Same(row, Rows().Single(item => item.Tag == layer));
+
+        query.Text = "Background"; PumpLayout();
+        session.Rename(layer, "Retouched"); PumpLayout();
+        query.Text = ""; PumpLayout();
+        var updated = Rows().Single(item => item.Tag == layer);
+        Assert.Contains(updated.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Retouched");
+        Click(updated, 16);
+        Assert.False(layer.Visible);
+    }
+
+    [AvaloniaFact]
     public void Alt_dragging_an_unselected_effect_copies_it_to_the_drop_layer()
     {
         var source = session.Document.Layers[^1];

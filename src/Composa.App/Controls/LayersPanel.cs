@@ -200,15 +200,16 @@ public sealed partial class LayersPanel : UserControl
         set
         {
             if (ReferenceEquals(session, value)) return;
-            if (session != null) session.LayersChanged -= Rebuild;
+            if (session != null) session.LayersChanged -= ModelChanged;
             ClearDropHighlight();
             ClearEffectDrop();
             pressed = null; dragging = false; effectDrag = null; dropTarget = null; eyeSwipe = null;
             dropLine.IsVisible = false;
             finishRename?.Invoke(true);
             renaming = null;
+            ForgetRecentRows();
             session = value;
-            if (session != null) session.LayersChanged += Rebuild;
+            if (session != null) session.LayersChanged += ModelChanged;
             Rebuild();
         }
     }
@@ -237,6 +238,12 @@ public sealed partial class LayersPanel : UserControl
         opacityDragging = false;
         // Dragging back to where it started is not an edit.
         if (session?.ActiveLayer is { } layer && layer.Opacity == opacityStart) session.Cancel(); else session?.Commit();
+    }
+
+    private void ModelChanged()
+    {
+        ForgetRecentRows();
+        Rebuild();
     }
 
     private void Rebuild()

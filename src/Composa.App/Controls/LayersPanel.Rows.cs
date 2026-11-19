@@ -46,9 +46,51 @@ public sealed partial class LayersPanel
     private readonly List<Entry> desired = [];
     private long listVersion;
 
+    // A short search or scroll often brings back the same raster rows. Keep a bounded
+    // set of detached presenters for that navigation, and release it on every edit.
+    private const int RecentRowLimit = 32;
+    private sealed record RecentRow(Entry Entry, RowHost Host);
+    private readonly Dictionary<Layer, LinkedListNode<RecentRow>> recentRows = [];
+    private readonly LinkedList<RecentRow> recentOrder = new();
+
+    private void ForgetRecentRows()
+    {
+        recentRows.Clear();
+        recentOrder.Clear();
+    }
+
+    private void RememberRow(Entry entry, RowHost host)
+    {
+        var layer = entry.Layer;
+        if (session == null || host.Shown is not { Renaming: false } state || state.Session != session ||
+            layer.Kind != LayerKind.Raster || layer.IsLive || layer.Mask != null || layer.Effects != null ||
+            host.Main == null || host.Main.ContextMenu?.IsOpen == true || !ReferenceEquals(host.Child, host.Main) ||
+            TopLevel.GetTopLevel(this) == null || !ReferenceEquals(session.Document.Find(layer.Id), layer)) return;
+        if (recentRows.Remove(layer, out var previous)) recentOrder.Remove(previous);
+        recentRows.Add(layer, recentOrder.AddLast(new RecentRow(entry, host)));
+        if (recentOrder.Count <= RecentRowLimit) return;
+        var oldest = recentOrder.First!;
+        recentRows.Remove(oldest.Value.Entry.Layer);
+        recentOrder.RemoveFirst();
+    }
+
+    private void RestoreRow(Entry entry, RowHost host)
+    {
+        if (!recentRows.Remove(entry.Layer, out var cached)) return;
+        recentOrder.Remove(cached);
+        var old = cached.Value.Host;
+        if (cached.Value.Entry != entry || old == host || old.Main == null) return;
+        old.Child = null;
+        host.Shown = old.Shown;
+        host.Child = host.Main = old.Main;
+        old.Main = null;
+        old.Shown = null;
+    }
+
     private void InitializeRows()
     {
-        rows.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel { CacheLength = 0.5 });
+        DetachedFromVisualTree += (_, _) => ForgetRecentRows();
+        rows.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel { CacheLength = 0.25 });
         rows.ItemTemplate = new FuncDataTemplate<Entry>((item, _) =>
         {
             if (item is not {} entry) return null;
@@ -56,6 +98,7 @@ public sealed partial class LayersPanel
             host.AttachedToVisualTree += (_, _) =>
             {
                 entry.Host = host;
+                RestoreRow(entry, host);
                 RefreshHost(entry, host);
                 if (host.Main != null) rowFor[entry.Layer.Id] = host.Main;
             };
@@ -63,6 +106,7 @@ public sealed partial class LayersPanel
             {
                 if (entry.Host != host) return;
                 entry.Host = null;
+                RememberRow(entry, host);
                 if (rowFor.GetValueOrDefault(entry.Layer.Id) == host.Main) rowFor.Remove(entry.Layer.Id);
             };
             return host;
@@ -85,7 +129,11 @@ public sealed partial class LayersPanel
             {
                 var start = end;
                 while (start > 0 && entries[start - 1].Seen != listVersion)
-                    entriesById.Remove(entries[--start].Layer.Id);
+                {
+                    var removed = entries[--start];
+                    removed.InList = false;
+                    entriesById.Remove(removed.Layer.Id);
+                }
                 if (start < end) entries.RemoveRange(start, end - start);
                 end = start - 1;
             }
@@ -120,7 +168,11 @@ public sealed partial class LayersPanel
         {
             var layer = layers[i];
             if (filterRows != null && !filterRows.Contains(layer.Id)) continue;
-            if (!entriesById.TryGetValue(layer.Id, out var entry)) entriesById.Add(layer.Id, entry = new(layer));
+            if (!entriesById.TryGetValue(layer.Id, out var entry))
+            {
+                entry = recentRows.TryGetValue(layer, out var cached) ? cached.Value.Entry : new(layer);
+                entriesById.Add(layer.Id, entry);
+            }
             entry.Layer = layer;
             entry.Depth = depth;
             entry.ParentVisible = parentVisible;
