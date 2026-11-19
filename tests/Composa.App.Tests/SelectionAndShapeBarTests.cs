@@ -50,7 +50,8 @@ public class SelectionAndShapeBarTests
         Assert.InRange(bounds.Left,257,263); Assert.InRange(bounds.Top,167,173);
         Assert.InRange(bounds.Right,337,343); Assert.InRange(bounds.Bottom,227,233);
 
-        // The bar's Expand button works by its amount field.
+        // Marquee and lasso retain the expanded selection controls.
+        window.SelectTool(Tool.Lasso);
         var buttons = window.GetVisualDescendants().OfType<Button>().ToList();
         var expand = buttons.Single(b => b.Content as string == "Expand");
         Assert.True(expand.IsEnabled);

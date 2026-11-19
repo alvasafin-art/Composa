@@ -100,6 +100,22 @@ public static class Palette
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6)), new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(6))
             }
         });
+        styles.Add(new Style(x => x.OfType<Button>().Class("alignment").Class(":disabled").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
+        {
+            Setters = { new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, Brushes.Transparent) }
+        });
+        styles.Add(new Style(x => x.OfType<Button>().Class("alignment").Class(":disabled").Descendant().OfType<Viewbox>())
+        {
+            Setters = { new Setter(Visual.OpacityProperty, 0.48) }
+        });
+        styles.Add(new Style(x => x.OfType<ToggleButton>().Class("tool").Class(":disabled").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
+        {
+            Setters = { new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, Brushes.Transparent) }
+        });
+        styles.Add(new Style(x => x.OfType<ToggleButton>().Class("tool").Class(":disabled").Descendant().OfType<Viewbox>())
+        {
+            Setters = { new Setter(Visual.OpacityProperty, 0.48) }
+        });
         styles.Add(new Style(x => x.OfType<ToggleButton>().Class("tool"))
         {
             Setters =

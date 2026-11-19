@@ -33,11 +33,26 @@ public class ToolPalettePersistenceTests
         var restored = Settings.FromJson(JsonSerializer.Serialize(window.Settings));
         var reopened = new MainWindow(); reopened.Settings.ToolPalette = restored.ToolPalette; reopened.Show();
         reopened.AddSession(EditorSession.NewCanvas(200, 120, SKColors.White));
-        foreach (var (tool, name) in new[] { (Tool.Gradient, "Paint Bucket"), (Tool.Wand, "Selection Brush"), (Tool.Lasso, "Polygonal Lasso"),
-            (Tool.Marquee, "Ellipse Marquee"), (Tool.Brush, "Eraser"), (Tool.Smear, "Burn"), (Tool.Shape, "Line") })
+        foreach (var (tool, name) in new[] { (Tool.Gradient, "Paint Bucket"), (Tool.Wand, "Selection Brush"), (Tool.Lasso, "Selection Brush"),
+            (Tool.Marquee, "Ellipse Marquee"), (Tool.Smear, "Burn"), (Tool.Shape, "Line") })
             Assert.Equal(name, reopened.RailButton(tool).Current!.Name);
         reopened.SelectTool(Tool.Bucket); Assert.Equal(Tool.Bucket, reopened.Session!.Tool);
         Screenshots.Save(reopened, "remembered-tool-folders"); window.Close(); reopened.Close();
+    }
+
+    [AvaloniaTheory]
+    [InlineData(Tool.Brush, Tool.Eraser)]
+    [InlineData(Tool.ObjectSelectionAi, Tool.Wand)]
+    [InlineData(Tool.Patch, Tool.Patch)]
+    public void Legacy_tool_preferences_restore_the_corresponding_rail_button(Tool saved, Tool expected)
+    {
+        var window = new MainWindow();
+        window.Settings.ToolPalette = new ToolPaletteSettings { Active = saved, Eraser = saved == Tool.Brush };
+        window.Show(); window.AddSession(EditorSession.NewCanvas(120, 80));
+        Assert.Equal(expected, window.Session!.Tool);
+        Assert.True(window.RailButton(expected).IsChecked);
+        if (expected == Tool.Wand) Assert.Equal("Object Selection", window.RailButton(expected).Current!.Name);
+        window.Close();
     }
 
     [AvaloniaFact]

@@ -6,7 +6,7 @@ using SkiaSharp;
 
 namespace Composa.Editing;
 
-public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen }
+public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen, Eraser }
 
 public enum MarqueeKind { Rectangle, Ellipse }
 public enum LassoKind { Freehand, Polygonal }
@@ -76,6 +76,9 @@ public sealed partial class EditorSession
         get => tool;
         set
         {
+            // Older preferences and integrations may still request the separate rectangle tool.
+            if (value == Tool.ObjectSelectionAi) { value = Tool.Wand; WandMode = WandMode.Object; }
+            if (value is Tool.Brush or Tool.Eraser) eraserMode = value == Tool.Eraser;
             if (value != tool && WarpEdit != null) CommitWarp();
             if (value != Tool.Text && TextEdit != null) FinishText();
             tool = value;
@@ -84,7 +87,16 @@ public sealed partial class EditorSession
     public SKColor Foreground { get; set; } = SKColors.Black;
     public SKColor Background { get; set; } = SKColors.White;
     public BrushSettings Brush { get; set; } = new();
-    public bool EraserMode { get; set; }
+    private bool eraserMode;
+    public bool EraserMode
+    {
+        get => eraserMode;
+        set
+        {
+            eraserMode = value;
+            if (Tool is Tool.Brush or Tool.Eraser) Tool = value ? Tool.Eraser : Tool.Brush;
+        }
+    }
     public SmearMode SmearMode { get; set; } = SmearMode.Blur;
     public MarqueeKind MarqueeKind { get; set; }
     public LassoKind LassoKind { get; set; }
@@ -539,7 +551,8 @@ public sealed partial class EditorSession
             case Tool.Wand: WandMode = Next(WandMode); break;
             case Tool.SelectionBrush: SelectionBrushMode = SelectionBrushMode == SelectionMode.Add ? SelectionMode.Subtract : SelectionMode.Add; break;
             case Tool.Shape: ShapeKind = Next(ShapeKind); if (ShapeKind == ShapeKind.Path) ShapeKind = ShapeKind.Rectangle; break;
-            case Tool.Brush: EraserMode = !EraserMode; break;
+            case Tool.Brush: Tool = Tool.Eraser; break;
+            case Tool.Eraser: Tool = Tool.Brush; break;
             case Tool.Smear: SmearMode = Next(SmearMode); break;
             case Tool.SpotHealing or Tool.CloneStamp: SampleAllLayers = !SampleAllLayers; break;
             case Tool.Gradient: GradientRadial = !GradientRadial; break;

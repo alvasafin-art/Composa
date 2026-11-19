@@ -103,7 +103,8 @@ public sealed partial class MainWindow
             Item("Fill with Foreground Color", () => session!.Fill(session.Foreground, "Fill"), Key.Back, alt, () => session!.CanFill, unavailableReason: "Select an editable layer or mask to fill."),
             Item("Fill with Background Color", () => session!.Fill(session.Background, "Fill"), Key.Back, ctrl, () => session!.CanFill, unavailableReason: "Select an editable layer or mask to fill."),
             Item("Clear", DeletePressed, Key.Delete),
-            Item("Content-Aware Fill…", () => _ = ContentAwareFillWorkspace(), Key.Back, shift, () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
+            Item("Content-Aware Fill", () => _ = RunContentAwareFill(interactive: false), Key.F5, shift, () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
+            Item("Content-Aware Fill Workspace…", () => _ = ContentAwareFillWorkspace(), enabled: () => session!.Selection != null && session.CanEditPixels && !session.IsEditingMask),
             Line(),
             Item("Preferences…", () => _ = ShowAiSettings(3), needsDocument: false, viewOnly: true),
             Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), needsDocument: false, id: "Keyboard Shortcuts (Edit menu)"));
@@ -333,38 +334,22 @@ public sealed partial class MainWindow
     /// <summary>The keys that pick tools and act on the canvas, kept as a table so the shortcuts window can rebind them.</summary>
     private void BuildToolKeys()
     {
-        void Key(string title, Avalonia.Input.Key key, Action run, KeyModifiers modifiers = KeyModifiers.None, bool hidden = false) =>
-            toolKeys.Add(new Shortcut(title, title, "Tools and Canvas", new KeyGesture(key, modifiers), run, hidden: hidden));
+        void Key(string title, Avalonia.Input.Key key, Action run, KeyModifiers modifiers = KeyModifiers.None, bool hidden = false, string? label = null) =>
+            toolKeys.Add(new Shortcut(title, label ?? title, "Tools and Canvas", new KeyGesture(key, modifiers), run, hidden: hidden));
         Key("Move tool", Avalonia.Input.Key.V, () => SelectTool(Tool.Move));
         Key("Pen tool", Avalonia.Input.Key.P, () => SelectTool(Tool.Pen));
-        Key(MarqueeKey, Avalonia.Input.Key.M, () =>
-        {
-            if (session!.Tool == Tool.Marquee) session.MarqueeKind = session.MarqueeKind == MarqueeKind.Rectangle ? MarqueeKind.Ellipse : MarqueeKind.Rectangle;
-            SelectTool(Tool.Marquee);
-        });
-        Key(LassoKey, Avalonia.Input.Key.L, () =>
-        {
-            if (session!.Tool == Tool.Lasso) session.LassoKind = session.LassoKind == LassoKind.Freehand ? LassoKind.Polygonal : LassoKind.Freehand;
-            SelectTool(Tool.Lasso);
-        });
-        Key(MagicKey, Avalonia.Input.Key.W, () => SelectTool(Tool.Wand));
-        Key("Selection Brush", Avalonia.Input.Key.Q, () => SelectTool(Tool.SelectionBrush));
+        Key(MarqueeKey, Avalonia.Input.Key.M, () => SelectTool(Tool.Marquee), label: "Marquee tool");
+        Key(LassoKey, Avalonia.Input.Key.L, () => SelectTool(selectionTool ?? Tool.Lasso), label: "Lasso group");
+        Key(MagicKey, Avalonia.Input.Key.W, () => SelectTool(selectionTool ?? Tool.Wand));
+        Key("Selection Brush", Avalonia.Input.Key.Q, () => SelectTool(selectionTool ?? Tool.SelectionBrush));
         Key("Crop tool", Avalonia.Input.Key.C, () => SelectTool(Tool.Crop));
-        Key(BrushKey, Avalonia.Input.Key.B, () => { session!.EraserMode = false; SelectTool(Tool.Brush); });
-        Key(EraserKey, Avalonia.Input.Key.E, () => { session!.EraserMode = true; SelectTool(Tool.Brush); });
+        Key(BrushKey, Avalonia.Input.Key.B, () => SelectTool(Tool.Brush));
+        Key(EraserKey, Avalonia.Input.Key.E, () => SelectTool(Tool.Eraser));
         Key("Spot Healing Brush", Avalonia.Input.Key.J, () => SelectTool(Tool.SpotHealing));
-        Key("Clone Stamp", Avalonia.Input.Key.S, () => SelectTool(Tool.CloneStamp));
-        Key(SmearKey, Avalonia.Input.Key.R, () =>
-        {
-            if (session!.Tool == Tool.Smear) session.SmearMode = (SmearMode)(((int)session.SmearMode + 1) % 5);
-            SelectTool(Tool.Smear);
-        });
-        Key("Gradient tool", Avalonia.Input.Key.G, () => SelectTool(Tool.Gradient));
-        Key(ShapeKey, Avalonia.Input.Key.U, () =>
-        {
-            if (session!.Tool == Tool.Shape) session.ShapeKind = (ShapeKind)(((int)session.ShapeKind + 1) % Enum.GetValues<ShapeKind>().Length);
-            SelectTool(Tool.Shape);
-        });
+        Key("Clone Stamp", Avalonia.Input.Key.S, () => SelectTool(stampUsesPatch ? Tool.Patch : Tool.CloneStamp));
+        Key(SmearKey, Avalonia.Input.Key.R, () => SelectTool(Tool.Smear), label: "Smear tool");
+        Key("Gradient tool", Avalonia.Input.Key.G, () => SelectTool(gradientShowsBucket ? Tool.Bucket : Tool.Gradient));
+        Key(ShapeKey, Avalonia.Input.Key.U, () => SelectTool(Tool.Shape), label: "Shape tool");
         Key("Next shape", Avalonia.Input.Key.U, () => { session!.ShapeKind = (ShapeKind)(((int)session.ShapeKind + 1) % Enum.GetValues<ShapeKind>().Length); SelectTool(Tool.Shape); }, KeyModifiers.Shift);
         Key("Type tool", Avalonia.Input.Key.T, () => SelectTool(Tool.Text));
         Key("Eyedropper tool", Avalonia.Input.Key.I, () => SelectTool(Tool.Eyedropper));

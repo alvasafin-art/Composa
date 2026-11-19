@@ -35,7 +35,7 @@ public sealed partial class MainWindow
         var s = session;
         StackPanel? inspector = null;
         StackPanel? appearance = null;
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = s.Tool is Tool.Move or Tool.Brush or Tool.Eraser or Tool.Pen ? 8 : 14, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
         void Add(params Control[] controls) => row.Children.AddRange(controls);
         Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
         if (embeddedTabs.TryGetValue(s, out var embedded))
@@ -44,7 +44,15 @@ public sealed partial class MainWindow
                 Ui.TextButton("Back to parent", () => SetSession(embedded.Parent)));
         }
         // A tool that comes in a group is picked from its rail button, so the bar only names the one in use.
-        string Chosen() => toolButtons[s.Tool].Current!.Name;
+        ComboBox StampMode()
+        {
+            var mode = Ui.Combo(new[] { Tool.CloneStamp, Tool.Patch }, s.Tool,
+                tool => tool == Tool.Patch ? "Patch" : "Clone", SelectTool, 105);
+            mode.Name = "StampMode";
+            ToolTip.SetTip(mode, "Clone from a source point or drag a selection to a donor");
+            return mode;
+        }
+        string Chosen() => RailButton(s.Tool).Current!.Name;
 
         switch (s.Tool)
         {
@@ -84,8 +92,9 @@ public sealed partial class MainWindow
                 var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
                 BuildAlignmentFields(row);
                 break;
-            case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
-                Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.CloneStamp => "Clone Stamp", Tool.HealingBrush => "Healing Brush", _ => Chosen() }));
+            case Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
+                Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.Brush => "Brush", Tool.Eraser => "Eraser", Tool.CloneStamp => "Clone Stamp", Tool.HealingBrush => "Healing Brush", _ => Chosen() }));
+                if (s.Tool == Tool.CloneStamp) Add(StampMode());
                 var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v => s.Brush = s.Brush with { Size = v });
                 var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => s.Brush = s.Brush with { Hardness = v / 100 });
                 Add(size, hardness);
@@ -96,7 +105,7 @@ public sealed partial class MainWindow
                     setOpacity = v => opacity.Value = v;
                     Add(opacity);
                 }
-                if (s.Tool == Tool.Brush)
+                if (s.Tool is Tool.Brush or Tool.Eraser)
                 {
                     var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
                     var spacing = Ui.SliderField("Spacing", s.Brush.Spacing * 100, 1, 100, v => s.Brush = s.Brush with { Spacing = v / 100 }, width: 105);
@@ -124,7 +133,7 @@ public sealed partial class MainWindow
                 };
                 break;
             case Tool.Patch:
-                Add(Title("Patch"), Ui.Label("Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels", Palette.Secondary));
+                Add(Title("Clone Stamp"), StampMode(), Ui.Label("Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels", Palette.Secondary));
                 break;
             case Tool.Pen:
                 var penTitle = Title("Pen");
@@ -148,6 +157,11 @@ public sealed partial class MainWindow
                         Add(Ui.Row(5, Ui.Scrub(Ui.Label("Edge", Palette.Secondary), edge), edge, Ui.Label("px", Palette.Secondary)));
                     }
                     Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
+                    if (s.WandMode == WandMode.Object)
+                    {
+                        Add(SelectionModifyMenu(), Flat("Deselect", s.Deselect), Ui.Label("Click or draw a rectangle", Palette.Secondary));
+                        break;
+                    }
                 }
                 else Add(Ui.SliderField("Feather", s.Feather, 0, 100, v => s.Feather = v));
                 Add(Ui.Separator());
@@ -174,11 +188,6 @@ public sealed partial class MainWindow
                 if (s.Tool == Tool.SelectionBrush) Add(Ui.Combo(new[] { Composa.Selections.SelectionMode.Add, Composa.Selections.SelectionMode.Subtract }, s.SelectionBrushMode,
                     value => value.ToString(), value => s.SelectionBrushMode = value, 100));
                 Add(Ui.Separator(), SelectionModifyMenu(), Flat("Deselect", s.Deselect));
-                break;
-            case Tool.ObjectSelectionAi:
-                Add(Title("Object Selection AI"), ObjectSelectionModelMenu(),
-                    Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v),
-                    SelectionModifyMenu(), Ui.Label("Click or draw a rectangle · Shift adds · Alt subtracts", Palette.Secondary));
                 break;
             case Tool.Bucket:
                 Add(Title("Paint Bucket"), Ui.SliderField("Tolerance", s.WandTolerance, 0, 255, value => s.WandTolerance = (int)value),

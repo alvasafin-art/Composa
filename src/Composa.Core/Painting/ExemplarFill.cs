@@ -15,7 +15,7 @@ internal static unsafe class ExemplarFill
     private const int Radius = 2;
     private const int GuideSide = 384;
 
-    public static SKBitmap? TryFill(SKBitmap source, SKBitmap mask, SKRectI hole, SKBitmap? donorExclusion, CancellationToken cancellation = default)
+    public static SKBitmap? TryFill(SKBitmap source, SKBitmap mask, SKRectI hole, SKBitmap? donorExclusion, CancellationToken cancellation = default, bool applyCoverage = true)
     {
         var margin = Math.Clamp(Math.Min(hole.Width, hole.Height), 24, 128);
         var bounds = Geometry.Intersect(new SKRectI(hole.Left - margin, hole.Top - margin, hole.Right + margin, hole.Bottom + margin),
@@ -68,7 +68,7 @@ internal static unsafe class ExemplarFill
             valid[y * w + x] = true; donors.Add(y * w + x);
         }
         if (donors.Count == 0)
-            return known.Any(value => value > 0) ? SmoothFallback(source, mask, bounds, w, h, original, known) : null;
+            return known.Any(value => value > 0) ? SmoothFallback(source, mask, bounds, w, h, original, known, applyCoverage) : null;
 
         var current = (float[])original.Clone();
         var shifts = new float[count * 3];
@@ -201,6 +201,7 @@ internal static unsafe class ExemplarFill
         {
             var amount = coverage[(long)y * mask.RowBytes + x];
             if (amount == 0) continue;
+            if (!applyCoverage) amount = 255;
             int gx = (int)((long)(x - bounds.Left) * w / bounds.Width), gy = (int)((long)(y - bounds.Top) * h / bounds.Height);
             var donor = matches[gy * w + gx];
             int sx = donor < 0 ? x : Math.Clamp(x + (int)Math.Round((donor % w - gx) * scaleX), bounds.Left, bounds.Right - 1),
@@ -231,7 +232,7 @@ internal static unsafe class ExemplarFill
         return result;
     }
 
-    private static SKBitmap SmoothFallback(SKBitmap source, SKBitmap mask, SKRectI bounds, int w, int h, float[] values, float[] known)
+    private static SKBitmap SmoothFallback(SKBitmap source, SKBitmap mask, SKRectI bounds, int w, int h, float[] values, float[] known, bool applyCoverage)
     {
         // A very narrow/transparent source may have usable boundary colors but no complete donor patch.
         // Keep this rare fallback bounded too: do not allocate full-resolution float buffers for a big hole.
@@ -244,6 +245,7 @@ internal static unsafe class ExemplarFill
         {
             var amount = coverage[(long)y * mask.RowBytes + x];
             if (amount == 0) continue;
+            if (!applyCoverage) amount = 255;
             var fx = Math.Clamp((x - bounds.Left + 0.5) * w / bounds.Width - 0.5, 0, w - 1);
             var fy = Math.Clamp((y - bounds.Top + 0.5) * h / bounds.Height - 0.5, 0, h - 1);
             int x0 = (int)fx, y0 = (int)fy, x1 = Math.Min(x0 + 1, w - 1), y1 = Math.Min(y0 + 1, h - 1);

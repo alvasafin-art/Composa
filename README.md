@@ -84,7 +84,7 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 - Open 8-bit or 16-bit RGB Photoshop files, `.psd` and Large Document `.psb`: layers, folders, masks, clipping, opacity, blend modes, solid fill shapes, adjustments and simple horizontal text come in editable, and a report lists everything that has to be converted before anything is applied; dropped onto an open document, a Photoshop file arrives inside a folder
 - Export PNG, JPEG (with a live preview of the compression and the file size) and WebP; Copy Merged
 - Undo history limited by memory, not by a fixed step count
-- Tools that come in groups open beside their toolbar button when it is held or right-clicked, as in Photoshop: the marquees, the lassos, Magic Wand and Object Selection, Brush and Eraser, the Smear modes and the shapes
+- Tools that come in groups open beside their toolbar button when it is held or right-clicked, as in Photoshop: the marquees, the selection tools (lassos, Magic Wand, Object Selection and Selection Brush), Gradient and Paint Bucket, the Smear modes and the shapes. A group shortcut recalls its last choice. Brush and Eraser have separate buttons
 - Tool settings stick between launches: Auto Select, the transform controls, the pixel grid, rulers, guides, the grid and its settings, Snap and the Snap To options keep what you last set them to
 - Autosave for crash recovery: unsaved work is copied to `~/.cache/composa/recovery` every two minutes and offered back after an unclean exit
 
@@ -251,9 +251,10 @@ dotnet test
 
 | Keys | Action |
 | --- | --- |
-| V M L W C | Move, Marquee, Lasso, Magic, Crop (M and L again switch variants) |
+| V M C | Move, last Marquee variant, Crop |
+| L / W / Q | Recall the last selection tool (lassos, Magic Wand, Object Selection or Selection Brush) |
 | B E J S R | Brush, Eraser, Spot Healing, Clone Stamp, Smear |
-| G U T I H Z | Gradient, Shape, Type, Eyedropper, Hand, Zoom |
+| G U T I H Z | Last Gradient/Paint Bucket choice, Shape, Type, Eyedropper, Hand, Zoom |
 | Tab | Switch the current tool's mode (Wand/Object, Brush/Eraser, the shape, and so on) |
 | Ctrl+drag | Move the current layer with any tool |
 | Space, middle button, Ctrl+wheel | Pan, zoom at the cursor |
@@ -262,7 +263,7 @@ dotnet test
 | 1 to 0 | Brush opacity, or layer opacity with the Move tool |
 | X, D | Swap colors, reset to black and white |
 | Alt+Backspace, Ctrl+Backspace | Fill with foreground, background |
-| Shift+Backspace | Content-Aware Fill |
+| Shift+F5 | Content-Aware Fill (automatic) |
 | Ctrl+A, Ctrl+D, Ctrl+Shift+I | Select all, deselect, inverse |
 | Ctrl+J | Duplicate layer, or layer via copy with a selection |
 | Ctrl+G, Ctrl+E, Ctrl+Alt+G | Group, merge, clipping mask |

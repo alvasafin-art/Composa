@@ -103,6 +103,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
     /// <summary>Clone source pixels (same format as the target) and the offset from target to source coordinates.</summary>
     public SKBitmap? CloneSource { get; init; }
     public SKPointI CloneOffset { get; set; }
+    internal SKPoint CloneFraction { get; init; }
 
     public BrushStroke(SKBitmap target, BrushSettings settings, BrushMode mode, SKColor color, double scale = 1)
         : this(target, settings, mode, color, scale, Pixels.Clone(target)) { }
@@ -153,9 +154,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
             float dx = point.X - from.X, dy = point.Y - from.Y;
             var length = MathF.Sqrt(dx * dx + dy * dy);
             if (length <= 0) return dirty;
-            // Paint and erase depend only on accumulated coverage and the immutable source.
+            // These modes recompute from accumulated coverage and immutable inputs.
             // Nearby dabs can share one color pass. Long diagonal jumps keep their narrow footprints.
-            var deferColor = (mode is BrushMode.Paint or BrushMode.Erase) && length <= diameter;
+            var deferColor = (mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Heal or BrushMode.Healing) && length <= diameter;
             var travelled = spacing - residual;
             while (travelled <= length)
             {
@@ -317,7 +318,20 @@ public sealed unsafe partial class BrushStroke : IDisposable
                         else
                         {
                             var ci = (long)cy * cloneStride + cx * bytesPerPixel;
-                            for (var i = 0; i < bytesPerPixel; i++) source[i] = clone[ci + i];
+                            if (CloneFraction == SKPoint.Empty)
+                                for (var i = 0; i < bytesPerPixel; i++) source[i] = clone[ci + i];
+                            else
+                            {
+                                var right = cx + 1 < cloneWidth ? bytesPerPixel : 0;
+                                var below = cy + 1 < cloneHeight ? cloneStride : 0;
+                                float fx = CloneFraction.X, fy = CloneFraction.Y;
+                                for (var i = 0; i < bytesPerPixel; i++)
+                                {
+                                    var top = clone[ci + i] * (1 - fx) + clone[ci + right + i] * fx;
+                                    var bottom = clone[ci + below + i] * (1 - fx) + clone[ci + below + right + i] * fx;
+                                    source[i] = top * (1 - fy) + bottom * fy;
+                                }
+                            }
                         }
                         break;
                     case BrushMode.Blur:

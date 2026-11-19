@@ -34,7 +34,15 @@ public sealed unsafe partial class BrushStroke
                 case BrushMode.Healing:
                     int cx = x + CloneOffset.X, cy = y + CloneOffset.Y;
                     if (donor is not { } sample || cx < 0 || cy < 0 || cx >= sample.Width || cy >= sample.Height) { after = default; amount = 0; }
-                    else after = sample.Read(cx, cy);
+                    else if (CloneFraction == SKPoint.Empty) after = sample.Read(cx, cy);
+                    else
+                    {
+                        int right = Math.Min(cx + 1, sample.Width - 1), below = Math.Min(cy + 1, sample.Height - 1);
+                        float fx = CloneFraction.X, fy = CloneFraction.Y;
+                        var top = sample.Read(cx, cy) * (1 - fx) + sample.Read(right, cy) * fx;
+                        var bottom = sample.Read(cx, below) * (1 - fx) + sample.Read(right, below) * fx;
+                        after = top * (1 - fy) + bottom * fy;
+                    }
                     break;
                 case BrushMode.Blur: after = soft!.Value.Read(x, y); break;
                 case BrushMode.Dodge: after = new(before.R + (before.A - before.R) * .5f, before.G + (before.A - before.G) * .5f, before.B + (before.A - before.B) * .5f, before.A); break;

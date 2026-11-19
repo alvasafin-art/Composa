@@ -25,28 +25,13 @@ public static unsafe partial class PatchBlend
         {
             int xx = x + bounds.Left, yy = y + bounds.Top, i = y * w + x;
             if (boundaryExclusion != null && excluded[yy * boundaryExclusion.RowBytes + xx] > 0) continue;
-            if (!Valid(xx, yy) || selected[yy * mask.RowBytes + xx] > 0 && x > 0 && y > 0 && x < w - 1 && y < h - 1) continue;
+            if (!Valid(xx, yy) || selected[yy * mask.RowBytes + xx] > 0) continue;
             var a = source.Read(xx, yy).Straight; var b = sample.Read(xx + offset.X, yy + offset.Y).Straight;
             if (a.A <= 0 || b.A <= 0) continue;
             weights[i] = 1;
             for (var c = 0; c < 3; c++) correction[i * 3 + c] = a[c] - b[c];
         }
-        PushPull.Fill(correction, weights, w, h, 3);
-        for (var pass = 0; pass < iterations; pass++)
-        for (var parity = 0; parity < 2; parity++)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            var color = parity;
-            Parallel.For(1, h - 1, y =>
-            {
-                for (var x = 1 + ((y + color + 1) & 1); x < w - 1; x += 2)
-                {
-                    var i = y * w + x;
-                    if (weights[i] > 0) continue;
-                    for (var c = 0; c < 3; c++) correction[i * 3 + c] = (correction[(i - 1) * 3 + c] + correction[(i + 1) * 3 + c] + correction[(i - w) * 3 + c] + correction[(i + w) * 3 + c]) * .25f;
-                }
-            });
-        }
+        SolveBoundaryCorrection(correction, weights, w, h, iterations, cancellation);
         var result = Pixels.Clone(original);
         var output = new PixelBuffer(result);
         for (var y = 0; y < h; y++)

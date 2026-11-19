@@ -52,10 +52,10 @@ public class ToolRailTests
         Assert.NotEqual(Icons.Brush,lasso.Current.Icon); Assert.True(lasso.Current.Icon.Dashed);
         Assert.StartsWith("Selection Brush (Q)",ToolTip.GetTip(lasso) as string);
         window.MouseDown(Center(lasso),MouseButton.Right); window.MouseUp(Center(lasso),MouseButton.Right); Dispatcher.UIThread.RunJobs();
-        Assert.Equal(["Magic Wand", "Object Selection", "Object Selection AI", "Selection Brush"],lasso.GroupItems.Select(item=>item.Header!.ToString()));
-        Assert.True(lasso.GroupItems[2].IsEnabled); // Bundled models work without a ComfyUI connection.
-        var popup=TopLevel.GetTopLevel(lasso.GroupItems[3])!;
-        var selected=lasso.GroupItems[3].TranslatePoint(new Point(40,10),popup)!.Value;
+        Assert.Equal(["Freehand Lasso", "Polygonal Lasso", "Magic Wand", "Object Selection", "Selection Brush"],lasso.GroupItems.Select(item=>item.Header!.ToString()));
+        Assert.True(lasso.GroupItems[3].IsEnabled); // Bundled models work without a ComfyUI connection.
+        var popup=TopLevel.GetTopLevel(lasso.GroupItems[4])!;
+        var selected=lasso.GroupItems[4].TranslatePoint(new Point(40,10),popup)!.Value;
         popup.MouseDown(selected,MouseButton.Left); popup.MouseUp(selected,MouseButton.Left);
         Screenshots.Save(window,"selection-brush-icon-in-wand");
         window.SelectTool(Tool.Move);
@@ -73,10 +73,10 @@ public class ToolRailTests
 
         Assert.True(lasso.IsGroupOpen);
         var items = lasso.GroupItems;
-        Assert.Equal(["Freehand Lasso", "Polygonal Lasso"], items.Select(i => (string)i.Header!));
-        Assert.Equal([new KeyGesture(Key.L), new KeyGesture(Key.L)], items.Select(i => i.InputGesture));
+        Assert.Equal(["Freehand Lasso", "Polygonal Lasso", "Magic Wand", "Object Selection", "Selection Brush"], items.Select(i => (string)i.Header!));
+        Assert.Equal([new KeyGesture(Key.L), new KeyGesture(Key.L), new KeyGesture(Key.W), new KeyGesture(Key.W), new KeyGesture(Key.Q)], items.Select(i => i.InputGesture));
         Assert.All(items, i => Assert.NotNull(i.Icon));
-        Assert.Equal([true, false], items.Select(i => i.IsChecked));
+        Assert.Equal([true, false, false, false, false], items.Select(i => i.IsChecked));
         // Nothing is highlighted until the pointer is over a tool.
         Assert.All(items, i => Assert.False(i.IsSelected));
         // The group opens on the button's right, level with it, as Photoshop's does.
@@ -164,35 +164,44 @@ public class ToolRailTests
     }
 
     [AvaloniaFact]
-    public void Brush_and_eraser_share_a_group_with_their_own_keys_and_the_buttons_follow_the_keys()
+    public void Brush_and_eraser_have_separate_buttons_and_shortcuts_recall_group_choices()
     {
-        // The smear modes are a group too, and its key steps through them.
-        var smear = window.RailButton(Tool.Smear);
-        session.SmearMode = SmearMode.Liquify;
-        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
-        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal(SmearMode.Blur, session.SmearMode);
-        Assert.Equal("Blur", smear.Current!.Name);
-        Assert.Contains("Blur", BarTexts());
-
         var brush = window.RailButton(Tool.Brush);
+        var eraser = window.RailButton(Tool.Eraser);
+        Assert.False(brush.HasGroup);
+        Assert.False(eraser.HasGroup);
         window.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.None);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal("Eraser", brush.Current!.Name);
+        Assert.Equal(Tool.Eraser, session.Tool);
+        Assert.True(eraser.IsChecked);
         Assert.Contains("Eraser", BarTexts());
+        window.MouseDown(Center(brush), MouseButton.Left); window.MouseUp(Center(brush), MouseButton.Left);
+        Assert.Equal(Tool.Brush, session.Tool);
+        Assert.False(session.EraserMode);
+        session.SmearMode = SmearMode.Burn;
+        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
+        Assert.Contains("Burn", BarTexts());
+        window.SelectTool(Tool.Bucket);
+        window.SelectTool(Tool.Move);
+        window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.None);
+        Assert.Equal(Tool.Bucket, session.Tool);
+        window.SelectTool(Tool.SelectionBrush);
+        window.SelectTool(Tool.Move);
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        Assert.Equal(Tool.SelectionBrush, session.Tool);
+    }
 
-        smear.OpenGroup(fromKeyboard: true);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal(["Liquify", "Blur", "Smudge", "Dodge", "Burn"], smear.GroupItems.Select(i => (string)i.Header!));
-        // Opened from the keyboard, the arrow keys start from the current mode.
-        Assert.Equal([false, true, false, false, false], smear.GroupItems.Select(i => i.IsSelected));
-        Screenshots.Save(TopLevel.GetTopLevel(smear.GroupItems[0])!, "tool-group-smear");
-
-        brush.OpenGroup();
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal(["Brush", "Eraser"], brush.GroupItems.Select(i => (string)i.Header!));
-        Assert.Equal([new KeyGesture(Key.B), new KeyGesture(Key.E)], brush.GroupItems.Select(i => i.InputGesture));
-        Assert.Equal([false, true], brush.GroupItems.Select(i => i.IsChecked));
+    [AvaloniaFact]
+    public void Stamp_mode_switches_to_patch_and_S_restores_it()
+    {
+        window.SelectTool(Tool.CloneStamp);
+        window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "StampMode").SelectedIndex = 1;
+        Assert.Equal(Tool.Patch, session.Tool);
+        Assert.True(window.RailButton(Tool.CloneStamp).IsChecked);
+        window.SelectTool(Tool.Move);
+        window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.None);
+        Assert.Equal(Tool.Patch, session.Tool);
+        window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "StampMode").SelectedIndex = 0;
+        Assert.Equal(Tool.CloneStamp, session.Tool);
     }
 }

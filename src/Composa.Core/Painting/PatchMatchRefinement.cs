@@ -26,13 +26,14 @@ internal static unsafe partial class PatchMatchRefinement
                 using var selected = Resize(mask, w, h, mask: true);
                 using var guess = Resize(initial, w, h, mask: false);
                 var data = (byte*)guide.GetPixels(); var banned = (byte*)avoid.GetPixels(); var selection = (byte*)selected.GetPixels(); var estimated = (byte*)guess.GetPixels();
+                int guideStride = guide.RowBytes, avoidStride = avoid.RowBytes, selectedStride = selected.RowBytes, guessStride = guess.RowBytes;
                 var valid = new List<int>(); var legal = new bool[w * h]; var repair = new List<int>();
                 for (var y = 1; y < h - 1; y++) for (var x = 1; x < w - 1; x++)
                 {
-                    if (selection[(long)y * selected.RowBytes + x] > 0) repair.Add(y * w + x);
+                    if (selection[(long)y * selectedStride + x] > 0) repair.Add(y * w + x);
                     var clean = true;
                     for (var dy = -1; dy <= 1 && clean; dy++) for (var dx = -1; dx <= 1; dx++)
-                        if (banned[(long)(y + dy) * avoid.RowBytes + x + dx] > 0 || data[(long)(y + dy) * guide.RowBytes + (x + dx) * 4 + 3] < 250) { clean = false; break; }
+                        if (banned[(long)(y + dy) * avoidStride + x + dx] > 0 || data[(long)(y + dy) * guideStride + (x + dx) * 4 + 3] < 250) { clean = false; break; }
                     if (clean) { legal[y * w + x] = true; valid.Add(y * w + x); }
                 }
                 if (valid.Count == 0 || repair.Count == 0) continue;
@@ -43,9 +44,9 @@ internal static unsafe partial class PatchMatchRefinement
                     var tx = target % w; var ty = target / w; var sx = donor % w; var sy = donor / w; var total = 0f;
                     for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++)
                     {
-                        var a = estimated + (long)(ty + dy) * guess.RowBytes + (tx + dx) * 4;
-                        var b = data + (long)(sy + dy) * guide.RowBytes + (sx + dx) * 4;
-                        var weight = selection[(long)(ty + dy) * selected.RowBytes + tx + dx] == 0 ? 1f : .25f;
+                        var a = estimated + (long)(ty + dy) * guessStride + (tx + dx) * 4;
+                        var b = data + (long)(sy + dy) * guideStride + (sx + dx) * 4;
+                        var weight = selection[(long)(ty + dy) * selectedStride + tx + dx] == 0 ? 1f : .25f;
                         for (var c = 0; c < 3; c++) { var difference = a[c] - b[c]; total += difference * difference * weight; }
                     }
                     return total / 27;
@@ -57,7 +58,12 @@ internal static unsafe partial class PatchMatchRefinement
                     {
                         var px = Math.Min(previousWidth - 1, i % w * previousWidth / w); var py = Math.Min(previousHeight - 1, i / w * previousHeight / h);
                         var old = field[py * previousWidth + px];
-                        if (old >= 0) donor = Math.Clamp(old / previousWidth * h / previousHeight, 1, h - 2) * w + Math.Clamp(old % previousWidth * w / previousWidth, 1, w - 2);
+                        if (old >= 0)
+                        {
+                            int dx = (old % previousWidth - px) * w / previousWidth;
+                            int dy = (old / previousWidth - py) * h / previousHeight;
+                            donor = Math.Clamp(i / w + dy, 1, h - 2) * w + Math.Clamp(i % w + dx, 1, w - 2);
+                        }
                     }
                     if (donor < 0 || !legal[donor]) donor = valid[random.Next(valid.Count)];
                     next[i] = donor; errors[i] = Cost(i, donor);
@@ -69,6 +75,8 @@ internal static unsafe partial class PatchMatchRefinement
                     for (var at = 0; at < repair.Count; at++)
                     {
                         var i = repair[forward ? at : repair.Count - 1 - at];
+                        // Votes changed the guide after the preceding pass.
+                        if (pass > 0) errors[i] = Cost(i, next[i]);
                         void Try(int candidate) { var error = Cost(i, candidate); if (error < errors[i]) { errors[i] = error; next[i] = candidate; } }
                         var direction = forward ? -1 : 1;
                         var horizontal = i + direction; var vertical = i + direction * w;
@@ -83,7 +91,7 @@ internal static unsafe partial class PatchMatchRefinement
                     // Patch voting updates the estimate, so later passes search against coherent texture.
                     foreach (var i in repair)
                     {
-                        var tx = i % w; var ty = i / w; var to = estimated + (long)ty * guess.RowBytes + tx * 4;
+                        var tx = i % w; var ty = i / w; var to = estimated + (long)ty * guessStride + tx * 4;
                         for (var c = 0; c < 3; c++)
                         {
                             float sum = 0, weight = 0;
@@ -92,7 +100,7 @@ internal static unsafe partial class PatchMatchRefinement
                                 var xx = tx + dx; var yy = ty + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
                                 var q = yy * w + xx; if (next[q] < 0) continue;
                                 var donor = next[q]; var sx = donor % w - dx; var sy = donor / w - dy;
-                                var vote = 1 / (1 + errors[q]); sum += data[(long)sy * guide.RowBytes + sx * 4 + c] * vote; weight += vote;
+                                var vote = 1 / (1 + errors[q]); sum += data[(long)sy * guideStride + sx * 4 + c] * vote; weight += vote;
                             }
                             if (weight > 0) to[c] = (byte)(sum / weight);
                         }
@@ -106,16 +114,23 @@ internal static unsafe partial class PatchMatchRefinement
             var result = Pixels.Clone(initial); var output = (byte*)result.GetPixels(); var original = (byte*)source.GetPixels(); var selectedFull = (byte*)mask.GetPixels();
             var excludedFull = (byte*)(exclusion ?? mask).GetPixels(); var excludeStride = (exclusion ?? mask).RowBytes;
             var fw = previousWidth; var fh = previousHeight;
+            var initialPixels = (byte*)initial.GetPixels();
+            var width = source.Width;
+            var height = source.Height;
+            var sourceStride = source.RowBytes;
+            var initialStride = initial.RowBytes;
+            var resultStride = result.RowBytes;
+            var maskStride = mask.RowBytes;
             Parallel.For(hole.Top, hole.Bottom, new ParallelOptions { CancellationToken = cancellation }, y =>
             {
                 for (var x = hole.Left; x < hole.Right; x++)
                 {
-                    var cover = selectedFull[(long)y * mask.RowBytes + x] / 255f; if (cover <= 0) continue;
-                    var gx = Math.Clamp(x * fw / source.Width, 0, fw - 1); var gy = Math.Clamp(y * fh / source.Height, 0, fh - 1);
+                    var cover = selectedFull[(long)y * maskStride + x] / 255f; if (cover <= 0) continue;
+                    var gx = Math.Clamp(x * fw / width, 0, fw - 1); var gy = Math.Clamp(y * fh / height, 0, fh - 1);
                     var donor = field[gy * fw + gx]; if (donor < 0) continue;
-                    var sx = (int)Math.Round((double)(donor % fw - gx) * source.Width / fw) + x;
-                    var sy = (int)Math.Round((double)(donor / fw - gy) * source.Height / fh) + y;
-                    if (sx < 1 || sy < 1 || sx >= source.Width - 1 || sy >= source.Height - 1) continue;
+                    var sx = (int)Math.Round((double)(donor % fw - gx) * width / fw) + x;
+                    var sy = (int)Math.Round((double)(donor / fw - gy) * height / fh) + y;
+                    if (sx < 1 || sy < 1 || sx >= width - 1 || sy >= height - 1) continue;
                     var clean = true;
                     for (var dy = -1; dy <= 1 && clean; dy++) for (var dx = -1; dx <= 1; dx++)
                         if (excludedFull[(long)(sy + dy) * excludeStride + sx + dx] > 0) { clean = false; break; }
@@ -127,20 +142,19 @@ internal static unsafe partial class PatchMatchRefinement
                         var xx = sx + dx; var yy = sy + dy;
                         if (excludedFull[(long)yy * excludeStride + xx] > 0) continue;
                         var error = 0f;
-                        for (var c = 0; c < 3; c++) { var d = original[(long)yy * source.RowBytes + xx * 4 + c] - output[(long)y * result.RowBytes + x * 4 + c]; error += d * d; }
+                        for (var c = 0; c < 3; c++) { var d = original[(long)yy * sourceStride + xx * 4 + c] - output[(long)y * resultStride + x * 4 + c]; error += d * d; }
                         if (error < best) { best = error; bestX = xx; bestY = yy; }
                     }
-                    var sample = original + (long)bestY * source.RowBytes + bestX * 4; var to = output + (long)y * result.RowBytes + x * 4;
-                    var initialPixels = (byte*)initial.GetPixels();
+                    var sample = original + (long)bestY * sourceStride + bestX * 4; var to = output + (long)y * resultStride + x * 4;
                     for (var c = 0; c < 3; c++)
                     {
                         var donorMean = 0f; var targetMean = 0f; var count = 0;
                         for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++)
                         {
-                            int tx = Math.Clamp(x + dx, 0, source.Width - 1), ty = Math.Clamp(y + dy, 0, source.Height - 1);
-                            int xx = Math.Clamp(bestX + dx, 0, source.Width - 1), yy = Math.Clamp(bestY + dy, 0, source.Height - 1);
+                            int tx = Math.Clamp(x + dx, 0, width - 1), ty = Math.Clamp(y + dy, 0, height - 1);
+                            int xx = Math.Clamp(bestX + dx, 0, width - 1), yy = Math.Clamp(bestY + dy, 0, height - 1);
                             if (excludedFull[(long)yy * excludeStride + xx] > 0) continue;
-                            donorMean += original[(long)yy * source.RowBytes + xx * 4 + c]; targetMean += initialPixels[(long)ty * initial.RowBytes + tx * 4 + c]; count++;
+                            donorMean += original[(long)yy * sourceStride + xx * 4 + c]; targetMean += initialPixels[(long)ty * initialStride + tx * 4 + c]; count++;
                         }
                         to[c] = (byte)Math.Clamp(sample[c] + (count > 0 ? (targetMean - donorMean) / count : 0), 0, sample[3]);
                     }

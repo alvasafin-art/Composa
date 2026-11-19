@@ -10,6 +10,62 @@ namespace Composa.Core.Tests;
 
 public class InpaintTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Repeated_print_uses_an_intact_row_and_keeps_the_shape_of_the_ink(bool spot)
+    {
+        using var clean = Pixels.NewColor(200, 160);
+        var random = new Random(210);
+        for (var y = 0; y < clean.Height; y++)
+        for (var x = 0; x < clean.Width; x++)
+        {
+            int column = x % 23, row = y % 37;
+            bool ink = row is >= 8 and <= 24 && (column is 4 or 5 or 13 or 14 || row is 14 or 15 && column is >= 6 and <= 12);
+            var value = (byte)(ink ? 26 : 185 + random.Next(22));
+            clean.SetPixel(x, y, new SKColor(value, value, value));
+        }
+        using var source = Pixels.Clone(clean); using var mask = Pixels.NewMask(200, 160);
+        var area = new SKRectI(78, 70, 129, 99); Hole(source, mask, area);
+        using var result = Inpaint.Fill(source, mask, coherentSpot: spot);
+        AssertOutsideUnchanged(source, mask, result);
+        for (var y = area.Top; y < area.Bottom; y++)
+        for (var x = area.Left; x < area.Right; x++)
+            Assert.Equal(clean.GetPixel(x, y).Red < 90, result.GetPixel(x, y).Red < 90);
+    }
+
+    [Fact]
+    public void A_thin_scratch_preserves_antialiased_diagonal_ink_edges()
+    {
+        using var clean = Pixels.NewColor(80, 40); clean.Erase(SKColors.White);
+        using (var canvas = new SKCanvas(clean))
+        using (var paint = new SKPaint { Color = SKColors.Black, StrokeWidth = 5, IsAntialias = true })
+            foreach (var x in new[] { 10, 27, 52 }) canvas.DrawLine(x, 0, x + 14, 40, paint);
+        using var dirty = Pixels.Clone(clean); using var mask = Pixels.NewMask(80, 40);
+        Hole(dirty, mask, new SKRectI(5, 18, 73, 23));
+        using var result = Inpaint.Fill(dirty, mask);
+        Assert.True(Error(clean, result, mask) < 9);
+        AssertOutsideUnchanged(dirty, mask, result);
+    }
+
+    [Fact]
+    public void Feathered_fill_applies_coverage_once_across_a_fragmented_print()
+    {
+        using var source = Pattern(180, 100);
+        using var hard = Pixels.NewMask(180, 100);
+        Hole(source, hard, new SKRectI(12, 12, 24, 88)); Hole(source, hard, new SKRectI(151, 12, 163, 88));
+        using var soft = Pixels.Clone(hard);
+        for (var y = 12; y < 88; y++) soft.GetPixelSpan()[soft.RowBytes * y + 12] = 128;
+        Pixels.Invalidate(soft);
+        using var full = Inpaint.Fill(source, hard);
+        using var feathered = Inpaint.Fill(source, soft);
+        for (var y = 12; y < 88; y++)
+        {
+            int expected = (source.GetPixel(12, y).Red * 127 + full.GetPixel(12, y).Red * 128 + 127) / 255;
+            Assert.InRange(Math.Abs(feathered.GetPixel(12, y).Red - expected), 0, 1);
+        }
+    }
+
     [Fact]
     public void Separate_blemishes_keep_local_texture_and_do_not_borrow_a_distant_object()
     {
@@ -158,6 +214,54 @@ public class InpaintTests
                 Assert.InRange(result.GetPixel(x, y).Red, (byte)77, (byte)83);
                 Assert.InRange(result.GetPixel(x, y).Green, (byte)137, (byte)143);
             }
+    }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void Irregular_hole_keeps_a_slanted_material_boundary_and_ignores_excluded_colors(ColorDepth depth)
+    {
+        const int width = 140, height = 100;
+        using var clean = Pixels.NewColor(width, height, depth);
+        var random = new Random(79);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            int tone = x > 85 - y * .43 ? 48 : 164;
+            int texture = random.Next(-7, 8) + (int)(4 * Math.Sin(x * .26 + y * .12));
+            clean.SetPixel(x, y, new SKColor((byte)(tone + texture + 10), (byte)(tone + texture), (byte)(tone + texture - 6)));
+        }
+        using var mask = Pixels.NewMask(width, height);
+        using (var canvas = new SKCanvas(mask))
+        using (var paint = new SKPaint { Color = SKColors.White })
+            canvas.DrawOval(new SKRect(42, 36, 96, 65), paint);
+        using var dirty = Pixels.Clone(clean);
+        using var other = Pixels.Clone(clean);
+        using var avoid = Pixels.NewMask(width, height);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            if (mask.GetPixel(x, y).Alpha > 0)
+            {
+                dirty.SetPixel(x, y, SKColors.Magenta);
+                other.SetPixel(x, y, SKColors.Blue);
+            }
+            else if (x is >= 32 and < 45 && y is >= 28 and < 68)
+            {
+                dirty.SetPixel(x, y, SKColors.Yellow);
+                other.SetPixel(x, y, SKColors.Red);
+                avoid.SetPixel(x, y, SKColors.White);
+            }
+        }
+        using var first = Inpaint.Fill(dirty, mask, avoid);
+        using var second = Inpaint.Fill(other, mask, avoid);
+        AssertOutsideUnchanged(dirty, mask, first);
+        Assert.Equal(depth, Pixels.DepthOf(first));
+        Assert.True(Error(clean, first, mask) < 10);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            if (mask.GetPixel(x, y).Alpha == 255)
+                Assert.Equal(first.GetPixel(x, y), second.GetPixel(x, y));
     }
 
     private static SKBitmap Pattern(int width, int height)

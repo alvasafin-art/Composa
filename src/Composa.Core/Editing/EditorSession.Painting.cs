@@ -31,7 +31,7 @@ public sealed partial class EditorSession
     public SKPoint? CloneSource => cloneSource;
     /// <summary>Where the clone source currently is while painting, for the crosshair overlay.</summary>
     public SKPoint? CloneSamplePoint(SKPoint cursor) =>
-        cloneSource == null ? null : cloneOffset is { } o && CloneAligned ? new SKPoint(cursor.X + o.X, cursor.Y + o.Y) : cloneSource;
+        cloneSource == null ? null : cloneOffset is { } o && (CloneAligned || stroke != null) ? new SKPoint(cursor.X + o.X, cursor.Y + o.Y) : cloneSource;
     /// <summary>Where the previous stroke ended, so Shift-click can draw a straight line from it.</summary>
     public SKPoint? LastStrokeEnd => lastStrokeEnd;
 
@@ -44,6 +44,7 @@ public sealed partial class EditorSession
     /// <summary>The brush mode the current tool paints with.</summary>
     public BrushMode CurrentBrushMode => Tool switch
     {
+        Tool.Eraser => BrushMode.Erase,
         Tool.SpotHealing => BrushMode.Heal,
         Tool.HealingBrush => BrushMode.Healing,
         Tool.CloneStamp => BrushMode.Clone,
@@ -129,27 +130,42 @@ public sealed partial class EditorSession
 
         SKBitmap? source = null;
         var offset = SKPointI.Empty;
+        var fraction = SKPoint.Empty;
+        void SetOffset(SKPoint delta)
+        {
+            if (mode == BrushMode.Clone)
+            {
+                offset = new((int)MathF.Floor(delta.X), (int)MathF.Floor(delta.Y));
+                fraction = new(delta.X - offset.X, delta.Y - offset.Y);
+            }
+            else offset = new((int)Math.Round(delta.X), (int)Math.Round(delta.Y));
+        }
         if (mode is BrushMode.Clone or BrushMode.Healing)
         {
             if (!CloneAligned || cloneOffset == null) cloneOffset = new SKPoint(cloneSource!.Value.X - point.X, cloneSource.Value.Y - point.Y);
             var o = cloneOffset.Value;
-            var translationOnly = layer.Pixels != null && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height) || layer.Pixels == null;
-            if (SampleAllLayers && !IsEditingMask && translationOnly)
+            if (SampleAllLayers && !IsEditingMask && matrix.ScaleX == 1 && matrix.ScaleY == 1 && matrix.SkewX == 0 && matrix.SkewY == 0)
             {
                 source = CompositePixels();
-                offset = new SKPointI((int)Math.Round(o.X + layer.Transform.X), (int)Math.Round(o.Y + layer.Transform.Y));
+                SetOffset(new SKPoint(o.X + matrix.TransX, o.Y + matrix.TransY));
+            }
+            else if (SampleAllLayers && !IsEditingMask)
+            {
+                // Sample doc = ToDocument(target pixel) + source offset. Baking the translation
+                // here also allows a donor outside the active layer's transformed bounds.
+                source = CompositeInStrokeSpace(target, o);
             }
             else
             {
                 source = target;
                 var v = strokeToLayer.MapVector(o.X, o.Y);
-                offset = new SKPointI((int)Math.Round(v.X), (int)Math.Round(v.Y));
+                SetOffset(v);
             }
         }
         var color = mode == BrushMode.Paint ? ChannelPaintColor(channelErase ? Background : Foreground) : SKColors.Black;
         stroke = new BrushStroke(target, Brush, mode.Value, color, scale, LayerPixelStorage.CopyForStroke(target))
         {
-            Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset,
+            Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset, CloneFraction = fraction,
             LockTransparency = !IsEditingMask && (IsEditingComponent || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
         };
         strokeLayer = layer;
@@ -158,11 +174,7 @@ public sealed partial class EditorSession
         {
             // Snapshot before the dark drag overlay, mapping the visible document into
             // the active layer's local grid (including transformed retouch layers).
-            strokeHealingSample = Pixels.NewLike(target);
-            using var visible = CompositePixels();
-            using var sampleCanvas = new SKCanvas(strokeHealingSample);
-            sampleCanvas.SetMatrix(strokeToLayer);
-            sampleCanvas.DrawImage(Pixels.ImageOf(visible), 0, 0);
+            strokeHealingSample = CompositeInStrokeSpace(target, SKPoint.Empty);
         }
         strokeMode = mode.Value;
         SetTarget(layer, stroke.Working, constrainChannels: false);
@@ -174,6 +186,16 @@ public sealed partial class EditorSession
         Paint(point, pressure);
         if (lineFromLast) Invalidate(AffectedArea(layer));
         return true;
+    }
+
+    private SKBitmap CompositeInStrokeSpace(SKBitmap target, SKPoint documentOffset)
+    {
+        using var visible = CompositePixels();
+        var sample = Pixels.NewLike(target);
+        using var canvas = new SKCanvas(sample);
+        canvas.SetMatrix(strokeToLayer);
+        canvas.DrawImage(Pixels.ImageOf(visible), -documentOffset.X, -documentOffset.Y, new SKSamplingOptions(SKFilterMode.Linear));
+        return sample;
     }
 
     public void ContinueStroke(SKPoint point, float pressure = 1)
@@ -269,6 +291,8 @@ public sealed partial class EditorSession
                     if (allowed[y * selectionStride + x] == 0) coverage[y * maskStride + x] = 0;
                 Pixels.Invalidate(mask);
             }
+            // A single translated donor serves a dab. A long stroke may cross several different materials.
+            bool singleDab = Math.Max(touched.Width, touched.Height) <= Brush.Size * 2;
             SKBitmap repair;
             if (strokeMode == BrushMode.Healing) repair = PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset);
             else if (strokeHealingSample is { } sample)
@@ -282,12 +306,12 @@ public sealed partial class EditorSession
                     for (var x = 0; x < row.Length; x++) if (row[x] > 0) row[x] = 255;
                 }
                 Pixels.Invalidate(hard);
-                repair = Inpaint.Fill(sample, hard, donorExclusion, coherentSpot: true);
+                repair = Inpaint.Fill(sample, hard, donorExclusion, coherentSpot: singleDab);
                 // Write only the stroke onto the retouch layer. Coverage is applied once,
                 // not first to the composite and then again when transferring its pixels.
                 repair = MixBySelection(strokeOriginal!, repair, mask);
             }
-            else repair = Inpaint.Fill(strokeOriginal!, mask, donorExclusion, coherentSpot: true);
+            else repair = Inpaint.Fill(strokeOriginal!, mask, donorExclusion, coherentSpot: singleDab);
             var healed = MixBySelection(strokeOriginal!, repair, selection);
             if (EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
             {

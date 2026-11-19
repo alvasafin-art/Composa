@@ -396,7 +396,7 @@ public sealed partial class MainWindow
     }
 
     private bool ShowSelectionPanel => !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
-        && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
+        && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.Wand && session.WandMode == WandMode.Object && canvas.IsDragging)
         && aiTasks.ConnectionState == ComfyConnectionState.Connected;
 
     private void RefreshAiFloatingUi()

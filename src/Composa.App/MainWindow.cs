@@ -64,8 +64,8 @@ public sealed partial class MainWindow : Window
 
     internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory)
     {
-        magicShowsSelectionBrush = settings.ToolPalette?.SelectionBrush ?? false;
-        magicShowsAi = settings.ToolPalette?.ObjectAi ?? false;
+        selectionTool = settings.ToolPalette?.SelectionTool;
+        stampUsesPatch = settings.ToolPalette?.Patch ?? false;
         gradientShowsBucket = settings.ToolPalette?.Bucket ?? false;
         automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), comfyClientFactory)
@@ -284,7 +284,15 @@ public sealed partial class MainWindow : Window
     public Settings Settings => settings;
     public CanvasView Canvas => canvas;
     /// <summary>The tool rail's button for a tool.</summary>
-    public ToolButton RailButton(Tool tool) => toolButtons[tool switch { Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Wand, Tool.Bucket => Tool.Gradient, _ => tool }];
+    public ToolButton RailButton(Tool tool) => toolButtons[RailTool(tool)];
+
+    private static Tool RailTool(Tool tool) => tool switch
+    {
+        Tool.Wand or Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Lasso,
+        Tool.Bucket => Tool.Gradient,
+        Tool.Patch => Tool.CloneStamp,
+        _ => tool
+    };
 
     // ---- Sessions and tabs --------------------------------------------------------------------------------------
 
@@ -302,8 +310,17 @@ public sealed partial class MainWindow : Window
                 if (Enum.IsDefined(palette.Wand)) added.WandMode = palette.Wand;
                 if (Enum.IsDefined(palette.Smear)) added.SmearMode = palette.Smear;
                 if (Enum.IsDefined(palette.Shape)) added.ShapeKind = palette.Shape;
-                added.EraserMode = palette.Eraser;
-                magicShowsSelectionBrush = palette.SelectionBrush; magicShowsAi = palette.ObjectAi; gradientShowsBucket = palette.Bucket;
+                selectionTool = palette.SelectionTool switch
+                {
+                    Tool.Lasso or Tool.Wand or Tool.SelectionBrush => palette.SelectionTool,
+                    _ when palette.SelectionBrush => Tool.SelectionBrush,
+                    _ when palette.ObjectAi || palette.Wand == WandMode.Object => Tool.Wand,
+                    _ => null
+                };
+                if (palette.ObjectAi || palette.Active == Tool.ObjectSelectionAi) added.WandMode = WandMode.Object;
+                if (added.Tool == Tool.Brush && palette.Eraser) added.Tool = Tool.Eraser;
+                stampUsesPatch = palette.Patch;
+                gradientShowsBucket = palette.Bucket;
             }
         }
         sessions.Add(added);
@@ -367,7 +384,7 @@ public sealed partial class MainWindow : Window
         {
             target.Foreground = from.Foreground; target.Background = from.Background; target.Brush = from.Brush;
             target.GradientRamp = from.GradientRamp;
-            target.EraserMode = from.EraserMode; target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
+            target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
             target.Feather = from.Feather; target.WandTolerance = from.WandTolerance; target.WandContiguous = from.WandContiguous;
             target.SampleAllLayers = from.SampleAllLayers; target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
             target.ShapeCornerRadius = from.ShapeCornerRadius; target.GradientRadial = from.GradientRadial; target.GradientToTransparent = from.GradientToTransparent; target.TextDefaults = from.TextDefaults;
@@ -629,11 +646,10 @@ public sealed partial class MainWindow : Window
     private static readonly (Tool Tool, Icons.Icon Icon, string Tip)[] ToolList =
     [
         (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"), (Tool.Lasso, Icons.Lasso, "Lasso (L)"),
-        (Tool.Wand, Icons.Wand, "Magic (W)"),
-        (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B) · Eraser (E)"),
+        (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.SpotHealing, Icons.Heal, "Spot Healing Brush (J)"), (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
-        (Tool.HealingBrush, Icons.HealingBrush, "Healing Brush · Alt-click sets the texture source"), (Tool.Patch, Icons.Marquee, "Patch · select an area and drag to the donor"),
+        (Tool.HealingBrush, Icons.HealingBrush, "Healing Brush · Alt-click sets the texture source"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
         (Tool.Pen, Icons.Pen, "Pen (P) · click adds a corner, drag creates curve handles · Alt-click converts a point · Ctrl edits points · Enter finishes · double-click closes"),
@@ -644,19 +660,19 @@ public sealed partial class MainWindow : Window
     /// The tools a rail button holds, which it offers beside itself when held down, as Photoshop groups its tools. Empty for a
     /// tool on its own. The keys are looked up when the group opens, so a rebound key shows as it is now.
     /// </summary>
-    private bool magicShowsSelectionBrush;
-    private bool magicShowsAi;
+    private Tool? selectionTool;
+    private bool stampUsesPatch;
     private bool gradientShowsBucket;
     private IReadOnlyList<ToolChoice> ToolGroup(Tool tool)
     {
-        ToolChoice Choice(string name, Icons.Icon icon, string key, Func<EditorSession, bool> isCurrent, Action<EditorSession> apply) => new(
+        ToolChoice Choice(string name, Icons.Icon icon, string key, Func<EditorSession, bool> isCurrent, Action<EditorSession> apply, Tool? member = null) => new(
             name, icon, () => toolKeys.FirstOrDefault(k => k.Id == key)?.Gesture,
             () => (session ?? lastToolSource) is { } current ? isCurrent(current) : settings.ToolPalette?.Choices?.GetValueOrDefault(tool.ToString()) == name,
             () =>
             {
                 if (session == null) return;
                 apply(session);
-                SelectTool(tool);
+                SelectTool(member ?? tool);
                 canvas.Focus();
             });
         ToolChoice[] Kinds<T>(string key, Func<EditorSession, T> get, Action<EditorSession, T> set, params (T Kind, string Name, Icons.Icon Icon)[] kinds) where T : struct, Enum =>
@@ -667,28 +683,17 @@ public sealed partial class MainWindow : Window
                 (MarqueeKind.Rectangle, "Rectangle Marquee", Icons.Marquee), (MarqueeKind.Ellipse, "Ellipse Marquee", Icons.MarqueeEllipse)),
             Tool.Lasso =>
             [
-                Choice("Freehand Lasso", Icons.Lasso, LassoKey, s => s.LassoKind == LassoKind.Freehand, s => s.LassoKind = LassoKind.Freehand),
-                Choice("Polygonal Lasso", Icons.PolygonLasso, LassoKey, s => s.LassoKind == LassoKind.Polygonal, s => s.LassoKind = LassoKind.Polygonal)
-            ],
-            Tool.Wand =>
-            [
-                Choice("Magic Wand", Icons.Wand, MagicKey, s => !magicShowsSelectionBrush && !magicShowsAi && s.WandMode == WandMode.Wand, s => s.WandMode = WandMode.Wand),
-                Choice("Object Selection", Icons.ObjectSelect, MagicKey, s => !magicShowsSelectionBrush && !magicShowsAi && s.WandMode == WandMode.Object, s => s.WandMode = WandMode.Object),
-                new ToolChoice("Object Selection AI", Icons.ObjectSelectAi, () => null,
-                    () => magicShowsAi, () => { SelectTool(Tool.ObjectSelectionAi); canvas.Focus(); }),
-                new ToolChoice("Selection Brush", Icons.SelectionBrush, () => toolKeys.FirstOrDefault(k => k.Id == "Selection Brush")?.Gesture,
-                    () => magicShowsSelectionBrush, () => { SelectTool(Tool.SelectionBrush); canvas.Focus(); })
-            ],
-            Tool.Brush =>
-            [
-                Choice("Brush", Icons.Brush, BrushKey, s => !s.EraserMode, s => s.EraserMode = false),
-                Choice("Eraser", Icons.Eraser, EraserKey, s => s.EraserMode, s => s.EraserMode = true)
+                Choice("Freehand Lasso", Icons.Lasso, LassoKey, s => (selectionTool ?? Tool.Lasso) == Tool.Lasso && s.LassoKind == LassoKind.Freehand, s => s.LassoKind = LassoKind.Freehand),
+                Choice("Polygonal Lasso", Icons.PolygonLasso, LassoKey, s => (selectionTool ?? Tool.Lasso) == Tool.Lasso && s.LassoKind == LassoKind.Polygonal, s => s.LassoKind = LassoKind.Polygonal),
+                Choice("Magic Wand", Icons.Wand, MagicKey, s => selectionTool == Tool.Wand && s.WandMode == WandMode.Wand, s => s.WandMode = WandMode.Wand, Tool.Wand),
+                Choice("Object Selection", Icons.ObjectSelect, MagicKey, s => selectionTool == Tool.Wand && s.WandMode == WandMode.Object, s => s.WandMode = WandMode.Object, Tool.Wand),
+                Choice("Selection Brush", Icons.SelectionBrush, "Selection Brush", s => selectionTool == Tool.SelectionBrush, _ => { }, Tool.SelectionBrush)
             ],
             Tool.Gradient =>
             [
-                new ToolChoice("Gradient", Icons.Gradient, () => toolKeys.FirstOrDefault(k => k.Id == "Gradient")?.Gesture,
+                new ToolChoice("Gradient", Icons.Gradient, () => toolKeys.FirstOrDefault(k => k.Id == "Gradient tool")?.Gesture,
                     () => !gradientShowsBucket, () => { SelectTool(Tool.Gradient); canvas.Focus(); }),
-                new ToolChoice("Paint Bucket", Icons.Bucket, () => null,
+                new ToolChoice("Paint Bucket", Icons.Bucket, () => toolKeys.FirstOrDefault(k => k.Id == "Gradient tool")?.Gesture,
                     () => gradientShowsBucket, () => { SelectTool(Tool.Bucket); canvas.Focus(); })
             ],
             Tool.Smear => Kinds(SmearKey, s => s.SmearMode, (s, v) => s.SmearMode = v,
@@ -708,7 +713,7 @@ public sealed partial class MainWindow : Window
         foreach (var (tool, icon, tip) in ToolList)
         {
             var button = new ToolButton(icon, tip, ToolGroup(tool));
-            button.Click += (_, _) => { if (button.Current is { } current) current.Choose(); else SelectTool(tool); };
+            button.Click += (_, _) => { if (button.Current is { } current) current.Choose(); else SelectTool(tool == Tool.CloneStamp && stampUsesPatch ? Tool.Patch : tool); };
             toolButtons[tool] = button;
             button.Refresh();
             rail.Children.Add(button);
@@ -850,7 +855,7 @@ public sealed partial class MainWindow : Window
         if (session == null) { foreach (var button in toolButtons.Values) button.IsChecked = false; return; }
         session.Tool = tool;
         problem = note = null;
-        ShowTool(tool);
+        ShowTool(session.Tool);
         canvas.ToolChanged();
         RebuildOptions();
         UpdateStatus();
@@ -862,11 +867,12 @@ public sealed partial class MainWindow : Window
     private void ShowTool(Tool tool)
     {
         if (session == null) return;
-        if (tool is Tool.Wand or Tool.SelectionBrush or Tool.ObjectSelectionAi) { magicShowsSelectionBrush = tool == Tool.SelectionBrush; magicShowsAi = tool == Tool.ObjectSelectionAi; }
+        if (tool is Tool.Lasso or Tool.Wand or Tool.SelectionBrush) selectionTool = tool;
+        if (tool is Tool.CloneStamp or Tool.Patch) stampUsesPatch = tool == Tool.Patch;
         if (tool is Tool.Gradient or Tool.Bucket) gradientShowsBucket = tool == Tool.Bucket;
         foreach (var (key, button) in toolButtons)
         {
-            button.IsChecked = key == tool || key == Tool.Wand && tool is Tool.SelectionBrush or Tool.ObjectSelectionAi || key == Tool.Gradient && tool == Tool.Bucket;
+            button.IsChecked = key == RailTool(tool);
             button.Refresh();
         }
         RememberToolPalette();
@@ -880,7 +886,7 @@ public sealed partial class MainWindow : Window
         {
             Active = s.Tool, Marquee = s.MarqueeKind, Lasso = s.LassoKind, Wand = s.WandMode,
             Smear = s.SmearMode, Shape = s.ShapeKind, Eraser = s.EraserMode,
-            SelectionBrush = magicShowsSelectionBrush, ObjectAi = magicShowsAi, Bucket = gradientShowsBucket,
+            SelectionTool = selectionTool, Patch = stampUsesPatch, Bucket = gradientShowsBucket,
             Choices = toolButtons.Where(pair => pair.Value.Current != null)
                 .ToDictionary(pair => pair.Key.ToString(), pair => pair.Value.Current!.Name)
         };
@@ -912,15 +918,15 @@ public sealed partial class MainWindow : Window
         Tool.Move => "Drag to move · Handles resize (Shift free, Alt from center) · Outside a corner rotates · Ctrl-drag a corner distorts · Ctrl-click picks a layer · 1–0 opacity",
         Tool.Marquee => "Drag to select · Shift add · Alt subtract · Shift+Alt intersect · Drag inside to move · Delete clears · Ctrl+D deselect",
         Tool.Lasso => s.LassoKind == LassoKind.Freehand ? "Drag to select · Shift add · Alt subtract · Drag inside to move" : "Click corners · Click the start, double-click or Enter to close · Backspace removes a corner · Escape cancels",
-        Tool.Wand => s.WandMode == WandMode.Object ? "Click an object to select its outline · Tab for Wand · Shift add · Alt subtract" : "Click to select similar colors · Tab for Object · Shift add · Alt subtract",
+        Tool.Wand => s.WandMode == WandMode.Object ? "Click an object or drag a rectangle · Tab for Wand · Shift add · Alt subtract" : "Click to select similar colors · Tab for Object · Shift add · Alt subtract",
         Tool.SelectionBrush => "Paint the selection mask · Shift adds · Alt subtracts · [ ] changes size · Ctrl+D deselects",
-        Tool.ObjectSelectionAi => "Draw a rectangle around the object · release to select with AI",
         Tool.RemoveObject => "Paint over the object · release to remove with AI · [ ] changes size",
         Tool.Bucket => "Click to fill connected pixels with the foreground color",
         Tool.Crop => "Drag to crop · Shift keeps proportions · Alt symmetric · Enter applies · Escape cancels",
-        Tool.Brush => (s.EraserMode ? "Drag to erase" : "Drag to paint · Alt-click picks a color") + " · Shift-click draws a line · [ ] size · { } hardness · 1–0 opacity",
+        Tool.Brush or Tool.Eraser => (s.EraserMode ? "Drag to erase" : "Drag to paint · Alt-click picks a color") + " · Shift-click draws a line · [ ] size · { } hardness · 1–0 opacity",
         Tool.SpotHealing => "Drag over blemishes to heal · [ ] size",
         Tool.CloneStamp => "Alt-click sets the source · Drag to clone · [ ] size · 1–0 opacity",
+        Tool.Patch => "Select an area, then drag it to the donor · Escape cancels",
         Tool.Smear => "Drag to " + (s.SmearMode == SmearMode.Liquify ? "push pixels" : s.SmearMode.ToString().ToLowerInvariant()) + " · [ ] size · 1–0 strength",
         Tool.Gradient => "Drag to draw from foreground to " + (s.GradientToTransparent ? "transparent" : "background") + " · Drag an end to adjust · Shift snaps to 45° · Enter applies · Escape cancels",
         Tool.Shape => s.ShapeKind == ShapeKind.Line ? "Drag to draw a line on a new layer · Shift snaps to 45° · Tab for the next shape" : "Drag to draw a shape on a new layer · Shift square · Alt from center · Tab for the next shape",

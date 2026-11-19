@@ -78,7 +78,7 @@ public sealed partial class CanvasView
         ToolStateChanged?.Invoke();
     }
 
-    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject;
+    private bool IsBrushTool => session?.Tool is Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject;
 
     public void ToolChanged()
     {
@@ -154,9 +154,9 @@ public sealed partial class CanvasView
             else type = session.Tool switch
             {
                 Tool.Hand => StandardCursorType.Hand,
-                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.ObjectSelectionAi or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
+                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
                 Tool.Text => StandardCursorType.Ibeam,
-                Tool.Brush or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
+                Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
                 _ => StandardCursorType.Arrow
             };
@@ -187,7 +187,7 @@ public sealed partial class CanvasView
         if (session == null || drag != Drag.None && !(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) return;
         if (session.Tool == Tool.RemoveObject && AiToolsAvailable?.Invoke() != true)
         { Problem?.Invoke("Connect to ComfyUI and wait for the current AI operation to finish."); return; }
-        if ((session.Tool == Tool.ObjectSelectionAi || session.Tool == Tool.Wand && session.WandMode == WandMode.Object)
+        if (session.Tool == Tool.Wand && session.WandMode == WandMode.Object
             && ObjectSelectionAvailable?.Invoke() == false)
         { Problem?.Invoke("Wait for selection to finish, or choose a local model in the options bar instead of ComfyUI."); return; }
         var point = e.GetCurrentPoint(this);
@@ -263,17 +263,11 @@ public sealed partial class CanvasView
                     else polygon.Add(pressDocument);
                 }
                 break;
-            case Tool.Wand:
-                if (session.WandMode == WandMode.Object)
-                {
-                    var x = (int)Math.Floor(pressDocument.X); var y = (int)Math.Floor(pressDocument.Y);
-                    if (ObjectSelectionPointRequested != null) ObjectSelectionPointRequested.Invoke(x, y, ModeFor(e.KeyModifiers));
-                    else session.SelectObject(x, y, ModeFor(e.KeyModifiers));
-                }
-                else session.SelectWand((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
+            case Tool.Wand when session.WandMode == WandMode.Wand:
+                session.SelectWand((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), ModeFor(e.KeyModifiers));
                 break;
-            case Tool.ObjectSelectionAi:
-                dragMode = alt ? SelectionMode.Subtract : shift ? SelectionMode.Add : SelectionMode.Replace;
+            case Tool.Wand:
+                dragMode = ModeFor(e.KeyModifiers);
                 drag = Drag.AiRectangle;
                 snapFrom = snapTo = pressDocument;
                 ToolStateChanged?.Invoke();
@@ -301,7 +295,7 @@ public sealed partial class CanvasView
                 else cropStart = cropRect!.Value;
                 drag = Drag.Crop;
                 break;
-            case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
+            case Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
                 if (alt && session.Tool is Tool.CloneStamp or Tool.HealingBrush) { session.SetCloneSource(pressDocument); InvalidateCanvas(); break; }
                 if (alt && session.Tool == Tool.Brush) { PickColor(background: false); drag = Drag.Eyedropper; break; }
                 session.ViewZoom = UnitsPerPixel;
@@ -457,9 +451,16 @@ public sealed partial class CanvasView
                 {
                     var search = MarqueeRect(false, false);
                     var area = SKRectI.Intersect(session.Document.Bounds, new SKRectI((int)Math.Floor(search.Left), (int)Math.Floor(search.Top), (int)Math.Ceiling(search.Right), (int)Math.Ceiling(search.Bottom)));
-                    if (!area.IsEmpty) AiObjectSelectionRequested?.Invoke(area, dragMode);
+                    // Box prompts support addition and subtraction. Alt wins when both modifiers are down.
+                    if (!area.IsEmpty) AiObjectSelectionRequested?.Invoke(area,
+                        dragMode == SelectionMode.Intersect ? SelectionMode.Subtract : dragMode);
                 }
-                else ObjectSelectionPointRequested?.Invoke((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y), dragMode);
+                else
+                {
+                    int x = (int)Math.Floor(pressDocument.X), y = (int)Math.Floor(pressDocument.Y);
+                    if (ObjectSelectionPointRequested != null) ObjectSelectionPointRequested(x, y, dragMode);
+                    else session.SelectObject(x, y, dragMode);
+                }
                 break;
             case Drag.Marquee:
                 guides.Clear();

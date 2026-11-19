@@ -79,16 +79,36 @@ public class ProfessionalToolsUiTests
         Screenshots.Save(window, "professional-object-selection-models"); window.Close();
     }
     [AvaloniaFact]
+    public async Task Shift_F5_fills_the_selection_without_a_settings_dialog()
+    {
+        var window = new MainWindow(); window.Show();
+        var session = EditorSession.NewCanvas(80, 60, SKColors.White); window.AddSession(session);
+        session.SelectRect(new SKRect(25, 15, 45, 35)); session.Fill(SKColors.Black);
+        var original = session.ActiveLayer!;
+        window.KeyPressQwerty(PhysicalKey.F5, RawInputModifiers.Shift);
+        for (int i = 0; i < 500 && session.Document.Layers.Count == 1; i++)
+        {
+            Assert.Empty(window.OwnedWindows.OfType<DialogWindow>());
+            await Task.Delay(10); Dispatcher.UIThread.RunJobs();
+        }
+        Assert.Equal(2, session.Document.Layers.Count);
+        using var rendered = session.Flatten();
+        Assert.Equal(SKColors.White, rendered.GetPixel(35, 25));
+        Assert.Equal(SKColors.Black, session.Document.Find(original.Id)!.Pixels!.GetPixel(35, 25));
+        session.Undo(); Assert.Single(session.Document.Layers);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Content_aware_preview_accepts_a_repair_layer_and_undo_restores_the_original_stack()
     {
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show(); var session = EditorSession.NewCanvas(80, 60, SKColors.White); window.AddSession(session);
         session.SelectRect(new SKRect(25, 15, 45, 35)); session.Fill(SKColors.Black); var original = session.ActiveLayer!; var pixels = original.Pixels;
         var fill = Invoke(window, "ContentAwareFillWorkspace"); Dispatcher.UIThread.RunJobs(); var dialog = window.OwnedWindows.OfType<DialogWindow>().Single();
-        var preview = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "Preview");
         var accept = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "OK");
-        var center = preview.TranslatePoint(new Point(preview.Bounds.Width / 2, preview.Bounds.Height / 2), dialog)!.Value;
-        dialog.MouseDown(center, MouseButton.Left); dialog.MouseUp(center, MouseButton.Left); Dispatcher.UIThread.RunJobs();
-        for (var i = 0; i < 500 && !accept.IsEnabled; i++) { await Task.Delay(10); Dispatcher.UIThread.RunJobs(); }
+        bool Ready() => dialog.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == "Full-resolution result");
+        for (var i = 0; i < 500 && !Ready(); i++) { await Task.Delay(10); Dispatcher.UIThread.RunJobs(); }
+        Assert.True(Ready());
         Assert.True(accept.IsEnabled); Screenshots.Save(dialog, "professional-content-aware-result");
         dialog.Close(true); for (var i = 0; i < 500 && !fill.IsCompleted; i++) { await Task.Delay(10); Dispatcher.UIThread.RunJobs(); } await fill;
         Assert.Equal(2, session.Document.Layers.Count); Assert.Same(pixels, session.Document.Find(original.Id)!.Pixels);

@@ -15,6 +15,8 @@ public sealed record ToolPaletteSettings
     public bool Eraser { get; init; }
     public bool SelectionBrush { get; init; }
     public bool ObjectAi { get; init; }
+    public Tool? SelectionTool { get; init; }
+    public bool Patch { get; init; }
     public bool Bucket { get; init; }
     public Dictionary<string, string> Choices { get; init; } = [];
 }

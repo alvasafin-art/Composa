@@ -65,8 +65,8 @@ public class AiToolWorkflowTests
         Assert.Equal(Icons.Bucket, w.RailButton(Tool.Bucket).Current!.Icon);
         Assert.False(w.RailButton(Tool.RemoveObject).IsEnabled);
         w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.True(w.RailButton(Tool.RemoveObject).IsEnabled);
-        w.SelectTool(Tool.ObjectSelectionAi); Assert.Equal(Icons.ObjectSelectAi, w.RailButton(Tool.Wand).Current!.Icon);
-        Assert.NotEqual(Icons.ObjectSelect, Icons.ObjectSelectAi);
+        w.SelectTool(Tool.ObjectSelectionAi); Assert.Equal(Icons.ObjectSelect, w.RailButton(Tool.Wand).Current!.Icon);
+        Assert.Equal(Tool.Wand, s.Tool); Assert.Equal(WandMode.Object, s.WandMode);
         w.SelectTool(Tool.RemoveObject); s.SelectRect(new SKRect(20, 20, 100, 100));
         Assert.False(w.AiFloatingVisible); Screenshots.Save(w, "ai-remove-tool-without-floating-panel"); w.Close();
     }
