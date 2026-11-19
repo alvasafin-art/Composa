@@ -92,6 +92,72 @@ public class LayersPanelInputTests
     }
 
     [AvaloniaFact]
+    public void Large_stack_realizes_the_viewport_and_keeps_unchanged_rows_across_edit_and_undo()
+    {
+        for (var i = 0; i < 300; i++)
+            session.Document.Layers.Add(Layer.Raster($"Raster {i}", Composa.Rendering.Pixels.NewColor(4, 4)));
+        session.NotifyLayersChanged();
+        PumpLayout();
+        Assert.InRange(Rows().Count, 2, 60);
+        var top = session.Document.Layers[^1];
+        var same = Rows().Single(row => row.Tag == top);
+        var other = session.Document.Layers[^2];
+        session.Rename(other, "Sky");
+        PumpLayout();
+        Assert.Same(same, Rows().Single(row => row.Tag == top));
+
+        session.Undo(); PumpLayout();
+        var restored = session.Document.Find(top.Id)!;
+        Assert.NotSame(top, restored);
+        Assert.Same(same, Rows().Single(row => row.Tag == restored));
+        Click(same, 16);
+        Assert.False(restored.Visible);
+        Assert.True(top.Visible);
+
+        var bottom = session.Document.Layers[0];
+        session.Rename(bottom, "Offscreen update");
+        var scroll = Rows()[0].GetVisualAncestors().OfType<ScrollViewer>().First();
+        scroll.ScrollToEnd();
+        PumpLayout();
+        var revealed = Rows().Single(row => row.Tag == bottom);
+        Assert.Contains(revealed.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == "Offscreen update");
+        Assert.DoesNotContain(Rows(), row => row.Tag == restored);
+        var offset = scroll.Offset.Y;
+        session.NotifyLayersChanged(); PumpLayout();
+        Assert.Equal(offset, scroll.Offset.Y);
+        Assert.Same(revealed, Rows().Single(row => row.Tag == bottom));
+    }
+
+    [AvaloniaFact]
+    public void Alt_dragging_an_unselected_effect_copies_it_to_the_drop_layer()
+    {
+        var source = session.Document.Layers[^1];
+        var target = session.Document.Layers[^2];
+        Assert.True(session.AddEffect(source, LayerEffectKind.Stroke));
+        session.SelectLayer(target.Id);
+        PumpLayout();
+        var effectRow = panel.GetVisualDescendants().OfType<Border>()
+            .Single(row => row.Tag is ValueTuple<Layer, LayerEffectKind> pair && pair.Item1 == source);
+        window.MouseDown(Center(effectRow, 150), MouseButton.Left, RawInputModifiers.Alt);
+        PumpLayout();
+        var drop = Center(Rows().Single(row => row.Tag == target), 150);
+        window.MouseMove(drop, RawInputModifiers.LeftMouseButton | RawInputModifiers.Alt);
+        window.MouseUp(drop, MouseButton.Left, RawInputModifiers.Alt);
+        PumpLayout();
+        Assert.NotNull(target.Effects?.Stroke);
+        session.Undo();
+        Assert.Null(session.Document.Find(target.Id)!.Effects?.Stroke);
+        Assert.NotNull(session.Document.Find(source.Id)!.Effects?.Stroke);
+    }
+
+    private static void PumpLayout()
+    {
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
     public void Double_click_renames_even_an_unselected_layer()
     {
         var row = Rows()[2];

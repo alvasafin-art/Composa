@@ -4,6 +4,8 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- Layers now realizes the visible part of the stack plus a small scroll buffer. Layer edits, search and undo reconcile the list by layer ID, retaining unchanged rows and thumbnails. The layer tree lookup and Channels preview also do less work on the UI thread.
+
 - The editor reuses unchanged History rows and document tabs. Layer context menus build their commands on opening. Large AI selections use faster alpha contour and mask processing, and panning reuses the selection bounds.
 
 - Shared control styles use neutral surfaces for fields and expandable sections. Layers and History use inset selection highlights. The Layers header aligns blend mode, opacity and search filters and places Clear inside the search field.

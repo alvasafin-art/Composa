@@ -63,14 +63,37 @@ public sealed class Document
     {
         foreach (var layer in layers)
         {
-            foreach (var child in Flatten(layer.Children)) yield return child;
+            if (layer.Children.Count != 0)
+                foreach (var child in Flatten(layer.Children)) yield return child;
             yield return layer;
         }
     }
 
-    public Layer? Find(Guid id) => AllLayers().FirstOrDefault(l => l.Id == id);
+    public Layer? Find(Guid id) => FindIn(Layers, id);
 
-    public Layer? ParentOf(Guid id) => AllLayers().FirstOrDefault(l => l.Children.Any(c => c.Id == id));
+    private static Layer? FindIn(List<Layer> layers, Guid id)
+    {
+        foreach (var layer in layers)
+        {
+            if (layer.Children.Count != 0 && FindIn(layer.Children, id) is {} child) return child;
+            if (layer.Id == id) return layer;
+        }
+        return null;
+    }
+
+    public Layer? ParentOf(Guid id) => FindParentIn(Layers, id);
+
+    private static Layer? FindParentIn(List<Layer> layers, Guid id)
+    {
+        foreach (var layer in layers)
+        {
+            if (layer.Children.Count == 0) continue;
+            if (FindParentIn(layer.Children, id) is {} parent) return parent;
+            foreach (var child in layer.Children)
+                if (child.Id == id) return layer;
+        }
+        return null;
+    }
 
     /// <summary>The list that directly holds the layer: a group's children or the root.</summary>
     public List<Layer>? SiblingsOf(Guid id)

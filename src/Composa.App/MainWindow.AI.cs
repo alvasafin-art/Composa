@@ -39,6 +39,9 @@ public sealed partial class MainWindow
         engine ??= PanelEngine(task);
         return settings.OperationFor(engine?.Id, task, engine?.PaidApi == true);
     }
+    private Button aiTaskMenuButton = null!;
+    private ComfyConnectionState? shownConnection;
+    private AiOperationState? shownProgress;
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly StackPanel aiVariantStrip = new() { Orientation = Orientation.Horizontal, Spacing = 4, IsVisible = false };
     private readonly ContentControl aiFloatingVariants = new() { IsVisible = false };
@@ -80,6 +83,9 @@ public sealed partial class MainWindow
     private Control BuildAiContextBar()
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        aiTaskMenuButton = BuildAiTaskMenu();
+        aiActionHost.Children.Add(aiTaskMenuButton);
+        aiActionHost.Children.Add(aiVariantStrip);
         row.Children.Add(aiActionHost);
         row.Children.Add(aiProgressHost);
         aiContextHost.Child = row;
@@ -126,15 +132,27 @@ public sealed partial class MainWindow
         RefreshAiContextBounds();
         if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;
         if (aiContextHost.Child == null) return;
-        aiActionHost.Children.Clear();
-        if (session != null) aiActionHost.Children.Add(BuildAiTaskMenu());
-        aiFloatingVariants.Content = null;
-        aiVariantStrip.Children.Clear();
-        aiVariantStrip.IsVisible = session?.AiVariantGroup != null;
-        aiFloatingVariants.IsVisible = aiVariantStrip.IsVisible && ShowSelectionPanel && !settings.AiFloatingCollapsed;
-        if (aiFloatingVariants.IsVisible) aiFloatingVariants.Content = aiVariantStrip;
-        else aiActionHost.Children.Add(aiVariantStrip);
-        if (session?.AiVariantGroup is { } variants)
+        aiTaskMenuButton.IsVisible = session != null;
+        if (shownConnection != aiTasks.ConnectionState)
+        {
+            shownConnection = aiTasks.ConnectionState;
+            ToolTip.SetTip(aiTaskMenuButton, "AI tasks and settings · ComfyUI " + aiTasks.ConnectionState.ToString().ToLowerInvariant());
+        }
+        var variants = session?.AiVariantGroup;
+        if (aiVariantStrip.Children.Count != 0) aiVariantStrip.Children.Clear();
+        aiVariantStrip.IsVisible = variants != null;
+        aiFloatingVariants.IsVisible = variants != null && ShowSelectionPanel && !settings.AiFloatingCollapsed;
+        if (aiFloatingVariants.IsVisible && aiFloatingVariants.Content == null)
+        {
+            aiActionHost.Children.Remove(aiVariantStrip);
+            aiFloatingVariants.Content = aiVariantStrip;
+        }
+        else if (!aiFloatingVariants.IsVisible && aiFloatingVariants.Content != null)
+        {
+            aiFloatingVariants.Content = null;
+            aiActionHost.Children.Add(aiVariantStrip);
+        }
+        if (variants != null && session != null)
         {
             if (!Equals(variantDisplay, DisplayProfile)) { variantPreviews.Clear(); variantDisplay = DisplayProfile; }
             for (var i = 0; i < variants.Children.Count; i++)
@@ -153,31 +171,37 @@ public sealed partial class MainWindow
             aiVariantStrip.Children.Add(CompareVariants(session, variants.Id));
         }
 
-        aiProgressHost.Children.Clear();
         var operation = aiTasks.Operation;
         var active = operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
-        if (operation != null)
+        if (shownProgress != operation)
         {
-            var label = Ui.Label(operation.Error ?? operation.Stage ?? operation.Status.ToString(), operation.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary);
-            label.MaxWidth = 190;
-            label.TextTrimming = TextTrimming.CharacterEllipsis;
-            aiProgressHost.Children.Add(label);
-            if (active)
-            {
-                aiProgressHost.Children.Add(new ProgressBar
-                {
-                    Width = 110, Height = 6, IsIndeterminate = operation.IsIndeterminate,
-                    Minimum = 0, Maximum = operation.Maximum ?? 1, Value = operation.Value ?? 0
-                });
-                var cancel = Ui.TextButton("Cancel", aiTasks.Cancel);
-                cancel.MinWidth = 0;
-                aiProgressHost.Children.Add(cancel);
-            }
+            shownProgress = operation;
+            aiProgressHost.Children.Clear();
+            if (operation != null) AddProgress(operation, active);
         }
         aiTaskText.IsVisible = active;
         aiTaskText.Text = active ? "AI: " + (operation?.Stage ?? "Working") : "";
         aiContextHost.IsVisible = session != null;
         RefreshAiFloatingUi();
+    }
+
+    private void AddProgress(AiOperationState operation, bool active)
+    {
+        var label = Ui.Label(operation.Error ?? operation.Stage ?? operation.Status.ToString(), operation.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary);
+        label.MaxWidth = 190;
+        label.TextTrimming = TextTrimming.CharacterEllipsis;
+        aiProgressHost.Children.Add(label);
+        if (active)
+        {
+            aiProgressHost.Children.Add(new ProgressBar
+            {
+                Width = 110, Height = 6, IsIndeterminate = operation.IsIndeterminate,
+                Minimum = 0, Maximum = operation.Maximum ?? 1, Value = operation.Value ?? 0
+            });
+            var cancel = Ui.TextButton("Cancel", aiTasks.Cancel);
+            cancel.MinWidth = 0;
+            aiProgressHost.Children.Add(cancel);
+        }
     }
 
     private SKRectI? previewContext;
@@ -241,7 +265,6 @@ public sealed partial class MainWindow
             flyout.ShowAt(button!);
         });
         button.MinWidth = 0;
-        ToolTip.SetTip(button, "AI tasks and settings · ComfyUI " + aiTasks.ConnectionState.ToString().ToLowerInvariant());
         return button;
     }
 

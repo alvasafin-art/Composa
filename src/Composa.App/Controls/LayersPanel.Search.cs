@@ -70,18 +70,20 @@ public sealed partial class LayersPanel
         bool Match(Layer layer) => KindMatches(layer) && words.All(word => word.StartsWith('#')
             ? word.Length > 1 && layer.Tags.Contains(word[1..], StringComparer.OrdinalIgnoreCase)
             : layer.Name.Contains(word, StringComparison.OrdinalIgnoreCase) || layer.Tags.Any(tag => tag.Contains(word, StringComparison.OrdinalIgnoreCase)));
-        var matches = session.Document.AllLayers().Where(Match).ToArray();
-        filterRows = matches.Select(layer => layer.Id).ToHashSet();
-        bool IncludeParents(Layer layer)
+        filterRows = [];
+        var count = 0;
+        bool IncludeMatches(Layer layer)
         {
-            var matched = filterRows.Contains(layer.Id);
-            foreach (var child in layer.Children) matched |= IncludeParents(child);
-            if (matched) filterRows.Add(layer.Id);
-            return matched;
+            var included = Match(layer);
+            if (included) count++;
+            foreach (var child in layer.Children) included |= IncludeMatches(child);
+            if (included) filterRows.Add(layer.Id);
+            return included;
         }
-        foreach (var root in session.Document.Layers) IncludeParents(root);
+        foreach (var root in session.Document.Layers) IncludeMatches(root);
         var outside = session.Document.SelectedLayerIds.Count(id => !filterRows.Contains(id));
-        searchStatus.Text = $"{matches.Length} match{(matches.Length == 1 ? "" : "es")}" + (outside > 0 ? $" · {outside} selected outside filter" : "") + " · Clear to reorder";
+        searchStatus.Text = $"{count} match{(count == 1 ? "" : "es")}" + (outside > 0 ? $" · {outside} selected outside filter" : "") + " · Clear to reorder";
+        ClearDropHighlight();
         pressed = null; dragging = false; dropTarget = null; dropLine.IsVisible = false;
     }
 

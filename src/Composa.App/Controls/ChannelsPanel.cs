@@ -21,6 +21,7 @@ public sealed class ChannelsPanel : UserControl
     private readonly TextBlock target = Ui.Label("No document", Palette.Secondary);
     private readonly Button add, saveSelection, loadSelection, delete;
     private bool rebuilding;
+    private bool showedMaskTarget;
     private RgbProfile displayProfile = RgbProfile.Srgb;
     public event Action<bool>? NewRequested;
     public event Action<string>? RenameRequested;
@@ -49,14 +50,26 @@ public sealed class ChannelsPanel : UserControl
         set
         {
             if (session == value) return;
-            if (session != null) { session.ChannelsChanged -= Rebuild; session.LayersChanged -= Rebuild; session.CanvasChanged -= QueueRefresh; session.SelectionChanged -= Rebuild; }
+            if (session != null) { session.ChannelsChanged -= Rebuild; session.LayersChanged -= OnLayersChanged; session.CanvasChanged -= QueueRefresh; session.SelectionChanged -= OnSelectionChanged; }
             session = value;
-            if (session != null) { session.ChannelsChanged += Rebuild; session.LayersChanged += Rebuild; session.CanvasChanged += QueueRefresh; session.SelectionChanged += Rebuild; }
+            if (session != null) { session.ChannelsChanged += Rebuild; session.LayersChanged += OnLayersChanged; session.CanvasChanged += QueueRefresh; session.SelectionChanged += OnSelectionChanged; }
             Rebuild();
         }
     }
 
-    private void QueueRefresh(SKRectI? area) { if (!refreshTimer.IsEnabled) refreshTimer.Start(); }
+    private void QueueRefresh(SKRectI? area)
+    {
+        if (!refreshTimer.IsEnabled && IsEffectivelyVisible && TopLevel.GetTopLevel(this) != null) refreshTimer.Start();
+    }
+
+    private void OnLayersChanged()
+    {
+        if (showedMaskTarget != (session?.IsEditingMask == true)) Rebuild();
+        else QueueRefresh(null);
+    }
+
+    private void OnSelectionChanged() => saveSelection.IsEnabled = add.IsEnabled && session?.Selection != null;
+
     private void Run(Action action)
     {
         try { action(); } catch (Exception error) { Problem?.Invoke(error.Message); }
@@ -67,7 +80,9 @@ public sealed class ChannelsPanel : UserControl
         if (rebuilding) return; rebuilding = true;
         try
         {
+            refreshTimer.Stop();
             rows.Children.Clear(); var current = session;
+            showedMaskTarget = current?.IsEditingMask == true;
             add.IsEnabled = current != null && current.Document.AlphaChannels.Count < 64;
             saveSelection.IsEnabled = add.IsEnabled && current?.Selection != null;
             loadSelection.IsEnabled = delete.IsEnabled = current?.IsEditingAlphaChannel == true;

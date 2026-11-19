@@ -21,19 +21,18 @@ namespace Composa.App.Controls;
 public sealed partial class LayersPanel : UserControl
 {
     private EditorSession? session;
-    private readonly StackPanel rows = new();
+    private readonly ItemsControl rows = new();
     private const double HeaderFieldHeight = 28;
     private readonly ComboBox blend;
     private readonly Slider opacity;
     private readonly TextBlock opacityText = new() { Width = 33, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right, Foreground = Palette.Secondary };
     private readonly Border dropLine = new() { Height = 2, Background = Palette.Accent, IsVisible = false, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
     private readonly Dictionary<Guid, Border> rowFor = [];
-    private HashSet<Guid> highlighted = [];
-    private readonly Dictionary<Guid, (int Depth, bool ParentVisible)> rowPositions = [];
     private bool updating;
     private bool opacityDragging;
     private double opacityStart;
     private Guid? renaming;
+    private Action<bool>? finishRename;
     private static readonly ConditionalWeakTable<SKBitmap, Dictionary<RgbProfile, Bitmap>> Thumbnails = new();
     private RgbProfile displayProfile = RgbProfile.Srgb;
     public RgbProfile DisplayProfile
@@ -163,6 +162,7 @@ public sealed partial class LayersPanel : UserControl
         footer.HorizontalAlignment = HorizontalAlignment.Center;
         footer.Margin = new Thickness(0, 4);
 
+        InitializeRows();
         var list = new Panel();
         rows.AddHandler(PointerMovedEvent, (_, e) =>
         {
@@ -170,9 +170,17 @@ public sealed partial class LayersPanel : UserControl
             if (!e.GetCurrentPoint(rows).Properties.IsLeftButtonPressed) { eyeSwipe = null; return; }
             var position = e.GetPosition(rows);
             if (position.X > 40) return;
-            var row = rows.Children.OfType<Border>().FirstOrDefault(r => position.Y >= r.Bounds.Top && position.Y < r.Bounds.Bottom);
+            var row = LayerRowAt(position.Y);
             if (row?.Tag is Layer under && under.Visible != show) session.SetVisible(under, show);
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+        rows.PointerMoved += (_, e) => { if (effectDrag != null) EffectDragMoved(e); };
+        rows.PointerReleased += (_, e) => { if (effectDrag != null) EffectDragReleased(e); };
+        rows.PointerCaptureLost += (_, e) =>
+        {
+            if (e.Source != rows) return;
+            effectDrag = null;
+            ClearEffectDrop();
+        };
         rows.AddHandler(PointerReleasedEvent, (_, _) => eyeSwipe = null, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble, true);
         list.Children.Add(rows);
         list.Children.Add(dropLine);
@@ -191,7 +199,14 @@ public sealed partial class LayersPanel : UserControl
         get => session;
         set
         {
+            if (ReferenceEquals(session, value)) return;
             if (session != null) session.LayersChanged -= Rebuild;
+            ClearDropHighlight();
+            ClearEffectDrop();
+            pressed = null; dragging = false; effectDrag = null; dropTarget = null; eyeSwipe = null;
+            dropLine.IsVisible = false;
+            finishRename?.Invoke(true);
+            renaming = null;
             session = value;
             if (session != null) session.LayersChanged += Rebuild;
             Rebuild();
@@ -212,6 +227,7 @@ public sealed partial class LayersPanel : UserControl
     public void BeginRename()
     {
         renaming = session?.ActiveLayer?.Id;
+        if (renaming is {} id && entriesById.TryGetValue(id, out var entry)) rows.ScrollIntoView(entry);
         Rebuild();
     }
 
@@ -250,50 +266,15 @@ public sealed partial class LayersPanel : UserControl
         if (!opacityDragging) opacity.Value = (active?.Opacity ?? 1) * 100;
         opacityText.Text = $"{Math.Round(opacity.Value)}%";
         updating = false;
-        if (session?.UpdatingLayerSelection == true && !IsFiltering && renaming == null)
-        {
-            var affected = highlighted.Union(session.Document.SelectedLayerIds).ToArray();
-            if (affected.All(id => !rowFor.TryGetValue(id, out var row) || row.Tag is Layer { HasSmartFilterMask: false }))
-            {
-                foreach (var id in affected)
-                {
-                    if (!rowFor.TryGetValue(id, out var row) || row.Tag is not Layer layer) continue;
-                    var index = rows.Children.IndexOf(row);
-                    var position = rowPositions[id];
-                    rows.Children[index] = BuildRow(layer, position.Depth, position.ParentVisible);
-                }
-                highlighted = [.. session.Document.SelectedLayerIds];
-                return;
-            }
-        }
-        rows.Children.Clear();
-        rowFor.Clear();
-        rowPositions.Clear();
-        highlighted = session == null ? [] : [.. session.Document.SelectedLayerIds];
-        PrepareFilter();
-        if (session == null) return;
-        AddRows(session.Document.Layers, 0, parentVisible: true);
+        RefreshRows();
     }
 
-    private void AddRows(List<Layer> layers, int depth, bool parentVisible)
-    {
-        for (var i = layers.Count - 1; i >= 0; i--)
-        {
-            var layer = layers[i];
-            if (filterRows != null && !filterRows.Contains(layer.Id)) continue;
-            rows.Children.Add(BuildRow(layer, depth, parentVisible));
-            if (layer.Effects is { } effects) foreach (var kind in effects.Kinds) rows.Children.Add(BuildEffectRow(layer, kind, depth, parentVisible && layer.Visible));
-            if (layer.SmartFilters.Length > 0) rows.Children.Add(BuildSmartFilterMaskRow(layer, depth));
-            foreach (var filter in layer.SmartFilters.Reverse()) rows.Children.Add(BuildSmartFilterRow(layer, filter, depth));
-            if (layer.IsGroup && (!layer.Collapsed || IsFiltering)) AddRows(layer.Children, depth + 1, parentVisible && layer.Visible);
-        }
-    }
-
-    private Control BuildRow(Layer layer, int depth, bool parentVisible)
+    private Border BuildRow(Entry entry, Appearance state)
     {
         var current = session!;
-        var selected = current.Document.SelectedLayerIds.Contains(layer.Id);
-        var dim = !layer.Visible || !parentVisible;
+        var layer = entry.Layer;
+        var selected = state.Selected;
+        var dim = !layer.Visible || !entry.ParentVisible;
 
         var eye = new Button { Classes = { "flat" }, Width = 28, Height = 28, Padding = new Thickness(0), Content = Icons.Create(Icons.Eye, 15, layer.Visible ? null : new SolidColorBrush(Color.Parse("#555555"))) };
         ToolTip.SetTip(eye, "Show or hide (drag down the column to swipe, Alt-click to show only this layer)");
@@ -301,38 +282,38 @@ public sealed partial class LayersPanel : UserControl
         {
             if (e.KeyModifiers.HasFlag(KeyModifiers.Alt))
             {
-                current.SoloLayerId = current.SoloLayerId == layer.Id ? null : layer.Id;
+                current.SoloLayerId = current.SoloLayerId == entry.Layer.Id ? null : entry.Layer.Id;
                 current.InvalidateAll();
                 e.Handled = true;
                 return;
             }
             // Swiping down the eye column shows or hides every layer passed over. The pointer is released from the eye
             // (whose row is about to be rebuilt) and the list itself follows the drag from here.
-            eyeSwipe = !layer.Visible;
+            eyeSwipe = !entry.Layer.Visible;
             e.Pointer.Capture(null);
-            current.SetVisible(layer, eyeSwipe.Value);
+            current.SetVisible(entry.Layer, eyeSwipe.Value);
             e.Handled = true;
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
-        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(depth * 14, 0, 0, 0), Opacity = dim ? 0.45 : 1 };
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(entry.Depth * 14, 0, 0, 0), Opacity = dim ? 0.45 : 1 };
         if (layer.Clipped) content.Children.Add(Icons.Create(Icons.ClipArrow, 13, Palette.Secondary));
         if (layer.IsGroup)
         {
             var chevron = new Button { Classes = { "flat" }, Padding = new Thickness(2), IsEnabled = !IsFiltering, Content = Icons.Create(layer.Collapsed && !IsFiltering ? Icons.ChevronRight : Icons.ChevronDown, 12) };
-            chevron.Click += (_, _) => { layer.Collapsed = !layer.Collapsed; Rebuild(); };
+            chevron.Click += (_, _) => { entry.Layer.Collapsed = !entry.Layer.Collapsed; Rebuild(); };
             content.Children.Add(chevron);
             content.Children.Add(Icons.Create(Icons.Folder, 18));
         }
-        else if (layer.IsAdjustment) content.Children.Add(Thumb(Icons.Create(Icons.Adjust, 18), selected && !current.IsEditingMask));
+        else if (layer.IsAdjustment) content.Children.Add(Thumb(Icons.Create(Icons.Adjust, 18), state.ActivePixels));
         else if (layer.Pixels != null)
         {
-            var pixelThumb = Thumb(new Image { Source = LayerThumbnail(layer), Stretch = Stretch.Uniform }, selected && layer.Id == current.ActiveLayer?.Id && !current.IsEditingMask);
+            var pixelThumb = Thumb(new Image { Source = state.Pixels, Stretch = Stretch.Uniform }, state.ActivePixels);
             // The row's own press handler (which bubbles next) selects the layer and then applies this target.
             pixelThumb.PointerPressed += (_, _) => thumbnailTarget = false;
             content.Children.Add(pixelThumb);
             if (layer.IsSmartObject)
             {
-                var status = LinkedSourceStatus?.Invoke(layer);
+                var status = state.LinkStatus;
                 var badge = Ui.Label(layer.SmartObject!.Link != null ? status is { State: not Composa.IO.LinkedSourceState.Current } ? "↗!" : "↗" : "◇", Palette.Accent);
                 ToolTip.SetTip(badge, layer.SmartObject.Link is { } link ? $"Linked smart object · {link.Path}" + (link.HasLocalEdits ? " · local cached edits" : "")
                     + (status?.Detail is { } detail ? "\n" + detail : status is { State: not Composa.IO.LinkedSourceState.Current } ? "\n" + status.State : "") : "Smart object · double-click the thumbnail to edit contents");
@@ -343,16 +324,16 @@ public sealed partial class LayersPanel : UserControl
         {
             var link = new Button { Classes = { "flat" }, Width = 18, Height = 28, Padding = new Thickness(0), Content = Icons.Create(layer.MaskLinked ? Icons.Link : Icons.Unlink, 16, Palette.Secondary) };
             ToolTip.SetTip(link, layer.MaskLinked ? "Unlink mask: move and transform it independently" : "Link mask: move it together with the layer");
-            link.Click += (_, _) => current.SetMaskLinked(layer, !layer.MaskLinked);
+            link.Click += (_, _) => current.SetMaskLinked(entry.Layer, !entry.Layer.MaskLinked);
             content.Children.Add(link);
-            var maskThumb = Thumb(new Image { Source = Thumbnail(layer.Mask), Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
-                layer.Id == current.ActiveLayer?.Id && current.IsEditingMask && !current.IsEditingSmartFilterMask, mask: true);
+            var maskThumb = Thumb(new Image { Source = state.Mask, Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
+                state.ActiveMask, mask: true);
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
             ToolTip.SetTip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
             maskThumb.AddHandler(PointerPressedEvent, (_, e) =>
             {
-                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { current.SetMaskEnabled(layer, !layer.MaskEnabled); e.Handled = true; }
-                else if (e.KeyModifiers.HasFlag(KeyModifiers.Control)) { current.SelectLayerMask(layer); e.Handled = true; }
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { current.SetMaskEnabled(entry.Layer, !entry.Layer.MaskEnabled); e.Handled = true; }
+                else if (e.KeyModifiers.HasFlag(KeyModifiers.Control)) { current.SelectLayerMask(entry.Layer); e.Handled = true; }
             }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
             content.Children.Add(maskThumb);
         }
@@ -365,10 +346,12 @@ public sealed partial class LayersPanel : UserControl
             {
                 if (done) return;
                 done = true;
-                renaming = null;
-                if (keep && box.Text is { } text) current.Rename(layer, text);
+                if (finishRename == Finish) { finishRename = null; renaming = null; }
+                if (keep && box.Text is { } text && ReferenceEquals(current.Document.Find(layer.Id), layer))
+                    current.Rename(layer, text);
                 Rebuild();
             }
+            finishRename = Finish;
             box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Finish(true); e.Handled = true; } else if (e.Key == Key.Escape) { Finish(false); e.Handled = true; } };
             box.LostFocus += (_, _) => Finish(true);
             box.AttachedToVisualTree += (_, _) => { box.Focus(); box.SelectAll(); };
@@ -381,7 +364,7 @@ public sealed partial class LayersPanel : UserControl
             if (layer.VectorMask != null) { name.Text += "  [vector mask]"; }
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = 150;
-            ToolTip.SetTip(name, layer.Tags.Count == 0 ? layer.Name : layer.Name + "\nTags: " + string.Join(", ", layer.Tags.Order(StringComparer.OrdinalIgnoreCase)));
+            ToolTip.SetTip(name, state.Tags == null ? layer.Name : layer.Name + "\nTags: " + state.Tags);
             if (layer.IsLive) name.FontStyle = FontStyle.Italic;
             content.Children.Add(name);
         }
@@ -395,13 +378,11 @@ public sealed partial class LayersPanel : UserControl
             Child = grid, Background = selected ? Palette.Selected : Brushes.Transparent, Padding = new Thickness(4, 3), MinHeight = 40,
             CornerRadius = new CornerRadius(4), Margin = new Thickness(4, 0), Tag = layer
         };
-        rowPositions[layer.Id] = (depth, parentVisible);
-        rowFor[layer.Id] = row;
-        row.PointerPressed += (_, e) => RowPressed(layer, row, e);
+        row.PointerPressed += (_, e) => RowPressed(entry.Layer, row, e);
         row.PointerMoved += (_, e) => RowMoved(e);
         row.PointerReleased += (_, e) => RowReleased(e);
         row.PointerCaptureLost += (_, _) => { if (dragging) EndRowDrag(); };
-        row.ContextMenu = BuildMenu(layer);
+        row.ContextMenu = BuildMenu(entry);
         return row;
     }
 
@@ -431,18 +412,15 @@ public sealed partial class LayersPanel : UserControl
             if (current.Document.ActiveLayerId != layer.Id) current.SelectLayer(layer.Id);
             current.SelectedEffect = (layer.Id, kind);
             if (e.ClickCount == 2 && properties.IsLeftButtonPressed) { EditEffectRequested?.Invoke(layer, kind); e.Handled = true; return; }
+            Rebuild();
             if (properties.IsLeftButtonPressed && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
             {
                 effectDrag = (layer, kind);
                 effectDragStart = e.GetPosition(rows);
-                e.Pointer.Capture(row);
+                e.Pointer.Capture(rows);
             }
-            Rebuild();
             e.Handled = true;
         };
-        row.PointerMoved += (_, e) => EffectDragMoved(e);
-        row.PointerReleased += (_, e) => EffectDragReleased(e);
-        row.PointerCaptureLost += (_, _) => { effectDrag = null; ClearEffectDrop(); };
         var menu = new ContextMenu();
         void Add(string header, Action action)
         {
@@ -523,7 +501,7 @@ public sealed partial class LayersPanel : UserControl
         var position = e.GetPosition(rows);
         if (Math.Abs(position.Y - effectDragStart.Y) < 6 && effectDropRow == null) return;
         ClearEffectDrop();
-        var target = rows.Children.OfType<Border>().FirstOrDefault(r => r.Tag is Layer && position.Y >= r.Bounds.Top && position.Y < r.Bounds.Bottom);
+        var target = LayerRowAt(position.Y);
         if (target?.Tag is Layer layer && session.CanCopyEffect(effectDrag.Value.Kind, effectDrag.Value.Layer, layer))
         {
             effectDropRow = target;
@@ -601,28 +579,20 @@ public sealed partial class LayersPanel : UserControl
         return bitmap;
     }
 
-    private Bitmap LayerThumbnail(Layer layer)
-    {
-        if (layer.HasWarp) layer = layer.WarpAppearance(Math.Min(1, 68.0 / Math.Max(layer.Pixels!.Width, layer.Pixels.Height)));
-        if (!layer.HasSmartFilterMask) return Thumbnail(layer.Pixels!);
-        using var preview = layer.RenderFilterPreview(68);
-        return Ui.ToAvaloniaBitmap(preview, 68, displayProfile);
-    }
-
     /// <summary>
     /// The row's menu, as the macOS app orders it: the layer itself, then clipping and folders, then its mask, then
     /// visibility. Layer effects have their own rows and footer button, so they are not repeated here. A right-click
     /// on a layer outside the selection selects it first (see <see cref="RowPressed"/>); inside a selection of several,
     /// the whole selection is what Duplicate, Delete, Group and Merge act on.
     /// </summary>
-    private ContextMenu BuildMenu(Layer layer)
+    private ContextMenu BuildMenu(Entry entry)
     {
         var menu = new ContextMenu();
         // Rows are refreshed during ordinary edits. Only the menu being opened needs
         // commands or a scan of the other layers for merge, clipping and mask targets.
         void EnsureCommands(object? sender, EventArgs e)
         {
-            if (menu.Items.Count == 0) PopulateMenu(menu, layer);
+            if (menu.Items.Count == 0) PopulateMenu(menu, entry.Layer);
         }
         menu.Opening += EnsureCommands;
         menu.Opened += EnsureCommands; // Programmatic Open bypasses Opening in Avalonia.
@@ -715,7 +685,10 @@ public sealed partial class LayersPanel : UserControl
 
     private void RowPressed(Layer layer, Border row, PointerPressedEventArgs e)
     {
-        if (session == null || e.Source is TextBox) return;
+        if (session == null || e.Source is TextBox || (e.Source as Control)?.FindAncestorOfType<TextBox>() != null) return;
+        // Selection can now leave the preceding row attached. Commit the draft explicitly
+        // before changing the active layer instead of relying on its editor being detached.
+        if (renaming != layer.Id) finishRename?.Invoke(true);
         var properties = e.GetCurrentPoint(row).Properties;
         if (properties.IsRightButtonPressed)
         {
@@ -743,7 +716,7 @@ public sealed partial class LayersPanel : UserControl
         var target = thumbnailTarget;
         thumbnailTarget = null;
         if (extend || range || !session.Document.SelectedLayerIds.Contains(layer.Id)) session.SelectLayer(layer.Id, extend, range,
-            IsFiltering ? rows.Children.OfType<Border>().Where(r => r.Tag is Layer).Select(r => ((Layer)r.Tag!).Id).ToArray() : null);
+            IsFiltering ? entries.Select(entry => entry.Layer.Id).ToArray() : null);
         if (target is { } mask && !extend && !range)
         {
             // Clicking a thumbnail chooses what painting affects: the layer's pixels or its mask.
@@ -763,37 +736,46 @@ public sealed partial class LayersPanel : UserControl
         dragging = true;
         dropTarget = null;
         dropLine.IsVisible = false;
-        foreach (var child in rows.Children)
+        ClearDropHighlight();
+        var row = LayerRowAt(position.Y);
+        if (row?.Tag is not Layer target) return;
+        var top = row.TranslatePoint(default, rows)!.Value.Y;
+        var fraction = (position.Y - top) / Math.Max(1, row.Bounds.Height);
+        var drop = target.IsGroup && fraction is > 0.3 and < 0.7 ? LayerDrop.Into : fraction < 0.5 ? LayerDrop.Above : LayerDrop.Below;
+        if (drop == LayerDrop.Below && target.IsGroup && !target.Collapsed && target.Children.Count > 0) drop = LayerDrop.Into;
+        dropTarget = (target, drop);
+        dropLine.IsVisible = drop != LayerDrop.Into;
+        dropLine.Margin = new Thickness(0, (drop == LayerDrop.Above ? top : top + row.Bounds.Height) - 1, 0, 0);
+        if (drop == LayerDrop.Into)
         {
-            if (child is not Border { Tag: Layer target } row) continue;
-            var top = row.Bounds.Top;
-            if (position.Y < top || position.Y > row.Bounds.Bottom) continue;
-            var fraction = (position.Y - top) / Math.Max(1, row.Bounds.Height);
-            var drop = target.IsGroup && fraction is > 0.3 and < 0.7 ? LayerDrop.Into : fraction < 0.5 ? LayerDrop.Above : LayerDrop.Below;
-            // Just under an open folder's header is the top of its contents, not the far side of the whole folder.
-            if (drop == LayerDrop.Below && target.IsGroup && !target.Collapsed && target.Children.Count > 0) drop = LayerDrop.Into;
-            dropTarget = (target, drop);
-            dropLine.IsVisible = drop != LayerDrop.Into;
-            dropLine.Margin = new Thickness(0, (drop == LayerDrop.Above ? top : row.Bounds.Bottom) - 1, 0, 0);
-            foreach (var other in rows.Children.OfType<Border>()) { other.BorderBrush = null; other.BorderThickness = new Thickness(0); }
-            if (drop == LayerDrop.Into) { row.BorderBrush = Palette.Accent; row.BorderThickness = new Thickness(1); dropLine.IsVisible = false; }
-            break;
+            dropHighlight = row;
+            row.BorderBrush = Palette.Accent;
+            row.BorderThickness = new Thickness(1);
         }
+    }
+
+    private Border? dropHighlight;
+    private void ClearDropHighlight()
+    {
+        if (dropHighlight == null) return;
+        dropHighlight.BorderBrush = null;
+        dropHighlight.BorderThickness = new Thickness(0);
+        dropHighlight = null;
     }
 
     private void EndRowDrag()
     {
-        var wasDragging = dragging;
+        ClearDropHighlight();
         pressed = null;
         dragging = false;
         dropTarget = null;
         dropLine.IsVisible = false;
-        if (wasDragging) Rebuild();
     }
 
     private void RowReleased(PointerReleasedEventArgs e)
     {
         // Taken before the capture is released: releasing it raises capture-lost, which ends an abandoned drag.
+        ClearDropHighlight();
         var layer = pressed;
         pressed = null;
         var wasDragging = dragging;
@@ -816,7 +798,6 @@ public sealed partial class LayersPanel : UserControl
             if (e.KeyModifiers.HasFlag(KeyModifiers.Alt)) { session.DuplicateSelectedLayers(); moving = session.SelectedRoots(); }
             session.MoveLayers(moving, drop.Target, drop.Drop);
         }
-        else Rebuild();
         dropTarget = null;
     }
 }
