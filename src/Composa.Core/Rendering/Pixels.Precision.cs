@@ -67,6 +67,7 @@ internal readonly record struct PixelValue(float R, float G, float B, float A)
     public PixelValue Premultiplied => new(R * A, G * A, B * A, A);
     public static PixelValue operator *(PixelValue value, float scale) => new(value.R * scale, value.G * scale, value.B * scale, value.A * scale);
     public static PixelValue operator +(PixelValue a, PixelValue b) => new(a.R + b.R, a.G + b.G, a.B + b.B, a.A + b.A);
+    public static PixelValue operator -(PixelValue a, PixelValue b) => new(a.R - b.R, a.G - b.G, a.B - b.B, a.A - b.A);
 }
 
 /// <summary>Shared normalized access for high precision operations. Callers own an uncommitted bitmap when writing.</summary>

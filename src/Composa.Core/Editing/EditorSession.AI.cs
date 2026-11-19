@@ -98,6 +98,11 @@ public sealed partial class EditorSession
     {
         if (mask.ColorType != SKColorType.Alpha8 || mask.Width != document.Width || mask.Height != document.Height)
             throw new ArgumentException("An AI selection must be a document-sized Alpha8 bitmap.");
+        if (task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
+        {
+            SelectForeground(mask, mode, "AI " + task.DisplayName());
+            return;
+        }
         var combined = SelectionMask.Combine(document.Selection, mask, mode);
         if (!ReferenceEquals(combined, mask) && !ReferenceEquals(document.Selection, mask)) mask.Dispose();
         SetSelection("AI " + task.DisplayName(), combined);

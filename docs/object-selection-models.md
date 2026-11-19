@@ -1,11 +1,13 @@
-# Object Selection models
+# Object Selection
 
-The options bar offers only **SAM Quality** (bundled EfficientSAM S) and installed **BiRefNet** variants reported by the connected ComfyUI server. Older local choices and unsupported server model preferences migrate to SAM Quality. When disconnected, only SAM Quality is listed; no server model is invented.
+**Automatic · Local** is the default. Click a subject, drag a box around it, or choose **Find object** after marking an area with the marquee, lasso or Selection Brush. The bounds of the marked area guide recognition. A small object can be encoded with surrounding context at higher resolution. On a coloured backdrop, a box inside a thumbnail can target the subject inside that photograph.
 
-SAM Quality accepts point/rectangle prompts through its local encoder/decoder pipeline. Image-guided refinement follows the original edges and removes faint background haze. Masks keep native coordinates and undo safely.
+EfficientSAM finds the object. The bundled ViTMatte estimates partial coverage along its boundary. Local foreground and background colour samples help resolve gaps in hair or fur. **Quick outline · Local** produces a crisp selection. Both modes run on CPU using ONNX Runtime. The original active-layer RGB or the visible composition is sampled according to **Sample all layers**. An interrupted or stale result is discarded. Each completed selection is one undo step.
 
-SAM Quality uses CPU ONNX Runtime and requires no Python or runtime downloads. Enable **Precise edges** next to the model menu to run the already bundled ViTMatte automatically after SAM. SAM identifies the object; matting refines its uncertain boundary into soft alpha at the original document size. This works for clicks, rectangles and Select > Subject. The normal unchecked mode keeps a crisp selection.
+## Moving a subject to another background
 
-Precise edges takes longer and is remembered between tools, tabs and launches. It applies only to local SAM; server models keep their own output. It uses the original active layer before old masks/styles, or the visible RGB composition when Sample all layers is enabled. Source RGB16/ICC pixels remain unchanged. Replace/add/subtract/intersect and edge offsets apply to the completed result as one Undo step. Cancellation, changed source/layer/sample scope or a switched/closed tab discards the result, including the intermediate SAM selection. No new weights are included. Select and Mask remains available for manual corrections and decontamination. See [retouching and non-destructive editing](professional-editing.md).
+After automatic object selection, **Layer via Copy** (Ctrl+J), **Copy** and **Copy Merged** recover foreground colour where the photograph mixed the subject with the old backdrop. The new cutout carries the recovered RGB and the selection alpha. Already translucent input pixels keep their existing colour.
 
-BiRefNet, HR and matting are server choices when the connected ComfyUI offers them. Native inference stays on this computer; a ComfyUI choice sends the image to the configured server.
+Adding a mask to an ordinary raster layer from an automatic object selection keeps the mask editable. When RGB correction changes pixels and fits the document budget, a hidden copy of the original raster is kept below the layer. Disabling the mask reveals the corrected raster. The hidden original contains the unmodified photograph. Live layers use their regular mask. **Select and Mask** opens with colour recovery and new-layer output for an automatic object selection. Lower **Decontaminate** to adjust the effect. Manual feathered selections keep their sampled colours during ordinary copy operations.
+
+BiRefNet variants appear when the connected ComfyUI server offers them. A server selection uses the configured server and keeps its model's coverage. Foreground colour recovery for the cutout runs in Composa.

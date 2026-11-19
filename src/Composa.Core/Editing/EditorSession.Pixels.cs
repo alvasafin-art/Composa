@@ -789,11 +789,23 @@ public sealed partial class EditorSession
 
     // ---- Clipboard ----------------------------------------------------------------------------------------------
 
-    private ClipboardImage? Grab(SKBitmap source, SKRectI sourceArea)
+    private ClipboardImage? Grab(SKBitmap source, SKRectI sourceArea, bool recoverForeground = false)
     {
         // `source` covers `sourceArea` of the document; the result is trimmed to the selection.
         var area = document.Selection != null ? Geometry.Intersect(SelectionMask.Bounds(document.Selection), sourceArea) : sourceArea;
         if (area.IsEmpty) return null;
+        if (recoverForeground && HasForegroundSelection)
+        {
+            var context = area;
+            context.Inflate(24, 24);
+            context = SKRectI.Intersect(SKRectI.Intersect(context, sourceArea), document.Bounds);
+            var local = context;
+            local.Offset(-sourceArea.Left, -sourceArea.Top);
+            using var rgb = Pixels.Subset(source, local);
+            using var mask = Pixels.Subset(document.Selection!, context);
+            using var cleaned = MaskRefinement.DecontaminateColors(rgb, mask, 1);
+            return Grab(cleaned, context);
+        }
         var pixels = Pixels.NewLike(source, area.Width, area.Height);
         using var canvas = new SKCanvas(pixels);
         canvas.DrawBitmap(source, sourceArea.Left - area.Left, sourceArea.Top - area.Top);
@@ -812,7 +824,7 @@ public sealed partial class EditorSession
         copy.BlendIf = new();
         var area = document.Selection != null ? document.Bounds : Geometry.Union(document.Bounds, Geometry.RoundOut(layer.Bounds));
         using var rendered = DocumentRenderer.RenderLayers(document, [copy], area);
-        return Grab(rendered, area);
+        return Grab(rendered, area, recoverForeground: !IsEditingMask);
     }
 
     /// <summary>Copy takes pixels from a pixel layer (or a mask); with nothing selected it also takes the layers themselves, folders and adjustments included.</summary>
@@ -854,7 +866,7 @@ public sealed partial class EditorSession
         var rendered = CompositePixels();
         ClipboardImage? image;
         if (whole) image = new ClipboardImage(rendered, new SKPointI(0, 0));
-        else using (rendered) image = Grab(rendered, document.Bounds);
+        else using (rendered) image = Grab(rendered, document.Bounds, recoverForeground: true);
         if (image == null) return false;
         Clipboard = image;
         CopiedLayers = null;

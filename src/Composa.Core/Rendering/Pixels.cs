@@ -133,6 +133,19 @@ public static partial class Pixels
         });
     }
 
+    /// <summary>A view of the requested pixel region retaining the working colour profile.</summary>
+    internal static SKBitmap Subset(SKBitmap source, SKRectI area)
+    {
+        var view = new SKBitmap();
+        if (source.ExtractSubset(view, area))
+        {
+            RetainProfile(source, view);
+            return view;
+        }
+        view.Dispose();
+        throw new InvalidOperationException("Cannot read this bitmap region.");
+    }
+
     /// <summary>An independent copy of a bitmap. Far faster than <c>SKBitmap.Copy</c>, which converts pixel by pixel.</summary>
     public static SKBitmap Clone(SKBitmap source) => CloneInto(source, new SKBitmap(source.Info));
 

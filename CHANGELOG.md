@@ -25,6 +25,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 - Generation settings can save named presets for each model and operation. Generation settings are available in image model preferences.
 - The Move tool has an expandable numeric inspector. Side panels can be grouped into tabs, recent files have previews, and Camera Raw offers a larger image preview with before comparison and per-group reset.
 
+## [1.3.0-preview.4.studio.11] - 2026-11-19
+
+- Automatic object selection handles clicks, drawn boxes and rough selections. Hair and fur use local matting and foreground colour recovery when copying or making a masked raster cutout.
+- Improved selection inside small photographs on coloured backdrops, including a subject next to another thumbnail.
+- Studio also includes the retouch tool grouping, content-aware fill and editable generative fill context updates since Studio 10.
+
 ## [1.3.0-preview.4] - 2026-11-18
 
 - Closing a document after Save keeps any edits made during the write. Autosave retries after storage errors. Recovery lets you restore, postpone or delete selected copies.

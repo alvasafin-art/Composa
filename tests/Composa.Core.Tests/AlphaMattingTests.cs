@@ -9,6 +9,77 @@ namespace Composa.Core.Tests;
 
 public class AlphaMattingTests
 {
+    [Fact]
+    public void Colour_fit_opens_backdrop_gaps_between_strands_and_keeps_an_enclosed_matching_mark()
+    {
+        using var rgb = Pixels.NewColor(117, 77);
+        var green = new SKColor(35, 151, 54);
+        var light = new SKColor(233, 209, 177);
+        rgb.Erase(green);
+        using (var canvas = new SKCanvas(rgb))
+        using (var paint = new SKPaint { Color = light })
+        {
+            canvas.DrawRect(37, 22, 42, 37, paint);
+            canvas.DrawRect(25, 26, 15, 4, paint);
+            paint.Color = new SKColor(134, 180, 116);
+            canvas.DrawRect(25, 30, 12, 1, paint);
+            paint.Color = green;
+            canvas.DrawRect(50, 34, 7, 7, paint);
+        }
+        using var matte = SelectionMask.FromRect(117, 77, new(18, 14, 89, 63));
+        Composa.Vision.ForegroundCoverage.Refine(rgb, matte, new(14, 9, 96, 69), 8, default);
+        Assert.Equal(0, matte.GetPixel(29, 33).Alpha);
+        Assert.Equal(255, matte.GetPixel(29, 28).Alpha);
+        Assert.InRange(matte.GetPixel(29, 30).Alpha, 120, 137);
+        Assert.Equal(255, matte.GetPixel(53, 37).Alpha);
+    }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void Object_extraction_recovers_light_strands_in_copy_and_editable_mask(ColorDepth depth)
+    {
+        var session = EditorSession.NewCanvas(140, 90, SKColors.White, depth);
+        var photo = Pixels.NewWorkingColor(60, 40, depth, RgbProfile.Srgb);
+        var mask = Pixels.NewMask(140, 90);
+        var pixels = new PixelBuffer(photo);
+        var hair = new PixelValue(.89f, .84f, .71f, 1);
+        var green = new PixelValue(.14f, .73f, .23f, 1);
+        for (var y = 0; y < 40; y++) for (var x = 0; x < 60; x++)
+        {
+            var a = x is >= 10 and < 30 ? 1f : x is >= 30 and < 34 ? .40f : 0f;
+            pixels.Write(x, y, hair * a + green * (1 - a));
+            mask.SetPixel(45 + x, 25 + y, new SKColor(0, 0, 0, (byte)MathF.Round(255 * a)));
+        }
+        var layer = session.AddImageLayer("Photo", photo, new(75, 45), fit: false);
+        var original = layer.Pixels!; var bytes = original.Bytes;
+        session.ApplyAiSelection(Composa.AI.AiTaskKind.ObjectSelection, mask);
+        Assert.True(session.Copy());
+        var clipboard = EditorSession.Clipboard!;
+        var lifted = new PixelBuffer(clipboard.Pixels).Read(76 - clipboard.Origin.X, 45 - clipboard.Origin.Y);
+        Assert.InRange(lifted.A, .39f, .41f);
+        foreach (var bg in new[] { .05f, 1f })
+        {
+            var composite = lifted + new PixelValue(bg, bg, bg, 1) * (1 - lifted.A);
+            Assert.InRange(Math.Abs(composite.R - (hair.R * .4f + bg * .6f)), 0, .015f);
+            Assert.InRange(Math.Abs(composite.B - (hair.B * .4f + bg * .6f)), 0, .015f);
+        }
+        var before = session.History.CurrentId;
+        session.AddMask(layer);
+        Assert.True(layer.MaskEnabled);
+        Assert.Equal(102, layer.Mask!.GetPixel(31, 20).Alpha);
+        Assert.InRange(Math.Abs(new PixelBuffer(layer.Pixels!).Read(31, 20).R - hair.R), 0, .02f);
+        Assert.Contains(session.Document.Layers, l => !l.Visible && l.Pixels == original);
+        Assert.Equal(bytes, original.Bytes);
+        session.Undo(); Assert.Equal(before, session.History.CurrentId);
+        Assert.Same(original, session.ActiveLayer!.Pixels); Assert.Null(session.ActiveLayer.Mask);
+        // A feathered manual selection keeps the sampled RGB, even with identical coverage.
+        session.Select(Pixels.Clone(mask), SelectionMode.Replace);
+        Assert.True(session.Copy()); var manual = EditorSession.Clipboard!;
+        var raw = new PixelBuffer(manual.Pixels).Read(76 - manual.Origin.X, 45 - manual.Origin.Y);
+        Assert.True(raw.Straight.R < lifted.Straight.R - .25f);
+    }
+
     [Theory]
     [InlineData(ColorDepth.Eight)]
     [InlineData(ColorDepth.Sixteen)]

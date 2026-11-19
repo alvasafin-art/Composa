@@ -82,7 +82,7 @@ public static class ObjectSelection
     }
 
     /// <summary>The 4-connected run of set mask pixels around a seed, as a new mask.</summary>
-    private static unsafe SKBitmap ConnectedPiece(SKBitmap mask, int seedX, int seedY, byte threshold = 128)
+    internal static unsafe SKBitmap ConnectedPiece(SKBitmap mask, int seedX, int seedY, byte threshold = 128, CancellationToken cancellation = default)
     {
         int width = mask.Width, height = mask.Height;
         var result = Pixels.NewMask(width, height);
@@ -94,6 +94,7 @@ public static class ObjectSelection
         stack.Push((seedX, seedY));
         while (stack.Count > 0)
         {
+            if (cancellation.IsCancellationRequested) { result.Dispose(); cancellation.ThrowIfCancellationRequested(); }
             var (x, y) = stack.Pop();
             var d = dst + (long)y * dstStride;
             if (d[x] != 0 || !Set(x, y)) continue;

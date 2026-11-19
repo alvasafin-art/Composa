@@ -33,16 +33,21 @@ public static unsafe class PromptSegmentation
         mask.IsEmpty || (crop.Left > canvas.Left && mask.Left <= 1) || (crop.Top > canvas.Top && mask.Top <= 1)
         || (crop.Right < canvas.Right && mask.Right >= crop.Width - 1) || (crop.Bottom < canvas.Bottom && mask.Bottom >= crop.Height - 1);
 
-    internal static SKBitmap Subset(SKBitmap source, SKRectI area)
+    // A thumbnail or product photo nested in a larger layout can itself be the
+    // highest-scoring SAM object. When the gesture points inside its coloured
+    // backdrop, fit the matte inside the panel and exclude its rectangular edge.
+    internal static SKRectI? PromptedPanel(SKBitmap image, SKBitmap mask, SKRectI box)
     {
-        var view = new SKBitmap();
-        if (source.ExtractSubset(view, area))
-        {
-            Pixels.RetainProfile(source, view);
-            return view;
-        }
-        view.Dispose();
-        throw new InvalidOperationException("Cannot read object selection context.");
+        var panel = Selections.SelectionMask.Bounds(mask, 128);
+        if (panel.Width < 24 || panel.Height < 24 || panel.Width >= .9 * image.Width || panel.Height >= .9 * image.Height ||
+            !panel.Contains(box) || (long)box.Width * box.Height > .88 * panel.Width * panel.Height) return null;
+        var p = (byte*)mask.GetPixels(); var stride = mask.RowBytes;
+        var count = 0;
+        for (var y = 0; y < 20; y++) for (var x = 0; x < 20; x++)
+            if (p[(long)(panel.Top + (2 * y + 1) * panel.Height / 40) * stride + panel.Left + (2 * x + 1) * panel.Width / 40] >= 128) count++;
+        if (count < 386 || ForegroundCoverage.BackgroundAlong(new PixelBuffer(image), box) == null) return null;
+        panel.Inflate(-1, -1);
+        return panel;
     }
 
     internal static SKBitmap Place(SKBitmap mask, SKRectI area, SKRectI canvas)
@@ -54,7 +59,7 @@ public static unsafe class PromptSegmentation
         return result;
     }
 
-    internal static SKBitmap RefineEdges(SKBitmap image, SKBitmap outline, CancellationToken cancellation)
+    internal static SKBitmap RefineEdges(SKBitmap image, SKBitmap outline, SKRectI? box, CancellationToken cancellation)
     {
         var canvas = SKRectI.Create(image.Width, image.Height);
         var area = Selections.SelectionMask.Bounds(outline);
@@ -64,10 +69,11 @@ public static unsafe class PromptSegmentation
         // additional RGB context on both sides of the unknown trimap band.
         area.Inflate(radius + 64, radius + 64);
         area = SKRectI.Intersect(area, canvas);
-        if (area == canvas) return TrimapMatting.Refine(image, outline, radius, cancellation: cancellation, fineDetail: true);
-        using var crop = Subset(image, area);
-        using var mask = Subset(outline, area);
-        using var alpha = TrimapMatting.Refine(crop, mask, radius, cancellation: cancellation, fineDetail: true);
+        using var crop = area == canvas ? null : Pixels.Subset(image, area);
+        using var mask = area == canvas ? null : Pixels.Subset(outline, area);
+        if (box is { } rect) { rect.Offset(-area.Left, -area.Top); box = rect; }
+        using var alpha = TrimapMatting.Refine(crop ?? image, mask ?? outline, radius, cancellation: cancellation, fineDetail: true);
+        ForegroundCoverage.Refine(crop ?? image, alpha, box, radius, cancellation);
         return Place(alpha, area, canvas);
     }
 

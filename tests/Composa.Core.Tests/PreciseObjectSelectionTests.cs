@@ -11,6 +11,25 @@ namespace Composa.Core.Tests;
 public class PreciseObjectSelectionTests
 {
     [Fact]
+    public void A_box_inside_a_small_coloured_photo_limits_matting_to_the_panel()
+    {
+        using var photo = Pixels.NewColor(640, 360);
+        photo.Erase(SKColors.DimGray);
+        var panel = new SKRectI(110, 85, 310, 245);
+        using (var canvas = new SKCanvas(photo))
+        using (var paint = new SKPaint { Color = SKColors.ForestGreen })
+        {
+            canvas.DrawRect(panel, paint);
+            paint.Color = SKColors.Wheat;
+            canvas.DrawCircle(210, 165, 40, paint);
+        }
+        using var panelMask = SelectionMask.FromRect(640, 360, panel);
+        var found = PromptSegmentation.PromptedPanel(photo, panelMask, new(147, 109, 279, 221));
+        Assert.Equal(new SKRectI(111, 86, 309, 244), found);
+        Assert.Null(PromptSegmentation.PromptedPanel(photo, panelMask, panel));
+    }
+
+    [Fact]
     public async Task Small_box_on_large_canvas_selects_only_the_prompted_object_at_its_document_position()
     {
         var session = EditorSession.NewCanvas(1600, 420);
