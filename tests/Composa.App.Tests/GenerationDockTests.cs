@@ -18,16 +18,16 @@ namespace Composa.App.Tests;
 public class GenerationDockTests
 {
     [AvaloniaTheory]
-    [InlineData(AiTaskKind.GenerateImage)]
-    [InlineData(AiTaskKind.ImageEdit)]
-    [InlineData(AiTaskKind.GenerativeFill)]
-    public async Task Dock_run_submits_the_prompt_and_correct_source_inputs(AiTaskKind task)
+    [InlineData(AiTaskKind.GenerateImage, 1)]
+    [InlineData(AiTaskKind.ImageEdit, 2)]
+    [InlineData(AiTaskKind.GenerativeFill, 3)]
+    public async Task Dock_run_submits_the_prompt_and_correct_source_inputs(AiTaskKind task, int count)
     {
         var server = new PartnerImageTests.Connection();
         var window = new MainWindow(null, _ => server) { Width = 1100, Height = 800 };
         window.Settings.ComfyServerUrl = server.Address.ToString();
         window.AiTasks.ApiKey = () => "test-only";
-        window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
+        window.Settings.AiTaskEngineIds[task.ToString()] = "flux2-klein-intel-xpu";
         window.Settings.AiTaskModelKeys.Remove(task.ToString());
         window.Show();
         var session = EditorSession.NewCanvas(160, 120, task == AiTaskKind.GenerateImage ? null : SKColors.White);
@@ -39,16 +39,20 @@ public class GenerationDockTests
             var section = dock.Section("AI Generation"); dock.SetVisible(section, true);
             var reference = new SKBitmap(60, 40); reference.Erase(SKColors.Coral); window.AddAiReferenceForTests(reference); Pump();
             var prompt = section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
+            var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible);
+            picker.SelectedItem = picker.Items.OfType<ImageModelChoice>().Single(model => model.Engine.Id == "chatgpt-image-2.5");
             prompt.Text = "Keep the ceramic texture."; Pump();
             var before = session.History.CurrentId;
-            var run = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRun");
+            var run = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == (count == 1 ? "AiRun" : $"AiVariants{count}"));
             Assert.True(run.IsEffectivelyEnabled);
             run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var timeout = DateTime.UtcNow.AddSeconds(15);
             while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < timeout)
             { await Task.Delay(10, TestContext.Current.CancellationToken); Pump(); }
             Assert.True(window.AiTasks.Operation?.Status == AiOperationStatus.Completed, window.AiTasks.Operation?.Error);
-            var graph = Assert.Single(server.Graphs);
+            Assert.Equal(count, server.Graphs.Count);
+            Assert.Equal("chatgpt-image-2.5", Assert.IsType<ImageModelChoice>(picker.SelectedItem).Engine.Id);
+            var graph = server.Graphs[0];
             Assert.Contains("Keep the ceramic texture.", graph["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
             Assert.Equal(task == AiTaskKind.GenerateImage ? new[] { "referenceImage1" } : new[] { "apiSource", "referenceImage1" }, server.Uploads);
             Assert.NotEqual(before, session.History.CurrentId);

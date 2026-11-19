@@ -54,14 +54,18 @@ public class ToolInputTests
         window.MouseDown(At(200,150),MouseButton.Left);
         window.MouseMove(At(250,150),RawInputModifiers.LeftMouseButton);
         Assert.True(window.Canvas.IsDragging);
-        // Inspect the captured overlay, independently of the document/ants underneath it.
-        var capture=typeof(CanvasView).GetMethod("CaptureOverlay",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!;
-        var draw=(Action<SKCanvas>)capture.Invoke(window.Canvas,[SKMatrix.Identity])!;
-        using var bitmap=Rendering.Pixels.NewColor(600,400); using var canvas=new SKCanvas(bitmap); draw(canvas);
-        // At 50% zoom: radius 20 screen points, plus a dark contrast ring at 21.
-        Assert.True(bitmap.GetPixel(271,150).Alpha>40);
-        Assert.True(bitmap.GetPixel(250,171).Alpha>40);
-        Assert.Equal(0,bitmap.GetPixel(280,150).Alpha);
+        Dispatcher.UIThread.RunJobs();
+        var overlay = window.Canvas.Child!;
+        using var frame = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)overlay.Bounds.Width, (int)overlay.Bounds.Height));
+        frame.Render(overlay);
+        using var data = new MemoryStream(); frame.Save(data); data.Position = 0;
+        using var bitmap = SKBitmap.Decode(data);
+        var center = window.Canvas.ToScreen(new SKPoint(250, 150));
+        // At half zoom an 80 px brush has a 20 px radius plus its contrast ring.
+        bool Ring(int dx, int dy) => bitmap.GetPixel((int)Math.Round(center.X) + dx, (int)Math.Round(center.Y) + dy).Alpha > 40;
+        Assert.True(Ring(20, 0) || Ring(21, 0));
+        Assert.True(Ring(0, 20) || Ring(0, 21));
+        Assert.False(Ring(30, 0));
         Screenshots.Save(window,"selection-brush-diameter-during-stroke");
         window.MouseUp(At(250,150),MouseButton.Left); Assert.False(window.Canvas.IsDragging);
     }

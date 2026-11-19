@@ -16,6 +16,17 @@ namespace Composa.App.Tests;
 public class AiInfrastructureTests
 {
     [Fact]
+    public void History_recovery_only_finishes_the_submitted_job()
+    {
+        using var history = JsonDocument.Parse("""{"done":{"status":{"completed":true,"status_str":"success"}},"running":{"status":{"completed":false}},"failed":{"status":{"status_str":"error"}}}""");
+        var current = new AiOperationState { Status = AiOperationStatus.Running };
+        Assert.Null(ComfyEventParser.FromHistory(history.RootElement, "other", current));
+        Assert.Null(ComfyEventParser.FromHistory(history.RootElement, "running", current));
+        Assert.Equal(AiOperationStatus.Completed, ComfyEventParser.FromHistory(history.RootElement, "done", current)?.Status);
+        Assert.Equal(AiOperationStatus.Failed, ComfyEventParser.FromHistory(history.RootElement, "failed", current)?.Status);
+    }
+
+    [Fact]
     public async Task Removal_on_a_real_photo_preserves_canvas_and_unselected_pixels_when_requested()
     {
         var url=Environment.GetEnvironmentVariable("COMPOSA_REMOVAL_PHOTO_URL");

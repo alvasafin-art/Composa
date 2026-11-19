@@ -115,7 +115,7 @@ public sealed partial class AiTaskService
                 {
                     if(!ReferenceEquals(running,linked)||linked.IsCancellationRequested) return;
                     var phase=request.Task==AiTaskKind.ChangeBackground?(cleanup?"Clean background plate · pass 2/2":"Object-aware scene layout · pass 1/2"):"Lighting and contact";
-                    Operation=update with {Status=AiOperationStatus.Running,Stage=$"Variant {variant+1}/{request.Settings.Variants} · {phase} · {update.Stage}"}; StateChanged?.Invoke();
+                    Operation=update with {Status=AiOperationStatus.Running,Stage=$"Variant {variant+1}/{request.Settings.Variants} · {phase} · {(update.Status == AiOperationStatus.Completed ? "Applying result" : update.Stage)}"}; StateChanged?.Invoke();
                 });
                 var execution=await client.ExecuteAsync(Bind(files,variant,stageNative,stagePartner,cleanup),progress,linked.Token);
                 using(execution.History)

@@ -16,6 +16,18 @@ public sealed record ComfyServerAddress(Uri HttpBase, Uri WebSocket)
         return new ComfyServerAddress(http, builder.Uri);
     }
 
+    internal static bool UseProxy(Uri endpoint)
+    {
+        if (endpoint.IsLoopback) return false;
+        if (!System.Net.IPAddress.TryParse(endpoint.IdnHost, out var address)) return true;
+        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            return !address.IsIPv6LinkLocal && !address.IsIPv6UniqueLocal;
+        var bytes = address.GetAddressBytes();
+        return !(bytes[0] == 10 || bytes[0] == 172 && bytes[1] is >= 16 and <= 31 ||
+            bytes[0] == 192 && bytes[1] == 168 || bytes[0] == 169 && bytes[1] == 254);
+    }
+
     public Uri Api(string relative) => new(HttpBase, relative.TrimStart('/'));
     public Uri Socket(Guid clientId) => new UriBuilder(WebSocket) { Query = "clientId=" + clientId.ToString("N") }.Uri;
     public override string ToString() => HttpBase.GetLeftPart(UriPartial.Authority);

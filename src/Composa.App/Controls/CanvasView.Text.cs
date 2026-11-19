@@ -127,7 +127,7 @@ public sealed partial class CanvasView
         if (session?.EditText(layer) is not { } editor) return;
         editor.MoveToDocumentEdge(end: true, select: false);
         Focus();
-        InvalidateVisual();
+        InvalidateCanvas();
         TextEditingChanged?.Invoke();
     }
 
@@ -146,7 +146,7 @@ public sealed partial class CanvasView
         switch (e.Key)
         {
             case Key.Escape:
-                if (drag != Drag.None) { drag = Drag.None; InvalidateVisual(); return true; }
+                if (drag != Drag.None) { drag = Drag.None; InvalidateCanvas(); return true; }
                 session.CancelText();
                 TextEditingChanged?.Invoke();
                 return true;

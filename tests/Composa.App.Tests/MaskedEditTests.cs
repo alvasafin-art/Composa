@@ -119,27 +119,22 @@ public class MaskedEditTests
     {
         var window = new MainWindow(); window.Show(); var settings = new Settings();
         var service = new AiTaskService(() => "http://localhost:8188", Catalog().Root);
-        var asking = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs();
-        var dialog = Assert.Single(window.OwnedWindows);
-        dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
-        dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Additional editing prompt")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
-        var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "AdditionalEditingPrompt");
-        var enabled = dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Include in image edits");
-        prompt.Text = "custom preservation instruction"; enabled.IsChecked = false;
-        Assert.False(prompt.IsEnabled);
-        var scroll = dialog.GetVisualDescendants().OfType<ScrollViewer>().Single(view => view.Name == "SettingsPage");
-        scroll.Offset = new Avalonia.Vector(0, scroll.Extent.Height); Dispatcher.UIThread.RunJobs();
-        Assert.True(Screenshots.Save(dialog, "comfy-additional-prompt"));
-        dialog.Close(false); Assert.False(await asking); Assert.True(settings.ComfyAdditionalPromptEnabled);
-        Assert.Equal(AiPromptDefaults.PreserveAppearance, settings.ComfyAdditionalPrompt);
-        asking = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs(); dialog = Assert.Single(window.OwnedWindows);
-        dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
-        dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Additional editing prompt")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
-        dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "AdditionalEditingPrompt").Text = "custom preservation instruction";
-        dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Content as string == "Include in image edits").IsChecked = false;
-        dialog.Close(true); Assert.True(await asking); Assert.False(settings.PromptFor(service.SelectedEngine!.Id).Enabled);
-        Assert.Equal("custom preservation instruction", settings.PromptFor(service.SelectedEngine.Id).Text);
-        Assert.Equal(AiPromptDefaults.PreserveAppearance, settings.PromptFor("chatgpt-image-2.5").Text); window.Close();
+        foreach (var accept in new[] { false, true })
+        {
+            var asking = AiDialogs.SettingsDialog(window, settings, service, 2); Dispatcher.UIThread.RunJobs();
+            var dialog = Assert.Single(window.OwnedWindows);
+            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "System instructions")).IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            var box = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerInstructions");
+            var mode = dialog.GetVisualDescendants().OfType<ComboBox>().Single(b => Equals(b.SelectedItem, "Edit image"));
+            box.Text = "Edit only the requested detail.";
+            mode.SelectedItem = "Generate image"; box.Text = "Describe a new scene.";
+            mode.SelectedItem = "Edit image"; Assert.Equal("Edit only the requested detail.", box.Text);
+            dialog.Close(accept); Assert.Equal(accept, await asking);
+            if (!accept) Assert.Empty(settings.EnhancerInstructions);
+        }
+        Assert.Contains("Describe a new scene.", settings.EnhancerInstructions.Values);
+        Assert.Contains("Edit only the requested detail.", settings.EnhancerInstructions.Values); window.Close();
     }
 
     [Fact]

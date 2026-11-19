@@ -19,6 +19,6 @@ public sealed partial class MainWindow
         RefreshAiUi();
         if (canvasOnlyItem != null) canvasOnlyItem.IsChecked = enabled;
         canvas.Focus();
-        canvas.InvalidateVisual();
+        canvas.InvalidateCanvas();
     }
 }

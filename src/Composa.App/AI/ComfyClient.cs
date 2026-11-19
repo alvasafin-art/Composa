@@ -24,7 +24,7 @@ public sealed class ComfyClient : IComfyConnection
     public ComfyClient(string serverUrl, HttpClient? httpClient = null, Func<string?>? apiKey = null)
     {
         Address = ComfyServerAddress.Parse(serverUrl);
-        http = httpClient ?? new HttpClient(new HttpClientHandler { UseProxy = !Address.HttpBase.IsLoopback, AllowAutoRedirect = false });
+        http = httpClient ?? new HttpClient(new HttpClientHandler { UseProxy = ComfyServerAddress.UseProxy(Address.HttpBase), AllowAutoRedirect = false });
         ownsHttp = httpClient == null;
         this.apiKey = apiKey ?? (() => null);
     }
@@ -128,10 +128,10 @@ public sealed class ComfyClient : IComfyConnection
     {
         var clientId = Guid.NewGuid();
         using var socket = new ClientWebSocket();
-        if (Address.HttpBase.IsLoopback) socket.Options.Proxy = null;
         using var connecting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         connecting.CancelAfter(ConnectionTimeout);
-        await socket.ConnectAsync(Address.Socket(clientId), connecting.Token);
+        // The socket must use the same transport and proxy policy as upload, queue and history.
+        await socket.ConnectAsync(Address.Socket(clientId), http, connecting.Token);
         var promptId = await SubmitAsync(workflow, clientId, cancellationToken);
         var queue = await QueueAsync(promptId, cancellationToken);
         var state = new AiOperationState { Status = AiOperationStatus.Queued, PromptId = promptId, QueuePosition = queue.Position, Stage = queue.Position is { } p ? $"Queued ({p})" : "Queued" };
@@ -144,11 +144,32 @@ public sealed class ComfyClient : IComfyConnection
             {
                 using var message = new MemoryStream();
                 var discardBinary = false;
-                WebSocketReceiveResult part;
+                WebSocketReceiveResult? part = null;
                 do
                 {
-                    part = await socket.ReceiveAsync(buffer, cancellationToken);
-                    if (part.MessageType == WebSocketMessageType.Close) throw new IOException("ComfyUI closed the progress connection before completion.");
+                    var receive = socket.ReceiveAsync(buffer, cancellationToken);
+                    while (true)
+                    {
+                        try { part = await receive.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken); break; }
+                        catch (TimeoutException)
+                        {
+                            using var recorded = await HistoryAsync(promptId, cancellationToken);
+                            var terminal = ComfyEventParser.FromHistory(recorded.RootElement, promptId, state);
+                            if (terminal == null) continue;
+                            state = terminal;
+                            socket.Abort();
+                            try { await receive; } catch (Exception error) when (error is WebSocketException or OperationCanceledException or IOException) { }
+                            break;
+                        }
+                    }
+                    if (state.Status is AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled) break;
+                    if (part!.MessageType == WebSocketMessageType.Close)
+                    {
+                        using var recorded = await HistoryAsync(promptId, cancellationToken);
+                        state = ComfyEventParser.FromHistory(recorded.RootElement, promptId, state)
+                            ?? throw new IOException("ComfyUI closed the progress connection before completion.");
+                        break;
+                    }
                     if (part.MessageType == WebSocketMessageType.Text) message.Write(buffer, 0, part.Count);
                     else if (!discardBinary)
                     {
@@ -162,7 +183,8 @@ public sealed class ComfyClient : IComfyConnection
                         if (discardBinary) message.SetLength(0);
                     }
                 } while (!part.EndOfMessage);
-                if (part.MessageType == WebSocketMessageType.Binary)
+                if (state.Status is AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled) break;
+                if (part!.MessageType == WebSocketMessageType.Binary)
                 {
                     if (!activePrompt || discardBinary) continue;
                     state = ComfyEventParser.ParseBinary(message.ToArray(), state);

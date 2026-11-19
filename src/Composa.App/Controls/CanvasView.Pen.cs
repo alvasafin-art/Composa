@@ -19,7 +19,7 @@ public sealed partial class CanvasView
     public void FinishPen(bool closed = false)
     {
         if (penDraft.Count >= 2 && session != null) session.AddPath(new VectorPath { Nodes = penDraft.ToArray(), Closed = closed && penDraft.Count >= 3 });
-        penDraft.Clear(); InvalidateVisual(); ToolStateChanged?.Invoke();
+        penDraft.Clear(); InvalidateCanvas(); ToolStateChanged?.Invoke();
     }
     private void PenPress(bool alt, bool editPoints, bool insert, int clicks)
     {

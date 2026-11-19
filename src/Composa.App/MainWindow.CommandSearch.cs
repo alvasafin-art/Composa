@@ -14,7 +14,7 @@ public sealed partial class MainWindow
             Setting("ComfyUI server", "Connection", 0, "server", "сервер подключение адрес"),
             Setting("Comfy credits API key", "Connection", 0, "key", "ключ токен"),
             Setting("Image models", "AI", 1, terms: "модели изображения"),
-            Setting("Workflow and model files", "Image models", 1, "files"),
+            Setting("Model components", "Image models", 1, "files"),
             Setting("Prompt enhancer", "AI", 2, terms: "Text model CLI API")
         }).Concat(aiTasks.Engines.Profiles.Select(p => Setting(p.ModelName ?? p.DisplayName, "Image models", 1, "model:" + p.Id, p.Id))).ToArray();
         Shortcut Setting(string title, string location, int page, string? field = null, string terms = "") =>

@@ -63,7 +63,7 @@ public sealed partial class CanvasView
         gradientPending = false;
         gradientOriginal = null;
         gradientLayer = null;
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
     public bool HasCrop => cropRect != null;
@@ -91,7 +91,7 @@ public sealed partial class CanvasView
         else if (cropRect == null && session != null)
         { cropRect = ConstrainCrop(SKRect.Create(0, 0, session.Document.Width, session.Document.Height)); cropFramePristine = true; }
         UpdateCursor();
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
     /// <summary>The crop bar's ratio changed: the box, when there is one, is reshaped around its center to match.</summary>
@@ -99,7 +99,7 @@ public sealed partial class CanvasView
     {
         if (cropRect is { } crop) cropRect = ConstrainCrop(cropFramePristine && session != null
             ? SKRect.Create(0, 0, session.Document.Width, session.Document.Height) : crop);
-        InvalidateVisual();
+        InvalidateCanvas();
         ToolStateChanged?.Invoke();
     }
 
@@ -139,7 +139,7 @@ public sealed partial class CanvasView
         temporaryMove = false;
         polygon.Clear();
         guides.Clear();
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
     private void UpdateCursor()
@@ -220,7 +220,7 @@ public sealed partial class CanvasView
         snapFrom = snapTo = pressDocument;
         selectionOffset = SKPointI.Empty;
         // A press on a ruler drags a new guide out of it; with the Move tool a press on a guide moves it.
-        if (BeginGuideDrag(point.Position)) { InvalidateVisual(); return; }
+        if (BeginGuideDrag(point.Position)) { InvalidateCanvas(); return; }
         if (OverRuler(point.Position)) return;
 
         // Ctrl-drag moves the current layers whatever tool is chosen, as Photoshop's temporary Move tool does. Two
@@ -302,7 +302,7 @@ public sealed partial class CanvasView
                 drag = Drag.Crop;
                 break;
             case Tool.Brush or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
-                if (alt && session.Tool is Tool.CloneStamp or Tool.HealingBrush) { session.SetCloneSource(pressDocument); InvalidateVisual(); break; }
+                if (alt && session.Tool is Tool.CloneStamp or Tool.HealingBrush) { session.SetCloneSource(pressDocument); InvalidateCanvas(); break; }
                 if (alt && session.Tool == Tool.Brush) { PickColor(background: false); drag = Drag.Eyedropper; break; }
                 session.ViewZoom = UnitsPerPixel;
                 if (session.BeginStroke(pressDocument, out var problem, lineFromLast: shift && session.LastStrokeEnd != null,
@@ -346,7 +346,7 @@ public sealed partial class CanvasView
         }
         // The outline does not change while it is dragged, so its bounds are found once for snapping.
         if (drag == Drag.MoveSelection && session.Selection is { } outline) selectionBox = (SKRect)SelectionMask.Bounds(outline);
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -412,7 +412,8 @@ public sealed partial class CanvasView
         if (drag == Drag.None) SetControlHover(e.KeyModifiers.HasFlag(KeyModifiers.Control));
         if (drag == Drag.Marquee && !shift) shiftReleased = true;
         dragModifiers = e.KeyModifiers;
-        InvalidateVisual();
+        if (drag == Drag.None && IsBrushTool) Child!.InvalidateVisual();
+        else InvalidateCanvas();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -504,7 +505,7 @@ public sealed partial class CanvasView
             case Drag.Guide: FinishGuideDrag(e.GetPosition(this)); break;
         }
         if (wasTemporaryMove) { controlHover = e.KeyModifiers.HasFlag(KeyModifiers.Control); UpdateCursor(); }
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
@@ -525,7 +526,7 @@ public sealed partial class CanvasView
         base.OnPointerExited(e);
         cursorInside = false;
         PointerAt?.Invoke(null);
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -703,7 +704,7 @@ public sealed partial class CanvasView
     public void CancelCrop()
     {
         cropRect = null;
-        InvalidateVisual();
+        InvalidateCanvas();
         ToolStateChanged?.Invoke();
     }
 
@@ -842,7 +843,7 @@ public sealed partial class CanvasView
             if (flag == KeyModifiers.None) return;
             dragModifiers = down ? dragModifiers | flag : dragModifiers & ~flag;
             if (drag == Drag.Marquee && flag == KeyModifiers.Shift && !down) shiftReleased = true;
-            InvalidateVisual();
+            InvalidateCanvas();
             return;
         }
         var control = key is Key.LeftCtrl or Key.RightCtrl ? down : modifiers.HasFlag(KeyModifiers.Control);
@@ -855,7 +856,7 @@ public sealed partial class CanvasView
         if (hover == controlHover) return;
         controlHover = hover;
         UpdateCursor();
-        InvalidateVisual(); // The brush outline comes and goes with the move cursor.
+        InvalidateCanvas(); // The brush outline comes and goes with the move cursor.
     }
 
     /// <summary>
@@ -979,9 +980,9 @@ public sealed partial class CanvasView
         if (session.TextEdit is { } editor) return HandleTextKey(editor, e);
         if (session.Tool == Tool.Pen)
         {
-            if (e.Key == Key.Escape) { CancelInteraction(); penDraft.Clear(); InvalidateVisual(); return true; }
+            if (e.Key == Key.Escape) { CancelInteraction(); penDraft.Clear(); InvalidateCanvas(); return true; }
             if (e.Key == Key.Enter) { FinishPen(); return true; }
-            if (e.Key == Key.Back && penDraft.Count > 0) { penDraft.RemoveAt(penDraft.Count - 1); InvalidateVisual(); return true; }
+            if (e.Key == Key.Back && penDraft.Count > 0) { penDraft.RemoveAt(penDraft.Count - 1); InvalidateCanvas(); return true; }
             if (drag == Drag.None && e.Key is Key.Back or Key.Delete && DeletePenNode()) return true;
         }
         if (session.ColorRange != null && drag == Drag.None)
@@ -1011,13 +1012,13 @@ public sealed partial class CanvasView
                 if (cropRect != null) { CancelCrop(); return true; }
                 return false;
             case Key.Enter:
-                if (polygon.Count > 0) { FinishPolygon(); InvalidateVisual(); return true; }
+                if (polygon.Count > 0) { FinishPolygon(); InvalidateCanvas(); return true; }
                 if (cropRect != null) { ApplyCrop(); return true; }
                 return false;
             case Key.Back or Key.Delete when polygon.Count > 0:
                 polygon.RemoveAt(polygon.Count - 1);
                 if (polygon.Count == 0) drag = Drag.None;
-                InvalidateVisual();
+                InvalidateCanvas();
                 return true;
             case Key.OemOpenBrackets or Key.OemCloseBrackets when IsBrushTool:
                 var grow = e.Key == Key.OemCloseBrackets;
@@ -1025,7 +1026,7 @@ public sealed partial class CanvasView
                 else if (shift) session.Brush = session.Brush with { Hardness = Math.Clamp(session.Brush.Hardness + (grow ? 0.25 : -0.25), 0, 1) };
                 else session.Brush = session.Brush with { Size = NextBrushSize(session.Brush.Size, grow) };
                 ToolStateChanged?.Invoke();
-                InvalidateVisual();
+                InvalidateCanvas();
                 return true;
             case Key.Left or Key.Right or Key.Up or Key.Down:
                 var step = shift ? 10 : 1;

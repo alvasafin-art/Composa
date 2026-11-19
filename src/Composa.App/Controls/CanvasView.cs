@@ -17,7 +17,7 @@ using SkiaSharp;
 namespace Composa.App.Controls;
 
 /// <summary>The editing surface: shows the flattened document with zoom and pan, draws tool overlays, and turns pointer input into edits.</summary>
-public sealed partial class CanvasView : Control
+public sealed partial class CanvasView : Decorator
 {
     private EditorSession? session;
     private double zoom = 1;
@@ -54,12 +54,13 @@ public sealed partial class CanvasView : Control
         {
             ArgumentNullException.ThrowIfNull(value);
             if (displayProfile.Equals(value)) return;
-            displayProfile = value; viewCache = null; viewStale = true; InvalidateVisual();
+            displayProfile = value; viewCache = null; viewStale = true; InvalidateCanvas();
         }
     }
 
     public CanvasView()
     {
+        Child = new BrushCursorOverlay(this) { IsHitTestVisible = false };
         Focusable = true;
         ClipToBounds = true;
         antsTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
@@ -70,7 +71,7 @@ public sealed partial class CanvasView : Control
             if (antsRedrawPending) return;
             antsPhase = (antsPhase + 1) % 8;
             antsRedrawPending = true;
-            InvalidateVisual();
+            InvalidateCanvas();
         };
         AttachedToVisualTree += (_, _) => antsTimer.Start();
         DetachedFromVisualTree += (_, _) => { antsTimer.Stop(); antsRedrawPending = false; };
@@ -81,6 +82,12 @@ public sealed partial class CanvasView : Control
             spaceDown = false;
             UpdateCursor();
         };
+    }
+
+    internal void InvalidateCanvas()
+    {
+        InvalidateVisual();
+        Child?.InvalidateVisual();
     }
 
     public event Action? ViewChanged;
@@ -100,7 +107,7 @@ public sealed partial class CanvasView : Control
     public SKRectI? AiContextBounds
     {
         get => aiContextBounds;
-        set { if (aiContextBounds == value) return; aiContextBounds = value; InvalidateVisual(); }
+        set { if (aiContextBounds == value) return; aiContextBounds = value; InvalidateCanvas(); }
     }
 
     public EditorSession? Session
@@ -135,7 +142,7 @@ public sealed partial class CanvasView : Control
             fitPending = true;
             viewStale = true;
             UpdateCursor();
-            InvalidateVisual();
+            InvalidateCanvas();
             ViewChanged?.Invoke();
         }
     }
@@ -162,7 +169,7 @@ public sealed partial class CanvasView : Control
             viewDirty = Geometry.Union(viewDirty, mapped);
         }
         else viewStale = true;
-        InvalidateVisual();
+        InvalidateCanvas();
         if (area == null) ViewChanged?.Invoke();
     }
 
@@ -172,10 +179,10 @@ public sealed partial class CanvasView : Control
     private void OnSelectionChanged()
     {
         outlineStale = true;
-        InvalidateVisual();
+        InvalidateCanvas();
     }
 
-    private void OnLayersChanged() => InvalidateVisual();
+    private void OnLayersChanged() => InvalidateCanvas();
 
     // ---- Viewport -----------------------------------------------------------------------------------------------
 
@@ -206,13 +213,13 @@ public sealed partial class CanvasView : Control
         double Center(double value, double viewport, int size) => viewport >= size ? size / 2d : Math.Clamp(value, viewport / 2, size - viewport / 2);
         var x = Center(point.X, w, session.Document.Width); var y = Center(point.Y, h, session.Document.Height);
         origin = new Point((RulerInset + Bounds.Width) / 2 - x * UnitsPerPixel, (RulerInset + Bounds.Height) / 2 - y * UnitsPerPixel);
-        ClampOrigin(); InvalidateVisual(); ViewChanged?.Invoke();
+        ClampOrigin(); InvalidateCanvas(); ViewChanged?.Invoke();
     }
 
     public void Fit()
     {
         if (!FitCore()) return;
-        InvalidateVisual();
+        InvalidateCanvas();
         ViewChanged?.Invoke();
     }
 
@@ -238,7 +245,7 @@ public sealed partial class CanvasView : Control
         zoom = Math.Clamp(value, 0.01, 64);
         origin = new Point(around.X - fixedPoint.X * UnitsPerPixel, around.Y - fixedPoint.Y * UnitsPerPixel);
         ClampOrigin();
-        InvalidateVisual();
+        InvalidateCanvas();
         ViewChanged?.Invoke();
     }
 
@@ -267,7 +274,7 @@ public sealed partial class CanvasView : Control
     {
         origin += delta;
         ClampOrigin();
-        InvalidateVisual();
+        InvalidateCanvas();
         ViewChanged?.Invoke();
     }
 

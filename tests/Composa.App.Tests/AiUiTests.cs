@@ -29,15 +29,8 @@ public class AiUiTests
         Assert.True(window.Settings.AiAlignMaskedEdits);
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
         var panel = window.AiFloatingPanel;
-        var buttons = panel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().ToArray();
-        var two = buttons.Single(button => button.Name == "AiVariants2");
-        var three = buttons.Single(button => button.Name == "AiVariants3");
-        two.IsChecked = true;
-        Assert.Equal(2, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill).Variants);
-        three.IsChecked = true;
-        Assert.False(two.IsChecked);
-        three.IsChecked = false;
-        Assert.Equal(1, window.Settings.OperationFor(window.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.Id, AiTaskKind.GenerativeFill).Variants);
+        foreach (var count in new[] { 2, 3 })
+            Assert.IsType<Button>(panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == $"AiVariants{count}"));
         var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");
         Assert.True(enhance.IsEnabled);
         Dispatcher.UIThread.RunJobs();
@@ -84,8 +77,7 @@ public class AiUiTests
         var pinned = new Point(Canvas.GetLeft(panel), Canvas.GetTop(panel));
         session.SelectRect(new SKRect(320, 210, 400, 290)); Dispatcher.UIThread.RunJobs();
         Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
-        var close = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiFloatingCollapse");
-        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        panel.RaiseEvent(new TappedEventArgs(InputElement.DoubleTappedEvent, null!));
         session.SelectRect(new SKRect(100, 10, 200, 70)); Dispatcher.UIThread.RunJobs();
         Assert.Equal(pinned.X, Canvas.GetLeft(panel), 1); Assert.Equal(pinned.Y, Canvas.GetTop(panel), 1);
         Assert.True(window.Settings.AiFloatingCollapsed);

@@ -64,11 +64,6 @@ public sealed class ComfyModelPicker : StackPanel
         try
         {
             var scoped = operation is { } task && engine.Binding(task) != null ? EngineCatalog.WorkflowFor(engine, task) : null;
-            foreach (var workflow in scoped == null ? engine.Workflows : [scoped])
-            {
-                var path = new SelectableTextBlock { Text = workflow.File, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary };
-                Children.Add(path);
-            }
             slots = engine.PaidApi ? [] : scoped == null ? service.Engines.ModelSlots(engine).ToArray()
                 : WorkflowModels.Slots(service.Engines.ReadWorkflow(engine, scoped), engine.Id).ToArray();
         }

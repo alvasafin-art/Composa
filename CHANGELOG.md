@@ -4,19 +4,25 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- Run launches one result. The adjacent 2 and 3 buttons immediately launch that many variants. The model stays selected after generation. Run and the prompt enhancer pulse while working.
+- Masked Qwen edits retain the original object as visual input. Composa can collect a finished job from server history when its final progress event is missing.
+- The generation panel collapses on a double-click in empty space. Reference previews open over the canvas with a corner close button. Dock dividers separate stacked panels.
+- The brush cursor updates independently of the canvas while hovering. Image model preferences show supported operations, and Object Selection has its own model picker in the tool options.
+- Prompt enhancement has separate instructions for generating and editing images. Server model discovery supplies the supported reasoning levels.
+
 - Layers now realizes the visible part of the stack plus a small scroll buffer. Layer edits, search and undo reconcile the list by layer ID, retaining unchanged rows and thumbnails. The layer tree lookup and Channels preview also do less work on the UI thread.
 
 - The editor reuses unchanged History rows and document tabs. Layer context menus build their commands on opening. Large AI selections use faster alpha contour and mask processing, and panning reuses the selection bounds.
 
 - Shared control styles use neutral surfaces for fields and expandable sections. Layers and History use inset selection highlights. The Layers header aligns blend mode, opacity and search filters and places Clear inside the search field.
 
-- The floating selection panel and generation dialogs place the prompt above one toolbar. It groups the model, references and edit tools on the left and Run and variant count on the right. More opens image size options. Hover over image size in the dialog for request dimensions. The selection panel can preview the generation area on the canvas.
+- The floating selection panel and generation dialogs place the prompt above one toolbar. It groups the model, references and edit tools on the left and Run and variant count on the right. The floating menu lists generation operations.
 - Preferences can find model, connection and editor controls. Per-operation readiness identifies missing files and nodes. Model assignments and generation presets follow the selected model across workflow routes.
 - Move properties include shape appearance and geometry. The active mask thumbnail has a distinct outline.
 
 - The selection panel keeps the prompt, image model and Run together. Reference thumbnails appear when an image is attached. Generated variants have thumbnail previews and a hold-to-compare control.
-- Image model choices show the configured checkpoint or partner model. A temporary choice belongs to the current request. Preferences brings together connection settings, image models, the prompt enhancer and editor options.
-- Generation settings can save named presets for each model and operation. The prompt enhancer can try a sample using its draft provider settings.
+- Image model choices show the configured checkpoint or partner model. The panel remembers the chosen model for the operation. Preferences brings together connection settings, image models, the prompt enhancer and editor options.
+- Generation settings can save named presets for each model and operation. Generation settings are available in image model preferences.
 - The Move tool has an expandable numeric inspector. Side panels can be grouped into tabs, recent files have previews, and Camera Raw offers a larger image preview with before comparison and per-group reset.
 
 ## [1.3.0-preview.4] - 2026-11-18

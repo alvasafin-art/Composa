@@ -9,53 +9,10 @@ using Composa.AI;
 
 namespace Composa.App.AI;
 
-internal sealed class AiVariantButtons : StackPanel
-{
-    private readonly ToggleButton two;
-    private readonly ToggleButton three;
-    private bool updating;
-
-    public int Count
-    {
-        get => two.IsChecked == true ? 2 : three.IsChecked == true ? 3 : 1;
-        set
-        {
-            updating = true;
-            two.IsChecked = value == 2;
-            three.IsChecked = value == 3;
-            updating = false;
-        }
-    }
-
-    public AiVariantButtons(int initial, Action<int> changed)
-    {
-        Orientation = Orientation.Horizontal;
-        Spacing = 2;
-        two = AddChoice(2); three = AddChoice(3);
-        Count = initial;
-
-        ToggleButton AddChoice(int number)
-        {
-            var button = new ToggleButton { Name = "AiVariants" + number, Content = number.ToString(),
-                Width = 30, Height = 28, MinWidth = 0, MinHeight = 0, Padding = new Thickness(0),
-                HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
-            button.Classes.Add("tool");
-            AutomationProperties.SetName(button, $"{number} variants");
-            ToolTip.SetTip(button, $"Select {number} variants · click again for one");
-            button.IsCheckedChanged += (_, _) =>
-            {
-                if (updating) return;
-                Count = button.IsChecked == true ? number : 1;
-                changed(Count);
-            };
-            Children.Add(button);
-            return button;
-        }
-    }
-}
-
 internal static class AiGenerationControls
 {
+    internal static void ShowBusy(Button button, bool busy) => button.Classes.Set("ai-busy", busy);
+
     internal const int EditorSpacing = 8;
 
     internal static TextBox PromptField(string placeholder)
@@ -93,7 +50,27 @@ internal static class AiGenerationControls
         return button;
     }
 
-    internal static StackPanel RunGroup(Button run, AiVariantButtons variants)
+    internal static bool SupportsVariants(AiTaskKind task) =>
+        task is not (AiTaskKind.Upscale or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection);
+
+    internal static StackPanel QuickRuns(Action<int> launch)
+    {
+        var group = Ui.Row(2);
+        foreach (var count in new[] { 2, 3 })
+        {
+            var button = Ui.TextButton(count.ToString(), () => launch(count));
+            button.Name = $"AiVariants{count}";
+            button.Classes.Add("flat");
+            button.MinWidth = 0; button.Width = 30; button.Height = 28; button.Padding = new Thickness(0);
+            var label = $"Run {count} variants";
+            AutomationProperties.SetName(button, label);
+            ToolTip.SetTip(button, label);
+            group.Children.Add(button);
+        }
+        return group;
+    }
+
+    internal static StackPanel RunGroup(Button run, StackPanel variants)
     {
         run.Name = "AiRun";
         run.Resources["AccentButtonBackground"] = Palette.Accent;

@@ -292,8 +292,9 @@ public sealed partial class AiTaskService : IAiTaskRunner
                     var progress = new Progress<AiOperationState>(state =>
                     {
                         if (!ReferenceEquals(running, linked) || linked.IsCancellationRequested) return;
+                        var stage = state.Status == AiOperationStatus.Completed ? "Applying result" : state.Stage;
                         Operation = state with { Status = state.Status == AiOperationStatus.Completed ? AiOperationStatus.Running : state.Status,
-                            Stage = variants == 1 ? state.Stage : $"{(runs == 1 ? $"Batch · {variants} variants" : $"Variant {number + 1}/{variants}")} · {state.Stage}",
+                            Stage = variants == 1 ? stage : $"{(runs == 1 ? $"Batch · {variants} variants" : $"Variant {number + 1}/{variants}")} · {stage}",
                             CreditsUsed = state.CreditsUsed is { } cost ? (reportedCredits ?? 0) + cost : reportedCredits };
                         StateChanged?.Invoke();
                     });

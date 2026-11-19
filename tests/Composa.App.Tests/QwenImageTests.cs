@@ -53,6 +53,66 @@ public class QwenImageTests
         }
     }
 
+    [Fact]
+    public void Masked_edit_keeps_the_subject_visible_to_the_image_encoder()
+    {
+        var session = Scene();
+        session.SelectRect(new SKRect(50, 30, 80, 65));
+        var request = Request(AiTaskKind.GenerativeFill) with { Prompt = "Recolor the object blue" };
+        using var inputs = AiTaskInputPreparer.Prepare(session, request);
+        using var edit = new QwenImageInputs(inputs, request);
+        Assert.Equal(edit.Images["latentSource"].Bytes, edit.Images["sourceImage"].Bytes);
+        Assert.NotNull(edit.Mask);
+        var engine = new EngineCatalog(Engines);
+        var pack = engine.Find(QwenImageWorkflow.EngineId)!;
+        var graph = edit.Bind(engine.ReadWorkflow(pack, pack.Workflow("edit")), edit.Images.Keys.ToDictionary(k => k, k => k), 1);
+        var instruction = graph["conditioning"]!["inputs"]!["prompt"]!.GetValue<string>();
+        Assert.Contains(request.Prompt, instruction);
+        Assert.DoesNotContain("black marked", instruction);
+    }
+
+    public static bool LiveRecolor => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COMPOSA_HOOD_TEST_URL"));
+
+    [Fact(Skip = "Requires a local Qwen server", SkipUnless = nameof(LiveRecolor))]
+    public async Task Recolor_range_hood_with_a_real_masked_request()
+    {
+        var session = EditorSession.NewCanvas(512, 384, SKColors.White);
+        var source = Pixels.NewColor(512, 384);
+        using (var canvas = new SKCanvas(source))
+        using (var paint = new SKPaint { IsAntialias = true })
+        {
+            canvas.Clear(new SKColor(226, 222, 215));
+            paint.Color = new SKColor(150, 154, 156);
+            canvas.DrawRect(219, 0, 74, 114, paint);
+            using var profile = new SKPath();
+            profile.MoveTo(208, 108); profile.LineTo(302, 108); profile.LineTo(391, 186); profile.LineTo(121, 186); profile.Close();
+            canvas.DrawPath(profile, paint);
+            paint.Color = new SKColor(75, 78, 81);
+            canvas.DrawRoundRect(new SKRect(119, 182, 393, 203), 3, 3, paint);
+            paint.Color = SKColors.White;
+            for (int i = 0; i < 4; i++) canvas.DrawCircle(294 + i * 10, 193, 2, paint);
+        }
+        Pixels.Invalidate(source);
+        session.AddImageLayer("Kitchen hood", source, fit: false);
+        session.SelectRect(new(115, 105, 397, 206));
+        var url = Environment.GetEnvironmentVariable("COMPOSA_HOOD_TEST_URL")!;
+        var service = new AiTaskService(() => url, Engines);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMinutes(3));
+        using var before = session.Flatten();
+        var job = Request(AiTaskKind.GenerativeFill) with { EngineId = QwenImageWorkflow.EngineId,
+            Prompt = "Recolor the existing silver cooker hood canopy blue. Keep its shape, front lip and control buttons." };
+        await service.RunAsync(new EditorCommandService(session), job with { Settings = job.Settings with { Width = 768, Height = 512 } }, deadline.Token);
+        using var after = session.Flatten();
+        var folder = Environment.GetEnvironmentVariable("COMPOSA_HOOD_TEST_OUTPUT")!;
+        Directory.CreateDirectory(folder);
+        Composa.IO.ImageFiles.Save(before, Path.Combine(folder, "before.png"), Composa.IO.ExportFormat.Png);
+        Composa.IO.ImageFiles.Save(after, Path.Combine(folder, "after.png"), Composa.IO.ExportFormat.Png);
+        var center = after.GetPixel(255, 153);
+        Assert.True(center.Blue > center.Red + 15);
+        Assert.Equal(before.GetPixel(70, 280), after.GetPixel(70, 280));
+    }
+
     [Theory]
     [InlineData(AiTaskKind.GenerateImage)]
     [InlineData(AiTaskKind.ImageEdit)]
@@ -221,7 +281,7 @@ public class QwenImageTests
             var tabs = dialog.GetVisualDescendants().OfType<TabControl>().Single(tabs => tabs.Name == "AiSettingsTabs"); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), box => box.SelectedItem is ImageModelChoice { Name: "Qwen Image 2.1 Turbo" });
             Assert.True(Screenshots.Save(dialog, "qwen21-settings"));
-            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Workflow and model files")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
             var page=(ScrollViewer)((TabItem)tabs.Items.Cast<TabItem>().ElementAt(1)).Content!;
             page.Offset=new(0,1000);Dispatcher.UIThread.RunJobs();Assert.True(Screenshots.Save(dialog,"qwen21-models"));
             tabs.SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
@@ -301,7 +361,7 @@ public class QwenImageTests
     {
         var url = Environment.GetEnvironmentVariable("COMPOSA_TEST_CLI_SERVER")!;
         var ids = await AiTaskService.DiscoverServerModels(url, "codex", "");
-        var model = ids.First(id => id == "gpt-6.2-sol");
+        var model = ids.First(model => model.Id == "gpt-6.2-sol").Id;
         var service = new AiTaskService(() => url, Engines) { ConnectionTimeoutSeconds = 30 };
         var settings = new Settings { EnhancerProvider = "codex", EnhancerServerModels = new() { ["codex"] = model } };
         var text = await service.EnhanceAsync(settings, service.Engines.Find(QwenImageWorkflow.EngineId)!, AiTaskKind.ImageEdit,

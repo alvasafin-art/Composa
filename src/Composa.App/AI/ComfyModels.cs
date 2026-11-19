@@ -39,6 +39,24 @@ public sealed record ComfyExecutionResult(string PromptId, JsonDocument History,
 
 internal static class ComfyEventParser
 {
+    internal static AiOperationState? FromHistory(JsonElement root, string id, AiOperationState current)
+    {
+        if (!root.TryGetProperty(id, out var job) || !job.TryGetProperty("status", out var status)) return null;
+        if (status.TryGetProperty("messages", out var messages) && messages.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in messages.EnumerateArray().Reverse())
+            {
+                if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() < 2) continue;
+                if (entry[0].GetString() == "execution_interrupted") return current with { Status = AiOperationStatus.Cancelled };
+                if (entry[0].GetString() == "execution_error") return current with { Status = AiOperationStatus.Failed, Error = Message(entry[1]) };
+            }
+        }
+        if (status.TryGetProperty("status_str", out var name) && name.GetString() == "error")
+            return current with { Status = AiOperationStatus.Failed, Error = "ComfyUI execution failed." };
+        return status.TryGetProperty("completed", out var done) && done.ValueKind == JsonValueKind.True
+            ? current with { Status = AiOperationStatus.Completed } : null;
+    }
+
     public static AiOperationState ParseBinary(ReadOnlySpan<byte> bytes, AiOperationState current)
     {
         // ComfyUI BinaryEventTypes.TEXT: event id, node-id byte count, node id, UTF-8 progress text.

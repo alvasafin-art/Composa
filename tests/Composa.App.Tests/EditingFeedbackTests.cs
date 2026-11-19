@@ -22,8 +22,8 @@ public class EditingFeedbackTests
         window.AiTasks.SetConnectedForTests();
         var first = EditorSession.NewCanvas(600, 400, SKColors.White); window.AddSession(first);
         first.SelectRect(new SKRect(80, 80, 200, 200)); Dispatcher.UIThread.RunJobs();
-        var toggle = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiFloatingCollapse");
-        toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var toggle = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiFloatingExpand");
+        window.AiFloatingPanel.RaiseEvent(new Avalonia.Input.TappedEventArgs(Avalonia.Input.InputElement.DoubleTappedEvent, null!));
         Assert.True(window.Settings.AiFloatingCollapsed); Assert.True(window.AiFloatingVisible);
         first.Deselect(); first.SelectRect(new SKRect(90, 90, 210, 210));
         var second = EditorSession.NewCanvas(600, 400, SKColors.White); window.AddSession(second); second.SelectAll();

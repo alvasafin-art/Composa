@@ -26,13 +26,16 @@ public sealed partial class MainWindow
     private bool refreshingObjectModels;
     private List<ObjectModelChoice> objectModelChoices = [];
 
+    private Composa.AI.EngineProfile? ObjectSelectionEngine() => aiTasks.EngineFor(AiTaskKind.ObjectSelection)
+        ?? aiTasks.Engines.Profiles.FirstOrDefault(pack => pack.Binding(AiTaskKind.ObjectSelection) != null);
+
     private List<ObjectModelChoice> AvailableObjectModels()
     {
         var choices = new List<ObjectModelChoice>
         {
             new(ObjectSelectionSource.EfficientSamS, "SAM Quality · Local")
         };
-        var engine = aiTasks.EngineFor(AiTaskKind.ObjectSelection);
+        var engine = ObjectSelectionEngine();
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
         {
             try
@@ -84,7 +87,13 @@ public sealed partial class MainWindow
             {
                 var address = aiTasks.ConnectedServerUrl ?? settings.ComfyServerUrl;
                 var selected = new Dictionary<string, string>(settings.ComfyModelsFor(address)) { [choice.SlotKey] = choice.ServerModel };
+                var engine = ObjectSelectionEngine();
                 settings.SetComfyModels(address, selected);
+                if (engine != null)
+                {
+                    settings.AiTaskModelKeys[nameof(AiTaskKind.ObjectSelection)] = aiTasks.Engines.ModelFor(engine, AiTaskKind.ObjectSelection, selected).ModelKey;
+                    settings.AiTaskEngineIds[nameof(AiTaskKind.ObjectSelection)] = engine.Id;
+                }
             }
             if (session != null) session.Detect = LocalDetect;
             RefreshPreciseEdges();

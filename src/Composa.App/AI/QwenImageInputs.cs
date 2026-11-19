@@ -40,9 +40,14 @@ internal sealed class QwenImageInputs : IDisposable
                 plan = inputs.MaskPlan ?? AutomaticAiMask.Analyze(core, context);
                 Bounds = plan.Bounds;
                 Mask = Own(AutomaticAiMask.OutputMask(core, context, plan, expand));
-                // Give the model an unambiguous visible edit region; the mask itself is never an image reference.
-                var marked = RemoveObjectPreprocessor.Prepare(request.BlackEditRegion ? inputs.ContextImage : source, mask, new() { Dilation = 0, Feather = 0 });
-                source = Own(marked.Image); marked.Mask.Dispose();
+                // Keep the actual object visible for instruction-based edits such as recoloring.
+                // Only removal and expansion use a deliberately blanked conditioning image.
+                if (request.Task == AiTaskKind.RemoveObject || expand || request.BlackEditRegion)
+                {
+                    var marked = RemoveObjectPreprocessor.Prepare(request.BlackEditRegion ? inputs.ContextImage : source, mask, new() { Dilation = 0, Feather = 0 });
+                    source = Own(marked.Image);
+                    marked.Mask.Dispose();
+                }
             }
             if (generate)
             {
@@ -74,7 +79,7 @@ internal sealed class QwenImageInputs : IDisposable
                 prompt = request.Task switch
                 {
                     AiTaskKind.GenerativeFill when request.BlackEditRegion => AiPromptDefaults.Expand,
-                    AiTaskKind.GenerativeFill => "Replace the black marked region with the requested content, matching the surrounding image. " + request.Prompt,
+                    AiTaskKind.GenerativeFill => request.Prompt.Trim() + "\nApply only the requested change in the selected region. Preserve the original geometry, details, lighting and texture unless the request changes them.",
                     AiTaskKind.RemoveObject when mask != null => "Remove the object marked in black and reconstruct the surrounding background naturally. " + request.Prompt,
                     AiTaskKind.GenerativeExpand => AiPromptDefaults.Expand,
                     _ => inputs.Prompt

@@ -135,7 +135,8 @@ public sealed class SideDock : UserControl
                 { activeTab = name; PresentationChanged?.Invoke(); }
             };
             grid.RowDefinitions.Add(new RowDefinition(new GridLength(TabHeight())));
-            Grid.SetRow(tabs, 1); grid.Children.Add(tabs);
+            var frame = new Border { BorderThickness = new Thickness(0, 1, 0, 0), BorderBrush = Palette.Divider, Child = tabs };
+            Grid.SetRow(frame, 1); grid.Children.Add(frame);
             FitHeight();
             PresentationChanged?.Invoke();
             return;
@@ -144,7 +145,7 @@ public sealed class SideDock : UserControl
         {
             var open = !section.State.Collapsed;
             // A collapsed section is only its header, so there is nothing to size and the splitter would only mislead.
-            var splitter = new GridSplitter { ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext, Height = 5, Background = Palette.Panel, IsEnabled = open };
+            var splitter = new GridSplitter { ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext, Height = 5, Background = Palette.Divider, IsEnabled = open };
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             Grid.SetRow(splitter, grid.RowDefinitions.Count - 1);
             grid.Children.Add(splitter);

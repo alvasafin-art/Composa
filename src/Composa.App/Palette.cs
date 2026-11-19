@@ -60,6 +60,14 @@ public static class Palette
         styles.Resources["ComposaForeground"] = Foreground;
         styles.Add(new Style(x => x.OfType<Window>()) { Setters = { new Setter(TemplatedControl.BackgroundProperty, Window), new Setter(TemplatedControl.FontSizeProperty, 12.5) } });
         styles.Add(new Style(x => x.OfType<TextBlock>()) { Setters = { new Setter(Layoutable.VerticalAlignmentProperty, VerticalAlignment.Center) } });
+        // Animate the existing content so the action remains recognizable throughout the request.
+        var busy = new Style(x => x.OfType<Button>().Class("ai-busy").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>());
+        var pulse = new Avalonia.Animation.Animation { Duration = TimeSpan.FromMilliseconds(900),
+            IterationCount = Avalonia.Animation.IterationCount.Infinite, PlaybackDirection = Avalonia.Animation.PlaybackDirection.Alternate };
+        pulse.Children.Add(new Avalonia.Animation.KeyFrame { Cue = new Avalonia.Animation.Cue(0), Setters = { new Setter(Visual.OpacityProperty, 1d) } });
+        pulse.Children.Add(new Avalonia.Animation.KeyFrame { Cue = new Avalonia.Animation.Cue(1), Setters = { new Setter(Visual.OpacityProperty, .42d) } });
+        busy.Animations.Add(pulse);
+        styles.Add(busy);
         // The options bar under the tabs: every control takes the slider fields' height, so combos, number boxes, buttons and fields
         // share one centre line instead of each keeping the height its theme gives it.
         var optionsHeight = Controls.SliderField.DefaultHeight;

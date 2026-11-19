@@ -16,7 +16,7 @@ public sealed partial class CanvasView
     {
         if (session?.CanWarp != true) return;
         CancelInteraction(); session.BeginWarp(); warpNode = -1; warpUndo.Clear(); warpRedo.Clear();
-        Focus(); UpdateCursor(); InvalidateVisual(); ToolStateChanged?.Invoke();
+        Focus(); UpdateCursor(); InvalidateCanvas(); ToolStateChanged?.Invoke();
     }
 
     public void FinishWarp(bool keep)
@@ -26,7 +26,7 @@ public sealed partial class CanvasView
         warpDragStart = null;
         try { if (keep) session.CommitWarp(); else session.CancelWarp(); }
         catch (InvalidOperationException error) { Problem?.Invoke(error.Message); }
-        UpdateCursor(); InvalidateVisual(); ToolStateChanged?.Invoke();
+        UpdateCursor(); InvalidateCanvas(); ToolStateChanged?.Invoke();
     }
 
     public void ResetWarp()
@@ -81,7 +81,7 @@ public sealed partial class CanvasView
             closest = distance; warpNode = i; warpNodeStart = document;
         }
         if (warpNode < 0) return;
-        warpDragStart = mesh; drag = Drag.WarpNode; InvalidateVisual();
+        warpDragStart = mesh; drag = Drag.WarpNode; InvalidateCanvas();
     }
 
     private void DragWarpPoint(bool shift)

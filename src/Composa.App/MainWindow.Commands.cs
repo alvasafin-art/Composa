@@ -159,8 +159,6 @@ public sealed partial class MainWindow
         Top("F_ilter", new object[] { Item("Liquify…", () => _ = Liquify(), enabled: () => session!.CanLiquify), Line(), Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
             .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."))).ToArray());
 
-        var generationSettings = Item("Generation settings…", () => _ = ShowAiAdvanced(), needsDocument: false, id: "AI Advanced");
-        generationSettings.Icon = Icons.Create(Icons.Gear, 16, Palette.Secondary);
         Top("_AI",
             Item("Generate Image…", () => _ = RunAi(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
             Item("Generative Fill…", () => _ = RunAi(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
@@ -178,7 +176,6 @@ public sealed partial class MainWindow
                 ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]
                 : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
-            generationSettings,
             Item("Assistant…", ShowAssistant, needsDocument: false));
 
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
@@ -229,7 +226,7 @@ public sealed partial class MainWindow
             Item("Flip Layer Vertical", () => session!.FlipLayers(false)));
 
         var grid = new MenuItem { Header = "Pixel Grid (800% and above)", ToggleType = MenuItemToggleType.CheckBox, IsChecked = canvas.ShowPixelGrid };
-        grid.Click += (_, _) => { canvas.ShowPixelGrid = !canvas.ShowPixelGrid; grid.IsChecked = canvas.ShowPixelGrid; canvas.InvalidateVisual(); RememberToolSettings(); };
+        grid.Click += (_, _) => { canvas.ShowPixelGrid = !canvas.ShowPixelGrid; grid.IsChecked = canvas.ShowPixelGrid; canvas.InvalidateCanvas(); RememberToolSettings(); };
         // View options are flags on the session, so a checkmark follows the current tab.
         MenuItem ViewToggle(string name, Func<ViewOptions, bool> get, Func<ViewOptions, ViewOptions> flip, Key key = Key.None, KeyModifiers modifiers = KeyModifiers.None, string? id = null)
         {
@@ -255,7 +252,7 @@ public sealed partial class MainWindow
             Item("Zoom In", canvas.ZoomIn, Key.OemPlus, ctrl, viewOnly: true),
             Item("Zoom Out", canvas.ZoomOut, Key.OemMinus, ctrl, viewOnly: true),
             Line(), grid,
-            Item("Show Transform Controls", () => { canvas.ShowTransformControls = !canvas.ShowTransformControls; canvas.InvalidateVisual(); RebuildOptions(); RememberToolSettings(); }, Key.H, ctrl, viewOnly: true),
+            Item("Show Transform Controls", () => { canvas.ShowTransformControls = !canvas.ShowTransformControls; canvas.InvalidateCanvas(); RebuildOptions(); RememberToolSettings(); }, Key.H, ctrl, viewOnly: true),
             Line(),
             ViewToggle("Rulers", v => v.ShowRulers, v => v with { ShowRulers = !v.ShowRulers }, Key.R, ctrl),
             Sub("Show",
@@ -553,7 +550,7 @@ public sealed partial class MainWindow
     {
         if (session == null || e.Key is not (Key.LeftAlt or Key.RightAlt)) return false;
         e.Handled = true;
-        canvas.InvalidateVisual();
+        canvas.InvalidateCanvas();
         return true;
     }
 
@@ -1277,12 +1274,12 @@ public sealed partial class MainWindow
         void Preview(LayoutGrid grid, GridAppearance appearance)
         {
             target.View = target.View with { ShowGrid = true, Grid = grid, GridAppearance = appearance };
-            canvas.InvalidateVisual();
+            canvas.InvalidateCanvas();
         }
         Preview(original.Grid, original.GridAppearance);
         var result = await GridSettingsDialog.Show(this, original.Grid, original.GridAppearance, Preview);
         target.View = original with { Grid = result?.Grid ?? original.Grid, GridAppearance = result?.Appearance ?? original.GridAppearance };
-        canvas.InvalidateVisual();
+        canvas.InvalidateCanvas();
         RememberToolSettings();
     }
 }

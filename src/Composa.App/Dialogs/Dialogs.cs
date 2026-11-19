@@ -42,17 +42,20 @@ public class DialogWindow : Window
     public Func<bool>? ValidateAccept { get; set; }
 
     public bool CanAccept { set => ok.IsEnabled = value; }
-    internal void PlaceGenerationActions(Panel host, AI.AiVariantButtons variants)
+    internal void PlaceGenerationActions(Panel host, StackPanel variants)
     {
         var cancel = Buttons.Children.OfType<Button>().Single(b => b.IsCancel);
         Buttons.Children.Clear();
         Buttons.IsVisible = false;
         cancel.MinWidth = 48;
         cancel.Height = 28;
+        variants.Bind(IsEnabledProperty, ok.GetObservable(IsEnabledProperty));
         host.Children.Add(cancel);
         host.Children.Add(AI.AiGenerationControls.RunGroup(ok, variants));
         ((StackPanel)Content!).Margin = new Thickness(8);
     }
+
+    internal void SubmitGeneration() { if (ok.IsEnabled) Accept(); }
 
     public async Task<bool> Ask(Window owner) => await ShowDialog<bool?>(owner) == true;
 

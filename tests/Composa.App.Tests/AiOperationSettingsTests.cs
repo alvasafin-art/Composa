@@ -63,10 +63,6 @@ public class AiOperationSettingsTests
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Presets")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             dialog.GetVisualDescendants().OfType<CheckBox>().Single(b => Equals(b.Content, "Align pixels")).IsChecked = false;
-            dialog.GetVisualDescendants().OfType<AiVariantButtons>().Single().Count = 2;
-            // Click the actual control so its change is also propagated to the draft.
-            var triple = dialog.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(b => b.Name == "AiVariants3");
-            triple.IsChecked = true;
             dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.PlaceholderText == "Preset name").Text = "Proof";
             dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Save preset"))
                 .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -79,7 +75,7 @@ public class AiOperationSettingsTests
                 var saved = settings.GenerationPresets[$"{key}/{operation}"]["Proof"];
                 Assert.Equal(41, saved.Seed);
                 Assert.False(saved.AlignPixels);
-                Assert.Equal(3, saved.Variants);
+                Assert.Equal(1, saved.Variants);
                 Assert.False(settings.AiAlignMaskedEdits);
             }
             else Assert.Empty(settings.GenerationPresets);
@@ -212,11 +208,10 @@ public class AiOperationSettingsTests
             var more = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiMore");
             var fields = Assert.IsType<StackPanel>(Assert.IsType<Flyout>(more.Flyout).Content);
             var size=Assert.Single(fields.GetVisualDescendants().OfType<ComboBox>(),c=>c.Items.OfType<string>().Contains("Original size"));
-            var variants=Assert.Single(dialog.GetVisualDescendants().OfType<Composa.App.AI.AiVariantButtons>());
-            Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
-            picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == qwen);Dispatcher.UIThread.RunJobs();Assert.Equal(AiDimensions.Label(1.5),size.SelectedItem);Assert.Equal(1,variants.Count);
-            picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == Gpt); Dispatcher.UIThread.RunJobs(); Assert.Equal("Original size",size.SelectedItem); Assert.Equal(3,variants.Count);
-            size.SelectedIndex=3; picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == Flux); Dispatcher.UIThread.RunJobs(); Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem); Assert.Equal(2,variants.Count);
+            Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem);
+            picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == qwen);Dispatcher.UIThread.RunJobs();Assert.Equal(AiDimensions.Label(1.5),size.SelectedItem);
+            picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == Gpt); Dispatcher.UIThread.RunJobs(); Assert.Equal("Original size",size.SelectedItem);
+            size.SelectedIndex=3; picker.SelectedItem=picker.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == Flux); Dispatcher.UIThread.RunJobs(); Assert.Equal(AiDimensions.Label(0.75),size.SelectedItem);
             dialog.Close(false); Assert.Null(await pending); Assert.Equal(before,JsonSerializer.Serialize(settings));
         }
         finally { window.Close(); }

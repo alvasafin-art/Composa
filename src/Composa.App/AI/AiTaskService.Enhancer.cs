@@ -18,16 +18,20 @@ public sealed partial class AiTaskService
         ["direct"] = "Compatible API · this computer"
     };
 
-    internal static async Task<string[]> DiscoverServerModels(string url, string adapter, string baseUrl)
+    internal sealed record ServerTextModel(string Id, string[]? Efforts);
+
+    internal static async Task<ServerTextModel[]> DiscoverServerModels(string url, string adapter, string baseUrl)
     {
         var endpoint = ComfyServerAddress.Parse(url).Api("avs-prompt/test");
-        using var client = new HttpClient(new HttpClientHandler { UseProxy = !endpoint.IsLoopback, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(45) };
+        using var client = new HttpClient(new HttpClientHandler { UseProxy = ComfyServerAddress.UseProxy(endpoint), AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(45) };
         using var result = await client.PostAsJsonAsync(endpoint, new { adapter, base_url = baseUrl });
         if (result.StatusCode == System.Net.HttpStatusCode.NotFound)
             throw new InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
         var data = await result.Content.ReadFromJsonAsync<JsonObject>();
         if (!result.IsSuccessStatusCode) throw new InvalidOperationException((string?)data?["error"] ?? $"Server discovery failed ({(int)result.StatusCode}).");
-        return (data?["models"] as JsonArray ?? []).Select(value => (string?)value?["id"]).OfType<string>().Where(id => id.Length > 0).Distinct().ToArray();
+        return (data?["models"] as JsonArray ?? []).OfType<JsonObject>().Where(row => (string?)row["id"] is { Length: > 0 })
+            .Select(row => new ServerTextModel((string)row["id"]!, (row["reasoning"] as JsonArray)?.Select(e => (string)e!).ToArray()))
+            .DistinctBy(row => row.Id).ToArray();
     }
 
     internal IReadOnlyList<string> ChatModels =>
@@ -49,6 +53,17 @@ public sealed partial class AiTaskService
             "Preserve explicit requirements, quoted text and reference order. Describe the intended change, placement and appearance. Return only the final prompt.";
     }
 
+    internal static string InstructionKey(string pack, AiTaskKind task) => pack + (task == AiTaskKind.GenerateImage ? "/generate" : "/edit");
+
+    internal string InstructionsFor(IReadOnlyDictionary<string, string> overrides, EngineProfile? pack, AiTaskKind task)
+    {
+        var id = pack?.Id ?? "";
+        if (overrides.TryGetValue(InstructionKey(id, task), out var saved)) return saved;
+        if (task == AiTaskKind.GenerateImage)
+            return $"Write a concise prompt to create a new image with {pack?.ModelName ?? pack?.DisplayName}. Describe the requested subject, composition, lighting and style. Preserve quoted text and reference roles. Return only the prompt.";
+        return overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);
+    }
+
     internal static string? EnhancedText(JsonElement root, string id)
     {
         if (root.TryGetProperty(id, out var job)) root = job;
@@ -68,8 +83,11 @@ public sealed partial class AiTaskService
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         if ((draftKey ?? (Settings.Persist ? UserApiKeys.Read(UserApiKeys.Target("Direct", endpoint)) : null) ?? Environment.GetEnvironmentVariable("AVS_COMPATIBLE_API_KEY")) is { Length: > 0 } key)
             request.Headers.Authorization = new("Bearer", key);
-        request.Content = JsonContent.Create(new { model = settings.EnhancerApiModel.Trim(), max_tokens = Math.Clamp(settings.EnhancerMaxTokens, 16, 16384),
-            messages = new[] { new { role = "system", content = instructions }, new { role = "user", content = message } } });
+        var payload = new Dictionary<string, object> { ["model"] = settings.EnhancerApiModel.Trim(),
+            ["max_tokens"] = Math.Clamp(settings.EnhancerMaxTokens, 16, 16384),
+            ["messages"] = new[] { new { role = "system", content = instructions }, new { role = "user", content = message } } };
+        if (settings.EnhancerEffort != "default") payload["reasoning_effort"] = settings.EnhancerEffort;
+        request.Content = JsonContent.Create(payload);
         using var response = await client.SendAsync(request, token);
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -80,7 +98,7 @@ public sealed partial class AiTaskService
 
     internal async Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default, string? directKey = null)
     {
-        var instructions = settings.EnhancerInstructions.GetValueOrDefault(engine.Id) ?? DefaultInstructions(engine);
+        var instructions = InstructionsFor(settings.EnhancerInstructions, engine, task);
         var message = $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}\nUser request: {draft}";
         var provider = settings.EffectiveEnhancerProvider();
         if (provider == "direct")
@@ -95,6 +113,7 @@ public sealed partial class AiTaskService
             if (string.IsNullOrWhiteSpace(model)) throw new InvalidOperationException("Choose the server model in AI Settings → Prompt enhancer.");
             var state = new { version = 1, prompt = message, system_prompt = instructions,
                 settings = new { adapter = provider, model, base_url = provider == "compatible" ? settings.EnhancerServerApiUrl : "",
+                    reasoning = settings.EnhancerEffort == "default" ? "auto" : settings.EnhancerEffort,
                     api_mode = settings.EnhancerServerApiMode, max_output_tokens = Math.Clamp(settings.EnhancerMaxTokens, 16, 16384), timeout = 300 } };
             var helper = new JsonObject { ["class_type"] = "AVSPromptHelper",
                 ["inputs"] = new JsonObject { ["state"] = JsonSerializer.Serialize(state) } };

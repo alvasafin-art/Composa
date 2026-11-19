@@ -92,7 +92,7 @@ public sealed partial class MainWindow
         {
             automationRunning = false; automationCancellation = null;
             if (content != null) content.IsEnabled = true;
-            canvas.InvalidateVisual(); RefreshAiUi(); UpdateStatus();
+            canvas.InvalidateCanvas(); RefreshAiUi(); UpdateStatus();
         }
     }
 

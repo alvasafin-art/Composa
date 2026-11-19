@@ -11,7 +11,7 @@ using Composa.Model;
 
 namespace Composa.App.Dialogs;
 
-public sealed record AiPromptResult(string Prompt, int Width, int Height, long Seed, string? EngineId = null);
+public sealed record AiPromptResult(string Prompt, int Width, int Height, long Seed, string? EngineId = null, int Variants = 1);
 
 public static partial class AiDialogs
 {
@@ -69,7 +69,6 @@ public static partial class AiDialogs
     internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, Func<AiTaskKind> operation, Func<EngineProfile?> engine)
     {
         var button = AiGenerationControls.IconAction(Icons.EnhancePrompt, "AiEnhancePrompt", "Enhance prompt", () => { });
-        var glyph = button.Content;
         string ProviderHint() => "Enhance prompt · " + AiTaskService.Providers.GetValueOrDefault(settings.EffectiveEnhancerProvider());
         var label = ProviderHint();
 
@@ -105,7 +104,7 @@ public static partial class AiDialogs
             }
             var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             timer.Tick += (_, _) => Progress();
-            button.Content = "■"; Progress(); timer.Start(); RefreshButton();
+            AiGenerationControls.ShowBusy(button, true); Progress(); timer.Start(); RefreshButton();
             try
             {
                 var enhanced = await service.EnhanceAsync(settings, selected, task, original, request.Token);
@@ -123,7 +122,7 @@ public static partial class AiDialogs
             }
             finally
             {
-                timer.Stop(); running = null; button.Content = glyph;
+                timer.Stop(); running = null; AiGenerationControls.ShowBusy(button, false);
                 ToolTip.SetTip(button, ProviderHint());
                 Avalonia.Automation.AutomationProperties.SetName(button, ProviderHint());
                 RefreshButton();
@@ -148,16 +147,16 @@ public static partial class AiDialogs
         var clear = Ui.TextButton("Forget saved key", () => { sessionKey.Text = ""; clearKey = true; });
         var keyNote = Ui.Label("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN.", Palette.Secondary);
         keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var promptDrafts = new Dictionary<string, AiPromptSetting>(settings.AiPackPrompts);
         var promptPack = service.SelectedEngine?.Id ?? "";
         var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
-        var instructions = new TextBox { AcceptsReturn = true, Height = 104, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Text = instructionDrafts.GetValueOrDefault(promptPack) ?? service.DefaultInstructions(service.SelectedEngine) };
+        var instructionTask = AiTaskKind.ImageEdit;
+        var instructions = new TextBox { Name = "EnhancerInstructions", AcceptsReturn = true, Height = 104, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Text = service.InstructionsFor(instructionDrafts, service.SelectedEngine, instructionTask) };
         var model = new ComboBox { ItemsSource = service.ChatModels.Append(settings.EnhancerModel).Distinct().ToArray(),
             SelectedItem = settings.EnhancerModel, MinWidth = 180 };
         AiGenerationControls.StyleModelField(model, "Prompt enhancer model");
         var tokens = Ui.Number(settings.EnhancerMaxTokens, 16, 16384, _ => { }, 1, "0", 100);
-        var effort = Ui.Combo(new[] { "default", "none", "minimal", "low", "medium", "high", "xhigh", "max" }, settings.EnhancerEffort, s => s, _ => { }, 140);
+        var effort = new ComboBox { Width = 140 };
         tokens.HorizontalAlignment = HorizontalAlignment.Left;
         var apiUrl = new TextBox { Text = settings.EnhancerApiUrl, MinWidth = 220 };
         var apiModel = new TextBox { Text = settings.EnhancerApiModel, PlaceholderText = "Model ID" };
@@ -175,14 +174,35 @@ public static partial class AiDialogs
         var discovery = Ui.Label("", Palette.Secondary);
         discovery.TextWrapping = Avalonia.Media.TextWrapping.Wrap; discovery.MaxWidth = 435;
         var discoveryVersion = 0;
+        AiTaskService.ServerTextModel[] catalogue = [];
+        void UpdateEfforts()
+        {
+            var current = effort.SelectedItem as string ?? settings.EnhancerEffort;
+            var supported = catalogue.FirstOrDefault(m => m.Id == serverModel.Text)?.Efforts;
+            string[] fallback = selectedProvider switch
+            {
+                "kimi" => ["thinking", "no_thinking"],
+                "claude" => ["low", "medium", "high", "xhigh", "max"],
+                "codex" => ["low", "medium", "high", "xhigh", "max", "ultra"],
+                _ => ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+            };
+            var options = new[] { "default" }.Concat(supported ?? fallback).Distinct().ToArray();
+            effort.ItemsSource = options;
+            effort.SelectedItem = options.Contains(current) ? current : "default";
+            effort.IsEnabled = options.Length > 1;
+        }
+        serverModel.TextChanged += (_, _) => UpdateEfforts();
         discover.Click += async (_, _) =>
         {
             var revision = ++discoveryVersion;
             discover.IsEnabled = false; discovery.Text = "Reading the server catalogue…";
             try
             {
-                var ids = await AiTaskService.DiscoverServerModels(url.Text ?? "", selectedProvider, serverUrl.Text ?? "");
+                var result = await AiTaskService.DiscoverServerModels(url.Text ?? "", selectedProvider, serverUrl.Text ?? "");
                 if (revision != discoveryVersion) return;
+                catalogue = result;
+                var ids = result.Select(m => m.Id).ToArray();
+                UpdateEfforts();
                 detected.ItemsSource = ids; detected.IsVisible = ids.Length > 0;
                 detected.SelectedItem = ids.Contains(serverModel.Text) ? serverModel.Text : null;
                 discovery.Text = ids.Length == 0 ? "No models reported. Enter a model ID." : $"{ids.Length} server models";
@@ -204,9 +224,9 @@ public static partial class AiDialogs
         ToolTip.SetTip(apiUrl, "Optional bearer key: AVS_COMPATIBLE_API_KEY");
         var serverApiFields = EnhancerFields(("Server API base URL", serverUrl), ("API mode", apiMode));
         var serverFields = Ui.Column(6, serverApiFields, EnhancerFields(("Server model", serverModel)),
-            Ui.Row(6, discover, detected), discovery, serverHelp);
+            EnhancerFields(("", Ui.Row(6, discover, detected)), ("", discovery), ("", serverHelp)));
         var reasoning = EnhancerFields(("Reasoning effort", effort));
-        var budget = new Expander { Header = "Response options", Content = Ui.Column(8, reasoning, EnhancerFields(("Token limit", tokens))) };
+        var budget = new Expander { Header = "Response options", Content = EnhancerFields(("Token limit", tokens)) };
         void ShowProvider()
         {
             apiFields.IsVisible = selectedProvider == "direct";
@@ -219,7 +239,8 @@ public static partial class AiDialogs
                 "openai" => "Uses OPENAI_API_KEY on the ComfyUI server.",
                 _ => "Uses the CLI and its signed-in account on the ComfyUI server."
             };
-            reasoning.IsVisible = selectedProvider == "comfy";
+            catalogue = [];
+            UpdateEfforts();
             budget.IsVisible = selectedProvider is not ("codex" or "claude" or "kimi");
             discoveryVersion++; discover.IsEnabled = true; discovery.Text = ""; detected.IsVisible = false;
         }
@@ -233,25 +254,22 @@ public static partial class AiDialogs
             }, 260);
         ShowProvider();
 
-        var currentPrompt = settings.PromptFor(promptPack);
-        var additionalEnabled = new CheckBox { Content = "Include in image edits", IsChecked = currentPrompt.Enabled };
-        var additionalPrompt = new TextBox { Name = "AdditionalEditingPrompt", Text = currentPrompt.Text, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Height = 80, IsEnabled = currentPrompt.Enabled };
         void SavePromptDraft()
         {
-            if (promptPack.Length == 0) return;
-            instructionDrafts[promptPack] = instructions.Text ?? "";
-            promptDrafts[promptPack] = new(additionalEnabled.IsChecked == true, additionalPrompt.Text ?? "");
+            if (promptPack.Length > 0) instructionDrafts[AiTaskService.InstructionKey(promptPack, instructionTask)] = instructions.Text ?? "";
         }
         void LoadPromptDraft(EngineProfile? pack)
         {
             promptPack = pack?.Id ?? "";
-            instructions.Text = instructionDrafts.GetValueOrDefault(promptPack) ?? service.DefaultInstructions(pack);
-            var value = promptDrafts.GetValueOrDefault(promptPack) ?? settings.PromptFor(promptPack);
-            additionalPrompt.Text = value.Text; additionalEnabled.IsChecked = value.Enabled; additionalPrompt.IsEnabled = value.Enabled;
+            instructions.Text = service.InstructionsFor(instructionDrafts, pack, instructionTask);
         }
-        additionalEnabled.IsCheckedChanged += (_, _) => additionalPrompt.IsEnabled = additionalEnabled.IsChecked == true;
-        var resetPrompt = Ui.TextButton("Restore default prompt", () => additionalPrompt.Text = AiPromptDefaults.PreserveAppearance);
+        var instructionMode = Ui.Combo(new[] { AiTaskKind.ImageEdit, AiTaskKind.GenerateImage }, instructionTask,
+            task => task == AiTaskKind.GenerateImage ? "Generate image" : "Edit image", task =>
+            {
+                SavePromptDraft();
+                instructionTask = task;
+                LoadPromptDraft(service.Engines.Find(promptPack));
+            }, 200);
         var status = Ui.Label(ConnectionLabel(service.ConnectionState), Palette.Secondary);
         status.MaxWidth = 430;
         status.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
@@ -408,7 +426,7 @@ public static partial class AiDialogs
             ("", test),
             ("Status", status));
         var taskRows = new List<(string, Control)>();
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.SelectSubject or AiTaskKind.MatchToScene)))
+        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.SelectSubject or AiTaskKind.MatchToScene or AiTaskKind.ObjectSelection)))
         {
             var key = task.ToString();
             var packs = service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray();
@@ -453,12 +471,11 @@ public static partial class AiDialogs
             taskRows.Add((task.DisplayName(), assignmentPicker));
         }
         var assignments = new Expander { Header = "Defaults by operation", Content = CanvasDialogs.Form(taskRows.ToArray()) };
-        var files = new Expander { Header = "Workflow and model files", Content = Ui.Column(8, routePicker, models) };
+        var files = new Expander { Header = "Model components", Content = Ui.Column(8, routePicker, models) };
         var auth = CanvasDialogs.Form(("Saved API key", sessionKey), ("", clear), ("Environment variable", keyEnvironment));
         var credentials = new Expander { Header = "Comfy credits", Content = Ui.Column(8, auth, keyNote), IsExpanded = focusField == "key" };
-        var advancedPrompt = new Expander { Header = "System instructions", Content = Ui.Column(8, instructions,
-            Ui.TextButton("Restore default", () => instructions.Text = service.DefaultInstructions(service.Engines.Find(promptPack)))) };
-        var extraPrompt = new Expander { Header = "Additional editing prompt", Content = Ui.Column(8, additionalEnabled, additionalPrompt, resetPrompt) };
+        var advancedPrompt = new Expander { Header = "System instructions", Content = Ui.Column(8, instructionMode, instructions,
+            Ui.TextButton("Restore default", () => instructions.Text = service.InstructionsFor(new Dictionary<string, string>(), service.Engines.Find(promptPack), instructionTask))) };
         void ReadEnhancer(Settings target)
         {
             target.EnhancerInstructions = instructionDrafts;
@@ -483,37 +500,6 @@ public static partial class AiDialogs
                 ?? (!clearKey && address.ToString() == live.ConnectedServerUrl ? live.SessionApiKey : null)
                 ?? (string.IsNullOrWhiteSpace(environment) ? null : Environment.GetEnvironmentVariable(environment));
         }
-        var sample = new TextBox { Text = "Add a small plant beside the window", AcceptsReturn = true,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinHeight = 44 };
-        var response = new SelectableTextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, IsVisible = false };
-        var tryPrompt = Ui.TextButton("Test prompt", () => { });
-        tryPrompt.Click += async (_, _) =>
-        {
-            if (service.Engines.Find(promptPack) is not { } target || string.IsNullOrWhiteSpace(sample.Text)) return;
-            tryPrompt.IsEnabled = false;
-            response.IsVisible = true;
-            response.Text = "Working…";
-            try
-            {
-                var address = ComfyServerAddress.Parse(url.Text ?? "");
-                var server = address.ToString();
-                var trial = service.SettingsPreview(() => server);
-                var trialSettings = new Settings();
-                SavePromptDraft();
-                ReadEnhancer(trialSettings);
-                trialSettings.EnhancerInstructions = new(instructionDrafts);
-                trial.ApiKey = () => DraftCredential(address);
-                var direct = string.IsNullOrWhiteSpace(directKey.Text) ? forgetDirect ? "" : null : directKey.Text.Trim();
-                response.Text = await trial.EnhanceAsync(trialSettings, target, AiTaskKind.ImageEdit, sample.Text, lifetime.Token, direct);
-            }
-            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-            catch (Exception error) { response.Text = error.Message; }
-            finally { tryPrompt.IsEnabled = true; }
-        };
-        var testProvider = new Expander { Header = "Try a prompt", Content = Ui.Column(8, sample, tryPrompt, response) };
-        void TestLabel() => tryPrompt.Content = selectedProvider == "comfy" ? "Test with Comfy credits" : "Test prompt";
-        provider.SelectionChanged += (_, _) => TestLabel();
-        TestLabel();
         var readiness = Ui.Label("", Palette.Secondary);
         readiness.HorizontalAlignment = HorizontalAlignment.Left;
         readiness.MaxWidth = 490; readiness.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
@@ -523,6 +509,16 @@ public static partial class AiDialogs
         var fix = Ui.TextButton("Connect", () => { });
         Action? fixAction = null;
         fix.Click += (_, _) => fixAction?.Invoke();
+        var generation = Ui.TextButton("Generation settings…", () => { });
+        var generationDraft = Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(settings));
+        var changedGeneration = new Dictionary<(string Engine, AiTaskKind Task), AiOperationSettings>();
+        generation.Click += async (_, _) =>
+        {
+            if (service.SelectedEngine is not { } pack || operationPicker.SelectedItem is not AiTaskKind task) return;
+            var key = (pack.Id, task);
+            var current = changedGeneration.GetValueOrDefault(key) ?? settings.OperationFor(pack.Id, task, pack.PaidApi);
+            await Advanced(settingsDialog!, generationDraft, service, task, current, updated => changedGeneration[key] = updated, deferSave: true);
+        };
         var compact = owner.Bounds.Width < 720;
         Control Page(string title, params Control[] controls)
         {
@@ -539,7 +535,7 @@ public static partial class AiDialogs
                     MinWidth = compact ? 0 : 130, VerticalAlignment = VerticalAlignment.Center });
             return tab;
         }
-        foreach (var section in new[] { assignments, files, credentials, advancedPrompt, extraPrompt, budget, testProvider })
+        foreach (var section in new[] { assignments, files, credentials, advancedPrompt, budget })
         {
             section.HorizontalAlignment = HorizontalAlignment.Stretch;
             section.HorizontalContentAlignment = HorizontalAlignment.Stretch;
@@ -555,9 +551,9 @@ public static partial class AiDialogs
             Name = "AiSettingsTabs", TabStripPlacement = compact ? Dock.Top : Dock.Left,
             ItemsSource = new[] {
                 Nav("Connection", Page("Connection", connection, credentials)),
-                Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix))), assignments, files, showContext)),
+                Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
-                    serverFields, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt, extraPrompt, testProvider)),
+                    serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
                 Nav("Editor", Page("Editor", groupedPanels, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
@@ -569,7 +565,11 @@ public static partial class AiDialogs
             try
             {
                 var pack = service.SelectedEngine;
-                var operations = pack?.Tasks.Select(b => b.Task).Distinct().ToArray() ?? [];
+                var selectedModel = engine.SelectedItem as ImageModelChoice;
+                var choices = CurrentFiles();
+                var operations = pack?.Tasks.Select(b => b.Task).Distinct()
+                    .Where(t => t is not (AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.MatchToScene)
+                        && service.Engines.ModelFor(pack, t, choices).ModelKey == selectedModel?.ModelKey).ToArray() ?? [];
                 if (!operationPicker.Items.OfType<AiTaskKind>().SequenceEqual(operations))
                 {
                     var previous = operationPicker.SelectedItem as AiTaskKind?;
@@ -590,7 +590,7 @@ public static partial class AiDialogs
                 {
                     readiness.Foreground = Avalonia.Media.Brushes.Orange;
                     readiness.Text = string.Join("\n", result.Missing);
-                    fix.Content = "Workflow and files…";
+                    fix.Content = "Model components…";
                     fixAction = () => { files.IsExpanded = true; files.BringIntoView(); };
                 }
                 else if (pack.PaidApi && string.IsNullOrWhiteSpace(DraftCredential(ComfyServerAddress.Parse(url.Text ?? ""))))
@@ -617,14 +617,13 @@ public static partial class AiDialogs
             ("Connection timeout", "seconds", 0, timeout, null, null),
             ("Comfy credits API key", "ключ токен авторизация", 0, sessionKey, credentials, null),
             ("Defaults by operation", "назначение модель default", 1, assignments, assignments, null),
-            ("Workflow and model files", "checkpoint vae encoder файлы граф", 1, files, files, null),
+            ("Model components", "checkpoint vae encoder файлы граф", 1, files, files, null),
             ("Show AI context bounds", "output selection выделение контекст", 1, showContext, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
             ("Text model", "chatgpt luna comfy credits", 2, provider, null, null),
-            ("Response options", "token limit reasoning effort токены", 2, tokens, budget, null),
+            ("Reasoning effort", "reasoning рассуждение", 2, effort, null, null),
+            ("Response options", "token limit токены", 2, tokens, budget, null),
             ("System instructions", "системный промт", 2, instructions, advancedPrompt, null),
-            ("Additional editing prompt", "дополнительный промт", 2, additionalPrompt, extraPrompt, null),
-            ("Try a prompt", "пример проверить test", 2, sample, testProvider, null),
             ("Group side panels in tabs", "панели вкладки", 3, groupedPanels, null, null),
             ("Automatically refresh linked files", "обновление связь", 3, linkedSources, null, null),
             ("Check for updates", "обновления", 3, updates, null, null)
@@ -775,15 +774,21 @@ public static partial class AiDialogs
         settings.AutoUpdateLinkedSources = linkedSources.IsChecked == true;
         settings.CheckForUpdates = updates.IsChecked == true;
         settings.AiShowContextBounds = showContext.IsChecked == true;
-        SavePromptDraft(); settings.AiPackPrompts = promptDrafts;
+        SavePromptDraft();
         ReadEnhancer(settings);
 
+        foreach (var (key, value) in changedGeneration)
+        {
+            settings.SetOperation(key.Engine, key.Task, value);
+            if (value.AlignPixels is { } align) settings.AiAlignMaskedEdits = align;
+        }
+        if (changedGeneration.Count > 0) settings.GenerationPresets = generationDraft.GenerationPresets;
         models.Save();
         settings.Save();
         return true;
     }
 
-    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill, AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null)
+    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill, AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null, bool deferSave = false)
     {
         var paid = service?.SelectedEngine?.PaidApi == true;
         var profile = initialProfile ?? settings.OperationFor(service?.SelectedEngine?.Id, task, paid);
@@ -848,15 +853,13 @@ public static partial class AiDialogs
             settings.SetOperation(service?.SelectedEngine?.Id, task, updated);
             if (updated.AlignPixels is { } align) settings.AiAlignMaskedEdits = align;
         }
-        if (modified || acceptDraft == null) settings.Save();
+        if (!deferSave && (modified || acceptDraft == null)) settings.Save();
         return true;
     }
 
     private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, out Func<AiOperationSettings> read)
     {
         var align = new CheckBox { Content = "Align pixels", IsChecked = profile.AlignPixels ?? true };
-        var count = profile.Variants;
-        var variants = new AiVariantButtons(count, value => count = value);
         var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
         var reference = profile.ReferenceMegapixels;
         var fluxMemory = profile.FluxMemory is "reduced" or "standard" ? profile.FluxMemory : "auto";
@@ -872,7 +875,6 @@ public static partial class AiDialogs
         if (!qualities.Contains(quality)) quality = qualities[0];
         var sizes = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
         (string, Control)[] fields = [
-            ("Variants", variants),
             ("Image size", Ui.Combo(sizes, originalSize ? sizes[0] : AiDimensions.Label(mp), value => value,
                 value => { originalSize = value == sizes[0]; if (!originalSize) mp = AiDimensions.MegapixelOptions.First(option => AiDimensions.Label(option) == value); }, 150)),
             ("Reference images", Ui.Combo(sizes, reference is { } r ? AiDimensions.Label(ClosestMegapixels(r)) : sizes[0], value => value,
@@ -929,7 +931,7 @@ public static partial class AiDialogs
         if (task != AiTaskKind.GenerateImage) extra.Children.Add(align);
         read = () => profile with
         {
-            AlignPixels = align.IsChecked == true, Variants = count,
+            AlignPixels = align.IsChecked == true,
             Scene = scene.Normalized(),
             Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference, FluxMemory = fluxMemory,
             Seed = seed, VariantMode = mode, ApiQuality = quality,
@@ -998,10 +1000,10 @@ public static partial class AiDialogs
     }
 
     public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null,
-        SKRectI? sourceCanvas = null, SKRectI? selectionBounds = null)
+        SKRectI? sourceCanvas = null, SKRectI? selectionBounds = null, string? preferredEngine = null)
     {
         var previousEngine = service?.SelectedEngine;
-        if (service != null) service.SelectedEngine = service.EngineFor(task);
+        if (service != null) service.SelectedEngine = service.EngineFor(task, preferredEngine);
         var profile = settings.OperationFor(service?.SelectedEngine?.Id, task, service?.SelectedEngine?.PaidApi == true);
         var scene=profile.Scene.Normalized();
         var lighting=Ui.Combo(Enum.GetValues<RelightPreset>(),scene.Preset,SceneEditSettings.Name,value=>scene=scene with {Preset=value},300);
@@ -1011,7 +1013,7 @@ public static partial class AiDialogs
         var prompt = AiGenerationControls.PromptField("Describe the result…");
         prompt.Text = string.IsNullOrEmpty(initialPrompt) ? rememberedPrompt : initialPrompt;
         var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
-        var variants = Math.Clamp(profile.Variants, 1, 3); var quality = profile.ApiQuality;
+        var variants = 1; var quality = profile.ApiQuality;
         var expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : profile.ExpansionMode;
         var regionSide = profile.ExpansionMinimumSide; var wholeSide = profile.WholeExpansionMinimumSide;
         var width = documentWidth; var height = documentHeight;
@@ -1064,11 +1066,12 @@ public static partial class AiDialogs
         var mode = Ui.Combo(new[] { AiExpansionMode.MaskedRegion, AiExpansionMode.WholeImage }, expansionMode,
             value => value == AiExpansionMode.MaskedRegion ? "Empty area only · preserve image" : "Regenerate whole expanded image",
             value => { expansionMode = value; RefreshExpandChoices(); Refresh(); }, 300);
-        var variantButtons = new AiVariantButtons(variants, value => { variants = value; Refresh(); });
+        var variantButtons = AiGenerationControls.QuickRuns(value => { variants = value; dialog!.SubmitGeneration(); });
+        variantButtons.IsVisible = AiGenerationControls.SupportsVariants(task);
         AiOperationSettings CaptureProfile() => profile with
         {
             Scene=scene.Normalized(), AlignPixels = alignment.IsChecked == true,
-            OriginalSize = originalSize, Megapixels = mp, Variants = variants, ApiQuality = quality,
+            OriginalSize = originalSize, Megapixels = mp, ApiQuality = quality,
             ExpansionMode = task == AiTaskKind.GenerativeExpand ? expansionMode : profile.ExpansionMode,
             ExpansionMinimumSide = regionSide, WholeExpansionMinimumSide = wholeSide
         };
@@ -1076,7 +1079,7 @@ public static partial class AiDialogs
         {
             scene=next.Scene.Normalized(); lighting.SelectedIndex=(int)scene.Preset; scope.SelectedIndex=(int)scene.Scope;
             profile = next; originalSize = next.OriginalSize; mp = ClosestMegapixels(next.Megapixels);
-            variants = Math.Clamp(next.Variants, 1, 3); quality = next.ApiQuality;
+            quality = next.ApiQuality;
             expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : next.ExpansionMode;
             regionSide = next.ExpansionMinimumSide; wholeSide = next.WholeExpansionMinimumSide;
             qualityOptions = NanoBanana.IsModel(service?.SelectedEngine?.ApiModel) ? ["1K", "2K", "4K"] : ["low", "medium", "high", "xhigh", "max"];
@@ -1084,7 +1087,7 @@ public static partial class AiDialogs
             qualityCombo.ItemsSource = qualityOptions;
             qualityCombo.SelectedItem = quality;
             size.SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp);
-            variantButtons.Count = variants; mode.SelectedIndex = expansionMode == AiExpansionMode.WholeImage ? 1 : 0;
+            mode.SelectedIndex = expansionMode == AiExpansionMode.WholeImage ? 1 : 0;
             RefreshExpandChoices(); Refresh();
         }
         var advanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => { });
@@ -1223,7 +1226,7 @@ public static partial class AiDialogs
         if (alignment.IsVisible) settings.AiAlignMaskedEdits = alignment.IsChecked == true;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         settings.Save();
-        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, profile.Seed, chosenEngine?.Id);
+        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, profile.Seed, chosenEngine?.Id, variants);
     }
 
     private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));

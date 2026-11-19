@@ -32,8 +32,6 @@ public sealed partial class CanvasView
             {
                 using var line = new SKPaint { Color = new SKColor(172, 148, 255, 215), StrokeWidth = hair,
                     Style = SKPaintStyle.Stroke, IsAntialias = true, PathEffect = SKPathEffect.CreateDash([5 * hair, 4 * hair], 0) };
-                using var outline = new SKPaint { Color = new SKColor(28, 20, 49, 175), StrokeWidth = 2 * hair, Style = SKPaintStyle.Stroke };
-                canvas.DrawRect(screen, outline);
                 canvas.DrawRect(screen, line);
                 using var font = new SKFont(SKTypeface.Default, 11 * hair);
                 using var label = new SKPaint { Color = line.Color, IsAntialias = true };
@@ -173,35 +171,38 @@ public sealed partial class CanvasView
             });
         }
 
-        if (tool is Tool.CloneStamp or Tool.HealingBrush && session.CloneSamplePoint(currentDocument) is { } sample)
-        {
-            var p = view.MapPoint(sample);
-            steps.Add(canvas => DrawCrosshair(canvas, p, hair));
-        }
-
-        // With Ctrl held the pointer is about to move a layer, so the brush outline gives way to the move cursor.
-        if (IsBrushTool && cursorInside && !spaceDown && !controlHover && !temporaryMove && drag is Drag.None or Drag.Stroke or Drag.SelectionBrush)
-        {
-            var center = view.MapPoint(session.BrushPosition ?? currentDocument);
-            var selectionBrush = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
-            var radius = (float)((selectionBrush ? session.SelectionBrushSize / 2 : session.Brush.CursorRadius(session.BrushPressure)) * UnitsPerPixel);
-            var inner = selectionBrush ? Math.Max(0, radius - (float)(session.SelectionBrushFeather * UnitsPerPixel)) : radius * (float)session.Brush.Hardness;
-            steps.Add(canvas =>
-            {
-                using var dark = new SKPaint { Color = new SKColor(0, 0, 0, 200), StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
-                using var light = new SKPaint { Color = new SKColor(255, 255, 255, 230), StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
-                if (radius < 3) { DrawCrosshair(canvas, center, hair); return; }
-                canvas.DrawCircle(center, radius + hair, dark);
-                canvas.DrawCircle(center, radius, light);
-                if (inner > 2 && inner < radius - 2)
-                {
-                    using var faint = new SKPaint { Color = new SKColor(255, 255, 255, 90), StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
-                    canvas.DrawCircle(center, inner, faint);
-                }
-            });
-        }
-
         return steps.Count == 0 ? null : canvas => { foreach (var step in steps) step(canvas); };
+    }
+
+    private sealed class BrushCursorOverlay(CanvasView view) : Avalonia.Controls.Control
+    {
+        public override void Render(Avalonia.Media.DrawingContext context)
+        {
+            if (view.session is not { } session || !view.IsBrushTool || !view.cursorInside) return;
+            var hair = 1 / view.Scaling;
+            var dark = new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, hair);
+            var light = new Avalonia.Media.Pen(Avalonia.Media.Brushes.White, hair);
+            void Cross(Avalonia.Point p)
+            {
+                foreach (var pen in new[] { new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, 3 * hair), light })
+                {
+                    context.DrawLine(pen, p.WithX(p.X - 7), p.WithX(p.X + 7));
+                    context.DrawLine(pen, p.WithY(p.Y - 7), p.WithY(p.Y + 7));
+                }
+            }
+            if (session.Tool is Tool.CloneStamp or Tool.HealingBrush && session.CloneSamplePoint(view.currentDocument) is { } sample)
+                Cross(view.ToScreen(sample));
+            if (view.spaceDown || view.controlHover || view.temporaryMove || view.drag is not (Drag.None or Drag.Stroke or Drag.SelectionBrush)) return;
+            var center = view.ToScreen(session.BrushPosition ?? view.currentDocument);
+            var selection = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
+            var radius = (selection ? session.SelectionBrushSize / 2 : session.Brush.CursorRadius(session.BrushPressure)) * view.UnitsPerPixel;
+            if (radius < 3) { Cross(center); return; }
+            context.DrawEllipse(null, dark, center, radius + hair, radius + hair);
+            context.DrawEllipse(null, light, center, radius, radius);
+            var inner = selection ? radius - session.SelectionBrushFeather * view.UnitsPerPixel : radius * session.Brush.Hardness;
+            if (inner > 2 && inner < radius - 2)
+                using (context.PushOpacity(.36)) context.DrawEllipse(null, light, center, inner, inner);
+        }
     }
 
     private static void DrawHandles(SKCanvas canvas, SKPoint[] corners, float hair)

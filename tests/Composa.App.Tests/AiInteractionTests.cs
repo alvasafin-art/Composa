@@ -150,7 +150,7 @@ public class AiInteractionTests
         dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex=1;Dispatcher.UIThread.RunJobs();
         dialog.GetVisualDescendants().OfType<Expander>().Single(e => e.Header as string == "Defaults by operation").IsExpanded = true; Dispatcher.UIThread.RunJobs();
         var pickers=dialog.GetVisualDescendants().OfType<ComboBox>().Where(c=>c.Items.Cast<object>().Contains("Use default model")).ToArray();
-        Assert.True(pickers.Length>=10); Assert.Contains(pickers,c=>!c.Items.Cast<object>().Contains("CHAT GPT 2.5"));
+        Assert.Equal(Enum.GetValues<AiTaskKind>().Count(t => t is not (AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.MatchToScene)), pickers.Length); Assert.Contains(pickers,c=>!c.Items.Cast<object>().Contains("CHAT GPT 2.5"));
         var generation=pickers[0];generation.SelectedItem=generation.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "flux2-klein-intel-xpu");
         Assert.True(Screenshots.Save(dialog,"ai-workflow-by-task"));
         dialog.Close(accept);Assert.Equal(accept,await pending);

@@ -130,7 +130,7 @@ public sealed partial class MainWindow
                 var penTitle = Title("Pen");
                 ToolTip.SetTip(penTitle, "Shift-click curve adds a node · Delete removes selected node · Alt breaks handles · Ctrl starts a new path");
                 Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
-                    Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateVisual(); }),
+                    Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateCanvas(); }),
                     Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
                 if (s.ActiveLayer?.Shape?.Path != null) BuildShapeFields(row);
                 break;
@@ -515,7 +515,7 @@ public sealed partial class MainWindow
         autoSelect.IsEnabled = !s.IsEditingChannel;
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
-        row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateVisual(); RememberToolSettings(); }));
+        row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateCanvas(); RememberToolSettings(); }));
         if (s.IndependentMaskTarget != null) row.Children.Add(Ui.Label("Mask", Palette.Secondary));
         if (layer == null || layer.Pixels == null && s.IndependentMaskTarget != layer)
         {
