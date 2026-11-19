@@ -24,6 +24,7 @@ public sealed partial class CanvasView : Control
     private Point origin; // Where the document's top-left sits, in control coordinates.
     private bool fitPending = true;
     private SKPath? selectionOutline;
+    private SKBitmap? outlinedSelection;
     private bool outlineStale = true;
     private float antsPhase;
     private readonly DispatcherTimer antsTimer;
@@ -129,6 +130,7 @@ public sealed partial class CanvasView : Control
             // A crop rectangle belongs to the document it was drawn on.
             cropRect = null;
             spaceDown = false;
+            outlinedSelection = null;
             outlineStale = true;
             fitPending = true;
             viewStale = true;
@@ -160,7 +162,6 @@ public sealed partial class CanvasView : Control
             viewDirty = Geometry.Union(viewDirty, mapped);
         }
         else viewStale = true;
-        if (area == null) outlineStale = true;
         InvalidateVisual();
         if (area == null) ViewChanged?.Invoke();
     }
@@ -311,6 +312,7 @@ public sealed partial class CanvasView : Control
         }
     }
 
+    private static readonly Lazy<SKBitmap> CheckerTile = new(CreateCheckerTile);
     private static readonly SKColor Backdrop = new(0x1E, 0x1E, 0x1E);
 
     public override void Render(DrawingContext context)
@@ -323,9 +325,10 @@ public sealed partial class CanvasView : Control
             context.Custom(new DrawOperation(new Rect(size), canvas => canvas.Clear(Backdrop)));
             return;
         }
-        if (outlineStale)
+        if (outlineStale || !ReferenceEquals(outlinedSelection, session.Selection))
         {
-            selectionOutline = session.Selection != null ? SelectionMask.Outline(session.Selection) : null;
+            outlinedSelection = session.Selection;
+            selectionOutline = outlinedSelection != null ? SelectionMask.Outline(outlinedSelection) : null;
             outlineComplex = selectionOutline?.PointCount > FullDetailPoints;
             antsLevel = null;
             outlineStale = false;
@@ -348,8 +351,13 @@ public sealed partial class CanvasView : Control
         {
             canvas.Clear(Backdrop);
             var screenRect = view.MapRect(documentRect);
-            using (var shadow = new SKPaint { Color = new SKColor(0, 0, 0, 90), ImageFilter = SKImageFilter.CreateBlur(8, 8) })
+            // The opaque checkerboard covers every shadow pixel while all page edges are offscreen.
+            if (!screenRect.Contains(new SKRect(-1, -1, (float)size.Width + 1, (float)size.Height + 1)))
+            {
+                using var blur = SKImageFilter.CreateBlur(8, 8);
+                using var shadow = new SKPaint { Color = new SKColor(0, 0, 0, 90), ImageFilter = blur };
                 canvas.DrawRect(screenRect, shadow);
+            }
             DrawCheckerboard(canvas, screenRect);
 
             if (cache != null)
@@ -394,13 +402,28 @@ public sealed partial class CanvasView : Control
         float scale;
         SKPoint viewOrigin;
         int width, height;
-        SKRect target;
+        SKRect target, source;
         if (zoom >= 1)
         {
             scale = 1;
-            viewOrigin = new SKPoint(shown.Left, shown.Top);
-            width = shown.Width;
-            height = shown.Height;
+            // During a pan, keep a small border of native document pixels around the view.
+            // Dirty events are mapped into this entire rectangle, including its offscreen border.
+            var cached = SKRectI.Create((int)viewKey.Origin.X, (int)viewKey.Origin.Y, viewKey.Width, viewKey.Height);
+            var backing = shown;
+            if (!viewStale && viewKey.Scale == 1)
+            {
+                if (cached.Contains(shown)) backing = cached;
+                else
+                {
+                    // Bound speculative work even when a high zoom exposes very few document pixels.
+                    backing.Inflate(Math.Min(64, shown.Width / 8), Math.Min(64, shown.Height / 8));
+                    backing = Geometry.Intersect(backing, session.Document.Bounds);
+                }
+            }
+            viewOrigin = new SKPoint(backing.Left, backing.Top);
+            width = backing.Width;
+            height = backing.Height;
+            source = SKRect.Create(shown.Left - backing.Left, shown.Top - backing.Top, shown.Width, shown.Height);
             target = view.MapRect(new SKRect(shown.Left, shown.Top, shown.Right, shown.Bottom));
         }
         else
@@ -412,12 +435,13 @@ public sealed partial class CanvasView : Control
             viewOrigin = new SKPoint((float)((left - origin.X * scaling) / zoom), (float)((top - origin.Y * scaling) / zoom));
             width = Math.Max(1, (int)(right - left));
             height = Math.Max(1, (int)(bottom - top));
+            source = SKRect.Create(width, height);
             target = new SKRect((float)(left / scaling), (float)(top / scaling), (float)(right / scaling), (float)(bottom / scaling));
         }
         if (viewCache == null || viewCache.Width < width || viewCache.Height < height)
         {
             // The old bitmap may still be in use by the render thread, so it is left to the garbage collector.
-            viewCache = Pixels.NewWorkingColor(Math.Max(width, viewCache?.Width ?? 0) + 64, Math.Max(height, viewCache?.Height ?? 0) + 64, ColorDepth.Eight, displayProfile);
+            viewCache = Pixels.NewWorkingColor(Math.Max(width + 64, viewCache?.Width ?? 0), Math.Max(height + 64, viewCache?.Height ?? 0), ColorDepth.Eight, displayProfile);
             viewStale = true;
         }
         var key = (scale, viewOrigin, width, height);
@@ -427,13 +451,13 @@ public sealed partial class CanvasView : Control
         viewStale = false;
         viewDirty = SKRectI.Empty;
         if (!dirty.IsEmpty) session.RenderView(viewCache, dirty, new RenderView(scale, viewOrigin));
-        return (viewCache, new SKRect(0, 0, width, height), target);
+        return (viewCache, source, target);
     }
 
-    private static void DrawCheckerboard(SKCanvas canvas, SKRect rect)
+    private static SKBitmap CreateCheckerTile()
     {
         const int cell = 8;
-        using var tile = new SKBitmap(cell * 2, cell * 2);
+        var tile = new SKBitmap(cell * 2, cell * 2);
         tile.Erase(new SKColor(0xFF, 0xFF, 0xFF));
         using (var tileCanvas = new SKCanvas(tile))
         using (var gray = new SKPaint { Color = new SKColor(0xCC, 0xCC, 0xCC) })
@@ -441,7 +465,13 @@ public sealed partial class CanvasView : Control
             tileCanvas.DrawRect(cell, 0, cell, cell, gray);
             tileCanvas.DrawRect(0, cell, cell, cell, gray);
         }
-        using var shader = SKShader.CreateBitmap(tile, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat, SKMatrix.CreateTranslation(rect.Left, rect.Top));
+        tile.SetImmutable();
+        return tile;
+    }
+
+    private static void DrawCheckerboard(SKCanvas canvas, SKRect rect)
+    {
+        using var shader = SKShader.CreateBitmap(CheckerTile.Value, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat, SKMatrix.CreateTranslation(rect.Left, rect.Top));
         using var paint = new SKPaint { Shader = shader };
         canvas.DrawRect(rect, paint);
     }

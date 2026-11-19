@@ -59,12 +59,23 @@ public sealed partial class EditorSession
         }
         if (View.SnapToLayers)
         {
-            foreach (var other in document.AllLayers().Where(l => l.Pixels != null && (moving == null || !moving.Contains(l.Id)) && document.IsEffectivelyVisible(l)).Take(60))
+            var remaining = 60;
+            AddLayers(document.Layers);
+
+            void AddLayers(List<Layer> siblings)
             {
-                var b = other.ControlBounds;
-                xs.AddRange([MathF.Round(b.Left), MathF.Round(b.Right)]);
-                ys.AddRange([MathF.Round(b.Top), MathF.Round(b.Bottom)]);
-                if (includeCenters) { xs.Add(MathF.Round(b.MidX)); ys.Add(MathF.Round(b.MidY)); }
+                foreach (var other in siblings)
+                {
+                    if (!other.Visible) continue;
+                    if (other.Children.Count > 0) AddLayers(other.Children);
+                    if (remaining == 0) return;
+                    if (other.Pixels == null || moving?.Contains(other.Id) == true) continue;
+                    var b = other.ControlBounds;
+                    xs.Add(MathF.Round(b.Left)); xs.Add(MathF.Round(b.Right));
+                    ys.Add(MathF.Round(b.Top)); ys.Add(MathF.Round(b.Bottom));
+                    if (includeCenters) { xs.Add(MathF.Round(b.MidX)); ys.Add(MathF.Round(b.MidY)); }
+                    if (--remaining == 0) return;
+                }
             }
         }
         // Hidden extras do not snap, matching Photoshop.

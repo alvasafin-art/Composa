@@ -777,18 +777,24 @@ public sealed partial class CanvasView
     {
         var type = StandardCursorType.Arrow;
         if (RulerAt(position) is { } axis) type = axis == GuideAxis.Vertical ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth;
-        else if (ShowTransformControls && CurrentFrame() is { } frame && HitFrame(frame, position, allowRotate: true) is var hit && hit is not (TransformHandle.None or TransformHandle.Move))
-            type = hit switch
-            {
-                TransformHandle.TopLeft or TransformHandle.BottomRight => StandardCursorType.TopLeftCorner,
-                TransformHandle.TopRight or TransformHandle.BottomLeft => StandardCursorType.TopRightCorner,
-                TransformHandle.Top or TransformHandle.Bottom => StandardCursorType.SizeNorthSouth,
-                TransformHandle.Left or TransformHandle.Right => StandardCursorType.SizeWestEast,
-                TransformHandle.Rotate => StandardCursorType.Cross,
-                _ => StandardCursorType.Arrow
-            };
-        else if (HitGuide(position) is { } guide) type = guide.Axis == GuideAxis.Vertical ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth;
-        else if (ShowTransformControls && CurrentFrame() is { } inside && HitFrame(inside, position, allowRotate: true) == TransformHandle.Move) type = StandardCursorType.SizeAll;
+        else
+        {
+            var hit = ShowTransformControls && CurrentFrame() is { } frame
+                ? HitFrame(frame, position, allowRotate: true) : TransformHandle.None;
+            if (hit is not (TransformHandle.None or TransformHandle.Move))
+                type = hit switch
+                {
+                    TransformHandle.TopLeft or TransformHandle.BottomRight => StandardCursorType.TopLeftCorner,
+                    TransformHandle.TopRight or TransformHandle.BottomLeft => StandardCursorType.TopRightCorner,
+                    TransformHandle.Top or TransformHandle.Bottom => StandardCursorType.SizeNorthSouth,
+                    TransformHandle.Left or TransformHandle.Right => StandardCursorType.SizeWestEast,
+                    TransformHandle.Rotate => StandardCursorType.Cross,
+                    _ => StandardCursorType.Arrow
+                };
+            else if (HitGuide(position) is { } guide)
+                type = guide.Axis == GuideAxis.Vertical ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth;
+            else if (hit == TransformHandle.Move) type = StandardCursorType.SizeAll;
+        }
         Cursor = new Cursor(type);
     }
 
@@ -942,8 +948,7 @@ public sealed partial class CanvasView
         var threshold = (float)(6 / UnitsPerPixel);
         var rotate = SKMatrix.CreateRotationDegrees((float)edit.StartRotation, edit.StartFrame.MidX, edit.StartFrame.MidY);
         var box = rotate.MapRect(edit.StartFrame);
-        var moving = edit.Layers.Select(l => l.Id).ToHashSet();
-        var (snappedX, snappedY, snapX, snapY) = session.SnapMove(box, moving, dx, dy, threshold);
+        var (snappedX, snappedY, snapX, snapY) = session.SnapMove(box, edit.MovingLayerIds, dx, dy, threshold);
         dx = snappedX; dy = snappedY;
         if (snapX is { } x) guides.Add((new SKPoint(x, -100000), new SKPoint(x, 100000)));
         if (snapY is { } y) guides.Add((new SKPoint(-100000, y), new SKPoint(100000, y)));

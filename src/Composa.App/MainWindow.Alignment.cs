@@ -17,6 +17,8 @@ public sealed partial class MainWindow
         reference.Name = "AlignmentReference";
         ToolTip.SetTip(reference, "Align to the canvas or to the second object selected; that object stays in place. Shift-click adds objects.");
         row.Children.Add(reference);
+        var alignButtons = new List<Button>();
+        var distributeButtons = new List<Button>();
         foreach (var (alignment, line, fill) in new[]
         {
             (ObjectAlignment.Left, "M5 3 V21", "M8 7 H19 V11 H8 Z M8 14 H15 V18 H8 Z"),
@@ -30,7 +32,7 @@ public sealed partial class MainWindow
             var button = new Button { Classes = { "flat" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(new Icons.Icon(line, fill), 16), Name = "Align" + alignment };
             ToolTip.SetTip(button, "Align " + alignment.ToString().ToLowerInvariant());
             button.Click += (_, _) => { s.AlignObjects(alignment, alignmentReference); refreshOptions?.Invoke(); };
-            refreshOptions += () => button.IsEnabled = s.AlignableObjectCount >= (alignmentReference == AlignmentReference.Canvas ? 1 : 2);
+            alignButtons.Add(button);
             group.Children.Add(button);
         }
         foreach (var horizontal in new[] { true, false })
@@ -42,9 +44,15 @@ public sealed partial class MainWindow
                 : "M7 8 H17 V10 H7 Z M7 14 H17 V16 H7 Z"), 16), Name = horizontal ? "DistributeHorizontal" : "DistributeVertical" };
             ToolTip.SetTip(button, horizontal ? "Equal horizontal gaps (3+ objects)" : "Equal vertical gaps (3+ objects)");
             button.Click += (_, _) => { s.DistributeObjectGaps(horizontal); refreshOptions?.Invoke(); };
-            refreshOptions += () => button.IsEnabled = s.AlignableObjectCount >= 3;
+            distributeButtons.Add(button);
             group.Children.Add(button);
         }
+        refreshOptions += () =>
+        {
+            var count = s.AlignableObjectCount;
+            foreach (var button in alignButtons) button.IsEnabled = count >= (alignmentReference == AlignmentReference.Canvas ? 1 : 2);
+            foreach (var button in distributeButtons) button.IsEnabled = count >= 3;
+        };
         row.Children.Add(group);
         var flips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Avalonia.Thickness(10, 0, 0, 0) };
         foreach (var horizontal in new[] { true, false })

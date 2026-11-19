@@ -236,11 +236,18 @@ public sealed partial class EditorSession
         }
         if (strokeMode is BrushMode.Heal or BrushMode.Healing)
         {
+            var touched = stroke.Touched;
             using var mask = stroke.CoverageMask();
             if (strokeMode == BrushMode.Healing)
             {
                 var coverage = mask.GetPixelSpan();
-                for (var i = 0; i < coverage.Length; i++) coverage[i] = (byte)(coverage[i] * Math.Clamp(Brush.Opacity, 0, 1));
+                var opacity = Math.Clamp(Brush.Opacity, 0, 1);
+                var stride = mask.RowBytes;
+                for (var y = touched.Top; y < touched.Bottom; y++)
+                {
+                    var row = coverage.Slice(y * stride + touched.Left, touched.Width);
+                    for (var x = 0; x < row.Length; x++) row[x] = (byte)(row[x] * opacity);
+                }
             }
             if ((long)stroke.Touched.Width * stroke.Touched.Height > Inpaint.MaxArea)
             {
@@ -250,15 +257,16 @@ public sealed partial class EditorSession
                 return;
             }
             var selection = SelectionInTargetSpace(layer);
-            using var donorExclusion = selection == null ? null : Pixels.Clone(mask);
+            using var donorExclusion = selection != null && strokeMode == BrushMode.Heal ? Pixels.Clone(mask) : null;
             if (selection != null)
             {
                 // Search for donors for the ACTUAL repair area, not the entire brush footprint
                 // outside a selection. Keep partial coverage for the final selection mix, once.
                 var coverage = mask.GetPixelSpan(); var allowed = selection.GetPixelSpan();
-                for (var y = 0; y < mask.Height; y++)
-                for (var x = 0; x < mask.Width; x++)
-                    if (allowed[y * selection.RowBytes + x] == 0) coverage[y * mask.RowBytes + x] = 0;
+                int maskStride = mask.RowBytes, selectionStride = selection.RowBytes;
+                for (var y = touched.Top; y < touched.Bottom; y++)
+                for (var x = touched.Left; x < touched.Right; x++)
+                    if (allowed[y * selectionStride + x] == 0) coverage[y * maskStride + x] = 0;
                 Pixels.Invalidate(mask);
             }
             SKBitmap repair;
@@ -267,7 +275,12 @@ public sealed partial class EditorSession
             {
                 using var hard = Pixels.Clone(mask);
                 var coverage = hard.GetPixelSpan();
-                for (var i = 0; i < coverage.Length; i++) if (coverage[i] > 0) coverage[i] = 255;
+                var stride = hard.RowBytes;
+                for (var y = touched.Top; y < touched.Bottom; y++)
+                {
+                    var row = coverage.Slice(y * stride + touched.Left, touched.Width);
+                    for (var x = 0; x < row.Length; x++) if (row[x] > 0) row[x] = 255;
+                }
                 Pixels.Invalidate(hard);
                 repair = Inpaint.Fill(sample, hard, donorExclusion, coherentSpot: true);
                 // Write only the stroke onto the retouch layer. Coverage is applied once,

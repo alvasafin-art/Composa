@@ -453,10 +453,7 @@ public sealed partial class EditorSession
     public SKRectI AffectedArea(Layer layer)
     {
         if (layer.Pixels == null) return document.Bounds;
-        var bounds = Geometry.RoundOut(layer.VisibleBounds);
-        // A blur adjustment above spreads the change as far as it samples.
-        var margin = 2 + (int)Math.Ceiling(DocumentRenderer.SamplingMargin(document));
-        bounds.Inflate(margin, margin);
+        var bounds = PaddedBounds(layer, DamageMargin);
         // A clipping base also changes what its clipped layers show.
         var siblings = document.SiblingsOf(layer.Id);
         if (siblings != null)
@@ -466,6 +463,38 @@ public sealed partial class EditorSession
                 bounds = siblings[i].Pixels == null ? document.Bounds : Geometry.Union(bounds, Geometry.RoundOut(siblings[i].VisibleBounds));
         }
         return bounds;
+    }
+
+    private int DamageMargin => 2 + (int)Math.Ceiling(DocumentRenderer.SamplingMargin(document));
+
+    private static SKRectI PaddedBounds(Layer layer, int margin)
+    {
+        var bounds = Geometry.RoundOut(layer.VisibleBounds);
+        bounds.Inflate(margin, margin);
+        return bounds;
+    }
+
+    // Group transforms need the same damage as the union of the individual layers. Find the
+    // adjustment halo and clipping chains once per tree traversal, regardless of selection size.
+    internal SKRectI AffectedArea(IReadOnlyList<Layer> moving, IReadOnlySet<Guid> ids)
+    {
+        var margin = DamageMargin;
+        var area = SKRectI.Empty;
+        foreach (var layer in moving) area = Geometry.Union(area, PaddedBounds(layer, margin));
+        IncludeClipped(document.Layers);
+        return area;
+
+        void IncludeClipped(List<Layer> siblings)
+        {
+            var followsMoving = false;
+            foreach (var layer in siblings)
+            {
+                if (!layer.Clipped) followsMoving = false;
+                if (followsMoving) area = Geometry.Union(area, layer.Pixels == null ? document.Bounds : Geometry.RoundOut(layer.VisibleBounds));
+                followsMoving |= ids.Contains(layer.Id);
+                if (layer.Children.Count > 0) IncludeClipped(layer.Children);
+            }
+        }
     }
 
     public SKColor SampleColor(int x, int y, bool allLayers = true)

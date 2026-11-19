@@ -206,4 +206,67 @@ public class UiRegressionTests
             Assert.True(lightest - darkest > 200, $"contrast {darkest}..{lightest} at nudge {nudge}");
         }
     }
+
+    [AvaloniaFact]
+    public void Panning_exposes_current_pixels_after_offscreen_edits_and_channel_changes()
+    {
+        var session = EditorSession.NewCanvas(1024, 768);
+        var bitmap = session.ActiveLayer!.Pixels!;
+        using (var paint = new SKPaint())
+        using (var ink = new SKCanvas(bitmap))
+        {
+            for (int x = 0; x < bitmap.Width; x += 7)
+            {
+                paint.Color = new SKColor((byte)x, (byte)(x * 3), (byte)(x * 7), 180);
+                ink.DrawRect(x, 0, 5, bitmap.Height, paint);
+            }
+        }
+        Rendering.Pixels.Invalidate(bitmap);
+        var canvas = new CanvasView { Session = session };
+        var window = new Window { Width = 340, Height = 240, Content = canvas };
+        window.Show();
+        try
+        {
+            byte[] Frame()
+            {
+                Dispatcher.UIThread.RunJobs();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                using var frame = window.CaptureRenderedFrame()!;
+                using var buffer = frame.Lock();
+                var bytes = new byte[buffer.RowBytes * buffer.Size.Height];
+                System.Runtime.InteropServices.Marshal.Copy(buffer.Address, bytes, 0, bytes.Length);
+                return bytes;
+            }
+            void CompareWithFreshFrame()
+            {
+                var cached = Frame();
+                session.InvalidateAll();
+                Assert.True(cached.AsSpan().SequenceEqual(Frame()));
+            }
+
+            Frame();
+            canvas.ZoomTo(1.5);
+            canvas.CenterOn(new(508, 380));
+            Frame();
+            canvas.CenterOn(new(512, 380));
+            Frame();
+            var edge = (int)Math.Ceiling(canvas.ToDocument(new Point(canvas.Bounds.Width, 0)).X);
+            var changed = new SKRectI(edge + 1, 370, edge + 7, 390);
+            using (var ink = new SKCanvas(bitmap))
+            using (var paint = new SKPaint { Color = SKColors.Red }) ink.DrawRect(changed, paint);
+            Rendering.Pixels.Invalidate(bitmap);
+            session.Invalidate(changed);
+            Frame();
+            canvas.CenterOn(new(524, 380));
+            CompareWithFreshFrame();
+            session.SetChannelView(RgbChannels.Red);
+            canvas.CenterOn(new(531.5f, 381.5f));
+            CompareWithFreshFrame();
+            canvas.CenterOn(new(0, 0));
+            CompareWithFreshFrame();
+            canvas.ZoomTo(.625);
+            CompareWithFreshFrame();
+        }
+        finally { window.Close(); }
+    }
 }

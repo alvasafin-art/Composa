@@ -193,15 +193,17 @@ public sealed partial class EditorSession
     private static unsafe SKBitmap MixBySelection(SKBitmap original, SKBitmap modified, SKBitmap? selection)
     {
         if (selection == null) return modified;
+        int width = original.Width, height = original.Height;
+        int maskWidth = selection.Width, maskHeight = selection.Height, maskStride = selection.RowBytes;
         if (original.ColorType == SKColorType.RgbaF32)
         {
             if (modified.ColorType != SKColorType.RgbaF32) throw new InvalidOperationException("A high precision edit cannot use display pixels.");
             var before = new PixelBuffer(original); var after = new PixelBuffer(modified);
             var coverage = selection.GetPixelSpan();
-            for (var y = 0; y < original.Height; y++)
-            for (var x = 0; x < original.Width; x++)
+            for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
             {
-                var amount = x < selection.Width && y < selection.Height ? coverage[y * selection.RowBytes + x] / 255f : 0;
+                var amount = x < maskWidth && y < maskHeight ? coverage[y * maskStride + x] / 255f : 0;
                 after.Write(x, y, before.Read(x, y) * (1 - amount) + after.Read(x, y) * amount);
             }
             Pixels.Invalidate(modified);
@@ -209,13 +211,13 @@ public sealed partial class EditorSession
         }
         var bpp = original.BytesPerPixel;
         byte* o = (byte*)original.GetPixels(), m = (byte*)modified.GetPixels(), s = (byte*)selection.GetPixels();
-        int width = Math.Min(original.Width, selection.Width), height = Math.Min(original.Height, selection.Height);
-        Parallel.For(0, original.Height, y =>
+        int originalStride = original.RowBytes, modifiedStride = modified.RowBytes;
+        Parallel.For(0, height, y =>
         {
-            byte* orow = o + (long)y * original.RowBytes, mrow = m + (long)y * modified.RowBytes;
-            for (var x = 0; x < original.Width; x++)
+            byte* orow = o + (long)y * originalStride, mrow = m + (long)y * modifiedStride;
+            for (var x = 0; x < width; x++)
             {
-                var cover = x < width && y < height ? s[(long)y * selection.RowBytes + x] : 0;
+                var cover = x < maskWidth && y < maskHeight ? s[(long)y * maskStride + x] : 0;
                 if (cover == 255) continue;
                 for (var c = 0; c < bpp; c++)
                 {

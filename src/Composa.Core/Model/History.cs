@@ -26,6 +26,11 @@ public sealed class History
     private long baseId;
 
     private int sinceCollect;
+    // Count each shared bitmap once across the undo side. A multi-step scrub drops this index
+    // and rebuilds it on the next edit, keeping scrubbing independent of the layer-tree size.
+    private Dictionary<SKBitmap, int>? bitmapUses;
+    private readonly HashSet<SKBitmap> stateBitmaps = new(ReferenceEqualityComparer.Instance);
+    private long heldBytes;
 
     public long MemoryBudget { get; set; } = 3L * 1024 * 1024 * 1024;
     public int MaxEntries { get; set; } = 100;
@@ -64,6 +69,13 @@ public sealed class History
     /// <summary>Records the state as it was before an edit named <paramref name="name"/>.</summary>
     public void Push(string name, Document before)
     {
+        if (bitmapUses == null)
+        {
+            bitmapUses = new(ReferenceEqualityComparer.Instance);
+            heldBytes = 0;
+            foreach (var entry in undo) CountBitmaps(entry.State, adding: true);
+        }
+        CountBitmaps(before, adding: true);
         undo.Add(new Entry(name, before, nextId++));
         redo.Clear();
         Trim();
@@ -73,6 +85,7 @@ public sealed class History
     {
         if (undo.Count == 0) return null;
         var entry = undo[^1];
+        CountBitmaps(entry.State, adding: false);
         undo.RemoveAt(undo.Count - 1);
         redo.Add(entry with { State = current });
         return entry.State;
@@ -82,6 +95,7 @@ public sealed class History
     {
         if (redo.Count == 0) return null;
         var entry = redo[^1];
+        CountBitmaps(current, adding: true);
         redo.RemoveAt(redo.Count - 1);
         undo.Add(entry with { State = current });
         return entry.State;
@@ -95,6 +109,7 @@ public sealed class History
     public Document? GoTo(int index, Document current)
     {
         if (index < 0 || index > undo.Count + redo.Count || index == undo.Count) return null;
+        if (Math.Abs(undo.Count - index) > 1) bitmapUses = null;
         var state = current;
         while (undo.Count > index) state = Undo(state)!;
         while (undo.Count < index) state = Redo(state)!;
@@ -107,6 +122,7 @@ public sealed class History
         if (undo.Count < 2) return;
         var before = undo[^2].State;
         var after = undo[^1].Id;
+        CountBitmaps(undo[^1].State, adding: false);
         undo.RemoveRange(undo.Count - 2, 2);
         undo.Add(new Entry(name, before, after));
     }
@@ -114,12 +130,15 @@ public sealed class History
     /// <summary>Drops the newest undo entry without applying it, for edits that turned out to change nothing.</summary>
     public void DiscardLast()
     {
-        if (undo.Count > 0) undo.RemoveAt(undo.Count - 1);
+        if (undo.Count == 0) return;
+        CountBitmaps(undo[^1].State, adding: false);
+        undo.RemoveAt(undo.Count - 1);
     }
 
     public void Clear()
     {
         baseId = CurrentId;
+        bitmapUses = null;
         undo.Clear();
         redo.Clear();
     }
@@ -128,7 +147,7 @@ public sealed class History
     {
         var dropped = false;
         while (undo.Count > MaxEntries) { DropOldest(); dropped = true; }
-        while (undo.Count > 1 && HeldBytes() > MemoryBudget) { DropOldest(); dropped = true; }
+        while (undo.Count > 1 && heldBytes > MemoryBudget) { DropOldest(); dropped = true; }
         // Bitmaps live in native memory the garbage collector cannot see, so it gets a nudge when history lets go of
         // some; they cannot simply be disposed here because newer snapshots may still share them.
         if (dropped && ++sinceCollect >= 8) { sinceCollect = 0; GC.Collect(2, GCCollectionMode.Optimized, blocking: false); }
@@ -140,13 +159,29 @@ public sealed class History
         baseId = undo[0].Id;
         BaseName = undo[0].Name;
         EarlierStepsDropped = true;
+        CountBitmaps(undo[0].State, adding: false);
         undo.RemoveAt(0);
     }
 
-    private long HeldBytes()
+    private void CountBitmaps(Document snapshot, bool adding)
     {
-        var bitmaps = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
-        foreach (var entry in undo) entry.State.CollectBitmaps(bitmaps);
-        return bitmaps.Sum(b => (long)b.ByteCount);
+        if (bitmapUses == null) return;
+        snapshot.CollectBitmaps(stateBitmaps);
+        foreach (var bitmap in stateBitmaps)
+        {
+            var count = bitmapUses.GetValueOrDefault(bitmap);
+            if (adding)
+            {
+                if (count == 0) heldBytes += bitmap.ByteCount;
+                bitmapUses[bitmap] = count + 1;
+            }
+            else if (count == 1)
+            {
+                heldBytes -= bitmap.ByteCount;
+                bitmapUses.Remove(bitmap);
+            }
+            else bitmapUses[bitmap] = count - 1;
+        }
+        stateBitmaps.Clear();
     }
 }

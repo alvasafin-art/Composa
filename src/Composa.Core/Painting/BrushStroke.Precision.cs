@@ -92,7 +92,9 @@ public sealed unsafe partial class BrushStroke
         if (dx == 0 && dy == 0) return SKRectI.Empty;
         var reach = (int)MathF.Ceiling(MathF.Max(MathF.Abs(dx), MathF.Abs(dy))) + 2;
         var area = Geometry.Intersect(new(rect.Left - reach, rect.Top - reach, rect.Right + reach, rect.Bottom + reach), new(0, 0, width, height));
-        var snapshot = new PixelValue[area.Width * area.Height];
+        var length = area.Width * area.Height;
+        if (pushColors.Length < length) pushColors = new PixelValue[length];
+        var snapshot = pushColors;
         var pixels = new PixelBuffer(Working); var source = new PixelBuffer(original);
         for (var y = 0; y < area.Height; y++)
         for (var x = 0; x < area.Width; x++) snapshot[y * area.Width + x] = pixels.Read(x + area.Left, y + area.Top);

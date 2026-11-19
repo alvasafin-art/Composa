@@ -83,14 +83,18 @@ public sealed partial class EditorSession
     /// <summary>The selected layers without any whose ancestor is also selected, bottom to top.</summary>
     public List<Layer> SelectedRoots()
     {
-        var selected = document.SelectedLayerIds;
-        bool AncestorSelected(Layer layer)
+        var roots = new List<Layer>();
+        Collect(document.Layers);
+        return roots;
+
+        void Collect(List<Layer> siblings)
         {
-            for (var parent = document.ParentOf(layer.Id); parent != null; parent = document.ParentOf(parent.Id))
-                if (selected.Contains(parent.Id)) return true;
-            return false;
+            foreach (var layer in siblings)
+            {
+                if (document.SelectedLayerIds.Contains(layer.Id)) roots.Add(layer);
+                else if (layer.Children.Count > 0) Collect(layer.Children);
+            }
         }
-        return document.AllLayers().Where(l => selected.Contains(l.Id) && !AncestorSelected(l)).ToList();
     }
 
     public Layer AddBlankLayer()

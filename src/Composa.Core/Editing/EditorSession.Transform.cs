@@ -24,13 +24,16 @@ public sealed class TransformEdit
     public double StartRotation { get; }
     public SKRect Frame { get; private set; }
     public double Rotation { get; private set; }
-    public IReadOnlyList<Layer> Layers => maskTarget != null ? [] : layers.Select(l => l.Layer).ToList();
+    public IReadOnlyList<Layer> Layers { get; }
+    public IReadOnlySet<Guid> MovingLayerIds { get; }
 
     internal TransformEdit(EditorSession session, List<Layer> targets, List<Layer> maskOwners, Layer? maskTarget = null, LayerTransform? frameOverride = null)
     {
         this.session = session;
         this.maskTarget = maskTarget;
         hasFrameOverride = frameOverride != null;
+        Layers = maskTarget != null ? [] : targets.AsReadOnly();
+        MovingLayerIds = Layers.Select(layer => layer.Id).ToHashSet();
         if (maskTarget != null)
             targets = [new Layer { Pixels = maskTarget.Mask, Transform = maskTarget.MaskTransform ?? LayerTransform.FromMatrix(maskTarget.MaskMatrix, maskTarget.Mask!.Width, maskTarget.Mask.Height) }];
         layers = targets.Select(l => (l, l.Transform)).ToList();
@@ -177,9 +180,8 @@ public sealed class TransformEdit
     {
         if (masks.Count > 0) return session.Document.Bounds;
         if (maskTarget != null) return session.AffectedArea(maskTarget);
-        var area = SKRectI.Empty;
-        foreach (var (layer, _) in layers) area = Geometry.Union(area, session.AffectedArea(layer));
-        return area;
+        if (Layers.Count == 1) return session.AffectedArea(Layers[0]);
+        return session.AffectedArea(Layers, MovingLayerIds);
     }
 
     private void Update()
@@ -322,22 +324,42 @@ public sealed partial class EditorSession
 
     /// <summary>The raster layers a transform applies to: the selection, including everything inside selected folders.</summary>
     public List<Layer> TransformTargets() => IsEditingChannel ? ChannelControlLayer is { } channel ? [channel] : []
-        : SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels != null && !PositionLocked(l)).Distinct().ToList();
+        : CollectTransformTargets(null);
+
+    private List<Layer> CollectTransformTargets(List<Layer>? maskOwners)
+    {
+        var targets = new List<Layer>();
+        Collect(document.Layers, parentSelected: false);
+        return targets;
+
+        void Collect(List<Layer> siblings, bool parentSelected)
+        {
+            foreach (var layer in siblings)
+            {
+                if (layer.Locks.HasFlag(LayerLocks.Position)) continue;
+                var selected = parentSelected || document.SelectedLayerIds.Contains(layer.Id);
+                if (layer.Children.Count > 0) Collect(layer.Children, selected);
+                if (!selected) continue;
+                if (layer.Pixels != null) targets.Add(layer);
+                else if (layer.Mask != null && layer.MaskLinked) maskOwners?.Add(layer);
+            }
+        }
+    }
 
     public TransformEdit? BeginTransform(string name = "Transform", bool duplicate = false)
     {
         if (IsEditingChannel) return BeginChannelTransform(name, duplicate);
-        var targets = TransformTargets();
+        var maskOwners = new List<Layer>();
+        var targets = CollectTransformTargets(maskOwners);
         var maskTarget = IndependentMaskTarget;
-        var maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked && !PositionLocked(l)).Distinct().ToList();
         if (targets.Count == 0 && maskOwners.Count == 0 && maskTarget == null) return null;
         if (maskTarget != null) duplicate = false;
         Begin(duplicate ? "Duplicate and Move" : name);
         if (duplicate)
         {
             InsertLayerCopies(SelectedRoots());
-            targets = TransformTargets();
-            maskOwners = SelectedRoots().SelectMany(r => Document.Flatten([r])).Where(l => l.Pixels == null && l.Mask != null && l.MaskLinked && !PositionLocked(l)).Distinct().ToList();
+            maskOwners.Clear();
+            targets = CollectTransformTargets(maskOwners);
         }
         Transform = new TransformEdit(this, targets, maskTarget == null ? maskOwners : [], maskTarget);
         if (duplicate) { InvalidateAll(); LayersChanged?.Invoke(); }
@@ -435,7 +457,12 @@ public sealed partial class EditorSession
             layer.Transform = transform;
             if (layer.Text != null) RescaleText(layer);
             if (layer.Shape != null)
-                ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, Math.Max(1, (int)Math.Round(transform.Width)), Math.Max(1, (int)Math.Round(transform.Height))));
+            {
+                int width = Math.Max(1, (int)Math.Round(transform.Width)), height = Math.Max(1, (int)Math.Round(transform.Height));
+                var pixels = layer.Pixels;
+                if (width != pixels.Width || height != pixels.Height) pixels = RenderWorkingShape(layer.Shape, width, height);
+                ReplaceLivePixels(layer, pixels);
+            }
         });
         // Exactly one revision on: the commit above, with no other edit (or undo) between the two changes.
         if (inspectorEdit is { } last && last.LayerId == layer.Id && last.Revision == Revision - 1) FoldLastStep(InspectorEditName);

@@ -1,5 +1,6 @@
 using Composa.Editing;
 using Composa.Model;
+using Composa.Rendering;
 using SkiaSharp;
 using static Composa.Core.Tests.TestImages;
 
@@ -171,5 +172,61 @@ public class HistoryTests
         Assert.Null(history.GoTo(-1, document));
         Assert.NotNull(history.GoTo(0, document));
         Assert.Equal(0, history.CurrentIndex);
+    }
+
+    [Fact]
+    public void Budget_counts_shared_and_nested_pixels_once_and_evicts_each_oldest_state_needed()
+    {
+        using var image = Pixels.NewColor(8, 8);
+        using var plane = Pixels.NewMask(8, 8);
+        using var extra = Pixels.NewMask(8, 8);
+        var content = new Document(8, 8);
+        content.Layers.Add(Layer.Raster("Image", image));
+        var smart = SmartObjectSource.Create(content);
+        using var preview = smart.Preview;
+        var shared = new Document(8, 8) { Selection = plane };
+        var instance = Layer.Raster("Smart", preview);
+        instance.SmartObject = smart;
+        instance.Mask = plane;
+        shared.Layers.Add(instance);
+        shared.AlphaChannels.Add("Alpha", plane);
+        var history = new History { MemoryBudget = image.ByteCount + plane.ByteCount + preview.ByteCount };
+        for (var i = 1; i <= 4; i++) history.Push(i.ToString(), shared.Clone());
+        Assert.Equal(4, history.Count);
+
+        var next = shared.Clone();
+        next.AlphaChannels.Add("Another", extra);
+        history.Push("5", next);
+        Assert.Equal(["4", "5"], history.Steps.Select(step => step.Name));
+        Assert.Same(next, history.Undo(shared));
+    }
+
+    [Fact]
+    public void Budget_follows_the_remaining_snapshots_after_fold_discard_scrub_and_branch()
+    {
+        using var a = Pixels.NewMask(8, 8);
+        using var b = Pixels.NewMask(8, 8);
+        using var c = Pixels.NewMask(8, 8);
+        var one = new Document(8, 8) { Selection = a };
+        var two = new Document(8, 8) { Selection = b };
+        var three = new Document(8, 8) { Selection = c };
+        var history = new History { MemoryBudget = a.ByteCount * 2 };
+        history.Push("1", one);
+        history.Push("2", two);
+        history.MergeLast("folded");
+        history.Push("3", three);
+        history.DiscardLast();
+        history.Push("4", two);
+        Assert.Equal(2, history.Count);
+        Assert.Same(one, history.GoTo(0, three));
+        Assert.Same(two, history.Redo(one));
+        history.Push("branch", three);
+        Assert.Equal(["Open", "folded", "branch"], history.Steps.Select(step => step.Name));
+        history.Push("next", two);
+        Assert.Equal(["folded", "branch", "next"], history.Steps.Select(step => step.Name));
+        history.Clear();
+        history.Push("fresh", one);
+        history.Push("second", two);
+        Assert.Equal(2, history.Count);
     }
 }

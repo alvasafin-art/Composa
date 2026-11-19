@@ -143,9 +143,13 @@ public static partial class DocumentRenderer
                 throw new InvalidOperationException("The rendered pixels could not be converted for display.");
             return;
         }
+        var sourceStride = from.RowBytes;
+        var targetStride = to.RowBytes;
         long bytes = (long)area.Width * from.BytesPerPixel;
+        source += (long)fromOrigin.Y * sourceStride + (long)fromOrigin.X * from.BytesPerPixel;
+        destination += (long)area.Top * targetStride + (long)area.Left * to.BytesPerPixel;
         for (var y = 0; y < area.Height; y++)
-            Buffer.MemoryCopy(source + (long)(y + fromOrigin.Y) * from.RowBytes + (long)fromOrigin.X * from.BytesPerPixel, destination + (long)(y + area.Top) * to.RowBytes + (long)area.Left * to.BytesPerPixel, bytes, bytes);
+            Buffer.MemoryCopy(source + (long)y * sourceStride, destination + (long)y * targetStride, bytes, bytes);
     }
 
     /// <summary>Renders only the given layers (and their clipped followers) over a document-space area, for merges and copies.</summary>
@@ -166,18 +170,21 @@ public static partial class DocumentRenderer
         {
             var layer = Resolve(nodes[i], options);
             // A clipping base and the clipped layers directly above it render as one unit.
-            var clipped = new List<Layer>();
-            while (i + 1 < nodes.Count && nodes[i + 1].Clipped) clipped.Add(Resolve(nodes[++i], options));
-            if (layer.Clipped) continue; // A clipped layer with no base shows nothing.
-            if (!layer.Visible || layer.Opacity <= 0) continue;
-            clipped.RemoveAll(l => !l.Visible || l.Opacity <= 0);
-            if (layer.HasWarp || clipped.Any(l => l.HasWarp))
-                RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped.Select(l => l.WarpAppearanceForView(tile.View.Scale)).ToList(), tile, options);
-            else RenderUnit(layer, clipped, tile, options);
+            var firstClipped = i + 1;
+            while (i + 1 < nodes.Count && nodes[i + 1].Clipped) i++;
+            if (layer.Clipped || !layer.Visible || layer.Opacity <= 0) continue;
+            List<Layer>? clipped = null;
+            for (var j = firstClipped; j <= i; j++)
+            {
+                var follower = Resolve(nodes[j], options);
+                if (follower.Visible && follower.Opacity > 0)
+                    (clipped ??= []).Add(follower.WarpAppearanceForView(tile.View.Scale));
+            }
+            RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped is null ? [] : clipped, tile, options);
         }
     }
 
-    private static void RenderUnit(Layer layer, List<Layer> clipped, Tile tile, RenderOptions? options)
+    private static void RenderUnit(Layer layer, IReadOnlyList<Layer> clipped, Tile tile, RenderOptions? options)
     {
         if (layer.IsAdjustment)
         {

@@ -35,6 +35,55 @@ public class ObjectEditingTests
         Assert.Equal((55d, 55d), (s.ActiveLayer!.Transform.X, s.ActiveLayer.Transform.Y));
     }
 
+    [Fact]
+    public void Numeric_move_and_rotation_reuse_the_live_shape_and_a_resize_rerenders_it()
+    {
+        var s = EditorSession.NewCanvas(240, 180);
+        var shape = s.AddShape(new ShapeStyle(ShapeKind.Ellipse, (uint)SKColors.Blue, 0), new(20, 20, 100, 80))!;
+        var original = shape.Pixels!;
+        var start = shape.Transform;
+        s.SetTransform(shape, start with { X = 38.3, Y = 30.4 });
+        Assert.Same(original, shape.Pixels);
+        Assert.Equal(38, shape.Transform.X);
+        s.SetTransform(shape, shape.Transform with { Rotation = 15 });
+        Assert.Same(original, shape.Pixels);
+        s.SetTransform(shape, shape.Transform with { Width = 120 });
+        Assert.Equal(120, shape.Pixels!.Width);
+        Assert.NotSame(original, shape.Pixels);
+        s.Undo();
+        Assert.Same(original, s.ActiveLayer!.Pixels);
+        Assert.Equal(start, s.ActiveLayer.Transform);
+    }
+
+    [Fact]
+    public void Multi_object_damage_includes_old_and_new_bounds_and_nested_clipping_chains()
+    {
+        var s = EditorSession.NewCanvas(500, 400);
+        var group = Layer.Group("Group");
+        var nested = Layer.Group("Nested");
+        var first = Layer.Raster("First", Pixels.NewColor(13, 13), 30, 25);
+        var other = Layer.Raster("Other", Pixels.NewColor(13, 13), 100, 130);
+        var follower = Layer.Raster("Clipped and locked", Pixels.NewColor(13, 13), 360, 330);
+        follower.Clipped = true;
+        follower.Locks = LayerLocks.Position;
+        nested.Children.AddRange([other, follower]);
+        group.Children.AddRange([first, nested]);
+        s.Document.Layers.Add(group);
+        s.Document.SetActive(group.Id);
+        var edit = s.BeginTransform()!;
+        Assert.Equal([first, other], edit.Layers);
+        var before = Geometry.Union(s.AffectedArea(first), s.AffectedArea(other));
+        SKRectI? damaged = null;
+        s.CanvasChanged += area => damaged = area;
+        edit.MoveBy(-12, 23);
+        var after = Geometry.Union(s.AffectedArea(first), s.AffectedArea(other));
+        Assert.Equal(Geometry.Union(before, after), damaged);
+        Assert.Equal(360, follower.Transform.X);
+        s.CommitTransform();
+        s.Undo();
+        Assert.Equal(30, s.Document.Find(first.Id)!.Transform.X);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

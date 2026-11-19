@@ -56,6 +56,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
     private SKBitmap? blurred;
     private float[]? carry;
     private int carrySize;
+    private byte[] pushBytes = [];
+    private PixelValue[] pushColors = [];
     private SKPoint? last;
     private SKPoint? lastDab;
     private float residual;
@@ -70,9 +72,32 @@ public sealed unsafe partial class BrushStroke : IDisposable
     /// <summary>Everything the stroke has touched so far, in bitmap coordinates.</summary>
     public SKRectI Touched { get; private set; } = SKRectI.Empty;
 
-    /// <summary>Document-space selection limiting the stroke, with the matrix from bitmap to document space.</summary>
-    public SKBitmap? Selection { get; init; }
-    public SKMatrix ToDocument { get; init; } = SKMatrix.Identity;
+    private readonly byte* selectionPixels;
+    private readonly int selectionWidth, selectionHeight, selectionStride;
+    /// <summary>Document-space selection limiting the stroke. Its storage lives for the whole stroke.</summary>
+    public SKBitmap? Selection
+    {
+        get;
+        init
+        {
+            field = value;
+            if (value == null) return;
+            selectionPixels = (byte*)value.GetPixels();
+            selectionWidth = value.Width;
+            selectionHeight = value.Height;
+            selectionStride = value.RowBytes;
+        }
+    }
+    private readonly bool selectionTranslationOnly = true;
+    public SKMatrix ToDocument
+    {
+        get;
+        init
+        {
+            field = value;
+            selectionTranslationOnly = value == SKMatrix.CreateTranslation(value.TransX, value.TransY);
+        }
+    } = SKMatrix.Identity;
     public bool LockTransparency { get; init; }
 
     /// <summary>Clone source pixels (same format as the target) and the offset from target to source coordinates.</summary>
@@ -120,19 +145,24 @@ public sealed unsafe partial class BrushStroke : IDisposable
         }
         else
         {
-            var spacing = Math.Max(0.5f, RadiusFor(Math.Min(pressure, lastPressure)) * 2 * (float)settings.Spacing);
+            var diameter = RadiusFor(Math.Min(pressure, lastPressure)) * 2;
+            var spacing = Math.Max(0.5f, diameter * (float)settings.Spacing);
             float dx = point.X - from.X, dy = point.Y - from.Y;
             var length = MathF.Sqrt(dx * dx + dy * dy);
             if (length <= 0) return dirty;
+            // Paint and erase depend only on accumulated coverage and the immutable source.
+            // Nearby dabs can share one color pass. Long diagonal jumps keep their narrow footprints.
+            var deferColor = (mode is BrushMode.Paint or BrushMode.Erase) && length <= diameter;
             var travelled = spacing - residual;
             while (travelled <= length)
             {
                 var t = travelled / length;
                 dabPressure = lastPressure + (pressure - lastPressure) * t;
                 radius = RadiusFor(dabPressure);
-                dirty = Geometry.Union(dirty, Dab(new SKPoint(from.X + dx * t, from.Y + dy * t)));
+                dirty = Geometry.Union(dirty, Dab(new SKPoint(from.X + dx * t, from.Y + dy * t), deferColor));
                 travelled += spacing;
             }
+            if (deferColor && !dirty.IsEmpty) Recompute(dirty);
             residual = length - (travelled - spacing);
             last = point;
             lastPressure = pressure;
@@ -181,7 +211,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
-    private SKRectI Dab(SKPoint center)
+    private SKRectI Dab(SKPoint center, bool deferColor = false)
     {
         var rect = Geometry.Intersect(new SKRectI(
             (int)MathF.Floor(center.X - radius - 1), (int)MathF.Floor(center.Y - radius - 1),
@@ -191,6 +221,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
         if (mode == BrushMode.Liquify) return Push(center, rect);
 
         var changed = false;
+        var flow = (float)Math.Clamp(settings.Flow, 0, 1) * (settings.PressureFlow ? dabPressure : 1);
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             for (var x = rect.Left; x < rect.Right; x++)
@@ -200,7 +231,6 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 if (amount <= 0) continue;
                 var old = coverage[x, y];
                 // Float precision inside the calculation and 16-bit coverage keep very low flow smooth.
-                var flow = (float)Math.Clamp(settings.Flow, 0, 1) * (settings.PressureFlow ? dabPressure : 1);
                 var accumulated = mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing
                     ? old + (ushort.MaxValue - old) * amount * flow
                     : Math.Max(old, amount * ushort.MaxValue);
@@ -211,17 +241,26 @@ public sealed unsafe partial class BrushStroke : IDisposable
             }
         }
         if (!changed) return SKRectI.Empty;
-        Recompute(rect);
+        if (!deferColor) Recompute(rect);
         return rect;
     }
 
     private float SelectionAt(int x, int y)
     {
-        if (Selection == null) return 1;
-        var p = ToDocument.MapPoint(x + 0.5f, y + 0.5f);
-        int sx = (int)MathF.Floor(p.X), sy = (int)MathF.Floor(p.Y);
-        if (sx < 0 || sy < 0 || sx >= Selection.Width || sy >= Selection.Height) return 0;
-        return ((byte*)Selection.GetPixels())[(long)sy * Selection.RowBytes + sx] / 255f;
+        if (selectionPixels == null) return 1;
+        if (selectionTranslationOnly)
+        {
+            x = (int)MathF.Floor((x + 0.5f) + ToDocument.TransX);
+            y = (int)MathF.Floor((y + 0.5f) + ToDocument.TransY);
+        }
+        else
+        {
+            var p = ToDocument.MapPoint(x + 0.5f, y + 0.5f);
+            x = (int)MathF.Floor(p.X);
+            y = (int)MathF.Floor(p.Y);
+        }
+        if ((uint)x >= (uint)selectionWidth || (uint)y >= (uint)selectionHeight) return 0;
+        return selectionPixels[(long)y * selectionStride + x] / 255f;
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
@@ -231,28 +270,34 @@ public sealed unsafe partial class BrushStroke : IDisposable
         if (mode == BrushMode.Blur && blurred == null) blurred = MakeBlurred();
         var src = (byte*)original.GetPixels();
         var dst = (byte*)Working.GetPixels();
-        var stride = original.RowBytes;
+        var sourceStride = original.RowBytes;
+        var outputStride = Working.RowBytes;
         var opacity = (float)Math.Clamp(settings.Opacity, 0, 1);
         byte* clone = CloneSource != null ? (byte*)CloneSource.GetPixels() : null;
+        int cloneWidth = CloneSource?.Width ?? 0, cloneHeight = CloneSource?.Height ?? 0, cloneStride = CloneSource?.RowBytes ?? 0;
         byte* soft = blurred != null ? (byte*)blurred.GetPixels() : null;
         Span<float> source = stackalloc float[4];
+        if (mode == BrushMode.Paint)
+        {
+            if (isMask) source[0] = maskValue;
+            else premulColor.CopyTo(source);
+        }
 
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
+            var input = src + (long)y * sourceStride;
+            var output = dst + (long)y * outputStride;
             for (var x = rect.Left; x < rect.Right; x++)
             {
                 var c = coverage[x, y] / 257f;
                 if (c == 0) continue;
                 var a = c / 255f * opacity * SelectionAt(x, y);
                 if (LockTransparency && mode == BrushMode.Erase) a = 0;
-                var index = (long)y * stride + x * bytesPerPixel;
-                if (a <= 0) { for (var i = 0; i < bytesPerPixel; i++) dst[index + i] = src[index + i]; continue; }
+                var index = x * bytesPerPixel;
+                if (a <= 0) { for (var i = 0; i < bytesPerPixel; i++) output[index + i] = input[index + i]; continue; }
 
                 switch (mode)
                 {
-                    case BrushMode.Paint:
-                        if (isMask) source[0] = maskValue; else premulColor.CopyTo(source);
-                        break;
                     case BrushMode.Erase:
                         source.Clear();
                         break;
@@ -263,31 +308,31 @@ public sealed unsafe partial class BrushStroke : IDisposable
                     case BrushMode.Clone:
                     case BrushMode.Healing:
                         int cx = x + CloneOffset.X, cy = y + CloneOffset.Y;
-                        if (clone == null || cx < 0 || cy < 0 || cx >= CloneSource!.Width || cy >= CloneSource.Height) { source.Clear(); a = 0; }
+                        if (clone == null || cx < 0 || cy < 0 || cx >= cloneWidth || cy >= cloneHeight) { source.Clear(); a = 0; }
                         else
                         {
-                            var ci = (long)cy * CloneSource.RowBytes + cx * bytesPerPixel;
+                            var ci = (long)cy * cloneStride + cx * bytesPerPixel;
                             for (var i = 0; i < bytesPerPixel; i++) source[i] = clone[ci + i];
                         }
                         break;
                     case BrushMode.Blur:
-                        for (var i = 0; i < bytesPerPixel; i++) source[i] = soft![index + i];
+                        for (var i = 0; i < bytesPerPixel; i++) source[i] = soft![(long)y * outputStride + index + i];
                         break;
                     case BrushMode.Dodge:
                     case BrushMode.Burn:
-                        if (isMask) source[0] = mode == BrushMode.Dodge ? src[index] + (255 - src[index]) * 0.5f : src[index] * 0.5f;
+                        if (isMask) source[0] = mode == BrushMode.Dodge ? input[index] + (255 - input[index]) * 0.5f : input[index] * 0.5f;
                         else
                         {
-                            float alpha = src[index + 3];
+                            float alpha = input[index + 3];
                             for (var i = 0; i < 3; i++)
-                                source[i] = mode == BrushMode.Dodge ? src[index + i] + (alpha - src[index + i]) * 0.5f : src[index + i] * 0.5f;
+                                source[i] = mode == BrushMode.Dodge ? input[index + i] + (alpha - input[index + i]) * 0.5f : input[index + i] * 0.5f;
                             source[3] = alpha;
                         }
                         break;
                 }
                 for (var i = 0; i < bytesPerPixel; i++)
-                    dst[index + i] = (byte)Math.Clamp(src[index + i] * (1 - a) + source[i] * a + 0.5f, 0, 255);
-                if (LockTransparency && !isMask) Pixels.PreserveAlpha(dst + index, src[index + 3]);
+                    output[index + i] = (byte)Math.Clamp(input[index + i] * (1 - a) + source[i] * a + 0.5f, 0, 255);
+                if (LockTransparency && !isMask) Pixels.PreserveAlpha(output + index, input[index + 3]);
             }
         }
     }
@@ -317,6 +362,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
         var size = (int)MathF.Ceiling(fullRadius * 2 + 3);
         var dst = (byte*)Working.GetPixels();
         var stride = Working.RowBytes;
+        var alphaSource = LockTransparency && !isMask ? (byte*)original.GetPixels() : null;
+        var alphaStride = original.RowBytes;
         int originX = (int)MathF.Floor(center.X - radius - 1), originY = (int)MathF.Floor(center.Y - radius - 1);
         if (carry == null)
         {
@@ -346,7 +393,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 carry[slot + i] = carry[slot + i] * strength + under * (1 - strength);
                 if (c > 0) dst[index + i] = (byte)Math.Clamp(under + (carry[slot + i] - under) * c + 0.5f, 0, 255);
             }
-            if (LockTransparency && !isMask) Pixels.PreserveAlpha(dst + index, ((byte*)original.GetPixels())[(long)y * original.RowBytes + x * 4 + 3]);
+            if (alphaSource != null) Pixels.PreserveAlpha(dst + index, alphaSource[(long)y * alphaStride + x * 4 + 3]);
         }
         return true;
     }
@@ -368,7 +415,11 @@ public sealed unsafe partial class BrushStroke : IDisposable
         int aw = area.Width, ah = area.Height;
         var dst = (byte*)Working.GetPixels();
         var stride = Working.RowBytes;
-        var snapshot = new byte[aw * ah * bytesPerPixel];
+        var alphaSource = LockTransparency && !isMask ? (byte*)original.GetPixels() : null;
+        var alphaStride = original.RowBytes;
+        var length = aw * ah * bytesPerPixel;
+        if (pushBytes.Length < length) pushBytes = new byte[length];
+        var snapshot = pushBytes;
         for (var y = 0; y < ah; y++)
             fixed (byte* row = &snapshot[y * aw * bytesPerPixel])
                 Buffer.MemoryCopy(dst + (long)(y + area.Top) * stride + (long)area.Left * bytesPerPixel, row, aw * bytesPerPixel, aw * bytesPerPixel);
@@ -390,7 +441,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 var bottom = snapshot[(yb * aw + xa) * bytesPerPixel + i] * (1 - tx) + snapshot[(yb * aw + xb) * bytesPerPixel + i] * tx;
                 dst[index + i] = (byte)Math.Clamp(top * (1 - ty) + bottom * ty + 0.5f, 0, 255);
             }
-            if (LockTransparency && !isMask) Pixels.PreserveAlpha(dst + index, ((byte*)original.GetPixels())[(long)y * original.RowBytes + x * 4 + 3]);
+            if (alphaSource != null) Pixels.PreserveAlpha(dst + index, alphaSource[(long)y * alphaStride + x * 4 + 3]);
         }
         return rect;
     }
@@ -400,8 +451,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
     {
         var mask = Pixels.NewMask(width, height);
         var dst = (byte*)mask.GetPixels();
-        for (var y = 0; y < height; y++)
-            for (var x = 0; x < width; x++) dst[(long)y * mask.RowBytes + x] = (byte)((coverage[x, y] + 128) / 257);
+        var stride = mask.RowBytes;
+        for (var y = Touched.Top; y < Touched.Bottom; y++)
+            for (var x = Touched.Left; x < Touched.Right; x++) dst[(long)y * stride + x] = (byte)((coverage[x, y] + 128) / 257);
         return mask;
     }
 

@@ -1,4 +1,5 @@
 using Composa.Painting;
+using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
 
@@ -56,5 +57,60 @@ public class SoftBrushTests
         var alphas = Enumerable.Range(0, 20).SelectMany(y => Enumerable.Range(0, 20).Select(x => stroke.Working.GetPixel(x, y).Alpha)).ToArray();
         Assert.InRange(alphas.Max(), 1, 102); Assert.Contains(alphas, value => value is > 0 and < 30);
         Assert.Equal(0, target.GetPixel(10, 10).Alpha);
+    }
+
+    [Theory]
+    [InlineData(BrushMode.Paint, ColorDepth.Eight)]
+    [InlineData(BrushMode.Paint, ColorDepth.Sixteen)]
+    [InlineData(BrushMode.Erase, ColorDepth.Eight)]
+    [InlineData(BrushMode.Erase, ColorDepth.Sixteen)]
+    public void Overlapping_dabs_match_individual_samples_in_both_directions(BrushMode mode, ColorDepth depth)
+    {
+        using var source = Pixels.NewColor(67, 49, depth);
+        source.Erase(new SKColor(20, 60, 100, 180));
+        using var selection = Pixels.NewMask(67, 49, 119);
+        var settings = new BrushSettings { Size = 32, Spacing = .125, Flow = .22, Hardness = .5 };
+        byte[] Paint(bool separate)
+        {
+            using var stroke = new BrushStroke(source, settings, mode, SKColors.Red)
+            { Selection = selection, ToDocument = SKMatrix.CreateTranslation(3.5f, -2.5f) };
+            using var result = stroke.Working;
+            stroke.AddPoint(new(4, 20));
+            if (separate) for (int x = 8; x < 28; x += 4) stroke.AddPoint(new(x, 20));
+            stroke.AddPoint(new(28, 20));
+            if (separate) for (int x = 24; x > 4; x -= 4) stroke.AddPoint(new(x, 20));
+            stroke.AddPoint(new(4, 20));
+            return result.GetPixelSpan().ToArray();
+        }
+        Assert.Equal(Paint(true), Paint(false));
+    }
+
+    [Theory]
+    [InlineData(BrushMode.Paint)]
+    [InlineData(BrushMode.Clone)]
+    [InlineData(BrushMode.Blur)]
+    public void Painting_a_padded_source_uses_each_bitmaps_own_row_stride(BrushMode mode)
+    {
+        using var tight = Pixels.NewColor(31, 37);
+        using var padded = new SKBitmap();
+        Assert.True(padded.TryAllocPixels(tight.Info, tight.RowBytes + 32));
+        for (var y = 0; y < tight.Height; y++)
+        for (var x = 0; x < tight.Width; x++)
+        {
+            var color = new SKColor((byte)(x * 6), (byte)(y * 5), 60, 190);
+            tight.SetPixel(x, y, color);
+            padded.SetPixel(x, y, color);
+        }
+
+        byte[] Paint(SKBitmap target)
+        {
+            using var stroke = new BrushStroke(target, new() { Size = 17 }, mode, SKColors.Green)
+            { CloneSource = target, CloneOffset = new(-2, 1), LockTransparency = true };
+            using var result = stroke.Working;
+            stroke.AddPoint(new(12, 24));
+            stroke.AddPoint(new(27, 36));
+            return result.GetPixelSpan().ToArray();
+        }
+        Assert.Equal(Paint(tight), Paint(padded));
     }
 }
