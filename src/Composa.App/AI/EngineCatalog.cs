@@ -22,7 +22,7 @@ public sealed class EngineCatalog
                 catch (Exception error) { errors.Add($"{manifest}: {error.Message}"); }
             }
         }
-        Profiles = profiles.OrderBy(profile => profile.PaidApi).ThenBy(profile => profile.DisplayName).ToArray();
+        Profiles = profiles.OrderByDescending(profile => profile.Id == "flux2-klein-intel-xpu").ThenBy(profile => profile.PaidApi).ThenBy(profile => profile.DisplayName).ToArray();
         Errors = errors;
     }
 

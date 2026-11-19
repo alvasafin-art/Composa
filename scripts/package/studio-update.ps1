@@ -38,12 +38,38 @@ foreach ($entry in $entries) {
         throw "Release feed does not match $($file.Name)"
     }
 }
-# Setup seeds the local package cache itself. Seed the official portable layout as well so its
-# first update only needs a patch. Store the already-compressed package without recompressing it.
+# Keep only metadata unique to the full package and checksums for its installed files.
 $portable = Join-Path $outputPath "ComposaStudio-$Rid-Portable.zip"
 $archive = [IO.Compression.ZipFile]::Open($portable, [IO.Compression.ZipArchiveMode]::Update)
+$package = [IO.Compression.ZipFile]::OpenRead((Join-Path $outputPath $full[0].FileName))
 try {
-    $name = $full[0].FileName
-    [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $outputPath $name),
-        "packages/$name", [IO.Compression.CompressionLevel]::NoCompression)
-} finally { $archive.Dispose() }
+    $rows = foreach ($entry in $package.Entries) {
+        if (!$entry.Name) { continue }
+        $path = $entry.FullName
+        $source = $null
+        if ($path.StartsWith('lib/app/')) {
+            $leaf = $path.Substring(8)
+            $source = switch ($leaf) {
+                'Squirrel.exe' { 'Update.exe' }
+                'Composa Studio_ExecutionStub.exe' { 'Composa Studio.exe' }
+                default { "current/$leaf" }
+            }
+        }
+        $stream = $entry.Open()
+        try {
+            if ($source) {
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream))
+                if (!$archive.GetEntry($source)) { throw "Portable payload lacks $source" }
+                @{ Path=$path; Source=$source; Hash=$hash }
+            } else {
+                if ($entry.Length -gt 2MB) { throw "Unexpected package metadata: $path" }
+                $buffer = [IO.MemoryStream]::new()
+                try { $stream.CopyTo($buffer); @{ Path=$path; Data=[Convert]::ToBase64String($buffer.ToArray()) } }
+                finally { $buffer.Dispose() }
+            }
+        } finally { $stream.Dispose() }
+    }
+    $recipe = @{ Version=$Version; Package=$full[0].FileName; Entries=@($rows) } | ConvertTo-Json -Depth 5 -Compress
+    $file = $archive.CreateEntry('portable-baseline.json').Open()
+    try { $file.Write([Text.Encoding]::UTF8.GetBytes($recipe)) } finally { $file.Dispose() }
+} finally { $package.Dispose(); $archive.Dispose() }

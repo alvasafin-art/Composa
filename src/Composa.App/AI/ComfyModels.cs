@@ -15,13 +15,14 @@ public sealed record ComfyServerInfo(string? Version, string? OperatingSystem, s
 {
     public IReadOnlyList<ComfyDeviceMemory> Memory { get; init; } = [];
 }
-public sealed record ComfyQueueState(int Running, int Pending, int? Position = null);
+public sealed record ComfyQueueState(int Running, int Pending, int? Position = null, bool PromptRunning = false);
 public sealed record ComfyImageReference(string Filename, string Subfolder, string Type, string? NodeId = null);
 
 public sealed record AiOperationState
 {
     public AiOperationStatus Status { get; init; } = AiOperationStatus.Queued;
     public string? PromptId { get; init; }
+    public int? ElapsedSeconds { get; init; }
     public int? QueuePosition { get; init; }
     public string? NodeId { get; init; }
     public string? Stage { get; init; }
@@ -84,12 +85,27 @@ internal static class ComfyEventParser
             "execution_start" => current with { Status = AiOperationStatus.Running, Stage = "Starting", Value = null, Maximum = null },
             "executing" => Executing(data, current),
             "progress" => Progress(data, current),
+            "progress_state" => NodeProgress(data, promptId, current),
+            "execution_cached" => current with { Status = AiOperationStatus.Running, Stage = "Using cached inputs" },
             "executed" => current with { Status = AiOperationStatus.Running, Stage = "Collecting result" },
             "execution_success" => current with { Status = AiOperationStatus.Completed, Stage = "Completed", Value = current.Maximum, Error = null },
             "execution_error" => current with { Status = AiOperationStatus.Failed, Error = Message(data), Stage = "Failed" },
             "execution_interrupted" => current with { Status = AiOperationStatus.Cancelled, Stage = "Cancelled" },
             _ => current
         };
+    }
+
+    private static AiOperationState NodeProgress(JsonElement data, string promptId, AiOperationState current)
+    {
+        if (!data.TryGetProperty("nodes", out var nodes) || nodes.ValueKind != JsonValueKind.Object) return current;
+        foreach (var node in nodes.EnumerateObject())
+        {
+            var value = node.Value;
+            if (!value.TryGetProperty("state", out var status) || status.GetString() != "running") continue;
+            if (value.TryGetProperty("prompt_id", out var id) && id.GetString() != promptId) continue;
+            return Progress(value, current with { NodeId = node.Name, QueuePosition = null });
+        }
+        return current;
     }
 
     private static AiOperationState Executing(JsonElement data, AiOperationState current)

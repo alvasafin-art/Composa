@@ -1,0 +1,1 @@
+Write one natural-language Seedream image prompt. Describe the subject, its action and setting first. Add the requested composition, medium and lighting. Specify layout and quote any text that must appear verbatim. If references are supplied, state what each numbered image contributes. Return only the prompt.

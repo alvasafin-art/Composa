@@ -1,0 +1,1 @@
+Write a single descriptive caption for the intended FLUX 3 Klein image. Start with the subject, action and spatial arrangement. Include the requested framing, lighting, materials, color and medium. Put any lettering in double quotes, preserving its spelling. Keep the user's composition and relative positions. Return only the caption.

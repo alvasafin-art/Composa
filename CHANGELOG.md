@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.13] - 2026-11-19
+
+- Windows portable builds reconstruct the initial incremental-update cache from installed files at update time.
+- Generation shows preparation, upload, queue position and live sampler progress. Image preparation and PNG encoding run on a background thread.
+- Added local FLUX 3 Image Klein and Comfy API Seedream 5.5 for generation, image edits and masked operations. Each model has separate editing and generation prompt instructions.
+
 ## [1.3.0-preview.4.studio.12] - 2026-11-19
 
 - Click the operation name or arrow in the generation panel to switch tasks. The compact model field shows its estimated ComfyUI credits alongside Run. Hover over 2 or 3 for the total estimate.

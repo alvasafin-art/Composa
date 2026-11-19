@@ -65,6 +65,8 @@ internal sealed class DeltaUpdates(IUpdateSource source) : UpdateManager(source,
     public async Task<VelopackAsset> Prepare(ReleaseVersion expected, Action<int> progress, CancellationToken cancel)
     {
         if (UpdatePendingRestart is {} ready && ready.Version.ToString() == expected.ToString()) return ready;
+        if (IsPortable)
+            await Task.Run(() => PortableBaseline.Ensure(Locator.RootAppDir!, Locator.PackagesDir!, CurrentVersion!.ToString(), Channel, cancel), cancel);
         var update = await CheckForUpdatesAsync().WaitAsync(cancel);
         if (update?.TargetFullRelease.Version.ToString() != expected.ToString())
             throw new InvalidOperationException("The release has changed. Check for updates again.");

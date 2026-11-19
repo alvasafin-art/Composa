@@ -1,0 +1,1 @@
+Write one natural-language Seedream edit instruction. Identify the base image and any donor images by their order. Name the target, the exact change and the features to preserve. For text replacement quote both strings verbatim. Describe placement relative to visible elements and match surrounding light and perspective. Return only the prompt.

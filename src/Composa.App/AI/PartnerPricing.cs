@@ -19,7 +19,7 @@ internal static class PartnerPricing
     public static string Reported(double credits) => $"{credits.ToString("0.##", CultureInfo.InvariantCulture)} cr / ${(credits / CreditsPerDollar).ToString("0.000", CultureInfo.InvariantCulture)}";
     public static PartnerPriceEstimate? Estimate(ComfyServerCapabilities? capabilities, string model, string quality, string size, int images, int variants)
     {
-        var expression = capabilities?.NodeDefinitions.GetValueOrDefault(NanoBanana.IsModel(model) ? "GeminiNanoBanana2V2" : "OpenAIGPTImageNodeV2")?["price_badge"]?["expr"]?.GetValue<string>();
+        var expression = capabilities?.NodeDefinitions.GetValueOrDefault(PartnerNodes.NodeFor(model))?["price_badge"]?["expr"]?.GetValue<string>();
         if (expression == null || variants is < 1 or > 3 || images is < 0 or > 16) return null;
         JsonObject? Table(string name)
         {
@@ -28,6 +28,16 @@ internal static class PartnerPricing
         }
         try
         {
+            if (model == PartnerNodes.Seedream)
+            {
+                // Match the server's named 5.5 price expressions. An unfamiliar schema gets an unknown estimate.
+                var fee = Regex.Match(expression, @"\$in55\s*:=\s*\$type\(\$refs\).*?\$refs\s*\*\s*([\d.]+)");
+                var tiers = Regex.Match(expression, @"\$price55\s*:=\s*\$isCustom\s*\?\s*\(\$px\s*<=\s*\d+\s*\?\s*([\d.]+)\s*:\s*([\d.]+)\)");
+                if (!fee.Success || !tiers.Success) return null;
+                double Read(Group g) => double.Parse(g.Value, CultureInfo.InvariantCulture);
+                var refs = images * Read(fee.Groups[1]);
+                return new((refs + Read(tiers.Groups[1])) * variants, (refs + Read(tiers.Groups[2])) * variants);
+            }
             if(NanoBanana.IsModel(model))
             {
                 var price=Table("prices")?[quality.ToLowerInvariant()]?.GetValue<double>();
@@ -41,14 +51,14 @@ internal static class PartnerPricing
             var maximum = ((preset ?? range[1]!.GetValue<double>()) + images * perImage[1]!.GetValue<double>()) * variants;
             return double.IsFinite(minimum) && double.IsFinite(maximum) && minimum >= 0 && maximum >= minimum ? new(minimum, maximum) : null;
         }
-        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or RegexMatchTimeoutException) { return null; }
+        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or RegexMatchTimeoutException or FormatException) { return null; }
     }
 
     public static bool SupportsModel(ComfyServerCapabilities server, string model) => ModelChoice(server,model)!=null;
 
     private static JsonNode? ModelChoice(ComfyServerCapabilities? server,string model)
     {
-        var node=NanoBanana.IsModel(model) ? "GeminiNanoBanana2V2" : "OpenAIGPTImageNodeV2";
+        var node=PartnerNodes.NodeFor(model);
         return server?.NodeDefinitions.GetValueOrDefault(node)?["input"]?["required"]?["model"]?[1]?["options"] is JsonArray choices
             ? choices.FirstOrDefault(value=>value?["key"]?.GetValue<string>()==model) : null;
     }

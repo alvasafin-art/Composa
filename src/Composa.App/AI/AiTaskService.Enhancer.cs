@@ -59,6 +59,11 @@ public sealed partial class AiTaskService
     {
         var id = pack?.Id ?? "";
         if (overrides.TryGetValue(InstructionKey(id, task), out var saved)) return saved;
+        if (task == AiTaskKind.GenerateImage && pack != null)
+        {
+            var file = Path.Combine(Engines.DirectoryOf(pack), "enhancer-generate.txt");
+            if (File.Exists(file)) return File.ReadAllText(file).Trim();
+        }
         if (task == AiTaskKind.GenerateImage)
             return $"Write a concise prompt to create a new image with {pack?.ModelName ?? pack?.DisplayName}. Describe the requested subject, composition, lighting and style. Preserve quoted text and reference roles. Return only the prompt.";
         return overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);

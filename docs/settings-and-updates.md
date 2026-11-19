@@ -15,7 +15,7 @@ On Linux the XDG environment variables are honoured if you set them. The pipe an
 
 ## Updates
 
-Help > Check for Updates checks the release feed. Windows Studio 12 and later installations offer **Download changes**, followed by **Restart to update**. Keep the extracted portable folder together, including its `packages` directory. The editor uses that local baseline to reconstruct the new version from verified patches. If a patch is unavailable, the editor offers a retry and a link to the release. Studio 11 and earlier require one manual upgrade to an update-enabled installation.
+Help > Check for Updates checks the release feed. Windows Studio 12 and later installations offer **Download changes**, followed by **Restart to update**. Keep the extracted portable folder together, including its `packages` directory and, from Studio 13, `portable-baseline.json`. Studio 13 builds its initial baseline locally when you first download changes. The editor uses that local baseline to reconstruct the new version from verified patches. If a patch is unavailable, the editor offers a retry and a link to the release. Studio 11 and earlier require one manual upgrade to an update-enabled installation.
 
 Help > Check for Updates Automatically checks once a day at launch. You can dismiss the notice or skip a particular version. Stable installations follow stable releases, and Studio previews can receive newer previews.
 

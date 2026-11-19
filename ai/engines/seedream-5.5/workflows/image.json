@@ -1,0 +1,25 @@
+{
+  "gpt": {
+    "class_type": "ByteDanceSeedreamNodeV3",
+    "inputs": {
+      "model": "seedream 5.5",
+      "prompt": "",
+      "model.size_preset": "Custom",
+      "model.width": 1024,
+      "model.height": 1024,
+      "model.background": "auto",
+      "model.seed": 1,
+      "model.watermark": false
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "gpt",
+        0
+      ],
+      "filename_prefix": "Composa/Seedream55"
+    }
+  }
+}

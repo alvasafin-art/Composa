@@ -22,7 +22,7 @@ GitHub does not create a git tag until a release is published, so while it is st
 
 The Windows Studio updater uses Velopack 1.2.161. Build from the staged Windows publish tree with
 `scripts/package/studio-update.ps1 -Tree <tree> -Output <empty-folder> -Version <version> -Rid win-x64 -PreviousPackage <previous-full.nupkg>`.
-The first release for an architecture omits PreviousPackage. Subsequent releases must supply the previous published full package for that channel. Attach the setup, portable zip, full and delta packages, and `releases.<rid>.json` to the same release. Keep published packages immutable. The portable zip includes a local baseline so it can apply its first patch offline after the patch is downloaded.
+The first release for an architecture omits PreviousPackage. Subsequent releases must supply the previous published full package for that channel. Attach the setup, portable zip, full and delta packages, and `releases.<rid>.json` to the same release. Keep published packages immutable. Portable packaging records installed file hashes and package metadata in portable-baseline.json. On the first update the client verifies those files and builds its baseline locally.
 
 Composa follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): breaking is major, a feature is minor, a fix is patch. Pre-release suffixes sort alphabetically, so use `-alpha`, `-beta` and then `-preview` as the last stage before a stable release.
 

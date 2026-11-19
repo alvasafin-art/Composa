@@ -174,6 +174,22 @@ public sealed partial class MainWindow
             aiVariantStrip.Children.Add(CompareVariants(session, variants.Id));
         }
 
+        RefreshAiProgress();
+        aiContextHost.IsVisible = session != null;
+        RefreshAiFloatingUi();
+    }
+
+    private void RefreshAiState()
+    {
+        if (shownProgress?.Status is AiOperationStatus.Queued or AiOperationStatus.Running &&
+            aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running &&
+            shownConnection == aiTasks.ConnectionState)
+            RefreshAiProgress();
+        else RefreshAiUi();
+    }
+
+    private void RefreshAiProgress()
+    {
         var operation = aiTasks.Operation;
         var active = operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
         if (shownProgress != operation)
@@ -183,9 +199,9 @@ public sealed partial class MainWindow
             if (operation != null && operation.Status != AiOperationStatus.Completed) AddProgress(operation, active);
         }
         aiTaskText.IsVisible = active;
-        aiTaskText.Text = active ? "AI: " + (operation?.Stage ?? "Working") : "";
-        aiContextHost.IsVisible = session != null;
-        RefreshAiFloatingUi();
+        aiTaskText.Text = active ? "AI: " + (operation?.Stage ?? "Working") +
+            (operation is { Value: {} step, Maximum: > 0 } ? $" · {step}/{operation.Maximum}"
+             : operation?.ElapsedSeconds is {} seconds ? $" · {TimeSpan.FromSeconds(seconds):m\\:ss}" : "") : "";
     }
 
     private void AddProgress(AiOperationState operation, bool active)

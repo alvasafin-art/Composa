@@ -1,0 +1,93 @@
+{
+  "id": "flux3-image-klein",
+  "modelName": "FLUX 3 Image Klein",
+  "displayName": "FLUX 3 Image Klein",
+  "manifestVersion": 1,
+  "minimumComfyVersion": "0.43.0",
+  "requiredNodeTypes": [
+    "CLIPLoader",
+    "CLIPTextEncode",
+    "ConditioningZeroOut",
+    "EmptyFlux2LatentImage",
+    "KSampler",
+    "LoadImage",
+    "LoadImageMask",
+    "ReferenceMultiLatent",
+    "SaveImage",
+    "SetLatentNoiseMask",
+    "UNETLoader",
+    "VAEDecode",
+    "VAEEncode",
+    "VAELoader"
+  ],
+  "requiredAssets": [
+    {
+      "kind": "diffusionModel",
+      "name": "flux3_image_klein_sd_int8_convrot.safetensors"
+    },
+    {
+      "kind": "textEncoder",
+      "name": "qwen3vl_4b_fp8_scaled.safetensors"
+    },
+    {
+      "kind": "vae",
+      "name": "flux2-vae.safetensors"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "image",
+      "file": "workflows/image.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "generateImage",
+      "version": 1,
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "imageEdit",
+      "version": 1,
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    },
+    {
+      "task": "generativeFill",
+      "version": 1,
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {}
+    },
+    {
+      "task": "removeObject",
+      "version": 1,
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {}
+    },
+    {
+      "task": "generativeExpand",
+      "version": 1,
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {}
+    }
+  ],
+  "parameters": [],
+  "lora": {
+    "supported": false,
+    "maximum": 0
+  }
+}

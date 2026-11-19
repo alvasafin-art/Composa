@@ -34,7 +34,7 @@ public sealed class ComfyClient : IComfyConnection
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(ConnectionTimeout);
         using var stats = await GetJson("system_stats", timeout.Token);
-        using var objects = await GetJson("object_info", timeout.Token);
+        using var objects = await GetJson("object_info", timeout.Token).ConfigureAwait(false);
         var info = ParseInfo(stats.RootElement);
         return (info, ParseCapabilities(objects.RootElement) with { Version = info.Version });
     }
@@ -55,7 +55,9 @@ public sealed class ComfyClient : IComfyConnection
                 index++;
             }
         }
-        return new ComfyQueueState(running, pending, position);
+        var active = promptId != null && r.ValueKind == JsonValueKind.Array && r.EnumerateArray().Any(item =>
+            item.ValueKind == JsonValueKind.Array && item.GetArrayLength() > 1 && item[1].GetString() == promptId);
+        return new ComfyQueueState(running, pending, position, active);
     }
 
     public async Task<ComfyServerInfo?> MemoryInfoAsync(CancellationToken cancellationToken = default)
@@ -67,7 +69,7 @@ public sealed class ComfyClient : IComfyConnection
     public async Task<string> UploadPngAsync(string semanticName, SKBitmap bitmap, CancellationToken cancellationToken = default)
     {
         var filename = $"composa-{semanticName}-{Guid.NewGuid():N}.png";
-        var bytes = EncodeUploadPng(bitmap);
+        var bytes = await Task.Run(() => EncodeUploadPng(bitmap), cancellationToken).ConfigureAwait(false);
         using var form = new MultipartFormDataContent();
         using var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = new("image/png");
@@ -101,7 +103,7 @@ public sealed class ComfyClient : IComfyConnection
     public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)
     {
         var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = clientId.ToString("N") };
-        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode"))
+        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode" or PartnerNodes.SeedreamNode))
         {
             var key = apiKey()?.Trim();
             if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone does not authorize external requests.");
@@ -133,15 +135,23 @@ public sealed class ComfyClient : IComfyConnection
         // The socket must use the same transport and proxy policy as upload, queue and history.
         await socket.ConnectAsync(Address.Socket(clientId), http, connecting.Token);
         var promptId = await SubmitAsync(workflow, clientId, cancellationToken);
+        var submitted = System.Diagnostics.Stopwatch.StartNew();
         var queue = await QueueAsync(promptId, cancellationToken);
-        var state = new AiOperationState { Status = AiOperationStatus.Queued, PromptId = promptId, QueuePosition = queue.Position, Stage = queue.Position is { } p ? $"Queued ({p})" : "Queued" };
+        var state = FromQueue(new AiOperationState { PromptId = promptId, Stage = "Submitted" }, queue);
         progress?.Report(state);
         try
         {
             var buffer = new byte[64 * 1024];
             var activePrompt = false;
+            var lastPoll = Environment.TickCount64;
             while (state.Status is not (AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled))
             {
+                if (state.Status == AiOperationStatus.Queued && Environment.TickCount64 - lastPoll >= 2000)
+                {
+                    state = FromQueue(state, await QueueAsync(promptId, cancellationToken));
+                    progress?.Report(state);
+                    lastPoll = Environment.TickCount64;
+                }
                 using var message = new MemoryStream();
                 var discardBinary = false;
                 WebSocketReceiveResult? part = null;
@@ -150,12 +160,22 @@ public sealed class ComfyClient : IComfyConnection
                     var receive = socket.ReceiveAsync(buffer, cancellationToken);
                     while (true)
                     {
-                        try { part = await receive.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken); break; }
+                        try { part = await receive.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken); break; }
                         catch (TimeoutException)
                         {
                             using var recorded = await HistoryAsync(promptId, cancellationToken);
                             var terminal = ComfyEventParser.FromHistory(recorded.RootElement, promptId, state);
-                            if (terminal == null) continue;
+                            if (terminal == null)
+                            {
+                                if (state.Status == AiOperationStatus.Queued)
+                                {
+                                    state = FromQueue(state, await QueueAsync(promptId, cancellationToken));
+                                }
+                                if (state.Status == AiOperationStatus.Running)
+                                    state = state with { ElapsedSeconds = (int)submitted.Elapsed.TotalSeconds };
+                                progress?.Report(state);
+                                continue;
+                            }
                             state = terminal;
                             socket.Abort();
                             try { await receive; } catch (Exception error) when (error is WebSocketException or OperationCanceledException or IOException) { }
@@ -184,6 +204,7 @@ public sealed class ComfyClient : IComfyConnection
                     }
                 } while (!part.EndOfMessage);
                 if (state.Status is AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled) break;
+                var previous = state;
                 if (part!.MessageType == WebSocketMessageType.Binary)
                 {
                     if (!activePrompt || discardBinary) continue;
@@ -198,7 +219,10 @@ public sealed class ComfyClient : IComfyConnection
                         activePrompt = eventId.GetString() == promptId;
                     state = ComfyEventParser.Parse(json, promptId, state);
                 }
-                progress?.Report(state);
+                if (state.Status == AiOperationStatus.Running && state.NodeId is {} nodeId
+                    && state.Stage == "Running node " + nodeId && workflow[nodeId]?["class_type"]?.GetValue<string>() is {} nodeName)
+                    state = state with { Stage = nodeName, QueuePosition = null };
+                if (previous != state) progress?.Report(state);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -223,6 +247,10 @@ public sealed class ComfyClient : IComfyConnection
         }
         throw new InvalidOperationException("ComfyUI history polling ended unexpectedly.");
     }
+
+    private static AiOperationState FromQueue(AiOperationState state, ComfyQueueState queue) =>
+        queue.PromptRunning ? state with { Status = AiOperationStatus.Running, Stage = "Generating", QueuePosition = null }
+        : queue.Position is {} position ? state with { QueuePosition = position, Stage = $"Queued ({position})" } : state;
 
     public Task<JsonDocument> HistoryAsync(string promptId, CancellationToken cancellationToken = default) => GetJson("history/" + Uri.EscapeDataString(promptId), cancellationToken);
 
@@ -276,7 +304,7 @@ public sealed class ComfyClient : IComfyConnection
         foreach (var node in root.EnumerateObject())
         {
             nodes.Add(node.Name);
-            if ((node.Name is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode" or "OpenAIChatConfig" || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
+            if ((node.Name is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode" or "OpenAIChatConfig" or PartnerNodes.SeedreamNode || node.Name.StartsWith("SeedVR2", StringComparison.Ordinal))
                 && JsonNode.Parse(node.Value.GetRawText()) is JsonObject definition) definitions[node.Name] = definition;
             if (!node.Value.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object) continue;
             foreach (var sectionName in new[] { "required", "optional" })

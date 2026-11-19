@@ -1,0 +1,109 @@
+{
+  "id": "seedream-5.5",
+  "modelName": "Seedream 5.5",
+  "displayName": "Seedream 5.5",
+  "manifestVersion": 1,
+  "paidApi": true,
+  "apiModel": "seedream 5.5",
+  "requiredNodeTypes": [
+    "ByteDanceSeedreamNodeV3",
+    "LoadImage",
+    "SaveImage"
+  ],
+  "requiredAssets": [],
+  "workflows": [
+    {
+      "id": "image",
+      "file": "workflows/image.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "GenerateImage",
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "model.seed"
+        }
+      }
+    },
+    {
+      "task": "GenerativeFill",
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "model.seed"
+        }
+      }
+    },
+    {
+      "task": "RemoveObject",
+      "workflow": "image",
+      "outputMode": "newLayerWithMask",
+      "outputIsComposited": true,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "model.seed"
+        }
+      }
+    },
+    {
+      "task": "GenerativeExpand",
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "model.seed"
+        }
+      }
+    },
+    {
+      "task": "ImageEdit",
+      "workflow": "image",
+      "outputMode": "newLayer",
+      "outputIsComposited": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "gpt",
+          "input": "prompt"
+        },
+        "seed": {
+          "nodeId": "gpt",
+          "input": "model.seed"
+        }
+      }
+    }
+  ],
+  "lora": {
+    "supported": false,
+    "maximum": 0
+  }
+}

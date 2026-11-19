@@ -207,7 +207,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
         var qwen = engine.Id == QwenImageWorkflow.EngineId;
         if (NanoBanana.IsModel(engine.ApiModel) && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > 14)
             throw new InvalidOperationException("Nano Banana accepts up to 14 input images, including the source.");
-        if((NanoBanana.IsModel(engine.ApiModel) || qwen) && request.Settings.VariantMode==AiVariantMode.Batch)
+        int referenceLimit = engine.ApiModel switch { PartnerNodes.Seedream => 10, NanoBanana.Model => 14, _ => 6 };
+        if (engine.ApiModel == PartnerNodes.Seedream && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > referenceLimit)
+            throw new InvalidOperationException("Seedream accepts up to ten input images, including the source.");
+        if((NanoBanana.IsModel(engine.ApiModel) || engine.ApiModel == PartnerNodes.Seedream || engine.Id == Flux3Workflow.EngineId || qwen) && request.Settings.VariantMode==AiVariantMode.Batch)
             request=request with { Settings=request.Settings with { VariantMode=AiVariantMode.List } };
         var variants = binding.OutputMode == AiOutputMode.Selection || request.Task == AiTaskKind.Upscale ? 1 : request.Settings.Variants;
         if (variants is < 1 or > 3) throw new ArgumentException("Choose one, two or three variants.");
@@ -226,12 +229,12 @@ public sealed partial class AiTaskService : IAiTaskRunner
             var preparedRequest = request.Task == AiTaskKind.RemoveObject && (binding.Preprocess == "remove-object-in-workflow" || engine.PaidApi)
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
-            using var inputs = AiTaskInputPreparer.Prepare(editor.Session, preparedRequest, NanoBanana.IsModel(engine.ApiModel) ? 14 : 6);
-            using var apiInputs = engine.PaidApi ? new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel) : null;
-            using var qwenInputs = qwen ? new QwenImageInputs(inputs, preparedRequest) : null;
+            using var inputs = await PrepareInputsAsync(editor.Session, preparedRequest, referenceLimit, linked.Token);
+            using var apiInputs = engine.PaidApi ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel), linked.Token) : null;
+            using var qwenInputs = qwen || engine.Id == Flux3Workflow.EngineId ? await Task.Run(() => new QwenImageInputs(inputs, preparedRequest), linked.Token) : null;
             using var editable = engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
                 && (inputs.SelectionMask != null || request.Task == AiTaskKind.GenerativeExpand && !fullEdit || inputs.BackgroundMask != null)
-                ? new EditableMaskedWorkflow(inputs, preparedRequest) : null;
+                ? await Task.Run(() => new EditableMaskedWorkflow(inputs, preparedRequest), linked.Token) : null;
             using var localOutputMask = apiInputs?.OutputMask() ?? (qwenInputs?.Mask is { } qwenMask ? Pixels.Clone(qwenMask) : editable == null ? null : Pixels.Clone(editable.Mask));
             if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(inputs.PreprocessedMask!))
                 throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
@@ -252,11 +255,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.");
                 if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
                     throw new InvalidOperationException($"The connected ComfyUI does not offer {engine.ApiModel}. Update ComfyUI and refresh its models.");
-                if (!NanoBanana.IsModel(engine.ApiModel) && !PartnerPricing.Choices(capabilities, engine.ApiModel, "size").Contains("Custom"))
-                    throw new InvalidOperationException("Update ComfyUI: this GPT pack needs Custom dimensions to preserve image/mask proportions.");
+                if (!NanoBanana.IsModel(engine.ApiModel) && !PartnerPricing.Choices(capabilities, engine.ApiModel, engine.ApiModel == PartnerNodes.Seedream ? "size_preset" : "size").Contains("Custom"))
+                    throw new InvalidOperationException("Update ComfyUI: this model needs Custom dimensions to preserve image/mask proportions.");
                 var quality=request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low";
                 if(NanoBanana.IsModel(engine.ApiModel)) quality=NanoBanana.Resolution(quality);
-                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
+                if (engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
             WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
@@ -272,10 +275,15 @@ public sealed partial class AiTaskService : IAiTaskRunner
             // Validate before sending source/reference pictures or submitting a generation.
             var imagesToUpload = qwenInputs?.Images ?? apiInputs?.Images ?? inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
             if (editable?.ConditioningImage is { } conditioning) imagesToUpload["conditioningImage"] = conditioning;
-            if (request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null && !qwen) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
+            if (request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null && qwenInputs == null) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
             _ = Bind(imagesToUpload
                 .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (imagesToUpload.Count > 0)
+            {
+                Operation = Operation! with { Stage = "Uploading inputs" };
+                StateChanged?.Invoke();
+            }
             foreach (var (semantic, bitmap) in imagesToUpload)
             {
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
@@ -382,6 +390,28 @@ public sealed partial class AiTaskService : IAiTaskRunner
 
     public void Cancel() => running?.Cancel();
 
+    private static async Task<AiTaskInputs> PrepareInputsAsync(EditorSession session, AiTaskRequest request, int maxReferences, CancellationToken token)
+    {
+        // Document.Clone shares immutable committed pixels. Hold independent Skia handles to UI
+        // references so removing a thumbnail during preparation cannot dispose a worker's source.
+        var snapshot = new EditorSession(session.Document.Clone());
+        var handles = new List<SKBitmap>();
+        SKBitmap Retain(SKBitmap source)
+        {
+            var view = new SKBitmap();
+            handles.Add(view);
+            if (!source.ExtractSubset(view, source.Info.Rect)) throw new InvalidOperationException("Unable to retain the reference image.");
+            return view;
+        }
+        try
+        {
+            var captured = request with { ReferenceImage = request.ReferenceImage == null ? null : Retain(request.ReferenceImage),
+                ReferenceImages = request.ReferenceImages.Select(Retain).ToArray() };
+            return await Task.Run(() => AiTaskInputPreparer.Prepare(snapshot, captured, maxReferences), token);
+        }
+        finally { foreach (var handle in handles) handle.Dispose(); }
+    }
+
     private JsonObject BuildExecutionGraph(JsonObject graph, EngineProfile engine, EngineTaskBinding binding, AiTaskInputs inputs,
         AiTaskRequest request, IReadOnlyDictionary<string, string> files, long seed, ComfyServerCapabilities capabilities, SKRectI documentBounds,
         EditableMaskedWorkflow? editable, QwenImageInputs? qwenInputs, PartnerImageInputs? apiInputs, int variants)
@@ -410,9 +440,9 @@ public sealed partial class AiTaskService : IAiTaskRunner
         }
         values["seed"] = seed;
         if (editable == null && request.Task is (AiTaskKind.GenerativeFill or AiTaskKind.GenerativeExpand)) values["maskGrow"] = 0;
-        var boundGraph = qwenInputs != null ? qwenInputs.Bind(graph, files, seed)
+        var boundGraph = qwenInputs != null ? qwenInputs.Bind(graph, files, seed, engine.Id == Flux3Workflow.EngineId)
             : apiInputs == null ? WorkflowBinder.Bind(graph, binding, values) : apiInputs.Bind(graph, engine, files, seed);
-        if (request.Task == AiTaskKind.GenerativeExpand && !engine.PaidApi && !qwen && request.ExpansionMode == AiExpansionMode.MaskedRegion)
+        if (request.Task == AiTaskKind.GenerativeExpand && !engine.PaidApi && qwenInputs == null && request.ExpansionMode == AiExpansionMode.MaskedRegion)
         {
             var expandedInputs = new AiTaskInputs { ContextImage = inputs.PreprocessedImage!, SelectionMask = inputs.PreprocessedMask,
                 PreprocessedMask = inputs.PreprocessedMask, TargetBounds = SelectionMask.Bounds(inputs.PreprocessedMask!, 1) };
@@ -457,10 +487,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 missing.Add("API model " + engine.ApiModel);
             else
             {
-                if (!nano && !PartnerPricing.Choices(capabilities, engine.ApiModel, "size").Contains("Custom"))
+                if (!nano && !PartnerPricing.Choices(capabilities, engine.ApiModel, engine.ApiModel == PartnerNodes.Seedream ? "size_preset" : "size").Contains("Custom"))
                     missing.Add("Server support for custom dimensions");
                 var quality = nano ? NanoBanana.Resolution(profile.ApiQuality) : profile.ApiQuality;
-                if (!PartnerPricing.Choices(capabilities, engine.ApiModel, nano ? "resolution" : "quality").Contains(quality))
+                if (engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel, nano ? "resolution" : "quality").Contains(quality))
                     missing.Add("Server support for quality " + quality);
             }
         }
@@ -486,10 +516,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 TargetBounds = masked ? new(30, 25, 70, 65) : source.Info.Rect, ExpansionBounds = source.Info.Rect };
             var request = new AiTaskRequest { Task = task, ExpansionMinimumSide = 96, Settings = new AiGenerationSettings { Width = 96, Height = 96,
                 UpscaleFactor = profile.UpscaleFactor, Loras = loras, Variants = Math.Clamp(profile.Variants, 1, 3),
-                  VariantMode = nano || engine.Id == QwenImageWorkflow.EngineId ? AiVariantMode.List : profile.VariantMode,
+                  VariantMode = nano || engine.ApiModel == PartnerNodes.Seedream || engine.Id is QwenImageWorkflow.EngineId or Flux3Workflow.EngineId ? AiVariantMode.List : profile.VariantMode,
                   Values = new() { ["apiQuality"] = profile.ApiQuality, ["fluxMemory"] = profile.FluxMemory } } };
             using var api = engine.PaidApi ? new PartnerImageInputs(inputs, request, engine.ApiModel) : null;
-            using var qwen = engine.Id == QwenImageWorkflow.EngineId ? new QwenImageInputs(inputs, request) : null;
+            using var qwen = engine.Id is QwenImageWorkflow.EngineId or Flux3Workflow.EngineId ? new QwenImageInputs(inputs, request) : null;
             using var editable = masked && engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
                 ? new EditableMaskedWorkflow(inputs, request) : null;
             var files = (qwen?.Images.Keys.AsEnumerable() ?? api?.Images.Keys.AsEnumerable() ?? inputs.Images().Keys)

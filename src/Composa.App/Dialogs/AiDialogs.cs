@@ -868,7 +868,7 @@ public static partial class AiDialogs
         var model = service?.SelectedEngine?.ApiModel ?? "gpt-image-2.5-sunburst";
         var nano=NanoBanana.IsModel(model);
         var qwen=service?.SelectedEngine?.Id==QwenImageWorkflow.EngineId;
-        var sequential=nano || qwen || task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
+        var sequential=nano || model == PartnerNodes.Seedream || service?.SelectedEngine?.Id == Flux3Workflow.EngineId || qwen || task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
         if(sequential) mode=AiVariantMode.List;
         var qualities = PartnerPricing.Choices(service?.ServerCapabilities, model, nano ? "resolution" : "quality");
         if (qualities.Count == 0) qualities = nano ? ["1K","2K","4K"] : ["low", "medium", "high", "xhigh", "max"];
@@ -901,7 +901,7 @@ public static partial class AiDialogs
             extra.Children.Add(SceneAdvanced(task, scene, paid, value => scene = value, qwen));
         var lorasEnabled = profile.LorasEnabled;
         var loras = profile.Loras.Take(3).ToList(); while (loras.Count < 3) loras.Add(new());
-        if (paid)
+        if (paid && model != PartnerNodes.Seedream)
             extra.Children.Add(CanvasDialogs.Form((nano ? "Resolution" : "GPT quality", Ui.Combo(qualities, quality, value => value, value => quality = value, 150))));
         else if (service?.SelectedEngine?.Lora.Supported == true)
         {
@@ -1136,7 +1136,7 @@ public static partial class AiDialogs
         void Refresh()
         {
             var toneOnly=task==AiTaskKind.MatchToScene && scene.MatchMode==SceneMatchMode.ToneAndColor;
-            var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid && !toneOnly;
+            var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid && service?.SelectedEngine?.ApiModel != PartnerNodes.Seedream && !toneOnly;
             prompt.IsEnabled=!toneOnly;
             alignment.IsVisible = !toneOnly && task != AiTaskKind.GenerateImage;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
@@ -1158,7 +1158,7 @@ public static partial class AiDialogs
                     : originalSize ? AiDimensions.OriginalGenerationSize(documentWidth, documentHeight) : AiDimensions.FromMegapixels(mp, documentWidth, documentHeight);
                 if (task == AiTaskKind.GenerativeExpand && (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0)
                     (width, height) = AiDimensions.OriginalGenerationSize(width, height);
-                var api = paid && !nano ? PartnerImageSize.Plan(width, height,
+                var api = service?.SelectedEngine?.ApiModel == PartnerNodes.Seedream ? PartnerNodes.SeedreamSize(width,height) : paid && !nano ? PartnerImageSize.Plan(width, height,
                     (task == AiTaskKind.GenerativeExpand ? (expansionMode == AiExpansionMode.WholeImage ? wholeSide : regionSide) == 0 : originalSize)
                         ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels) : (width, height);
                 var description = $"{width} × {height} px";

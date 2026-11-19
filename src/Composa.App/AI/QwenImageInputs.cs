@@ -93,10 +93,11 @@ internal sealed class QwenImageInputs : IDisposable
         catch { Dispose(); throw; }
     }
 
-    internal JsonObject Bind(JsonObject graph, IReadOnlyDictionary<string, string> files, long seed)
+    internal JsonObject Bind(JsonObject graph, IReadOnlyDictionary<string, string> files, long seed, bool flux3 = false)
     {
         var result = (JsonObject)graph.DeepClone();
-        QwenImageWorkflow.Bind(result, files, prompt, seed, PaddedSize.Width, PaddedSize.Height);
+        if (flux3) Flux3Workflow.Bind(result, files, prompt, seed, PaddedSize.Width, PaddedSize.Height);
+        else QwenImageWorkflow.Bind(result, files, prompt, seed, PaddedSize.Width, PaddedSize.Height);
         if (Mask != null)
         {
             result["clean"] = new JsonObject { ["class_type"] = "LoadImage", ["inputs"] = new JsonObject { ["image"] = files["latentSource"] } };
@@ -113,10 +114,10 @@ internal sealed class QwenImageInputs : IDisposable
         using (decoded)
         {
             if ((decoded.Width, decoded.Height) != PaddedSize)
-                throw new InvalidDataException($"Qwen returned {decoded.Width} × {decoded.Height}; expected {PaddedSize.Width} × {PaddedSize.Height}. No edit was applied.");
+                throw new InvalidDataException($"Model returned {decoded.Width} × {decoded.Height}; expected {PaddedSize.Width} × {PaddedSize.Height}. No edit was applied.");
             using var content = new SKBitmap();
             if (!decoded.ExtractSubset(content, SKRectI.Create(ContentSize.Width, ContentSize.Height)))
-                throw new InvalidDataException("Cannot remove technical Qwen padding.");
+                throw new InvalidDataException("Cannot remove technical padding.");
             if (request.Task == AiTaskKind.GenerateImage) return Pixels.Clone(content);
             var result = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage);
             using (var draw = new SKCanvas(result))
@@ -136,7 +137,7 @@ internal sealed class QwenImageInputs : IDisposable
     private static (int Width, int Height) PadSize((int Width, int Height) size)
     {
         var result = (Width: checked((size.Width + 31) / 32 * 32), Height: checked((size.Height + 31) / 32 * 32));
-        if (!DocumentLimits.FitsSurface(result.Width, result.Height)) throw new InvalidOperationException("Qwen input including padding exceeds document limits. Reduce image size.");
+        if (!DocumentLimits.FitsSurface(result.Width, result.Height)) throw new InvalidOperationException("Model input including padding exceeds document limits. Reduce image size.");
         return result;
     }
     private static SKBitmap Pad(SKBitmap source, SKRectI bounds, (int Width, int Height) content, (int Width, int Height) padded)
@@ -146,7 +147,7 @@ internal sealed class QwenImageInputs : IDisposable
         {
             result.Erase(SKColors.White);
             using var crop = new SKBitmap();
-            if (!source.ExtractSubset(crop, bounds)) throw new InvalidDataException("Cannot read the Qwen context crop.");
+            if (!source.ExtractSubset(crop, bounds)) throw new InvalidDataException("Cannot read the context crop.");
             using var draw = new SKCanvas(result);
             draw.DrawImage(Pixels.ImageOf(crop), SKRect.Create(content.Width, content.Height),
                 (crop.Width, crop.Height) == content ? new SKSamplingOptions(SKFilterMode.Nearest) : new SKSamplingOptions(SKCubicResampler.Mitchell));

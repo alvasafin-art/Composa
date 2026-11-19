@@ -88,6 +88,7 @@ internal sealed class PartnerImageInputs : IDisposable
                     nanoContent=new(x,y,x+desired.Width,y+desired.Height);
                 }
             }
+            else if (apiModel == PartnerNodes.Seedream) generationSize = PartnerNodes.SeedreamSize(desired.Width, desired.Height);
             else generationSize = PartnerImageSize.Plan(desired.Width, desired.Height,
                 originalSize ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels);
         }
@@ -105,6 +106,15 @@ internal sealed class PartnerImageInputs : IDisposable
             node["model.aspect_ratio"]=NanoBanana.Aspect(nanoPadded.Width,nanoPadded.Height);
             node["model.thinking_level"]="MINIMAL";
             if(Images.Count>14) throw new InvalidOperationException("Nano Banana accepts up to 14 input images, including the source.");
+        }
+        else if (engine.ApiModel == PartnerNodes.Seedream)
+        {
+            node.Remove("seed");
+            node["model.seed"] = seed % int.MaxValue;
+            node["model.size_preset"] = "Custom";
+            node["model.width"] = generationSize.Width;
+            node["model.height"] = generationSize.Height;
+            node["model.background"] = request.Task == AiTaskKind.GenerateImage ? "auto" : "opaque";
         }
         else
         {
