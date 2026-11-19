@@ -13,7 +13,6 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
-    private static readonly IBrush DockRunBrush = new SolidColorBrush(Color.Parse("#30649B"));
     private readonly DockSection generationSection;
     private readonly List<(Control Editor, Border Floating, Border Docked)> generationSlots = [];
     private readonly TextBlock dockOperationName = Ui.Label("", weight: FontWeight.SemiBold);
@@ -94,9 +93,7 @@ public sealed partial class MainWindow
             }
             aiEngineCombo!.Width = useDock ? double.NaN : 141;
             aiEngineCombo.HorizontalAlignment = useDock ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
-            aiFloatingGenerate!.Background = useDock ? DockRunBrush : Palette.PanelRaised;
-            aiFloatingGenerate.MinWidth = useDock ? 62 : 64;
-            aiFloatingGenerate.BorderThickness = new Thickness(useDock ? 0 : 1);
+            aiFloatingGenerate!.MinWidth = useDock ? 62 : 64;
         }
         if (useDock && !session!.IsStroking && !session.IsPaintingSelection)
         {
