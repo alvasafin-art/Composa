@@ -66,6 +66,7 @@ public sealed partial class MainWindow : Window
     {
         selectionTool = settings.ToolPalette?.SelectionTool;
         stampUsesPatch = settings.ToolPalette?.Patch ?? false;
+        stampShowsHealing = settings.ToolPalette?.Choices?.GetValueOrDefault(nameof(Tool.CloneStamp)) == "Healing Brush";
         gradientShowsBucket = settings.ToolPalette?.Bucket ?? false;
         automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), comfyClientFactory)
@@ -290,7 +291,7 @@ public sealed partial class MainWindow : Window
     {
         Tool.Wand or Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Lasso,
         Tool.Bucket => Tool.Gradient,
-        Tool.Patch => Tool.CloneStamp,
+        Tool.Patch or Tool.HealingBrush => Tool.CloneStamp,
         _ => tool
     };
 
@@ -320,6 +321,7 @@ public sealed partial class MainWindow : Window
                 if (palette.ObjectAi || palette.Active == Tool.ObjectSelectionAi) added.WandMode = WandMode.Object;
                 if (added.Tool == Tool.Brush && palette.Eraser) added.Tool = Tool.Eraser;
                 stampUsesPatch = palette.Patch;
+                stampShowsHealing = palette.Choices?.GetValueOrDefault(nameof(Tool.CloneStamp)) == "Healing Brush";
                 gradientShowsBucket = palette.Bucket;
             }
         }
@@ -649,7 +651,6 @@ public sealed partial class MainWindow : Window
         (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.SpotHealing, Icons.Heal, "Spot Healing Brush (J)"), (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
-        (Tool.HealingBrush, Icons.HealingBrush, "Healing Brush · Alt-click sets the texture source"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
         (Tool.Pen, Icons.Pen, "Pen (P) · click adds a corner, drag creates curve handles · Alt-click converts a point · Ctrl edits points · Enter finishes · double-click closes"),
@@ -662,6 +663,8 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private Tool? selectionTool;
     private bool stampUsesPatch;
+    private bool stampShowsHealing;
+    private Tool StampPaintingTool => stampUsesPatch ? Tool.Patch : Tool.CloneStamp;
     private bool gradientShowsBucket;
     private IReadOnlyList<ToolChoice> ToolGroup(Tool tool)
     {
@@ -689,6 +692,12 @@ public sealed partial class MainWindow : Window
                 Choice("Object Selection", Icons.ObjectSelect, MagicKey, s => selectionTool == Tool.Wand && s.WandMode == WandMode.Object, s => s.WandMode = WandMode.Object, Tool.Wand),
                 Choice("Selection Brush", Icons.SelectionBrush, "Selection Brush", s => selectionTool == Tool.SelectionBrush, _ => { }, Tool.SelectionBrush)
             ],
+            Tool.CloneStamp =>
+            [
+                new ToolChoice("Clone Stamp", Icons.Stamp, () => toolKeys.FirstOrDefault(k => k.Id == "Clone Stamp")?.Gesture,
+                    () => !stampShowsHealing, () => { SelectTool(StampPaintingTool); canvas.Focus(); }),
+                Choice("Healing Brush", Icons.HealingBrush, "Clone Stamp", _ => stampShowsHealing, _ => { }, Tool.HealingBrush)
+            ],
             Tool.Gradient =>
             [
                 new ToolChoice("Gradient", Icons.Gradient, () => toolKeys.FirstOrDefault(k => k.Id == "Gradient tool")?.Gesture,
@@ -713,7 +722,7 @@ public sealed partial class MainWindow : Window
         foreach (var (tool, icon, tip) in ToolList)
         {
             var button = new ToolButton(icon, tip, ToolGroup(tool));
-            button.Click += (_, _) => { if (button.Current is { } current) current.Choose(); else SelectTool(tool == Tool.CloneStamp && stampUsesPatch ? Tool.Patch : tool); };
+            button.Click += (_, _) => { if (button.Current is { } current) current.Choose(); else SelectTool(tool); };
             toolButtons[tool] = button;
             button.Refresh();
             rail.Children.Add(button);
@@ -869,6 +878,7 @@ public sealed partial class MainWindow : Window
         if (session == null) return;
         if (tool is Tool.Lasso or Tool.Wand or Tool.SelectionBrush) selectionTool = tool;
         if (tool is Tool.CloneStamp or Tool.Patch) stampUsesPatch = tool == Tool.Patch;
+        if (RailTool(tool) == Tool.CloneStamp) stampShowsHealing = tool == Tool.HealingBrush;
         if (tool is Tool.Gradient or Tool.Bucket) gradientShowsBucket = tool == Tool.Bucket;
         foreach (var (key, button) in toolButtons)
         {
@@ -926,6 +936,7 @@ public sealed partial class MainWindow : Window
         Tool.Brush or Tool.Eraser => (s.EraserMode ? "Drag to erase" : "Drag to paint · Alt-click picks a color") + " · Shift-click draws a line · [ ] size · { } hardness · 1–0 opacity",
         Tool.SpotHealing => "Drag over blemishes to heal · [ ] size",
         Tool.CloneStamp => "Alt-click sets the source · Drag to clone · [ ] size · 1–0 opacity",
+        Tool.HealingBrush => "Alt-click sets the texture source · Drag to heal · [ ] size",
         Tool.Patch => "Select an area, then drag it to the donor · Escape cancels",
         Tool.Smear => "Drag to " + (s.SmearMode == SmearMode.Liquify ? "push pixels" : s.SmearMode.ToString().ToLowerInvariant()) + " · [ ] size · 1–0 strength",
         Tool.Gradient => "Drag to draw from foreground to " + (s.GradientToTransparent ? "transparent" : "background") + " · Drag an end to adjust · Shift snaps to 45° · Enter applies · Escape cancels",

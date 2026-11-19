@@ -253,7 +253,7 @@ dotnet test
 | --- | --- |
 | V M C | Move, last Marquee variant, Crop |
 | L / W / Q | Recall the last selection tool (lassos, Magic Wand, Object Selection or Selection Brush) |
-| B E J S R | Brush, Eraser, Spot Healing, Clone Stamp, Smear |
+| B E J S R | Brush, Eraser, Spot Healing, last used Clone Stamp or Healing Brush, Smear |
 | G U T I H Z | Last Gradient/Paint Bucket choice, Shape, Type, Eyedropper, Hand, Zoom |
 | Tab | Switch the current tool's mode (Wand/Object, Brush/Eraser, the shape, and so on) |
 | Ctrl+drag | Move the current layer with any tool |

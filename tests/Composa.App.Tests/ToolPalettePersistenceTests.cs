@@ -20,7 +20,7 @@ public class ToolPalettePersistenceTests
         var window = new MainWindow(); window.Show(); var first = EditorSession.NewCanvas(200, 120, SKColors.White); window.AddSession(first);
         first.LassoKind = LassoKind.Polygonal; first.MarqueeKind = MarqueeKind.Ellipse;
         first.SmearMode = SmearMode.Burn; first.ShapeKind = ShapeKind.Line; first.EraserMode = true;
-        window.SelectTool(Tool.SelectionBrush); window.SelectTool(Tool.Bucket); window.SelectTool(Tool.Move);
+        window.SelectTool(Tool.SelectionBrush); window.SelectTool(Tool.Bucket); window.SelectTool(Tool.HealingBrush); window.SelectTool(Tool.Move);
         Assert.Equal("Paint Bucket", window.RailButton(Tool.Gradient).Current!.Name);
         var second = EditorSession.NewCanvas(200, 120, SKColors.White); window.AddSession(second);
         Assert.Equal("Paint Bucket", window.RailButton(Tool.Gradient).Current!.Name);
@@ -34,7 +34,7 @@ public class ToolPalettePersistenceTests
         var reopened = new MainWindow(); reopened.Settings.ToolPalette = restored.ToolPalette; reopened.Show();
         reopened.AddSession(EditorSession.NewCanvas(200, 120, SKColors.White));
         foreach (var (tool, name) in new[] { (Tool.Gradient, "Paint Bucket"), (Tool.Wand, "Selection Brush"), (Tool.Lasso, "Selection Brush"),
-            (Tool.Marquee, "Ellipse Marquee"), (Tool.Smear, "Burn"), (Tool.Shape, "Line") })
+            (Tool.Marquee, "Ellipse Marquee"), (Tool.Smear, "Burn"), (Tool.Shape, "Line"), (Tool.CloneStamp, "Healing Brush") })
             Assert.Equal(name, reopened.RailButton(tool).Current!.Name);
         reopened.SelectTool(Tool.Bucket); Assert.Equal(Tool.Bucket, reopened.Session!.Tool);
         Screenshots.Save(reopened, "remembered-tool-folders"); window.Close(); reopened.Close();
@@ -44,6 +44,7 @@ public class ToolPalettePersistenceTests
     [InlineData(Tool.Brush, Tool.Eraser)]
     [InlineData(Tool.ObjectSelectionAi, Tool.Wand)]
     [InlineData(Tool.Patch, Tool.Patch)]
+    [InlineData(Tool.HealingBrush, Tool.HealingBrush)]
     public void Legacy_tool_preferences_restore_the_corresponding_rail_button(Tool saved, Tool expected)
     {
         var window = new MainWindow();

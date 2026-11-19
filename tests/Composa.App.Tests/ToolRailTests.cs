@@ -192,14 +192,38 @@ public class ToolRailTests
     }
 
     [AvaloniaFact]
-    public void Stamp_mode_switches_to_patch_and_S_restores_it()
+    public void Stamp_group_recalls_healing_with_S_and_preserves_the_patch_mode()
     {
+        var stamp = window.RailButton(Tool.CloneStamp);
+        Assert.Same(stamp, window.RailButton(Tool.HealingBrush));
+        void Pick(string name)
+        {
+            window.MouseDown(Center(stamp), MouseButton.Right);
+            window.MouseUp(Center(stamp), MouseButton.Right);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(["Clone Stamp", "Healing Brush"], stamp.GroupItems.Select(i => (string)i.Header!));
+            var item = stamp.GroupItems.Single(i => (string)i.Header! == name);
+            var popup = TopLevel.GetTopLevel(item)!;
+            var point = item.TranslatePoint(new Point(40, 10), popup)!.Value;
+            popup.MouseDown(point, MouseButton.Left);
+            popup.MouseUp(point, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+        }
         window.SelectTool(Tool.CloneStamp);
         window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "StampMode").SelectedIndex = 1;
         Assert.Equal(Tool.Patch, session.Tool);
         Assert.True(window.RailButton(Tool.CloneStamp).IsChecked);
         window.SelectTool(Tool.Move);
         window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.None);
+        Assert.Equal(Tool.Patch, session.Tool);
+        Pick("Healing Brush");
+        Assert.Equal(Tool.HealingBrush, session.Tool);
+        Assert.Equal(Icons.HealingBrush, stamp.Current!.Icon);
+        window.KeyPressQwerty(PhysicalKey.J, RawInputModifiers.None);
+        Assert.Equal(Tool.SpotHealing, session.Tool);
+        window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.None);
+        Assert.Equal(Tool.HealingBrush, session.Tool);
+        Pick("Clone Stamp");
         Assert.Equal(Tool.Patch, session.Tool);
         window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "StampMode").SelectedIndex = 0;
         Assert.Equal(Tool.CloneStamp, session.Tool);
