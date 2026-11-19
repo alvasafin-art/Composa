@@ -53,6 +53,7 @@ public static class Icons
     public static readonly Icon Adjust = new("M12 3 A9 9 0 1 1 12 21 A9 9 0 1 1 12 3 Z", "M12 3 A9 9 0 0 1 12 21 Z");
     public static readonly Icon ChevronRight = new("M9 6 L15 12 L9 18");
     public static readonly Icon ChevronDown = new("M6 9 L12 15 L18 9");
+    public static readonly Icon Coin = new("M21 12 A9 9 0 1 1 3 12 A9 9 0 1 1 21 12 Z M15 7 A6 6 0 1 1 7 15");
     public static readonly Icon ClipArrow = new("M7 5 V14 H16 M13 10.5 L16.5 14 L13 17.5");
     public static readonly Icon Effects = new(null, "M12 2 L14.2 8.8 L21 11 L14.2 13.2 L12 20 L9.8 13.2 L3 11 L9.8 8.8 Z M19.5 16 L20.4 18.6 L23 19.5 L20.4 20.4 L19.5 23 L18.6 20.4 L16 19.5 L18.6 18.6 Z");
     public static readonly Icon EyeOff = new("M3 3 L21 21 M10.6 5.3 C11 5.1 11.5 5 12 5 C15.5 5 19 6.5 22 12 C21.2 13.5 20.3 14.7 19.3 15.6 M6.6 6.6 C4.8 7.8 3.3 9.6 2 12 C5 17.5 8.5 19 12 19 C13.9 19 15.7 18.6 17.4 17.4 M9.9 9.9 A3 3 0 0 0 14.1 14.1");

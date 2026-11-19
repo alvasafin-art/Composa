@@ -15,7 +15,9 @@ On Linux the XDG environment variables are honoured if you set them. The pipe an
 
 ## Updates
 
-Help > Check for Updates asks the releases page whether a newer version exists and tells you the result. It never downloads or installs anything. With Help > Check for Updates Automatically on, Composa asks once a day at launch and shows a strip under the menu when a newer version is available, with a link to its release notes, Skip this version, and a dismiss button. A check that fails says nothing. A stable version is never offered a pre-release.
+Help > Check for Updates checks the release feed. Windows Studio 12 and later installations offer **Download changes**, followed by **Restart to update**. Keep the extracted portable folder together, including its `packages` directory. The editor uses that local baseline to reconstruct the new version from verified patches. If a patch is unavailable, the editor offers a retry and a link to the release. Studio 11 and earlier require one manual upgrade to an update-enabled installation.
+
+Help > Check for Updates Automatically checks once a day at launch. You can dismiss the notice or skip a particular version. Stable installations follow stable releases, and Studio previews can receive newer previews.
 
 A Composa installed from a `.deb` or `.rpm` package is updated by your package manager, and the Help menu says so instead of offering to check. To stop the automatic check on any build, set the environment variable `COMPOSA_DISABLE_UPDATE_CHECK` to 1.
 

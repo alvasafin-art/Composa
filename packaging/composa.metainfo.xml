@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.12" date="2026-11-19" type="development">
+      <description><p>Compact generation controls, selectable operation menus, and incremental Windows updates.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.11" date="2026-11-19" type="development">
       <description><p>Automatic object selection and foreground colour recovery for hair and fur cutouts.</p></description>
     </release>

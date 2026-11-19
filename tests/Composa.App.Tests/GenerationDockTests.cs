@@ -71,6 +71,44 @@ public class GenerationDockTests
     private static string Operation(Control view) =>
         AutomationProperties.GetName(view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation"))!;
 
+    [AvaloniaFact]
+    public void Dock_shows_the_selected_paid_model_and_credit_estimate_in_the_run_row()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 };
+        window.Show();
+        var session = EditorSession.NewCanvas(400, 300, SKColors.Gray);
+        try
+        {
+            window.AddSession(session);
+            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
+            session.SelectRect(new(40, 40, 160, 160));
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            Pump();
+            var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible);
+            var badge = section.Content.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Name == "AiCreditEstimate");
+            var models = picker.Items.OfType<ImageModelChoice>().ToArray();
+            picker.SelectedItem = models.First(m => m.Name.StartsWith("Nano Banana 2", StringComparison.Ordinal));
+            Pump();
+            Assert.Contains(picker.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Nano Banana 2");
+            Assert.Equal("—", badge.Children.OfType<TextBlock>().Single().Text);
+            picker.SelectedItem = models.Single(m => m.Engine.Id == "chatgpt-image-2.5");
+            section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn).Text = "Add a small ceramic vase beside the plant.";
+            Pump();
+            Assert.True(badge.IsEffectivelyVisible);
+            Assert.Equal("≈10", badge.Children.OfType<TextBlock>().Single().Text);
+            var row = badge.TranslatePoint(new Rect(badge.Bounds.Size).Center, window)!.Value;
+            var run = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRun");
+            Assert.Equal(run.TranslatePoint(new Rect(run.Bounds.Size).Center, window)!.Value.Y, row.Y, 1);
+            Assert.True(Screenshots.Save(window, "generation-dock-credits"));
+            picker.SelectedItem = models.First(m => !m.Engine.PaidApi);
+            Pump();
+            Assert.False(badge.IsEffectivelyVisible);
+        }
+        finally { session.MarkSaved("credit-preview.cmps", session.History.CurrentId); window.Close(); }
+    }
+
     internal static void CheckReferenceSpacing(Control host, Window window)
     {
         var model = host.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible);

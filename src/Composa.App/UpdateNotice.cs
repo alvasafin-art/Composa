@@ -13,6 +13,7 @@ namespace Composa.App;
 public sealed class UpdateNotice : Border
 {
     private readonly TextBlock message = Ui.Label("", Brushes.White);
+    private readonly Button install;
 
     public UpdateNotice()
     {
@@ -20,30 +21,42 @@ public sealed class UpdateNotice : Border
         Background = Palette.Accent;
         Padding = new Thickness(12, 6);
 
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto") };
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto") };
         message.VerticalAlignment = VerticalAlignment.Center;
         Add(row, message, 0);
-        Add(row, Ui.TextButton("Release notes", () => OpenReleasePage?.Invoke()), 1);
-        Add(row, Ui.TextButton("Skip this version", () => { Skip?.Invoke(); Hide(); }), 2);
+        install = Ui.TextButton("Download changes", () => Install?.Invoke());
+        install.IsVisible = false;
+        Add(row, install, 1);
+        Add(row, Ui.TextButton("Release notes", () => OpenReleasePage?.Invoke()), 2);
+        Add(row, Ui.TextButton("Skip this version", () => { Skip?.Invoke(); Hide(); }), 3);
         // Built here rather than through Ui.IconButton, which leaves the icon its default muted
         // foreground: readable on a dark panel, nearly invisible on this one.
         var dismiss = new Button { Content = Icons.Create(Icons.Close, 11, Brushes.White), Classes = { "flat" } };
         ToolTip.SetTip(dismiss, "Dismiss");
         dismiss.Click += (_, _) => Hide();
-        Add(row, dismiss, 3);
+        Add(row, dismiss, 4);
         Child = row;
     }
 
-    /// <summary>Opens the release page in a browser. The application never downloads or installs anything itself.</summary>
+    /// <summary>Opens the notes for the offered release.</summary>
     public event Action? OpenReleasePage;
+    public event Action? Install;
 
     /// <summary>The user does not want to hear about this particular version again.</summary>
     public event Action? Skip;
 
-    public void Show(ReleaseVersion version)
+    public void Show(ReleaseVersion version, bool canInstall = false)
     {
         message.Text = $"Composa {version} is available. You are running {AppInfo.Version}.";
         IsVisible = true;
+        install.IsVisible = canInstall;
+        SetAction("Download changes", true);
+    }
+
+    public void SetAction(string label, bool enabled)
+    {
+        install.Content = label;
+        install.IsEnabled = enabled;
     }
 
     public void Hide() => IsVisible = false;

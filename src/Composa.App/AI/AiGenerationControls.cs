@@ -61,7 +61,7 @@ internal static class AiGenerationControls
             var button = Ui.TextButton(count.ToString(), () => launch(count));
             button.Name = $"AiVariants{count}";
             button.Classes.Add("flat");
-            button.MinWidth = 0; button.Width = 30; button.Height = 28; button.Padding = new Thickness(0);
+            button.MinWidth = 0; button.Width = 24; button.Height = 28; button.Padding = new Thickness(0);
             button.VerticalContentAlignment = VerticalAlignment.Center;
             var label = $"Run {count} variants";
             AutomationProperties.SetName(button, label);
@@ -95,7 +95,9 @@ internal static class AiGenerationControls
         Control Row(ImageModelChoice? model, bool details)
         {
             if (model == null) return new TextBlock();
-            var name = Ui.Label(model.Name);
+            var compact = model.Name.Split([" (", " · "], 2, StringSplitOptions.None)[0];
+            if (compact.StartsWith("GPT Image ", StringComparison.Ordinal)) compact = "GPT " + compact[10..];
+            var name = Ui.Label(details ? model.Name : compact, size: details ? null : 12);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = details ? 310 : 155;
             ToolTip.SetTip(name, model.Name == model.Identifier ? model.Name : $"{model.Name}\n{model.Identifier}");
@@ -106,6 +108,7 @@ internal static class AiGenerationControls
         picker.ItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, true));
         picker.SelectionBoxItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, false));
         StyleModelField(picker, "Image model");
+        picker.Padding = new Thickness(5, 0, 1, 0);
     }
 
     internal static void StyleModelPicker(ComboBox picker, IReadOnlyList<EngineProfile> packs, Func<EngineProfile, string> modelName)

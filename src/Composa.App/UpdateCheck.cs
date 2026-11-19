@@ -106,7 +106,7 @@ public sealed class UpdateCheck(IReleaseSource source, Settings settings, Func<D
 
         ReleaseInfo? latest;
         try { latest = await source.Latest(cancel); }
-        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or NotSupportedException or System.Text.Json.JsonException)
+        catch (Exception error) when (error is not OutOfMemoryException)
         {
             // An automatic check says nothing at all; a manual one owes the person an answer.
             return new UpdateResult(UpdateOutcome.Failed);

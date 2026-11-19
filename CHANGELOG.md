@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.12] - 2026-11-19
+
+- Click the operation name or arrow in the generation panel to switch tasks. The compact model field shows its estimated ComfyUI credits alongside Run. Hover over 2 or 3 for the total estimate.
+- Windows Studio installations can download incremental updates from Help > Check for Updates and restart after saving their documents.
+
 - Run launches one result. The adjacent 2 and 3 buttons immediately launch that many variants. The model stays selected after generation. Run and the prompt enhancer pulse while working.
 - Masked Qwen edits retain the original object as visual input. Composa can collect a finished job from server history when its final progress event is missing.
 - The generation panel collapses on a double-click in empty space. Reference previews open over the canvas with a corner close button. Dock dividers separate stacked panels.

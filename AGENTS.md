@@ -70,7 +70,7 @@ Composa is a from-scratch implementation of the macOS image editor [Compositor](
 
 ## Rules for what the application tells the user about itself
 
-- `UpdateCheck` reports that a newer release exists and never downloads or installs anything. A stable build is never offered a pre-release; a pre-release sorts before the version it leads to; skipping applies to one version only.
+- `UpdateCheck` only reads release metadata. Packaged Windows Studio builds separately offer a user-initiated delta download and restart through the usual unsaved-document flow. Keep the local baseline when preparation fails and refuse a full-package network fallback. Stable builds follow stable releases. Skipping applies to one version.
 - **A build installed by a package manager must never mention updates.** The `UpdateChannel` build property is set to `managed` by the packaging scripts for the `.deb` and `.rpm`, read back from assembly metadata, and the Help menu then explains that apt or dnf owns updates instead of pointing people around them.
 - An automatic check that fails says nothing, but still records the attempt: otherwise someone offline or rate limited by GitHub sends another request on every launch.
 - `ImageMagick` (in `Composa.Core/IO`) resolves once which `IImageMagick` to use: `ImageMagickTool`, the installed command line, or `ImageMagick.Bundled`, the Magick.NET library that `Program.Main` registers in builds that carry it. Linux prefers the tool, everything else the bundled library. The tool asks each candidate to identify itself rather than trusting its name. **Never probe for `convert` on Windows**: `C:\Windows\System32\convert.exe` is the FAT-to-NTFS volume converter and is on the PATH of every Windows machine.

@@ -123,7 +123,7 @@ The tools create a document, list and describe the open ones, place an image fil
 - Layer masks always move with their layer, so the layer menu has no Link Mask item.
 - A project changed on disk by another program while it is open is not reloaded; the macOS app watches its project folder and reloads it. Composa's projects are single files that nothing else edits.
 - The transform bar's angle field has no dial; the dials sit beside the angle fields in the effects and blur dialogs.
-- Composa tells you when a newer version is available, but never installs it: the notice links to the release page and nothing is downloaded or replaced behind your back. See [Update checks](#update-checks).
+- Windows Studio can download incremental patches on request and restart after you save your work. See [Update checks](#update-checks).
 
 Beyond the macOS app, this version adds Ctrl-drag to move a layer with any tool, Bold and Italic text, Brightness/Contrast, Sharpen, Dodge and Burn, WebP export, canvas and layer rotation, pen pressure, and autosave with crash recovery. Its Photoshop import also opens flattened files and zip-compressed layers, keeps solid color fill layers live, and maps Brightness/Contrast, Exposure, Invert, Black & White and Color Balance adjustments.
 
@@ -186,9 +186,9 @@ That installs under `~/.local`, so it needs no root. Set `PREFIX` to install els
 
 ### Update checks
 
-Composa checks once a day whether a newer version has been released, and shows a dismissable strip when there is one. It never downloads or installs anything: the only action it offers is opening the release page in your browser.
+Composa checks once a day for a newer release. Update-enabled Windows builds offer **Download changes** followed by **Restart to update**. The setup and portable downloads include a local baseline for applying verified patches.
 
-The check is a single anonymous `GET` to `https://api.github.com/repos/alvasafin-art/Composa/releases/latest`. It sends no version number, no identifier, no machine details and no telemetry of any kind, and GitHub sees only what any visitor to that URL would show. If the request fails, nothing is reported and nothing is retried until the next day. This endpoint lists stable releases; TEST previews are available on the fork's releases page.
+Checks use the public GitHub Releases API. The Studio updater reads the release indexes for its architecture. Stable builds follow stable targets and preview builds can receive newer previews.
 
 Turn it off under **Help > Check for Updates Automatically**, or set `COMPOSA_DISABLE_UPDATE_CHECK=1`, which is there so a distribution packager can switch it off without patching code. **Help > Check for Updates** still works when the automatic check is off.
 

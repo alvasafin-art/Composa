@@ -20,6 +20,10 @@ GitHub does not create a git tag until a release is published, so while it is st
 
 ## Versioning
 
+The Windows Studio updater uses Velopack 1.2.161. Build from the staged Windows publish tree with
+`scripts/package/studio-update.ps1 -Tree <tree> -Output <empty-folder> -Version <version> -Rid win-x64 -PreviousPackage <previous-full.nupkg>`.
+The first release for an architecture omits PreviousPackage. Subsequent releases must supply the previous published full package for that channel. Attach the setup, portable zip, full and delta packages, and `releases.<rid>.json` to the same release. Keep published packages immutable. The portable zip includes a local baseline so it can apply its first patch offline after the patch is downloaded.
+
 Composa follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): breaking is major, a feature is minor, a fix is patch. Pre-release suffixes sort alphabetically, so use `-alpha`, `-beta` and then `-preview` as the last stage before a stable release.
 
 MinVer derives the version from the nearest tag. A commit that is not tagged builds as a pre-release of the next patch, so a development build reports something like `0.2.1-alpha.0.7` and is never mistaken for a release.

@@ -597,6 +597,8 @@ public sealed partial class MainWindow : Window
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        var applyUpdate = restartForUpdate;
+        restartForUpdate = false;
         if (Content is Control { IsEnabled: false })
         {
             e.Cancel = true; automationCancellation?.Cancel();
@@ -609,13 +611,22 @@ public sealed partial class MainWindow : Window
             if (!CommitWarp(item)) { e.Cancel = true; return; }
         }
         if (session?.IsEditingText == true) session.FinishText();
-        if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified))) return;
+        if (closingConfirmed || (saving.Count == 0 && sessions.All(s => !s.IsModified)))
+        {
+            if (applyUpdate && preparedUpdate != null)
+            {
+                try { deltaUpdates!.WaitExitThenApplyUpdates(preparedUpdate, silent: true, restart: true); }
+                catch (Exception error) { e.Cancel = true; await Dialogs.Prompts.Alert(this, "Update", error.Message); }
+            }
+            return;
+        }
         e.Cancel = true;
         // Saves still writing finish before the window goes, so no file is cut short.
         while (saving.Count > 0) await WaitForSave(saving.Keys.First());
         while (sessions.FirstOrDefault(s => s.IsModified) is { } item)
             if (!await CloseSession(item)) return;
         closingConfirmed = true;
+        restartForUpdate = applyUpdate;
         Close();
     }
 

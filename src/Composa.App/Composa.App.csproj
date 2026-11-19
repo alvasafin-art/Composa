@@ -43,6 +43,7 @@
     <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
     <!-- Sandboxed JavaScript runtime for saved automation and Assistant-generated scripts. -->
     <PackageReference Include="Jint" Version="4.9.2" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
     <AvaloniaResource Include="Assets/**" />
     <Content Include="../../ai/**" Link="ai/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../examples/**" Link="examples/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

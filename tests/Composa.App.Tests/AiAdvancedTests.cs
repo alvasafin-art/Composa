@@ -61,8 +61,13 @@ public class AiAdvancedTests
         window.Settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)] = "chatgpt-image-2.5";
         for (var i = 0; i < 6; i++) { var reference = new SKBitmap(32, 32); reference.Erase(new SKColor((byte)(i * 30), 120, 170)); window.AddAiReferenceForTests(reference); }
         Assert.True(Screenshots.Save(window, "ai-gpt-six-references"));
-        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);
-        Assert.Contains(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.StartsWith("≈ ") == true);
+        var badge = window.AiFloatingPanel.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Name == "AiCreditEstimate");
+        Assert.True(badge.IsEffectivelyVisible);
+        Assert.Contains(badge.Children.OfType<TextBlock>(), block => block.Text == "≈32");
+        Assert.Contains(" cr / $", ToolTip.GetTip(badge)?.ToString());
+        var three = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiVariants3");
+        Assert.Contains("≈96", ToolTip.GetTip(three)?.ToString());
+        Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "＋");
         window.Width = 900; Assert.True(Screenshots.Save(window, "ai-gpt-narrow-panel")); window.Close();
     }

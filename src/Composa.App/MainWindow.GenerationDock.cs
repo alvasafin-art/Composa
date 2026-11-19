@@ -50,7 +50,7 @@ public sealed partial class MainWindow
     private Control BuildGenerationDock()
     {
         var menu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
-        menu.Opening += (_, _) => PopulateDockOperations(menu);
+        PopulateDockOperations(menu);
         dockOperation = new Button { Flyout = menu };
         dockOperation.Name = "AiDockOperation";
         dockOperation.Content = Ui.Row(5, dockOperationName, Icons.Create(Icons.ChevronDown, 13, Palette.Secondary));
@@ -62,11 +62,12 @@ public sealed partial class MainWindow
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         header.Children.Add(dockOperation);
         AddAt(header, Ui.Row(0, DockSlot(aiHeaderReference!), DockSlot(aiEnhance), DockSlot(aiFloatingAlignment!), DockSlot(aiAdvanced)), 1);
-        var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,6,Auto") };
+        var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,4,Auto") };
         actions.Children.Add(DockSlot(aiEngineCombo!));
-        AddAt(actions, DockSlot(aiFloatingActions!), 2);
+        AddAt(actions, DockSlot(aiPriceBadge), 1);
+        AddAt(actions, DockSlot(aiFloatingActions!), 3);
         var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiReferenceHost),
-            DockSlot(aiApiCost), DockSlot(aiFloatingStatus), DockSlot(aiFloatingVariants));
+            DockSlot(aiFloatingVariants));
         body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -93,7 +94,7 @@ public sealed partial class MainWindow
             }
             aiEngineCombo!.Width = useDock ? double.NaN : 141;
             aiEngineCombo.HorizontalAlignment = useDock ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
-            aiFloatingGenerate!.MinWidth = useDock ? 62 : 64;
+            aiFloatingGenerate!.MinWidth = useDock ? 56 : 64;
         }
         if (useDock && !session!.IsStroking && !session.IsPaintingSelection)
         {
@@ -117,14 +118,18 @@ public sealed partial class MainWindow
 
     private void PopulateDockOperations(MenuFlyout menu)
     {
-        menu.Items.Clear();
         foreach (var task in new[] { AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill,
                      AiTaskKind.GenerativeExpand, AiTaskKind.RemoveObject })
         {
-            var availability = AiAvailability(task);
-            var item = new MenuItem { Header = DockTaskName(task), ToggleType = MenuItemToggleType.Radio,
-                IsChecked = EditorTask == task, IsEnabled = availability.Available };
-            if (availability.Reason != null) ToolTip.SetTip(item, availability.Reason);
+            var item = new MenuItem { Header = DockTaskName(task), ToggleType = MenuItemToggleType.Radio };
+            // Avalonia's presenter snapshots the items before Opening. Only update their state here.
+            menu.Opening += (_, _) =>
+            {
+                var availability = AiAvailability(task);
+                item.IsEnabled = availability.Available;
+                item.IsChecked = EditorTask == task;
+                ToolTip.SetTip(item, availability.Reason);
+            };
             item.Click += (_, _) => { manualDockTask = task; RefreshAiUi(); };
             menu.Items.Add(item);
         }
@@ -132,11 +137,9 @@ public sealed partial class MainWindow
         var settingsItem = new MenuItem { Header = "AI Settings…" };
         settingsItem.Click += (_, _) => _ = ShowAiSettings();
         menu.Items.Add(settingsItem);
-        if (!dock.Tabbed)
-        {
-            var collapse = new MenuItem { Header = "Collapse panel" };
-            collapse.Click += (_, _) => dock.SetCollapsed(generationSection, true);
-            menu.Items.Add(collapse);
-        }
+        var collapse = new MenuItem { Header = "Collapse panel" };
+        collapse.Click += (_, _) => dock.SetCollapsed(generationSection, true);
+        menu.Opening += (_, _) => collapse.IsVisible = !dock.Tabbed;
+        menu.Items.Add(collapse);
     }
 }

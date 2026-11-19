@@ -26,6 +26,7 @@ concurrency:
 
 jobs:
   linux:
+    if: github.event_name != 'release' || !contains(github.event.release.assets.*.name, 'releases.win-x64.json')
     # 22.04 rather than latest: a self-contained build links against the build machine's glibc, and
     # 24.04 would produce binaries that refuse to start on Debian 12 or Ubuntu 22.04.
     #
@@ -85,6 +86,7 @@ jobs:
   # arrives prebuilt, so nothing here depends on the runner's own architecture the way the Linux
   # glibc floor does.
   windows:
+    if: github.event_name != 'release' || !contains(github.event.release.assets.*.name, 'releases.win-x64.json')
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -158,6 +160,42 @@ jobs:
             if (-not $app.HasExited) { $app.Kill(); $app.WaitForExit() }
             $app.Dispose()
           }
+
+      - name: Package Windows Studio with incremental updates
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = New-Item -Type Directory (Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString()))
+          $archive = Get-Item "dist/*-$env:RID.zip"
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath "$work/tree"
+          $exe = Get-ChildItem "$work/tree" -Recurse -Filter composa.exe -File | Select-Object -First 1
+          $version = (Get-Item (Join-Path $exe.DirectoryName 'composa.dll')).VersionInfo.ProductVersion.Split('+')[0]
+          $all = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE) { throw 'Could not look up the baseline.' }
+          $eligible = foreach ($page in $all) {
+            foreach ($release in $page) {
+              $prior = $release.tag_name.TrimStart('v') -as [semver]
+              if ($prior -and $prior -lt [semver]$version -and !$release.draft) {
+                $asset = $release.assets | Where-Object name -eq "ComposaStudio-$prior-$env:RID-full.nupkg"
+                if ($asset) { [pscustomobject]@{Version=$prior; Tag=$release.tag_name; Asset=$asset} }
+              }
+            }
+          }
+          $previous = $eligible | Sort-Object Version -Descending | Select-Object -First 1
+          $baseline = $null
+          if ($previous) {
+            gh release download $previous.Tag --repo $env:GITHUB_REPOSITORY --pattern $previous.Asset.name --dir $work
+            if ($LASTEXITCODE) { throw 'Could not download the baseline.' }
+            $baseline = Join-Path $work $previous.Asset.name
+            if ("sha256:$((Get-FileHash $baseline).Hash)" -ne $previous.Asset.digest) { throw 'Baseline digest mismatch.' }
+          }
+          dotnet tool install vpk --version 1.2.161 --tool-path "$work/tools"
+          if ($LASTEXITCODE) { throw 'Could not install vpk.' }
+          ./scripts/package/studio-update.ps1 -Tree $exe.DirectoryName -Output "$work/update" -Version $version -Rid $env:RID -Vpk "$work/tools/vpk.exe" -PreviousPackage $baseline
+          Get-ChildItem "$work/update" -Include '*.nupkg','releases.*.json','*.zip','*.exe' -Recurse -File | Copy-Item -Destination dist
 
       - uses: actions/upload-artifact@v4
         with:

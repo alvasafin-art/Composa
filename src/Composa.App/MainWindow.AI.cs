@@ -68,8 +68,9 @@ public sealed partial class MainWindow
     private StackPanel? aiVariantButtons;
     private ComboBox? aiEngineCombo;
     private StackPanel? aiFloatingActions;
-    private readonly TextBlock aiApiCost = new() { Foreground = Palette.Secondary, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 225 };
-    private readonly TextBlock aiFloatingStatus = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 230 };
+    private static readonly IBrush CreditColor = new SolidColorBrush(Color.Parse("#D6C08C"));
+    private readonly TextBlock aiApiCost = Ui.Label("", CreditColor, 11);
+    private StackPanel aiPriceBadge = null!;
 
     private sealed class AiReferenceItem(SKBitmap pixels, Bitmap preview, string name) : IDisposable
     {
@@ -336,7 +337,12 @@ public sealed partial class MainWindow
             settings.Save();
         };
         aiFloatingTools = new WrapPanel { Orientation = Orientation.Horizontal };
-        aiFloatingTools.Children.AddRange([aiEngineCombo, aiHeaderReference, aiEnhance, aiFloatingAlignment, aiAdvanced]);
+        aiPriceBadge = Ui.Row(2, Icons.Create(Icons.Coin, 14, CreditColor), aiApiCost);
+        aiPriceBadge.Name = "AiCreditEstimate";
+        aiPriceBadge.Margin = new Thickness(3, 0);
+        aiPriceBadge.VerticalAlignment = VerticalAlignment.Center;
+        aiPriceBadge.IsVisible = false;
+        aiFloatingTools.Children.AddRange([aiEngineCombo, aiPriceBadge, aiHeaderReference, aiEnhance, aiFloatingAlignment, aiAdvanced]);
         var leading = new DockPanel();
         DockPanel.SetDock(grip, Dock.Left);
         leading.Children.Add(grip);
@@ -344,7 +350,7 @@ public sealed partial class MainWindow
         aiFloatingActions = run;
         var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
         aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingPrompt, bar, aiReferenceHost, aiApiCost, aiFloatingStatus, aiFloatingVariants);
+        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingPrompt, bar, aiReferenceHost, aiFloatingVariants);
     }
 
     private void RefreshEditorModels()
@@ -438,31 +444,38 @@ public sealed partial class MainWindow
         if (aiFloatingGenerate != null) AiGenerationControls.ShowBusy(aiFloatingGenerate, busy);
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
         var operation = aiTasks.Operation;
-        aiFloatingStatus.Text = aiLastError ?? (DockEditorVisible && aiTasks.ConnectionState != ComfyConnectionState.Connected ? "ComfyUI · " + aiTasks.ConnectionState.ToString().ToLowerInvariant() : null) ?? (operation?.Status switch
+        var status = aiLastError ?? (DockEditorVisible && aiTasks.ConnectionState != ComfyConnectionState.Connected ? "ComfyUI · " + aiTasks.ConnectionState.ToString().ToLowerInvariant() : null) ?? (operation?.Status switch
         {
             AiOperationStatus.Queued or AiOperationStatus.Running => operation.Stage ?? "Working…",
             AiOperationStatus.Cancelled => "Cancelled",
             AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
             _ => ""
         });
-        aiFloatingStatus.IsVisible = expanded && !string.IsNullOrEmpty(aiFloatingStatus.Text);
-        aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
-        aiApiCost.IsVisible = expanded && fillEngine?.PaidApi == true;
-        if (aiApiCost.IsVisible)
+        if (aiFloatingGenerate != null) ToolTip.SetTip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
+        aiPriceBadge.IsVisible = expanded && fillEngine?.PaidApi == true;
+        PartnerPriceEstimate? estimate = null;
+        if (aiPriceBadge.IsVisible)
         {
             var count = (task == AiTaskKind.GenerateImage ? 0 : 1) + aiReferences.Count; // cropped source and genuine user references only
-            var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, 1);
-            aiApiCost.Text = operation?.CreditsUsed is { } credits ? PartnerPricing.Reported(credits) : estimate?.Label ?? "Paid API · estimate unavailable";
-            ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and accounts for the input images and number of variants. Actual charges may differ. Local ComfyUI does not expose the account balance. The edit mask stays in Composa and is not a billed input.");
+            estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, 1);
+            aiApiCost.Text = estimate?.RoundedCredits(1) ?? "—";
+            var tip = estimate == null ? "Paid API · estimate unavailable" : $"One variant · {estimate.Label} (ComfyUI credits)";
+            ToolTip.SetTip(aiPriceBadge, tip);
+            Avalonia.Automation.AutomationProperties.SetName(aiPriceBadge, tip);
         }
+        if (aiVariantButtons != null)
+            foreach (var button in aiVariantButtons.Children.OfType<Button>())
+            {
+                var variants = button.Name == "AiVariants2" ? 2 : 3;
+                var label = $"Run {variants} variants";
+                ToolTip.SetTip(button, estimate == null ? label : $"{label} · {estimate.RoundedCredits(variants)} ComfyUI credits total");
+            }
         if (DockEditorVisible)
         {
             // Four reference cells fit in the standard 296 px dock. Keep the user's base height for the editor itself.
             var rows = (aiReferences.Count + 3) / 4;
-            dock.SetExtraHeight(generationSection, rows * (56 + AiGenerationControls.EditorSpacing) + (aiFloatingVariants.IsVisible ? 34 : 0)
-                + (aiApiCost.IsVisible ? 18 : 0) + (aiFloatingStatus.IsVisible ? 18 : 0));
+            dock.SetExtraHeight(generationSection, rows * (56 + AiGenerationControls.EditorSpacing) + (aiFloatingVariants.IsVisible ? 34 : 0));
         }
-        ToolTip.SetTip(aiFloatingStatus, aiFloatingStatus.Text);
         if (visible) Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiFloatingPosition);
     }
 
@@ -715,7 +728,6 @@ public sealed partial class MainWindow
     {
         if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
-        aiFloatingStatus.Text = "Starting…";
         var availability = AiAvailability(task);
         if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
         if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) { AiFailed("Another AI operation is already running."); return; }

@@ -7,6 +7,7 @@ namespace Composa.App.AI;
 
 internal sealed record PartnerPriceEstimate(double MinimumUsd, double MaximumUsd)
 {
+    public string RoundedCredits(int variants) => "≈" + Math.Ceiling(MaximumUsd * PartnerPricing.CreditsPerDollar * variants).ToString("0", CultureInfo.InvariantCulture);
     public string Label => $"≈ {(MinimumUsd * PartnerPricing.CreditsPerDollar).ToString("0.0", CultureInfo.InvariantCulture)}–{(MaximumUsd * PartnerPricing.CreditsPerDollar).ToString("0.0", CultureInfo.InvariantCulture)} cr / ${MinimumUsd.ToString("0.000", CultureInfo.InvariantCulture)}–{MaximumUsd.ToString("0.000", CultureInfo.InvariantCulture)}";
 }
 
