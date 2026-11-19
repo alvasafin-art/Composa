@@ -66,7 +66,7 @@ public sealed partial class MainWindow : Window
     {
         selectionTool = settings.ToolPalette?.SelectionTool;
         stampUsesPatch = settings.ToolPalette?.Patch ?? false;
-        stampShowsHealing = settings.ToolPalette?.Choices?.GetValueOrDefault(nameof(Tool.CloneStamp)) == "Healing Brush";
+        stampGroupTool = SavedStampTool(settings.ToolPalette);
         gradientShowsBucket = settings.ToolPalette?.Bucket ?? false;
         automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), comfyClientFactory)
@@ -291,7 +291,7 @@ public sealed partial class MainWindow : Window
     {
         Tool.Wand or Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Lasso,
         Tool.Bucket => Tool.Gradient,
-        Tool.Patch or Tool.HealingBrush => Tool.CloneStamp,
+        Tool.Patch or Tool.HealingBrush or Tool.SpotHealing => Tool.CloneStamp,
         _ => tool
     };
 
@@ -321,7 +321,7 @@ public sealed partial class MainWindow : Window
                 if (palette.ObjectAi || palette.Active == Tool.ObjectSelectionAi) added.WandMode = WandMode.Object;
                 if (added.Tool == Tool.Brush && palette.Eraser) added.Tool = Tool.Eraser;
                 stampUsesPatch = palette.Patch;
-                stampShowsHealing = palette.Choices?.GetValueOrDefault(nameof(Tool.CloneStamp)) == "Healing Brush";
+                stampGroupTool = SavedStampTool(palette);
                 gradientShowsBucket = palette.Bucket;
             }
         }
@@ -650,7 +650,7 @@ public sealed partial class MainWindow : Window
         (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"), (Tool.Lasso, Icons.Lasso, "Lasso (L)"),
         (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
-        (Tool.SpotHealing, Icons.Heal, "Spot Healing Brush (J)"), (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
+        (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
         (Tool.Pen, Icons.Pen, "Pen (P) · click adds a corner, drag creates curve handles · Alt-click converts a point · Ctrl edits points · Enter finishes · double-click closes"),
@@ -663,7 +663,13 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private Tool? selectionTool;
     private bool stampUsesPatch;
-    private bool stampShowsHealing;
+    private Tool stampGroupTool;
+    private static Tool SavedStampTool(ToolPaletteSettings? palette) => palette?.Choices?.GetValueOrDefault(nameof(Tool.CloneStamp)) switch
+    {
+        "Healing Brush" => Tool.HealingBrush,
+        "Spot Healing Brush" => Tool.SpotHealing,
+        _ => Tool.CloneStamp
+    };
     private Tool StampPaintingTool => stampUsesPatch ? Tool.Patch : Tool.CloneStamp;
     private bool gradientShowsBucket;
     private IReadOnlyList<ToolChoice> ToolGroup(Tool tool)
@@ -695,8 +701,9 @@ public sealed partial class MainWindow : Window
             Tool.CloneStamp =>
             [
                 new ToolChoice("Clone Stamp", Icons.Stamp, () => toolKeys.FirstOrDefault(k => k.Id == "Clone Stamp")?.Gesture,
-                    () => !stampShowsHealing, () => { SelectTool(StampPaintingTool); canvas.Focus(); }),
-                Choice("Healing Brush", Icons.HealingBrush, "Clone Stamp", _ => stampShowsHealing, _ => { }, Tool.HealingBrush)
+                    () => stampGroupTool == Tool.CloneStamp, () => { SelectTool(StampPaintingTool); canvas.Focus(); }),
+                Choice("Healing Brush", Icons.HealingBrush, "Clone Stamp", _ => stampGroupTool == Tool.HealingBrush, _ => { }, Tool.HealingBrush),
+                Choice("Spot Healing Brush", Icons.Heal, "Spot Healing Brush", _ => stampGroupTool == Tool.SpotHealing, _ => { }, Tool.SpotHealing)
             ],
             Tool.Gradient =>
             [
@@ -878,7 +885,7 @@ public sealed partial class MainWindow : Window
         if (session == null) return;
         if (tool is Tool.Lasso or Tool.Wand or Tool.SelectionBrush) selectionTool = tool;
         if (tool is Tool.CloneStamp or Tool.Patch) stampUsesPatch = tool == Tool.Patch;
-        if (RailTool(tool) == Tool.CloneStamp) stampShowsHealing = tool == Tool.HealingBrush;
+        if (RailTool(tool) == Tool.CloneStamp) stampGroupTool = tool == Tool.Patch ? Tool.CloneStamp : tool;
         if (tool is Tool.Gradient or Tool.Bucket) gradientShowsBucket = tool == Tool.Bucket;
         foreach (var (key, button) in toolButtons)
         {

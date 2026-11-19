@@ -1,5 +1,21 @@
 # AI correctness checks
 
+## Generative Fill context and Klein noise
+
+The fill layer retains the model's decoded context in document coordinates. Its soft mask controls visibility. Regression cases put a saturated object across the mask edge, disable or delete the mask, and check the revealed pixels. Color matching uses the median and median absolute deviation of differences in the surrounding context to reject samples from the new object.
+
+The six bundled packs exposed 46 operation bindings on the test server. All passed preflight with the saved model selections. The 22 local operations across FLUX, Qwen and SeedVR2 were exercised through the editor service on synthetic inputs, including result insertion and undo. GPT Image and Nano Banana were checked through preflight and local output tests.
+
+For Klein 9B INT8 with the full FLUX.2 VAE, the same 384 × 320 flat gray document, selection, four Euler steps and source files were reused. The model was asked to leave the gray area smooth. The high-frequency measure is the mean absolute difference between each decoded channel and its four-neighbor average inside the selection, before compositing (levels on a 0–255 scale).
+
+| Seed | Previous fill instruction | Surface-preserving instruction |
+|---|---:|---:|
+| 19 | 0.402 | 0.011 |
+| 73 | 0.211 | 0.026 |
+| 113 | 0.667 | 0.077 |
+
+Changing only the sigma schedule gave 0.410, 0.168 and 1.126 on these seeds. The editor keeps its existing sampler. A synthetic wood-grain control had a mean vertical neighbor difference of 4.89 in the original. On seeds 19 and 73 the previous instruction yielded 8.65 and 10.28. The revised instruction yielded 5.73 and 6.20. These measurements cover the specified inputs and model configuration.
+
 ## Current masked workflow
 
 The supplied 9B workflow was inspected separately for whole-image and masked edits. Masked edits use ReferenceLatent → InpaintModelConditioning → KSampler, Euler/simple, with source-pixel mask growth, nearest resize, model-pixel Gaussian blur and outward seam coverage. Composa now follows that path using stock nodes and a local editable output mask, without requiring Pixaroma. MP measures the total context crop; explicit pixel targets refer to its longest side. A synthetic padding-color regression verifies that the resampler cannot pull technical padding into the output seam.

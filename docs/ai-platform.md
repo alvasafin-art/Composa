@@ -20,7 +20,7 @@ The bundled FLUX.2 Klein Engine Pack provides the first production workflows. Wi
 
 ## Editing behavior
 
-- AI results arrive as new layers. The ordinary document selection is unchanged. Bundled FLUX and GPT masked edits preserve the generated context crop as raw layer pixels with a separate editable soft mask, applied once. Removing the mask reveals the decoded crop. Legacy custom already-stitched workflows retain coverage-mask compatibility.
+- Generative Fill creates a layer with the model's full returned context crop and a separate soft mask. Paint white on the mask to reveal a detail beyond the original selection, or disable the mask to see the whole crop. The layer is transparent beyond the returned image. This works with FLUX, Qwen, GPT Image and Nano Banana. The document selection stays intact.
 - Inserting all parts of one result is one undo history step; original pixels are not changed.
 - **Remove Object** is a separate task. The bundled workflow creates a black patch for model conditioning and asks the model to reconstruct the background from surrounding content. Sampling coverage and final soft layer-mask coverage are separate; original context is never replaced by the black conditioning image. It does not require an object-specific prompt.
 - **Change Background** treats the selection as the protected subject. Without a selection it first selects the subject automatically. A separate workflow generates the complete background scene without redrawing the subject. Results are an editable group with the generated background and untouched original subject on top; automatic selection and replacement undo together.

@@ -50,6 +50,14 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         JsonObject Node(string type, JsonObject values) => new() { ["class_type"] = type, ["inputs"] = values };
         if (ConditioningImage != null)
         {
+            // The reference already extends the surrounding colors into the hole.
+            // A black-patch instruction describes a different reference image.
+            var instruction = request.Task == AiTaskKind.RemoveObject
+                ? "Restore the empty background where the object was removed. Continue visible surfaces, edges and lighting through the masked area."
+                : "Extend the existing scene through the masked area. Continue the adjacent colors, surfaces, perspective and lighting.";
+            var guidance = request.Prompt.Trim();
+            graph["prompt"]!["inputs"]!["text"] = string.Join("\n\n", new[] { instruction + " Keep smooth surfaces smooth and retain existing texture.",
+                guidance == AiPromptDefaults.Expand ? "" : guidance, request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0));
             graph["composa_edit_source"] = Node("LoadImage", new() { ["image"] = conditioningFile ?? "composa-conditioning-preflight.png" });
             image = new JsonArray("composa_edit_source", 0);
         }
@@ -142,7 +150,9 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan.SeamWidth,
                     request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground),
-                    request.Task == AiTaskKind.GenerativeExpand && string.IsNullOrWhiteSpace(request.Prompt) || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand, request.AlignMaskedEdits);
+                    request.Task == AiTaskKind.GenerativeExpand && (string.IsNullOrWhiteSpace(request.Prompt) || request.Prompt == AiPromptDefaults.Expand)
+                    || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand, request.AlignMaskedEdits,
+                    keepGeneratedContext: request.Task == AiTaskKind.GenerativeFill);
         }
     }
     public void Dispose() { Mask.Dispose(); ConditioningImage?.Dispose(); }

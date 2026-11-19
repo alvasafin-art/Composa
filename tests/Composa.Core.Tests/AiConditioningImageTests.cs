@@ -23,6 +23,28 @@ public class AiConditioningImageTests
     }
 
     [Fact]
+    public void Automatic_canvas_expansion_continues_a_solid_perimeter_around_an_object()
+    {
+        using var reference = Pixels.NewColor(216, 156);
+        using (var canvas = new SKCanvas(reference))
+        using (var paint = new SKPaint { Color = SKColors.Gray })
+        {
+            canvas.DrawRect(SKRect.Create(8, 8, 200, 140), paint);
+            paint.Color = SKColors.Maroon; canvas.DrawCircle(110, 84, 15, paint);
+        }
+        using var mask = Pixels.NewMask(216, 156, 255);
+        using (var canvas = new SKCanvas(mask))
+        using (var paint = new SKPaint { BlendMode = SKBlendMode.Clear }) canvas.DrawRect(SKRect.Create(8, 8, 200, 140), paint);
+        using var generated = Pixels.Clone(reference); generated.Erase(SKColors.Cyan);
+        using var result = AiSeamlessFinisher.Match(generated, reference, mask, reference.Info.Rect, 3, continueUniformStrip: true);
+        Assert.Equal(SKColors.Gray, result.GetPixel(2, 2)); Assert.Equal(SKColors.Gray, result.GetPixel(215, 150));
+        Assert.Equal(SKColors.Maroon, result.GetPixel(110, 84));
+        reference.SetPixel(8, 85, SKColors.Black); Pixels.Invalidate(reference);
+        using var textured = AiSeamlessFinisher.Match(generated, reference, mask, reference.Info.Rect, 3, continueUniformStrip: true);
+        Assert.NotEqual(SKColors.Gray, textured.GetPixel(2, 2));
+    }
+
+    [Fact]
     public void Large_black_damage_cannot_desaturate_the_reference_and_known_pixels_are_exact()
     {
         using var reference = Pixels.NewColor(320, 240); reference.Erase(new SKColor(93, 174, 213));

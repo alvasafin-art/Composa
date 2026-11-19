@@ -196,12 +196,13 @@ public class ToolRailTests
     {
         var stamp = window.RailButton(Tool.CloneStamp);
         Assert.Same(stamp, window.RailButton(Tool.HealingBrush));
+        Assert.Same(stamp, window.RailButton(Tool.SpotHealing));
         void Pick(string name)
         {
             window.MouseDown(Center(stamp), MouseButton.Right);
             window.MouseUp(Center(stamp), MouseButton.Right);
             Dispatcher.UIThread.RunJobs();
-            Assert.Equal(["Clone Stamp", "Healing Brush"], stamp.GroupItems.Select(i => (string)i.Header!));
+            Assert.Equal(["Clone Stamp", "Healing Brush", "Spot Healing Brush"], stamp.GroupItems.Select(i => (string)i.Header!));
             var item = stamp.GroupItems.Single(i => (string)i.Header! == name);
             var popup = TopLevel.GetTopLevel(item)!;
             var point = item.TranslatePoint(new Point(40, 10), popup)!.Value;
@@ -219,10 +220,14 @@ public class ToolRailTests
         Pick("Healing Brush");
         Assert.Equal(Tool.HealingBrush, session.Tool);
         Assert.Equal(Icons.HealingBrush, stamp.Current!.Icon);
-        window.KeyPressQwerty(PhysicalKey.J, RawInputModifiers.None);
-        Assert.Equal(Tool.SpotHealing, session.Tool);
+        window.SelectTool(Tool.Move);
         window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.None);
         Assert.Equal(Tool.HealingBrush, session.Tool);
+        window.KeyPressQwerty(PhysicalKey.J, RawInputModifiers.None);
+        Assert.Equal(Tool.SpotHealing, session.Tool);
+        window.SelectTool(Tool.Move);
+        window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.None);
+        Assert.Equal(Tool.SpotHealing, session.Tool);
         Pick("Clone Stamp");
         Assert.Equal(Tool.Patch, session.Tool);
         window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "StampMode").SelectedIndex = 0;

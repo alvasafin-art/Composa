@@ -178,7 +178,8 @@ internal sealed class PartnerImageInputs : IDisposable
             using (result)
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, blendMask, crop, plan!.SeamWidth,
-                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground), alignPixels: request.AlignMaskedEdits);
+                    request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground), alignPixels: request.AlignMaskedEdits,
+                    keepGeneratedContext: request.Task == AiTaskKind.GenerativeFill);
         }
     }
 

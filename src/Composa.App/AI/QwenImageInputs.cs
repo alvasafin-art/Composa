@@ -127,7 +127,8 @@ internal sealed class QwenImageInputs : IDisposable
             if (Mask == null) return result;
             using (result)
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : Pixels.Clone(inputs.ContextImage))
-                return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan!.SeamWidth, alignPixels: request.AlignMaskedEdits);
+                return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan!.SeamWidth, alignPixels: request.AlignMaskedEdits,
+                    keepGeneratedContext: request.Task == AiTaskKind.GenerativeFill);
         }
     }
 

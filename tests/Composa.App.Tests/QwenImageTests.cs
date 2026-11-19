@@ -69,6 +69,16 @@ public class QwenImageTests
         var instruction = graph["conditioning"]!["inputs"]!["prompt"]!.GetValue<string>();
         Assert.Contains(request.Prompt, instruction);
         Assert.DoesNotContain("black marked", instruction);
+        var decoded = Pixels.NewColor(edit.PaddedSize.Width, edit.PaddedSize.Height);
+        decoded.Erase(SKColors.Blue);
+        var raw = edit.Finish(decoded);
+        AiTaskService.Insert(new EditorCommandService(session), request.Task, AiOutputMode.NewLayerWithMask,
+            [raw], inputs.TargetBounds, inputs, localOutputMask: edit.Mask);
+        using var masked = session.Flatten();
+        Assert.Equal(SKColors.Gray, masked.GetPixel(35, 40));
+        session.DeleteMask(session.ActiveLayer!);
+        using var visible = session.Flatten();
+        Assert.Equal(SKColors.Blue, visible.GetPixel(35, 40));
     }
 
     public static bool LiveRecolor => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COMPOSA_HOOD_TEST_URL"));

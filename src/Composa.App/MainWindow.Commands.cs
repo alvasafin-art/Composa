@@ -346,7 +346,7 @@ public sealed partial class MainWindow
         Key(BrushKey, Avalonia.Input.Key.B, () => SelectTool(Tool.Brush));
         Key(EraserKey, Avalonia.Input.Key.E, () => SelectTool(Tool.Eraser));
         Key("Spot Healing Brush", Avalonia.Input.Key.J, () => SelectTool(Tool.SpotHealing));
-        Key("Clone Stamp", Avalonia.Input.Key.S, () => SelectTool(stampShowsHealing ? Tool.HealingBrush : StampPaintingTool));
+        Key("Clone Stamp", Avalonia.Input.Key.S, () => SelectTool(stampGroupTool == Tool.CloneStamp ? StampPaintingTool : stampGroupTool));
         Key(SmearKey, Avalonia.Input.Key.R, () => SelectTool(Tool.Smear), label: "Smear tool");
         Key("Gradient tool", Avalonia.Input.Key.G, () => SelectTool(gradientShowsBucket ? Tool.Bucket : Tool.Gradient));
         Key(ShapeKey, Avalonia.Input.Key.U, () => SelectTool(Tool.Shape), label: "Shape tool");

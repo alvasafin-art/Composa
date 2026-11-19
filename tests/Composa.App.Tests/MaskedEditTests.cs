@@ -81,6 +81,7 @@ public class MaskedEditTests
             Assert.Equal("composa_edit_source", graph["composa_edit_crop"]!["inputs"]!["image"]![0]!.GetValue<string>());
             Assert.Equal("composa_edit_size", graph["sourceEncode"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
             Assert.Equal("composa_edit_size", graph["composa_condition"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
+            Assert.DoesNotContain("black patch", graph["prompt"]!["inputs"]!["text"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
         }
         WorkflowExecution.Batch(graph, 3);
         Assert.Equal(3, graph["latent"]!["inputs"]!["amount"]!.GetValue<int>());

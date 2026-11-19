@@ -71,18 +71,27 @@ public class AiEditableOutputTests
             Settings = new() { Values = new() { ["gptContextPadding"] = 12, ["maskBlend"] = 8, ["maskGrow"] = 0 } } };
         using var inputs = AiTaskInputPreparer.Prepare(s, request); using var api = new PartnerImageInputs(inputs, request);
         var decoded = PartnerImageTests.GeneratedPatch(inputs, api, SKColors.Blue);
-        if (!expand) { decoded.SetPixel(49 - api.SourceBounds.Left, 60 - api.SourceBounds.Top, SKColors.Blue); Pixels.Invalidate(decoded); }
+        if (!expand)
+        {
+            for (var x = 40; x < 50; x++) decoded.SetPixel(x - api.SourceBounds.Left, 60 - api.SourceBounds.Top, SKColors.Blue);
+            Pixels.Invalidate(decoded);
+        }
         var raw = api.FinishUnmasked(decoded); using var mask = api.OutputMask();
         AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [raw], inputs.TargetBounds, inputs, true, localOutputMask: mask);
         var layer = s.ActiveLayer!; Assert.NotNull(layer.Mask);
         if (!expand)
         {
-            Assert.Equal(SKColors.White, layer.Pixels!.GetPixel(40, 60)); // unchanged context restored exactly
+            Assert.Equal(SKColors.Blue, layer.Pixels!.GetPixel(40, 60));
             Assert.Equal((byte)0, layer.Mask.GetPixel(40, 60).Alpha);
             using var composite = s.Flatten(); Assert.Equal(SKColors.White, composite.GetPixel(40, 60));
             var m = layer.Mask.GetPixel(49, 60).Alpha;
             Assert.InRange(m, (byte)1, (byte)254);
             Assert.InRange(composite.GetPixel(49, 60).Red, 254 - m, 256 - m); // no double feather
+            s.DeleteMask(layer);
+            using var revealed = s.Flatten();
+            Assert.Equal(SKColors.Blue, revealed.GetPixel(40, 60));
+            Assert.Equal(0, layer.Pixels.GetPixel(0, 0).Alpha);
+            s.Undo();
         }
         else { using var composite = s.Flatten(); Assert.Equal(SKColors.White, composite.GetPixel(100, 100)); Assert.Equal(SKColors.White, layer.Pixels!.GetPixel(100, 100)); }
         s.Undo(); Assert.Single(s.Document.Layers); s.Redo(); Assert.NotNull(s.ActiveLayer!.Mask);
@@ -118,7 +127,7 @@ public class AiEditableOutputTests
         using (var draw = new SKCanvas(decoded)) using (var paint = new SKPaint { Color = SKColors.Blue })
         {
             draw.Scale((float)editable.ContentSize.Width/editable.Bounds.Width, (float)editable.ContentSize.Height/editable.Bounds.Height);
-            draw.DrawRect(new SKRect(248-editable.Bounds.Left,158-editable.Bounds.Top,332-editable.Bounds.Left,242-editable.Bounds.Top),paint);
+            draw.DrawRect(new SKRect(225-editable.Bounds.Left,158-editable.Bounds.Top,332-editable.Bounds.Left,242-editable.Bounds.Top),paint);
         }
         var raw = editable.Finish(decoded);
         AiTaskService.Insert(new EditorCommandService(s), request.Task, AiOutputMode.NewLayerWithMask, [raw], inputs.TargetBounds, inputs, true, localOutputMask: editable.Mask);
@@ -126,6 +135,9 @@ public class AiEditableOutputTests
         using var composite = s.Flatten(); Assert.Equal(SKColors.White, composite.GetPixel(210, 200));
         Assert.InRange(s.ActiveLayer.Mask!.GetPixel(249,200).Alpha, (byte)1, (byte)254);
         Assert.Equal(SKColors.Blue, composite.GetPixel(290, 200));
+        Assert.Equal(SKColors.White, composite.GetPixel(235, 200));
+        s.SetMaskEnabled(s.ActiveLayer, false);
+        using var revealed = s.Flatten(); Assert.Equal(SKColors.Blue, revealed.GetPixel(235, 200));
     }
 
     [Theory]

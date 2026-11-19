@@ -7,7 +7,7 @@ namespace Composa.AI;
 /// <summary>Automatic registration and a screened harmonic color residual. No texture synthesis or contrast gain.</summary>
 public static class AiSeamlessFinisher
 {
-    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false, bool alignPixels = true)
+    public static SKBitmap Match(SKBitmap generated, SKBitmap reference, SKBitmap coverage, SKRectI decodedArea, int seamWidth, bool matchFlatBackground = true, bool continueUniformStrip = false, bool alignPixels = true, bool keepGeneratedContext = false)
     {
         // Generated/model pixels are RGB8. A caller may retain a precise reference; read an owned
         // display copy for model residual analysis, never reinterpret its float memory as bytes.
@@ -15,18 +15,27 @@ public static class AiSeamlessFinisher
         {
             using var resultDisplay = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
             using var referenceDisplay = !Pixels.IsSrgb8(reference) ? Pixels.DisplayCopy(reference) : null;
-            return Match(resultDisplay ?? generated, referenceDisplay ?? reference, coverage, decodedArea, seamWidth, matchFlatBackground, continueUniformStrip, alignPixels);
+            return Match(resultDisplay ?? generated, referenceDisplay ?? reference, coverage, decodedArea, seamWidth, matchFlatBackground, continueUniformStrip, alignPixels, keepGeneratedContext);
         }
         if (generated.Width != reference.Width || generated.Height != reference.Height
             || coverage.Width != reference.Width || coverage.Height != reference.Height)
             throw new ArgumentException("Generated pixels, reference and coverage must share coordinates.");
         var area = SKRectI.Intersect(decodedArea, reference.Info.Rect);
-        var result = Pixels.Clone(generated);
+        // A fill layer can reveal the entire decoded crop when its mask is edited.
+        // Keep document coordinates and leave pixels beyond the model's field of view transparent.
+        var result = keepGeneratedContext ? Pixels.NewLike(generated) : Pixels.Clone(generated);
         if (area.IsEmpty) return result;
+        if (keepGeneratedContext)
+        {
+            for (var y = area.Top; y < area.Bottom; y++)
+                generated.GetPixelSpan().Slice(y * generated.RowBytes + area.Left * 4, area.Width * 4)
+                    .CopyTo(result.GetPixelSpan().Slice(y * result.RowBytes + area.Left * 4));
+        }
         if (continueUniformStrip && UniformStrip(reference, coverage, area) is { } tone)
         {
             for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
-                result.SetPixel(x, y, coverage.GetPixel(x, y).Alpha == 0 ? reference.GetPixel(x, y) : tone);
+                if (coverage.GetPixel(x, y).Alpha != 0) result.SetPixel(x, y, tone);
+                else if (!keepGeneratedContext) result.SetPixel(x, y, reference.GetPixel(x, y));
             Pixels.Invalidate(result); return result;
         }
         var (dx, dy) = alignPixels ? Registration(generated, reference, coverage, area) : (0, 0);
@@ -35,14 +44,14 @@ public static class AiSeamlessFinisher
             Shift(generated, result, area, dx, dy);
         }
         var flat = matchFlatBackground && IsFlatContinuation(result, reference, coverage, area);
-        var field = Residual.Build(result, reference, coverage, area, seamWidth, flat);
+        var field = Residual.Build(result, reference, coverage, area, seamWidth, flat, keepGeneratedContext);
         var pixels = result.GetPixelSpan(); var original = reference.GetPixelSpan(); var mask = coverage.GetPixelSpan();
         for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
         {
             var index = y * result.RowBytes + x * 4;
             if (mask[y * coverage.RowBytes + x] == 0)
             {
-                original.Slice(y * reference.RowBytes + x * 4, 4).CopyTo(pixels.Slice(index, 4));
+                if (!keepGeneratedContext) original.Slice(y * reference.RowBytes + x * 4, 4).CopyTo(pixels.Slice(index, 4));
                 continue;
             }
             var alpha = pixels[index + 3];
@@ -93,7 +102,8 @@ public static class AiSeamlessFinisher
     {
         var core = SelectionMask.Bounds(coverage, 255);
         var shorter = Math.Min(core.Width, core.Height); var longer = Math.Max(core.Width, core.Height);
-        if (core.IsEmpty || shorter > 32 || shorter >= longer * .2) return null;
+        if (core.IsEmpty) return null;
+        if (shorter > 32 || shorter >= longer * .2) return UniformCanvasMargin(reference, coverage, area);
         var min = new[] { 255, 255, 255 }; var max = new int[3]; var sum = new long[3]; var count = 0;
         for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
         {
@@ -104,6 +114,37 @@ public static class AiSeamlessFinisher
             count++;
         }
         return count < 64 ? null : new SKColor((byte)((sum[0] + count / 2) / count), (byte)((sum[1] + count / 2) / count), (byte)((sum[2] + count / 2) / count));
+    }
+
+    // Extending two or more edges makes the mask bounds as large as the canvas,
+    // even when the actual extension is a narrow strip of solid studio backdrop.
+    private static SKColor? UniformCanvasMargin(SKBitmap reference, SKBitmap mask, SKRectI area)
+    {
+        var frame = Pixels.ContentBounds(reference);
+        if (frame.IsEmpty) return null;
+        var left = frame.Left - area.Left; var right = area.Right - frame.Right;
+        var top = frame.Top - area.Top; var bottom = area.Bottom - frame.Bottom;
+        var margin = Math.Max(Math.Max(left, right), Math.Max(top, bottom));
+        if (margin < 1 || margin > Math.Min(32, Math.Min(frame.Width, frame.Height) / 5)) return null;
+        var band = Math.Max(8, margin);
+        SKColor? tone = null;
+        for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
+        {
+            var coverage = mask.GetPixel(x, y).Alpha;
+            if (!frame.Contains(x, y))
+            {
+                if (coverage != 255) return null;
+                continue;
+            }
+            var bordersExtension = left > 0 && x < frame.Left + band || right > 0 && x >= frame.Right - band
+                || top > 0 && y < frame.Top + band || bottom > 0 && y >= frame.Bottom - band;
+            if (!bordersExtension && coverage == 0) continue;
+            if (!bordersExtension) return null;
+            var pixel = reference.GetPixel(x, y);
+            if (pixel.Alpha != 255 || tone.HasValue && tone.Value != pixel) return null;
+            tone = pixel;
+        }
+        return tone;
     }
 
     private static bool IsFlatContinuation(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area)
@@ -175,13 +216,14 @@ public static class AiSeamlessFinisher
 
     private sealed record Residual(SKRectI Area, int Step, int Width, int Height, double[] Values)
     {
-        internal static Residual? Build(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area, int seam, bool flat)
+        internal static Residual? Build(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area, int seam, bool flat, bool editableFill)
         {
             var step = Math.Max(1, (Math.Max(area.Width, area.Height) + 127) / 128);
             if (flat) step = Math.Max(8, step);
             var w = (area.Width + step - 1) / step; var h = (area.Height + step - 1) / step;
             var values = new double[w * h * 3]; var counts = new int[w * h]; long total = 0;
             var flatTone = flat ? FlatSource(reference, mask, area) : SKColors.Transparent;
+            var limits = editableFill ? ContextLimits(generated, reference, mask, area) : null;
             var sampleStep = Math.Max(1, step / 4);
             for (var y = area.Top; y < area.Bottom; y += sampleStep) for (var x = area.Left; x < area.Right; x += sampleStep)
             {
@@ -197,6 +239,8 @@ public static class AiSeamlessFinisher
                 if (a.Alpha != 255 || b.Alpha != 255) continue;
                 var cell = ((y - area.Top) / step * w + (x - area.Left) / step) * 3;
                 var dr = a.Red - b.Red; var dg = a.Green - b.Green; var db = a.Blue - b.Blue;
+                if (limits != null && (dr < limits[0].Min || dr > limits[0].Max || dg < limits[1].Min || dg > limits[1].Max
+                    || db < limits[2].Min || db > limits[2].Max)) continue;
                 values[cell] += dr; values[cell + 1] += dg; values[cell + 2] += db;
                 counts[cell / 3]++; total++;
             }
@@ -224,6 +268,31 @@ public static class AiSeamlessFinisher
                 if (changed < .01) break;
             }
             return new(area, step, w, h, values);
+        }
+
+        // An object can cross the selection. Such pixels in the hidden context are useful
+        // layer content, but treating them as a background color cast bleaches its visible edge.
+        private static (int Min, int Max)[] ContextLimits(SKBitmap generated, SKBitmap reference, SKBitmap mask, SKRectI area)
+        {
+            List<int>[] channels = [[], [], []];
+            var stride = Math.Max(1, Math.Max(area.Width, area.Height) / 96);
+            for (var y = area.Top; y < area.Bottom; y += stride) for (var x = area.Left; x < area.Right; x += stride)
+            {
+                if (mask.GetPixel(x, y).Alpha != 0) continue;
+                var a = reference.GetPixel(x, y); var b = generated.GetPixel(x, y);
+                if (a.Alpha != 255 || b.Alpha != 255) continue;
+                channels[0].Add(a.Red - b.Red); channels[1].Add(a.Green - b.Green); channels[2].Add(a.Blue - b.Blue);
+            }
+            return channels.Select(values =>
+            {
+                if (values.Count < 8) return (-64, 64);
+                values.Sort();
+                var median = values[values.Count / 2];
+                for (var i = 0; i < values.Count; i++) values[i] = Math.Abs(values[i] - median);
+                values.Sort();
+                var tolerance = Math.Clamp(4 * values[values.Count / 2], 8, 64);
+                return (Math.Max(-96, median - tolerance), Math.Min(96, median + tolerance));
+            }).ToArray();
         }
 
         private static SKColor FlatSource(SKBitmap reference, SKBitmap mask, SKRectI area)

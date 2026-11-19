@@ -84,9 +84,9 @@ public class FluxMaskGeometryTests
         using var raw=edit.Finish(decoded);
         Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(80,92)); Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(50,40));
         Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom-1));
-        Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(0,0));
-        if (edit.Bounds.Right < raw.Width) Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right,edit.Bounds.Bottom-1));
-        if (edit.Bounds.Bottom < raw.Height) Assert.Equal(SKColors.CornflowerBlue,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom));
+        Assert.Equal(0,raw.GetPixel(0,0).Alpha);
+        if (edit.Bounds.Right < raw.Width) Assert.Equal(0,raw.GetPixel(edit.Bounds.Right,edit.Bounds.Bottom-1).Alpha);
+        if (edit.Bounds.Bottom < raw.Height) Assert.Equal(0,raw.GetPixel(edit.Bounds.Right-1,edit.Bounds.Bottom).Alpha);
     }
 
     [Fact]
