@@ -127,7 +127,12 @@ public class AiInteractionTests
             var preview=host.GetVisualDescendants().OfType<Button>().First(b=>ToolTip.GetTip(b)?.ToString()?.StartsWith("Preview reference")==true);
             preview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs(); var child=Assert.Single(dialog.OwnedWindows); child.Close();
             Assert.True(Screenshots.Save(dialog,"ai-"+task+"-references"));
-            while(host.GetVisualDescendants().OfType<Button>().FirstOrDefault(b=>b.Content as string=="×") is {} remove){remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Dispatcher.UIThread.RunJobs();}
+            while (host.GetVisualDescendants().OfType<Button>().FirstOrDefault(b =>
+                Avalonia.Automation.AutomationProperties.GetName(b)?.StartsWith("Remove reference:") == true) is { } remove)
+            {
+                remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+            }
             Assert.Equal(0,w.AiReferenceCount); dialog.Close(false); await pending;
         }
         w.Close();
