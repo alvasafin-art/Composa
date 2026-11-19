@@ -147,7 +147,7 @@ public sealed partial class EditorSession
             }
         }
         var color = mode == BrushMode.Paint ? ChannelPaintColor(channelErase ? Background : Foreground) : SKColors.Black;
-        stroke = new BrushStroke(target, Brush, mode.Value, color, scale)
+        stroke = new BrushStroke(target, Brush, mode.Value, color, scale, LayerPixelStorage.CopyForStroke(target))
         {
             Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset,
             LockTransparency = !IsEditingMask && (IsEditingComponent || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
@@ -165,7 +165,7 @@ public sealed partial class EditorSession
             sampleCanvas.DrawImage(Pixels.ImageOf(visible), 0, 0);
         }
         strokeMode = mode.Value;
-        SetTarget(layer, stroke.Working);
+        SetTarget(layer, stroke.Working, constrainChannels: false);
         Pixels.SetLive(stroke.Working, true);
         if (lineFromLast && lastStrokeEnd is { } from) stroke.AddPoint(strokeToLayer.MapPoint(from));
         // The first dab always lands; from here on Smoothing decides how the brush follows.
@@ -311,7 +311,7 @@ public sealed partial class EditorSession
 
     private void CloseStroke()
     {
-        if (stroke != null) { Pixels.SetLive(stroke.Working, false); Pixels.Invalidate(stroke.Working); }
+        if (stroke != null) { Pixels.SetLive(stroke.Working, false); Pixels.InvalidateCaches(stroke.Working); }
         if (stroke?.CloneSource != null && !ReferenceEquals(stroke.CloneSource, strokeOriginal)) stroke.CloneSource.Dispose();
         stroke?.Dispose();
         stroke = null;

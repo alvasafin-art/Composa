@@ -99,7 +99,7 @@ public sealed partial class EditorSession
         var have = new SKRectI(x, y, x + pixels.Width, y + pixels.Height);
         var want = Geometry.Union(have, document.Bounds);
         if (want == have || (long)want.Width * want.Height > DocumentLimits.MaxSurfacePixels) return;
-        var grown = Pixels.NewLike(pixels, want.Width, want.Height);
+        var grown = Pixels.NewLike(pixels, want.Width, want.Height, layerStorage: true);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, have.Left - want.Left, have.Top - want.Top);
         var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         layer.Pixels = grown;
@@ -146,7 +146,7 @@ public sealed partial class EditorSession
     /// </summary>
     private static SKBitmap GrownMask(SKBitmap mask, int width, int height, int left, int top, byte? outside = null)
     {
-        var grown = Pixels.NewMask(width, height, outside ?? Pixels.MaskBackground(mask));
+        var grown = Pixels.NewLayerMask(width, height, outside ?? Pixels.MaskBackground(mask));
         using var canvas = new SKCanvas(grown);
         using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
         canvas.DrawBitmap(mask, new SKRect(left, top, left + mask.Width, top + mask.Height), paint);
@@ -169,7 +169,7 @@ public sealed partial class EditorSession
         long width = pixels.Width + left + right, height = pixels.Height + top + bottom;
         if (!DocumentLimits.FitsSurface(width, height)) return;
 
-        var grown = Pixels.NewLike(pixels, (int)width, (int)height);
+        var grown = Pixels.NewLike(pixels, (int)width, (int)height, layerStorage: true);
         using (var canvas = new SKCanvas(grown)) canvas.DrawBitmap(pixels, left, top);
         var maskPlacement = layer.MaskTransform != null ? layer.MaskMatrix : (SKMatrix?)null;
         layer.Pixels = grown;

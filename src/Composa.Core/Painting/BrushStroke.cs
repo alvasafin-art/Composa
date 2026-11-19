@@ -105,9 +105,12 @@ public sealed unsafe partial class BrushStroke : IDisposable
     public SKPointI CloneOffset { get; set; }
 
     public BrushStroke(SKBitmap target, BrushSettings settings, BrushMode mode, SKColor color, double scale = 1)
+        : this(target, settings, mode, color, scale, Pixels.Clone(target)) { }
+
+    internal BrushStroke(SKBitmap target, BrushSettings settings, BrushMode mode, SKColor color, double scale, SKBitmap working)
     {
         original = target;
-        Working = Pixels.Clone(target);
+        Working = working;
         this.settings = settings;
         this.mode = mode;
         isMask = target.ColorType == SKColorType.Alpha8;
@@ -170,7 +173,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
         if (!dirty.IsEmpty)
         {
             Touched = Geometry.Union(Touched, dirty);
-            Pixels.Invalidate(Working);
+            Pixels.InvalidateCaches(Working);
         }
         return dirty;
     }
@@ -217,6 +220,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
             (int)MathF.Floor(center.X - radius - 1), (int)MathF.Floor(center.Y - radius - 1),
             (int)MathF.Ceiling(center.X + radius + 1), (int)MathF.Ceiling(center.Y + radius + 1)), new SKRectI(0, 0, width, height));
         if (rect.IsEmpty) return rect;
+        // Track the individual footprint even when one input event crosses a long diagonal.
+        LayerPixelStorage.Changed(Working, rect);
         if (mode == BrushMode.Smudge) return Smudge(center, rect) ? rect : SKRectI.Empty;
         if (mode == BrushMode.Liquify) return Push(center, rect);
 

@@ -68,7 +68,7 @@ internal static class Png16Codec
         }
         compressed.Position = 0;
         using var zipped = new ZLibStream(compressed, CompressionMode.Decompress);
-        var source = Pixels.NewColor(width, height, ColorDepth.Sixteen, space);
+        var source = LayerPixelStorage.Allocate(Pixels.ColorInfo(width, height, ColorDepth.Sixteen, space));
         if (retainedProfile != null) Pixels.TagProfile(source, retainedProfile);
         try
         {
@@ -107,7 +107,7 @@ internal static class Png16Codec
             Pixels.Invalidate(source);
             if (preserveProfile || space == null || space.IsSrgb) return source;
             // Full precision color conversion; the encoded source values and its profile travel together.
-            var converted = Pixels.NewColor(width, height, ColorDepth.Sixteen);
+            var converted = Pixels.NewLayerColor(width, height, ColorDepth.Sixteen, Composa.ColorManagement.RgbProfile.Srgb);
             try
             {
                 using var canvas = new SKCanvas(converted);

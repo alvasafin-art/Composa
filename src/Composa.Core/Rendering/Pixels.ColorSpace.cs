@@ -10,12 +10,22 @@ public static partial class Pixels
     private static readonly ConditionalWeakTable<SKBitmap, RgbProfile> colorProfiles = new();
     public static RgbProfile ProfileOf(SKBitmap bitmap) => colorProfiles.TryGetValue(bitmap, out var profile) ? profile : RgbProfile.ForSpace(bitmap.ColorSpace);
     internal static void TagProfile(SKBitmap bitmap, RgbProfile profile) { colorProfiles.Remove(bitmap); colorProfiles.Add(bitmap, profile); }
-    private static void RetainProfile(SKBitmap source, SKBitmap copy)
+    internal static void RetainProfile(SKBitmap source, SKBitmap copy)
     {
         if (source.ColorType != SKColorType.Alpha8) TagProfile(copy, ProfileOf(source));
     }
 
     public static SKImageInfo WorkingInfo(int width, int height, ColorDepth depth, RgbProfile profile) => ColorInfo(width, height, depth, profile.Space);
+
+    /// <summary>New persistent raster layer, ready for local brush edits.</summary>
+    internal static SKBitmap NewLayerColor(int width, int height, ColorDepth depth, RgbProfile profile)
+    {
+        if (!DocumentLimits.FitsSurface(width, height, depth == ColorDepth.Sixteen ? 16 : 4))
+            throw new InvalidOperationException("The layer exceeds the supported memory or dimensions.");
+        var result = LayerPixelStorage.Allocate(WorkingInfo(width, height, depth, profile), clear: true);
+        TagProfile(result, profile);
+        return result;
+    }
 
     public static SKBitmap NewWorkingColor(int width, int height, ColorDepth depth, RgbProfile profile)
     {

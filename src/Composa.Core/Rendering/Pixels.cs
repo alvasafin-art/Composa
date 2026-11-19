@@ -56,6 +56,13 @@ public static partial class Pixels
         return bitmap;
     }
 
+    internal static SKBitmap NewLayerMask(int width, int height, byte fill = 0)
+    {
+        var bitmap = LayerPixelStorage.Allocate(MaskInfo(width, height), clear: fill == 0);
+        if (fill != 0) bitmap.Erase(new SKColor(0, 0, 0, fill));
+        return bitmap;
+    }
+
     /// <summary>
     /// What a mask is past its pixels, and so what new mask area starts as when it grows: black (0) when its border
     /// mostly hides, white (255) otherwise. A reveal-all mask with strokes inside stays white; a hide-all mask stays black.
@@ -84,7 +91,7 @@ public static partial class Pixels
 
     private const int ChunkRows = 256;
 
-    private static unsafe void Fill(SKBitmap bitmap, byte value)
+    internal static unsafe void Fill(SKBitmap bitmap, byte value)
     {
         var pixels = (byte*)bitmap.GetPixels();
         long stride = bitmap.RowBytes, height = bitmap.Height;
@@ -97,9 +104,10 @@ public static partial class Pixels
     }
 
     /// <summary>An independent copy of a bitmap. Far faster than <c>SKBitmap.Copy</c>, which converts pixel by pixel.</summary>
-    public static unsafe SKBitmap Clone(SKBitmap source)
+    public static SKBitmap Clone(SKBitmap source) => CloneInto(source, new SKBitmap(source.Info));
+
+    internal static unsafe SKBitmap CloneInto(SKBitmap source, SKBitmap copy)
     {
-        var copy = new SKBitmap(source.Info);
         RetainProfile(source, copy);
         byte* from = (byte*)source.GetPixels(), to = (byte*)copy.GetPixels();
         long height = source.Height;
@@ -184,7 +192,15 @@ public static partial class Pixels
     public static event Action<SKBitmap>? Invalidated;
 
     /// <summary>Drops everything cached for a bitmap whose pixels changed.</summary>
-    public static void Invalidate(SKBitmap bitmap)
+    public static void Invalidate(SKBitmap bitmap) => Invalidate(bitmap, null);
+
+    internal static void Invalidate(SKBitmap bitmap, SKRectI? changed)
+    {
+        LayerPixelStorage.Changed(bitmap, changed);
+        InvalidateCaches(bitmap);
+    }
+
+    internal static void InvalidateCaches(SKBitmap bitmap)
     {
         extents.Remove(bitmap);
         componentBounds.Remove(bitmap);

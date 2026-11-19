@@ -101,7 +101,7 @@ public sealed partial class EditorSession
     {
         var units = (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1);
         if (document.RasterPixels() + units > DocumentLimits.DocumentPixelBudget) throw new InvalidOperationException("The new layer exceeds the document raster memory budget.");
-        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewWorkingColor(document.Width, document.Height, document.WorkingDepth, document.Profile));
+        var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewLayerColor(document.Width, document.Height, document.WorkingDepth, document.Profile));
         Apply("New Layer", () => document.InsertAboveActive(layer));
         LayersChanged?.Invoke();
         return layer;
@@ -562,9 +562,9 @@ public sealed partial class EditorSession
         Apply("Add Layer Mask", () =>
         {
             if (layer.Pixels == null)
-                layer.Mask = document.Selection != null ? Pixels.Clone(document.Selection) : Pixels.NewMask(document.Width, document.Height, hideAll ? (byte)0 : (byte)255);
+                layer.Mask = document.Selection != null ? Pixels.Clone(document.Selection) : Pixels.NewLayerMask(document.Width, document.Height, hideAll ? (byte)0 : (byte)255);
             else if (document.Selection != null) layer.Mask = SelectionInLayerSpace(layer)!;
-            else layer.Mask = Pixels.NewMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
+            else layer.Mask = Pixels.NewLayerMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
             layer.MaskEnabled = true;
             layer.MaskDensity = 1; layer.MaskFeather = 0;
             layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0;

@@ -408,7 +408,7 @@ public static class ProjectFile
         if (!DocumentLimits.FitsSurface(codec.Info.Width, codec.Info.Height)) throw new InvalidDataException("The project mask is too large.");
         using var gray = new SKBitmap(new SKImageInfo(codec.Info.Width, codec.Info.Height, SKColorType.Gray8, SKAlphaType.Opaque));
         if (codec.GetPixels(gray.Info, gray.GetPixels()) != SKCodecResult.Success) throw new InvalidDataException("A mask inside the project is damaged.");
-        var mask = Pixels.NewMask(gray.Width, gray.Height);
+        var mask = Pixels.NewLayerMask(gray.Width, gray.Height);
         CopyRows(gray, mask);
         return mask;
     }

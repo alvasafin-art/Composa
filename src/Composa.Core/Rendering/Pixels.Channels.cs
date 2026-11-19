@@ -96,6 +96,6 @@ public static partial class Pixels
                 }
             }
         });
-        Invalidate(modified);
+        Invalidate(modified, bounds);
     }
 }

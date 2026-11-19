@@ -98,7 +98,7 @@ public sealed class RawImage
         var tables = Tables(settings);
         if ((long)width * height * (depth == ColorDepth.Sixteen ? 16 : 4) > DocumentLimits.MaxSurfaceBytes)
             throw new InvalidDataException("The developed frame exceeds the supported surface memory. Reduce its dimensions before opening it.");
-        var result = Pixels.NewColor(width, height, depth);
+        var result = Pixels.NewLayerColor(width, height, depth, Composa.ColorManagement.RgbProfile.Srgb);
         if (depth == ColorDepth.Sixteen)
         {
             var high = new PixelBuffer(result);

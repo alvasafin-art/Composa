@@ -49,7 +49,7 @@ public static class ImageFiles
         var actualDepth = depth ?? ColorDepth.Eight;
         if ((long)info.Width * info.Height * (actualDepth == ColorDepth.Sixteen ? 16 : 4) > DocumentLimits.MaxSurfaceBytes)
             throw new InvalidDataException($"{name} exceeds the supported surface memory.");
-        var bitmap = new SKBitmap(Pixels.ColorInfo(info.Width, info.Height, actualDepth, profile?.Space ?? (preserveProfile ? info.ColorSpace : null)));
+        var bitmap = LayerPixelStorage.Allocate(Pixels.ColorInfo(info.Width, info.Height, actualDepth, profile?.Space ?? (preserveProfile ? info.ColorSpace : null)));
         Pixels.TagProfile(bitmap, profile ?? (preserveProfile ? RgbProfile.ForSpace(info.ColorSpace) : RgbProfile.Srgb));
         var result = codec.GetPixels(bitmap.Info, bitmap.GetPixels());
         if (result is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
@@ -65,7 +65,7 @@ public static class ImageFiles
         if (origin is SKEncodedOrigin.TopLeft or SKEncodedOrigin.Default) return bitmap;
         var swap = origin is SKEncodedOrigin.LeftTop or SKEncodedOrigin.RightTop or SKEncodedOrigin.RightBottom or SKEncodedOrigin.LeftBottom;
         int w = swap ? bitmap.Height : bitmap.Width, h = swap ? bitmap.Width : bitmap.Height;
-        var result = Pixels.NewLike(bitmap, w, h);
+        var result = Pixels.NewLike(bitmap, w, h, layerStorage: true);
         using (var canvas = new SKCanvas(result))
         {
             var matrix = origin switch

@@ -41,7 +41,7 @@ public sealed partial class EditorSession
     {
         var document = new Document(width, height) { Depth = depth };
         ValidateCanvasDepth(document.Width, document.Height, depth);
-        var pixels = Pixels.NewColor(document.Width, document.Height, depth);
+        var pixels = Pixels.NewLayerColor(document.Width, document.Height, depth, document.Profile);
         if (background is { } color) pixels.Erase(color);
         var layer = Layer.Raster(background == null ? "Layer 1" : "Background", pixels);
         document.Layers.Add(layer);

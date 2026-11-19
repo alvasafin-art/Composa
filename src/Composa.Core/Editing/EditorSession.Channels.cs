@@ -61,7 +61,7 @@ public sealed partial class EditorSession
         if (document.AlphaChannels.Count >= 64) throw new InvalidOperationException("The project already has 64 alpha channels.");
         if (document.RasterPixels() + ((long)document.Width * document.Height + 3) / 4 > DocumentLimits.DocumentPixelBudget)
             throw new InvalidOperationException("This alpha channel exceeds the document raster budget.");
-        var mask = fromSelection && document.Selection != null ? Pixels.Clone(document.Selection) : Pixels.NewMask(document.Width, document.Height);
+        var mask = fromSelection && document.Selection != null ? Pixels.Clone(document.Selection) : Pixels.NewLayerMask(document.Width, document.Height);
         if (!fromSelection && revealAll) mask.Erase(SKColors.White);
         Apply("New Alpha Channel", () => document.AlphaChannels.Add(name, mask)); EditAlphaChannel(name); LayersChanged?.Invoke();
     }

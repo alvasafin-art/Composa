@@ -214,7 +214,7 @@ internal static class PsdChannels
             throw PsdException.Truncated();
         if (depth == 16)
         {
-            var high = Pixels.NewColor(width, height, Model.ColorDepth.Sixteen);
+            var high = Pixels.NewLayerColor(width, height, Model.ColorDepth.Sixteen, Composa.ColorManagement.RgbProfile.Srgb);
             var target = new PixelBuffer(high);
             static float Sample(byte[]? plane, int i, float missing) => plane == null ? missing : (plane[i] * 256 + plane[i + 1]) / 65535f;
             for (var y = 0; y < height; y++)
@@ -229,7 +229,7 @@ internal static class PsdChannels
             return high;
         }
         count = (long)width * height;
-        var bitmap = Pixels.NewColor(width, height);
+        var bitmap = Pixels.NewLayerColor(width, height, Model.ColorDepth.Eight, Composa.ColorManagement.RgbProfile.Srgb);
         var pixels = bitmap.GetPixelSpan();
         for (long i = 0, p = 0; i < count; i++, p += 4)
         {
