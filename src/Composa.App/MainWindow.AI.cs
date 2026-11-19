@@ -32,8 +32,9 @@ public sealed partial class MainWindow
     private Point? aiFloatingPinnedPosition;
     private Point? aiFloatingDragStart;
     private Point aiFloatingDragPosition;
-    private string? fillModelDraft;
-    private EngineProfile? PanelEngine(AiTaskKind task) => aiTasks.EngineFor(task, task == AiTaskKind.GenerativeFill ? fillModelDraft : null);
+    private readonly Dictionary<AiTaskKind, string> modelDrafts = [];
+    private Button aiEnhance = null!, aiAdvanced = null!;
+    private EngineProfile? PanelEngine(AiTaskKind task) => aiTasks.EngineFor(task, modelDrafts.GetValueOrDefault(task));
     private AiOperationSettings AiOptions(AiTaskKind task, EngineProfile? engine = null)
     {
         engine ??= PanelEngine(task);
@@ -61,7 +62,7 @@ public sealed partial class MainWindow
     private bool refreshingAiEngine;
     private WrapPanel? aiFloatingTools;
     private ToggleButton? aiFloatingAlignment;
-    private Button? aiFloatingCollapse, aiHeaderReference;
+    private Button? aiFloatingCollapse, aiHeaderReference, aiInlineAddReference;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingMore;
     private AiVariantButtons? aiVariantButtons;
@@ -128,6 +129,7 @@ public sealed partial class MainWindow
     private void RefreshAiUi()
     {
         if (generativeExpandButton != null) generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
+        if (aiContextHost.Child != null) RefreshGenerationDock();
         RefreshObjectModelChoices();
         RefreshAiContextBounds();
         if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;
@@ -141,7 +143,7 @@ public sealed partial class MainWindow
         var variants = session?.AiVariantGroup;
         if (aiVariantStrip.Children.Count != 0) aiVariantStrip.Children.Clear();
         aiVariantStrip.IsVisible = variants != null;
-        aiFloatingVariants.IsVisible = variants != null && ShowSelectionPanel && !settings.AiFloatingCollapsed;
+        aiFloatingVariants.IsVisible = variants != null && (DockEditorVisible || ShowSelectionPanel && !settings.AiFloatingCollapsed);
         if (aiFloatingVariants.IsVisible && aiFloatingVariants.Content == null)
         {
             aiActionHost.Children.Remove(aiVariantStrip);
@@ -229,7 +231,7 @@ public sealed partial class MainWindow
     {
         if (previewContext is { } preview) { canvas.AiContextBounds = preview; return; }
         SKRectI? context = null;
-        if (settings.AiShowContextBounds && aiTasks.ConnectionState == ComfyConnectionState.Connected
+        if ((!DockEditorVisible || EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand) && settings.AiShowContextBounds && aiTasks.ConnectionState == ComfyConnectionState.Connected
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
         {
             var bounds = AutomaticAiMask.ContourBounds(selection);
@@ -288,9 +290,9 @@ public sealed partial class MainWindow
         { if (aiFloatingDragStart == null) return; aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
         grip.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
         aiHeaderReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image · paste with Ctrl+V or drag files here", () => _ = PickAiReferences());
-        var enhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, AiTaskKind.GenerativeFill, () => PanelEngine(AiTaskKind.GenerativeFill));
-        var advanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
-        advanced.MinWidth = 0;
+        aiEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, () => EditorTask, () => PanelEngine(EditorTask));
+        aiAdvanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
+        aiAdvanced.MinWidth = 0;
         var close = aiFloatingCollapse = Ui.TextButton("▾", () => { settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed; settings.Save(); RefreshAiUi(); });
         close.Name = "AiFloatingCollapse";
         close.Classes.Add("flat");
@@ -300,24 +302,25 @@ public sealed partial class MainWindow
         close.VerticalContentAlignment = VerticalAlignment.Center;
         ToolTip.SetTip(close, "Collapse panel until you expand it");
 
-        aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(AiTaskKind.GenerativeFill, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
+        aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
         aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", OpenAiFloatingTaskMenu);
         aiVariantButtons = new AiVariantButtons(AiOptions(AiTaskKind.GenerativeFill).Variants, value =>
         {
-            var engine = PanelEngine(AiTaskKind.GenerativeFill);
-            settings.SetOperation(engine?.Id, AiTaskKind.GenerativeFill, AiOptions(AiTaskKind.GenerativeFill, engine) with { Variants = value });
+            var task = EditorTask;
+            var engine = PanelEngine(task);
+            settings.SetOperation(engine?.Id, task, AiOptions(task, engine) with { Variants = value });
             settings.Save(); RefreshAiFloatingUi();
         });
         var run = AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons);
         aiEngineCombo = new ComboBox { Width = 141 };
-        RefreshFillModels();
+        RefreshEditorModels();
         aiEngineCombo.SelectionChanged += (_, _) =>
         {
             if (refreshingAiEngine || aiEngineCombo.SelectedItem is not ImageModelChoice model) return;
-            fillModelDraft = model.Engine.Id;
+            modelDrafts[EditorTask] = model.Engine.Id;
             RefreshAiUi();
         };
-        ToolTip.SetTip(aiEngineCombo, "Image model for this edit");
+        ToolTip.SetTip(aiEngineCombo, "Image model for this operation");
         RefreshAiReferenceUi();
         aiFloatingAlignment = AiDialogs.AlignmentToggle(settings);
         aiFloatingAlignment.IsCheckedChanged += (_, _) =>
@@ -328,7 +331,7 @@ public sealed partial class MainWindow
             settings.Save();
         };
         aiFloatingTools = new WrapPanel { Orientation = Orientation.Horizontal };
-        aiFloatingTools.Children.AddRange([aiEngineCombo, aiHeaderReference, enhance, aiFloatingAlignment, advanced]);
+        aiFloatingTools.Children.AddRange([aiEngineCombo, aiHeaderReference, aiEnhance, aiFloatingAlignment, aiAdvanced]);
         var leading = new DockPanel();
         DockPanel.SetDock(grip, Dock.Left);
         leading.Children.Add(grip);
@@ -339,10 +342,10 @@ public sealed partial class MainWindow
         return Ui.Column(4, aiFloatingPrompt, bar, aiReferenceHost, aiApiCost, aiFloatingStatus, aiFloatingVariants);
     }
 
-    private void RefreshFillModels()
+    private void RefreshEditorModels()
     {
         if (aiEngineCombo == null) return;
-        var task = AiTaskKind.GenerativeFill;
+        var task = EditorTask;
         var engine = PanelEngine(task);
         var choices = aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
         refreshingAiEngine = true;
@@ -397,7 +400,7 @@ public sealed partial class MainWindow
             if (!selection.IsEmpty) _ = PreviewAiContext(AutomaticAiMask.Geometry(selection, session.Document.Bounds).Bounds);
         };
         flyout.Items.Add(preview);
-        if (fillModelDraft != null)
+        if (modelDrafts.ContainsKey(AiTaskKind.GenerativeFill))
         {
             var save = new MenuItem { Header = "Use this model by default" };
             save.Click += (_, _) =>
@@ -406,14 +409,14 @@ public sealed partial class MainWindow
                 settings.AiTaskModelKeys[nameof(AiTaskKind.GenerativeFill)] = choice.ModelKey;
                 settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeFill)] = choice.Engine.Id;
                 settings.Save();
-                fillModelDraft = null;
+                modelDrafts.Remove(AiTaskKind.GenerativeFill);
             };
             flyout.Items.Add(new Separator()); flyout.Items.Add(save);
         }
         flyout.ShowAt(aiFloatingMore);
     }
 
-    private bool ShowSelectionPanel => previewContext == null && session?.Selection != null && !session.IsPaintingSelection
+    private bool ShowSelectionPanel => !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
         && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.ObjectSelectionAi && canvas.IsDragging)
         && aiTasks.ConnectionState == ComfyConnectionState.Connected;
 
@@ -421,10 +424,13 @@ public sealed partial class MainWindow
     {
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
-        aiReferenceHost.IsVisible = !settings.AiFloatingCollapsed && aiReferences.Count > 0;
-        aiFloatingPrompt.IsVisible = !settings.AiFloatingCollapsed;
-        if (aiFloatingActions != null) aiFloatingActions.IsVisible = !settings.AiFloatingCollapsed;
-        if (aiHeaderReference != null) aiHeaderReference.IsVisible = !settings.AiFloatingCollapsed && aiReferences.Count == 0;
+        var expanded = DockEditorVisible || !settings.AiFloatingCollapsed;
+        if (aiInlineAddReference != null) aiInlineAddReference.IsVisible = !DockEditorVisible;
+        aiReferenceHost.IsVisible = expanded && aiReferences.Count > 0;
+        aiFloatingPrompt.IsVisible = expanded && EditorTask != AiTaskKind.GenerativeExpand;
+        if (aiEnhance != null) aiEnhance.IsVisible = EditorTask != AiTaskKind.GenerativeExpand;
+        if (aiFloatingActions != null) aiFloatingActions.IsVisible = expanded;
+        if (aiHeaderReference != null) aiHeaderReference.IsVisible = expanded && (DockEditorVisible || aiReferences.Count == 0);
         if (aiFloatingTools != null) aiFloatingTools.IsVisible = !settings.AiFloatingCollapsed;
         if (aiFloatingAlignment != null) aiFloatingAlignment.IsChecked = settings.AiAlignMaskedEdits;
         if (aiFloatingMore != null) aiFloatingMore.IsVisible = !settings.AiFloatingCollapsed;
@@ -435,10 +441,13 @@ public sealed partial class MainWindow
             Avalonia.Automation.AutomationProperties.SetName(aiFloatingCollapse, settings.AiFloatingCollapsed ? "Expand panel" : "Collapse panel");
             ToolTip.SetTip(aiFloatingCollapse, settings.AiFloatingCollapsed ? "Expand panel" : "Collapse panel until you expand it");
         }
-        if (!visible) return;
+        if (!visible && !DockEditorVisible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
-        var fillEngine = PanelEngine(AiTaskKind.GenerativeFill);
-        var fillProfile = AiOptions(AiTaskKind.GenerativeFill, fillEngine);
+        var task = EditorTask;
+        var fillEngine = PanelEngine(task);
+        var fillProfile = AiOptions(task, fillEngine);
+        if (aiFloatingAlignment != null) aiFloatingAlignment.IsEnabled = task != AiTaskKind.GenerateImage;
+        if (aiHeaderReference != null) aiHeaderReference.IsEnabled = aiReferences.Count < 6;
         if (aiVariantButtons != null)
         {
             aiVariantButtons.Count = fillProfile.Variants;
@@ -452,10 +461,10 @@ public sealed partial class MainWindow
             finally { refreshingAiEngine = false; }
             aiEngineCombo.IsEnabled = !busy;
         }
-        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(AiTaskKind.GenerativeFill).Available;
+        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage || !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text));
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
         var operation = aiTasks.Operation;
-        aiFloatingStatus.Text = aiLastError ?? (operation?.Status switch
+        aiFloatingStatus.Text = aiLastError ?? (DockEditorVisible && aiTasks.ConnectionState != ComfyConnectionState.Connected ? "ComfyUI · " + aiTasks.ConnectionState.ToString().ToLowerInvariant() : null) ?? (operation?.Status switch
         {
             AiOperationStatus.Queued or AiOperationStatus.Running => operation.Stage ?? "Working…",
             AiOperationStatus.Completed => "Completed",
@@ -463,18 +472,25 @@ public sealed partial class MainWindow
             AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
             _ => ""
         });
-        aiFloatingStatus.IsVisible = !settings.AiFloatingCollapsed && !string.IsNullOrEmpty(aiFloatingStatus.Text);
+        aiFloatingStatus.IsVisible = expanded && !string.IsNullOrEmpty(aiFloatingStatus.Text);
         aiFloatingStatus.Foreground = aiLastError != null || operation?.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary;
-        aiApiCost.IsVisible = !settings.AiFloatingCollapsed && fillEngine?.PaidApi == true;
+        aiApiCost.IsVisible = expanded && fillEngine?.PaidApi == true;
         if (aiApiCost.IsVisible)
         {
-            var count = 1 + aiReferences.Count; // cropped source and genuine user references only
+            var count = (task == AiTaskKind.GenerateImage ? 0 : 1) + aiReferences.Count; // cropped source and genuine user references only
             var estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, Math.Clamp(fillProfile.Variants, 1, 3));
             aiApiCost.Text = operation?.CreditsUsed is { } credits ? PartnerPricing.Reported(credits) : estimate?.Label ?? "Paid API · estimate unavailable";
-            ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and includes the cropped source, user references and all variants. Actual charges may differ. Local ComfyUI does not expose the account balance. The edit mask stays in Composa and is not a billed input.");
+            ToolTip.SetTip(aiApiCost, "ComfyUI bills credits, not a balance of OpenAI tokens. Estimate comes from this server's price badge and accounts for the input images and number of variants. Actual charges may differ. Local ComfyUI does not expose the account balance. The edit mask stays in Composa and is not a billed input.");
+        }
+        if (DockEditorVisible)
+        {
+            // Four reference cells fit in the standard 296 px dock. Keep the user's base height for the editor itself.
+            var rows = (aiReferences.Count + 3) / 4;
+            dock.SetExtraHeight(generationSection, rows * 65 + (aiFloatingVariants.IsVisible ? 34 : 0)
+                + (aiApiCost.IsVisible ? 18 : 0) + (aiFloatingStatus.IsVisible ? 18 : 0));
         }
         ToolTip.SetTip(aiFloatingStatus, aiFloatingStatus.Text);
-        Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiFloatingPosition);
+        if (visible) Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiFloatingPosition);
     }
 
     private void RefreshAiFloatingPosition()
@@ -528,13 +544,19 @@ public sealed partial class MainWindow
         var items = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         foreach (var item in aiReferences.ToArray())
         {
-            var preview = new Image { Source = item.Preview, Width = 52, Height = 52, Stretch = Stretch.UniformToFill };
+            const double side = 56, radius = 6;
+            var preview = new Image { Source = item.Preview, Width = side, Height = side, Stretch = Stretch.UniformToFill,
+                Clip = new RectangleGeometry(new Rect(0, 0, side, side), radius, radius) };
             var remove = new Button
             {
-                Content = "×", MinWidth = 22, Width = 22, Height = 22, Padding = new Thickness(0),
+                Content = Icons.Create(Icons.Close, 16, Brushes.White), MinWidth = 0, MinHeight = 0,
+                Width = 18, Height = 18, Padding = new Thickness(0), Margin = new Thickness(0, 3, 3, 0),
+                HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                Background = new SolidColorBrush(Color.Parse("#CC292929")), Foreground = Brushes.White
+                CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(0),
+                Background = new SolidColorBrush(Color.Parse("#D9222326")), Foreground = Brushes.White
             };
+            Avalonia.Automation.AutomationProperties.SetName(remove, "Remove reference: " + item.Name);
             remove.Click += (_, e) =>
             {
                 e.Handled = true;
@@ -544,8 +566,9 @@ public sealed partial class MainWindow
             };
             remove.SetValue(Panel.ZIndexProperty, 1);
             ToolTip.SetTip(remove, "Remove reference");
-            var cell = new Grid { Width = 56, Height = 56, Margin = new Thickness(0, 0, 7, 5) };
-            var show = new Button { Content = preview, Padding = new Thickness(0),
+            var cell = new Grid { Width = side, Height = side, Margin = new Thickness(0, 0, 7, 5) };
+            var show = new Button { Content = preview, Padding = new Thickness(0), CornerRadius = new CornerRadius(radius),
+                BorderThickness = new Thickness(0), Background = Brushes.Transparent,
                 HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
             show.Click += (_, _) => _ = ShowAiReferencePreview(item, TopLevel.GetTopLevel(host) as Window);
             ToolTip.SetTip(show, "Preview reference: " + item.Name);
@@ -554,6 +577,7 @@ public sealed partial class MainWindow
             ToolTip.SetTip(cell, item.Name);
             items.Children.Add(cell);
         }
+        if (host == aiReferenceHost) aiInlineAddReference = null;
         if (aiReferences.Count is > 0 and < 6)
         {
             var add = Ui.IconButton(Icons.Image, "Add reference image", () => _ = PickAiReferences(), 23);
@@ -570,6 +594,7 @@ public sealed partial class MainWindow
             add.Margin = new Thickness(0, 0, 7, 5);
             add.FontSize = 22;
             ToolTip.SetTip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
+            if (host == aiReferenceHost) aiInlineAddReference = add;
             items.Children.Add(add);
         }
         host.Children.Add(items);
@@ -677,8 +702,8 @@ public sealed partial class MainWindow
             dock.SetTabbed(settings.TabbedPanels);
             aiTasks.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;
             aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
-            fillModelDraft = null;
-            RefreshFillModels();
+            modelDrafts.Clear();
+            RefreshEditorModels();
             RefreshAiUi();
         }
         catch (Exception error) { ShowProblem(error.Message); }
@@ -687,7 +712,7 @@ public sealed partial class MainWindow
     private async Task ShowAiAdvanced()
     {
         var previous = aiTasks.SelectedEngine;
-        var task = session?.Selection != null ? AiTaskKind.GenerativeFill : AiTaskKind.ImageEdit;
+        var task = DockEditorVisible || session?.Selection != null ? EditorTask : AiTaskKind.ImageEdit;
         aiTasks.SelectedEngine = PanelEngine(task);
         try { await AiDialogs.Advanced(this, settings, aiTasks, task); }
         finally { aiTasks.SelectedEngine = previous; RefreshAiUi(); }
@@ -718,7 +743,7 @@ public sealed partial class MainWindow
             ? task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject ? aspect : AiDimensions.OriginalGenerationSize(aspect.Width, aspect.Height)
             : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
-        if (task != AiTaskKind.GenerativeExpand && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale))
+        if ((task != AiTaskKind.GenerativeExpand || DockEditorVisible && useInlinePrompt) && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale))
             options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed);
         else
         {
@@ -769,7 +794,7 @@ public sealed partial class MainWindow
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);
-            if (task == AiTaskKind.GenerativeFill && fillModelDraft == engine?.Id && aiTasks.Operation?.Status == AiOperationStatus.Completed) fillModelDraft = null;
+            if (modelDrafts.GetValueOrDefault(task) == engine?.Id && aiTasks.Operation?.Status == AiOperationStatus.Completed) modelDrafts.Remove(task);
             if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop) canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }

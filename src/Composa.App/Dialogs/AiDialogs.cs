@@ -63,8 +63,13 @@ public static partial class AiDialogs
 
     internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, AiTaskKind task, Func<EngineProfile?> engine)
     {
-        var button = AiGenerationControls.IconAction(Icons.Wand, "AiEnhancePrompt", "Enhance prompt", () => { });
-        var wand = button.Content;
+        return EnhanceButton(prompt, settings, service, () => task, engine);
+    }
+
+    internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, Func<AiTaskKind> operation, Func<EngineProfile?> engine)
+    {
+        var button = AiGenerationControls.IconAction(Icons.EnhancePrompt, "AiEnhancePrompt", "Enhance prompt", () => { });
+        var glyph = button.Content;
         string ProviderHint() => "Enhance prompt · " + AiTaskService.Providers.GetValueOrDefault(settings.EffectiveEnhancerProvider());
         var label = ProviderHint();
 
@@ -72,7 +77,15 @@ public static partial class AiDialogs
         Avalonia.Automation.AutomationProperties.SetName(button, label);
         CancellationTokenSource? running = null;
         void RefreshButton() => button.IsEnabled = running != null || prompt.IsEnabled;
-        button.DetachedFromVisualTree += (_, _) => running?.Cancel();
+        button.DetachedFromVisualTree += (_, _) =>
+        {
+            if (running is not { } pending) return;
+            // A switch between the dock and canvas reattaches this same editor during layout.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (ReferenceEquals(running, pending) && TopLevel.GetTopLevel(button) == null) pending.Cancel();
+            });
+        };
         prompt.PropertyChanged += (_, e) => { if (e.Property == TextBox.TextProperty || e.Property == InputElement.IsEnabledProperty) RefreshButton(); };
         RefreshButton();
         button.Click += async (_, _) =>
@@ -80,6 +93,7 @@ public static partial class AiDialogs
             if (running != null) { running.Cancel(); return; }
             if (string.IsNullOrWhiteSpace(prompt.Text)) { prompt.Focus(); return; }
             if (engine() is not { } selected || prompt.Text is not { Length: > 0 } original) return;
+            var task = operation();
             using var request = new CancellationTokenSource();
             running = request;
             var started = System.Diagnostics.Stopwatch.StartNew();
@@ -96,7 +110,7 @@ public static partial class AiDialogs
             {
                 var enhanced = await service.EnhanceAsync(settings, selected, task, original, request.Token);
                 request.Token.ThrowIfCancellationRequested();
-                if (TopLevel.GetTopLevel(button) != null && prompt.Text == original && engine()?.Id == selected.Id)
+                if (TopLevel.GetTopLevel(button) != null && prompt.Text == original && engine()?.Id == selected.Id && operation() == task)
                 {
                     prompt.SelectAll();
                     prompt.SelectedText = enhanced;
@@ -109,7 +123,7 @@ public static partial class AiDialogs
             }
             finally
             {
-                timer.Stop(); running = null; button.Content = wand;
+                timer.Stop(); running = null; button.Content = glyph;
                 ToolTip.SetTip(button, ProviderHint());
                 Avalonia.Automation.AutomationProperties.SetName(button, ProviderHint());
                 RefreshButton();

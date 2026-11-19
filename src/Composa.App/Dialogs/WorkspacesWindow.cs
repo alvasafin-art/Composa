@@ -24,7 +24,7 @@ public sealed class WorkspacesWindow : Window
         var delete = Ui.TextButton("Delete", () => { if (SelectedKey() is { } key) { settings.Workspaces.Remove(key); settings.Save(); Refresh(); status.Text = "Workspace deleted."; } });
         var reset = Ui.TextButton("Default Layout", () =>
         {
-            apply(new(new() { ["Navigator"] = new(false, false, 220), ["Channels"] = new(false, false, 250), ["History"] = new(true, false, 220) }, false));
+            apply(new(new() { ["Navigator"] = new(false, false, 220), ["Channels"] = new(false, false, 250), ["AI Generation"] = new(false, false, 164), ["History"] = new(true, false, 220) }, false));
             status.Text = "Default panel layout restored. Saved workspaces are kept.";
         });
         Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children =

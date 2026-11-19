@@ -7,7 +7,9 @@ public sealed partial class MainWindow
     {
         dock.SetTabbed(layout.TabbedPanels);
         settings.TabbedPanels = layout.TabbedPanels;
-        dock.RestoreLayout(layout.Panels ?? []);
+        var panels = new Dictionary<string, DockPanelState>(layout.Panels ?? []);
+        panels.TryAdd("AI Generation", new(false, false, 164));
+        dock.RestoreLayout(panels);
         SetCanvasOnly(layout.CanvasOnly);
         RefreshMenuState();
     }

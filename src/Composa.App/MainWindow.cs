@@ -120,7 +120,10 @@ public sealed partial class MainWindow : Window
         navigator = new NavigatorPanel(canvas);
         var navigatorSection = new DockSection("Navigator", navigator, settings.Dock.GetValueOrDefault("Navigator") ?? new DockPanelState { Visible = false, Height = 220 });
         navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
-        dock = new SideDock(layers, navigatorSection, channelsSection, historySection) { Width = layers.Width };
+        generationSection = new DockSection("AI Generation", BuildGenerationDock(), settings.Dock.GetValueOrDefault("AI Generation") ?? new DockPanelState { Visible = false, Height = 164 }) { HasOwnHeader = true };
+        generationSection.Changed += () => { settings.Dock[generationSection.Title] = generationSection.State; settings.Save(); };
+        dock = new SideDock(layers, navigatorSection, channelsSection, generationSection, historySection) { Width = layers.Width };
+        dock.PresentationChanged += RefreshAiUi;
         dock.SetTabbed(settings.TabbedPanels);
         AddAt(center, Chrome(dock), 4);
         history.GoToRequested += GoToHistory;
@@ -335,7 +338,8 @@ public sealed partial class MainWindow : Window
         previewContext = null;
         session = next;
         floatingBoundsMask = null;
-        fillModelDraft = null;
+        modelDrafts.Clear();
+        manualDockTask = null;
         aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;

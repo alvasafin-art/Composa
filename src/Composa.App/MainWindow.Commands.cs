@@ -311,7 +311,7 @@ public sealed partial class MainWindow
             settings.TabbedPanels = dock.Tabbed; settings.Save();
         }, needsDocument: false, viewOnly: true);
         tabbedPanelItem.ToggleType = MenuItemToggleType.CheckBox;
-        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("History"), Line(), tabbedPanelItem,
+        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
             Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
@@ -503,7 +503,7 @@ public sealed partial class MainWindow
             }
             e.Handled = true; return;
         }
-        if (aiFloatingHost.IsVisible && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
+        if (!settings.CanvasOnly && (aiFloatingHost.IsVisible || DockEditorVisible && (focused is not TextBox || focused == aiFloatingPrompt)) && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
         {
             e.Handled = true;
             _ = PasteAiReferenceOrText(focused as TextBox);

@@ -16,6 +16,7 @@ public sealed partial class MainWindow
         settings.CanvasOnly = enabled; settings.Save();
         foreach (var host in canvasChrome) host.IsVisible = !enabled;
         aiFloatingLayer.IsVisible = !enabled;
+        RefreshAiUi();
         if (canvasOnlyItem != null) canvasOnlyItem.IsChecked = enabled;
         canvas.Focus();
         canvas.InvalidateVisual();

@@ -13,6 +13,10 @@ public sealed class DockSection(string title, Control content, DockPanelState st
 
     public string Title { get; } = title;
     public Control Content { get; } = content;
+    public bool HasOwnHeader { get; init; }
+    internal double ExtraHeight { get; set; }
+    internal double ExpandedHeight => Math.Max(MinHeight, State.Height) + ExtraHeight;
+    internal RowDefinition? Row { get; set; }
     public DockPanelState State { get; set; } = state;
 
     /// <summary>Raised when the section is shown, hidden, collapsed, expanded or resized, so the window can remember it.</summary>
@@ -52,7 +56,19 @@ public sealed class SideDock : UserControl
         Layout();
     }
 
+    // Transient content such as reference thumbnails expands a section without rewriting the saved splitter position.
+    public void SetExtraHeight(DockSection section, double height)
+    {
+        if (section.ExtraHeight == height) return;
+        section.ExtraHeight = height;
+        if (section.Row != null && !section.State.Collapsed) section.Row.Height = new GridLength(section.ExpandedHeight);
+        FitHeight();
+    }
+
     private string? activeTab;
+    public event Action? PresentationChanged;
+    public bool Presents(DockSection section) => section.State.Visible &&
+        (Tabbed ? activeTab == section.Title : !section.State.Collapsed);
     public bool Tabbed { get; private set; }
     public void SetTabbed(bool tabbed)
     {
@@ -94,6 +110,7 @@ public sealed class SideDock : UserControl
     /// <summary>Rows from the top: the Layers panel, then a splitter and a section for every section shown.</summary>
     private void Layout()
     {
+        foreach (var section in sections) section.Row = null;
         grid.Children.Clear();
         grid.RowDefinitions.Clear();
         // Each layout builds new section frames, so the panels leave the old ones first.
@@ -111,13 +128,16 @@ public sealed class SideDock : UserControl
                 return new TabItem { Header = section.Title, Content = host };
             }).ToArray() };
             tabs.SelectedIndex = Math.Max(0, Array.FindIndex(visible, s => s.Title == activeTab));
-            tabs.SelectionChanged += (_, _) =>
+            if (tabs.SelectedItem is TabItem { Header: string selected }) activeTab = selected;
+            tabs.SelectionChanged += (_, e) =>
             {
-                if (tabs.SelectedItem is TabItem { Header: string name }) activeTab = name;
+                if (ReferenceEquals(e.Source, tabs) && tabs.SelectedItem is TabItem { Header: string name } && name != activeTab)
+                { activeTab = name; PresentationChanged?.Invoke(); }
             };
             grid.RowDefinitions.Add(new RowDefinition(new GridLength(TabHeight())));
             Grid.SetRow(tabs, 1); grid.Children.Add(tabs);
             FitHeight();
+            PresentationChanged?.Invoke();
             return;
         }
         foreach (var section in visible)
@@ -129,28 +149,30 @@ public sealed class SideDock : UserControl
             Grid.SetRow(splitter, grid.RowDefinitions.Count - 1);
             grid.Children.Add(splitter);
 
-            var row = new RowDefinition(open ? new GridLength(Math.Max(DockSection.MinHeight, section.State.Height)) : GridLength.Auto) { MinHeight = open ? DockSection.MinHeight : 0 };
+            var row = new RowDefinition(open ? new GridLength(section.ExpandedHeight) : GridLength.Auto) { MinHeight = open ? DockSection.MinHeight : 0 };
+            section.Row = row;
             grid.RowDefinitions.Add(row);
-            var panel = Build(section, open);
+            var panel = open && section.HasOwnHeader ? section.Content : Build(section, open);
             Grid.SetRow(panel, grid.RowDefinitions.Count - 1);
             grid.Children.Add(panel);
             splitter.DragCompleted += (_, _) =>
             {
-                section.State = section.State with { Height = Math.Round(row.ActualHeight) };
+                section.State = section.State with { Height = Math.Max(DockSection.MinHeight, Math.Round(row.ActualHeight) - section.ExtraHeight) };
                 section.RaiseChanged();
             };
         }
         FitHeight();
+        PresentationChanged?.Invoke();
     }
 
     private double TabHeight() => Math.Clamp(Bounds.Height - MinTopHeight, 138,
-        Math.Max(160, sections.Where(s => s.State.Visible).Select(s => s.State.Height).DefaultIfEmpty(220).Max()));
+        Math.Max(160, sections.Where(s => s.State.Visible).Select(s => s.ExpandedHeight).DefaultIfEmpty(220).Max()));
 
     private void FitHeight()
     {
         if (Bounds.Height <= 0) return;
         var desired = MinTopHeight + sections.Where(s => s.State.Visible)
-            .Sum(s => s.State.Collapsed ? 35 : Math.Max(DockSection.MinHeight, s.State.Height) + 5);
+            .Sum(s => s.State.Collapsed ? 35 : s.ExpandedHeight + 5);
         if (Tabbed && grid.RowDefinitions.Count == 2)
         {
             grid.RowDefinitions[1].Height = new GridLength(TabHeight());

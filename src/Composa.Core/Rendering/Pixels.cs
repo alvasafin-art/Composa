@@ -14,6 +14,36 @@ public static partial class Pixels
     /// <summary>The non-transparent source rectangle. Committed pixels are immutable, so scan only once per bitmap.</summary>
     public static SKRectI ContentBounds(SKBitmap bitmap) => extents.GetValue(bitmap, static image => new(ScanContent(image))).Bounds;
 
+    private sealed record CoverageFlag(bool HasPixels);
+    private static readonly ConditionalWeakTable<SKBitmap, CoverageFlag> coverageFlags = new();
+
+    // The operation picker only needs the first nontransparent pixel, not the full bounds.
+    public static bool HasVisiblePixel(SKBitmap bitmap) => extents.TryGetValue(bitmap, out var extent)
+        ? !extent.Bounds.IsEmpty : coverageFlags.GetValue(bitmap, static image => new(FindVisiblePixel(image))).HasPixels;
+
+    private static bool FindVisiblePixel(SKBitmap image)
+    {
+        if (image.ColorType is not (SKColorType.Rgba8888 or SKColorType.RgbaF32)) return !ContentBounds(image).IsEmpty;
+        var bytes = image.GetPixelSpan();
+        int width = image.Width, height = image.Height, stride = image.RowBytes, bpp = image.BytesPerPixel;
+        for (int y = 0; y < height; y++)
+        {
+            var row = bytes.Slice(y * stride, width * bpp);
+            int first = row.IndexOfAnyExcept((byte)0);
+            if (first < 0) continue;
+            if (bpp == 4)
+            {
+                for (int a = first / 4 * 4 + 3; a < row.Length; a += 4) if (row[a] != 0) return true;
+            }
+            else
+            {
+                var samples = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(row);
+                for (int a = first / 16 * 4 + 3; a < samples.Length; a += 4) if (samples[a] > 0) return true;
+            }
+        }
+        return false;
+    }
+
     private static unsafe SKRectI ScanContent(SKBitmap image)
     {
         if (image.ColorType == SKColorType.RgbaF32) return ScanHighPrecisionContent(image);
@@ -203,6 +233,7 @@ public static partial class Pixels
     internal static void InvalidateCaches(SKBitmap bitmap)
     {
         extents.Remove(bitmap);
+        coverageFlags.Remove(bitmap);
         componentBounds.Remove(bitmap);
         Invalidated?.Invoke(bitmap);
         lock (bitmap)
