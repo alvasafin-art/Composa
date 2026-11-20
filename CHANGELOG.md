@@ -4,6 +4,8 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.15] - 2026-11-20
+
 - The Pen tool shows editable anchors immediately on the selected vector layer. A live shape becomes a path on the first point or segment edit, and Undo restores the original shape.
 
 ## [1.3.0-preview.4.studio.14] - 2026-11-20
