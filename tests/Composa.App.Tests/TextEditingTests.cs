@@ -251,7 +251,7 @@ public class TextEditingTests
         var layer = session.TextEditLayer!;
         Assert.Equal("es", session.TextEdit!.SelectedText);
         ComboBox Styles() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => ToolTip.GetTip(c) as string == "Font style");
-        ComboBox Font() => window.GetVisualDescendants().OfType<ComboBox>().First(c => c.MaxWidth == 190);
+        ComboBox Font() => window.GetVisualDescendants().OfType<ComboBox>().First(c => c.Name == "FontFamilyPicker");
         var choices = Composa.Text.FontCatalog.ForFamily(family);
         var chosen = choices.First(c => c.Face != layer.Text!.Face);
         Styles().SelectedIndex = choices.ToList().IndexOf(chosen);

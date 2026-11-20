@@ -297,7 +297,7 @@ public sealed partial class MainWindow
 
         MenuItem PanelToggle(string title)
         {
-            var item = Item(title, () => dock.SetVisible(dock.Section(title), !dock.Section(title).State.Visible), needsDocument: false, viewOnly: true);
+            var item = Item(title, () => { dock.SetVisible(dock.Section(title), !dock.Section(title).State.Visible); if (title == "Properties") RebuildOptions(); }, needsDocument: false, viewOnly: true);
             item.ToggleType = MenuItemToggleType.CheckBox;
             panelToggles.Add((item, title));
             return item;
@@ -309,7 +309,7 @@ public sealed partial class MainWindow
             settings.TabbedPanels = dock.Tabbed; settings.Save();
         }, needsDocument: false, viewOnly: true);
         tabbedPanelItem.ToggleType = MenuItemToggleType.CheckBox;
-        Top("_Window", PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
+        Top("_Window", PanelToggle("Properties"), PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
             Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
@@ -462,8 +462,8 @@ public sealed partial class MainWindow
     {
         RefreshAiUi();
         UpdateColors();
-        if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen or Tool.Text)) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || session.ActiveLayer?.Shape?.Kind != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText) RebuildOptions();
+        if (session == null) return;
+        if (session.ActiveLayerIdOrNull() != optionsLayer || session.ActiveLayer?.Shape?.Kind != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText || session.IsEditingMask != optionsEditingMask) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }
@@ -475,6 +475,7 @@ public sealed partial class MainWindow
         if (Content is Control { IsEnabled: false })
         { if (e.Key == Key.Escape) automationCancellation?.Cancel(); e.Handled = true; return; }
         var focused = FocusManager?.GetFocusedElement();
+        if (openFontPicker?.IsDropDownOpen == true) return;
         if (SwallowAlt(e)) return;
         if (channelInspectorDragging)
         {

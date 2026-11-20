@@ -19,6 +19,7 @@ public sealed partial class MainWindow
     private ShapeKind? optionsShapeKind;
     private bool optionsHaveWarp;
     private bool optionsEditingText;
+    private bool optionsEditingMask;
     private Button generativeExpandButton = null!;
 
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
@@ -29,8 +30,11 @@ public sealed partial class MainWindow
         optionsShapeKind = session?.ActiveLayer?.Shape?.Kind;
         optionsHaveWarp = session?.WarpEdit != null;
         optionsEditingText = session?.IsEditingText == true;
+        optionsEditingMask = session?.IsEditingMask == true;
+        optionsLayer = session?.ActiveLayerIdOrNull();
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
+        propertiesView.Content = null;
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
         StackPanel? inspector = null;
@@ -47,7 +51,12 @@ public sealed partial class MainWindow
             Refresh();
             Add(find);
         }
-        Control Title(string text) => Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
+        Control Title(string text)
+        {
+            var label = Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
+            ToolTip.SetTip(label, Hint(s));
+            return label;
+        }
         if (embeddedTabs.TryGetValue(s, out var embedded))
         {
             Add(Ui.TextButton(embedded.Source.Link != null ? "Save source ↗" : "Save contents ↗", () => _ = Save(s, false), accent: true),
@@ -83,7 +92,7 @@ public sealed partial class MainWindow
                 if (!s.IsEditingChannel && s.ActiveLayer?.Shape != null)
                 {
                     appearance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    BuildShapeFields(appearance, row);
+                    if (geometryOpen || !dock.Section("Properties").State.Visible) BuildShapeFields(appearance, row);
                     appearance.Children.Add(Flat("Edit points", () =>
                     {
                         canvas.EditVectorMask=false; SelectTool(Tool.Pen);
@@ -163,7 +172,7 @@ public sealed partial class MainWindow
                 Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
                     maskToggle,
                     Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
-                if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
+                if (s.ActiveLayer?.Shape != null && !dock.Section("Properties").State.Visible) BuildShapeFields(row);
                 break;
             case Tool.Marquee or Tool.Lasso or Tool.Wand:
                 Add(Title(Chosen()));
@@ -234,7 +243,7 @@ public sealed partial class MainWindow
                 if (s.ActiveLayer?.Shape is { } shape)
                 {
                     Add(Title(ShapeStyle.DisplayName(shape.Kind)));
-                    BuildShapeFields(row);
+                    if (!dock.Section("Properties").State.Visible) BuildShapeFields(row);
                 }
                 else
                 {
@@ -246,7 +255,12 @@ public sealed partial class MainWindow
                 break;
             case Tool.Text:
                 Add(Title("Type"));
-                BuildTextFields(row);
+                if (s.ActiveLayer?.Text == null || !dock.Section("Properties").State.Visible) BuildTextFields(row);
+                else if (s.IsEditingText)
+                {
+                    Add(Flat("Done", () => { s.FinishText(); canvas.Focus(); RebuildOptions(); }), Flat("Cancel", () => { s.CancelText(); canvas.Focus(); RebuildOptions(); }));
+                }
+                else Add(Flat("Edit Text", () => BeginTextEdit(s.ActiveLayer!)));
                 break;
             case Tool.Crop:
                 Add(Title("Crop"));
@@ -286,6 +300,7 @@ public sealed partial class MainWindow
         }
         else toolOptionsHost.Child = new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        BuildObjectProperties();
         UpdateLayout();
     }
 
@@ -452,7 +467,7 @@ public sealed partial class MainWindow
     }
 
     /// <summary>The Type bar: font, size, style, color, alignment and spacing for the text being typed (or the next text).</summary>
-    private void BuildTextFields(StackPanel row)
+    private void BuildTextFields(StackPanel row, bool properties = false)
     {
         var s = session!;
         var updating = false;
@@ -468,6 +483,8 @@ public sealed partial class MainWindow
         void ChangeFace(Func<TextFace, TextFace> change) { if (!updating) s.SetTextFace(change); }
         var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face), 190);
         font.MaxWidth = 190;
+        ToolTip.SetTip(font, "Font family · hover or use the arrow keys to preview");
+        EnableFontSamples(font, s);
         var size = Ui.Number(s.CurrentTextSize, 1, 2000, v => { if (!updating) s.SetTextSize(v); }, 1, "0.#", 64);
         size.Name = "TextSize";
         ToolTip.SetTip(size, "Font size of the selected characters; select text on the canvas to change a fragment");
@@ -516,7 +533,7 @@ public sealed partial class MainWindow
         };
         var alignments = new Dictionary<TextAlignment, ToggleButton>();
         var alignRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight) })
+        foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight), (TextAlignment.Justify, new Icons.Icon("M3 5h18 M3 10h18 M3 15h18 M3 20h18")) })
         {
             var button = new ToggleButton { Classes = { "tool" }, Width = 30, Height = 26, Content = Icons.Create(icon, 15), IsChecked = style.Alignment == alignment };
             ToolTip.SetTip(button, "Align " + alignment.ToString().ToLowerInvariant());
@@ -524,22 +541,80 @@ public sealed partial class MainWindow
             alignments[alignment] = button;
             alignRow.Children.Add(button);
         }
-        var tracking = Ui.Number(style.Tracking, -100, 1000, v => Change(st => st with { Tracking = v }), 1, "0", 58);
-        ToolTip.SetTip(tracking, "Tracking: extra space after every character, in pixels");
-        var leading = Ui.Number(style.Leading, 0, 5000, v => Change(st => st with { Leading = v }), 1, "0", 58);
-        ToolTip.SetTip(leading, "Leading: line height baseline to baseline, in pixels. 0 is Auto: 120% of the size");
+        var tracking = Ui.Number(style.Tracking, -100, 1000, v => Change(st => st with { Tracking = v }), 1, "0.##", 58);
+        ToolTip.SetTip(tracking, "Letter spacing · px or % of each character’s size");
+        var leading = Ui.Number(style.Leading, 0, 5000, v => Change(st => st with { Leading = v }), 1, properties ? "0.#;-0.#;'Auto'" : "0", 58);
+        ToolTip.SetTip(leading, "Baseline to baseline · 0 is Auto (120% of font size)");
         var done = Ui.TextButton("Done", () => { s.FinishText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); }, accent: true);
         var cancel = Ui.TextButton("Cancel", () => { s.CancelText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); });
         var edit = Ui.TextButton("Edit Text", () => { if (s.ActiveLayer is { Text: not null } layer) BeginTextEdit(layer); });
         foreach (var button in new[] { done, cancel, edit }) button.MinWidth = 0;
-        row.Children.AddRange([font, faceMenu, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), swatch, alignRow,
-            Ui.Row(5, Ui.Scrub(Ui.Label("Tracking", Palette.Secondary), tracking), tracking), Ui.Row(5, Ui.Scrub(Ui.Label("Leading", Palette.Secondary), leading), leading), Ui.Separator()]);
-        if (s.IsEditingText) row.Children.AddRange([done, cancel]);
-        else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
-        refreshOptions = () =>
+        TextBlock? trackingUnit = null, leadingUnit = null;
+        ToggleButton? underline = null, strike = null;
+        font.Name = "FontFamilyPicker";
+        if (properties)
+        {
+            font.Width = faceMenu.Width = double.NaN;
+            font.MaxWidth = faceMenu.MaxWidth = double.PositiveInfinity;
+            font.HorizontalAlignment = faceMenu.HorizontalAlignment = HorizontalAlignment.Stretch;
+            font.Height = faceMenu.Height = 30;
+            row.Children.Add(font);
+            row.Children.Add(PropertyPair(faceMenu, PropertyNumber(size, Icons.FontSize, "Font size", PropertyUnit("Font size", out _))));
+            var lineUnit = PropertyUnit("Line height", out leadingUnit, () => Change(st =>
+            {
+                bool percent = !st.Type.PercentLeading;
+                double leadingValue = percent ? st.Leading * 100 / st.Size : st.LineHeight;
+                return st with { Leading = st.Leading == 0 ? 0 : leadingValue, Type = st.Type with { PercentLeading = percent } };
+            }));
+            var letterUnit = PropertyUnit("Letter spacing", out trackingUnit, () => Change(st =>
+            {
+                bool percent = !st.Type.PercentTracking;
+                double value = percent ? st.Tracking * 100 / st.Size : st.Tracking * st.Size / 100;
+                return st with { Tracking = value, Type = st.Type with { PercentTracking = percent } };
+            }));
+            row.Children.Add(PropertyPair(
+                Ui.Column(4, Ui.Label("Line height", Palette.Secondary, 11), PropertyNumber(leading, Icons.LineHeight, "Line height", lineUnit)),
+                Ui.Column(4, Ui.Label("Letter spacing", Palette.Secondary, 11), PropertyNumber(tracking, Icons.LetterSpacing, "Letter spacing", letterUnit))));
+            ToggleButton Decoration(string icon, string name, Func<Typography,Typography> toggle)
+            {
+                var button = new ToggleButton { Classes = { "tool" }, Content = icon, Height = 28, Padding = default };
+                button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Center;
+                ToolTip.SetTip(button, name); Avalonia.Automation.AutomationProperties.SetName(button, name);
+                button.Click += (_,_) => Change(st => st with { Type = toggle(st.Type) });
+                return button;
+            }
+            underline = Decoration("U̲", "Underline", t => t with { Underline = !t.Underline });
+            strike = Decoration("S̶", "Strikethrough", t => t with { Strike = !t.Strike });
+            var decoration = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 2 };
+            decoration.Children.Add(underline); AddAt(decoration,strike,1);
+            swatch.Width = double.NaN; swatch.Height = 18; swatch.Margin = new Thickness(4,0);
+            swatch.VerticalAlignment = VerticalAlignment.Center;
+            AddAt(decoration,swatch,2);
+            var alignmentGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 1 };
+            foreach (var button in alignRow.Children.OfType<ToggleButton>().ToArray())
+            {
+                alignRow.Children.Remove(button); button.Width = double.NaN; button.Height = 28; button.MinWidth = 0; button.Padding = default;
+                button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Center;
+                AddAt(alignmentGrid,button,alignmentGrid.Children.Count);
+            }
+            row.Children.Add(PropertyPair(alignmentGrid,decoration));
+        }
+        else
+        {
+            row.Children.AddRange([font, faceMenu, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), swatch, alignRow,
+                Ui.Row(5, Ui.Scrub(Ui.Label("Tracking", Palette.Secondary), tracking), tracking),
+                Ui.Row(5, Ui.Scrub(Ui.Label("Leading", Palette.Secondary), leading), leading), Ui.Separator()]);
+            if (s.IsEditingText) row.Children.AddRange([done, cancel]);
+            else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
+        }
+        void RefreshText()
         {
             var current = s.CurrentTextStyle;
             updating = true;
+            if (leadingUnit != null) leadingUnit.Text = current.Type.PercentLeading ? "%" : "px";
+            if (trackingUnit != null) trackingUnit.Text = current.Type.PercentTracking ? "%" : "px";
+            if (underline != null) underline.IsChecked = current.Type.Underline;
+            if (strike != null) strike.IsChecked = current.Type.Strike;
             size.Value = (decimal)s.CurrentTextSize;
             tracking.Value = (decimal)current.Tracking;
             leading.Value = (decimal)current.Leading;
@@ -563,8 +638,9 @@ public sealed partial class MainWindow
             swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToDisplay(s.Document.Profile, DisplayProfile));
             foreach (var (alignment, button) in alignments) button.IsChecked = current.Alignment == alignment;
             updating = false;
-        };
-        refreshOptions();
+        }
+        refreshOptions += RefreshText;
+        RefreshText();
     }
 
     private static Button Flat(string text, Action action)

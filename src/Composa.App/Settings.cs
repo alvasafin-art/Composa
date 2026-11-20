@@ -25,6 +25,7 @@ public sealed class Settings
     public string? DisplayProfilePath { get; set; }
     public ObjectSelectionSource ObjectSelectionModel { get; set; } = ObjectSelectionSource.EfficientSamS;
     public bool ObjectSelectionQuickOutline { get; set; }
+    public string ToolsPosition { get; set; } = "Left";
     public ToolPaletteSettings? ToolPalette { get; set; }
     public int PromptSelectionRevision { get; set; } = 1;
     public string? ObjectSelectionComfyModel { get; set; }
@@ -306,10 +307,10 @@ public sealed class Settings
 }
 
 /// <summary>How one panel of the side dock was left: shown or not, collapsed to its header or not, and its height when open.</summary>
-public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220);
+public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220, bool Left = false, int Order = 0);
 
 /// <summary>View chrome only. Documents, pixels, tool options and shortcuts never belong to a workspace.</summary>
-public sealed record WorkspaceLayout(Dictionary<string, DockPanelState> Panels, bool CanvasOnly, bool TabbedPanels = false);
+public sealed record WorkspaceLayout(Dictionary<string, DockPanelState> Panels, bool CanvasOnly, bool TabbedPanels = false, string ToolsPosition = "Left");
 
 public sealed record AiLoraSetting(string Name = "", double Strength = 1, bool Enabled = true);
 public sealed record AiPromptSetting(bool Enabled, string Text);

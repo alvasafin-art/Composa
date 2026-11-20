@@ -12,11 +12,15 @@ Click existing text with the Type tool, double-click it with the Move tool, doub
 
 Keys while typing: Enter starts a new line; Tab inserts a tab; the arrow keys move, with Ctrl a word at a time and with Shift extending the selection; Home and End go to the start and end of the line, with Ctrl to the start and end of the text; Ctrl+A selects everything; Backspace and Delete remove, with Ctrl a word at a time; Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y undo and redo within the text; Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste plain text; Alt with Left and Right changes the tracking and Alt with Up and Down the leading, by one, or ten with Shift. A double-click selects a word, and Shift-click extends the selection.
 
-## The Type bar
+## Text properties
 
-The options bar shows the text settings: the installed font family and its available styles (for example Light, Semibold, Black, Condensed or Italic); the size in pixels from 1 to 2000; the color; left, center and right alignment; Tracking, the extra space after every character, from -100 to 1000; and Leading, the distance between baselines, where 0 means automatic at 120 percent of the size. A family with just one installed style has just one entry in the style menu.
+Select a text layer on the canvas with Move or select its row in Layers. **Window > Properties** shows its typeface, style, size, color, alignment and spacing. With Properties hidden the Type tool retains its quick controls. Within an open text edit, font family, style, size and color apply to the selected characters. Paragraph settings apply to the text block.
 
-A change in the bar applies to the text you are typing, or to the active text layer when none is being typed, or to the next text you add when no text layer is active. A run of changes on one layer undoes as a single step.
+Open the font family list and move the pointer or use the arrow keys to preview each family on the canvas. Enter or a click accepts the family. Escape or dismissal discards the sample. Browsing does not modify the project, undo history or export. The closest installed weight and slant are used for each selected run.
+
+The spacing fields show line height (zero means Auto) and letter spacing. Click the unit beside either spacing field to switch between pixels and percent of font size. Underline and strikethrough can be combined. **Paragraph** contains alignment in the text box, lists, wrapping, ellipsis, vertical trim, hanging punctuation, first-line indent and spacing between paragraphs. **Type details** includes non-destructive case transforms and OpenType options for capitals and numerals. Available features depend on the font. Variable fonts expose their installed axes in **Variable font**.
+
+A change in the type controls applies to the text you are typing, or to the active text layer when none is being typed, or to the next text you add when no text layer is active. A run of changes on one layer undoes as a single step.
 
 ## Letters in their own colors
 

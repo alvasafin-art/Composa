@@ -35,9 +35,11 @@ public sealed partial class MainWindow : Window
     private readonly Border toolOptionsHost = new();
     private readonly Grid combinedOptions = new() { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
     private readonly Dictionary<Tool, ToolButton> toolButtons = [];
-    private readonly TextBlock zoomText = new() { Width = 56, Foreground = Palette.Secondary };
-    private readonly TextBlock sizeText = new() { Foreground = Palette.Secondary, MaxWidth = 430, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock positionText = new() { Foreground = Palette.Secondary, Width = 96 };
+    private readonly TextBlock zoomText = new() { FontSize = 11.5, Foreground = Palette.Secondary };
+    private readonly TextBlock sizeText = new() { Foreground = Palette.Secondary, FontSize = 11.5, TextWrapping = TextWrapping.Wrap };
+    private readonly Border commandNotice = new() { Background = Palette.PanelRaised, CornerRadius = new CornerRadius(5),
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
+        Padding = new Thickness(12,6), Margin = new Thickness(10,8), IsVisible = false };
     private readonly TextBlock hintText = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock aiText = new() { Foreground = Palette.Accent };
     private readonly TextBlock aiTaskText = new() { Foreground = Palette.Accent };
@@ -107,12 +109,16 @@ public sealed partial class MainWindow : Window
         EnableAiReferenceDrop(aiFloatingHost);
         aiFloatingHost.SizeChanged += (_, _) => RefreshAiFloatingPosition();
         aiFloatingLayer.Children.Add(aiFloatingHost);
-        var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer } };
-        var center = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto") };
-        center.Children.Add(Chrome(BuildToolRail()));
-        var leftDivider = Ui.Separator(); leftDivider.Margin = new Thickness(0); AddAt(center, Chrome(leftDivider), 1);
-        AddAt(center, canvasHost, 2);
-        var rightDivider = Ui.Separator(); rightDivider.Margin = new Thickness(0); AddAt(center, Chrome(rightDivider), 3);
+        commandNotice.Child = hintText;
+        var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer, commandNotice } };
+        workspaceGrid.ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto,Auto,Auto");
+        var center = workspaceGrid;
+        toolSurface.Child = BuildToolRail();
+        toolChrome = Chrome(toolSurface);
+        center.Children.Add(toolChrome);
+        var leftDivider = Ui.Separator(); leftDivider.Margin = new Thickness(0); AddAt(center, Chrome(leftDivider), 2);
+        AddAt(center, canvasHost, 3);
+        var rightDivider = Ui.Separator(); rightDivider.Margin = new Thickness(0); AddAt(center, Chrome(rightDivider), 4);
         var historySection = new DockSection("History", history, settings.Dock.GetValueOrDefault("History") ?? new DockPanelState());
         historySection.Changed += () => { settings.Dock["History"] = historySection.State; settings.Save(); };
         var channelsSection = new DockSection("Channels", channels, settings.Dock.GetValueOrDefault("Channels") ?? new DockPanelState { Visible = false, Height = 250 });
@@ -123,10 +129,18 @@ public sealed partial class MainWindow : Window
         navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
         generationSection = new DockSection("AI Generation", BuildGenerationDock(), settings.Dock.GetValueOrDefault("AI Generation") ?? new DockPanelState { Visible = false, Height = 164 }) { HasOwnHeader = true };
         generationSection.Changed += () => { settings.Dock[generationSection.Title] = generationSection.State; settings.Save(); };
-        dock = new SideDock(layers, navigatorSection, channelsSection, generationSection, historySection) { Width = layers.Width };
+        var properties = new DockSection("Properties", propertiesView, settings.Dock.GetValueOrDefault("Properties") ?? new DockPanelState(Height: 232));
+        properties.Changed += () => { settings.Dock["Properties"] = properties.State; settings.Save(); };
+        dock = new SideDock(layers, BuildDocumentInfo(), (header, title) => AttachPanelDrag(header, title), properties, navigatorSection, channelsSection, generationSection, historySection);
+        var layersSection = dock.Section("Layers");
+        layersSection.Changed += () => { settings.Dock["Layers"] = layersSection.State; settings.Save(); };
+        dock.RestoreLayout(settings.Dock, persist: false);
+        AddAt(center, Chrome(dock.LeftHost), 1);
+        AttachPanelDrag(toolSurface, "Tools", topOnly: true);
+        PlaceTools(settings.ToolsPosition);
         dock.PresentationChanged += RefreshAiUi;
         dock.SetTabbed(settings.TabbedPanels);
-        AddAt(center, Chrome(dock), 4);
+        AddAt(center, Chrome(dock), 5);
         history.GoToRequested += GoToHistory;
 
         // The update notice sits under the menu, where it is visible without covering anything.
@@ -139,23 +153,22 @@ public sealed partial class MainWindow : Window
         generativeExpandButton = Ui.TextButton("Generative expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
         generativeExpandButton.IsVisible = false;
         ToolTip.SetTip(generativeExpandButton, "Generate image content inside the extended crop frame");
-        var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, assistantButton);
+        aiTaskText.IsVisible = aiText.IsVisible = false;
+        var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, aiTaskText, aiText, assistantButton);
         AddAt(combinedOptions, intelligentTools, 1);
         optionsHost.Child = combinedOptions;
-        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*,Auto") };
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*") };
         root.Children.Add(BuildMenu());
         AddRow(root, Chrome(updateNotice), 1);
         AddRow(root, Chrome(BuildTabBar()), 2);
         AddRow(root, Chrome(optionsHost), 3);
         AddRow(root, center, 4);
-        AddRow(root, Chrome(BuildStatusBar()), 5);
         Content = root;
         aiFloatingLayer.IsVisible = !settings.CanvasOnly;
 
         StartUpdateCheck();
 
         canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
-        canvas.PointerAt += point => positionText.Text = point is { } p ? $"{p.X}, {p.Y}" : "";
         canvas.Problem += message => { problem = message; UpdateStatus(); };
         canvas.ToolStateChanged += () => { if (session?.WarpEdit != null || optionsHaveWarp) RebuildOptions(); else refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); UpdateStatus(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
@@ -329,7 +342,7 @@ public sealed partial class MainWindow : Window
         added.HistoryChanged += UpdateTabTitles;
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
-        added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); refreshOptions?.Invoke(); } };
+        added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); if (added.IsEditingMask != optionsEditingMask) RebuildOptions(); else refreshOptions?.Invoke(); } };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
         added.SelectionChanged += () =>
         {
@@ -367,7 +380,7 @@ public sealed partial class MainWindow : Window
         channels.Session = session;
         navigator.Session = session;
         welcome.IsVisible = session == null;
-        dock.IsVisible = session != null;
+        dock.LeftHost.IsVisible = dock.IsVisible = session != null;
         RebuildTabs();
         RebuildOptions();
         UpdateColors();
@@ -771,30 +784,21 @@ public sealed partial class MainWindow : Window
         // Very small windows can still scroll the complete rail.
         tools.SizeChanged += (_, e) =>
         {
+            if (rail.Orientation == Orientation.Horizontal) return;
             var height = Math.Clamp((e.NewSize.Height - 92) / ToolList.Length - rail.Spacing, 22, 33);
             foreach (var button in rail.Children.OfType<ToolButton>()) button.Height = height;
         };
         return tools;
     }
 
-    private Control BuildStatusBar()
+    private Control BuildDocumentInfo()
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto,Auto"), Height = 28, Background = Palette.Panel };
-        zoomText.Margin = new Thickness(14, 0, 8, 0);
-        sizeText.Margin = new Thickness(0, 0, 24, 0);
-        hintText.HorizontalAlignment = HorizontalAlignment.Right;
-        hintText.Margin = new Thickness(0, 0, 14, 0);
-        grid.Children.Add(zoomText);
-        AddAt(grid, sizeText, 1);
-        AddAt(grid, positionText, 2);
-        AddAt(grid, hintText, 3);
-        aiTaskText.Margin = aiText.Margin = new Thickness(0, 0, 14, 0);
-        aiTaskText.IsVisible = false;
-        aiText.IsVisible = false;
-        AddAt(grid, aiTaskText, 4);
-        AddAt(grid, aiText, 5);
-        foreach (var text in new[] { zoomText, sizeText, positionText, hintText, aiTaskText, aiText }) text.FontSize = 11.5;
-        return grid;
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 12 };
+        zoomText.VerticalAlignment = sizeText.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(zoomText);
+        AddAt(row, sizeText, 1);
+        return new Border { Name = "DocumentInfo", Background = Palette.Panel, Padding = new Thickness(12,7),
+            BorderThickness = new Thickness(0,1,0,0), BorderBrush = Palette.Divider, Child = row };
     }
 
     private Panel BuildWelcome()
@@ -922,18 +926,19 @@ public sealed partial class MainWindow : Window
 
     private void UpdateStatus()
     {
+        hintText.Text = problem ?? recovery?.Warning ?? (saving.Count > 0
+            ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note);
+        commandNotice.IsVisible = !string.IsNullOrEmpty(hintText.Text);
+        hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
         if (session == null)
         {
             zoomText.Text = "";
             sizeText.Text = "";
-            hintText.Text = problem ?? recovery?.Warning ?? note ?? "Ready when you are";
             return;
         }
         zoomText.Text = canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
         sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · {session.Document.Profile.Name} · {(int)session.Document.WorkingDepth}-bit";
         ToolTip.SetTip(sizeText, sizeText.Text);
-        hintText.Text = problem ?? recovery?.Warning ?? (saving.Count > 0 ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note ?? Hint(session));
-        hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
     }
 
     private static string Hint(EditorSession s) => s.WarpEdit != null ? "Drag Warp nodes · Shift locks direction · Arrows nudge selected node · Ctrl+Z undoes a point · Enter applies · Esc cancels"

@@ -41,7 +41,36 @@ public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
     public static string DisplayName(ShapeKind kind) => kind == ShapeKind.RoundedRectangle ? "Rounded Rectangle" : kind.ToString();
 }
 
-public enum TextAlignment { Left, Center, Right }
+public enum TextAlignment { Left, Center, Right, Justify }
+public enum TextVertical { Top, Center, Bottom }
+public enum TextLetterCase { Original, Upper, Lower, Title, SmallCaps }
+public enum TextWrap { Word, Character, None }
+public enum TextList { None, Bullets, Numbers }
+public enum FigureStyle { Default, Lining, OldStyle, Tabular, Proportional }
+public enum FigurePosition { Baseline, Subscript, Superscript }
+public sealed record Typography
+{
+    public TextVertical Vertical { get; init; }
+    public TextLetterCase Case { get; init; }
+    public TextWrap Wrap { get; init; }
+    public TextList List { get; init; }
+    public FigureStyle Figures { get; init; }
+    public FigurePosition FigurePosition { get; init; }
+    public bool Underline { get; init; }
+    public bool Strike { get; init; }
+    public bool Trim { get; init; }
+    public bool Ellipsis { get; init; }
+    public bool HangingPunctuation { get; init; }
+    public bool HangingList { get; init; }
+    public bool CaseForms { get; init; }
+    public bool CapitalSpacing { get; init; }
+    public string Axes { get; init; } = "";
+    public bool PercentTracking { get; init; }
+    public bool PercentLeading { get; init; }
+    public double ParagraphSpacing { get; init; }
+    public double Indent { get; init; }
+    public static Typography Default { get; } = new();
+}
 
 /// <summary>Letters painted in a color other than their style's own: a character range into the text (end exclusive) and its opaque color.</summary>
 public sealed record TextColorRun(int Start, int Length, uint Color)
@@ -91,9 +120,10 @@ public sealed record TextStyle
     public bool Italic { get; init; }
     public TextFontStyle? FontStyle { get; init; }
     public TextAlignment Alignment { get; init; }
+    public Typography Type { get; init; } = Typography.Default;
     /// <summary>Extra space after every character, in layer pixels.</summary>
     public double Tracking { get; init; }
-    /// <summary>Baseline to baseline, in layer pixels, as Photoshop's Leading is. 0 is Auto: 120% of the font size.</summary>
+    /// <summary>Baseline distance in layer pixels or percent of the base font size. Zero selects automatic line height.</summary>
     public double Leading { get; init; }
     /// <summary>Fixed paragraph bounds in layer pixels; text wraps inside them. Null is point text, which is as big as what is typed.</summary>
     public double? BoxWidth { get; init; }
@@ -137,7 +167,7 @@ public sealed record TextStyle
 
     /// <summary>The style's own face, which every letter outside a font run is set in.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public TextFace Face => new(FontFamily, Bold, Italic) { FontStyle = FontStyle };
-    [System.Text.Json.Serialization.JsonIgnore] public double LineHeight => Leading > 0 ? Leading : Size * 1.2;
+    [System.Text.Json.Serialization.JsonIgnore] public double LineHeight => Leading == 0 ? Size * 1.2 : Type.PercentLeading ? Size * Leading / 100 : Leading;
     [System.Text.Json.Serialization.JsonIgnore] public bool IsBox => BoxWidth != null && BoxHeight != null;
 
     /// <summary>Every value inside its range, so a damaged file or a wild drag cannot ask for an impossible layout.</summary>
@@ -148,6 +178,12 @@ public sealed record TextStyle
         return this with
         {
             Text = text,
+            Type = (Type ?? Typography.Default) with
+            {
+                Axes = Type?.Axes is { Length: <= 512 } axes ? axes : "",
+                Indent = double.IsFinite(Type?.Indent ?? 0) ? Math.Clamp(Type?.Indent ?? 0, 0, 5000) : 0,
+                ParagraphSpacing = double.IsFinite(Type?.ParagraphSpacing ?? 0) ? Math.Clamp(Type?.ParagraphSpacing ?? 0, 0, 5000) : 0
+            },
             Size = double.IsFinite(Size) ? Math.Clamp(Size, 1, 2000) : 72,
             Tracking = double.IsFinite(Tracking) ? Math.Clamp(Tracking, -100, 1000) : 0,
             Leading = double.IsFinite(Leading) ? Math.Clamp(Leading, 0, 5000) : 0,
@@ -231,7 +267,6 @@ public sealed record TextStyle
         start = Math.Clamp(start, 0, count);
         end = Math.Clamp(end, start, count);
         var all = start == end || (start == 0 && end == count);
-        var faces = UnitFaces();
         TextFace Changed(TextFace before)
         {
             var after = change(before);
@@ -239,7 +274,20 @@ public sealed record TextStyle
             if (after.FontStyle == before.FontStyle && (after.Bold != before.Bold || after.Italic != before.Italic)) after = after with { FontStyle = null };
             return after.FontStyle is { IsValid: false } ? after with { FontStyle = null } : after;
         }
-        for (var i = all ? 0 : start; i < (all ? count : end); i++) faces[i] = Changed(faces[i]);
+        if (all && FontRuns == null)
+        {
+            var changed = Changed(Face);
+            return IsFamilyName(changed.FontFamily)
+                ? this with { FontFamily = changed.FontFamily, Bold = changed.Bold, Italic = changed.Italic, FontStyle = changed.FontStyle } : this;
+        }
+        var faces = UnitFaces();
+        var replacements = new Dictionary<TextFace, TextFace>();
+        for (var i = all ? 0 : start; i < (all ? count : end); i++)
+        {
+            var before = faces[i];
+            if (!replacements.TryGetValue(before, out var next)) replacements.Add(before, next = Changed(before));
+            faces[i] = next;
+        }
         var face = all ? Changed(Face) : Face;
         if (!IsFamilyName(face.FontFamily) || faces.Any(f => !IsFamilyName(f.FontFamily))) return this;
         return this with { FontFamily = face.FontFamily, Bold = face.Bold, Italic = face.Italic, FontStyle = face.FontStyle, FontRuns = FontRunsOf(faces, face) };
@@ -370,20 +418,21 @@ public sealed record TextStyle
     public bool Equals(TextStyle? other) =>
         other is not null && Text == other.Text && FontFamily == other.FontFamily && Size == other.Size && Color == other.Color
         && Bold == other.Bold && Italic == other.Italic && FontStyle == other.FontStyle && Alignment == other.Alignment && Tracking == other.Tracking && Leading == other.Leading
-        && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight
+        && Type == other.Type && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight
         && (ColorRuns == null ? other.ColorRuns == null : other.ColorRuns != null && ColorRuns.SequenceEqual(other.ColorRuns))
         && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns))
         && (SizeRuns == null ? other.SizeRuns == null : other.SizeRuns != null && SizeRuns.SequenceEqual(other.SizeRuns));
 
     public override int GetHashCode() =>
-        HashCode.Combine(Text, FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
+        HashCode.Combine(HashCode.Combine(Text, Type), FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
 
     /// <summary>The same text drawn <paramref name="factor"/> times as large: size, spacing and box together.</summary>
     public TextStyle Scaled(double factor) => Scaled(factor, factor);
 
     public TextStyle Scaled(double horizontal, double vertical) => (this with
     {
-        Size = Size * vertical, SizeRuns = SizeRuns?.Select(r => r with { Size = Math.Clamp(r.Size * vertical, 1, 2000) }).ToArray(), Tracking = Tracking * horizontal, Leading = Leading * vertical,
+        Size = Size * vertical, SizeRuns = SizeRuns?.Select(r => r with { Size = Math.Clamp(r.Size * vertical, 1, 2000) }).ToArray(), Tracking = Type.PercentTracking ? Tracking : Tracking * horizontal, Leading = Type.PercentLeading ? Leading : Leading * vertical,
+        Type = Type with { Indent = Type.Indent * horizontal, ParagraphSpacing = Type.ParagraphSpacing * vertical },
         BoxWidth = BoxWidth * horizontal, BoxHeight = BoxHeight * vertical
     }).Clamped();
 

@@ -17,7 +17,7 @@ namespace Composa.App.Tests;
 public class FontStylesAndContentUiTests
 {
     private static ComboBox Styles(MainWindow window) => window.GetVisualDescendants().OfType<ComboBox>().Single(c => ToolTip.GetTip(c) as string == "Font style");
-    private static ComboBox Families(MainWindow window) => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.MaxWidth == 190);
+    private static ComboBox Families(MainWindow window) => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "FontFamilyPicker");
 
     [AvaloniaFact]
     public void Face_menu_follows_family_and_active_layer_without_starting_text_editing()

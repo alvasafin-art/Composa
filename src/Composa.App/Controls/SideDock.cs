@@ -29,11 +29,12 @@ public sealed class DockSection(string title, Control content, DockPanelState st
 /// The column on the right: the Layers panel on top, taking whatever room is left, and under it the sections the
 /// Window menu shows, each with a header that collapses it and a splitter above it to size it.
 /// </summary>
-public sealed class SideDock : UserControl
+internal sealed class DockColumn : UserControl
 {
-    private const double MinTopHeight = 252;
+    private double MinTopHeight => top is Border { Child: null } ? 0 : 252;
 
     private readonly Control top;
+    private readonly Action<Control, string> dragHeader;
     private readonly IReadOnlyList<DockSection> sections;
     private readonly Grid grid = new();
     private readonly DockPanel frame = new();
@@ -44,9 +45,10 @@ public sealed class SideDock : UserControl
         VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
     };
 
-    public SideDock(Control top, params DockSection[] sections)
+    public DockColumn(Control top, DockSection[] sections, Action<Control, string> dragHeader)
     {
         this.top = top;
+        this.dragHeader = dragHeader;
         this.sections = sections;
         sectionScroll.Content = grid;
         frame.Children.Add(sectionScroll);
@@ -75,19 +77,6 @@ public sealed class SideDock : UserControl
         if (Tabbed == tabbed) return;
         Tabbed = tabbed;
         Layout();
-    }
-
-    public DockSection Section(string title) => sections.Single(s => s.Title == title);
-
-    public Dictionary<string, DockPanelState> CaptureLayout() => sections.ToDictionary(section => section.Title, section => section.State);
-
-    public void RestoreLayout(IReadOnlyDictionary<string, DockPanelState> states)
-    {
-        foreach (var section in sections)
-            if (states.TryGetValue(section.Title, out var state) && state != null)
-                section.State = state with { Height = double.IsFinite(state.Height) ? Math.Clamp(state.Height, DockSection.MinHeight, 600) : 220 };
-        Layout();
-        foreach (var section in sections) section.RaiseChanged();
     }
 
     public void SetVisible(DockSection section, bool visible)
@@ -125,7 +114,9 @@ public sealed class SideDock : UserControl
             {
                 var host = new Grid();
                 host.Children.Add(section.Content);
-                return new TabItem { Header = section.Title, Content = host };
+                var tab = new TabItem { Header = section.Title, Content = host };
+                dragHeader(tab, section.Title);
+                return tab;
             }).ToArray() };
             tabs.SelectedIndex = Math.Max(0, Array.FindIndex(visible, s => s.Title == activeTab));
             if (tabs.SelectedItem is TabItem { Header: string selected }) activeTab = selected;
@@ -153,7 +144,7 @@ public sealed class SideDock : UserControl
             var row = new RowDefinition(open ? new GridLength(section.ExpandedHeight) : GridLength.Auto) { MinHeight = open ? DockSection.MinHeight : 0 };
             section.Row = row;
             grid.RowDefinitions.Add(row);
-            var panel = open && section.HasOwnHeader ? section.Content : Build(section, open);
+            var panel = Build(section, open);
             Grid.SetRow(panel, grid.RowDefinitions.Count - 1);
             grid.Children.Add(panel);
             splitter.DragCompleted += (_, _) =>
@@ -180,6 +171,11 @@ public sealed class SideDock : UserControl
             desired = MinTopHeight + TabHeight();
         }
         var compact = desired > Bounds.Height;
+        if (MinTopHeight == 0 && !Tabbed)
+        {
+            var first = sections.FirstOrDefault(s => s.State.Visible && !s.State.Collapsed);
+            if (first?.Row is {} row) row.Height = compact ? new GridLength(first.ExpandedHeight) : GridLength.Star;
+        }
         if (compact && top.Parent == grid)
         {
             grid.Children.Remove(top);
@@ -190,9 +186,9 @@ public sealed class SideDock : UserControl
             frame.Children.Remove(top);
             grid.Children.Add(top);
         }
-        top.Height = compact ? Math.Min(MinTopHeight, Bounds.Height * .54) : double.NaN;
+        top.Height = MinTopHeight == 0 ? 0 : compact ? Math.Min(MinTopHeight, Bounds.Height * .54) : double.NaN;
         grid.RowDefinitions[0].MinHeight = compact ? 0 : MinTopHeight;
-        grid.RowDefinitions[0].Height = compact ? new GridLength(0) : GridLength.Star;
+        grid.RowDefinitions[0].Height = compact || MinTopHeight == 0 ? new GridLength(0) : GridLength.Star;
         grid.Height = compact ? desired - MinTopHeight : Bounds.Height;
     }
 
@@ -209,11 +205,111 @@ public sealed class SideDock : UserControl
         var label = (open ? "Collapse " : "Expand ") + section.Title;
         ToolTip.SetTip(header, label);
         Avalonia.Automation.AutomationProperties.SetName(header, label);
+        dragHeader(header, section.Title);
         header.Click += (_, _) => SetCollapsed(section, open);
         var panel = new DockPanel { Background = Palette.Panel };
         DockPanel.SetDock(header, Dock.Top);
         panel.Children.Add(header);
         if (open) panel.Children.Add(section.Content);
         return panel;
+    }
+}
+
+
+/// <summary>Both sides share one ordered set of panel states. Moving a panel reparents its live content.</summary>
+public sealed class SideDock : UserControl
+{
+    private readonly DockSection[] sections;
+    private readonly DockSection layers;
+    private readonly Action<Control, string> dragHeader;
+    private DockColumn right = null!, left = null!;
+    public Border LeftHost { get; } = new();
+    public bool Tabbed { get; private set; }
+    public event Action? PresentationChanged;
+    private readonly Control documentInfo;
+    private readonly DockPanel leftFrame = new() { Background = Palette.Panel }, rightFrame = new() { Background = Palette.Panel };
+    public SideDock(LayersPanel layerPanel, Control documentInfo, Action<Control, string> dragHeader, params DockSection[] panels)
+    {
+        this.dragHeader = dragHeader;
+        this.documentInfo = documentInfo;
+        DockPanel.SetDock(documentInfo, Dock.Bottom);
+        LeftHost.Child = leftFrame;
+        Content = rightFrame;
+        layers = new DockSection("Layers", layerPanel, new DockPanelState(Height: 285));
+        sections = [layers, .. panels];
+        dragHeader(layerPanel.PanelTitle, "Layers");
+        Rebuild();
+    }
+    public DockSection Section(string title) => sections.First(s => s.Title == title);
+    public IEnumerable<DockSection> Ordered(bool onLeft) => sections.Where(s => s.State.Left == onLeft).OrderBy(s => s.State.Order);
+    public void SetCollapsed(DockSection section, bool value) => Column(section).SetCollapsed(section, value);
+    private DockColumn Column(DockSection section) => section.State.Left ? left : right;
+    public bool Presents(DockSection section) => Column(section).Presents(section);
+    public void SetExtraHeight(DockSection section, double height) => Column(section).SetExtraHeight(section, height);
+    public void SetVisible(DockSection section, bool visible)
+    {
+        Column(section).SetVisible(section, visible);
+        UpdateWidths();
+    }
+    public void SetTabbed(bool value)
+    {
+        Tabbed = value;
+        left.SetTabbed(value); right.SetTabbed(value);
+    }
+    public Dictionary<string,DockPanelState> CaptureLayout() => sections.ToDictionary(s => s.Title, s => s.State);
+    public void RestoreLayout(IReadOnlyDictionary<string,DockPanelState> states, bool persist = true)
+    {
+        foreach (var panel in sections)
+            if (states.TryGetValue(panel.Title, out var state) && state != null)
+                panel.State = state with { Height = double.IsFinite(state.Height) ? Math.Clamp(state.Height, 90, 600) : 220 };
+        Rebuild();
+        if (persist) foreach (var panel in sections) panel.RaiseChanged();
+    }
+    public void Move(string title, bool onLeft, DockSection? before)
+    {
+        var moved = Section(title);
+        if (before == moved) return;
+        var order = Ordered(onLeft).Where(s => s != moved).ToList();
+        int index = before == null ? -1 : order.IndexOf(before);
+        order.Insert(index < 0 ? order.Count : index, moved);
+        for (int i = 0; i < order.Count; i++)
+        {
+            order[i].State = order[i].State with { Left = onLeft, Order = i };
+            order[i].RaiseChanged();
+        }
+        Rebuild();
+    }
+    private void Rebuild()
+    {
+        leftFrame.Children.Clear(); rightFrame.Children.Clear();
+        foreach (var panel in sections)
+            if (panel.Content.Parent is Panel parent) parent.Children.Remove(panel.Content);
+        DockColumn Build(bool onLeft)
+        {
+            var list = Ordered(onLeft).ToList();
+            Control top = new Border();
+            var pinnedLayers = list.FirstOrDefault() == layers;
+            if (onLeft == layers.State.Left) ((LayersPanel)layers.Content).PanelTitle.IsVisible = pinnedLayers;
+            if (pinnedLayers) { top = layers.Content; list.Remove(layers); }
+            var column = new DockColumn(top, list.ToArray(), dragHeader);
+            column.SetTabbed(Tabbed);
+            column.PresentationChanged += () => PresentationChanged?.Invoke();
+            return column;
+        }
+        left = Build(true); right = Build(false);
+        leftFrame.Children.Add(left); rightFrame.Children.Add(right);
+        UpdateWidths();
+        PresentationChanged?.Invoke();
+    }
+    private void UpdateWidths()
+    {
+        LeftHost.Width = Ordered(true).Any(s => s.State.Visible) ? 296 : 0;
+        Width = Ordered(false).Any(s => s.State.Visible) ? 296 : 0;
+        var footerHost = Width > 0 ? rightFrame : leftFrame;
+        if (documentInfo.Parent != footerHost)
+        {
+            if (documentInfo.Parent is Panel old) old.Children.Remove(documentInfo);
+            footerHost.Children.Insert(0, documentInfo);
+        }
     }
 }

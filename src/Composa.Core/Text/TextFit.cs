@@ -27,7 +27,7 @@ public static class TextFit
         for (var i = 0; i < 18; i++)
         {
             var size = (low + high) / 2;
-            var candidate = style with { Size = size, Leading = style.Leading * size / style.Size, Tracking = style.Tracking * size / style.Size };
+            var candidate = style with { Size = size, Leading = style.Type.PercentLeading ? style.Leading : style.Leading * size / style.Size, Tracking = style.Type.PercentTracking ? style.Tracking : style.Tracking * size / style.Size };
             if (Fits(candidate)) { low = size; smallest = candidate; } else high = size;
         }
         return smallest;

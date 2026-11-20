@@ -196,6 +196,13 @@ public sealed partial class CanvasView
             var center = view.ToScreen(session.BrushPosition ?? view.currentDocument);
             var selection = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
             var radius = (selection ? session.SelectionBrushSize / 2 : session.Brush.CursorRadius(session.BrushPressure)) * view.UnitsPerPixel;
+            var edge = session.Brush.Size * .5 * session.Brush.PressureRadius(session.BrushPressure) * view.UnitsPerPixel;
+            if (!selection && edge - radius > hair)
+            {
+                var dash = new Avalonia.Media.DashStyle(new double[] { 2, 3 }, 0);
+                context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, hair, dash), center, edge + hair, edge + hair);
+                context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.White, hair, dash), center, edge, edge);
+            }
             if (radius < 3) { Cross(center); return; }
             context.DrawEllipse(null, dark, center, radius + hair, radius + hair);
             context.DrawEllipse(null, light, center, radius, radius);

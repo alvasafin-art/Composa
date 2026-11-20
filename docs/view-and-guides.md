@@ -27,3 +27,10 @@ With View > Snap (Ctrl+Shift+;) on, moving a layer, drawing a marquee or a shape
 ## Transform controls
 
 View > Show Transform Controls (Ctrl+H) shows or hides the frame with handles the Move tool draws around the active layer.
+
+
+## Arranging panels
+
+Drag a panel title to either side of the workspace. The drop indicator identifies the side and insertion point. Drag the tool rail by its top edge to dock it on the left, right or bottom. The bottom position uses a horizontal palette above the canvas edge. Window > Workspaces saves panel locations, order and toolbar position. Properties is enabled by default and can be toggled in Window.
+
+Zoom and document details are pinned beneath the right-hand panels. When all panels move to the left, those details follow them.

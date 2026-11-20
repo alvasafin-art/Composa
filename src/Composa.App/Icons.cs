@@ -63,6 +63,9 @@ public static class Icons
     public static readonly Icon Rectangle = new("M3.5 6 H20.5 V18 H3.5 Z");
     public static readonly Icon RoundedRectangle = new("M8 6 H16 A4.5 4.5 0 0 1 20.5 10.5 V13.5 A4.5 4.5 0 0 1 16 18 H8 A4.5 4.5 0 0 1 3.5 13.5 V10.5 A4.5 4.5 0 0 1 8 6 Z");
     public static readonly Icon Ellipse = new("M12 6 A8.5 6 0 1 1 12 18 A8.5 6 0 1 1 12 6 Z");
+    public static readonly Icon FontSize = new("M4.5 6 V4.5 H19.5 V6 M12 4.5 V19 M8.5 19 H15.5");
+    public static readonly Icon LineHeight = new("M4 3 H20 M4 21 H20 M8 16.5 L12 7.5 L16 16.5 M9.5 13.5 H14.5");
+    public static readonly Icon LetterSpacing = new("M3 4 V20 M21 4 V20 M8 16.5 L12 7.5 L16 16.5 M9.5 13.5 H14.5");
     public static readonly Icon AlignLeft = new("M4 6 H20 M4 10 H14 M4 14 H20 M4 18 H12");
     public static readonly Icon AlignCenter = new("M4 6 H20 M7 10 H17 M4 14 H20 M8 18 H16");
     public static readonly Icon AlignRight = new("M4 6 H20 M10 10 H20 M4 14 H20 M12 18 H20");

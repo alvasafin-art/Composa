@@ -434,7 +434,7 @@ public sealed partial class EditorSession
         if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All) RenderChannelView(target, area, view);
         else
         {
-            var options = CurrentOptions();
+            var options = DisplayOptions();
             if (comparisonGroup is { } id && document.Find(id) is { } group)
             {
                 var overrides = options?.Overrides ?? new Dictionary<Guid, Layer>();
@@ -445,6 +445,15 @@ public sealed partial class EditorSession
             }
             DocumentRenderer.Render(document, target, area, view, options);
         }
+    }
+
+    private RenderOptions? DisplayOptions()
+    {
+        var options = CurrentOptions();
+        if (fontSample == null || ActiveLayer?.Id != fontSample.Id) return options;
+        var replacements = options?.Overrides ?? new Dictionary<Guid, Layer>();
+        replacements.TryAdd(fontSample.Id, fontSample);
+        return new RenderOptions { Overrides = replacements };
     }
 
     private RenderOptions? CurrentOptions()

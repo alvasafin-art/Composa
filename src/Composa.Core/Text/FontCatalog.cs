@@ -10,6 +10,25 @@ public static class FontCatalog
     public sealed record Choice(string Name, TextFace Face);
     private static readonly ConcurrentDictionary<string, IReadOnlyList<Choice>> families = new(StringComparer.Ordinal);
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SKTypeface, HashSet<string>> featureTags = new();
+
+    public static bool Supports(TextFace face, string tag) => featureTags.GetValue(TextLayout.TypefaceFor(face), font =>
+    {
+        var tags = new HashSet<string>(StringComparer.Ordinal);
+        foreach (uint table in new uint[] { 0x47535542, 0x47504F53 }) // GSUB and GPOS FeatureList
+        {
+            if (!font.TryGetTableData(table, out var bytes) || bytes.Length < 10) continue;
+            int U16(int i) => System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(i));
+            int offset = U16(6);
+            if (offset + 2 > bytes.Length) continue;
+            int count = U16(offset);
+            if (offset + 2 + count * 6 > bytes.Length) continue;
+            for (int i = 0; i < count; i++)
+                tags.Add(System.Text.Encoding.ASCII.GetString(bytes, offset + 2 + i * 6, 4));
+        }
+        return tags;
+    }).Contains(tag);
+
     public static IReadOnlyList<Choice> ForFamily(string family) => families.GetOrAdd(family, static name =>
     {
         using var styles = SKFontManager.Default.GetFontStyles(name);

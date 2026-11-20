@@ -80,6 +80,8 @@ public sealed partial class LayersPanel : UserControl
 
     static LayersPanel() => Composa.Rendering.Pixels.Invalidated += bitmap => Thumbnails.Remove(bitmap);
 
+    internal TextBlock PanelTitle { get; } = Ui.Label("Layers", size: 13, weight: FontWeight.SemiBold);
+
     public LayersPanel()
     {
         // Grouped as Photoshop groups them (darkening, lightening, contrast, comparative, component) with a line between,
@@ -119,7 +121,7 @@ public sealed partial class LayersPanel : UserControl
 
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,1.06*"), ColumnSpacing = 8,
             RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), Margin = new Thickness(10, 8, 10, 6) };
-        var title = Ui.Label("Layers", size: 13, weight: FontWeight.SemiBold);
+        var title = PanelTitle;
         title.Margin = new Thickness(0, 0, 0, 6);
         header.Children.Add(title);
         Grid.SetRow(blend, 1);

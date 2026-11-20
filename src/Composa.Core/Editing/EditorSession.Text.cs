@@ -49,12 +49,19 @@ public sealed partial class EditorSession
         if (layer.Pixels == null || PixelsLocked(layer)) return;
         style = style.Clamped();
         var before = AffectedArea(layer);
-        var t = layer.Transform;
         var old = layer.Pixels;
+        ReplaceTextAppearance(layer, style, RenderWorkingText(style));
+        if (pendingBefore != null && !ReferenceEquals(old, pendingBefore.Find(layer.Id)?.Pixels)) { Pixels.Invalidate(old); old.Dispose(); }
+        Invalidate(Geometry.Union(before, AffectedArea(layer)));
+    }
+
+    private static void ReplaceTextAppearance(Layer layer, TextStyle style, SKBitmap pixels)
+    {
+        var t = layer.Transform;
+        var old = layer.Pixels!;
         double scaleX = t.Width / old.Width, scaleY = t.Height / old.Height;
         var unit = style.IsBox ? 0f : style.Alignment switch { TextAlignment.Center => 0.5f, TextAlignment.Right => 1f, _ => 0f };
         var anchorBefore = layer.Matrix.MapPoint(unit * old.Width, 0);
-        var pixels = RenderWorkingText(style);
         // A text layer is named after its text until someone names it by hand (or it is a copy); that name then stays.
         if (layer.Text == null || layer.Name == layer.Text.LayerName()) layer.Name = style.LayerName();
         layer.Text = style;
@@ -67,8 +74,27 @@ public sealed partial class EditorSession
             moved = moved with { X = Math.Round(moved.X), Y = Math.Round(moved.Y), Width = pixels.Width, Height = pixels.Height };
         layer.Transform = moved;
         if (layer.MaskTransform == null && layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height)) layer.Mask = Resample(mask, pixels.Width, pixels.Height);
-        if (pendingBefore != null && !ReferenceEquals(old, pendingBefore.Find(layer.Id)?.Pixels)) { Pixels.Invalidate(old); old.Dispose(); }
-        Invalidate(Geometry.Union(before, AffectedArea(layer)));
+        }
+
+    // Only RenderView consults this replacement. Save, export, undo and the active draft keep their original state.
+    private Layer? fontSample;
+    public void ShowFontSample(Layer original, TextStyle style, SKBitmap pixels)
+    {
+        ClearFontSample();
+        var copy = original.Clone();
+        ReplaceTextAppearance(copy, style, pixels);
+        fontSample = copy;
+        CanvasChanged?.Invoke(Geometry.Union(AffectedArea(original), AffectedArea(copy)));
+    }
+
+    public void ClearFontSample()
+    {
+        if (fontSample is not {} sample) return;
+        fontSample = null;
+        var area = AffectedArea(sample);
+        if (document.Find(sample.Id) is {} live) area = Geometry.Union(area, AffectedArea(live));
+        CanvasChanged?.Invoke(area);
+        if (sample.Pixels is {} pixels) { Pixels.Invalidate(pixels); pixels.Dispose(); }
     }
 
     /// <summary>After scaling, text is redrawn at the matching font size instead of being stretched.</summary>

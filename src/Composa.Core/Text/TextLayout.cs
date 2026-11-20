@@ -32,6 +32,7 @@ public sealed class TextLayout
         public float[] Positions { get; init; } = [];
         /// <summary>The width without trailing spaces, which alignment ignores.</summary>
         public float VisibleWidth { get; init; }
+        public string Marker { get; init; } = "";
         public int Length => End - Start;
     }
 
@@ -66,7 +67,7 @@ public sealed class TextLayout
     /// <summary>The font for layout and drawing alike. A face without a bold or italic variant gets them synthesized, as Photoshop's faux styles do.</summary>
     private SKFont MakeFont(TextFace face, double size)
     {
-        var typeface = TypefaceFor(face);
+        var typeface = FontVariations.Instance(TypefaceFor(face), Style.Type.Axes);
         var font = new SKFont(typeface, (float)Math.Clamp(size, 1, 4000)) { Subpixel = true, Edging = SKFontEdging.Antialias, Hinting = SKFontHinting.None };
         if (face.FontStyle == null && face.Bold && typeface.FontWeight < (int)SKFontStyleWeight.SemiBold) font.Embolden = true;
         if (face.FontStyle == null && face.Italic && typeface.FontSlant == SKFontStyleSlant.Upright) font.SkewX = -0.25f;
@@ -76,19 +77,20 @@ public sealed class TextLayout
     /// <summary>One font per face the text uses, made as they are needed and disposed together.</summary>
     private sealed class Fonts(TextLayout layout) : IDisposable
     {
+        public readonly OpenTypeGlyphs Features = new(layout.Style.Type);
         private readonly Dictionary<(TextFace, double), SKFont> fonts = [];
         public SKFont For(TextFace face, double? size = null)
         {
             var key = (face, size ?? layout.Style.Size);
             return fonts.TryGetValue(key, out var font) ? font : fonts[key] = layout.MakeFont(face, key.Item2);
         }
-        public void Dispose() { foreach (var font in fonts.Values) font.Dispose(); }
+        public void Dispose() { Features.Dispose(); foreach (var font in fonts.Values) font.Dispose(); }
     }
 
     public TextLayout(TextStyle style)
     {
         Style = style = style.Clamped();
-        Text = style.Text.Replace("\r", "");
+        Text = DisplayCase(style.Text.Replace("\r", ""), style.Type.Case);
         using var fonts = new Fonts(this);
         // Line metrics are the style's own face's, whatever faces the letters are in, so lines do not shift as letters change.
         var metrics = fonts.For(style.Face).Metrics;
@@ -116,7 +118,7 @@ public sealed class TextLayout
             var last = end;
             while (last > start && Text[last - 1] == ' ') last--;
             visible[i] = Sum(advances, start, last);
-            contentWidth = Math.Max(contentWidth, visible[i]);
+            contentWidth = Math.Max(contentWidth, visible[i] + LineInset(start));
         }
         var lineMetrics = new List<(float Ascent, float Descent, float Height)>();
         foreach (var (start, end) in ranges)
@@ -126,12 +128,14 @@ public sealed class TextLayout
             {
                 var size = style.SizeAt(k);
                 var m = fonts.For(style.FaceAt(k), size).Metrics;
-                ascent = Math.Max(ascent, -m.Ascent); descent = Math.Max(descent, m.Descent); largest = Math.Max(largest, (float)size);
+                ascent = Math.Max(ascent, style.Type.Trim && m.CapHeight > 0 ? m.CapHeight : -m.Ascent); descent = Math.Max(descent, m.Descent); largest = Math.Max(largest, (float)size);
             }
-            lineMetrics.Add((ascent, descent, (float)(style.Leading > 0 ? style.Leading : largest * 1.2)));
+            lineMetrics.Add((ascent, descent, (float)(style.Leading > 0 ? LineHeight : style.Type.Trim ? ascent + descent : largest * 1.2)));
         }
         var explicitShift = style.Leading > 0
             ? Math.Max(0, lineMetrics.Select((m, i) => m.Ascent - lineMetrics[0].Ascent - i * LineHeight).Max()) : 0;
+        var paragraphGap = (float)style.Type.ParagraphSpacing;
+        var gaps = ranges.Count(r => r.Start > 0 && Text[r.Start - 1] == '\n') * paragraphGap;
         if (style.IsBox)
         {
             Width = (int)Math.Round(style.BoxWidth!.Value);
@@ -146,34 +150,73 @@ public sealed class TextLayout
             var contentHeight = style.Leading > 0
                 ? Math.Max(ranges.Count * LineHeight + explicitShift, lineMetrics.Select((m, i) => lineMetrics[0].Ascent + explicitShift + i * LineHeight + m.Descent).Max())
                 : Math.Max(lineMetrics.Sum(m => m.Height), lineMetrics.Take(lineMetrics.Count - 1).Sum(m => m.Height) + lineMetrics[^1].Ascent + lineMetrics[^1].Descent);
-            Height = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + Padding * 2));
+            Height = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + gaps + Padding * 2));
         }
         Width = Math.Min(Width, Document.MaxSide);
         Height = Math.Min(Height, Document.MaxSide);
 
         var lines = new List<Line>(ranges.Count);
-        float top = Padding;
+        var blockHeight = lineMetrics.Sum(m => m.Height) + explicitShift + gaps;
+        var free = style.IsBox ? Math.Max(0, Height - 2 * Padding - blockHeight) : 0;
+        var origin = Padding + (style.Type.Vertical switch { TextVertical.Center => free / 2, TextVertical.Bottom => free, _ => 0 });
+        float top = origin, gapBefore = 0;
+        int paragraph = 0;
         for (var i = 0; i < ranges.Count; i++)
         {
             var (start, end) = ranges[i];
             var positions = new float[end - start + 1];
             for (var k = 1; k <= end - start; k++) positions[k] = positions[k - 1] + advances[start + k - 1];
-            var x = Padding + style.Alignment switch
+            bool first = start == 0 || Text[start - 1] == '\n';
+            if (first) { paragraph++; if (start > 0) { top += paragraphGap; gapBefore += paragraphGap; } }
+            float inset = LineInset(start);
+            if (style.Alignment == TextAlignment.Justify && style.IsBox && end < Text.Length && Text[end] != '\n')
             {
-                TextAlignment.Center => (contentWidth - visible[i]) / 2,
-                TextAlignment.Right => contentWidth - visible[i],
+                int last = end;
+                while (last > start && Text[last-1] == ' ') last--;
+                int spaces = Text.AsSpan(start,last-start).Count(' ');
+                float extra = spaces > 0 ? Math.Max(0, contentWidth - inset - visible[i]) / spaces : 0;
+                float offset = 0;
+                for (int k=1;k<positions.Length;k++)
+                {
+                    if (start+k-1 < last && Text[start+k-1]==' ') offset += extra;
+                    positions[k] += offset;
+                }
+            }
+            var x = Padding + inset + (style.Alignment switch
+            {
+                TextAlignment.Center => (contentWidth - inset - visible[i]) / 2,
+                TextAlignment.Right => contentWidth - inset - visible[i],
                 _ => 0
-            };
+            });
+            if (style.Type.HangingPunctuation && start < end && char.IsPunctuation(Text[start])) x -= advances[start] / 2;
             var lm = lineMetrics[i];
-            var baseline = style.Leading > 0 ? Padding + lineMetrics[0].Ascent + explicitShift + i * LineHeight : top + lm.Ascent;
-            lines.Add(new Line { Start = start, End = end, X = x, Top = top, Height = lm.Height, Ascent = lm.Ascent, Descent = lm.Descent, Baseline = baseline, Positions = positions, VisibleWidth = visible[i] });
+            var baseline = style.Leading > 0 ? origin + gapBefore + lineMetrics[0].Ascent + explicitShift + i * LineHeight : top + lm.Ascent;
+            lines.Add(new Line { Start = start, End = end, X = x, Top = top, Height = lm.Height, Ascent = lm.Ascent, Descent = lm.Descent, Baseline = baseline, Positions = positions, VisibleWidth = visible[i],
+                Marker = !first ? "" : style.Type.List switch { TextList.Bullets => "•", TextList.Numbers => paragraph + ".", _ => "" } });
             top += lm.Height;
         }
         Lines = lines;
-        Overflows = style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f);
+        Overflows = style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f || l.X + l.VisibleWidth > Width - Padding + .5f);
     }
 
-    /// <summary>The advance of every character (a surrogate pair's second half advances nothing), tracking included, each stretch of one face measured with its own font.</summary>
+    private static string DisplayCase(string text, TextLetterCase mode)
+    {
+        if (mode == TextLetterCase.Upper) return text.ToUpperInvariant();
+        if (mode == TextLetterCase.Lower) return text.ToLowerInvariant();
+        if (mode != TextLetterCase.Title) return text;
+        var chars = text.ToCharArray();
+        for (int i=0;i<chars.Length;i++)
+            chars[i] = i == 0 || !char.IsLetterOrDigit(text[i-1]) ? char.ToUpperInvariant(chars[i]) : char.ToLowerInvariant(chars[i]);
+        return new string(chars);
+    }
+
+    private float LineInset(int start)
+    {
+        bool first = start == 0 || Text[start-1] == '\n';
+        return (float)((first ? Style.Type.Indent : 0) +
+            (Style.Type.List != TextList.None && (first || Style.Type.HangingList) ? Style.Size * 1.8 : 0));
+    }
+
     private float[] Advances(Fonts fonts, string text, float tracking)
     {
         var advances = new float[text.Length];
@@ -185,11 +228,22 @@ public sealed class TextLayout
             while (end < text.Length && Style.FaceAt(end) == face && Style.SizeAt(end) == size) end++;
             var font = fonts.For(face, size);
             var segment = text.Substring(start, end - start);
+            if (fonts.Features.Enabled)
+            {
+                for (int k=0;k<segment.Length;)
+                {
+                    var rune = Rune.TryGetRuneAt(segment,k,out var r) ? r : Rune.ReplacementChar;
+                    var shaped = fonts.Features.Get(font.Typeface,rune.Value);
+                    advances[start+k] = shaped.Sum(g=>g.Advance) * (float)size + (Style.Type.PercentTracking ? tracking*(float)size/100 : tracking);
+                    k+=rune.Utf16SequenceLength;
+                }
+                start=end; continue;
+            }
             var widths = font.GetGlyphWidths(font.GetGlyphs(segment));
             var glyph = 0;
             for (var i = 0; i < segment.Length && glyph < widths.Length; i++)
             {
-                advances[start + i] = widths[glyph++] + tracking;
+                advances[start + i] = widths[glyph++] + (Style.Type.PercentTracking ? tracking * (float)size / 100 : tracking);
                 if (char.IsHighSurrogate(segment[i]) && i + 1 < segment.Length && char.IsLowSurrogate(segment[i + 1])) i++;
             }
             start = end;
@@ -207,15 +261,15 @@ public sealed class TextLayout
     /// <summary>Greedy word wrap of one paragraph; a word wider than the box breaks between characters.</summary>
     private void Wrap(int start, int end, float[] advances, float available, List<(int, int)> lines)
     {
-        if (start == end) { lines.Add((start, end)); return; }
+        if (start == end || Style.Type.Wrap == TextWrap.None) { lines.Add((start, end)); return; }
         var position = start;
         while (position < end)
         {
-            float width = 0;
+            float width = LineInset(position);
             int k = position, lastSpace = -1;
             for (; k < end; k++)
             {
-                if (width + advances[k] > available && k > position) break;
+                if (width + advances[k] > available && k > position && !char.IsLowSurrogate(Text[k])) break;
                 width += advances[k];
                 if (Text[k] == ' ') lastSpace = k;
             }
@@ -225,7 +279,7 @@ public sealed class TextLayout
                 // Spaces at the break stay on this line (they take no visible width); mid-word, go back to the last
                 // space so the next line starts with a letter.
                 if (Text[k] == ' ') { while (lineEnd < end && Text[lineEnd] == ' ') lineEnd++; }
-                else if (lastSpace >= position) lineEnd = lastSpace + 1;
+                else if (Style.Type.Wrap == TextWrap.Word && lastSpace >= position) lineEnd = lastSpace + 1;
             }
             lines.Add((position, lineEnd));
             position = lineEnd;
@@ -250,28 +304,64 @@ public sealed class TextLayout
         canvas.Save();
         if (Style.IsBox) canvas.ClipRect(new SKRect(0, 0, Width, Height));
         // Letters are drawn a stretch at a time, one stretch per face and color; text in one face and color is one stretch per line.
-        foreach (var line in Lines)
+        for (int lineIndex = 0; lineIndex < Lines.Count; lineIndex++)
         {
-            if (line.Length == 0) continue;
-            for (var k = 0; k < line.Length;)
+            var line = Lines[lineIndex];
+            if (Style.Type.Ellipsis && Style.IsBox && lineIndex > 0 && line.Baseline + line.Descent > Height - Padding) break;
+            var baseFont = fonts.For(Style.FaceAt(line.Start), Style.SizeAt(line.Start));
+            paint.SetColor((SKColorF)new SKColor(Style.ColorAt(line.Start)), workingSpace);
+            if (line.Marker.Length > 0)
+                canvas.DrawText(line.Marker, line.X - (float)Style.Size * .3f, line.Baseline, SKTextAlign.Right, baseFont, paint);
+            int drawLength = line.Length;
+            bool ellipsis = Style.Type.Ellipsis && Style.IsBox &&
+                (line.X + line.VisibleWidth > Width - Padding || lineIndex + 1 < Lines.Count &&
+                 Lines[lineIndex+1].Baseline + Lines[lineIndex+1].Descent > Height - Padding);
+            if (ellipsis)
+            {
+                float dots = baseFont.MeasureText("…");
+                while (drawLength > 0 && line.X + line.Positions[drawLength] + dots > Width - Padding) drawLength--;
+                if (drawLength > 0 && char.IsHighSurrogate(Text[line.Start + drawLength - 1])) drawLength--;
+                canvas.DrawText("…", line.X + line.Positions[drawLength], line.Baseline, SKTextAlign.Left, baseFont, paint);
+            }
+            if (Style.Type.Ellipsis && Style.IsBox && line.Top >= Height - Padding) break;
+            for (var k = 0; k < drawLength;)
             {
                 var face = Style.FaceAt(line.Start + k);
                 var size = Style.SizeAt(line.Start + k);
                 var color = Style.ColorAt(line.Start + k);
                 var end = k + 1;
-                while (end < line.Length && Style.FaceAt(line.Start + end) == face && Style.SizeAt(line.Start + end) == size && Style.ColorAt(line.Start + end) == color) end++;
+                while (end < drawLength && Style.FaceAt(line.Start + end) == face && Style.SizeAt(line.Start + end) == size && Style.ColorAt(line.Start + end) == color) end++;
                 var font = fonts.For(face, size);
                 var segment = Text.Substring(line.Start + k, end - k);
-                var glyphs = font.GetGlyphs(segment);
-                if (glyphs.Length > 0)
+                ushort[] glyphs;
+                SKPoint[] positions;
+                if (fonts.Features.Enabled)
                 {
-                    var positions = new SKPoint[glyphs.Length];
+                    var ids=new List<ushort>(); var points=new List<SKPoint>();
+                    for(int i=0;i<segment.Length;)
+                    {
+                        var rune=Rune.TryGetRuneAt(segment,i,out var r)?r:Rune.ReplacementChar;
+                        foreach(var g in fonts.Features.Get(font.Typeface,rune.Value))
+                        {
+                            ids.Add(g.Id); points.Add(new(line.X+line.Positions[k+i]+g.X*(float)size,line.Baseline+g.Y*(float)size));
+                        }
+                        i+=rune.Utf16SequenceLength;
+                    }
+                    glyphs=ids.ToArray();positions=points.ToArray();
+                }
+                else
+                {
+                    glyphs = font.GetGlyphs(segment);
+                    positions = new SKPoint[glyphs.Length];
                     var glyph = 0;
                     for (var i = 0; i < segment.Length && glyph < glyphs.Length; i++)
                     {
                         positions[glyph++] = new SKPoint(line.X + line.Positions[k + i], line.Baseline);
                         if (char.IsHighSurrogate(segment[i]) && i + 1 < segment.Length && char.IsLowSurrogate(segment[i + 1])) i++;
                     }
+                }
+                if (glyphs.Length > 0)
+                {
                     using var builder = new SKTextBlobBuilder();
                     var run = builder.AllocatePositionedRun(font, glyphs.Length);
                     run.SetGlyphs(glyphs);
@@ -279,6 +369,10 @@ public sealed class TextLayout
                     using var blob = builder.Build();
                     paint.SetColor((SKColorF)new SKColor(color), workingSpace);
                     if (blob != null) canvas.DrawText(blob, 0, 0, paint);
+                    paint.StrokeWidth = Math.Max(1, (float)size / 18);
+                    void Rule(float y) => canvas.DrawLine(line.X + line.Positions[k], y, line.X + line.Positions[end], y, paint);
+                    if (Style.Type.Underline) Rule(line.Baseline + (float)size * .09f);
+                    if (Style.Type.Strike) Rule(line.Baseline - (float)size * .3f);
                 }
                 k = end;
             }

@@ -26,6 +26,8 @@ public static partial class PsdExport
         if (!new[] { m.ScaleX, m.ScaleY, m.SkewX, m.SkewY, m.TransX, m.TransY }.All(float.IsFinite)
             || Math.Abs(m.ScaleX * m.ScaleY - m.SkewX * m.SkewY) < 1e-8) return "The live layer has a degenerate transform.";
         if (m.Persp0 != 0 || m.Persp1 != 0 || m.Persp2 != 1) return "Perspective distortion cannot be represented by the native text or shape transform.";
+        if (layer.Text is {} typography && (typography.Type != Typography.Default || typography.Alignment == TextAlignment.Justify))
+            return "Advanced typography is exported with its rendered appearance. CMPS retains the editable settings.";
         if (layer.Text is { IsBox: true } boxed && (boxed.BoxWidth <= TextLayout.Padding * 2 || boxed.BoxHeight <= TextLayout.Padding * 2))
             return "The paragraph frame is too small for a portable Photoshop text box.";
         if (layer.Text is { } text && Segments(text).Count > MaxNativeStyleRuns) return "The text has too many separate style runs for a portable Photoshop text block.";

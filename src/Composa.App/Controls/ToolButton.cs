@@ -33,6 +33,7 @@ public sealed class ToolButton : ToggleButton
     private readonly IReadOnlyList<ToolChoice> group;
     private readonly DispatcherTimer holdTimer;
     private MenuFlyout? flyout;
+    internal PlacementMode GroupPlacement { get; set; } = PlacementMode.RightEdgeAlignedTop;
     /// <summary>
     /// The press that is still down opened the group. The flyout takes the keyboard focus as it opens, which ends the button's
     /// pressed state, but the pointer stays captured by the button until it is let go.
@@ -94,7 +95,7 @@ public sealed class ToolButton : ToggleButton
         if (!HasGroup) return;
         flyout?.Hide();
         ToolTip.SetIsOpen(this, false);
-        flyout = new MenuFlyout { Placement = PlacementMode.RightEdgeAlignedTop, HorizontalOffset = 4 };
+        flyout = new MenuFlyout { Placement = GroupPlacement, HorizontalOffset = GroupPlacement == PlacementMode.RightEdgeAlignedTop ? 4 : GroupPlacement == PlacementMode.LeftEdgeAlignedTop ? -4 : 0 };
         foreach (var choice in group)
         {
             var item = new MenuItem

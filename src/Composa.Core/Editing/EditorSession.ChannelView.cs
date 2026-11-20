@@ -29,7 +29,7 @@ public sealed partial class EditorSession
         var alpha = IsEditingAlphaChannel; var overlay = AlphaChannelOverlay; var visible = VisibleRgbChannels;
         var localView = new RenderView(view.Scale, new(view.Origin.X + area.Left / view.Scale, view.Origin.Y + area.Top / view.Scale));
         using var shown = Pixels.NewWorkingColor(area.Width, area.Height, document.WorkingDepth, document.Profile);
-        if (!alpha || overlay) DocumentRenderer.Render(document, shown, new(0, 0, area.Width, area.Height), localView, CurrentOptions());
+        if (!alpha || overlay) DocumentRenderer.Render(document, shown, new(0, 0, area.Width, area.Height), localView, DisplayOptions());
         if (alpha && overlay && visible != RgbChannels.All) HideChannelComponents(shown, visible);
         using var coverage = alpha ? Pixels.NewMask(area.Width, area.Height) : null;
         if (coverage != null)
