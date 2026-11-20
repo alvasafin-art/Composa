@@ -14,6 +14,40 @@ public sealed record ImageEmbedding(float[] Data, int Width, int Height)
 /// <summary>Encoder/prompt-decoder pipelines with aspect-correct SAM logit reconstruction.</summary>
 public static unsafe class PromptSegmentation
 {
+    // A sparse pattern inside a recognisable subject may belong to its surface. Only
+    // substitute those details when the network misses, or returns a nearly solid rectangle.
+    internal static bool IsBoxSilhouette(SKBitmap mask, SKRectI box)
+    {
+        var bounds = Selections.SelectionMask.Bounds(mask, 128);
+        if (bounds.IsEmpty) return true;
+        var overlap = SKRectI.Intersect(bounds, box);
+        if (overlap.Width < .78 * box.Width || overlap.Height < .78 * box.Height) return false;
+        var data = (byte*)mask.GetPixels();
+        // A sparse pattern on a well-framed product belongs to the product. Prefer
+        // the details only when the coarse silhouette follows the box on several sides.
+        int nearSides = 0;
+        if (bounds.Left <= box.Left + .035 * box.Width) nearSides++;
+        if (bounds.Right >= box.Right - .035 * box.Width) nearSides++;
+        if (bounds.Top <= box.Top + .035 * box.Height) nearSides++;
+        if (bounds.Bottom >= box.Bottom - .035 * box.Height) nearSides++;
+        if (nearSides < 3) return false;
+        int inside = 0;
+        Span<int> corners = stackalloc int[4];
+        corners.Clear();
+        for (int y = 0; y < 32; y++)
+            for (int x = 0; x < 32; x++)
+            {
+                int px = bounds.Left + (2 * x + 1) * bounds.Width / 64;
+                int py = bounds.Top + (2 * y + 1) * bounds.Height / 64;
+                if (data[(long)py * mask.RowBytes + px] < 128) continue;
+                inside++;
+                if ((x is >= 1 and <= 3 or >= 28 and <= 30) && (y is >= 1 and <= 3 or >= 28 and <= 30))
+                    corners[(y > 16 ? 2 : 0) + (x > 16 ? 1 : 0)]++;
+            }
+        int squareCorners = 0;
+        foreach (int count in corners) if (count >= 4) squareCorners++;
+        return inside >= .75 * 32 * 32 && squareCorners >= 2;
+    }
     // Preserve small-object detail that would otherwise disappear when the whole image is
     // resized for the encoder. Keep context beyond all four sides of a drawn box.
     internal static SKRectI SearchArea(SKRectI canvas, SKRectI? box)

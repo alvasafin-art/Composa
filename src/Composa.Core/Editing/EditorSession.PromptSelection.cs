@@ -64,12 +64,15 @@ public sealed partial class EditorSession
                 var image = display ?? guide;
                 var localBox = box;
                 if (localBox is { } rect) { rect.Offset(-area.Left, -area.Top); localBox = SKRectI.Intersect(rect, SKRectI.Create(image.Width, image.Height)); }
+                bool checkShape = false;
                 using var graphics = point == null && box != bounds && localBox is { } marks
-                    ? GraphicSelection.FromBox(image, marks, cancellation) ?? RepeatedDetailSelection.FromBox(image, marks, cancellation) : null;
-                if (graphics != null) return (embedding: previous, mask: (SKBitmap?)PromptSegmentation.Place(graphics, area, bounds));
+                    ? GraphicSelection.FromBox(image, marks, cancellation) ?? RepeatedDetailSelection.FromBox(image, marks, cancellation, out checkShape) : null;
+                if (graphics != null && !checkShape) return (embedding: previous, mask: (SKBitmap?)PromptSegmentation.Place(graphics, area, bounds));
                 var embedding = PromptSegmentation.Encode(image, model, previous, cancellation);
                 using var decoded = PromptSegmentation.Decode(embedding, model, image.Width, image.Height,
                     point is { } pt ? new SKPoint(pt.X - area.Left, pt.Y - area.Top) : null, localBox, cancellation);
+                if (graphics != null && localBox is { } search && PromptSegmentation.IsBoxSilhouette(decoded, search))
+                    return (embedding, mask: PromptSegmentation.Place(graphics, area, bounds));
                 if (area != bounds && PromptSegmentation.TouchesCrop(SelectionMask.Bounds(decoded), area, bounds))
                 {
                     // A loose or partial box may describe an object extending beyond our context.
@@ -84,6 +87,8 @@ public sealed partial class EditorSession
                 }
                 // Keep the whole detected panel as a search region. Asking SAM again at
                 // a higher zoom can change object identity (for example, just its hair).
+                if (preciseEdges && point == null && box != bounds && localBox is { } group)
+                    GroupedObjectSelection.RefineHoles(decoded, group, embedding, model, cancellation);
                 var panel = preciseEdges && localBox is { } gesture ? PromptSegmentation.PromptedPanel(image, decoded, gesture) : null;
                 using var panelImage = panel.HasValue ? Pixels.Subset(image, panel.Value) : null;
                 using var panelMask = panel.HasValue ? Pixels.Subset(decoded, panel.Value) : null;
@@ -104,7 +109,9 @@ public sealed partial class EditorSession
                     using var detail = RepeatedDetailSelection.AtPoint(image, local, cancellation);
                     return (embedding, mask: PromptSegmentation.Place(detail ?? piece, area, bounds));
                 }
-                return (embedding, mask: PromptSegmentation.Place(final, area, bounds));
+                using var printed = preciseEdges && point == null && localBox is { } printBox && box != bounds
+                    ? GraphicSelection.RefinePrintedEdges(guideRgb, final, printBox, cancellation) : null;
+                return (embedding, mask: PromptSegmentation.Place(printed ?? final, area, bounds));
             }
         }, cancellation);
         using var result = found.mask;

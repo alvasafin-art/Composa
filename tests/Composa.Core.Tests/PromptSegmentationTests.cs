@@ -8,6 +8,112 @@ namespace Composa.Core.Tests;
 
 public class PromptSegmentationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Printed_rings_on_a_shaded_plate_keep_their_holes_and_fractional_edges(bool lightPlate)
+    {
+        using var image = Pixels.NewColor(220, 100);
+        var rgb = new PixelBuffer(image);
+        double Alpha(int x, int y)
+        {
+            int center = x < 83 ? 46 : x < 149 ? 116 : 180;
+            double radius = Math.Sqrt(Math.Pow(x - center, 2) + Math.Pow(y - 50, 2));
+            return Math.Clamp(3.5 - Math.Abs(radius - 22), 0, 1);
+        }
+        for (int y = 0; y < image.Height; y++)
+            for (int x = 0; x < image.Width; x++)
+            {
+                float tone = .09f + x * .0018f + y * .0004f;
+                if (lightPlate) tone = 1 - tone;
+                var plate = new PixelValue(tone, tone, tone, 1);
+                var ink = x > 149 ? new PixelValue(.1f, .78f, .30f, 1) : lightPlate ? new(.06f, .06f, .06f, 1) : new(.94f, .94f, .94f, 1);
+                rgb.Write(x, y, plate + (ink - plate) * (float)Alpha(x, y));
+            }
+        using var mask = GraphicSelection.FromBox(image, new(8, 8, 211, 94), default);
+        Assert.NotNull(mask);
+        for (int y = 8; y < 94; y++)
+            for (int x = 8; x < 211; x++)
+                Assert.InRange(Math.Abs(mask.GetPixel(x, y).Alpha - 255 * Alpha(x, y)), 0, 8);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Loose_boxes_recognize_regular_sparse_detail_but_leave_scattered_marks_to_the_model(bool bright, bool irregular)
+    {
+        using var image = Pixels.NewColor(320, 220);
+        image.Erase(bright ? SKColors.DarkSlateGray : SKColors.LightGray);
+        using var canvas = new SKCanvas(image);
+        using var paint = new SKPaint { Color = bright ? SKColors.White : SKColors.Black };
+        int[] centers = irregular ? [40, 103, 176, 259] : [40, 96, 152, 208, 264];
+        foreach (int x in centers) canvas.DrawRoundRect(x - 6, 36, 13, 32, 5, 5, paint);
+        if (!irregular)
+            foreach (int x in centers) canvas.DrawRoundRect(x - 6, 102, 13, 32, 5, 5, paint);
+        canvas.DrawCircle(301, 166, 4, paint);
+        using var mask = RepeatedDetailSelection.FromBox(image, new(17, 10, 311, 183), default);
+        if (irregular) { Assert.Null(mask); return; }
+        Assert.NotNull(mask);
+        Assert.Equal(255, mask.GetPixel(152, 50).Alpha);
+        Assert.Equal(255, mask.GetPixel(96, 122).Alpha);
+        Assert.Equal(0, mask.GetPixel(301, 166).Alpha);
+        Assert.Equal(0, mask.GetPixel(113, 80).Alpha);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Confirmed_hole_requires_the_same_outer_shape(bool differentSubject)
+    {
+        using var joint = SelectionMask.FromRect(100, 90, new(10, 20, 70, 70));
+        using var local = Pixels.NewMask(60, 50);
+        local.Erase(SKColors.White);
+        var bytes = local.GetPixelSpan();
+        for (int y = 10; y < 20; y++)
+            bytes.Slice(y * local.RowBytes + 20, 12).Clear();
+        if (differentSubject)
+            for (int y = 0; y < 50; y++) bytes.Slice(y * local.RowBytes, 10).Clear();
+        GroupedObjectSelection.ApplyAgreedHoles(joint, local, new(10, 20, 70, 70), default);
+        Assert.Equal(differentSubject ? 255 : 0, joint.GetPixel(36, 34).Alpha);
+        Assert.Equal(255, joint.GetPixel(12, 25).Alpha);
+        Assert.Equal(0, joint.GetPixel(8, 18).Alpha);
+    }
+
+    [Fact]
+    public void A_pattern_inside_a_complete_curved_subject_does_not_replace_its_silhouette()
+    {
+        using var shape = Pixels.NewMask(200, 120);
+        using var canvas = new SKCanvas(shape);
+        using var paint = new SKPaint { Color = SKColors.White };
+        canvas.DrawOval(new SKRect(3, 3, 197, 117), paint);
+        Assert.False(PromptSegmentation.IsBoxSilhouette(shape, new(0, 0, 200, 120)));
+    }
+
+    [Fact]
+    public void Printed_edges_use_the_background_next_to_each_stroke()
+    {
+        using var photo = Pixels.NewColor(90, 44);
+        using var coarse = Pixels.NewMask(90, 44);
+        var rgb = new PixelBuffer(photo); var mask = coarse.GetPixelSpan();
+        var ink = new PixelValue(.2f, .9f, .8f, 1);
+        foreach (int y in Enumerable.Range(0, 44))
+            for (int x = 0; x < 90; x++)
+            {
+                float shade = x / 400f + .015f * (y % 3);
+                var bg = new PixelValue(shade, shade, shade, 1);
+                int offset = x % 24;
+                bool stroke = x < 72 && y is >= 8 and < 36 && offset is >= 8 and <= 15;
+                float a = !stroke ? 0 : offset == 8 ? .5f : 1;
+                rgb.Write(x, y, bg + (ink - bg) * a);
+                mask[y * coarse.RowBytes + x] = !stroke ? (byte)0 : offset == 8 ? (byte)192 : (byte)255;
+            }
+        using var refined = GraphicSelection.RefinePrintedEdges(photo, coarse, new(0, 0, 90, 44), default);
+        Assert.NotNull(refined);
+        foreach (int x in new[] { 8, 32, 56 }) Assert.InRange(refined.GetPixel(x, 22).Alpha, (byte)120, (byte)136);
+        Assert.Equal(192, coarse.GetPixel(32, 22).Alpha);
+    }
+
     [Fact]
     public async Task A_box_over_transparent_pixels_preserves_the_previous_selection()
     {

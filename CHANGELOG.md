@@ -4,6 +4,8 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- Box selection follows lettering on shaded and textured backgrounds and preserves holes in separated objects. Loosely framed repeated details are checked against the predicted shape of the whole subject.
+
 ## [1.3.0-preview.4.studio.16] - 2026-11-20
 
 - Shape tools can edit the selected vector's points and segments directly. Drag away from the contour to draw another shape.
