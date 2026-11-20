@@ -139,7 +139,9 @@ internal static class RepeatedDetailSelection
                         bytes[y * mask.RowBytes + x] = (byte)Math.Round(255 * Math.Clamp(a, 0, 1));
                     }
                 }
-                needsShapeCheck = sparse;
+                // Irregular patches in photographs can repeat a dark tone and
+                // size. Verify the silhouette before treating them as markings.
+                needsShapeCheck = sparse || RegularDetails(grouped).Length < .65 * grouped.Length;
                 return mask;
             }
             catch { mask.Dispose(); throw; }

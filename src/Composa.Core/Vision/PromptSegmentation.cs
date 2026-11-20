@@ -206,20 +206,25 @@ public static unsafe class PromptSegmentation
         // A real object at the centre is independent evidence for the contents of a
         // hollow prediction. Background seen through a handle usually extends well
         // beyond the box. Both checks reuse the original image embedding.
+        float cx = (coords[0] + coords[2]) * .5f, cy = (coords[1] + coords[3]) * .5f;
+        var centre = SKRectI.Create(probeGrid.MidX, probeGrid.MidY, 1, 1);
         float[]? InteriorCandidate()
         {
-            float cx = (coords[0] + coords[2]) * .5f, cy = (coords[1] + coords[3]) * .5f;
             var hit = Predict([cx, cy, 0, 0], [1, -1]);
-            var centre = SKRectI.Create(probeGrid.MidX, probeGrid.MidY, 1, 1);
             int part = PromptCandidate(hit[0].Data, hit[1].Data, mw, mh, centre, cancellation);
             if (part < 0 || !BoxMaskCandidates.IsContainedPart(hit[0].Data, part, mw, mh, probeGrid, cancellation)) return null;
+            return GuidedCandidate();
+        }
+        float[]? GuidedCandidate()
+        {
             var guided = Predict([.. coords, cx, cy], [.. labels, 1]);
             int whole = PromptCandidate(guided[0].Data, guided[1].Data, mw, mh, centre, cancellation);
             if (whole < 0 || guided[1].Data[whole] < scores[candidate]) return null;
             return guided[0].Data.AsSpan(whole * mw * mh, mw * mh).ToArray();
         }
         var plane = box != null
-            ? BoxMaskCandidates.Resolve(masks.Data, scores, candidate, mw, mh, probeGrid, cancellation, mobile ? null : InteriorCandidate)
+            ? BoxMaskCandidates.Resolve(masks.Data, scores, candidate, mw, mh, probeGrid, cancellation,
+                mobile ? null : InteriorCandidate, mobile ? null : GuidedCandidate)
             : masks.Data.AsSpan(candidate * mw * mh, mw * mh).ToArray();
         return Reconstruct(plane, mw, mh,
             image.Width, image.Height, width, height, mobile, cancellation);

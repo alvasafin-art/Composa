@@ -9,7 +9,8 @@ internal static class BoxMaskCandidates
     // A box around an assembly can produce separate predictions for its rim and
     // its contents. Use the alternatives only when their geometry supports the gesture.
     internal static float[] Resolve(float[] masks, float[] scores, int best, int width, int height,
-        SKRectI prompt, CancellationToken cancellation, Func<float[]?>? interiorCandidate = null)
+        SKRectI prompt, CancellationToken cancellation, Func<float[]?>? interiorCandidate = null,
+        Func<float[]?>? guidedCandidate = null)
     {
         int size = width * height;
         var result = masks.AsSpan(best * size, size).ToArray();
@@ -19,23 +20,30 @@ internal static class BoxMaskCandidates
         int step = Math.Max(1, Math.Min(box.Width, box.Height) / 64);
         var primary = new Footprint(result, 0, width, box, step, cancellation);
         if (primary.Count == 0) return result;
-        bool IncludeContents(float[] planes, int offset, Footprint alternative)
+        bool DescribesAssembly(float[] planes, int offset, Footprint alternative, bool useJointBounds)
         {
             var rim = primary.Count < alternative.Count ? primary : alternative;
             var contents = rim == primary ? alternative : primary;
-            if (rim.Count >= .45 * rim.Samples || contents.Count <= .48 * rim.Samples) return false;
+            // A loose drag includes table/background around the subject. Once a
+            // separate point probe confirms its interior, measure occupancy in
+            // the hypotheses' joint bounds instead of the pointer rectangle.
+            int samples = useJointBounds ? rim.JointBoundingArea(contents) : rim.Samples;
+            if (rim.Count >= .45 * samples || contents.Count <= .48 * samples) return false;
             int shared = rim.Shared(contents), added = contents.Count - shared;
             if (alternative.Count - shared < .035 * primary.Count || added <= .55 * rim.Count || shared <= .15 * rim.Count ||
                 rim.EnclosedAdditions(contents) <= .86 * added) return false;
             if (OutsideFraction(planes, offset, width, height, box, step, alternative.Count, cancellation) >= .025 ||
                 OutsideFraction(result, 0, width, height, box, step, primary.Count, cancellation) >= .025) return false;
+            return true;
+        }
+        void Merge(float[] planes, int offset)
+        {
             for (int y = 0; y < height; y++)
             {
                 cancellation.ThrowIfCancellationRequested();
                 for (int j = y * width; j < (y + 1) * width; j++)
                     result[j] = Math.Max(result[j], planes[offset + j]);
             }
-            return true;
         }
         int inside = primary.Count;
         int? tighter = null;
@@ -45,7 +53,7 @@ internal static class BoxMaskCandidates
             if (i == best || scores[i] < scores[best] - .15f) continue;
             int offset = i * size;
             var alternative = new Footprint(masks, offset, width, box, step, cancellation);
-            if (IncludeContents(masks, offset, alternative)) return result;
+            if (DescribesAssembly(masks, offset, alternative, false)) { Merge(masks, offset); return result; }
             int shared = primary.Shared(alternative), area = alternative.Count;
             // Two touching subjects can also be returned as one. A substantially
             // smaller nested alternative must fit the gesture appreciably better.
@@ -61,9 +69,30 @@ internal static class BoxMaskCandidates
             }
         }
         if (tighter.HasValue) return masks.AsSpan(tighter.Value * size, size).ToArray();
+        // A box with generous margins can favour the empty rim by a wide score
+        // margin. Confirm the proposed contents with a second box-and-point prompt.
+        if (guidedCandidate != null && inside < .30 * primary.Samples && result[box.MidY * width + box.MidX] <= 0)
+        {
+            foreach (int i in Enumerable.Range(0, scores.Length).OrderByDescending(i => scores[i]))
+            {
+                if (i == best) continue;
+                int offset = i * size;
+                var alternative = new Footprint(masks, offset, width, box, step, cancellation);
+                if (alternative.Count < 2 * inside || !DescribesAssembly(masks, offset, alternative, true)) continue;
+                if (guidedCandidate() is not { } guided) break;
+                var confirmation = new Footprint(guided, 0, width, box, step, cancellation);
+                int overlap = confirmation.Shared(alternative);
+                if (overlap >= .75 * (confirmation.Count + alternative.Count - overlap))
+                {
+                    Merge(masks, offset);
+                    return result;
+                }
+            }
+        }
         if (inside < .45 * primary.Samples && primary.SurroundsCentre &&
-            result[box.MidY * width + box.MidX] <= 0 && interiorCandidate?.Invoke() is { } whole)
-            IncludeContents(whole, 0, new Footprint(whole, 0, width, box, step, cancellation));
+            result[box.MidY * width + box.MidX] <= 0 && interiorCandidate?.Invoke() is { } whole &&
+            DescribesAssembly(whole, 0, new Footprint(whole, 0, width, box, step, cancellation), false))
+            Merge(whole, 0);
         if (inside > .5 * primary.Samples && result[box.MidY * width + box.MidX] > 0)
             RemoveDisputedNeighbor(result, masks, scores, best, width, height, box, cancellation);
         return result;
@@ -80,6 +109,13 @@ internal static class BoxMaskCandidates
         internal int Samples => occupied.Length;
         internal bool SurroundsCentre => left[rows / 2] < cols / 2 && cols / 2 < right[rows / 2] &&
             top[cols / 2] < rows / 2 && rows / 2 < bottom[cols / 2];
+
+        internal int JointBoundingArea(Footprint other)
+        {
+            int w = Math.Max(right.Max(), other.right.Max()) - Math.Min(left.Min(), other.left.Min()) + 1;
+            int h = Math.Max(bottom.Max(), other.bottom.Max()) - Math.Min(top.Min(), other.top.Min()) + 1;
+            return w * h;
+        }
 
         internal Footprint(float[] plane, int offset, int width, SKRectI box, int step, CancellationToken cancellation)
         {

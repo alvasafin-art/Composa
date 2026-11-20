@@ -8,6 +8,47 @@ namespace Composa.Core.Tests;
 
 public class PromptSegmentationTests
 {
+    [Fact]
+    public void Scattered_dark_patches_need_a_semantic_check_before_replacing_the_box_selection()
+    {
+        using var image = Pixels.NewColor(120, 80);
+        image.Erase(SKColors.LightGray);
+        using (var canvas = new SKCanvas(image))
+        using (var paint = new SKPaint { Color = SKColors.Black })
+            foreach (var point in new SKPointI[] { new(5, 4), new(83, 10), new(35, 46), new(98, 58) })
+                canvas.DrawRect(point.X, point.Y, 18, 16, paint);
+        using var details = RepeatedDetailSelection.FromBox(image, SKRectI.Create(120, 80), default, out bool checkShape);
+        Assert.NotNull(details);
+        Assert.True(checkShape);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Loose_box_requires_an_independent_agreeing_prediction_to_select_low_scoring_contents(bool agrees)
+    {
+        const int width = 80, height = 60, size = width * height;
+        var masks = Enumerable.Repeat(-1f, 2 * size).ToArray();
+        var rim = new SKRectI(12, 13, 68, 48);
+        var cavity = new SKRectI(15, 13, 65, 44);
+        for (int y = rim.Top; y < rim.Bottom; y++)
+            for (int x = rim.Left; x < rim.Right; x++)
+            {
+                int j = y * width + x;
+                masks[size + j] = 1;
+                if (!cavity.Contains(x, y)) masks[j] = 1;
+            }
+        var confirmation = masks.AsSpan(agrees ? size : 0, size).ToArray();
+        foreach (var box in new[] { new SKRectI(2, 3, 78, 58), new SKRectI(0, 1, 76, 55) })
+        {
+            var result = BoxMaskCandidates.Resolve(masks, [.80f, .53f], 0, width, height, box, default,
+                guidedCandidate: () => confirmation);
+            Assert.Equal(agrees, result[30 * width + 40] > 0);
+            Assert.True(result[46 * width + 40] > 0);
+            Assert.True(result[52 * width + 40] < 0);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
