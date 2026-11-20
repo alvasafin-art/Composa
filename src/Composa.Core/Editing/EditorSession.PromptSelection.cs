@@ -79,6 +79,9 @@ public sealed partial class EditorSession
                     area = bounds;
                     continue;
                 }
+                using var joined = point == null && localBox is { } textBox && box != bounds
+                    ? CaptionSelection.Recover(image, decoded, textBox, cancellation, joinedOnly: true) : null;
+                if (joined != null) return (embedding, mask: PromptSegmentation.Place(joined, area, bounds));
                 using var piece = point is { } seed ? ObjectSelection.FromMatte(decoded, seed.X - area.Left, seed.Y - area.Top, 0) : null;
                 if (point is { } missed && piece == null)
                 {
@@ -111,7 +114,9 @@ public sealed partial class EditorSession
                 }
                 using var printed = preciseEdges && point == null && localBox is { } printBox && box != bounds
                     ? GraphicSelection.RefinePrintedEdges(guideRgb, final, printBox, cancellation) : null;
-                return (embedding, mask: PromptSegmentation.Place(printed ?? final, area, bounds));
+                using var caption = point == null && localBox is { } captionBox && box != bounds
+                    ? CaptionSelection.Recover(guideRgb, printed ?? final, captionBox, cancellation) : null;
+                return (embedding, mask: PromptSegmentation.Place(caption ?? printed ?? final, area, bounds));
             }
         }, cancellation);
         using var result = found.mask;
