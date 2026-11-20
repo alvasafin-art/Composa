@@ -44,7 +44,7 @@ internal sealed class HueBandEditor : Control
         var edges = Edges;
         for (var i = 0; i < edges.Length; i++)
         {
-            var x = X(edges[i]); var brush = i == selected && IsFocused ? Palette.Accent : Brushes.White;
+            var x = X(edges[i]); IBrush brush = i == selected && IsFocused ? Palette.Accent : Brushes.White;
             context.DrawLine(new Pen(Brushes.Black, 3), new(x, 10), new(x, 35));
             context.DrawLine(new Pen(brush, 1.5), new(x, 10), new(x, 35));
             context.DrawRectangle(brush, new Pen(Brushes.Black), new Rect(x - 4, i is 0 or 3 ? 3 : 34, 8, 8));

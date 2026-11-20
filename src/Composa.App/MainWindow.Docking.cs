@@ -72,7 +72,7 @@ public sealed partial class MainWindow
         var target = new Border
         {
             Name = "DockDropTarget", BorderBrush = Palette.Accent, BorderThickness = new Thickness(2),
-            Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(52, 61, 155, 255)),
+            Background = Palette.DropFill,
             CornerRadius = new CornerRadius(4)
         };
         var ghost = new Border

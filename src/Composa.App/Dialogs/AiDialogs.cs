@@ -542,6 +542,17 @@ public static partial class AiDialogs
             section.Background = Palette.Panel;
             section.Padding = new Thickness(10, 6);
         }
+        var app = Application.Current as App;
+        var previousTheme = app?.CurrentTheme ?? settings.Theme;
+        var chosenTheme = settings.Theme;
+        var themePicker = Ui.Combo(Enum.GetValues<EditorTheme>(), chosenTheme, theme => theme switch
+        {
+            EditorTheme.DarkNeutral => "Dark neutral",
+            EditorTheme.LightNeutral => "Light neutral",
+            _ => "Classic blue"
+        }, theme => { chosenTheme = theme; app?.ApplyTheme(theme); }, 190);
+        themePicker.Name = "EditorThemePicker";
+        Avalonia.Automation.AutomationProperties.SetName(themePicker, "Interface theme");
         var groupedPanels = new CheckBox { Content = "Group side panels in tabs", IsChecked = settings.TabbedPanels };
         var linkedSources = new CheckBox { Content = "Automatically refresh linked files", IsChecked = settings.AutoUpdateLinkedSources };
         var updates = new CheckBox { Content = "Check for updates on startup", IsChecked = settings.CheckForUpdates };
@@ -554,7 +565,7 @@ public static partial class AiDialogs
                 Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
                     serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
-                Nav("Editor", Page("Editor", groupedPanels, linkedSources, updates))
+                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label("Interface theme", Palette.Secondary), themePicker), groupedPanels, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -624,6 +635,7 @@ public static partial class AiDialogs
             ("Reasoning effort", "reasoning рассуждение", 2, effort, null, null),
             ("Response options", "token limit токены", 2, tokens, budget, null),
             ("System instructions", "системный промт", 2, instructions, advancedPrompt, null),
+            ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
             ("Group side panels in tabs", "панели вкладки", 3, groupedPanels, null, null),
             ("Automatically refresh linked files", "обновление связь", 3, linkedSources, null, null),
             ("Check for updates", "обновления", 3, updates, null, null)
@@ -736,7 +748,11 @@ public static partial class AiDialogs
             }
         };
         RefreshStatus();
-        if (!await settingsDialog.Ask(owner)) return false;
+        bool accepted = false;
+        try { accepted = await settingsDialog.Ask(owner); }
+        finally { if (!accepted && chosenTheme != previousTheme) app?.ApplyTheme(previousTheme); }
+        if (!accepted) return false;
+        settings.Theme = chosenTheme;
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
         service.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;

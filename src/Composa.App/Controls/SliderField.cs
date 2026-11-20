@@ -26,7 +26,7 @@ public sealed class SliderField : Control
     /// <summary>For positive ranges spanning several orders of magnitude, such as zoom. Typing and key steps stay in the displayed units.</summary>
     public bool Logarithmic { get; init; }
 
-    private static readonly IBrush FillBrush = new SolidColorBrush(Color.Parse("#394F69"));
+    private static readonly IBrush FillBrush = Palette.SliderFill;
     private static readonly IPen FocusPen = new Pen(Palette.Accent);
     private static readonly IPen HoverPen = new Pen(new SolidColorBrush(Color.Parse("#6A6A6A")));
     private static readonly IBrush TextShadowBrush = new SolidColorBrush(Color.Parse("#B0000000"));

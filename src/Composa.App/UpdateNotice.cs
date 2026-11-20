@@ -12,13 +12,13 @@ namespace Composa.App;
 /// </summary>
 public sealed class UpdateNotice : Border
 {
-    private readonly TextBlock message = Ui.Label("", Brushes.White);
+    private readonly TextBlock message = Ui.Label("", Palette.OnActive);
     private readonly Button install;
 
     public UpdateNotice()
     {
         IsVisible = false;
-        Background = Palette.Accent;
+        Background = Palette.Active;
         Padding = new Thickness(12, 6);
 
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto") };
@@ -31,7 +31,7 @@ public sealed class UpdateNotice : Border
         Add(row, Ui.TextButton("Skip this version", () => { Skip?.Invoke(); Hide(); }), 3);
         // Built here rather than through Ui.IconButton, which leaves the icon its default muted
         // foreground: readable on a dark panel, nearly invisible on this one.
-        var dismiss = new Button { Content = Icons.Create(Icons.Close, 11, Brushes.White), Classes = { "flat" } };
+        var dismiss = new Button { Content = Icons.Create(Icons.Close, 11, Palette.OnActive), Classes = { "flat" } };
         ToolTip.SetTip(dismiss, "Dismiss");
         dismiss.Click += (_, _) => Hide();
         Add(row, dismiss, 4);

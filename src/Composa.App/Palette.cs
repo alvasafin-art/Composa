@@ -9,18 +9,50 @@ namespace Composa.App;
 
 public static class Palette
 {
-    public static readonly IBrush Window = new SolidColorBrush(Color.Parse("#222326"));
-    public static readonly IBrush Panel = new SolidColorBrush(Color.Parse("#292B2F"));
-    public static readonly IBrush PanelRaised = new SolidColorBrush(Color.Parse("#35383D"));
-    public static readonly IBrush Divider = new SolidColorBrush(Color.Parse("#1A1A1A"));
-    public static readonly IBrush Foreground = new SolidColorBrush(Color.Parse("#EEF0F2"));
-    public static readonly IBrush Secondary = new SolidColorBrush(Color.Parse("#AFB3B9"));
-    public static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#3D9BFF"));
-    public static readonly IBrush Selected = new SolidColorBrush(Color.Parse("#384B63"));
-    public static readonly IBrush Hover = new SolidColorBrush(Color.Parse("#464A50"));
+    // Controls, icons and custom drawing pens keep these brushes for their lifetime.
+    // Updating their colors also updates open dialogs and already-created panel content.
+    private static readonly List<(SolidColorBrush Brush, Color Classic, Color Dark, Color Light)> colors = new();
+    private static SolidColorBrush Brush(string classic, string light, string? dark = null)
+    {
+        var original = Color.Parse(classic);
+        var brush = new SolidColorBrush(original);
+        colors.Add((brush, original, dark == null ? original : Color.Parse(dark), Color.Parse(light)));
+        return brush;
+    }
 
-    public static readonly IBrush Field = new SolidColorBrush(Color.Parse("#373A3E"));
-    public static readonly IBrush Edge = new SolidColorBrush(Color.Parse("#585D64"));
+    public static readonly SolidColorBrush Window = Brush("#222326", "#E9E9E9");
+    public static readonly SolidColorBrush Panel = Brush("#292B2F", "#F4F4F4");
+    public static readonly SolidColorBrush PanelRaised = Brush("#35383D", "#FAFAFA");
+    public static readonly SolidColorBrush Divider = Brush("#1A1A1A", "#C9C9C9");
+    public static readonly SolidColorBrush Foreground = Brush("#EEF0F2", "#242424");
+    public static readonly SolidColorBrush Secondary = Brush("#AFB3B9", "#575757");
+    public static readonly SolidColorBrush Accent = Brush("#3D9BFF", "#535353", "#B8B8B8");
+    public static readonly SolidColorBrush Selected = Brush("#384B63", "#CCCCCC", "#18191B");
+    public static readonly SolidColorBrush Hover = Brush("#464A50", "#D9D9D9");
+    public static readonly SolidColorBrush Field = Brush("#373A3E", "#E6E6E6");
+    public static readonly SolidColorBrush Edge = Brush("#585D64", "#A4A4A4");
+    internal static readonly SolidColorBrush Active = Brush("#3D9BFF", "#BEBEBE", "#121315");
+    internal static readonly SolidColorBrush ActiveHover = Brush("#65B1FF", "#B1B1B1", "#1C1D1F");
+    internal static readonly SolidColorBrush ActivePressed = Brush("#308BE7", "#A6A6A6", "#0B0C0D");
+    internal static readonly SolidColorBrush OnActive = Brush("#FFFFFF", "#202020", "#F1F1F1");
+    internal static readonly SolidColorBrush ActionText = Brush("#222326", "#202020", "#F1F1F1");
+    internal static readonly SolidColorBrush DropFill = Brush("#343D9BFF", "#34555555", "#34B8B8B8");
+    internal static readonly SolidColorBrush SliderFill = Brush("#394F69", "#CCCCCC", "#1B1C1E");
+    internal static readonly SolidColorBrush Pasteboard = Brush("#1E1E1E", "#D3D3D3");
+    internal static readonly SolidColorBrush SwatchOutline = Brush("#FFFFFF", "#777777");
+    internal static readonly SolidColorBrush DialFace = Brush("#1F1F1F", "#E5E5E5");
+    internal static readonly SolidColorBrush DialRim = Brush("#454545", "#AAAAAA");
+    internal static readonly SolidColorBrush DialTick = Brush("#3A3A3A", "#BCBCBC");
+    internal static readonly SolidColorBrush ActiveTab = Brush("#35383D", "#CCCCCC", "#18191B");
+    internal static readonly SolidColorBrush StopSelection = Brush("#334356", "#CCCCCC", "#18191B");
+    private static readonly SolidColorBrush Action = Brush("#30649B", "#BEBEBE", "#121315");
+    private static readonly SolidColorBrush ActionHover = Brush("#386FA8", "#B1B1B1", "#1C1D1F");
+
+    internal static void Use(EditorTheme theme)
+    {
+        foreach (var color in colors)
+            color.Brush.Color = theme switch { EditorTheme.DarkNeutral => color.Dark, EditorTheme.LightNeutral => color.Light, _ => color.Classic };
+    }
 
     // Use the Fluent controls' own state resources so validation, keyboard navigation
     // and disabled states still run through the standard templates.
@@ -40,8 +72,8 @@ public static class Palette
             "ToggleButtonBorderBrush", "ExpanderHeaderBorderBrush", "ExpanderContentBorderBrush");
         Set(Edge, "TextControlBorderBrushPointerOver", "ComboBoxBorderBrushPointerOver", "ButtonBorderBrushPointerOver",
             "FlyoutBorderThemeBrush", "ComboBoxDropDownBorderBrush", "MenuFlyoutPresenterBorderBrush");
-        Set(new SolidColorBrush(Color.Parse("#30649B")), "AccentButtonBackground");
-        Set(new SolidColorBrush(Color.Parse("#386FA8")), "AccentButtonBackgroundPointerOver");
+        Set(Action, "AccentButtonBackground");
+        Set(ActionHover, "AccentButtonBackgroundPointerOver");
         Set(Accent, "TextControlBorderBrushFocused", "ComboBoxBackgroundBorderBrushFocused");
         Set(Secondary, "TextControlPlaceholderForeground", "ComboBoxPlaceHolderForeground");
         Set(PanelRaised, "ComboBoxDropDownBackground", "MenuFlyoutPresenterBackground", "FlyoutPresenterBackground");

@@ -633,7 +633,7 @@ public sealed partial class MainWindow
         close.Width = close.Height = 26; close.MinWidth = close.MinHeight = 0; close.Padding = new Thickness(4);
         close.HorizontalAlignment = HorizontalAlignment.Right; close.VerticalAlignment = VerticalAlignment.Top;
         close.Margin = new Thickness(4); close.CornerRadius = new CornerRadius(5);
-        close.Background = Palette.Panel; close.Foreground = Brushes.White;
+        close.Background = Palette.Panel; close.Foreground = Palette.Foreground;
         dialog.Content = new Grid { Children = { new Image { Source = preview, Stretch = Stretch.Uniform }, close } };
         dialog.KeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; dialog.Close(); } };
         await dialog.ShowDialog(target);

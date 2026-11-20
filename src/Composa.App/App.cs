@@ -7,14 +7,44 @@ namespace Composa.App;
 
 public sealed class App : Application
 {
+    private FluentTheme fluent = null!;
+    internal EditorTheme CurrentTheme { get; private set; }
+
+    internal void ApplyTheme(EditorTheme selection)
+    {
+        if (selection == CurrentTheme) return;
+        CurrentTheme = selection;
+        Palette.Use(selection);
+        var variant = selection == EditorTheme.LightNeutral ? ThemeVariant.Light : ThemeVariant.Dark;
+        fluent.Palettes[variant].Accent = Palette.Accent.Color;
+        // Use a neutral fill for selected controls while keeping focus rings and links legible.
+        void State(string key, object value)
+        {
+            if (selection == EditorTheme.Classic) Resources.Remove(key);
+            else Resources[key] = value;
+        }
+        foreach (var (state, fill) in new[] { ("", Palette.Active), ("PointerOver", Palette.ActiveHover), ("Pressed", Palette.ActivePressed) })
+        {
+            State("ToggleButtonBackgroundChecked" + state, fill);
+            State("ToggleButtonForegroundChecked" + state, Palette.OnActive);
+            State("ToggleButtonBorderBrushChecked" + state, Palette.Edge);
+            State("CheckBoxCheckBackgroundFillChecked" + state, fill);
+            State("CheckBoxCheckBackgroundStrokeChecked" + state, Palette.Edge);
+            State("CheckBoxCheckGlyphForegroundChecked" + state, Palette.OnActive);
+            State("AccentButtonForeground" + state, Palette.OnActive);
+        }
+        RequestedThemeVariant = variant;
+    }
+
     public override void Initialize()
     {
+        Palette.Use(EditorTheme.Classic);
         RequestedThemeVariant = ThemeVariant.Dark;
         // Native controls otherwise inherit Windows' accent, which can turn the blue interface purple.
-        var theme = new FluentTheme { DensityStyle = DensityStyle.Compact };
-        theme.Palettes[ThemeVariant.Dark] = new ColorPaletteResources { Accent = Avalonia.Media.Color.Parse("#3D9BFF") };
-        theme.Palettes[ThemeVariant.Light] = new ColorPaletteResources { Accent = Avalonia.Media.Color.Parse("#3D9BFF") };
-        Styles.Add(theme);
+        fluent = new FluentTheme { DensityStyle = DensityStyle.Compact };
+        fluent.Palettes[ThemeVariant.Dark] = new ColorPaletteResources { Accent = Avalonia.Media.Color.Parse("#3D9BFF") };
+        fluent.Palettes[ThemeVariant.Light] = new ColorPaletteResources { Accent = Avalonia.Media.Color.Parse("#3D9BFF") };
+        Styles.Add(fluent);
         Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://composa/")) { Source = new Uri("avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml") });
         Styles.Add(Palette.Styles());
     }

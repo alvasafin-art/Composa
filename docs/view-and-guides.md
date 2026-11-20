@@ -34,3 +34,7 @@ View > Show Transform Controls (Ctrl+H) shows or hides the frame with handles th
 Drag a panel title to either side of the workspace. The preview follows the pointer. Drop along a column’s side to place panels side by side, or inside it to stack panels vertically. Drag the separator between columns to adjust their widths. The first visible panel in a column starts directly at the top. Drag the tool rail by its top edge to dock it on the left, right or bottom. The bottom position uses a horizontal palette above the canvas edge. Window > Workspaces saves panel locations, order and toolbar position. Properties is enabled by default and can be toggled in Window.
 
 Zoom and document details are pinned beneath the right-hand panels. When all panels move to the left, those details follow them.
+
+## Interface theme
+
+Open **Edit > Preferences > Editor > Interface theme** to choose **Classic blue**, **Dark neutral**, or **Light neutral**. The workspace previews the selection immediately. **Save settings** keeps it for the next launch. **Cancel** restores the previous theme.

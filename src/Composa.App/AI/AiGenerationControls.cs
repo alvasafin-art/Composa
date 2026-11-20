@@ -74,11 +74,11 @@ internal static class AiGenerationControls
     internal static StackPanel RunGroup(Button run, StackPanel variants)
     {
         run.Name = "AiRun";
-        run.Resources["AccentButtonBackground"] = Palette.Accent;
-        run.Resources["AccentButtonBackgroundPointerOver"] = new SolidColorBrush(Color.Parse("#65B1FF"));
-        run.Resources["AccentButtonBackgroundPressed"] = new SolidColorBrush(Color.Parse("#308BE7"));
+        run.Resources["AccentButtonBackground"] = Palette.Active;
+        run.Resources["AccentButtonBackgroundPointerOver"] = Palette.ActiveHover;
+        run.Resources["AccentButtonBackgroundPressed"] = Palette.ActivePressed;
         foreach (var state in new[] { "", "PointerOver", "Pressed" })
-            run.Resources["AccentButtonForeground" + state] = Palette.Window;
+            run.Resources["AccentButtonForeground" + state] = Palette.ActionText;
         run.BorderThickness = new Thickness(0);
         run.CornerRadius = new CornerRadius(4);
         run.Content = Ui.Row(5, new PathIcon { Data = Geometry.Parse(Icons.Run.Fill!), Width = 8, Height = 9 },

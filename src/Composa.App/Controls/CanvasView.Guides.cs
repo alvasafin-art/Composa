@@ -201,13 +201,18 @@ public sealed partial class CanvasView
         var endY = ToDocument(new Point(0, height)).Y;
         var originX = origin.X;
         var originY = origin.Y;
+        bool light = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Light;
+        var surface = light ? Palette.Panel.Color.ToSkia() : new SKColor(0x30, 0x30, 0x30);
+        var marks = light ? Palette.Secondary.Color.ToSkia() : new SKColor(0xA0, 0xA0, 0xA0);
+        var border = light ? Palette.Divider.Color.ToSkia() : new SKColor(0x14, 0x14, 0x14);
+        var text = light ? Palette.Foreground.Color.ToSkia() : new SKColor(0xC8, 0xC8, 0xC8);
         return canvas =>
         {
-            using var background = new SKPaint { Color = new SKColor(0x30, 0x30, 0x30) };
-            using var tick = new SKPaint { Color = new SKColor(0xA0, 0xA0, 0xA0), StrokeWidth = hair };
-            using var edge = new SKPaint { Color = new SKColor(0x14, 0x14, 0x14), StrokeWidth = hair };
+            using var background = new SKPaint { Color = surface };
+            using var tick = new SKPaint { Color = marks, StrokeWidth = hair };
+            using var edge = new SKPaint { Color = border, StrokeWidth = hair };
             using var font = new SKFont(SKTypeface.Default, 9) { Edging = SKFontEdging.SubpixelAntialias };
-            using var label = new SKPaint { Color = new SKColor(0xC8, 0xC8, 0xC8), IsAntialias = true };
+            using var label = new SKPaint { Color = text, IsAntialias = true };
             canvas.DrawRect(0, 0, width, thickness, background);
             canvas.DrawRect(0, 0, thickness, height, background);
             canvas.DrawLine(0, thickness - hair / 2, width, thickness - hair / 2, edge);

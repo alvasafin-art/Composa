@@ -350,7 +350,7 @@ public sealed partial class MainWindow
         }
         Border Swatch(string label, Func<ShapeStyle, uint> get, Func<ShapeStyle, uint, ShapeStyle> set)
         {
-            var swatch = new Border { Width = 28, CornerRadius = new CornerRadius(3), BorderBrush = Brushes.White, BorderThickness = new Thickness(1), Cursor = new Cursor(StandardCursorType.Hand) };
+            var swatch = new Border { Width = 28, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Cursor(StandardCursorType.Hand) };
             ToolTip.SetTip(swatch, label + " color");
             swatch.PointerPressed += async (_, e) =>
             {
@@ -500,7 +500,7 @@ public sealed partial class MainWindow
                 ChangeFace(face => face with { Bold = selected.Bold, Italic = selected.Italic, FontStyle = selected.FontStyle });
             }
         };
-        var swatch = new Border { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), BorderBrush = Avalonia.Media.Brushes.White, BorderThickness = new Avalonia.Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
+        var swatch = new Border { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Avalonia.Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
         ToolTip.SetTip(swatch, "Text color");
         swatch.PointerPressed += async (_, _) =>
         {

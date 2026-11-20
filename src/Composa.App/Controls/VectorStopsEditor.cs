@@ -118,7 +118,7 @@ internal sealed class VectorStopsEditor : StackPanel
                 position.Show((stop.Position * 100).ToString("0.#")); hex.Show($"{(uint)stop.Color & 0xffffff:X6}");
                 opacity.Show(Math.Round(stop.Color.Alpha * 100d / 255).ToString("0"));
                 chip.Background = new SolidColorBrush(stop.Color.ToDisplay(profile, display));
-                row.Background = stop == selected ? new SolidColorBrush(Color.FromRgb(51, 67, 86)) : Palette.PanelRaised;
+                row.Background = stop == selected ? Palette.StopSelection : Palette.PanelRaised;
             }
             syncRows.Add(Sync); Sync();
         }

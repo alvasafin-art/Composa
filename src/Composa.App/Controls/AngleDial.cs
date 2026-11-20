@@ -26,14 +26,14 @@ public sealed class AngleDial : Control
     public const double DefaultSize = 40;
     public const double SnapDegrees = 15;
 
-    private static readonly IBrush FaceBrush = new SolidColorBrush(Color.Parse("#1F1F1F"));
-    private static readonly IPen RimPen = new Pen(new SolidColorBrush(Color.Parse("#454545")));
+    private static readonly IBrush FaceBrush = Palette.DialFace;
+    private static readonly IPen RimPen = new Pen(Palette.DialRim);
     private static readonly IPen RimHoverPen = new Pen(new SolidColorBrush(Color.Parse("#6A6A6A")));
     private static readonly IPen RimFocusPen = new Pen(Palette.Accent);
     private static readonly IPen HandPen = new Pen(Palette.Foreground, 2, lineCap: PenLineCap.Round);
     private static readonly IBrush LightBrush = new SolidColorBrush(Color.Parse("#FFD060"));
     private static readonly IPen ShadowPen = new Pen(new SolidColorBrush(Color.Parse("#6A6A6A")), 3, lineCap: PenLineCap.Round);
-    private static readonly IPen TickPen = new Pen(new SolidColorBrush(Color.Parse("#3A3A3A")));
+    private static readonly IPen TickPen = new Pen(Palette.DialTick);
 
     private readonly double min, max;
     private readonly AngleDialStyle style;

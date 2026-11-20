@@ -15,7 +15,7 @@ internal sealed class PaintValueField : TextBox
     {
         Name = name; Width = width; MinWidth = 0; MinHeight = 22; Height = 24; FontSize = 12;
         Padding = new Thickness(3, 0); VerticalContentAlignment = VerticalAlignment.Center;
-        Foreground = Brushes.White; Background = Brushes.Transparent; BorderThickness = new Thickness(0);
+        Foreground = Palette.Foreground; Background = Brushes.Transparent; BorderThickness = new Thickness(0);
         Avalonia.Automation.AutomationProperties.SetName(this, name);
         void Commit()
         {

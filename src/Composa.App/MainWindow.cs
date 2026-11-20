@@ -49,8 +49,8 @@ public sealed partial class MainWindow : Window
     private readonly JavaScriptRuntime scriptRuntime = new();
     private Mcp.McpHost? aiControl;
     private Mcp.McpHost? imageExchange;
-    private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
-    private readonly Border backgroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
+    private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
+    private readonly Border backgroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
     private readonly Panel welcome;
     private readonly UpdateNotice updateNotice = new();
     private Action? refreshOptions;
@@ -66,6 +66,7 @@ public sealed partial class MainWindow : Window
 
     internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory)
     {
+        (Application.Current as App)?.ApplyTheme(settings.Theme);
         selectionTool = settings.ToolPalette?.SelectionTool;
         stampUsesPatch = settings.ToolPalette?.Patch ?? false;
         stampGroupTool = SavedStampTool(settings.ToolPalette);
@@ -438,7 +439,7 @@ public sealed partial class MainWindow : Window
             var tab = new Border
             {
                 Child = Ui.Row(8, label, close), Padding = new Thickness(12, 4, 6, 4), CornerRadius = new CornerRadius(6),
-                Background = item == session ? Palette.PanelRaised : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand)
+                Background = item == session ? Palette.ActiveTab : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand)
             };
             if (item != session)
             {

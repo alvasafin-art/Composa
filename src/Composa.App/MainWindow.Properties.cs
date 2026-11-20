@@ -223,8 +223,8 @@ public sealed partial class MainWindow
                 void Draw()
                 {
                     bool on = toggle.IsChecked == true;
-                    track.Background = on ? Palette.Accent : Palette.Edge;
-                    thumb.Background = on ? Avalonia.Media.Brushes.White : Palette.Secondary;
+                    track.Background = on ? Palette.Active : Palette.Edge;
+                    thumb.Background = on ? Palette.OnActive : Palette.Secondary;
                     thumb.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;
                     row.Opacity = toggle.IsEnabled ? 1 : .48;
                 }

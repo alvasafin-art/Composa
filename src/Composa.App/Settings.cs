@@ -2,6 +2,8 @@ using System.Text.Json;
 
 namespace Composa.App;
 
+public enum EditorTheme { Classic, DarkNeutral, LightNeutral }
+
 public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, MobileSam = 5, EfficientSamTi = 6, EfficientSamS = 7 }
 
 /// <summary>Preferences remembered between launches, stored in the platform's config directory (<see cref="AppPaths.Config"/>).</summary>
@@ -13,6 +15,7 @@ public sealed class Settings
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }
+    public EditorTheme Theme { get; set; } = EditorTheme.Classic;
     public bool CanvasOnly { get; set; }
     public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
     public int JpegQuality { get; set; } = 90;
@@ -236,6 +239,7 @@ public sealed class Settings
     internal static Settings FromJson(string json)
     {
         var value = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+        if (!Enum.IsDefined(value.Theme)) value.Theme = EditorTheme.Classic;
         // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
         foreach (var choices in value.ComfyModelSelections.Values)
         foreach (var (node, type, input, oldDefault, newDefault) in new[]

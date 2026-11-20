@@ -60,6 +60,7 @@ public sealed partial class CanvasView : Decorator
 
     public CanvasView()
     {
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
         Child = new BrushCursorOverlay(this) { IsHitTestVisible = false };
         Focusable = true;
         ClipToBounds = true;
@@ -320,16 +321,16 @@ public sealed partial class CanvasView : Decorator
     }
 
     private static readonly Lazy<SKBitmap> CheckerTile = new(CreateCheckerTile);
-    private static readonly SKColor Backdrop = new(0x1E, 0x1E, 0x1E);
 
     public override void Render(DrawingContext context)
     {
+        var backdrop = Palette.Pasteboard.Color.ToSkia();
         antsRedrawPending = false;
         if (fitPending && FitCore()) Dispatcher.UIThread.Post(() => ViewChanged?.Invoke());
         var size = Bounds.Size;
         if (session == null)
         {
-            context.Custom(new DrawOperation(new Rect(size), canvas => canvas.Clear(Backdrop)));
+            context.Custom(new DrawOperation(new Rect(size), canvas => canvas.Clear(backdrop)));
             return;
         }
         if (outlineStale || !ReferenceEquals(outlinedSelection, session.Selection))
@@ -356,7 +357,7 @@ public sealed partial class CanvasView : Decorator
 
         context.Custom(new DrawOperation(new Rect(size), canvas =>
         {
-            canvas.Clear(Backdrop);
+            canvas.Clear(backdrop);
             var screenRect = view.MapRect(documentRect);
             // The opaque checkerboard covers every shadow pixel while all page edges are offscreen.
             if (!screenRect.Contains(new SKRect(-1, -1, (float)size.Width + 1, (float)size.Height + 1)))
