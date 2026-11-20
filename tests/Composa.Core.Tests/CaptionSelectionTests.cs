@@ -44,6 +44,7 @@ public class CaptionSelectionTests
             c.DrawRect(x, 24, width, 4, paint); c.DrawRect(x, 40, width, 4, paint);
             c.DrawRect(x, 24, 4, 20, paint); c.DrawRect(x + width - 4, 24, 4, 20, paint);
         }
+        image.SetPixel(16, 31, darkInk ? SKColors.White : new SKColor(34, 66, 66));
         var gesture = new SKRectI(13, 17, 191, 50);
         using var joined = SelectionMask.FromRect(210, 64, new(17, 22, 185, 46));
         Assert.Null(CaptionSelection.Recover(image, joined, gesture, default, joinedOnly: true));
@@ -52,6 +53,7 @@ public class CaptionSelectionTests
         Assert.Equal(255, recovered.GetPixel(20, 33).Alpha);
         Assert.Equal(0, recovered.GetPixel(26, 33).Alpha);
         Assert.Equal(0, recovered.GetPixel(41, 33).Alpha);
+        Assert.InRange(recovered.GetPixel(17, 31).Alpha, (byte)0, (byte)4);
         Assert.Equal(255, joined.GetPixel(26, 33).Alpha);
         Assert.Null(CaptionSelection.Recover(image, recovered, gesture, default));
         // When the user frames the entire labelled object, retain its outer shape.

@@ -188,6 +188,25 @@ internal static class CaptionSelection
                     int localInk = range.Bright ? high : low, localBg = range.Bright ? low : high;
                     if (!range.Contains(localInk)) continue;
                     float alpha = range.Contains(localBg) ? 1 : Math.Clamp((v - localBg) / (float)(localInk - localBg), 0, 1);
+                    if (alpha > 0 && alpha < .49f)
+                    {
+                        // A single dark or bright grain on the photograph can look like
+                        // a faint halo. Estimate the backdrop from nearby samples of
+                        // the same tone before accepting partial coverage.
+                        float total = 0, weight = 0;
+                        for (int ny = Math.Max(box.Top, y - 2); ny <= Math.Min(box.Bottom - 1, y + 2); ny++)
+                            for (int nx = Math.Max(box.Left, x - 2); nx <= Math.Min(box.Right - 1, x + 2); nx++)
+                            {
+                                int neighbor = Luma(rgb.Read(nx, ny));
+                                if (Math.Abs(neighbor - localBg) > .09f * (high - low)) continue;
+                                int dx = nx - x, dy = ny - y;
+                                float w = 1f / (1 + dx * dx + dy * dy);
+                                total += w * neighbor; weight += w;
+                            }
+                        float background = total / weight;
+                        float fitted = Math.Clamp((v - background) / (localInk - background), 0, alpha);
+                        alpha += Math.Min(1, (.49f - alpha) / .27f) * (fitted - alpha);
+                    }
                     output[y * result.RowBytes + x] = (byte)Math.Round(255 * alpha);
                 }
             }
