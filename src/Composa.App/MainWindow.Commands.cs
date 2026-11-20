@@ -161,17 +161,17 @@ public sealed partial class MainWindow
             .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."))).ToArray());
 
         Top("_AI",
-            Item("Generate Image…", () => _ = RunAi(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
-            Item("Generative Fill…", () => _ = RunAi(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
-            Item("Image Edit…", () => _ = RunAi(AiTaskKind.ImageEdit), enabled: () => session?.Selection == null && CanRunAi(AiTaskKind.ImageEdit)),
-            Item("Remove Object", () => _ = RunAi(AiTaskKind.RemoveObject), enabled: () => CanRunAi(AiTaskKind.RemoveObject)),
-            Item("Generative Expand…", () => _ = RunAi(AiTaskKind.GenerativeExpand), enabled: () => CanRunAi(AiTaskKind.GenerativeExpand)),
-            Item("Change Background…", () => _ = RunAi(AiTaskKind.ChangeBackground), enabled: () => CanRunAi(AiTaskKind.ChangeBackground)),
-            Item("Harmonize…", () => _ = RunAi(AiTaskKind.Harmonize), enabled: () => CanRunAi(AiTaskKind.Harmonize)),
-            Item("Match to Scene", () => _ = RunAi(AiTaskKind.MatchToScene), enabled: () => CanRunAi(AiTaskKind.MatchToScene)),
-            Item("Relight…", () => _ = RunAi(AiTaskKind.Relight), enabled: () => CanRunAi(AiTaskKind.Relight)),
-            Item("Upscale…", () => _ = RunAi(AiTaskKind.Upscale), enabled: () => CanRunAi(AiTaskKind.Upscale)),
-            Item("Object Selection", () => _ = RunAi(AiTaskKind.ObjectSelection), enabled: () => CanRunAi(AiTaskKind.ObjectSelection)),
+            Item("Generate Image…", () => ChooseAiOperation(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
+            Item("Generative Fill…", () => ChooseAiOperation(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
+            Item("Image Edit…", () => ChooseAiOperation(AiTaskKind.ImageEdit), enabled: () => CanRunAi(AiTaskKind.ImageEdit)),
+            Item("Remove Object", () => ChooseAiOperation(AiTaskKind.RemoveObject), enabled: () => CanRunAi(AiTaskKind.RemoveObject)),
+            Item("Generative Expand", () => ChooseAiOperation(AiTaskKind.GenerativeExpand), enabled: () => CanRunAi(AiTaskKind.GenerativeExpand)),
+            Item("Change Background…", () => ChooseAiOperation(AiTaskKind.ChangeBackground), enabled: () => CanRunAi(AiTaskKind.ChangeBackground)),
+            Item("Harmonize…", () => ChooseAiOperation(AiTaskKind.Harmonize), enabled: () => CanRunAi(AiTaskKind.Harmonize)),
+            Item("Match to Scene", () => ChooseAiOperation(AiTaskKind.MatchToScene), enabled: () => CanRunAi(AiTaskKind.MatchToScene)),
+            Item("Relight…", () => ChooseAiOperation(AiTaskKind.Relight), enabled: () => CanRunAi(AiTaskKind.Relight)),
+            Item("Upscale…", () => ChooseAiOperation(AiTaskKind.Upscale), enabled: () => CanRunAi(AiTaskKind.Upscale)),
+            Item("Object Selection", () => ChooseAiOperation(AiTaskKind.ObjectSelection), enabled: () => CanRunAi(AiTaskKind.ObjectSelection)),
             Line(),
             Sub("Presets", (aiTasks.Presets.Count == 0
                 ? [new MenuItem { Header = "No presets installed", IsEnabled = false }]

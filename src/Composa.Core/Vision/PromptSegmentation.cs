@@ -132,10 +132,35 @@ public static unsafe class PromptSegmentation
         var outputs = Run(model.Decoder, inputs, [mobile ? "low_res_masks" : "output_masks", "iou_predictions"], cancellation);
         var masks = outputs[0]; var scores = outputs[1].Data;
         var mw = masks.Dimensions[^1]; var mh = masks.Dimensions[^2];
-        var candidate = 0; for (var i = 1; i < scores.Length; i++) if (scores[i] > scores[candidate]) candidate = i;
-        if (mw <= 0 || mh <= 0 || candidate >= masks.Data.Length / ((long)mw * mh)) throw new InvalidDataException("Unexpected SAM mask dimensions.");
+        if (mw <= 0 || mh <= 0 || scores.Length == 0 || scores.Length > masks.Data.Length / ((long)mw * mh))
+            throw new InvalidDataException("Unexpected SAM mask dimensions.");
+        float sx = (float)mw / width, sy = (float)mh / height;
+        if (mobile) { sx *= image.Width / 1024f; sy *= image.Height / 1024f; }
+        var probe = box ?? SKRectI.Create((int)point!.Value.X, (int)point.Value.Y, 1, 1);
+        var probeGrid = new SKRectI((int)Math.Floor(probe.Left * sx), (int)Math.Floor(probe.Top * sy),
+            (int)Math.Ceiling(probe.Right * sx), (int)Math.Ceiling(probe.Bottom * sy));
+        var candidate = PromptCandidate(masks.Data, scores, mw, mh, probeGrid, cancellation);
+        if (candidate < 0) return Pixels.NewMask(width, height);
         return Reconstruct(masks.Data.AsSpan(candidate * mw * mh, mw * mh).ToArray(), mw, mh,
             image.Width, image.Height, width, height, mobile, cancellation);
+    }
+
+    internal static int PromptCandidate(float[] logits, float[] scores, int width, int height, SKRectI probe, CancellationToken cancellation)
+    {
+        var ranked = Enumerable.Range(0, scores.Length).OrderByDescending(i => scores[i]).ToArray();
+        var area = SKRectI.Intersect(SKRectI.Create(width, height), probe);
+        int required = Math.Max(1, area.Width * area.Height / 10000);
+        foreach (int candidate in ranked)
+        {
+            int count = 0, offset = candidate * width * height;
+            for (int y = area.Top; y < area.Bottom; y++)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                for (int x = area.Left; x < area.Right; x++)
+                    if (logits[offset + y * width + x] > 0 && ++count >= required) return candidate;
+            }
+        }
+        return -1;
     }
 
     internal static SKBitmap Reconstruct(float[] logits, int maskWidth, int maskHeight, int contentWidth, int contentHeight,

@@ -8,6 +8,64 @@ namespace Composa.Core.Tests;
 
 public class PromptSegmentationTests
 {
+    [Fact]
+    public async Task A_box_over_transparent_pixels_preserves_the_previous_selection()
+    {
+        var session = EditorSession.NewCanvas(80, 60, SKColors.Red);
+        session.AddBlankLayer();
+        session.SelectRect(new SKRect(4, 4, 20, 18));
+        var previous = session.Selection;
+        var state = session.History.CurrentId;
+        Assert.False(await session.SelectPromptObjectAsync(PromptModels.EfficientSamS, null, new(40, 22, 68, 52), SelectionMode.Replace));
+        Assert.Same(previous, session.Selection);
+        Assert.Equal(state, session.History.CurrentId);
+    }
+    [Fact]
+    public void A_box_uses_a_lower_scored_candidate_when_the_best_one_misses_the_gesture()
+    {
+        var logits = new float[2 * 20 * 12];
+        logits[1] = 10; logits[240 + 7 * 20 + 9] = 3;
+        Assert.Equal(1, PromptSegmentation.PromptCandidate(logits, [.95f, .72f], 20, 12, new(7, 5, 12, 9), default));
+        Assert.Equal(-1, PromptSegmentation.PromptCandidate(logits, [.95f, .72f], 20, 12, new(15, 5, 18, 8), default));
+    }
+
+    [Fact]
+    public void Grouped_print_keeps_counters_and_a_small_secondary_ink()
+    {
+        using var image = Pixels.NewColor(220, 110);
+        image.Erase(new SKColor(28, 30, 32));
+        using (var c = new SKCanvas(image))
+        using (var p = new SKPaint { Color = SKColors.White, StrokeWidth = 8, Style = SKPaintStyle.Stroke, IsAntialias = true })
+        {
+            c.DrawRect(25, 22, 54, 66, p); c.DrawRect(95, 22, 54, 66, p);
+            p.Color = SKColors.LimeGreen; c.DrawCircle(180, 55, 10, p);
+        }
+        using var mask = GraphicSelection.FromBox(image, new(10, 8, 210, 103), default);
+        Assert.NotNull(mask);
+        Assert.Equal(0, mask.GetPixel(50, 55).Alpha);
+        Assert.Equal(0, mask.GetPixel(121, 55).Alpha);
+        Assert.InRange(mask.GetPixel(26, 55).Alpha, (byte)250, (byte)255);
+        Assert.InRange(mask.GetPixel(170, 55).Alpha, (byte)250, (byte)255);
+        Assert.Equal(0, mask.GetPixel(180, 55).Alpha);
+    }
+
+    [Fact]
+    public void A_tight_box_finds_repeated_dark_slots_across_a_bright_surface_band()
+    {
+        using var image = Pixels.NewColor(210, 100);
+        image.Erase(new SKColor(28, 28, 28));
+        using (var c = new SKCanvas(image))
+        using (var p = new SKPaint { Color = SKColors.Silver })
+        {
+            c.DrawRect(0, 55, 210, 12, p);
+            p.Color = new SKColor(2, 2, 2);
+            foreach (var x in new[] { 28, 87, 148 }) c.DrawRoundRect(x, 26, 16, 48, 7, 7, p);
+        }
+        using var mask = RepeatedDetailSelection.FromBox(image, new(15, 14, 181, 86), default);
+        Assert.NotNull(mask);
+        foreach (var x in new[] { 36, 95, 156 }) Assert.Equal(255, mask.GetPixel(x, 60).Alpha);
+        Assert.Equal(0, mask.GetPixel(65, 60).Alpha);
+    }
     private static PromptModel Model(PromptModelKind kind) => kind switch
     { PromptModelKind.MobileSam => PromptModels.MobileSam, PromptModelKind.EfficientSamTi => PromptModels.EfficientSamTi, _ => PromptModels.EfficientSamS };
 

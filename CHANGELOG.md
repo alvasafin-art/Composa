@@ -4,6 +4,10 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- Shape tools can edit the selected vector's points and segments directly. Drag away from the contour to draw another shape.
+- Remove Object and Generative Expand start directly from the generation panel and both AI menus. With no selection, Remove Object activates the removal brush.
+- Local object selection preserves holes and separate colors in display graphics and detects tightly framed groups of similar details. Empty detections preserve the previous selection and report how to retry.
+
 ## [1.3.0-preview.4.studio.15] - 2026-11-20
 
 - The Pen tool shows editable anchors immediately on the selected vector layer. A live shape becomes a path on the first point or segment edit, and Undo restores the original shape.

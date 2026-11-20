@@ -103,8 +103,25 @@ public sealed partial class MainWindow
 
     private AiTaskAvailability AiAvailability(AiTaskKind task)
     {
+        if (task == AiTaskKind.ObjectSelection && settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI)
+            return new(task, session != null && !localSelectionBusy, session == null ? "Open a document first." : null);
         var engine = PanelEngine(task);
         return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
+    }
+
+    private void ChooseAiOperation(AiTaskKind task)
+    {
+        if (!CanRunAi(task)) return;
+        bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
+        if (DockEditorVisible && (immediate || task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
+        {
+            manualDockTask = task;
+            RefreshAiUi();
+            if (!immediate) { aiFloatingPrompt.Focus(); return; }
+        }
+        if (task == AiTaskKind.ObjectSelection) { SelectSubject(); return; }
+        if (task == AiTaskKind.RemoveObject && session?.Selection == null) { SelectTool(Tool.RemoveObject); return; }
+        _ = RunAi(task);
     }
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SKBitmap, Bitmap> variantPreviews = new();
@@ -260,31 +277,24 @@ public sealed partial class MainWindow
 
     private Button BuildAiTaskMenu()
     {
-        Button? button = null;
-        button = Ui.TextButton("AI ▾", () =>
+        var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
+        foreach (var task in Enum.GetValues<AiTaskKind>().Where(t => t != AiTaskKind.SelectSubject))
         {
-            var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
-            foreach (var task in Enum.GetValues<AiTaskKind>())
+            var item = new MenuItem { Header = task.DisplayName() };
+            flyout.Opening += (_, _) =>
             {
-                if (task == AiTaskKind.SelectSubject) continue;
-                var availability = AiAvailability(task);
-                var item = new MenuItem
-                {
-                    Header = task.DisplayName(),
-                    IsEnabled = availability.Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running)
-                };
-                if (availability.Reason != null) ToolTip.SetTip(item, availability.Reason);
-                item.Click += (_, _) => _ = RunAi(task);
-                flyout.Items.Add(item);
-            }
-            flyout.Items.Add(new Separator());
-            var settingsItem = new MenuItem { Header = "AI Settings…", IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running) };
-            settingsItem.Click += (_, _) => _ = ShowAiSettings();
-            flyout.Items.Add(settingsItem);
-            flyout.ShowAt(button!);
-        });
-        button.MinWidth = 0;
-        return button;
+                item.IsEnabled = CanRunAi(task);
+                ToolTip.SetTip(item, AiAvailability(task).Reason);
+            };
+            item.Click += (_, _) => ChooseAiOperation(task);
+            flyout.Items.Add(item);
+        }
+        flyout.Items.Add(new Separator());
+        var settingsItem = new MenuItem { Header = "AI Settings…" };
+        flyout.Opening += (_, _) => settingsItem.IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
+        settingsItem.Click += (_, _) => _ = ShowAiSettings();
+        flyout.Items.Add(settingsItem);
+        return new Button { Name = "AiTaskMenu", Content = "AI ▾", Flyout = flyout, MinWidth = 0 };
     }
 
     private Control BuildAiFloatingMenu()
@@ -390,7 +400,6 @@ public sealed partial class MainWindow
         var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
         foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.GenerativeFill or AiTaskKind.SelectSubject)))
         {
-            if (task == AiTaskKind.ImageEdit && session?.Selection != null) continue;
             var availability = AiAvailability(task);
             var item = new MenuItem
             {
@@ -398,7 +407,7 @@ public sealed partial class MainWindow
                 IsEnabled = availability.Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running)
             };
             if (availability.Reason != null) ToolTip.SetTip(item, availability.Reason);
-            item.Click += (_, _) => _ = RunAi(task, task == AiTaskKind.RemoveObject ? "" : aiFloatingPrompt.Text ?? "", useInlinePrompt: true);
+            item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
         if (modelDrafts.ContainsKey(AiTaskKind.GenerativeFill))
@@ -758,7 +767,7 @@ public sealed partial class MainWindow
             ? task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject ? aspect : AiDimensions.OriginalGenerationSize(aspect.Width, aspect.Height)
             : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
         AiPromptResult? options;
-        if ((task != AiTaskKind.GenerativeExpand || DockEditorVisible && useInlinePrompt) && (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale))
+        if (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.GenerativeExpand or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale)
             options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed, Variants: runCount);
         else
         {

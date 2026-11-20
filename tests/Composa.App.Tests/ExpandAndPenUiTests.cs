@@ -14,8 +14,10 @@ namespace Composa.App.Tests;
 
 public class ExpandAndPenUiTests
 {
-    [AvaloniaFact]
-    public void Pen_edits_selected_live_shapes_directly_and_undo_restores_the_primitive()
+    [AvaloniaTheory]
+    [InlineData(Tool.Pen)]
+    [InlineData(Tool.Shape)]
+    public void Vector_tool_edits_selected_live_shapes_directly_and_undo_restores_the_primitive(Tool tool)
     {
         var window = new MainWindow { Width = 1280, Height = 820 };
         window.Show();
@@ -23,7 +25,7 @@ public class ExpandAndPenUiTests
         window.AddSession(session);
         var rectangle = session.AddShape(new ShapeStyle(ShapeKind.Rectangle, 0xff2580aa, 0), new SKRect(30, 40, 120, 110))!;
         var ellipse = session.AddShape(new ShapeStyle(ShapeKind.Ellipse, 0xff30945a, 0), new SKRect(150, 60, 270, 160))!;
-        window.SelectTool(Tool.Pen);
+        window.SelectTool(tool);
 
         Point At(SKPoint p) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(p), window)!.Value;
         void EditAnchor(Layer original, SKPoint anchor)
@@ -51,7 +53,7 @@ public class ExpandAndPenUiTests
             Assert.Null(session.ActiveLayer!.Shape!.Path);
         }
 
-        Screenshots.Save(window, "pen-selected-ellipse");
+        Screenshots.Save(window, tool == Tool.Shape ? "shape-selected-ellipse" : "pen-selected-ellipse");
         EditAnchor(ellipse, new SKPoint(210, 60));
         session.SelectLayer(rectangle.Id);
         EditAnchor(rectangle, new SKPoint(30, 40));

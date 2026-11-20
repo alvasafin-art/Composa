@@ -118,19 +118,18 @@ public sealed partial class MainWindow
 
     private void PopulateDockOperations(MenuFlyout menu)
     {
-        foreach (var task in new[] { AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill,
-                     AiTaskKind.GenerativeExpand, AiTaskKind.RemoveObject })
+        foreach (var task in Enum.GetValues<AiTaskKind>().Where(t => t != AiTaskKind.SelectSubject))
         {
             var item = new MenuItem { Header = DockTaskName(task), ToggleType = MenuItemToggleType.Radio };
             // Avalonia's presenter snapshots the items before Opening. Only update their state here.
             menu.Opening += (_, _) =>
             {
                 var availability = AiAvailability(task);
-                item.IsEnabled = availability.Available;
+                item.IsEnabled = CanRunAi(task);
                 item.IsChecked = EditorTask == task;
                 ToolTip.SetTip(item, availability.Reason);
             };
-            item.Click += (_, _) => { manualDockTask = task; RefreshAiUi(); };
+            item.Click += (_, _) => ChooseAiOperation(task);
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());

@@ -323,6 +323,8 @@ public sealed partial class CanvasView
                 drag = Drag.Gradient;
                 break;
             case Tool.Shape:
+                if (TryEditSelectedPath(alt, shift, e.ClickCount)) break;
+                penSelectedLayer = null;
                 drag = Drag.Shape;
                 snapFrom = snapTo = SnapCorner(pressDocument, control: false);
                 break;
@@ -1000,8 +1002,8 @@ public sealed partial class CanvasView
             }
             if (e.Key == Key.Enter) { FinishPen(); return true; }
             if (drag == Drag.None && e.Key is Key.Back or Key.Delete && penDraft.Count > 0) { DeleteDraftPoint(); return true; }
-            if (drag == Drag.None && e.Key is Key.Back or Key.Delete && DeletePenNode()) return true;
         }
+        if (session.Tool is Tool.Pen or Tool.Shape && drag == Drag.None && e.Key is Key.Back or Key.Delete && DeletePenNode()) return true;
         if (session.ColorRange != null && drag == Drag.None)
         {
             // The panel's OK and Cancel, reached from the canvas too.

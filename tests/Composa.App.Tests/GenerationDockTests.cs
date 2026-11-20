@@ -18,6 +18,53 @@ namespace Composa.App.Tests;
 public class GenerationDockTests
 {
     [AvaloniaTheory]
+    [InlineData(AiTaskKind.RemoveObject, "Remove Object", "dock")]
+    [InlineData(AiTaskKind.GenerativeExpand, "Gen Expand", "dock")]
+    [InlineData(AiTaskKind.RemoveObject, "Remove Object", "main")]
+    [InlineData(AiTaskKind.GenerativeExpand, "Generative Expand", "main")]
+    [InlineData(AiTaskKind.RemoveObject, "Remove Object", "quick")]
+    [InlineData(AiTaskKind.GenerativeExpand, "Generative Expand", "quick")]
+    public async Task Choosing_immediate_operation_submits_once_without_another_click(AiTaskKind task, string label, string entry)
+    {
+        var server = new PartnerImageTests.Connection();
+        var window = new MainWindow(null, _ => server) { Width = 1100, Height = 800 };
+        window.Settings.ComfyServerUrl = server.Address.ToString();
+        window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
+        window.AiTasks.ApiKey = () => "test-only";
+        window.Show();
+        var session = EditorSession.NewCanvas(160, 120, SKColors.White);
+        window.AddSession(session);
+        session.SelectRect(new(30, 30, 90, 65));
+        try
+        {
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation"); dock.SetVisible(section, true); Pump();
+            MenuItem item; MenuFlyout? menu = null;
+            if (entry == "main")
+            {
+                var top = window.GetVisualDescendants().OfType<MenuItem>().Single(i => i.Header?.ToString()?.Replace("_", "") == "AI");
+                item = top.Items.OfType<MenuItem>().Single(i => Equals(i.Header, label));
+            }
+            else
+            {
+                var selector = entry == "quick" ? "AiTaskMenu" : "AiDockOperation";
+                var chooser = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == selector);
+                menu = Assert.IsType<MenuFlyout>(chooser.Flyout);
+                menu.ShowAt(chooser); Pump();
+                item = menu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, label));
+            }
+            Assert.True(item.IsEnabled);
+            item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); menu?.Hide(); Pump();
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < deadline)
+            { await Task.Delay(10, TestContext.Current.CancellationToken); Pump(); }
+            Assert.Empty(window.OwnedWindows);
+            Assert.True(window.AiTasks.Operation?.Status == AiOperationStatus.Completed, window.AiTasks.Operation?.Error);
+            Assert.Single(server.Graphs);
+        }
+        finally { session.MarkSaved("direct.cmps", session.History.CurrentId); window.Close(); }
+    }
+    [AvaloniaTheory]
     [InlineData(AiTaskKind.GenerateImage, 1)]
     [InlineData(AiTaskKind.ImageEdit, 2)]
     [InlineData(AiTaskKind.GenerativeFill, 3)]

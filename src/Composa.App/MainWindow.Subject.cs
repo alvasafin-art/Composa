@@ -112,12 +112,14 @@ public sealed partial class MainWindow
                 var model = settings.ObjectSelectionModel switch { ObjectSelectionSource.MobileSam => PromptModels.MobileSam,
                     ObjectSelectionSource.EfficientSamTi => PromptModels.EfficientSamTi, _ => PromptModels.EfficientSamS };
                 var precise = !settings.ObjectSelectionQuickOutline && TrimapMatting.IsAvailable;
-                await ProgressWindow.Run(this, "Selecting with " + model.Name + "…", async (c, progress) =>
+                var found = await ProgressWindow.Run(this, "Selecting with " + model.Name + "…", async (c, progress) =>
                 {
-                    await target.SelectPromptObjectAsync(model, point, region ?? (point == null ? target.Document.Bounds : null), mode, c,
+                    return await target.SelectPromptObjectAsync(model, point, region ?? (point == null ? target.Document.Bounds : null), mode, c,
                         preciseEdges: precise, progress: progress, canApply: () => session == target && sessions.Contains(target));
-                    return true;
                 });
+                if (found == false && session == target)
+                    ShowNote(target.SampleAllLayers ? "No object found. Try a tighter box or click inside the object."
+                        : "No object found on this layer. Try a tighter box or enable Sample all layers.");
             }
             catch (OperationCanceledException) { }
             catch (Exception error) { ShowProblem("Object selection failed: " + error.Message); }

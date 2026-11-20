@@ -21,7 +21,7 @@ public sealed partial class CanvasView
     private Guid? penMaskLayer;
     public bool EditVectorMask
     {
-        get => session?.ActiveLayer is { VectorMask: not null } layer && penMaskLayer == layer.Id;
+        get => session?.Tool == Composa.Editing.Tool.Pen && session.ActiveLayer is { VectorMask: not null } layer && penMaskLayer == layer.Id;
         set => penMaskLayer = value ? session?.ActiveLayer?.Id : null;
     }
     private VectorPath? CurrentPenPath => session?.ActiveLayer is { } layer
@@ -80,54 +80,59 @@ public sealed partial class CanvasView
         { FinishPen(closed: true); return; }
         if (penDraft.Count > 2 && SKPoint.Distance(new SKPoint((float)penDraft[0].X, (float)penDraft[0].Y), pressDocument) * UnitsPerPixel < 9)
         { FinishPen(closed: true); return; }
-        if (penDraft.Count == 0 && CurrentPenPath is { } path && session?.ActiveLayer is { Pixels: { } pixels } layer && !session.PixelsLocked(layer))
-        {
-            var nearest = 9.0; var found = -1; var which = 0;
-            for (var i = 0; i < path.Nodes.Length; i++)
-            {
-                var n = path.Nodes[i]; var handles = new[] { new SKPoint((float)n.X * pixels.Width, (float)n.Y * pixels.Height), new SKPoint((float)n.InX * pixels.Width, (float)n.InY * pixels.Height), new SKPoint((float)n.OutX * pixels.Width, (float)n.OutY * pixels.Height) };
-                for (var h = 0; h < handles.Length; h++)
-                {
-                    if (h > 0 && handles[h] == handles[0]) continue;
-                    var distance = SKPoint.Distance(layer.Matrix.MapPoint(handles[h]), pressDocument) * UnitsPerPixel;
-                    if (distance < nearest) { nearest = distance; found = i; which = h; }
-                }
-            }
-            if (found >= 0)
-            {
-                penSelectedSegment = -1; penSelectedLayer = layer.Id; penSelectedNode = found;
-                session.Begin("Edit Path"); penLayer = layer; penOriginal = path; penNode = found; penHandle = alt && which == 0 ? 2 : which;
-                if (alt && which == 0)
-                {
-                    var nodes = path.Nodes.ToArray(); nodes[found] = ConvertedNode(nodes, found, path.Closed, pixels.Width, pixels.Height);
-                    penOriginal = path with { Nodes = nodes }; session.PreviewVectorPath(layer, penOriginal, EditVectorMask); penConverted = true;
-                }
-                penDraftDrag = false; drag = Drag.PenNode; return;
-            }
-            var transform = SKMatrix.Concat(layer.Matrix, SKMatrix.CreateScale(pixels.Width, pixels.Height));
-            var (segment, t) = path.NearestSegment(transform, pressDocument, 9 / UnitsPerPixel);
-            if (segment >= 0)
-            {
-                penSelectedLayer = layer.Id; penSelectedNode = -1; penSelectedSegment = segment;
-                if (insert || clicks >= 2)
-                {
-                    var next = path.SplitSegment(segment,t);
-                    if (next == path) return;
-                    session.Begin("Insert Path Point"); session.PreviewVectorPath(layer, next, EditVectorMask); session.Commit();
-                    penSelectedNode = segment + 1; penSelectedSegment = -1;
-                }
-                else
-                {
-                    penLayer=layer; penOriginal=path; penNode=segment; penHandle=3; bendParameter=t;
-                    penDraftDrag=false; session.Begin("Bend Path"); drag=Drag.PenNode;
-                }
-                return;
-            }
-        }
+        if (penDraft.Count == 0 && TryEditSelectedPath(alt, insert, clicks)) return;
         if (editPoints || alt) return;
         penSelectedLayer = null; penSelectedNode = penSelectedSegment = -1;
         draftSelection = -1;
         penDraft.Add(BezierNode.Corner(pressDocument.X, pressDocument.Y)); penDraftDrag = true; drag = Drag.PenNode;
+    }
+    private bool TryEditSelectedPath(bool alt, bool insert, int clicks)
+    {
+        penConverted = endpointCorner = false;
+        if (session?.ActiveLayer is not { Pixels: { } pixels } layer || session.PixelsLocked(layer) || CurrentPenPath is not { } path)
+            return false;
+        var nearest = 9.0; var found = -1; var which = 0;
+        for (var i = 0; i < path.Nodes.Length; i++)
+        {
+            var n = path.Nodes[i]; var handles = new[] { new SKPoint((float)n.X * pixels.Width, (float)n.Y * pixels.Height), new SKPoint((float)n.InX * pixels.Width, (float)n.InY * pixels.Height), new SKPoint((float)n.OutX * pixels.Width, (float)n.OutY * pixels.Height) };
+            for (var h = 0; h < handles.Length; h++)
+            {
+                if (h > 0 && handles[h] == handles[0]) continue;
+                var distance = SKPoint.Distance(layer.Matrix.MapPoint(handles[h]), pressDocument) * UnitsPerPixel;
+                if (distance < nearest) { nearest = distance; found = i; which = h; }
+            }
+        }
+        if (found >= 0)
+        {
+            penSelectedSegment = -1; penSelectedLayer = layer.Id; penSelectedNode = found;
+            session.Begin("Edit Path"); penLayer = layer; penOriginal = path; penNode = found; penHandle = alt && which == 0 ? 2 : which;
+            if (alt && which == 0)
+            {
+                var nodes = path.Nodes.ToArray(); nodes[found] = ConvertedNode(nodes, found, path.Closed, pixels.Width, pixels.Height);
+                penOriginal = path with { Nodes = nodes }; session.PreviewVectorPath(layer, penOriginal, EditVectorMask); penConverted = true;
+            }
+            penDraftDrag = false; drag = Drag.PenNode; return true;
+        }
+        var transform = SKMatrix.Concat(layer.Matrix, SKMatrix.CreateScale(pixels.Width, pixels.Height));
+        var (segment, t) = path.NearestSegment(transform, pressDocument, 9 / UnitsPerPixel);
+        if (segment >= 0)
+        {
+            penSelectedLayer = layer.Id; penSelectedNode = -1; penSelectedSegment = segment;
+            if (insert || clicks >= 2)
+            {
+                var next = path.SplitSegment(segment,t);
+                if (next == path) return true;
+                session.Begin("Insert Path Point"); session.PreviewVectorPath(layer, next, EditVectorMask); session.Commit();
+                penSelectedNode = segment + 1; penSelectedSegment = -1;
+            }
+            else
+            {
+                penLayer=layer; penOriginal=path; penNode=segment; penHandle=3; bendParameter=t;
+                penDraftDrag=false; session.Begin("Bend Path"); drag=Drag.PenNode;
+            }
+            return true;
+        }
+        return false;
     }
     private void DeleteDraftPoint()
     {
@@ -139,7 +144,7 @@ public sealed partial class CanvasView
 
     private bool DeletePenNode()
     {
-        if (session?.ActiveLayer is not { } layer || penSelectedLayer != layer.Id || CurrentPenPath is not { } path || session.PixelsLocked(layer)) return false;
+        if ((penSelectedSegment < 0 && penSelectedNode < 0) || session?.ActiveLayer is not { } layer || penSelectedLayer != layer.Id || CurrentPenPath is not { } path || session.PixelsLocked(layer)) return false;
         var next = penSelectedSegment >= 0 ? path.RemoveSegment(penSelectedSegment)
             : path.RemoveNode(penSelectedNode, layer.Pixels!.Width, layer.Pixels.Height); if (ReferenceEquals(path, next)) return true;
         session.Begin("Edit Path"); session.PreviewVectorPath(layer, next, EditVectorMask);
@@ -206,7 +211,7 @@ public sealed partial class CanvasView
     }
     private void CapturePenOverlay(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
-        if (session?.Tool != Composa.Editing.Tool.Pen) return;
+        if (session?.Tool is not (Composa.Editing.Tool.Pen or Composa.Editing.Tool.Shape)) return;
         var draft = penDraft.Count > 0; var geometry = draft ? new VectorPath { Nodes = penDraft.ToArray() } : CurrentPenPath;
         if (geometry == null) return;
         var pixels = session.ActiveLayer?.Pixels; var width = draft ? 1 : pixels?.Width ?? 1; var height = draft ? 1 : pixels?.Height ?? 1;
