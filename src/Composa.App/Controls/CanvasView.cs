@@ -191,8 +191,24 @@ public sealed partial class CanvasView : Decorator
     /// <summary>Control units per document pixel; at 100% one document pixel is one device pixel.</summary>
     private double UnitsPerPixel => zoom / Scaling;
 
-    public Point ToScreen(SKPoint p) => new(origin.X + p.X * UnitsPerPixel, origin.Y + p.Y * UnitsPerPixel);
-    public SKPoint ToDocument(Point p) => new((float)((p.X - origin.X) / UnitsPerPixel), (float)((p.Y - origin.Y) / UnitsPerPixel));
+    // Retain fractional pan input, but sample a reduced document on a stable
+    // device-pixel phase even when a dock leaves the canvas an odd width.
+    private Point DisplayOrigin
+    {
+        get
+        {
+            if (zoom >= 1) return origin;
+            var scale = Scaling;
+            return new Point(Math.Round(origin.X * scale) / scale, Math.Round(origin.Y * scale) / scale);
+        }
+    }
+
+    public Point ToScreen(SKPoint p) => DisplayOrigin + new Vector(p.X * UnitsPerPixel, p.Y * UnitsPerPixel);
+    public SKPoint ToDocument(Point p)
+    {
+        var offset = p - DisplayOrigin;
+        return new SKPoint((float)(offset.X / UnitsPerPixel), (float)(offset.Y / UnitsPerPixel));
+    }
 
     /// <summary>The image area of the viewport, excluding rulers, in document coordinates.</summary>
     public SKRect VisibleDocumentRect
@@ -343,7 +359,8 @@ public sealed partial class CanvasView : Decorator
         }
         // Everything the render thread needs is captured here, on the UI thread.
         var units = (float)UnitsPerPixel;
-        var view = SKMatrix.CreateScale(units, units).PostConcat(SKMatrix.CreateTranslation((float)origin.X, (float)origin.Y));
+        var displayOrigin = DisplayOrigin;
+        var view = SKMatrix.CreateScale(units, units).PostConcat(SKMatrix.CreateTranslation((float)displayOrigin.X, (float)displayOrigin.Y));
         var documentRect = new SKRect(0, 0, session.Document.Width, session.Document.Height);
         var (cache, cacheSource, cacheTarget) = UpdateViewCache(view, size);
         var overlay = CaptureOverlay(view);
@@ -438,9 +455,10 @@ public sealed partial class CanvasView : Decorator
         {
             scale = (float)zoom;
             var scaling = Scaling;
-            double left = Math.Floor(origin.X * scaling + shown.Left * zoom), top = Math.Floor(origin.Y * scaling + shown.Top * zoom);
-            double right = Math.Ceiling(origin.X * scaling + shown.Right * zoom), bottom = Math.Ceiling(origin.Y * scaling + shown.Bottom * zoom);
-            viewOrigin = new SKPoint((float)((left - origin.X * scaling) / zoom), (float)((top - origin.Y * scaling) / zoom));
+            var displayOrigin = DisplayOrigin;
+            double left = Math.Floor(displayOrigin.X * scaling + shown.Left * zoom), top = Math.Floor(displayOrigin.Y * scaling + shown.Top * zoom);
+            double right = Math.Ceiling(displayOrigin.X * scaling + shown.Right * zoom), bottom = Math.Ceiling(displayOrigin.Y * scaling + shown.Bottom * zoom);
+            viewOrigin = new SKPoint((float)((left - displayOrigin.X * scaling) / zoom), (float)((top - displayOrigin.Y * scaling) / zoom));
             width = Math.Max(1, (int)(right - left));
             height = Math.Max(1, (int)(bottom - top));
             source = SKRect.Create(width, height);

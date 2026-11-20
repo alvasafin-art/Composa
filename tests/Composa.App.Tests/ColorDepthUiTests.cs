@@ -40,12 +40,12 @@ public class ColorDepthUiTests
         var window = new MainWindow { Width = 1100, Height = 760 }; window.Show();
         var session = EditorSession.NewCanvas(320, 200, SKColors.CornflowerBlue, ColorDepth.Sixteen); window.AddSession(session);
         Dispatcher.UIThread.RunJobs();
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("16-bit") == true);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "(RGB/16)");
         var image = window.GetVisualDescendants().OfType<Menu>().Single().Items.OfType<MenuItem>().Single(m => m.Header as string == "_Image");
         var submenu = image.Items.OfType<MenuItem>().Single(m => m.Header as string == "RGB Precision");
         submenu.Items.OfType<MenuItem>().Single(m => m.Header as string == "8 Bits/Channel").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Assert.Equal(ColorDepth.Eight, session.Document.Depth);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("8-bit") == true);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "(RGB/8)");
         session.Undo(); Dispatcher.UIThread.RunJobs();
         Assert.Equal(ColorDepth.Sixteen, session.Document.Depth);
         Assert.True(Screenshots.Save(window, "rgb16-document"));

@@ -117,20 +117,30 @@ public sealed partial class MainWindow
                 var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => s.Brush = s.Brush with { Hardness = v / 100 });
                 if (s.Tool is Tool.Brush or Tool.Eraser) Add(BrushLibrary(s));
                 Add(size, hardness);
+                if (s.Tool is Tool.Brush or Tool.Eraser)
+                {
+                    var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
+                    Add(flow);
+                    refreshOptions += () => flow.Value = s.Brush.Flow * 100;
+                }
                 Action<double>? setOpacity = null;
                 if (s.Tool != Tool.SpotHealing)
                 {
                     var opacity = Ui.SliderField(s.Tool == Tool.Smear ? "Strength" : "Opacity", s.Brush.Opacity * 100, 1, 100, v => s.Brush = s.Brush with { Opacity = v / 100 });
+                    if (s.Tool is Tool.Brush or Tool.Eraser)
+                    {
+                        opacity.UseIcon(Icons.Adjust);
+                        opacity.Width = 76;
+                    }
                     setOpacity = v => opacity.Value = v;
                     Add(opacity);
                 }
                 if (s.Tool is Tool.Brush or Tool.Eraser)
                 {
-                    var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
                     var spacing = Ui.SliderField("Spacing", s.Brush.Spacing * 100, 1, 100, v => s.Brush = s.Brush with { Spacing = v / 100 }, width: 105);
-                    Add(flow, spacing);
-                    Add(BrushDynamicsFields(s));
-                    refreshOptions += () => { flow.Value = s.Brush.Flow * 100; spacing.Value = s.Brush.Spacing * 100; };
+                    var smoothing = Ui.SliderField("Smoothing", s.Brush.Smoothing, 0, 100, v => s.Brush = s.Brush with { Smoothing = v });
+                    Add(spacing, smoothing, BrushDynamics(s, () => canvas.InvalidateCanvas()));
+                    refreshOptions += () => { spacing.Value = s.Brush.Spacing * 100; smoothing.Value = s.Brush.Smoothing; };
                 }
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
                     Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v), Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));

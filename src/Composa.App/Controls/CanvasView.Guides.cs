@@ -199,8 +199,9 @@ public sealed partial class CanvasView
         var endX = ToDocument(new Point(width, 0)).X;
         var startY = ToDocument(new Point(0, thickness)).Y;
         var endY = ToDocument(new Point(0, height)).Y;
-        var originX = origin.X;
-        var originY = origin.Y;
+        var displayOrigin = DisplayOrigin;
+        var originX = displayOrigin.X;
+        var originY = displayOrigin.Y;
         bool light = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Light;
         var surface = light ? Palette.Panel.Color.ToSkia() : new SKColor(0x30, 0x30, 0x30);
         var marks = light ? Palette.Secondary.Color.ToSkia() : new SKColor(0xA0, 0xA0, 0xA0);

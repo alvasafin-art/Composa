@@ -157,6 +157,7 @@ internal static unsafe class ForegroundCoverage
                 }
                 else if (!plate.HasValue)
                 {
+                    trust *= MattingColors.SampleConfidence(x, y, f, b, width, foreground, background);
                     var prior = a / 255f;
                     var uncertainty = prior * (1 - prior);
                     fitted = Math.Clamp(fitted, prior - uncertainty, prior + uncertainty);
@@ -185,12 +186,17 @@ internal static unsafe class ForegroundCoverage
         return ColourPlate(samples);
     }
 
-    internal static PixelValue? ColourPlate(List<PixelValue> samples)
+    internal static PixelValue? ColourPlate(List<PixelValue> samples, bool allowUniformNeutral = false)
     {
         if (samples.Count < 16) return null;
         float Median(Func<PixelValue, float> channel) => samples.Select(channel).Order().ElementAt(samples.Count / 2);
         var bg = new PixelValue(Median(p => p.R), Median(p => p.G), Median(p => p.B), 1);
-        if (Math.Max(bg.R, Math.Max(bg.G, bg.B)) - Math.Min(bg.R, Math.Min(bg.G, bg.B)) < .18f) return null;
+        if (Math.Max(bg.R, Math.Max(bg.G, bg.B)) - Math.Min(bg.R, Math.Min(bg.G, bg.B)) < .18f)
+        {
+            // A truly uniform neutral studio backdrop is useful for inverse compositing,
+            // but greys in an ordinary photo must not act as a chroma key.
+            return allowUniformNeutral && samples.Count(p => p.A >= .99f && Distance(p, bg) < .015f) >= samples.Count * .95f ? bg : null;
+        }
         return samples.Count(p => p.A >= .99f && Distance(p, bg) < .085f) >= samples.Count * .70f ? bg : null;
     }
 }

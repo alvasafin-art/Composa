@@ -10,6 +10,42 @@ namespace Composa.Core.Tests;
 public class AlphaMattingTests
 {
     [Fact]
+    public void Uniform_neutral_backdrop_is_removed_from_translucent_fur_on_both_new_backgrounds()
+    {
+        using var image = Pixels.NewColor(96, 48);
+        using var mask = Pixels.NewMask(96, 48);
+        for (int y = 0; y < 48; y++)
+            for (int x = 0; x < 96; x++)
+            {
+                float alpha = Math.Clamp((72 - x) / 40f, 0, 1);
+                byte tone = (byte)MathF.Round(60 * alpha + 220 * (1 - alpha));
+                image.SetPixel(x, y, new SKColor(tone, tone, tone));
+                mask.GetPixelSpan()[y * mask.RowBytes + x] = (byte)MathF.Round(alpha * 255);
+            }
+        using var cutout = MaskRefinement.Cutout(image, mask, 1);
+        var pixel = new PixelBuffer(cutout).Read(52, 24);
+        foreach (float backdrop in new[] { 0f, 1f })
+            Assert.InRange(Math.Abs(pixel.R + backdrop * (1 - pixel.A) - (30f / 255 + .5f * backdrop)), 0, .01f);
+    }
+
+    [Fact]
+    public void A_soft_matte_on_a_textured_backdrop_does_not_inherit_nearest_colour_cells()
+    {
+        using var image = Pixels.NewColor(80, 40);
+        using var matte = Pixels.NewMask(80, 40);
+        for (int y = 0; y < 40; y++)
+            for (int x = 0; x < 80; x++)
+            {
+                byte tone = x < 20 ? (byte)(y < 20 ? 240 : 160) : x >= 60 ? (byte)(y < 17 ? 50 : 72) : (byte)125;
+                image.SetPixel(x, y, new SKColor(tone, tone, tone));
+                matte.GetPixelSpan()[y * matte.RowBytes + x] = x < 20 ? (byte)255 : x >= 60 ? (byte)0 : (byte)128;
+            }
+        var original = matte.Bytes;
+        Composa.Vision.ForegroundCoverage.Refine(image, matte, null, 8, default);
+        Assert.Equal(original, matte.Bytes);
+    }
+
+    [Fact]
     public void Colour_fit_opens_backdrop_gaps_between_strands_and_keeps_an_enclosed_matching_mark()
     {
         using var rgb = Pixels.NewColor(117, 77);

@@ -74,7 +74,7 @@ public class ColorProfileUiTests
         Assert.True(Screenshots.Save(dialog, "assign-rgb-profile"));
         dialog.Close(true); Dispatcher.UIThread.RunJobs();
         Assert.Equal(RgbProfile.Rgb1998, session.Document.Profile);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("RGB (1998)") == true);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "(RGB/16)" && Equals(ToolTip.GetTip(t), RgbProfile.Rgb1998.Name));
         session.Undo(); Assert.Equal(RgbProfile.Srgb, session.Document.Profile); session.Redo();
         Command("Convert Color Profile…"); dialog = window.OwnedWindows.Single();
         Assert.True(dialog.GetVisualDescendants().OfType<CheckBox>().Single().IsChecked);

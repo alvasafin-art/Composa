@@ -50,8 +50,9 @@ public class DisplayColorTests
             image.Items.OfType<MenuItem>().Single(m => m.Header as string == "Assign Color Profile…").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); Dispatcher.UIThread.RunJobs();
             var dialog = window.OwnedWindows.Single(); Assert.True(Screenshots.Save(dialog, "long-rgb-profile-name"));
             Assert.InRange(dialog.Bounds.Width, 350, 500); dialog.Close(false);
-            var status = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text?.Contains("72 ppi") == true);
-            Assert.True(status.Bounds.Width <= 430);
+            var badge = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "(RGB/8)");
+            Assert.Equal(session.Document.Profile.Name, ToolTip.GetTip(badge));
+            Assert.InRange(badge.Bounds.Width, 1, 90);
         }
         finally { window.Close(); }
     }

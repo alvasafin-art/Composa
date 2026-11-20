@@ -48,7 +48,7 @@ internal static unsafe class MattingColors
             for (var y = 0; y < height; y += step) for (var x = 0; x < width; x += step)
                 if (coverage[y * stride + x] <= 1 && expanded[y * fringeStride + x] >= 8)
                     samples.Add(source.Read(x, y).Straight);
-            var plate = Vision.ForegroundCoverage.ColourPlate(samples);
+            var plate = Vision.ForegroundCoverage.ColourPlate(samples, allowUniformNeutral: true);
             PixelValue? Around(int[] field, int x, int y)
             {
                 var sum = default(PixelValue); double weight = 0;
@@ -107,6 +107,8 @@ internal static unsafe class MattingColors
                             var projected = Dot(spill, axis);
                             if (power > .018f && projected * projected > .8f * power * Dot(spill, spill))
                                 estimated -= axis * Math.Clamp(projected / power, -.85f, .85f);
+                            float confidence = SampleConfidence(x, y, foreground[y * width + x], background[y * width + x], width, fg, bg);
+                            estimated = straight + (estimated - straight) * confidence;
                         }
                     }
                     else if (a == 255) continue;
@@ -118,6 +120,28 @@ internal static unsafe class MattingColors
             Pixels.Invalidate(result); return result;
         }
         catch { result.Dispose(); throw; }
+    }
+
+    // On a textured photograph, two distant samples can explain a pixel's intensity
+    // equally well. Picking whichever seed is nearest draws its Voronoi cell into the
+    // matte and recovered RGB. A narrow edge or a distinct backdrop hue supplies
+    // independent evidence. Otherwise retain the model's coverage and observed detail.
+    internal static float SampleConfidence(int x, int y, int foregroundSeed, int backgroundSeed, int width,
+        PixelValue foreground, PixelValue background)
+    {
+        static float Smooth(float value)
+        {
+            float t = Math.Clamp(value, 0, 1);
+            return t * t * (3 - 2 * t);
+        }
+        static float ChromaRange(PixelValue value) =>
+            Math.Max(value.R, Math.Max(value.G, value.B)) - Math.Min(value.R, Math.Min(value.G, value.B));
+        float fx = x - foregroundSeed % width, fy = y - foregroundSeed / width;
+        float bx = x - backgroundSeed % width, by = y - backgroundSeed / width;
+        float distance = MathF.Sqrt(Math.Max(fx * fx + fy * fy, bx * bx + by * by));
+        float nearby = Smooth((6 - distance) / 4);
+        float hueEvidence = Math.Min(ChromaRange(background), ChromaRange(foreground - background));
+        return Math.Max(nearby, Smooth((hueEvidence - .10f) / .15f));
     }
 
     private static float Dot(PixelValue a, PixelValue b) => a.R * b.R + a.G * b.G + a.B * b.B;

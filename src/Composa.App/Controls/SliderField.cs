@@ -84,6 +84,18 @@ public sealed class SliderField : Control
 
     public string Label => label;
 
+    private Control? labelIcon;
+    internal void UseIcon(Icons.Icon icon)
+    {
+        if (labelIcon != null) VisualChildren.Remove(labelIcon);
+        labelIcon = Icons.Create(icon, 16, Palette.Secondary);
+        labelIcon.IsHitTestVisible = false;
+        VisualChildren.Add(labelIcon);
+        Avalonia.Automation.AutomationProperties.SetName(this, Locale.T(label));
+        Locale.Tip(this, Ui.Column(4, Ui.Label(Locale.T(label)), BuildTip()));
+        InvalidateMeasure();
+    }
+
     /// <summary>Linear drag sensitivity for fields whose typed range exceeds a useful drag distance.</summary>
     public double? DragUnitsPerPixel { get; set; }
     public double Minimum => min;
@@ -174,6 +186,7 @@ public sealed class SliderField : Control
 
     protected override Size MeasureOverride(Size availableSize)
     {
+        labelIcon?.Measure(availableSize);
         editor.Measure(availableSize);
         resetButton.Measure(availableSize);
         return new Size(double.IsFinite(availableSize.Width) ? availableSize.Width : 0, double.IsFinite(availableSize.Height) ? availableSize.Height : DefaultHeight);
@@ -184,6 +197,7 @@ public sealed class SliderField : Control
         // The Reset button takes the left of the box while it shows; the editor has the rest.
         var left = resetButton.IsVisible ? ResetWidth + ResetMargin * 2 : 0;
         resetButton.Arrange(new Rect(ResetMargin, ResetMargin, ResetWidth, Math.Max(0, finalSize.Height - ResetMargin * 2)));
+        labelIcon?.Arrange(new Rect(8, (finalSize.Height - 16) / 2, 16, 16));
         editor.Arrange(new Rect(left, 0, Math.Max(0, finalSize.Width - left), finalSize.Height));
         return finalSize;
     }
@@ -235,10 +249,10 @@ public sealed class SliderField : Control
                     // A bright track would swallow the text; a shadow under it keeps it readable on every color.
                     var shadowName = new FormattedText(Locale.T(label), System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, TextShadowBrush);
                     var shadowNumber = new FormattedText(Text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, TextShadowBrush);
-                    context.DrawText(shadowName, namePoint + new Vector(0, 1));
+                    if (labelIcon == null) context.DrawText(shadowName, namePoint + new Vector(0, 1));
                     context.DrawText(shadowNumber, numberPoint + new Vector(0, 1));
                 }
-                context.DrawText(name, namePoint);
+                if (labelIcon == null) context.DrawText(name, namePoint);
                 context.DrawText(number, numberPoint);
             }
         }
@@ -347,6 +361,7 @@ public sealed class SliderField : Control
     {
         if (editing) return;
         editing = true;
+        if (labelIcon != null) labelIcon.IsVisible = false;
         ToolTip.SetIsOpen(this, false);
         editor.Text = Text;
         editor.IsVisible = true;
@@ -390,6 +405,7 @@ public sealed class SliderField : Control
     private void EndEdit()
     {
         editing = false;
+        if (labelIcon != null) labelIcon.IsVisible = true;
         editor.IsVisible = false;
         resetButton.IsVisible = false;
         if (editor.IsFocused) Focus();

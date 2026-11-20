@@ -30,7 +30,7 @@ public class LayerSearchTests
             query.Text = "RED #PRODUCT"; Pump(); Assert.Equal(new[] { group.Id, product.Id }, Rows(panel).Select(row => ((Layer)row.Tag!).Id)); Assert.True(group.Collapsed);
             var blend = panel.GetVisualDescendants().OfType<ComboBox>().Single(c => c != kind);
             var thumb = panel.GetVisualDescendants().OfType<Slider>().Single().GetVisualDescendants().OfType<Avalonia.Controls.Primitives.Thumb>().Single();
-            var percentage = panel.GetVisualDescendants().OfType<TextBlock>().Single(b => b.Text == "100%");
+            var percentage = panel.GetVisualDescendants().OfType<NumericUpDown>().Single(b => b.Name == "LayerOpacity" && b.Value == 100);
             var clear = panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ClearLayerFilter");
             double Mid(Control control) => control.TranslatePoint(new Point(0, control.Bounds.Height / 2), panel)!.Value.Y;
             double Left(Control control) => control.TranslatePoint(default, panel)!.Value.X;

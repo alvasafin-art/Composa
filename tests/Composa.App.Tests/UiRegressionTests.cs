@@ -186,8 +186,11 @@ public class UiRegressionTests
         window.SelectTool(Tool.Hand);
         foreach (var nudge in new[] { 0.0, 0.3, 0.5, 0.8 })
         {
-            // Pan by a fraction of a pixel through the wheel path is not possible, so zoom about shifting anchors instead.
-            window.Canvas.ZoomTo(0.5, new Point(300 + nudge, 300 + nudge));
+            var start = window.Canvas.TranslatePoint(new Point(300, 300), window)!.Value;
+            var end = start + new Vector(nudge, nudge);
+            window.MouseDown(start, MouseButton.Left);
+            window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+            window.MouseUp(end, MouseButton.Left);
             Dispatcher.UIThread.RunJobs();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
             using var frame = window.CaptureRenderedFrame()!;

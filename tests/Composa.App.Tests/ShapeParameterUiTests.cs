@@ -16,7 +16,7 @@ namespace Composa.App.Tests;
 public class ShapeParameterUiTests
 {
     [AvaloniaFact]
-    public void Brush_controls_wrap_at_the_available_width_and_show_dynamics_in_Russian()
+    public void Brush_controls_wrap_and_keep_the_three_advanced_toggles_in_their_flyout()
     {
         var window = new MainWindow { Width = 1750, Height = 850 };
         window.Show();
@@ -31,14 +31,26 @@ public class ShapeParameterUiTests
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
                 var bar = window.GetVisualDescendants().OfType<WrapPanel>().Single(p => p.Classes.Contains("options"));
-                Assert.Contains(bar.GetVisualDescendants().OfType<CheckBox>(), c => Equals(c.Content, "Размер от нажима"));
+                Assert.Empty(bar.GetVisualDescendants().OfType<CheckBox>());
+                var fields = bar.GetVisualDescendants().OfType<SliderField>().ToArray();
+                Assert.Equal(new[] { "Size", "Hardness", "Flow", "Opacity", "Spacing", "Smoothing" }, fields.Select(f => f.Label));
+                Assert.Equal("Непрозрачность", Avalonia.Automation.AutomationProperties.GetName(fields[3]));
+                var dynamics = bar.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "BrushDynamics");
+                var flyout = Assert.IsType<Avalonia.Controls.Flyout>(dynamics.Flyout);
+                flyout.ShowAt(dynamics);
+                var checks = Assert.IsType<StackPanel>(flyout.Content).Children.OfType<CheckBox>().ToArray();
+                Assert.Equal(3, checks.Length);
+                Assert.Equal("Размер от нажима", checks[0].Content);
+                checks[0].IsChecked = !session.Brush.PressureSize;
+                Assert.Equal(checks[0].IsChecked, session.Brush.PressureSize);
+                flyout.Hide();
                 var bounds = bar.Children.Where(c => c.IsVisible).Select(c => c.Bounds).ToArray();
                 Assert.All(bounds, b => Assert.InRange(b.Right, 0, bar.Bounds.Width + 1));
                 Assert.Equal(narrow, bounds.Last().Center.Y > bounds.First().Bottom);
                 Assert.True(Screenshots.Save(window, narrow ? "brush-options-ru-narrow" : "brush-options-ru-wide"));
             }
             CheckLayout(false);
-            window.Width = 900;
+            window.Width = 760;
             CheckLayout(true);
         }
         finally { Locale.Apply("en", window, null); window.Close(); }

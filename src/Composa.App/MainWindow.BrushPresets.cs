@@ -10,13 +10,25 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
-    private Control[] BrushDynamicsFields(EditorSession target) =>
-    [
-        Ui.Check("Pressure size", target.Brush.PressureSize, v => target.Brush = target.Brush with { PressureSize = v }),
-        Ui.Check("Pressure flow", target.Brush.PressureFlow, v => target.Brush = target.Brush with { PressureFlow = v }),
-        Ui.Check("Full brush outline", target.Brush.FullCursor, v => { target.Brush = target.Brush with { FullCursor = v }; canvas.InvalidateCanvas(); }),
-        Ui.SliderField("Smoothing", target.Brush.Smoothing, 0, 100, v => target.Brush = target.Brush with { Smoothing = v })
-    ];
+    private static Control BrushDynamics(EditorSession target, Action refreshCursor)
+    {
+        var flyout = new Flyout();
+        var button = new Button
+        {
+            Name = "BrushDynamics", Classes = { "flat" }, Flyout = flyout,
+            Content = Ui.Row(5, Ui.Label(Locale.T("Dynamics")), Icons.Create(Icons.ChevronDown, 12))
+        };
+        flyout.Opening += (_, _) => flyout.Content = Ui.Column(5,
+            Ui.Check("Pressure size", target.Brush.PressureSize, v => target.Brush = target.Brush with { PressureSize = v }),
+            Ui.Check("Pressure flow", target.Brush.PressureFlow, v => target.Brush = target.Brush with { PressureFlow = v }),
+            Ui.Check("Full brush outline", target.Brush.FullCursor, v =>
+            {
+                target.Brush = target.Brush with { FullCursor = v };
+                refreshCursor();
+            }));
+        return button;
+    }
+
     private static Control TipSample(BrushSettings brush, double size)
     {
         var fill = new RadialGradientBrush();
