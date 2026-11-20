@@ -129,9 +129,54 @@ public static unsafe class PromptSegmentation
         using var crop = area == canvas ? null : Pixels.Subset(image, area);
         using var mask = area == canvas ? null : Pixels.Subset(outline, area);
         if (box is { } rect) { rect.Offset(-area.Left, -area.Top); box = rect; }
-        using var alpha = TrimapMatting.Refine(crop ?? image, mask ?? outline, radius, cancellation: cancellation, fineDetail: true);
-        ForegroundCoverage.Refine(crop ?? image, alpha, box, radius, cancellation);
+        var guide = crop ?? image;
+        var silhouette = mask ?? outline;
+        using var alpha = TrimapMatting.Refine(guide, silhouette, radius, cancellation: cancellation, fineDetail: true);
+        ForegroundCoverage.Refine(guide, alpha, box, radius, cancellation);
+        if (LostInterior(silhouette, alpha, radius, cancellation) &&
+            !GraphicSelection.HasDominantInk(guide, alpha, silhouette, cancellation))
+        {
+            // The usual band can erase all foreground seeds on a thin slice or
+            // a row of small subjects. Give matting a narrower band on retry.
+            int narrow = Math.Max(2, radius / 4);
+            using var anchored = TrimapMatting.Refine(guide, silhouette, narrow, cancellation: cancellation, fineDetail: true);
+            ForegroundCoverage.Refine(guide, anchored, box, narrow, cancellation);
+            if (!MissingSilhouette(silhouette, anchored, .80, cancellation))
+                return Place(anchored, area, canvas);
+        }
         return Place(alpha, area, canvas);
+    }
+
+    internal static bool LostInterior(SKBitmap outline, SKBitmap alpha, int radius, CancellationToken cancellation)
+    {
+        if (!MissingSilhouette(outline, alpha, .75, cancellation)) return false;
+        var bounds = Selections.SelectionMask.Bounds(outline);
+        int filled = 0;
+        foreach (byte a in outline.GetPixelSpan()) if (a >= 128) filled++;
+        // A sparse open contour can be the actual subject (for example a rim).
+        // Only restore the interior of a solid silhouette.
+        if (filled < .36 * bounds.Width * bounds.Height) return false;
+        using var core = Selections.SelectionMask.Contract(outline, radius);
+        if (core == null) return true;
+        return MissingSilhouette(outline, core, .12, cancellation);
+    }
+
+    private static bool MissingSilhouette(SKBitmap outline, SKBitmap alpha, double required, CancellationToken cancellation)
+    {
+        var original = outline.GetPixelSpan();
+        var refined = alpha.GetPixelSpan();
+        int total = 0, retained = 0;
+        for (int y = 0; y < outline.Height; y++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            for (int x = 0; x < outline.Width; x++)
+            {
+                if (original[y * outline.RowBytes + x] < 128) continue;
+                total++;
+                if (refined[y * alpha.RowBytes + x] >= 128) retained++;
+            }
+        }
+        return total >= 24 && retained < required * total;
     }
 
     public static ImageEmbedding Encode(SKBitmap image, PromptModel model, CancellationToken cancellation = default) =>
@@ -203,6 +248,25 @@ public static unsafe class PromptSegmentation
             (int)Math.Ceiling(probe.Right * sx), (int)Math.Ceiling(probe.Bottom * sy));
         var candidate = PromptCandidate(masks.Data, scores, mw, mh, probeGrid, cancellation);
         if (candidate < 0) return Pixels.NewMask(width, height);
+        if (box == null && !mobile)
+        {
+            float[]? ConfirmPoint(SKPointI grid)
+            {
+                var prediction = Predict([(grid.X + .5f) * image.Width / mw, (grid.Y + .5f) * image.Height / mh, 0, 0], [1, -1]);
+                int i = PromptCandidate(prediction[0].Data, prediction[1].Data, mw, mh, SKRectI.Create(grid.X, grid.Y, 1, 1), cancellation);
+                return i < 0 ? null : prediction[0].Data.AsSpan(i * mw * mh, mw * mh).ToArray();
+            }
+            (float[], float)? ConfirmBox(SKRectI r)
+            {
+                float xScale = (float)image.Width / mw, yScale = (float)image.Height / mh;
+                var prediction = Predict([r.Left * xScale, r.Top * yScale, r.Right * xScale, r.Bottom * yScale], [2, 3]);
+                int i = PromptCandidate(prediction[0].Data, prediction[1].Data, mw, mh, probeGrid, cancellation);
+                return i < 0 ? null : (prediction[0].Data.AsSpan(i * mw * mh, mw * mh).ToArray(), prediction[1].Data[i]);
+            }
+            var click = new SKPointI(probeGrid.Left, probeGrid.Top);
+            int whole = PointMaskCandidates.Resolve(masks.Data, scores, candidate, mw, mh, click, ConfirmPoint, cancellation);
+            candidate = whole != candidate ? whole : PointMaskCandidates.CheckExtent(masks.Data, scores, candidate, mw, mh, click, ConfirmBox, cancellation);
+        }
         // A real object at the centre is independent evidence for the contents of a
         // hollow prediction. Background seen through a handle usually extends well
         // beyond the box. Both checks reuse the original image embedding.

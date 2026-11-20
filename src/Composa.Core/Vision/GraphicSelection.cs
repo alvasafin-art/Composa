@@ -193,4 +193,38 @@ internal static class GraphicSelection
         }
         catch { result.Dispose(); throw; }
     }
+
+    // The matte can correctly discard the background between letters even if
+    // SAM enclosed it. Look for a common ink colour among the remaining cores.
+    internal static bool HasDominantInk(SKBitmap image, SKBitmap matte, SKBitmap outline, CancellationToken cancellation)
+    {
+        var rgb = new PixelBuffer(image);
+        var bins = new int[4096];
+        bool Concentrated(SKBitmap mask)
+        {
+            Array.Clear(bins);
+            var bytes = mask.GetPixelSpan();
+            int total = 0, peak = 0;
+            for (int y = 0; y < image.Height; y++)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                for (int x = 0; x < image.Width; x++)
+                {
+                    if (bytes[y * mask.RowBytes + x] < 220) continue;
+                    var p = rgb.Read(x, y);
+                    int Bin(float v) => Math.Clamp((int)(16 * v), 0, 15);
+                    int id = (Bin(p.R) << 8) | (Bin(p.G) << 4) | Bin(p.B);
+                    if (++bins[id] > bins[peak]) peak = id;
+                    total++;
+                }
+            }
+            if (total < 24) return false;
+            int nearby = 0;
+            for (int i = 0; i < bins.Length; i++)
+                if (Math.Abs((i >> 8) - (peak >> 8)) <= 1 && Math.Abs(((i >> 4) & 15) - ((peak >> 4) & 15)) <= 1 &&
+                    Math.Abs((i & 15) - (peak & 15)) <= 1) nearby += bins[i];
+            return nearby > .68 * total;
+        }
+        return Concentrated(matte) || Concentrated(outline);
+    }
 }

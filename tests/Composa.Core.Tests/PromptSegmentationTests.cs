@@ -9,6 +9,38 @@ namespace Composa.Core.Tests;
 public class PromptSegmentationTests
 {
     [Fact]
+    public void Recheck_edge_band_when_it_has_erased_the_interior_of_a_row_of_thin_solids()
+    {
+        using var outline = Pixels.NewMask(220, 68);
+        using (var canvas = new SKCanvas(outline))
+        using (var paint = new SKPaint { Color = SKColors.White })
+            for (int x = 10; x < 200; x += 50) canvas.DrawOval(new SKRect(x, 20, x + 47, 40), paint);
+        using var empty = Pixels.NewMask(220, 68);
+        Assert.True(PromptSegmentation.LostInterior(outline, empty, 14, default));
+        Assert.False(PromptSegmentation.LostInterior(outline, outline, 14, default));
+        Assert.False(PromptSegmentation.LostInterior(outline, empty, 2, default));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Selecting_an_end_face_requires_confirmation_from_the_body(bool confirmed)
+    {
+        const int width = 120, height = 60, size = width * height;
+        var masks = Enumerable.Repeat(-1f, 3 * size).ToArray();
+        for (int y = 15; y < 45; y++)
+            for (int x = 12; x < 108; x++)
+            {
+                int j = y * width + x;
+                if (x < 34) masks[j] = 1;
+                masks[size + j] = masks[2 * size + j] = 1;
+            }
+        int result = PointMaskCandidates.Resolve(masks, [.86f, .81f, .79f], 0, width, height, new(22, 30),
+            p => p.X > 34 && confirmed ? masks.AsSpan(size, size).ToArray() : null, default);
+        Assert.Equal(confirmed ? 1 : 0, result);
+    }
+
+    [Fact]
     public void Scattered_dark_patches_need_a_semantic_check_before_replacing_the_box_selection()
     {
         using var image = Pixels.NewColor(120, 80);
