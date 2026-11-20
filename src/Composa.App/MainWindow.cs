@@ -138,6 +138,7 @@ public sealed partial class MainWindow : Window
         AddAt(center, Chrome(dock.LeftHost), 1);
         AttachPanelDrag(toolSurface, "Tools", topOnly: true);
         PlaceTools(settings.ToolsPosition);
+        SizeChanged += (_, _) => dock.UpdateWidths();
         dock.PresentationChanged += RefreshAiUi;
         dock.SetTabbed(settings.TabbedPanels);
         AddAt(center, Chrome(dock), 5);

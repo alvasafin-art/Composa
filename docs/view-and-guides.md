@@ -31,6 +31,6 @@ View > Show Transform Controls (Ctrl+H) shows or hides the frame with handles th
 
 ## Arranging panels
 
-Drag a panel title to either side of the workspace. The drop indicator identifies the side and insertion point. Drag the tool rail by its top edge to dock it on the left, right or bottom. The bottom position uses a horizontal palette above the canvas edge. Window > Workspaces saves panel locations, order and toolbar position. Properties is enabled by default and can be toggled in Window.
+Drag a panel title to either side of the workspace. The preview follows the pointer. Drop along a column’s side to place panels side by side, or inside it to stack panels vertically. Drag the separator between columns to adjust their widths. The first visible panel in a column starts directly at the top. Drag the tool rail by its top edge to dock it on the left, right or bottom. The bottom position uses a horizontal palette above the canvas edge. Window > Workspaces saves panel locations, order and toolbar position. Properties is enabled by default and can be toggled in Window.
 
 Zoom and document details are pinned beneath the right-hand panels. When all panels move to the left, those details follow them.

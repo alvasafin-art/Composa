@@ -55,6 +55,29 @@ public class PsdNativeTests
         foreach (var p in x) Assert.Contains(y, q => Math.Abs(p.X - q.X) < tolerance && Math.Abs(p.Y - q.Y) < tolerance);
     }
 
+    [Fact]
+    public void Typography_is_native_when_possible_and_unsupported_layout_keeps_an_editable_source()
+    {
+        var style = new TextStyle { Text = "One\u2028two\nThree", FontFamily = Family, Size = 25, Leading = 120, Tracking = 2.04,
+            Type = new Typography { ParagraphSpacing = 12, Indent = 6, Underline = true, Strike = true,
+                PercentLeading = true, PercentTracking = true, Case = TextLetterCase.Upper } };
+        var document = new Document(400, 220); document.Layers.Add(TextLayer(style));
+        var parsed = PsdImport.Load(Write(document));
+        var actual = Assert.Single(parsed.Layers).Text!;
+        Assert.Equal(style.Text, actual.Text); Assert.Equal(30, actual.LineHeight);
+        Assert.Equal(.5, actual.Tracking); Assert.True(actual.Type.Underline); Assert.True(actual.Type.Strike);
+        Assert.Equal(6, actual.Type.Indent); Assert.Equal(12, actual.Type.ParagraphSpacing); Assert.Equal(TextLetterCase.Upper, actual.Type.Case);
+        parsed.Discard();
+        var custom = style with { Type = style.Type with { List = TextList.Numbers } };
+        document.Layers.Clear(); document.Layers.Add(TextLayer(custom));
+        var withSource = PsdImport.Load(Write(document));
+        var group = Assert.Single(withSource.Layers.Where(layer => layer.IsGroup));
+        Assert.False(group.Visible);
+        Assert.Equal(style.Text, Assert.Single(group.Children).Text!.Text);
+        Picture(document, withSource.ToDocument());
+        withSource.Discard();
+    }
+
     [Theory]
     [InlineData(TextAlignment.Left, false)]
     [InlineData(TextAlignment.Center, false)]
@@ -65,7 +88,7 @@ public class PsdNativeTests
     public void Point_and_paragraph_text_keep_wording_faces_colors_spacing_and_alignment(TextAlignment alignment, bool box)
     {
         var style = new TextStyle { Text = "Привет (PSD) \\ 😀\nSecond line", FontFamily = Family, Size = 23, Color = 0xFF1428C8,
-            Alignment = alignment, Tracking = .75, Leading = 31, BoxWidth = box ? 160 : null, BoxHeight = box ? 120 : null }
+            Alignment = alignment, Tracking = .736, Leading = 31, BoxWidth = box ? 160 : null, BoxHeight = box ? 120 : null }
             .WithColor(0xFFC83214, 1, 6).WithFace(f => f with { Bold = true, Italic = true }, 3, 10);
         var document = new Document(500, 300); document.Layers.Add(TextLayer(style));
         var pixel = document.Layers[0].Pixels;

@@ -42,6 +42,18 @@ public class TypographyTests
     }
 
     [Fact]
+    public void A_soft_break_continues_the_paragraph_and_list_marker()
+    {
+        var style = new TextStyle { Text = "One\u2028two\nThree", Size = 20, Leading = 24,
+            Type = new Typography { ParagraphSpacing = 16, List = TextList.Numbers, Indent = 7 } };
+        var lines = new TextLayout(style).Lines;
+        Assert.Equal(3, lines.Count);
+        Assert.Equal(24, lines[1].Baseline - lines[0].Baseline);
+        Assert.Equal(40, lines[2].Baseline - lines[1].Baseline);
+        Assert.Equal(new[] { "1.", "", "2." }, lines.Select(l => l.Marker));
+    }
+
+    [Fact]
     public void Relative_line_height_follows_font_size_and_matches_pixel_leading()
     {
         var relative = new TextStyle { Text = "one\ntwo", Size = 20, Leading = 150, Type = new() { PercentLeading = true } };

@@ -70,6 +70,7 @@ public static class Ui
             Width = width, ClipValueToMinMax = true, ShowButtonSpinner = false
         };
         box.ValueChanged += (_, e) => { if (e.NewValue is { } v) changed((double)v); };
+        Scrub(box, box);
         return box;
     }
 
@@ -84,14 +85,15 @@ public static class Ui
     /// </summary>
     public static T Scrub<T>(T label, NumericUpDown box) where T : Control
     {
-        label.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
+        bool insideField = ReferenceEquals(label, box);
+        if (!insideField) label.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
         // Only what a control draws is hit; a label without a background would take the pointer on its glyphs alone.
         if (label is TextBlock { Background: null } text) text.Background = Brushes.Transparent;
-        ToolTip.SetTip(label, "Drag to change the value (Alt: finer)");
+        if (!insideField) ToolTip.SetTip(label, "Drag to change the value (Alt: finer)");
         ToolTip.SetShowDelay(label, 450);
         double pressX = 0, lastX = 0, start = 0, travel = 0;
         bool pressed = false, dragging = false;
-        label.PointerPressed += (_, e) =>
+        label.AddHandler(Control.PointerPressedEvent, (_, e) =>
         {
             if (!e.GetCurrentPoint(label).Properties.IsLeftButtonPressed) return;
             ToolTip.SetIsOpen(label, false);
@@ -100,10 +102,9 @@ public static class Ui
             travel = 0;
             pressed = true;
             dragging = false;
-            e.Pointer.Capture(label);
-            e.Handled = true;
-        };
-        label.PointerMoved += (_, e) =>
+            if (!insideField) { e.Pointer.Capture(label); e.Handled = true; }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
+        label.AddHandler(Control.PointerMovedEvent, (_, e) =>
         {
             if (!pressed || !e.GetCurrentPoint(label).Properties.IsLeftButtonPressed) return;
             var x = e.GetPosition(label).X;
@@ -111,23 +112,29 @@ public static class Ui
             {
                 if (Math.Abs(x - pressX) < ScrubThreshold) return;
                 dragging = true;
+                e.Pointer.Capture(label);
                 lastX = pressX;
             }
             travel += (x - lastX) * (e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Alt) ? ScrubFineScale : 1);
             lastX = x;
             // Whole numbers, as Photoshop scrubs: the field's own step and format decide what typing accepts.
-            var value = Math.Clamp((decimal)Math.Round(start + travel), box.Minimum, box.Maximum);
+            var value = Math.Clamp((decimal)start + (decimal)Math.Round(travel) * (insideField ? box.Increment : 1), box.Minimum, box.Maximum);
             if (box.Value != value) box.Value = value;
             e.Handled = true;
-        };
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
         void End(Avalonia.Input.IPointer pointer)
         {
             if (!pressed) return;
             pressed = dragging = false;
             if (Equals(pointer.Captured, label)) pointer.Capture(null);
         }
-        label.PointerReleased += (_, e) => { var was = pressed; End(e.Pointer); e.Handled = was; };
-        label.PointerCaptureLost += (_, e) => End(e.Pointer);
+        label.AddHandler(Control.PointerReleasedEvent, (_, e) =>
+        {
+            bool handled = pressed && (dragging || !insideField);
+            End(e.Pointer);
+            if (handled) e.Handled = true;
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
+        label.PointerCaptureLost += (_, e) => { if (e.Source == label) End(e.Pointer); };
         return label;
     }
 

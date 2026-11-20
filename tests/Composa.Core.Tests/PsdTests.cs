@@ -211,10 +211,10 @@ public class PsdTests
         var messages = noted.Conversions.Select(c => c.Message).ToList();
         Assert.Contains(PsdText.WarpNote, messages);
         Assert.True(noted.Layers[0].Text!.Bold);
-        Assert.Contains(PsdText.JustifyNote, messages);
+        Assert.DoesNotContain(PsdText.JustifyNote, messages);
         Assert.Contains(messages, m => m.Contains("first style"));
         Assert.Contains(messages, m => m.Contains("NoSuchFace") && m.Contains("installed"));
-        Assert.Equal(TextAlignment.Left, noted.Layers[0].Text!.Alignment);
+        Assert.Equal(TextAlignment.Justify, noted.Layers[0].Text!.Alignment);
         // Without engine data the words still come across, at 12 points.
         var bare = LoadText(new PsdWriter.TypeTool { Text = "Plain", NoEngine = true });
         Assert.Equal(("Plain", 12d), (bare.Layers[0].Text!.Text, bare.Layers[0].Text!.Size));

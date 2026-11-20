@@ -68,7 +68,8 @@ public class LabelScrubTests
         var layer = session.AddText(new SKPoint(100, 100), new TextStyle { Text = "Hello", Size = 73, FontFamily = session.TextDefaults.FontFamily });
         window.SelectTool(Tool.Text);
         Dispatcher.UIThread.RunJobs();
-        var label = Label(window, "px");
+        var field = window.GetVisualDescendants().OfType<NumericUpDown>().Single(c => c.Name == "TextSize");
+        var label = Label((Grid)field.Parent!, "px");
         Drag(window, label, 0);
         Assert.Equal(73, session.Document.Find(layer.Id)!.Text!.Size);
         Drag(window, label, 10);

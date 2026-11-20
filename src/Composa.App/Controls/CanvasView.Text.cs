@@ -154,7 +154,7 @@ public sealed partial class CanvasView
                 session.FinishText();
                 TextEditingChanged?.Invoke();
                 return true;
-            case Key.Enter or Key.Return: editor.Insert("\n"); return true;
+            case Key.Enter or Key.Return: editor.Insert(shift ? "\u2028" : "\n"); return true;
             case Key.Tab: editor.Insert("\t"); return true;
             case Key.Back: editor.Backspace(word: control); return true;
             case Key.Delete: editor.Delete(word: control); return true;

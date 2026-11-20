@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Composa.Editing;
 using Composa.Model;
@@ -14,7 +15,18 @@ public sealed partial class MainWindow
     private static Grid PropertyPair(Control first, Control second)
     {
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8 };
+        row.RowDefinitions = new RowDefinitions("Auto,Auto");
         row.Children.Add(first); AddAt(row, second, 1);
+        row.SizeChanged += (_, e) =>
+        {
+            bool stack = e.NewSize.Width < 215;
+            if (stack == (Grid.GetRow(second) == 1)) return;
+            row.RowSpacing = stack ? 8 : 0;
+            Grid.SetColumnSpan(first, stack ? 2 : 1);
+            Grid.SetColumn(second, stack ? 0 : 1);
+            Grid.SetColumnSpan(second, stack ? 2 : 1);
+            Grid.SetRow(second, stack ? 1 : 0);
+        };
         return row;
     }
 
@@ -103,6 +115,32 @@ public sealed partial class MainWindow
         refreshOptions?.Invoke();
     }
 
+    private readonly HashSet<string> expandedTypeGroups = new();
+
+    private StackPanel TypeGroup(string name, Control content)
+    {
+        var arrow = Icons.Create(Icons.ChevronDown, 20, Palette.Secondary);
+        var title = Ui.Label(name, weight: Avalonia.Media.FontWeight.SemiBold);
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,20") };
+        header.Children.Add(title);
+        AddAt(header, arrow, 1);
+        var button = new Button
+        {
+            Classes = { "flat" }, Padding = new Thickness(0, 5, 8, 5), Content = header,
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        AutomationProperties.SetName(button, name);
+        void Refresh()
+        {
+            content.IsVisible = expandedTypeGroups.Contains(name);
+            arrow.RenderTransform = new Avalonia.Media.RotateTransform(content.IsVisible ? 180 : 0);
+        }
+        button.Click += (_, _) => { if (!expandedTypeGroups.Remove(name)) expandedTypeGroups.Add(name); Refresh(); };
+        Refresh();
+        var rule = new Border { Height = 1, Background = Palette.Field, IsHitTestVisible = false };
+        return Ui.Column(6, rule, button, content);
+    }
+
     private void BuildTypography(StackPanel body, EditorSession s)
     {
         var refresh = new List<Action<Typography>>();
@@ -129,58 +167,120 @@ public sealed partial class MainWindow
         {
             if (!updating) s.ChangeTextStyle(st => st with { Type = edit(st.Type) });
         }
-        void Choices<T>(StackPanel parent, string name, Func<Typography, T> get, Func<Typography, T, Typography> set,
+        Control Choices<T>(string name, Func<Typography, T> get, Func<Typography, T, Typography> set,
             params (T Value, string Icon, string Tip)[] entries)
         {
-            var row = new WrapPanel { ItemSpacing = 2 };
+            var row = new Grid { ColumnSpacing = 2 };
             foreach (var (value, icon, tip) in entries)
             {
-                var b = new ToggleButton { Classes = { "tool" }, MinWidth = 31, Height = 26, Padding = new Thickness(4, 0), Content = icon };
+                var b = new ToggleButton
+                {
+                    Classes = { "tool" }, Width = double.NaN, Height = 26, MinWidth = 0, Padding = new Thickness(3, 0), Content = icon,
+                    HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center
+                };
                 ToolTip.SetTip(b, tip); AutomationProperties.SetName(b, tip); RegisterFeature(b, tip);
                 b.Click += (_, _) => { Change(t => set(t, value)); refreshOptions?.Invoke(); };
                 refresh.Add(t => b.IsChecked = EqualityComparer<T>.Default.Equals(get(t), value));
-                row.Children.Add(b);
+                row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+                AddAt(row, b, row.Children.Count);
             }
-            parent.Children.Add(Ui.Column(2, Ui.Label(name, Palette.Secondary, 11), row));
+            if (name == "Wrap")
+            {
+                row.SizeChanged += (_, e) =>
+                {
+                    bool compact = e.NewSize.Width < 210;
+                    if (compact == (row.RowDefinitions.Count != 0)) return;
+                    row.RowDefinitions.Clear();
+                    row.RowSpacing = compact ? 2 : 0;
+                    for (int i = 0; i < row.Children.Count; i++)
+                    {
+                        if (compact) row.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                        Grid.SetRow(row.Children[i], compact ? i : 0);
+                        Grid.SetColumn(row.Children[i], compact ? 0 : i);
+                        Grid.SetColumnSpan(row.Children[i], compact ? row.Children.Count : 1);
+                    }
+                };
+            }
+            var group = new Border { Background = Palette.Field, CornerRadius = new CornerRadius(6), Padding = new Thickness(3), Child = row };
+            return Ui.Column(5, Ui.Label(name, Palette.Secondary, 11), group);
         }
-        void Flag(StackPanel parent, string icon, string tip, Func<Typography, bool> get, Func<Typography, bool, Typography> set)
+
+        Control Flag(string label, string tip, Func<Typography, bool> get, Func<Typography, bool, Typography> set)
         {
-            var b = new ToggleButton { Content = icon, MinWidth = 32, Height = 26, Padding = new Thickness(4, 0) };
-            ToolTip.SetTip(b, tip); AutomationProperties.SetName(b, tip); RegisterFeature(b, tip);
-            b.Click += (_, _) => Change(t => set(t, !get(t)));
-            refresh.Add(t => b.IsChecked = get(t)); parent.Children.Add(b);
+            var box = new CheckBox { Content = label, MinHeight = 28, HorizontalAlignment = HorizontalAlignment.Stretch };
+            box.Template = new FuncControlTemplate<CheckBox>((toggle, _) =>
+            {
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("22,*"), ColumnSpacing = 8,
+                    Background = Avalonia.Media.Brushes.Transparent };
+                var caption = Ui.Label(label, size: 12);
+                caption.VerticalAlignment = VerticalAlignment.Center;
+                caption.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+                AddAt(row, caption, 1);
+                var thumb = new Border { Width = 9, Height = 9, CornerRadius = new CornerRadius(5) };
+                var track = new Border { Height = 13, CornerRadius = new CornerRadius(7), Padding = new Thickness(2),
+                    VerticalAlignment = VerticalAlignment.Center, Child = thumb };
+                row.Children.Add(track);
+                void Draw()
+                {
+                    bool on = toggle.IsChecked == true;
+                    track.Background = on ? Palette.Accent : Palette.Edge;
+                    thumb.Background = on ? Avalonia.Media.Brushes.White : Palette.Secondary;
+                    thumb.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+                    row.Opacity = toggle.IsEnabled ? 1 : .48;
+                }
+                Draw();
+                toggle.PropertyChanged += (_, e) =>
+                {
+                    if (e.Property == CheckBox.IsCheckedProperty || e.Property == IsEnabledProperty) Draw();
+                };
+                return row;
+            });
+            ToolTip.SetTip(box, tip); AutomationProperties.SetName(box, tip); RegisterFeature(box, tip);
+            box.IsCheckedChanged += (_, _) => Change(t => set(t, box.IsChecked == true));
+            refresh.Add(t => box.IsChecked = get(t));
+            return box;
         }
-        void Number(StackPanel parent, string label, Func<Typography, double> get, Func<Typography, double, Typography> set)
+
+        Control Number(string label, Func<Typography, double> get, Func<Typography, double, Typography> set)
         {
-            var n = Ui.Number(get(s.CurrentTextStyle.Type), 0, 5000, v => Change(t => set(t, v)));
-            refresh.Add(t => n.Value = (decimal)get(t)); n.Width = double.NaN; n.HorizontalAlignment = HorizontalAlignment.Stretch; parent.Children.Add(PropertyPair(Ui.Label(label), n));
+            var field = Ui.Number(get(s.CurrentTextStyle.Type), 0, 5000, v => Change(t => set(t, v)), format: "0.##");
+            field.Width = double.NaN; field.Height = 30;
+            field.HorizontalAlignment = HorizontalAlignment.Stretch;
+            AutomationProperties.SetName(field, label);
+            refresh.Add(t => field.Value = (decimal)get(t));
+            return Ui.Column(4, Ui.Label(label, Palette.Secondary, 11), field);
         }
-        void Group(string name, StackPanel content) => body.Children.Add(new Expander { Header = name, Content = content, Padding = new Thickness(0, 4), HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
-        var paragraph = Ui.Column(5);
-        Choices(paragraph, "Vertical alignment", t => t.Vertical, (t, v) => t with { Vertical = v },
+        var vertical = Choices("Vertical alignment", t => t.Vertical, (t, v) => t with { Vertical = v },
             (TextVertical.Top, "↥", "Top"), (TextVertical.Center, "↕", "Center vertically"), (TextVertical.Bottom, "↧", "Bottom"));
-        Choices(paragraph, "List", t => t.List, (t, v) => t with { List = v }, (TextList.None, "—", "No list"), (TextList.Bullets, "• ≡", "Bulleted list"), (TextList.Numbers, "1 ≡", "Numbered list"));
-        Choices(paragraph, "Wrap", t => t.Wrap, (t, v) => t with { Wrap = v }, (TextWrap.Word, "↵", "Word wrap"), (TextWrap.Character, "A↵", "Wrap characters"), (TextWrap.None, "→", "No wrap"));
-        var flags = Ui.Row(3);
-        Flag(flags, "…", "Truncate with ellipsis", t => t.Ellipsis, (t, v) => t with { Ellipsis = v });
-        Flag(flags, "↕A", "Trim vertical font metrics", t => t.Trim, (t, v) => t with { Trim = v });
-        Flag(flags, "“←", "Hanging punctuation", t => t.HangingPunctuation, (t, v) => t with { HangingPunctuation = v });
-        Flag(flags, "•↤", "Hanging list indent", t => t.HangingList, (t, v) => t with { HangingList = v });
-        paragraph.Children.Add(flags);
-        Number(paragraph, "Paragraph gap", t => t.ParagraphSpacing, (t, v) => t with { ParagraphSpacing = v });
-        Number(paragraph, "First-line indent", t => t.Indent, (t, v) => t with { Indent = v });
-        Group("Paragraph", paragraph);
-        var detail = Ui.Column(5);
-        Choices(detail, "Letter case", t => t.Case, (t, v) => t with { Case = v }, (TextLetterCase.Original, "—", "Original case"), (TextLetterCase.Upper, "AG", "Uppercase"), (TextLetterCase.Lower, "ag", "Lowercase"), (TextLetterCase.Title, "Ag", "Title case"), (TextLetterCase.SmallCaps, "Aɢ", "Small capitals"));
-        var caps = Ui.Row(3);
-        Flag(caps, "(A)", "Case-sensitive forms", t => t.CaseForms, (t, v) => t with { CaseForms = v });
-        Flag(caps, "A A", "Capital spacing", t => t.CapitalSpacing, (t, v) => t with { CapitalSpacing = v });
-        detail.Children.Add(caps);
-        Choices(detail, "Numerals", t => t.Figures, (t, v) => t with { Figures = v }, (FigureStyle.Default, "—", "Font default"), (FigureStyle.Lining, "17", "Lining figures"), (FigureStyle.OldStyle, "₁7", "Old-style figures"), (FigureStyle.Tabular, "|1|", "Tabular figures"), (FigureStyle.Proportional, "1↔", "Proportional figures"));
-        Choices(detail, "Number position", t => t.FigurePosition, (t, v) => t with { FigurePosition = v }, (FigurePosition.Baseline, "A2", "Baseline"), (FigurePosition.Subscript, "A₂", "Subscript"), (FigurePosition.Superscript, "A²", "Superscript"));
-        Group("Type details", detail);
-        var axes = Ui.Column(4);
-        var axesGroup = new Expander { Header = "Variable font", Content = axes, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var list = Choices("List", t => t.List, (t, v) => t with { List = v },
+            (TextList.None, "—", "No list"), (TextList.Bullets, "• ≡", "Bulleted list"), (TextList.Numbers, "1 ≡", "Numbered list"));
+        var wrap = Choices("Wrap", t => t.Wrap, (t, v) => t with { Wrap = v },
+            (TextWrap.Word, "Words", "Word wrap"), (TextWrap.Character, "Characters", "Wrap characters"), (TextWrap.None, "No wrap", "No wrap"));
+        var flowFlags = PropertyPair(Flag("Ellipsis", "Truncate with ellipsis", t => t.Ellipsis, (t, v) => t with { Ellipsis = v }),
+            Flag("Trim height", "Trim vertical font metrics", t => t.Trim, (t, v) => t with { Trim = v }));
+        var indentFlags = PropertyPair(Flag("Punctuation", "Hanging punctuation", t => t.HangingPunctuation, (t, v) => t with { HangingPunctuation = v }),
+            Flag("List markers", "Hanging list indent", t => t.HangingList, (t, v) => t with { HangingList = v }));
+        var paragraph = Ui.Column(12, PropertyPair(vertical, list), Ui.Column(4, wrap, flowFlags),
+            PropertyPair(Number("Paragraph gap", t => t.ParagraphSpacing, (t, v) => t with { ParagraphSpacing = v }),
+                Number("First-line indent", t => t.Indent, (t, v) => t with { Indent = v })),
+            Ui.Column(3, Ui.Label("Hanging indent", Palette.Secondary, 11), indentFlags));
+        var casing = Choices("Letter case", t => t.Case, (t, v) => t with { Case = v },
+            (TextLetterCase.Original, "—", "Original case"), (TextLetterCase.Upper, "AG", "Uppercase"), (TextLetterCase.Lower, "ag", "Lowercase"),
+            (TextLetterCase.Title, "Ag", "Title case"), (TextLetterCase.SmallCaps, "Aɢ", "Small capitals"));
+        var figures = Choices("Numerals", t => t.Figures, (t, v) => t with { Figures = v }, (FigureStyle.Default, "—", "Font default"),
+            (FigureStyle.Lining, "17", "Lining figures"), (FigureStyle.OldStyle, "₁7", "Old-style figures"),
+            (FigureStyle.Tabular, "|1|", "Tabular figures"), (FigureStyle.Proportional, "1↔", "Proportional figures"));
+        var position = Choices("Number position", t => t.FigurePosition, (t, v) => t with { FigurePosition = v },
+            (FigurePosition.Baseline, "A2", "Baseline"), (FigurePosition.Subscript, "A₂", "Subscript"), (FigurePosition.Superscript, "A²", "Superscript"));
+        var numeralRow = PropertyPair(figures, position);
+        numeralRow.ColumnDefinitions = new ColumnDefinitions("5*,3*");
+        var detail = Ui.Column(12, Ui.Column(4, casing,
+            PropertyPair(Flag("Case forms", "Case-sensitive forms", t => t.CaseForms, (t, v) => t with { CaseForms = v }),
+                Flag("Capital spacing", "Capital spacing", t => t.CapitalSpacing, (t, v) => t with { CapitalSpacing = v }))), numeralRow);
+        body.Children.Add(TypeGroup("Type details", detail));
+        body.Children.Add(TypeGroup("Paragraph", paragraph));
+        var axes = Ui.Column(6);
+        var axesGroup = TypeGroup("Variable font", axes);
         body.Children.Add(axesGroup);
         TextFace? displayed = null;
         refreshOptions += () =>

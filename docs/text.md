@@ -16,11 +16,17 @@ Keys while typing: Enter starts a new line; Tab inserts a tab; the arrow keys mo
 
 Select a text layer on the canvas with Move or select its row in Layers. **Window > Properties** shows its typeface, style, size, color, alignment and spacing. With Properties hidden the Type tool retains its quick controls. Within an open text edit, font family, style, size and color apply to the selected characters. Paragraph settings apply to the text block.
 
-Open the font family list and move the pointer or use the arrow keys to preview each family on the canvas. Enter or a click accepts the family. Escape or dismissal discards the sample. Browsing does not modify the project, undo history or export. The closest installed weight and slant are used for each selected run.
+Open the font family list and move the pointer or use the arrow keys to preview each family on the canvas. Enter or a click accepts the family. Escape or dismissal discards the sample. Browsing does not modify the project, undo history or export. The closest installed weight and slant are used for each selected run. Type a family name and press Enter to select it. A warning beside a family indicates that it lacks glyphs for characters in the current text.
+
+Drag horizontally inside a numeric field to adjust its value on the canvas. A click still allows typing. Enter starts a paragraph. Shift+Enter inserts a line break within the current paragraph and keeps its list number and spacing. Expanded type sections stay open when switching layers.
 
 The spacing fields show line height (zero means Auto) and letter spacing. Click the unit beside either spacing field to switch between pixels and percent of font size. Underline and strikethrough can be combined. **Paragraph** contains alignment in the text box, lists, wrapping, ellipsis, vertical trim, hanging punctuation, first-line indent and spacing between paragraphs. **Type details** includes non-destructive case transforms and OpenType options for capitals and numerals. Available features depend on the font. Variable fonts expose their installed axes in **Variable font**.
 
 A change in the type controls applies to the text you are typing, or to the active text layer when none is being typed, or to the next text you add when no text layer is active. A run of changes on one layer undoes as a single step.
+
+## Photoshop export
+
+PSD text supports editable font runs, underline, strikethrough, leading, tracking, justification, baseline position, paragraph gap and first-line indent. Photoshop stores tracking in integer thousandths of an em. Lowercase and title case are exported as the displayed letters. For a layout that uses features such as lists, variable axes or ellipsis, the PSD contains the rendered layer and its text in a hidden **Editable text** folder. The Composa project retains the original settings.
 
 ## Letters in their own colors
 

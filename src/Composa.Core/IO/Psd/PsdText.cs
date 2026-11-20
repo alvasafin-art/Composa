@@ -154,7 +154,7 @@ internal static class PsdText
     {
         if (text == null) return null;
         text = text.TrimStart('﻿', '\0').TrimEnd('\0');
-        return text.Replace("\r\n", "\n").Replace('\r', '\n');
+        return text.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\u0003', '\u2028');
     }
 
     // ---- The engine dictionary's style --------------------------------------------------------------------------
@@ -191,6 +191,10 @@ internal static class PsdText
         var lengths = EngineData.List(EngineData.Walk(engine, "EngineDict", "StyleRun", "RunLengthArray"));
         if (runs.Count == lengths.Count && lengths.Count > 0)
         {
+            bool relativeTracking = tracking != 0 && runs.Any(run =>
+                EngineData.Number(EngineData.Walk(run, "StyleSheet", "StyleSheetData", "FontSize")) is { } sz && sz != points)
+                && runs.All(run => (EngineData.Number(EngineData.Walk(run, "StyleSheet", "StyleSheetData", "Tracking")) ?? 0) == tracking);
+            if (relativeTracking) style = style with { Tracking = tracking / 10, Type = style.Type with { PercentTracking = true } };
             var colors = new List<TextColorRun>(); var faces = new List<TextFontRun>(); var sizes = new List<TextSizeRun>();
             long start = 0;
             for (var i = 0; i < runs.Count; i++)
@@ -214,7 +218,10 @@ internal static class PsdText
                 }
                 face = face with { Bold = face.Bold || EngineData.Bool(EngineData.Walk(data, "FauxBold")) == true, Italic = face.Italic || EngineData.Bool(EngineData.Walk(data, "FauxItalic")) == true };
                 if (length > 0 && face != style.Face) faces.Add(new TextFontRun((int)start, length, face.FontFamily, face.Bold, face.Italic) { FontStyle = face.FontStyle });
-                if (Signature(runs[i]) != Signature(first) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
+                // Photoshop quantizes each run independently to thousandths of its own em.
+                var runTracking = EngineData.Number(EngineData.Walk(data, "Tracking")) ?? 0;
+                bool sameSpacing = relativeTracking || Math.Abs(runTracking * size - tracking * points) <= (size + points) / 2;
+                if ((!sameSpacing || Signature(runs[i]) != Signature(first)) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
                 start += (int)n.Value;
                 if (start >= style.Text.Length) break;
             }
@@ -223,12 +230,24 @@ internal static class PsdText
         else if (runs.Count > 1) notes.Add("The character style run lengths are missing or inconsistent; only the first style was kept.");
 
         var paragraphs = EngineData.List(EngineData.Walk(engine, "EngineDict", "ParagraphRun", "RunArray"));
+        var props = EngineData.Walk(paragraphs.FirstOrDefault(), "ParagraphSheet", "Properties");
+        style = style with { Type = style.Type with
+        {
+            Case = EngineData.Number(EngineData.Walk(sheet, "FontCaps")) switch { 1 => TextLetterCase.SmallCaps, 2 => TextLetterCase.Upper, _ => TextLetterCase.Original },
+            FigurePosition = EngineData.Number(EngineData.Walk(sheet, "FontBaseline")) switch { 1 => FigurePosition.Superscript, 2 => FigurePosition.Subscript, _ => FigurePosition.Baseline },
+            Underline = EngineData.Bool(EngineData.Walk(sheet, "Underline")) == true,
+            Strike = EngineData.Bool(EngineData.Walk(sheet, "Strikethrough")) == true,
+            HangingPunctuation = EngineData.Bool(EngineData.Walk(props, "Hanging")) == true,
+            ParagraphSpacing = (EngineData.Number(EngineData.Walk(props, "SpaceAfter")) ?? 0) * pixelScale,
+            Indent = (EngineData.Number(EngineData.Walk(props, "FirstLineIndent")) ?? 0) * pixelScale
+        } };
         var justification = EngineData.Number(EngineData.Walk(paragraphs.Count > 0 ? paragraphs[0] : engine, "ParagraphSheet", "Properties", "Justification"));
         switch ((int)Math.Round(justification ?? 0))
         {
             case 0: style = style with { Alignment = TextAlignment.Left }; break;
             case 1: style = style with { Alignment = TextAlignment.Right }; break;
             case 2: style = style with { Alignment = TextAlignment.Center }; break;
+            case 3: style = style with { Alignment = TextAlignment.Justify }; break;
             default: style = style with { Alignment = TextAlignment.Left }; notes.Add(JustifyNote); break;
         }
         return style;
@@ -238,9 +257,7 @@ internal static class PsdText
     private static string Signature(object? run)
     {
         var sheet = EngineData.Walk(run, "StyleSheet", "StyleSheetData") ?? run;
-        var size = EngineData.Number(EngineData.Walk(sheet, "FontSize")) ?? 12;
-        var tracking = (EngineData.Number(EngineData.Walk(sheet, "Tracking")) ?? 0) * size / 1000;
-        return tracking.ToString("0.###", CultureInfo.InvariantCulture) + "|" + string.Join("|", new[] { "AutoLeading", "Leading", "HorizontalScale", "VerticalScale" }
+        return string.Join("|", new[] { "AutoLeading", "Leading", "HorizontalScale", "VerticalScale" }
             .Select(key => EngineData.Walk(sheet, key) switch { double d => d.ToString("0.###", CultureInfo.InvariantCulture), bool b => b.ToString(), _ => "" }));
     }
 

@@ -36,7 +36,7 @@ public static partial class PsdExport
             if (layer.VectorMask != null) notes.Add(new(layer.Name, "Vector masks are applied to the exported appearance; their editable paths stay in the Composa project."));
             if (layer.IsAdjustment) { notes.Add(new(layer.Name, "Adjustment settings cannot be represented exactly in Photoshop and are not exported as editable adjustments.")); continue; }
             if ((layer.Text != null || layer.Shape != null) && NativeProblem(layer, document) is { } problem)
-                notes.Add(new(layer.Name, problem + " This layer is saved as pixels; keep a Composa project for editing."));
+                notes.Add(new(layer.Name, problem == TypeAppearanceNote ? problem : problem + " This layer is saved as pixels; keep a Composa project for editing."));
             if (layer.SmartObject != null) notes.Add(new(layer.Name, "Smart object content is saved as pixels; its embedded document stays in the Composa project."));
             if (layer.Effects?.Visible() is { IsEmpty: false }) notes.Add(new(layer.Name, "Layer effects are applied to pixels, together with the enabled mask. Their settings stay in the Composa project."));
             else if (layer.Effects is { IsEmpty: false }) notes.Add(new(layer.Name, "Disabled layer effect settings are not exported. They stay in the Composa project."));
@@ -109,6 +109,16 @@ public static partial class PsdExport
             records.Add(new(Layer.Group(AppearanceLayer), document.Bounds, Appearance: true));
         }
         else Add(document.Layers);
+        var typeSources = document.AllLayers().Where(layer => layer.Text != null && NativeProblem(layer, document) == TypeAppearanceNote)
+            .Select(EditableTextSource).ToArray();
+        if (typeSources.Length > 0)
+        {
+            records.Add(new(Layer.Group("</Layer group>"), SKRectI.Empty, 3));
+            Add(typeSources);
+            var folder = Layer.Group("Editable text");
+            folder.Visible = false;
+            records.Add(new(folder, SKRectI.Empty, 2));
+        }
         // A negative layer count advertises the merged transparency, including an entirely empty canvas.
         if (records.Count == 0) records.Add(new(Layer.Group(AppearanceLayer), document.Bounds, Appearance: true));
         if (records.Count > PsdReader.MaxLayers) throw new PsdException($"Photoshop export supports at most {PsdReader.MaxLayers:N0} layer records, including folder dividers.");

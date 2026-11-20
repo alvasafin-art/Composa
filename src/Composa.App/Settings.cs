@@ -307,7 +307,7 @@ public sealed class Settings
 }
 
 /// <summary>How one panel of the side dock was left: shown or not, collapsed to its header or not, and its height when open.</summary>
-public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220, bool Left = false, int Order = 0);
+public sealed record DockPanelState(bool Visible = true, bool Collapsed = false, double Height = 220, bool Left = false, int Order = 0, int Column = 0, double ColumnWeight = 1);
 
 /// <summary>View chrome only. Documents, pixels, tool options and shortcuts never belong to a workspace.</summary>
 public sealed record WorkspaceLayout(Dictionary<string, DockPanelState> Panels, bool CanvasOnly, bool TabbedPanels = false, string ToolsPosition = "Left");

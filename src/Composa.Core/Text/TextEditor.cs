@@ -44,7 +44,7 @@ public sealed class TextEditor
     {
         text = text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\t", "    ");
         if (text.Length == 0 && !HasSelection) return;
-        Record(typing: text.Length <= 2 && !text.Contains('\n'));
+        Record(typing: text.Length <= 2 && text.AsSpan().IndexOfAny('\n', '\u2028') < 0);
         int start = SelectionStart, end = SelectionEnd;
         var content = Text.Remove(start, end - start).Insert(start, text);
         if (content.Length > TextStyle.MaxLength) return;

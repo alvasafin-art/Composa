@@ -93,6 +93,58 @@ public class PanelTypographyTests
     }
 
     [AvaloniaFact]
+    public void Text_properties_remember_sections_accept_typed_font_names_and_scrub_in_the_field()
+    {
+        var window = new MainWindow { Width = 1440, Height = 1000 };
+        window.Show();
+        var session = EditorSession.NewCanvas(540, 320, SKColors.White);
+        window.AddSession(session);
+        var layer = session.AddText(new(10, 30), new TextStyle { Text = "Typography 🦊", Size = 40 });
+        try
+        {
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            dock.Move("Properties", true, null);
+            Dispatcher.UIThread.RunJobs();
+            var firstColumn = dock.Columns(true).Single().View;
+            Assert.Empty(firstColumn.GetVisualDescendants().OfType<GridSplitter>());
+            Assert.Equal(firstColumn.TranslatePoint(default, window)!.Value.Y,
+                dock.Section("Properties").Frame!.TranslatePoint(default, window)!.Value.Y, 1);
+            Assert.Contains(dock.Columns(false).Single().View.GetVisualDescendants().OfType<GridSplitter>(),
+                splitter => splitter.ResizeDirection == GridResizeDirection.Rows);
+            T Find<T>(string name) where T : Control => window.GetVisualDescendants().OfType<T>()
+                .Single(c => Avalonia.Automation.AutomationProperties.GetName(c) == name);
+            Point Center(Control c) => c.TranslatePoint(new Point(c.Bounds.Width / 2, c.Bounds.Height / 2), window)!.Value;
+            void Click(Control c) { var p = Center(c); window.MouseDown(p, MouseButton.Left); window.MouseUp(p, MouseButton.Left); Dispatcher.UIThread.RunJobs(); }
+            Click(Find<Button>("Paragraph")); Click(Find<Button>("Type details"));
+            session.SelectLayer(session.Document.Layers[0].Id); session.SelectLayer(layer.Id); Dispatcher.UIThread.RunJobs();
+            var gap = Find<NumericUpDown>("Paragraph gap"); Assert.True(gap.IsEffectivelyVisible);
+            Assert.True(Find<CheckBox>("Capital spacing").IsEffectivelyVisible);
+            var start = Center(gap);
+            window.MouseDown(start, MouseButton.Left);
+            window.MouseMove(start.WithX(start.X + 14), RawInputModifiers.LeftMouseButton);
+            Assert.True(layer.Text!.Type.ParagraphSpacing > 0);
+            window.MouseUp(start.WithX(start.X + 14), MouseButton.Left);
+            var combo = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "FontFamilyPicker");
+            combo.IsDropDownOpen = true; Dispatcher.UIThread.RunJobs();
+            Assert.Contains(combo.GetRealizedContainers().SelectMany(c => c.GetVisualDescendants()).OfType<TextBlock>(),
+                t => t.Text == "⚠");
+            combo.IsDropDownOpen = false; Dispatcher.UIThread.RunJobs();
+            var editor = combo.GetVisualDescendants().OfType<TextBox>().First();
+            var family = EditorSession.FontFamilies.First(f => f != layer.Text.FontFamily);
+            editor.Focus(); editor.SelectAll(); window.KeyTextInput(family.ToLowerInvariant());
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(family, layer.Text.FontFamily);
+            var wrap = Find<Avalonia.Controls.Primitives.ToggleButton>("Wrap characters");
+            var caption = wrap.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Characters");
+            Assert.True(wrap.Bounds.Width >= caption.DesiredSize.Width + 12);
+            Assert.True(Center(Find<Button>("Type details")).Y < Center(Find<Button>("Paragraph")).Y);
+            Assert.True(Screenshots.Save(window, "refined-type-properties"));
+        }
+        finally { session.MarkSaved("layout.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Dragging_titles_reparents_live_panels_and_bottom_rail_without_changing_the_document()
     {
         var window = new MainWindow { Width = 1440, Height = 900 };
@@ -114,9 +166,20 @@ public class PanelTypographyTests
                 window.MouseUp(end, MouseButton.Left); Dispatcher.UIThread.RunJobs();
             }
             Dispatcher.UIThread.RunJobs();
+            Assert.True(window.RailButton(Tool.Move).TranslatePoint(default, window)!.Value.Y < 170);
             Drag(header.TranslatePoint(new Point(30, 8), window)!.Value, new Point(45, 150));
             Assert.True(dock.Section("Layers").State.Left);
             Assert.Same(layers, dock.LeftHost.GetVisualDescendants().OfType<LayersPanel>().Single());
+            var historyTitle = dock.GetVisualDescendants().OfType<Button>()
+                .Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "Collapse History");
+            var begin = historyTitle.TranslatePoint(new Point(32, 9), window)!.Value;
+            var drop = dock.TranslatePoint(new Point(12, 120), window)!.Value;
+            window.MouseDown(begin, MouseButton.Left); window.MouseMove(drop, RawInputModifiers.LeftMouseButton);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Contains(window.GetVisualDescendants(), c => c.Name == "DockDropTarget" && c.Bounds.Width > 20);
+            Assert.True(Screenshots.Save(window, "panel-drop-preview"));
+            window.MouseUp(drop, MouseButton.Left); Dispatcher.UIThread.RunJobs();
+            Assert.True(dock.Section("History").State.Column < dock.Section("Properties").State.Column);
             var rail = window.RailButton(Tool.Move).FindAncestorOfType<ScrollViewer>()!;
             var surface = (Border)rail.Parent!;
             Drag(surface.TranslatePoint(new Point(20, 3), window)!.Value, new Point(730, 820));

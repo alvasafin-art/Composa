@@ -1,4 +1,9 @@
+using System.Text;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
+using Avalonia.Layout;
+using Composa.Model;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -13,9 +18,44 @@ public sealed partial class MainWindow
 
     private void EnableFontSamples(ComboBox combo, EditorSession owner)
     {
+        combo.IsEditable = true;
+        string? sourceText = null;
+        int[] characters = [];
+        var coverage = new Dictionary<TextFace, bool>();
+        bool Missing(string family)
+        {
+            var style = owner.CurrentTextStyle;
+            if (style.Text != sourceText)
+            {
+                sourceText = style.Text;
+                characters = sourceText.EnumerateRunes().Where(r => !Rune.IsWhiteSpace(r) &&
+                    Rune.GetUnicodeCategory(r) is not (System.Globalization.UnicodeCategory.Control or System.Globalization.UnicodeCategory.Format)
+                    && r.Value is not (>= 0xFE00 and <= 0xFE0F) and not (>= 0xE0100 and <= 0xE01EF)).Select(r => r.Value).Distinct().ToArray();
+                coverage.Clear();
+            }
+            var face = FontCatalog.Closest(family, owner.CurrentTextFace).Face;
+            if (coverage.TryGetValue(face, out var missing)) return missing;
+            var typeface = TextLayout.TypefaceFor(face);
+            return coverage[face] = characters.Any(code => !typeface.ContainsGlyph(code));
+        }
+        combo.ItemTemplate = new FuncDataTemplate<string>((family, _) =>
+        {
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            row.Children.Add(Ui.Label(family));
+            if (Missing(family))
+            {
+                var warning = Ui.Label("⚠", Palette.Secondary);
+                warning.Margin = new Thickness(8, 0, 0, 0);
+                const string message = "Some characters in this text are missing from the font";
+                ToolTip.SetTip(warning, message);
+                Avalonia.Automation.AutomationProperties.SetName(warning, message);
+                AddAt(row, warning, 1);
+            }
+            return row;
+        });
         string? request = null;
         int generation = 0, keyboardIndex = -1;
-        bool busy = false;
+        bool busy = false, navigating = false;
         void Close()
         {
             generation++;
@@ -55,7 +95,7 @@ public sealed partial class MainWindow
         void PointAt(object? sender, PointerEventArgs e)
         {
             if (sender is ComboBoxItem { Content: string family } item)
-            { keyboardIndex = combo.IndexFromContainer(item); Sample(family); }
+            { navigating = true; keyboardIndex = combo.IndexFromContainer(item); Sample(family); }
         }
         combo.ContainerPrepared += (_, e) =>
         {
@@ -76,11 +116,24 @@ public sealed partial class MainWindow
                 }
             }, DispatcherPriority.Loaded);
         }, RoutingStrategies.Bubble, handledEventsToo: true);
+        combo.AddHandler(TextInputEvent, (_, _) => navigating = false, RoutingStrategies.Tunnel, true);
         void HandleFontKey(object? sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Enter && !navigating && !string.IsNullOrWhiteSpace(combo.Text))
+            {
+                string query = combo.Text.Trim();
+                var match = combo.Items.OfType<string>().FirstOrDefault(f => f.Equals(query, StringComparison.OrdinalIgnoreCase))
+                    ?? combo.Items.OfType<string>().FirstOrDefault(f => f.StartsWith(query, StringComparison.OrdinalIgnoreCase));
+                if (match != null) { combo.SelectedItem = match; combo.Text = match; }
+                else combo.Text = combo.SelectedItem as string ?? owner.CurrentTextFace.FontFamily;
+                combo.IsDropDownOpen = false;
+                e.Handled = true;
+                return;
+            }
             if (!combo.IsDropDownOpen) return;
             if (e.Key is Key.Up or Key.Down)
             {
+                navigating = true;
                 keyboardIndex = Math.Clamp(keyboardIndex + (e.Key == Avalonia.Input.Key.Down ? 1 : -1), 0, combo.ItemCount - 1);
                 combo.ScrollIntoView(keyboardIndex);
                 combo.ContainerFromIndex(keyboardIndex)?.Focus();
@@ -94,7 +147,7 @@ public sealed partial class MainWindow
             }
         }
         combo.AddHandler(KeyDownEvent, HandleFontKey, RoutingStrategies.Tunnel);
-        combo.DropDownOpened += (_, _) => { openFontPicker = combo; keyboardIndex = combo.SelectedIndex; };
+        combo.DropDownOpened += (_, _) => { openFontPicker = combo; navigating = false; keyboardIndex = combo.SelectedIndex; };
         combo.DropDownClosed += (_, _) => Close();
         combo.DetachedFromVisualTree += (_, _) => Close();
     }

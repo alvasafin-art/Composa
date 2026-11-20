@@ -26,11 +26,11 @@ public static partial class PsdExport
         if (!new[] { m.ScaleX, m.ScaleY, m.SkewX, m.SkewY, m.TransX, m.TransY }.All(float.IsFinite)
             || Math.Abs(m.ScaleX * m.ScaleY - m.SkewX * m.SkewY) < 1e-8) return "The live layer has a degenerate transform.";
         if (m.Persp0 != 0 || m.Persp1 != 0 || m.Persp2 != 1) return "Perspective distortion cannot be represented by the native text or shape transform.";
-        if (layer.Text is {} typography && (typography.Type != Typography.Default || typography.Alignment == TextAlignment.Justify))
-            return "Advanced typography is exported with its rendered appearance. CMPS retains the editable settings.";
         if (layer.Text is { IsBox: true } boxed && (boxed.BoxWidth <= TextLayout.Padding * 2 || boxed.BoxHeight <= TextLayout.Padding * 2))
             return "The paragraph frame is too small for a portable Photoshop text box.";
         if (layer.Text is { } text && Segments(text).Count > MaxNativeStyleRuns) return "The text has too many separate style runs for a portable Photoshop text block.";
+        if (layer.Text is { } styled && NeedsTypeAppearance(styled.Type))
+            return TypeAppearanceNote;
         if (layer.Shape is { } shape)
         {
             if (shape.FillEnabled && shape.FillGradient != null || shape.Kind == ShapeKind.Line && shape.FillGradient != null || shape.Stroke != null && shape.StrokeGradient != null)
@@ -45,6 +45,22 @@ public static partial class PsdExport
                 return "The vector stroke covers the entire shape and leaves no portable shape contour.";
         }
         return null;
+    }
+
+    private const string TypeAppearanceNote = "The PSD keeps the layout as pixels and the editable text in the hidden Editable text folder.";
+    private static bool NeedsTypeAppearance(Typography type) => type.Axes.Length > 0 || type.Wrap != TextWrap.Word ||
+        type.Vertical != TextVertical.Top || type.Trim || type.Ellipsis || type.List != TextList.None ||
+        type.CaseForms || type.CapitalSpacing || type.Figures != FigureStyle.Default;
+
+    private static Layer EditableTextSource(Layer original)
+    {
+        var style = original.Text!;
+        var portable = style.Type with
+        {
+            Axes = "", Wrap = TextWrap.Word, Vertical = TextVertical.Top, Trim = false, Ellipsis = false,
+            List = TextList.None, HangingList = false, CaseForms = false, CapitalSpacing = false, Figures = FigureStyle.Default
+        };
+        return new Layer { Name = original.Name, Pixels = original.Pixels, Transform = original.Transform, Text = style with { Type = portable } };
     }
 
     private static bool Uniform(SKMatrix m)
@@ -101,7 +117,7 @@ public static partial class PsdExport
             : new SKRect(-anchor.X, -anchor.Y, layout.Width - anchor.X, layout.Height - anchor.Y);
         var glyphs = new SKRect(TextLayout.Padding - anchor.X, TextLayout.Padding - anchor.Y,
             layout.Width - TextLayout.Padding - anchor.X, layout.Height - TextLayout.Padding - anchor.Y);
-        var text = new D("TxLr").Text("Txt ", style.Text.Replace('\n', '\r')).Enum("textGridding", "textGridding", "None")
+        var text = new D("TxLr").Text("Txt ", PhotoshopText(style)).Enum("textGridding", "textGridding", "None")
             .Enum("Ornt", "Ornt", "Hrzn").Enum("AntA", "Annt", "AnSm").Long("TextIndex", 0)
             .Obj("bounds", RectDescriptor(frame, "Rctn", "#Pnt")).Obj("boundingBox", RectDescriptor(glyphs, "boundingBox", "#Pnt"))
             .Raw("EngineData", TextEngine(style, frame));
@@ -120,6 +136,13 @@ public static partial class PsdExport
 
     private static Dictionary<string, object> Dict(params (string Key, object Value)[] pairs) => pairs.ToDictionary(p => p.Key, p => p.Value);
 
+    private static string PhotoshopText(TextStyle style)
+    {
+        var text = style.Type.Case is TextLetterCase.Title or TextLetterCase.Lower
+            ? TextLayout.DisplayCase(style.Text, style.Type.Case) : style.Text;
+        return text.Replace('\n', '\r').Replace('\u2028', '\u0003');
+    }
+
     private static byte[] TextEngine(TextStyle s, SKRect frame)
     {
         var segments = Segments(s);
@@ -133,19 +156,21 @@ public static partial class PsdExport
             ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? s.Size), ("FauxBold", face.FontStyle == null && face.Bold && !intrinsic.Bold),
             ("FauxItalic", face.FontStyle == null && face.Italic && !intrinsic.Italic),
             ("AutoLeading", s.Leading == 0), ("Leading", s.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
-            ("Tracking", s.Tracking * 1000 / (fontSize ?? s.Size)), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
-            ("FontCaps", 0), ("FontBaseline", 0), ("Underline", false), ("Strikethrough", false), ("Ligatures", true), ("DLigatures", false),
+            ("Tracking", (int)Math.Round(s.Type.PercentTracking ? s.Tracking * 10 : s.Tracking * 1000 / (fontSize ?? s.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
+            ("FontCaps", s.Type.Case switch { TextLetterCase.Upper => 2, TextLetterCase.SmallCaps => 1, _ => 0 }),
+            ("FontBaseline", s.Type.FigurePosition switch { FigurePosition.Superscript => 1, FigurePosition.Subscript => 2, _ => 0 }),
+            ("Underline", s.Type.Underline), ("Strikethrough", s.Type.Strike), ("Ligatures", true), ("DLigatures", false),
             ("BaselineDirection", 2), ("Tsume", 0.0), ("StyleRunAlignment", 2), ("Language", 0), ("NoBreak", false),
             ("FillColor", Color(color)), ("StrokeColor", Color(s.Color)), ("FillFlag", true), ("StrokeFlag", false), ("FillFirst", true),
             ("YUnderline", 1), ("OutlineWidth", 1.0), ("CharacterDirection", 0), ("HindiNumbers", false), ("Kashida", 1), ("DiacriticPos", 2));
         }
-        var paragraphProperties = Dict(("Justification", s.Alignment == TextAlignment.Right ? 1 : s.Alignment == TextAlignment.Center ? 2 : 0),
-            ("FirstLineIndent", 0.0), ("StartIndent", 0.0), ("EndIndent", 0.0), ("SpaceBefore", 0.0), ("SpaceAfter", 0.0),
+        var paragraphProperties = Dict(("Justification", s.Alignment == TextAlignment.Right ? 1 : s.Alignment == TextAlignment.Center ? 2 : s.Alignment == TextAlignment.Justify ? 3 : 0),
+            ("FirstLineIndent", s.Type.Indent), ("Hanging", s.Type.HangingPunctuation), ("StartIndent", 0.0), ("EndIndent", 0.0), ("SpaceBefore", 0.0), ("SpaceAfter", s.Type.ParagraphSpacing),
             ("AutoHyphenate", false), ("AutoLeading", 1.2), ("LeadingType", 0), ("WordSpacing", new object[] { .8, 1.0, 1.33 }),
             ("LetterSpacing", new object[] { 0.0, 0.0, 0.0 }), ("GlyphSpacing", new object[] { 1.0, 1.0, 1.0 }), ("EveryLineComposer", false));
         var paragraph = Dict(("ParagraphSheet", Dict(("DefaultStyleSheet", 0), ("Properties", paragraphProperties))),
             ("Adjustments", Dict(("Axis", new object[] { 1.0, 0.0, 1.0 }), ("XY", new object[] { 0.0, 0.0 }))));
-        var content = s.Text.Replace('\n', '\r') + "\r";
+        var content = PhotoshopText(s) + "\r";
         var paragraphs = new List<object>(); var lengths = new List<object>();
         for (int start = 0, i = 0; i < content.Length; i++) if (content[i] == '\r') { paragraphs.Add(paragraph); lengths.Add(i - start + 1); start = i + 1; }
         var fonts = new List<object> { Dict(("Name", "AdobeInvisFont"), ("Script", 0), ("FontType", 0), ("Synthetic", 0)) };

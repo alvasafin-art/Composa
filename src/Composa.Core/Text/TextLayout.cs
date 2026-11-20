@@ -105,7 +105,7 @@ public sealed class TextLayout
         var paragraphStart = 0;
         for (var i = 0; i <= Text.Length; i++)
         {
-            if (i < Text.Length && Text[i] != '\n') continue;
+            if (i < Text.Length && Text[i] is not ('\n' or '\u2028')) continue;
             Wrap(paragraphStart, i, advances, available, ranges);
             paragraphStart = i + 1;
         }
@@ -199,7 +199,7 @@ public sealed class TextLayout
         Overflows = style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f || l.X + l.VisibleWidth > Width - Padding + .5f);
     }
 
-    private static string DisplayCase(string text, TextLetterCase mode)
+    internal static string DisplayCase(string text, TextLetterCase mode)
     {
         if (mode == TextLetterCase.Upper) return text.ToUpperInvariant();
         if (mode == TextLetterCase.Lower) return text.ToLowerInvariant();

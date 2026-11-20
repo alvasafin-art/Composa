@@ -559,7 +559,9 @@ public sealed partial class MainWindow
             font.HorizontalAlignment = faceMenu.HorizontalAlignment = HorizontalAlignment.Stretch;
             font.Height = faceMenu.Height = 30;
             row.Children.Add(font);
-            row.Children.Add(PropertyPair(faceMenu, PropertyNumber(size, Icons.FontSize, "Font size", PropertyUnit("Font size", out _))));
+            var sizeUnit = PropertyUnit("Font size", out _);
+            sizeUnit.Background = Brushes.Transparent;
+            row.Children.Add(PropertyPair(faceMenu, PropertyNumber(size, Icons.FontSize, "Font size", Ui.Scrub(sizeUnit, size))));
             var lineUnit = PropertyUnit("Line height", out leadingUnit, () => Change(st =>
             {
                 bool percent = !st.Type.PercentLeading;
