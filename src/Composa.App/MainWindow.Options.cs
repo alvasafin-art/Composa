@@ -558,6 +558,16 @@ public sealed partial class MainWindow
             font.MaxWidth = faceMenu.MaxWidth = double.PositiveInfinity;
             font.HorizontalAlignment = faceMenu.HorizontalAlignment = HorizontalAlignment.Stretch;
             font.Height = faceMenu.Height = 30;
+            font.VerticalContentAlignment = faceMenu.VerticalContentAlignment = VerticalAlignment.Center;
+            font.Padding = faceMenu.Padding = new Thickness(12, 0, 30, 0);
+            font.TemplateApplied += (_, e) =>
+            {
+                if (e.NameScope.Find<TextBox>("PART_EditableTextBox") is { } editor)
+                {
+                    editor.VerticalContentAlignment = VerticalAlignment.Center;
+                    editor.Padding = new Thickness(12, 0, 4, 0);
+                }
+            };
             row.Children.Add(font);
             var sizeUnit = PropertyUnit("Font size", out _);
             sizeUnit.Background = Brushes.Transparent;

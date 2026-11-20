@@ -245,6 +245,8 @@ public sealed partial class MainWindow
         {
             var field = Ui.Number(get(s.CurrentTextStyle.Type), 0, 5000, v => Change(t => set(t, v)), format: "0.##");
             field.Width = double.NaN; field.Height = 30;
+            field.Padding = new Thickness(8, 0);
+            field.VerticalContentAlignment = VerticalAlignment.Center;
             field.HorizontalAlignment = HorizontalAlignment.Stretch;
             AutomationProperties.SetName(field, label);
             refresh.Add(t => field.Value = (decimal)get(t));
@@ -299,6 +301,8 @@ public sealed partial class MainWindow
                     {
                         var field = Ui.Number(FontVariations.Value(type.Axes, axis), axis.Min, axis.Max,
                             v => Change(t => t with { Axes = FontVariations.WithValue(t.Axes, axis, v) }), .1, "0.##", 90);
+                        field.VerticalContentAlignment = VerticalAlignment.Center;
+                        field.Padding = new Thickness(8, 0);
                         field.Tag = axis;
                         axes.Children.Add(Ui.Row(6, Ui.Label(axis.Tag), field));
                     }

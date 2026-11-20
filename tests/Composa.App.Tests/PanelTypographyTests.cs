@@ -119,6 +119,7 @@ public class PanelTypographyTests
             session.SelectLayer(session.Document.Layers[0].Id); session.SelectLayer(layer.Id); Dispatcher.UIThread.RunJobs();
             var gap = Find<NumericUpDown>("Paragraph gap"); Assert.True(gap.IsEffectivelyVisible);
             Assert.True(Find<CheckBox>("Capital spacing").IsEffectivelyVisible);
+            Assert.Equal(Avalonia.Layout.VerticalAlignment.Center, gap.VerticalContentAlignment);
             var start = Center(gap);
             window.MouseDown(start, MouseButton.Left);
             window.MouseMove(start.WithX(start.X + 14), RawInputModifiers.LeftMouseButton);
@@ -130,6 +131,8 @@ public class PanelTypographyTests
                 t => t.Text == "⚠");
             combo.IsDropDownOpen = false; Dispatcher.UIThread.RunJobs();
             var editor = combo.GetVisualDescendants().OfType<TextBox>().First();
+            Assert.Equal(Avalonia.Layout.VerticalAlignment.Center, editor.VerticalContentAlignment);
+            Assert.True(editor.Padding.Left > 0);
             var family = EditorSession.FontFamilies.First(f => f != layer.Text.FontFamily);
             editor.Focus(); editor.SelectAll(); window.KeyTextInput(family.ToLowerInvariant());
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
