@@ -68,17 +68,18 @@ public sealed class WorkingColorPicker : StackPanel
         hex.Text = $"#{color.Red:X2}{color.Green:X2}{color.Blue:X2}";
     }
 
-    private sealed class Spectrum : Control
+    internal sealed class Spectrum : Control
     {
         private readonly RgbProfile profile;
         private readonly RgbProfile displayProfile;
         private readonly bool strip;
+        private readonly bool horizontal;
         private readonly Action<bool, double, double> pick;
         private Bitmap? bitmap;
         private float paintedHue = -1, hue, saturation, value;
-        public Spectrum(RgbProfile profile, RgbProfile displayProfile, bool strip, Action<bool, double, double> pick)
+        public Spectrum(RgbProfile profile, RgbProfile displayProfile, bool strip, Action<bool, double, double> pick, bool horizontal = false)
         {
-            this.profile = profile; this.displayProfile = displayProfile; this.strip = strip; this.pick = pick;
+            this.profile = profile; this.displayProfile = displayProfile; this.strip = strip; this.pick = pick; this.horizontal=horizontal;
             Width = strip ? 24 : 256; Height = 192; Focusable = true;
             Cursor = new Cursor(StandardCursorType.Cross);
             Avalonia.Automation.AutomationProperties.SetName(this, strip ? "Hue" : "Saturation and brightness");
@@ -92,7 +93,7 @@ public sealed class WorkingColorPicker : StackPanel
                 var bytes = pixels.GetPixelSpan();
                 for (var y = 0; y < pixels.Height; y++) for (var x = 0; x < pixels.Width; x++)
                 {
-                    var c = strip ? SKColor.FromHsv(y * 360f / (pixels.Height - 1), 100, 100)
+                    var c = strip ? SKColor.FromHsv(horizontal ? x*360f/(pixels.Width-1) : y * 360f / (pixels.Height - 1), 100, 100)
                         : SKColor.FromHsv(hue, x * 100f / (pixels.Width - 1), (1 - y / (pixels.Height - 1f)) * 100);
                     var at = y * pixels.RowBytes + x * 4; bytes[at] = c.Red; bytes[at + 1] = c.Green; bytes[at + 2] = c.Blue; bytes[at + 3] = 255;
                 }
@@ -104,12 +105,12 @@ public sealed class WorkingColorPicker : StackPanel
         {
             if (bitmap == null) return;
             context.DrawImage(bitmap, new Rect(Bounds.Size));
-            var point = strip ? new Point(Bounds.Width / 2, hue / 360 * Bounds.Height)
+            var point = strip ? horizontal ? new Point(hue/360*Bounds.Width,Bounds.Height/2) : new Point(Bounds.Width / 2, hue / 360 * Bounds.Height)
                 : new Point(saturation / 100 * Bounds.Width, (1 - value / 100) * Bounds.Height);
             context.DrawEllipse(null, new Pen(Brushes.Black, 3), point, 5, 5);
             context.DrawEllipse(null, new Pen(Brushes.White, 1), point, 5, 5);
         }
-        private void Pick(Point p) => pick(strip, Math.Clamp(p.X / Bounds.Width, 0, 1), Math.Clamp(p.Y / Bounds.Height, 0, 1));
+        private void Pick(Point p) => pick(strip, Math.Clamp(p.X / Bounds.Width, 0, 1), Math.Clamp(strip && horizontal ? p.X / Bounds.Width : p.Y / Bounds.Height, 0, 1));
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             base.OnPointerPressed(e); if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;

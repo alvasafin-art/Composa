@@ -69,7 +69,7 @@ public sealed partial class EditorSession
         var path=new VectorPath { Nodes=nodes.ToArray(), Closed=!line };
         var converted=style with { Kind=ShapeKind.Path,Path=path };
         if(line) converted=converted with { FillEnabled=false, Stroke=style.Fill, StrokeGradient=style.FillGradient,
-            FillGradient=null, StrokeWidth=style.LineWidth, RoundCaps=true };
+            FillGradient=null, StrokeWidth=style.LineWidth, StrokeEnabled=style.StrokeEnabled, RoundCaps=true };
         ChangeShapeStyle(layer,converted);
     }
 

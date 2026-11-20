@@ -602,7 +602,7 @@ public sealed partial class EditorSession
         using var canvas = new SKCanvas(pixels);
         using var paint = new SKPaint { IsAntialias = true };
         using var fillShader = style.FillGradient?.Shader(pixels);
-        using var strokeShader = style.Stroke != null ? style.StrokeGradient?.Shader(pixels) : null;
+        using var strokeShader = style.StrokeEnabled && style.Stroke != null ? style.StrokeGradient?.Shader(pixels) : null;
         paint.SetColor((SKColorF)new SKColor(style.Fill), pixels.ColorSpace);
         paint.Shader = fillShader;
         if (style.Kind == ShapeKind.Line)
@@ -614,7 +614,7 @@ public sealed partial class EditorSession
             var inset = new SKPoint(Math.Min(thickness, width) / 2, Math.Min(thickness, height) / 2);
             var from = style.StartX is { } sx && style.StartY is { } sy ? new SKPoint((float)(sx * width), (float)(sy * height)) : inset;
             var to = style.EndX is { } ex && style.EndY is { } ey ? new SKPoint((float)(ex * width), (float)(ey * height)) : new SKPoint(width - inset.X, height - inset.Y);
-            canvas.DrawLine(from, to, paint);
+            if (style.StrokeEnabled) canvas.DrawLine(from, to, paint);
         }
         else
         {
@@ -637,7 +637,7 @@ public sealed partial class EditorSession
                 else canvas.DrawRect(rect, paint);
             }
             if (style.FillEnabled) Draw();
-            if (style.Stroke is { } stroke && strokeWidth > 0)
+            if (style.StrokeEnabled && style.Stroke is { } stroke && strokeWidth > 0)
             {
                 paint.Shader = strokeShader;
                 paint.SetColor((SKColorF)new SKColor(stroke), pixels.ColorSpace);

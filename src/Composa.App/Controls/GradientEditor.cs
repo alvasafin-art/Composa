@@ -90,11 +90,13 @@ public sealed class GradientEditor : StackPanel
         }
         Children.Add(Ui.TextButton("Add opacity stop", () => { if (ramp.Opacities.Length < 64) { Set(ramp with { Opacities = ramp.Opacities.Append(new GradientOpacityStop(.5, .5)).ToArray() }); Build(); } }));
     }
-    private sealed class RampPreview : Control
+    internal sealed class RampPreview : Control
     {
         private readonly RgbProfile profile;
         private readonly RgbProfile displayProfile;
         private Avalonia.Media.Imaging.Bitmap? bitmap;
+        internal bool PairedStops { get; init; }
+        internal double? SelectedPosition { get; set; }
         private GradientRamp stops = new();
         public double Position(double x) => Math.Clamp((x-7)/Math.Max(1,Bounds.Width-14),0,1);
         public GradientRamp Ramp
@@ -116,6 +118,7 @@ public sealed class GradientEditor : StackPanel
         public RampPreview(RgbProfile profile, RgbProfile displayProfile) { this.profile = profile; this.displayProfile = displayProfile; Height = 44; Width = 300; }
         public override void Render(DrawingContext context)
         {
+            context.DrawRectangle(Brushes.Transparent,null,new Rect(Bounds.Size));
             var dark = new SolidColorBrush(Color.Parse("#555555")); var light = new SolidColorBrush(Color.Parse("#888888"));
             var bar=new Rect(7,10,Math.Max(1,Bounds.Width-14),24);
             for (double y=bar.Y; y<bar.Bottom; y+=8)
@@ -127,6 +130,12 @@ public sealed class GradientEditor : StackPanel
             foreach (var stop in stops.Colors)
                 context.DrawEllipse(new SolidColorBrush(new SKColor(stop.Color).ToDisplay(profile,displayProfile)),outline,
                     new Point(bar.X+stop.Position*bar.Width,8),5,5);
+            if (PairedStops)
+            {
+                if (SelectedPosition is {} selected)
+                    context.DrawEllipse(null,new Pen(Palette.Accent,2),new Point(bar.X+selected*bar.Width,8),6,6);
+                return;
+            }
             foreach (var stop in stops.Opacities)
             {
                 byte level=(byte)Math.Round(stop.Opacity*255);

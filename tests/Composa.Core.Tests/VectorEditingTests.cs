@@ -93,6 +93,27 @@ public class VectorEditingTests
         Assert.Equal(style, ProjectFile.Read(stream).Find(layer.Id)!.Shape);
     }
 
+    [Fact]
+    public void Hidden_stroke_keeps_its_color_ramp_and_width_on_reopen()
+    {
+        var session = EditorSession.NewCanvas(120, 80);
+        var paint = new ShapeStyle(ShapeKind.Rectangle, 0xff000000, 0)
+        {
+            FillEnabled = false,
+            Stroke = 0xffff0000,
+            StrokeWidth = 8,
+            StrokeEnabled = false,
+            StrokeGradient = new(GradientRamp.Presets["Sunset"])
+        };
+        var layer = session.AddShape(paint, new SKRect(10, 10, 110, 70))!;
+        Assert.Equal(0, layer.Pixels!.GetPixel(50, 2).Alpha);
+        using var stream = new MemoryStream(); ProjectFile.Write(session.Document, stream); stream.Position = 0;
+        var reopened = new EditorSession(ProjectFile.Read(stream)); var restored = reopened.Document.Find(layer.Id)!;
+        Assert.Equal(paint, restored.Shape);
+        reopened.ChangeShapeStyle(restored, restored.Shape! with { StrokeEnabled = true });
+        Assert.Equal(255, restored.Pixels!.GetPixel(50, 2).Alpha);
+    }
+
     [Theory]
     [InlineData(ShapeKind.Ellipse, 4)]
     [InlineData(ShapeKind.Rectangle, 4)]

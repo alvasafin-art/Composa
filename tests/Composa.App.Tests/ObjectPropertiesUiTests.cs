@@ -30,7 +30,7 @@ public class ObjectPropertiesUiTests
         var layer = session.AddShape(new ShapeStyle(ShapeKind.RoundedRectangle, (uint)new SKColor(0xFF, 0x8A, 0x3D), 20), new SKRect(150, 100, 450, 300))!;
         window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
         SliderField Field(string label) => window.GetVisualDescendants().OfType<SliderField>().Single(f => f.Label == label);
-        CheckBox Check(string label) => window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == label);
+        Button Eye(string label) => window.GetVisualDescendants().OfType<Button>().Single(c => c.Name == label+"Visibility");
         Assert.Empty(window.OwnedWindows);
         Click(window, window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties"));
         Dispatcher.UIThread.RunJobs();
@@ -41,21 +41,21 @@ public class ObjectPropertiesUiTests
         window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
         window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
         Assert.Equal(22, session.ActiveLayer!.Shape!.CornerRadius);
-        Click(window, Check("Stroke")); Assert.NotNull(session.ActiveLayer.Shape.Stroke);
+        Click(window, Eye("Stroke")); Assert.NotNull(session.ActiveLayer.Shape.Stroke);
         Screenshots.Save(window, "shape-properties-inline-move");
         Assert.Equal("Shape Properties", session.History.UndoName);
         Assert.False(session.IsInteracting);
         session.Undo();
         Assert.Equal("Rectangle", session.History.UndoName);
         Assert.Equal(20, session.ActiveLayer!.Shape!.CornerRadius); Assert.Null(session.ActiveLayer.Shape.Stroke);
-        Assert.Equal(20, Field("Corner radius").Value); Assert.False(Check("Stroke").IsChecked);
+        Assert.Equal(20, Field("Corner radius").Value); Assert.Null(session.ActiveLayer.Shape.Stroke);
         session.Redo(); Assert.Equal(22, session.ActiveLayer!.Shape!.CornerRadius);
         window.SelectTool(Tool.Shape); Dispatcher.UIThread.RunJobs();
         Assert.Equal(22, Field("Corner radius").Value);
-        Click(window, Check("Fill")); Assert.False(session.ActiveLayer.Shape.FillEnabled);
+        Click(window, Eye("Fill")); Assert.False(session.ActiveLayer.Shape.FillEnabled);
         Screenshots.Save(window, "shape-properties-inline-shape");
         session.SelectLayer(session.Document.Layers[0].Id); Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CheckBox>(), c => c.Content as string == "Stroke");
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), c => c.Name == "StrokeVisibility");
         window.Close();
     }
 
@@ -70,8 +70,8 @@ public class ObjectPropertiesUiTests
         var swatch = window.GetVisualDescendants().OfType<Border>().Single(b => ToolTip.GetTip(b) as string == "Fill color");
         Click(window, swatch); var dialog = window.OwnedWindows.Last();
         Assert.Equal("Fill Color", dialog.Title);
-        var picker = dialog.GetVisualDescendants().OfType<ColorView>().Single();
-        picker.Color = Avalonia.Media.Colors.Blue; Dispatcher.UIThread.RunJobs();
+        var picker = dialog.GetVisualDescendants().OfType<TextBox>().Single(c=>c.Name=="PaintHex");
+        picker.Focus(); picker.Text="0000FF"; dialog.KeyPress(Key.Enter,RawInputModifiers.None,PhysicalKey.Enter,null); Dispatcher.UIThread.RunJobs();
         Assert.Equal((uint)SKColors.Blue, session.ActiveLayer!.Shape!.Fill);
         dialog.Close(false); Dispatcher.UIThread.RunJobs();
         Assert.Equal((uint)SKColors.Red, session.ActiveLayer!.Shape!.Fill);
@@ -109,6 +109,38 @@ public class ObjectPropertiesUiTests
         Assert.True(session.ActiveLayer!.Shape!.StrokeGradient!.Radial);
         stroke.Close(false); Dispatcher.UIThread.RunJobs(); Assert.Equal(accepted,session.ActiveLayer!.Shape);
         session.Undo(); Assert.Null(session.ActiveLayer!.Shape!.FillGradient); window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Hex_rgb_cmyk_and_visibility_edit_the_same_paint_and_preserve_hidden_stroke()
+    {
+        var w=new MainWindow { Width=1280,Height=820 }; w.Show();
+        var session=EditorSession.NewCanvas(500,400,SKColors.White); w.AddSession(session);
+        var style=new ShapeStyle(ShapeKind.Rectangle,0xff204060,0) { Stroke=0xffaa3300, StrokeWidth=14, StrokeGradient=new(GradientRamp.Presets["Sunset"]) };
+        session.AddShape(style,new SKRect(30,30,250,210)); w.SelectTool(Tool.Shape); Dispatcher.UIThread.RunJobs();
+        TextBox Field(Window window,string name)=>window.GetVisualDescendants().OfType<TextBox>().Single(x=>x.Name==name);
+        void Enter(Window window,string name,string value)
+        {
+            var box=Field(window,name); box.Focus();box.Text=value;
+            window.KeyPress(Key.Enter,RawInputModifiers.None,PhysicalKey.Enter,null);Dispatcher.UIThread.RunJobs();
+        }
+        var eye=w.GetVisualDescendants().OfType<Button>().Single(b=>b.Name=="StrokeVisibility");
+        Click(w,eye);Assert.False(session.ActiveLayer!.Shape!.StrokeEnabled);
+        Assert.Equal(style.StrokeGradient,session.ActiveLayer.Shape.StrokeGradient);
+        Click(w,eye);Assert.Equal(style,session.ActiveLayer.Shape);
+        Assert.Contains(Field(w,"FillHex").GetVisualDescendants(),v=>v is Avalonia.Controls.Presenters.TextPresenter);
+        Assert.Equal("204060",Field(w,"FillHex").Text); Enter(w,"FillHex","#f00"); Enter(w,"FillOpacity","50");
+        Assert.Equal(0x80ff0000u,session.ActiveLayer.Shape.Fill);
+        Click(w,w.GetVisualDescendants().OfType<Border>().Single(b=>ToolTip.GetTip(b) as string=="Fill color"));
+        var dialog=w.OwnedWindows.Last();Assert.Equal("255",Field(dialog,"PaintR").Text);
+        var space=dialog.GetVisualDescendants().OfType<ComboBox>().Single(c=>c.Name=="PaintChannels");
+        space.SelectedItem="CMYK"; Dispatcher.UIThread.RunJobs();
+        Assert.Equal("100",Field(dialog,"PaintM").Text);Enter(dialog,"PaintM","0");
+        Assert.Equal("FFFF00",Field(dialog,"PaintHex").Text);
+        Screenshots.Save(dialog,"vector-paint-cmyk");
+        Click(dialog,dialog.GetVisualDescendants().OfType<Button>().Single(b=>b.IsDefault));
+        Assert.Equal(0x80ffff00u,session.ActiveLayer.Shape.Fill);
+        Screenshots.Save(w,"vector-paint-toolbar"); w.Close();
     }
 
     [AvaloniaFact]

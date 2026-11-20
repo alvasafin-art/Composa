@@ -6,7 +6,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [1.3.0-preview.4.studio.14] - 2026-11-20
 
-- Vector fills and strokes have independent solid, linear and radial paints, opacity and draggable gradient stops.
+- Vector fills and strokes have independent solid, linear and radial paints. The toolbar shows editable HEX, opacity and visibility eyes. The color editor includes working RGB and calculated CMYK channels and draggable gradient stops.
 - The Pen tool can bend or cut segments, split a curve at the pointer and remove an anchor with a fitted replacement curve. Alt over the final anchor preserves the incoming curve and continues straight.
 - Edit points converts geometric shape layers to editable paths and supports Undo.
 

@@ -246,7 +246,7 @@ public static partial class PsdExport
         // Modern Photoshop uses vscg together with vstk (SoCo is its older fill-only equivalent).
         o.Additional("vscg", () => { o.Id("SoCo"); FillDescriptor(s.Fill).Write(o, true); });
         var scale = Math.Sqrt(m.ScaleX * m.ScaleX + m.SkewY * m.SkewY);
-        var stroke = new D("strokeStyle").Long("strokeStyleVersion", 2).Bool("strokeEnabled", line || s.Stroke != null && width > 0)
+        var stroke = new D("strokeStyle").Long("strokeStyleVersion", 2).Bool("strokeEnabled", s.StrokeEnabled && (line || s.Stroke != null && width > 0))
             .Bool("fillEnabled", !line && s.FillEnabled).Unit("strokeStyleLineWidth", "#Pxl", width * scale)
             .Unit("strokeStyleLineDashOffset", "#Pxl", 0).Double("strokeStyleMiterLimit", 4)
             .Enum("strokeStyleLineCapType", "strokeStyleLineCapType", line ? "strokeStyleRoundCap" : "strokeStyleButtCap")

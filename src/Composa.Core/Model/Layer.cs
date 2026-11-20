@@ -19,6 +19,7 @@ public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
     public bool RoundCaps { get; init; }
     public bool FillEnabled { get; init; } = true;
     public uint? Stroke { get; init; }
+    public bool StrokeEnabled { get; init; } = true;
     public double StrokeWidth { get; init; } = 2;
 
     public ShapeStyle Clamped() => this with

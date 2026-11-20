@@ -326,7 +326,6 @@ public sealed partial class MainWindow
         var id = s.ActiveLayer!.Id;
         var style = s.ActiveLayer.Shape!;
         var updating = false;
-        var strokeColor = style.Stroke ?? 0xFF000000;
         Layer? Current() => s.Document.Find(id);
         void Change(Func<ShapeStyle, ShapeStyle> change)
         {
@@ -376,36 +375,68 @@ public sealed partial class MainWindow
             };
             return swatch;
         }
-        if (quick != null)
+        Control PaintRow(string label,bool stroke)
         {
-            quick.Children.Add(Ui.Row(5, Ui.Label(style.Kind == ShapeKind.Line ? "Color" : "Fill", Palette.Secondary),
-                Swatch("Fill", st => st.Fill, (st, c) => st with { Fill = c, FillEnabled = true })));
-            if (style.Kind != ShapeKind.Line)
-                quick.Children.Add(Ui.Row(5, Ui.Label("Stroke",Palette.Secondary),
-                    Swatch("Stroke",st=>st.Stroke ?? strokeColor,(st,c)=>st with { Stroke=c })));
+            bool Visible(ShapeStyle st) => stroke ? st.Stroke != null && st.StrokeEnabled : st.Kind == ShapeKind.Line ? st.StrokeEnabled : st.FillEnabled;
+            uint Color(ShapeStyle st) => stroke ? st.Stroke ?? 0xff000000 : st.Fill;
+            ShapeStyle SetColor(ShapeStyle st,uint color) => stroke
+                ? st with { Stroke=color, StrokeEnabled=Visible(st) } : st with { Fill=color };
+            VectorGradient? Gradient(ShapeStyle st) => stroke ? st.StrokeGradient : st.FillGradient;
+            var swatch=Swatch(stroke ? "Stroke" : style.Kind==ShapeKind.Line ? "Line" : "Fill",Color,SetColor);
+            swatch.Width=18; swatch.Height=18; swatch.BorderThickness=new Thickness(1); swatch.BorderBrush=Palette.Edge;
+            var hex=new Controls.PaintValueField(label+"Hex",60,text=>
+            {
+                if(!Controls.PaintValueField.TryRgb(text,out var rgb)) return;
+                Change(st=>
+                {
+                    if(Gradient(st) is not {} gradient) return SetColor(st,(Color(st)&0xff000000)|rgb);
+                    var stops=gradient.Ramp.Colors.ToArray();
+                    stops[0]=stops[0] with { Color=0xff000000|rgb };
+                    var next=gradient with { Ramp=gradient.Ramp with { Colors=stops } };
+                    return stroke ? st with { StrokeGradient=next } : st with { FillGradient=next };
+                });
+            });
+            var opacity=new Controls.PaintValueField(label+"Opacity",34,text=>
+            {
+                if(Controls.PaintValueField.TryNumber(text,100,out var value))
+                    Change(st=>SetColor(st,(Color(st)&0xffffff)|((uint)Math.Round(value*255/100)<<24)));
+            });
+            ToolTip.SetTip(hex,label+" HEX · first color stop for gradients"); ToolTip.SetTip(opacity,label+" opacity");
+            var eye=Ui.IconButton(Icons.Eye,label+" visibility",()=>Change(st=>stroke
+                ? st with { Stroke=Color(st),StrokeEnabled=!Visible(st) } : st.Kind == ShapeKind.Line ? st with { StrokeEnabled=!st.StrokeEnabled } : st with { FillEnabled=!Visible(st) }),14);
+            eye.Name=label+"Visibility"; eye.Width=24; eye.Padding=new Thickness(2);
+            var field=new Border { Background=Palette.PanelRaised,CornerRadius=new CornerRadius(4),Padding=new Thickness(4,0),
+                Child=Ui.Row(1,swatch,hex,new Border { Width=1,Height=14,Background=Palette.Edge },opacity,Ui.Label("%",Palette.Secondary,11)) };
+            bool? shown=null;
+            refreshOptions+=()=>
+            {
+                if(Current()?.Shape is not {} st) return;
+                var visible=Visible(st);
+                if(shown!=visible) eye.Content=Icons.Create(visible ? Icons.Eye : Icons.EyeOff,14,Palette.Secondary);
+                shown=visible;
+                hex.Show($"{(Gradient(st)?.Ramp.Colors[0].Color ?? Color(st))&0xffffff:X6}");
+                opacity.Show(Math.Round((Color(st)>>24)*100d/255).ToString("0"));
+                field.Opacity=visible ? 1 : .65;
+            };
+            return Ui.Row(4,Ui.Label(label,Palette.Secondary),field,eye);
         }
-        else row.Children.Add(Ui.Separator());
+        var paints=quick ?? row;
+        if (style.Kind!=ShapeKind.Line) paints.Children.Add(PaintRow("Fill",false));
+        paints.Children.Add(PaintRow("Stroke",style.Kind!=ShapeKind.Line));
         if (style.Kind == ShapeKind.Line)
         {
-            row.Children.Add(Ui.Row(5, Ui.Label("Color", Palette.Secondary), Swatch("Line", st => st.Fill, (st, c) => st with { Fill = c })));
             var width = Ui.SliderField("Width", style.LineWidth, 1, 500, v => Change(st => st with { LineWidth = v }), width: 115);
             row.Children.Add(width);
             refreshOptions += () => { if (Current()?.Shape is { } live) width.Value = live.LineWidth; };
         }
         else
         {
-            var fill = Ui.Check("Fill", style.FillEnabled, v => Change(st => st with { FillEnabled = v }));
-            var stroke = Ui.Check("Stroke", style.Stroke != null, v => Change(st => st with { Stroke = v ? strokeColor : null }));
-            row.Children.Add(Ui.Row(5, fill, Swatch("Fill", st => st.Fill, (st, c) => st with { Fill = c, FillEnabled = true })));
-            row.Children.Add(Ui.Row(5, stroke, Swatch("Stroke", st => st.Stroke ?? strokeColor, (st, c) => st with { Stroke = c })));
             var width = Ui.SliderField("Stroke width", style.StrokeWidth, 0, 500, v => Change(st => st with { StrokeWidth = v }), width: 115);
             row.Children.Add(width);
             refreshOptions += () =>
             {
                 if (Current()?.Shape is not { } live) return;
                 updating = true;
-                fill.IsChecked = live.FillEnabled; stroke.IsChecked = live.Stroke != null;
-                if (live.Stroke is { } color) strokeColor = color;
                 width.Value = live.StrokeWidth;
                 updating = false;
             };
