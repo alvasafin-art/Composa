@@ -71,7 +71,7 @@ public sealed partial class EditorSession
                 var embedding = PromptSegmentation.Encode(image, model, previous, cancellation);
                 using var decoded = PromptSegmentation.Decode(embedding, model, image.Width, image.Height,
                     point is { } pt ? new SKPoint(pt.X - area.Left, pt.Y - area.Top) : null, localBox, cancellation);
-                if (graphics != null && localBox is { } search && PromptSegmentation.IsBoxSilhouette(decoded, search))
+                if (graphics != null && localBox is { } search && PromptSegmentation.IsBoxSilhouette(decoded, image, search))
                     return (embedding, mask: PromptSegmentation.Place(graphics, area, bounds));
                 if (area != bounds && PromptSegmentation.TouchesCrop(SelectionMask.Bounds(decoded), area, bounds))
                 {

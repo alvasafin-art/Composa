@@ -87,7 +87,23 @@ public class PromptSegmentationTests
         using var canvas = new SKCanvas(shape);
         using var paint = new SKPaint { Color = SKColors.White };
         canvas.DrawOval(new SKRect(3, 3, 197, 117), paint);
-        Assert.False(PromptSegmentation.IsBoxSilhouette(shape, new(0, 0, 200, 120)));
+        using var photo = Pixels.NewColor(200, 120);
+        Assert.False(PromptSegmentation.IsBoxSilhouette(shape, photo, new(0, 0, 200, 120)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_box_shaped_prediction_is_checked_against_the_photographed_edge(bool hasEdge)
+    {
+        var box = new SKRectI(20, 20, 140, 80);
+        using var shape = SelectionMask.FromRect(160, 100, box);
+        using var photo = Pixels.NewColor(160, 100);
+        photo.Erase(SKColors.DarkSlateGray);
+        using var canvas = new SKCanvas(photo);
+        using var paint = new SKPaint { Color = SKColors.Beige };
+        if (hasEdge) canvas.DrawRect(box, paint);
+        Assert.Equal(!hasEdge, PromptSegmentation.IsBoxSilhouette(shape, photo, box));
     }
 
     [Fact]

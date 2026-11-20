@@ -16,7 +16,7 @@ public static unsafe class PromptSegmentation
 {
     // A sparse pattern inside a recognisable subject may belong to its surface. Only
     // substitute those details when the network misses, or returns a nearly solid rectangle.
-    internal static bool IsBoxSilhouette(SKBitmap mask, SKRectI box)
+    internal static bool IsBoxSilhouette(SKBitmap mask, SKBitmap image, SKRectI box)
     {
         var bounds = Selections.SelectionMask.Bounds(mask, 128);
         if (bounds.IsEmpty) return true;
@@ -46,7 +46,30 @@ public static unsafe class PromptSegmentation
             }
         int squareCorners = 0;
         foreach (int count in corners) if (count >= 4) squareCorners++;
-        return inside >= .75 * 32 * 32 && squareCorners >= 2;
+        if (inside < .75 * 32 * 32 || squareCorners < 2) return false;
+        // A box-fitting contour can also be the true edge of a rectangular product.
+        // Verify its outer boundary against the photo before selecting its markings.
+        var rgb = new PixelBuffer(image);
+        int radius = Math.Clamp(Math.Min(bounds.Width, bounds.Height) / 32, 3, 12);
+        int edges = 0, visibleEdges = 0;
+        void Probe(int x, int y, int dx, int dy)
+        {
+            while (bounds.Contains(x, y) && data[(long)y * mask.RowBytes + x] < 128) { x += dx; y += dy; }
+            if (!bounds.Contains(x, y)) return;
+            int ix = x + dx * radius, iy = y + dy * radius, ox = x - dx * radius, oy = y - dy * radius;
+            if (!bounds.Contains(ix, iy) || ox < 0 || ox >= image.Width || oy < 0 || oy >= image.Height) return;
+            var diff = rgb.Read(ix, iy) - rgb.Read(ox, oy);
+            edges++;
+            if (Math.Max(Math.Abs(diff.R), Math.Max(Math.Abs(diff.G), Math.Abs(diff.B))) > .12f) visibleEdges++;
+        }
+        for (int i = 0; i < 16; i++)
+        {
+            int x = bounds.Left + (2 * i + 1) * bounds.Width / 32;
+            int y = bounds.Top + (2 * i + 1) * bounds.Height / 32;
+            Probe(bounds.Left, y, 1, 0); Probe(bounds.Right - 1, y, -1, 0);
+            Probe(x, bounds.Top, 0, 1); Probe(x, bounds.Bottom - 1, 0, -1);
+        }
+        return edges >= 16 && visibleEdges < .5 * edges;
     }
     // Preserve small-object detail that would otherwise disappear when the whole image is
     // resized for the encoder. Keep context beyond all four sides of a drawn box.
