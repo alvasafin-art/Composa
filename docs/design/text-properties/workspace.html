@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Composa · Спектр</title>
+<style>
+*{box-sizing:border-box} :root{color-scheme:dark;--bg:#202325;--panel:#2b2f32;--edge:#43484b;--ink:#eff1ef;--dim:#b4bcbc;--active:#abe7d5}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 "Segoe UI",sans-serif}button,input{font:inherit;color:inherit}button{cursor:pointer;border:0;border-radius:6px;background:#393e41;padding:8px 12px}button:hover{background:#474e50}button:focus-visible,input:focus-visible{outline:2px solid var(--active);outline-offset:2px}button.on{color:#152723;background:var(--active)}[hidden]{display:none!important}
+header,footer{display:flex;align-items:center;gap:12px;padding:0 18px;background:#282c2e}header{height:56px;border-bottom:1px solid var(--edge)}header strong{font-weight:650;letter-spacing:-.6px;font-size:20px}header small{border-left:1px solid var(--edge);padding-left:16px;color:var(--dim)}.spacer{flex:1}nav{display:flex;gap:4px}header button{font-size:14px}
+main{display:flex;min-height:552px;height:calc(100dvh - 90px)}#stage{flex:1;min-width:0;display:grid;place-items:center;padding:25px;position:relative;overflow:hidden;background:#1e2224}
+#sheet{position:relative;width:min(82%,680px,calc((100dvh - 170px)*1.08));aspect-ratio:1.08;background:#f5f1df;color:#172b37;overflow:hidden;container-type:inline-size;box-shadow:0 9px 30px #0004}
+#sheet svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none}.type{position:absolute;line-height:1.05;background:transparent;color:inherit;white-space:nowrap;font-weight:normal;padding:0;border-radius:0;outline-offset:3px}.type:hover{background:transparent;outline:1px dashed #008878}.type.sel{outline:1.6px solid #087c70}.type.sel:after{content:"";position:absolute;width:5px;height:5px;background:white;border:1px solid #087c70;bottom:-7px;right:-7px}
+#headline{left:7%;top:14%;font:normal 17cqw/.96 Georgia,serif;letter-spacing:-.058em}#caption{left:15%;top:36%;font-size:3.4cqw;letter-spacing:-.02em}.folio{position:absolute;left:7%;right:7%;display:flex;justify-content:space-between;pointer-events:none;font-size:1.85cqw;letter-spacing:.11em;font-weight:650}.top{top:7%}.bottom{bottom:5%;border-top:1px solid;padding-top:2%}
+aside{width:292px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--edge);overflow:auto;padding:19px}.eyebrow{font-size:12px;color:var(--dim);margin:0 0 5px}h1{font-size:21px;line-height:1.2;margin:0 0 22px;font-weight:600}h2{font-size:15px;margin:0 0 15px;font-weight:650}.group{padding:18px 0;border-top:1px solid var(--edge)}label,.label{display:block;color:var(--dim);font-size:13px;margin-bottom:5px}.wide{width:100%;text-align:left}.row{display:flex;gap:10px;align-items:center;justify-content:space-between}.gap{margin-top:14px}#family:after{content:'⌄';float:right}#fonts{margin-top:3px;background:#373e40;border:1px solid #697774;border-radius:6px;padding:3px}#fonts button{display:block;width:100%;text-align:left;background:none}#fonts .hot{background:#465e57;color:#dbfff2}input[type=range]{width:100%;accent-color:var(--active)}p.hint{font-size:13px;color:var(--dim);margin:9px 0}.obj{display:block;text-align:left;width:100%;margin:4px 0}.obj[aria-pressed=true]{border-left:3px solid #8ed7c4;background:#3e504b}
+#tree{position:absolute;left:14px;top:14px;z-index:3;width:210px;padding:16px;background:var(--panel);box-shadow:0 8px 26px #0007;border:1px solid var(--edge);border-radius:8px}#tree h2{margin:0 0 9px}#cursor{pointer-events:none;position:absolute;border:1px dashed #fff;border-radius:50%;translate:-50% -50%;filter:drop-shadow(0 0 1px black);z-index:2}#cursor:after{content:"";position:absolute;inset:24%;border:1px solid white;border-radius:50%}.painting .type{pointer-events:none}.painting{cursor:none}footer{height:34px;font-size:12px;color:var(--dim);border-top:1px solid var(--edge)}#undo:disabled{opacity:.45;cursor:default}#undo{margin-left:auto}output{color:var(--ink)}
+@media(max-width:920px){#sheet{width:min(98%,calc((100dvh - 158px)*1.08))}#stage{padding:16px}aside{width:246px}header{gap:7px;padding:0 10px}}@media(max-width:660px){header small{display:none}main{height:auto;min-height:0;flex-direction:column}#stage{min-height:340px}#sheet{width:min(80%,380px)}aside{width:100%;min-height:240px}header button{padding:7px}header{gap:6px}}
+</style>
+<header><strong>Composa</strong><small>Спектр.cmps</small><span class="spacer"></span><button id="objects" aria-expanded="false">Объекты</button><nav><button id="select" class="on">↖ Выбор</button><button id="brush">Кисть</button></nav></header>
+<main><section id="stage" aria-label="Холст"><section id="tree" hidden><h2>Объекты</h2><div id="items"></div></section>
+<div id="sheet"><svg id="art" viewBox="0 0 600 555.56" aria-label="Волна" preserveAspectRatio="none"><defs><mask id="paper"><rect width="600" height="556" fill="white"/></mask><radialGradient id="fade"><stop offset="0.5" stop-color="black"/><stop offset="1" stop-color="black" stop-opacity="0"/></radialGradient></defs><g id="waves" mask="url(#paper)" fill="none" stroke="#b44721" stroke-width="2.4"></g></svg>
+<div class="folio top"><span>ОПТИЧЕСКАЯ ЛАБОРАТОРИЯ</span><span>ВЫПУСК 03</span></div><button class="type" id="headline">Спектр</button><button class="type" id="caption">Исследования света и цвета</button><div class="folio bottom"><span>ВЫСТАВКА ГРАФИКИ</span><span>20.11 — 18.12</span></div><div id="cursor" hidden></div></div></section>
+<aside><p class="eyebrow" id="kind"></p><h1 id="name"></h1><section id="textPanel" class="group"><h2>Типографика</h2><span class="label">Шрифт</span><button class="wide" id="family" aria-expanded="false"></button><div id="fonts" hidden></div><div class="gap"><label class="row" for="tracking">Межбуквенный интервал <output id="trackValue"></output></label><input type="range" id="tracking" min="-6" max="16" step="1"></div><p class="hint">Shift + клик по второй надписи добавляет её к выбору.</p></section>
+<section class="group" id="multi" hidden><h2>Расположение</h2><p class="hint" id="reference"></p><button class="wide" id="align">Выровнять левые края</button></section>
+<section class="group" id="paint" hidden><h2>Кисть</h2><label class="row" for="diam">Диаметр <output id="diamValue">64 px</output></label><input type="range" id="diam" min="10" max="160" value="64"><p class="hint">Проведите по волне. Мягкий отпечаток скроет часть графики.</p></section>
+<section class="group" id="target" hidden><h2>Маска графики</h2><button id="useMask" class="wide">Рисовать на маске «Волна»</button><p class="hint">Надписи останутся редактируемыми.</p></section>
+</aside></main><footer><span id="status" role="status"></span><button id="undo" disabled>Отменить</button></footer>
+<script>
+const el=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
+const titles={headline:'Спектр',caption:'Исследования света и цвета',waves:'Волна'};
+const families=['Georgia','Arial','Trebuchet MS','Courier New','Times New Roman'];
+const styles={headline:{family:'Georgia',track:-6},caption:{family:'Segoe UI',track:-2}};
+let selected=['headline'], mode='select', preview=null, hot=0, stroke=null, previous=['headline'], history=[];
+function svg(tag,attributes){let n=document.createElementNS(svgNS,tag);for(const [k,v] of Object.entries(attributes)) n.setAttribute(k,v);return n}
+for(let i=0;i<66;i++){let x=45+i*6.5,y=425-i*.7;el('waves').append(svg('path',{d:`M ${x} ${y} C ${x+65} ${y+84}, ${x+118} ${y+48}, ${x+170} ${y-27} S ${x+268} ${y-147}, ${x+365} ${y-88}`}))}
+function record(fn){history.push(fn);el('undo').disabled=false}
+function applyText(id){const s=styles[id];el(id).style.fontFamily=s.family;el(id).style.letterSpacing=(s.track/100)+'em'}
+function cancelPreview(){if(preview){applyText(preview);preview=null}el('fonts').hidden=true;el('family').setAttribute('aria-expanded','false')}
+function render(){
+  const painting=mode==='painting', choosing=mode==='target', id=selected[0], many=selected.length>1;
+  el('sheet').classList.toggle('painting',painting);el('brush').classList.toggle('on',mode!=='select');el('select').classList.toggle('on',mode==='select');
+  for(const key of ['headline','caption']){applyText(key);el(key).classList.toggle('sel',mode==='select'&&selected.includes(key))}
+  el('kind').textContent=painting?'Цель мазка':choosing?'Инструмент · Кисть':many?'Выбрано объектов · 2':id==='waves'?'Графика':'Текстовый объект';
+  el('name').textContent=painting?'Волна / Маска':choosing?'Выберите цель':many?'Две надписи':titles[id];
+  el('textPanel').hidden=mode!=='select'||many||!styles[id];el('multi').hidden=mode!=='select'||!many;
+  el('paint').hidden=!painting;el('target').hidden=!(choosing||(id==='waves'&&mode==='select'));
+  if(styles[id]){el('family').textContent=styles[id].family;el('tracking').value=styles[id].track;el('trackValue').textContent=styles[id].track+' %'}
+  if(many)el('reference').textContent='Опорный объект — «'+titles[selected[1]]+'». Он останется на месте.';
+  el('status').textContent=painting?'Кисть   /   Волна   /   Маска':choosing?'Кисть   /   Требуется цель':'Выбор   /   '+selected.map(k=>titles[k]).join(' + ');
+  el('cursor').hidden=true;for(const btn of el('items').children)btn.setAttribute('aria-pressed',String(selected.includes(btn.dataset.key)));
+}
+function tree(open){el('tree').hidden=!open;el('objects').setAttribute('aria-expanded',String(open))}
+function choose(key,add=false){cancelPreview();mode='select';if(add&&styles[key]&&selected.every(k=>styles[k])){selected=selected.includes(key)?(selected.length>1?selected.filter(k=>k!==key):selected):[...selected,key]}else selected=[key];previous=[...selected];tree(false);render()}
+for(const [key,label] of Object.entries(titles)){const btn=document.createElement('button');btn.className='obj';btn.dataset.key=key;btn.textContent=label;btn.onclick=e=>choose(key,e.shiftKey);el('items').append(btn);if(styles[key])el(key).onclick=e=>choose(key,e.shiftKey)}
+el('art').onclick=()=>{if(mode==='select')choose('waves')};el('objects').onclick=()=>tree(el('tree').hidden);
+el('brush').onclick=()=>{cancelPreview();if(mode==='select')previous=[...selected];mode=mode==='painting'?'painting':'target';tree(false);render()};
+el('useMask').onclick=()=>{mode='painting';selected=['waves'];tree(false);render()};el('select').onclick=()=>{cancelPreview();mode='select';selected=[...previous];render()};
+function showFont(i){hot=i;el(preview).style.fontFamily=families[i];[...el('fonts').children].forEach((b,j)=>b.classList.toggle('hot',i===j))}
+function accept(i){const id=preview,old=styles[id].family;cancelPreview();if(old!==families[i]){styles[id].family=families[i];record(()=>{styles[id].family=old})}render();el('family').focus()}
+families.forEach((f,i)=>{const b=document.createElement('button');b.textContent=f;b.style.fontFamily=f;b.onpointerenter=()=>showFont(i);b.onfocus=()=>showFont(i);b.onclick=()=>accept(i);el('fonts').append(b)});
+el('family').onclick=()=>{if(preview){cancelPreview();return}preview=selected[0];el('fonts').hidden=false;el('family').setAttribute('aria-expanded','true');hot=Math.max(0,families.indexOf(styles[preview].family));el('fonts').children[hot].focus()};
+document.addEventListener('keydown',e=>{if(!preview)return;if(e.key==='Escape'){e.preventDefault();cancelPreview();el('family').focus()}else if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();hot=Math.max(0,Math.min(families.length-1,hot+(e.key==='ArrowDown'?1:-1)));el('fonts').children[hot].focus()}});
+document.addEventListener('focusin',e=>{if(preview&&!el('fonts').contains(e.target)&&e.target!==el('family'))cancelPreview()});
+document.addEventListener('pointerdown',e=>{if(preview&&!el('fonts').contains(e.target)&&e.target!==el('family'))cancelPreview()});
+let trackStart;el('tracking').oninput=e=>{const id=selected[0];trackStart??=styles[id].track;styles[id].track=Number(e.target.value);applyText(id);el('trackValue').textContent=e.target.value+' %'};el('tracking').onchange=()=>{const id=selected[0],old=trackStart;trackStart=undefined;if(old!==undefined)record(()=>styles[id].track=old)};
+el('align').onclick=()=>{const [a,b]=selected,old=el(a).style.left,aligned=el(b).style.left||(b==='headline'?'7%':'15%');if(old===aligned)return;el(a).style.left=aligned;record(()=>el(a).style.left=old)};
+el('undo').onclick=()=>{cancelPreview();history.pop()?.();el('undo').disabled=!history.length;render()};
+el('diam').oninput=e=>el('diamValue').textContent=e.target.value+' px';
+function coords(e){const r=el('art').getBoundingClientRect();return [(e.clientX-r.left)*600/r.width,(e.clientY-r.top)*555.56/r.height]}
+function dab(x,y){stroke.group.append(svg('circle',{cx:x,cy:y,r:Number(el('diam').value)/2,fill:'url(#fade)'}))}
+function move(e){if(mode!=='painting')return;const r=el('art').getBoundingClientRect(),[x,y]=coords(e),c=el('cursor');c.hidden=false;c.style.left=x/6+'%';c.style.top=y/5.5556+'%';c.style.width=c.style.height=Number(el('diam').value)*r.width/600+'px';if(!stroke)return;const [a,b]=stroke.last,n=Math.ceil(Math.hypot(x-a,y-b)/Math.max(1,Number(el('diam').value)/8));for(let i=1;i<=n;i++)dab(a+(x-a)*i/n,b+(y-b)*i/n);stroke.last=[x,y]}
+el('art').onpointerdown=e=>{if(mode!=='painting')return;e.currentTarget.setPointerCapture(e.pointerId);const group=svg('g',{});el('paper').append(group);stroke={group,last:coords(e)};dab(...stroke.last);move(e)};
+el('art').onpointermove=move;el('art').onpointerup=()=>{if(stroke){const g=stroke.group;record(()=>g.remove());stroke=null}};el('art').onpointercancel=()=>{stroke?.group.remove();stroke=null};el('art').onpointerleave=()=>el('cursor').hidden=true;render();
+</script></html>
