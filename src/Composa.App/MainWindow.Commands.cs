@@ -463,7 +463,7 @@ public sealed partial class MainWindow
         RefreshAiUi();
         UpdateColors();
         if (session?.Tool is not (Tool.Move or Tool.Shape or Tool.Pen or Tool.Text)) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || (session.ActiveLayer?.Shape != null) != optionsHaveShape || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText) RebuildOptions();
+        if (session.ActiveLayerIdOrNull() != optionsLayer || session.ActiveLayer?.Shape?.Kind != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }

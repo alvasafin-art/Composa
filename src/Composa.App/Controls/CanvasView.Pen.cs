@@ -18,8 +18,15 @@ public sealed partial class CanvasView
     private bool penDraftDrag;
     private bool penDraftEditing;
     private bool penConverted;
-    public bool EditVectorMask { get; set; }
-    private VectorPath? CurrentPenPath => EditVectorMask ? session?.ActiveLayer?.VectorMask : session?.ActiveLayer?.Shape?.Path;
+    private Guid? penMaskLayer;
+    public bool EditVectorMask
+    {
+        get => session?.ActiveLayer is { VectorMask: not null } layer && penMaskLayer == layer.Id;
+        set => penMaskLayer = value ? session?.ActiveLayer?.Id : null;
+    }
+    private VectorPath? CurrentPenPath => session?.ActiveLayer is { } layer
+        ? EditVectorMask ? layer.VectorMask : Composa.Editing.EditorSession.EditableShapePath(layer)
+        : null;
     public void FinishPen(bool closed = false)
     {
         if (penDraft.Count >= 2 && session != null) session.AddPath(new VectorPath { Nodes = penDraft.ToArray(), Closed = closed && penDraft.Count >= 3 });

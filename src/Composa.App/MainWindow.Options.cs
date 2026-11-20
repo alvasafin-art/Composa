@@ -16,7 +16,7 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     private bool geometryOpen;
-    private bool optionsHaveShape;
+    private ShapeKind? optionsShapeKind;
     private bool optionsHaveWarp;
     private bool optionsEditingText;
     private Button generativeExpandButton = null!;
@@ -26,7 +26,7 @@ public sealed partial class MainWindow
     {
         refreshOptions = null;
         optionsHost.Height = 40;
-        optionsHaveShape = session?.ActiveLayer?.Shape != null;
+        optionsShapeKind = session?.ActiveLayer?.Shape?.Kind;
         optionsHaveWarp = session?.WarpEdit != null;
         optionsEditingText = session?.IsEditingText == true;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
@@ -86,8 +86,6 @@ public sealed partial class MainWindow
                     BuildShapeFields(appearance, row);
                     appearance.Children.Add(Flat("Edit points", () =>
                     {
-                        if (s.ActiveLayer is not {} target) return;
-                        s.ConvertShapeToPath(target);
                         canvas.EditVectorMask=false; SelectTool(Tool.Pen);
                     }));
                 }
@@ -153,16 +151,19 @@ public sealed partial class MainWindow
                 break;
             case Tool.Pen:
                 var penTitle = Title("Pen");
+                var maskToggle = Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateCanvas(); });
+                void RefreshMaskToggle()
+                {
+                    maskToggle.IsEnabled = s.ActiveLayer?.VectorMask != null;
+                    maskToggle.IsChecked = canvas.EditVectorMask;
+                }
+                refreshOptions += RefreshMaskToggle;
+                RefreshMaskToggle();
                 ToolTip.SetTip(penTitle, "Drag a point to move it · Shift-click or double-click a curve to add a point · Click a point or segment, then Delete · Alt on the last point continues straight");
                 Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
-                    Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateCanvas(); }),
+                    maskToggle,
                     Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
-                if (s.ActiveLayer?.Shape is {} penShape)
-                {
-                    if (penShape.Path == null)
-                        Add(Flat("Edit points", () => { if (s.ActiveLayer is {} target) s.ConvertShapeToPath(target); }));
-                    BuildShapeFields(row);
-                }
+                if (s.ActiveLayer?.Shape != null) BuildShapeFields(row);
                 break;
             case Tool.Marquee or Tool.Lasso or Tool.Wand:
                 Add(Title(Chosen()));

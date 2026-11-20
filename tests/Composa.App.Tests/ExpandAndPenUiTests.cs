@@ -7,12 +7,57 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.App.Controls;
 using Composa.Editing;
+using Composa.Model;
 using SkiaSharp;
 
 namespace Composa.App.Tests;
 
 public class ExpandAndPenUiTests
 {
+    [AvaloniaFact]
+    public void Pen_edits_selected_live_shapes_directly_and_undo_restores_the_primitive()
+    {
+        var window = new MainWindow { Width = 1280, Height = 820 };
+        window.Show();
+        var session = EditorSession.NewCanvas(320, 220);
+        window.AddSession(session);
+        var rectangle = session.AddShape(new ShapeStyle(ShapeKind.Rectangle, 0xff2580aa, 0), new SKRect(30, 40, 120, 110))!;
+        var ellipse = session.AddShape(new ShapeStyle(ShapeKind.Ellipse, 0xff30945a, 0), new SKRect(150, 60, 270, 160))!;
+        window.SelectTool(Tool.Pen);
+
+        Point At(SKPoint p) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(p), window)!.Value;
+        void EditAnchor(Layer original, SKPoint anchor)
+        {
+            Dispatcher.UIThread.RunJobs();
+            var state = session.History.CurrentId;
+            Assert.Equal(original.Id, session.ActiveLayer!.Id);
+            Assert.Same(original.Pixels, session.ActiveLayer.Pixels);
+            Assert.Null(session.ActiveLayer.Shape!.Path);
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "Edit points"));
+            var start = At(anchor);
+            window.MouseDown(start, MouseButton.Left);
+            window.MouseUp(start, MouseButton.Left);
+            Assert.Equal(state, session.History.CurrentId);
+            Assert.Null(session.ActiveLayer!.Shape!.Path);
+            window.MouseDown(start, MouseButton.Left);
+            var end = At(new SKPoint(anchor.X + 8, anchor.Y + 10));
+            window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+            window.MouseUp(end, MouseButton.Left);
+            Assert.Equal(original.Id, session.ActiveLayer!.Id);
+            Assert.Equal(ShapeKind.Path, session.ActiveLayer.Shape!.Kind);
+            Assert.Equal(4, session.ActiveLayer.Shape.Path!.Nodes.Length);
+            session.Undo();
+            Assert.Equal(state, session.History.CurrentId);
+            Assert.Null(session.ActiveLayer!.Shape!.Path);
+        }
+
+        Screenshots.Save(window, "pen-selected-ellipse");
+        EditAnchor(ellipse, new SKPoint(210, 60));
+        session.SelectLayer(rectangle.Id);
+        EditAnchor(rectangle, new SKPoint(30, 40));
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void Alt_on_the_last_anchor_keeps_the_incoming_curve_and_next_edge_is_straight()
     {

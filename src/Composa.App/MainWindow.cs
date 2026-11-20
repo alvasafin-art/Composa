@@ -664,7 +664,7 @@ public sealed partial class MainWindow : Window
         (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),
         (Tool.Text, Icons.Text, "Type (T) · click for point text, drag a paragraph box, click text to edit it"), (Tool.Eyedropper, Icons.Eyedropper, "Eyedropper (I)"),
-        (Tool.Pen, Icons.Pen, "Pen (P) · click adds a corner, drag creates curve handles · Alt-click converts a point · Ctrl edits points · Enter finishes · double-click closes"),
+        (Tool.Pen, Icons.Pen, "Pen (P) · drag points on the selected vector layer · double-click a segment to add a point · click away from the contour to draw · Enter finishes"),
         (Tool.Hand, Icons.Hand, "Hand (H) · hold Space with any tool"), (Tool.Zoom, Icons.Zoom, "Zoom (Z)")
     ];
 

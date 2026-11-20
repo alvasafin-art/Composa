@@ -24,6 +24,17 @@ public sealed partial class EditorSession
     public void ConvertShapeToPath(Layer layer)
     {
         if (layer.Shape is not {} style || style.Kind == ShapeKind.Path || layer.Pixels is not {} pixels || PixelsLocked(layer)) return;
+        ChangeShapeStyle(layer, WithEditedPath(style, ShapeOutline(style, pixels)));
+    }
+
+    /// <summary>The outline in layer-local coordinates, including live shapes before their first point edit.</summary>
+    public static VectorPath? EditableShapePath(Layer layer) =>
+        layer.Shape is { } style && layer.Pixels is { } pixels
+            ? style.Kind == ShapeKind.Path ? style.Path : ShapeOutline(style, pixels)
+            : null;
+
+    private static VectorPath ShapeOutline(ShapeStyle style, SKBitmap pixels)
+    {
         double w=pixels.Width, h=pixels.Height;
         var nodes=new List<BezierNode>();
         void Corner(double x,double y)
@@ -66,18 +77,22 @@ public sealed partial class EditorSession
                 }
             }
         }
-        var path=new VectorPath { Nodes=nodes.ToArray(), Closed=!line };
+        return new VectorPath { Nodes=nodes.ToArray(), Closed=!line };
+    }
+
+    private static ShapeStyle WithEditedPath(ShapeStyle style, VectorPath path)
+    {
         var converted=style with { Kind=ShapeKind.Path,Path=path };
-        if(line) converted=converted with { FillEnabled=false, Stroke=style.Fill, StrokeGradient=style.FillGradient,
+        if(style.Kind==ShapeKind.Line) converted=converted with { FillEnabled=false, Stroke=style.Fill, StrokeGradient=style.FillGradient,
             FillGradient=null, StrokeWidth=style.LineWidth, StrokeEnabled=style.StrokeEnabled, RoundCaps=true };
-        ChangeShapeStyle(layer,converted);
+        return converted;
     }
 
     public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;
         if (mask) { if (layer.VectorMask == null) layer.VectorMaskFollowsWarp = !layer.HasWarp; layer.VectorMask = path; }
-        else if (layer.Shape is { } style) { layer.Shape = style with { Path = path }; layer.Pixels = RenderWorkingShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
+        else if (layer.Shape is { } style) { layer.Shape = WithEditedPath(style, path); layer.Pixels = RenderWorkingShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
         InvalidateAll(); LayersChanged?.Invoke();
     }
     public void CompletePathEdit(Layer layer)
@@ -106,7 +121,7 @@ public sealed partial class EditorSession
     }
     public void PathToSelection(Layer layer)
     {
-        var geometry = layer.VectorMask ?? layer.Shape?.Path;
+        var geometry = layer.VectorMask ?? EditableShapePath(layer);
         if (geometry == null || layer.Pixels == null) return;
         using var path = geometry.Build(layer.Pixels.Width, layer.Pixels.Height); path.Transform(layer.Matrix);
         using var mask = SelectionMask.FromPath(document.Width, document.Height, path); Select(mask, SelectionMode.Replace, "Path to Selection");
