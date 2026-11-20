@@ -169,24 +169,29 @@ public static unsafe class PromptSegmentation
             (float)b.Right / width * image.Width, (float)b.Bottom / height * image.Height }
             : new[] { point!.Value.X / width * image.Width, point.Value.Y / height * image.Height, 0f, 0f };
         var labels = box != null ? new[] { 2f, 3f } : new[] { 1f, -1f };
-        var inputs = new List<NamedOnnxValue>
+        var embeddingTensor = new DenseTensor<float>(image.Data, [1, 256, 64, 64]);
+        Output[] Predict(float[] promptCoords, float[] promptLabels)
         {
-            NamedOnnxValue.CreateFromTensor("image_embeddings", new DenseTensor<float>(image.Data, [1, 256, 64, 64])),
-            NamedOnnxValue.CreateFromTensor(mobile ? "point_coords" : "batched_point_coords", new DenseTensor<float>(coords, mobile ? [1, 2, 2] : [1, 1, 2, 2])),
-            NamedOnnxValue.CreateFromTensor(mobile ? "point_labels" : "batched_point_labels", new DenseTensor<float>(labels, mobile ? [1, 2] : [1, 1, 2]))
-        };
-        if (mobile)
-        {
-            // The exported decoder expects coordinates on the padded 1024 square, with the original aspect ratio.
-            inputs.Add(NamedOnnxValue.CreateFromTensor("orig_im_size", new DenseTensor<float>(new[] { (float)image.Height, (float)image.Width }, [2])));
-            inputs.Add(NamedOnnxValue.CreateFromTensor("mask_input", new DenseTensor<float>(new float[256 * 256], [1, 1, 256, 256])));
-            inputs.Add(NamedOnnxValue.CreateFromTensor("has_mask_input", new DenseTensor<float>(new[] { 0f }, [1])));
+            var inputs = new List<NamedOnnxValue>
+            {
+                NamedOnnxValue.CreateFromTensor("image_embeddings", embeddingTensor),
+                NamedOnnxValue.CreateFromTensor(mobile ? "point_coords" : "batched_point_coords", new DenseTensor<float>(promptCoords, mobile ? [1, 2, 2] : [1, 1, promptLabels.Length, 2])),
+                NamedOnnxValue.CreateFromTensor(mobile ? "point_labels" : "batched_point_labels", new DenseTensor<float>(promptLabels, mobile ? [1, 2] : [1, 1, promptLabels.Length]))
+            };
+            if (mobile)
+            {
+                // The exported decoder expects coordinates on the padded 1024 square, with the original aspect ratio.
+                inputs.Add(NamedOnnxValue.CreateFromTensor("orig_im_size", new DenseTensor<float>(new[] { (float)image.Height, (float)image.Width }, [2])));
+                inputs.Add(NamedOnnxValue.CreateFromTensor("mask_input", new DenseTensor<float>(new float[256 * 256], [1, 1, 256, 256])));
+                inputs.Add(NamedOnnxValue.CreateFromTensor("has_mask_input", new DenseTensor<float>(new[] { 0f }, [1])));
+            }
+            else inputs.Add(NamedOnnxValue.CreateFromTensor("orig_im_size", new DenseTensor<long>(new[] { (long)image.Height, (long)image.Width }, [2])));
+            // The old MobileSAM export's high-resolution "masks" freezes the dummy crop ratio.
+            // Reconstruct its low-resolution logits ourselves: square resize, remove padding,
+            // then resize to the photograph. EfficientSAM outputs aspect-correct image logits.
+            return Run(model.Decoder, inputs, [mobile ? "low_res_masks" : "output_masks", "iou_predictions"], cancellation);
         }
-        else inputs.Add(NamedOnnxValue.CreateFromTensor("orig_im_size", new DenseTensor<long>(new[] { (long)image.Height, (long)image.Width }, [2])));
-        // The old MobileSAM export's high-resolution "masks" freezes the dummy crop ratio.
-        // Reconstruct its low-resolution logits ourselves: square resize, remove padding,
-        // then resize to the photograph. EfficientSAM outputs aspect-correct image logits.
-        var outputs = Run(model.Decoder, inputs, [mobile ? "low_res_masks" : "output_masks", "iou_predictions"], cancellation);
+        var outputs = Predict(coords, labels);
         var masks = outputs[0]; var scores = outputs[1].Data;
         var mw = masks.Dimensions[^1]; var mh = masks.Dimensions[^2];
         if (mw <= 0 || mh <= 0 || scores.Length == 0 || scores.Length > masks.Data.Length / ((long)mw * mh))
@@ -198,7 +203,25 @@ public static unsafe class PromptSegmentation
             (int)Math.Ceiling(probe.Right * sx), (int)Math.Ceiling(probe.Bottom * sy));
         var candidate = PromptCandidate(masks.Data, scores, mw, mh, probeGrid, cancellation);
         if (candidate < 0) return Pixels.NewMask(width, height);
-        return Reconstruct(masks.Data.AsSpan(candidate * mw * mh, mw * mh).ToArray(), mw, mh,
+        // A real object at the centre is independent evidence for the contents of a
+        // hollow prediction. Background seen through a handle usually extends well
+        // beyond the box. Both checks reuse the original image embedding.
+        float[]? InteriorCandidate()
+        {
+            float cx = (coords[0] + coords[2]) * .5f, cy = (coords[1] + coords[3]) * .5f;
+            var hit = Predict([cx, cy, 0, 0], [1, -1]);
+            var centre = SKRectI.Create(probeGrid.MidX, probeGrid.MidY, 1, 1);
+            int part = PromptCandidate(hit[0].Data, hit[1].Data, mw, mh, centre, cancellation);
+            if (part < 0 || !BoxMaskCandidates.IsContainedPart(hit[0].Data, part, mw, mh, probeGrid, cancellation)) return null;
+            var guided = Predict([.. coords, cx, cy], [.. labels, 1]);
+            int whole = PromptCandidate(guided[0].Data, guided[1].Data, mw, mh, centre, cancellation);
+            if (whole < 0 || guided[1].Data[whole] < scores[candidate]) return null;
+            return guided[0].Data.AsSpan(whole * mw * mh, mw * mh).ToArray();
+        }
+        var plane = box != null
+            ? BoxMaskCandidates.Resolve(masks.Data, scores, candidate, mw, mh, probeGrid, cancellation, mobile ? null : InteriorCandidate)
+            : masks.Data.AsSpan(candidate * mw * mh, mw * mh).ToArray();
+        return Reconstruct(plane, mw, mh,
             image.Width, image.Height, width, height, mobile, cancellation);
     }
 

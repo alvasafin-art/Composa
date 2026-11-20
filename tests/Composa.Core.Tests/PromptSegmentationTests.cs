@@ -11,6 +11,65 @@ public class PromptSegmentationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Box_can_include_a_supported_interior_but_rejects_an_adjoining_subject(bool spillsOutside)
+    {
+        const int width = 80, height = 40, size = width * height;
+        var prompt = new SKRectI(5, 3, 39, 37);
+        var rim = new SKRectI(6, 4, 38, 36);
+        var centre = new SKRectI(9, 7, 35, 33);
+        var planes = Enumerable.Repeat(-1f, size * 2).ToArray();
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+            {
+                int index = y * width + x;
+                if (rim.Contains(x, y) && !centre.Contains(x, y)) planes[index] = 1;
+                if (rim.Contains(x, y) || (spillsOutside && x >= rim.Right && x < 66 && y >= 10 && y < 30))
+                    planes[size + index] = 1;
+            }
+        var mask = BoxMaskCandidates.Resolve(planes, [.92f, .85f], 0, width, height, prompt, default);
+        Assert.Equal(!spillsOutside, mask[20 * width + 20] > 0);
+        Assert.True(mask[20 * width + 7] > 0);
+        Assert.True(mask[20 * width + 50] < 0);
+    }
+
+    [Fact]
+    public void Box_prefers_a_contained_subject_over_a_similarly_scored_pair_spilling_past_the_gesture()
+    {
+        const int width = 64, height = 40, size = width * height;
+        var planes = Enumerable.Repeat(-1f, size * 2).ToArray();
+        for (int y = 5; y < 34; y++)
+            for (int x = 4; x < 44; x++)
+            {
+                planes[y * width + x] = 1;
+                if (x < 31) planes[size + y * width + x] = 1;
+            }
+        var mask = BoxMaskCandidates.Resolve(planes, [.92f, .88f], 0, width, height, new(2, 2, 40, 37), default);
+        Assert.True(mask[16 * width + 22] > 0);
+        Assert.True(mask[16 * width + 37] < 0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Disconnected_neighbor_crossing_the_box_needs_independent_support(bool supported)
+    {
+        const int width = 56, height = 44, size = width * height;
+        var planes = Enumerable.Repeat(-1f, 3 * size).ToArray();
+        var subject = new SKRectI(6, 4, 40, 29);
+        var neighbor = new SKRectI(12, 31, 24, 39);
+        for (int i = 0; i < 3; i++)
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    if (subject.Contains(x, y) || (neighbor.Contains(x, y) && (i == 0 || supported)))
+                        planes[i * size + y * width + x] = 1;
+        var mask = BoxMaskCandidates.Resolve(planes, [.93f, .91f, .88f], 0, width, height, new(3, 2, 43, 35), default);
+        Assert.True(mask[16 * width + 22] > 0);
+        Assert.Equal(supported, mask[33 * width + 16] > 0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void Printed_rings_on_a_shaded_plate_keep_their_holes_and_fractional_edges(bool lightPlate)
     {
         using var image = Pixels.NewColor(220, 100);
