@@ -74,8 +74,6 @@ public class FontStylesAndContentUiTests
         else session.Fill(new SKColor(0x3D, 0x9B, 0xFF));
         session.Deselect(); window.SelectTool(Tool.Move); window.Canvas.ShowTransformControls = true; Dispatcher.UIThread.RunJobs();
         var source = session.ActiveLayer!.Pixels;
-        window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties")
-            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         var fields = window.GetVisualDescendants().OfType<NumericUpDown>().ToList();
         Assert.Contains(fields, n => n.Value == 170); Assert.Contains(fields, n => n.Value == 130);

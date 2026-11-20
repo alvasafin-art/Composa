@@ -13,7 +13,7 @@ namespace Composa.App.Dialogs;
 /// returned to the window for its normal guard/execute path; looking for one is never an edit.</summary>
 public sealed class CommandSearchWindow : Window
 {
-    private readonly TextBox query = new() { Name = "CommandQuery", PlaceholderText = "Type a command, tool or menu name…", MaxLength = 256 };
+    private readonly TextBox query = new() { Name = "CommandQuery", PlaceholderText = Locale.T("Type a command, tool or menu name…"), MaxLength = 256 };
     private readonly ListBox results = new() { Name = "CommandResults", Height = 350, Background = Brushes.Transparent };
     private readonly TextBlock status = Ui.Label("", Palette.Secondary);
     private readonly IReadOnlyList<Shortcut> commands;
@@ -23,8 +23,8 @@ public sealed class CommandSearchWindow : Window
     public CommandSearchWindow(IReadOnlyList<Shortcut> commands, Func<Shortcut, bool> canRun, Func<Shortcut, string> reason)
     {
         this.commands = commands.Where(c => !c.Hidden).ToArray(); this.canRun = canRun; this.reason = reason;
-        Title = "Find Command"; Width = 620; SizeToContent = SizeToContent.Height; CanResize = false; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children = { query, results, status, Ui.Label("↑ ↓ to choose · Enter to run · Esc to close", Palette.Secondary) } };
+        Title = Locale.T("Find Command"); Width = 620; SizeToContent = SizeToContent.Height; CanResize = false; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children = { query, results, status, Ui.Label(Locale.T("↑ ↓ to choose · Enter to run · Esc to close"), Palette.Secondary) } };
         query.TextChanged += (_, _) => Rebuild();
         results.SelectionChanged += (_, _) => RefreshStatus();
         results.DoubleTapped += (_, e) => { if (e.Source is Control c && (c is ListBoxItem || c.FindAncestorOfType<ListBoxItem>() != null)) RunSelected(); };
@@ -44,7 +44,7 @@ public sealed class CommandSearchWindow : Window
     }
 
     private static string DisplayTitle(Shortcut c) => c.Id.StartsWith("automation:", StringComparison.Ordinal) ? c.Title
-        : c.Id is "Undo" or "Redo" ? (c.Item?.Header as string ?? c.Title).TrimEnd('…') : c.Id;
+        : (Locale.Language == "ru" || c.Id is "Undo" or "Redo") ? (c.Item?.Header as string ?? Locale.T(c.Title)).TrimEnd('…') : c.Id;
     private static string PathFor(Shortcut c)
     {
         if (c.Item == null) return c.Group;

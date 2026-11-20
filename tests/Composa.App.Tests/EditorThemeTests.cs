@@ -34,6 +34,9 @@ public class EditorThemeTests
                 var dialog = Assert.Single(window.OwnedWindows);
                 var picker = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "EditorThemePicker");
                 Assert.Equal((int)window.Settings.Theme, picker.SelectedIndex);
+                var language = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "EditorLanguagePicker");
+                Assert.Equal("Русский", language.Items[1]);
+                language.SelectedIndex = 1;
                 picker.SelectedIndex = (int)theme;
                 Dispatcher.UIThread.RunJobs();
                 Assert.Equal(theme, app.CurrentTheme);
@@ -46,6 +49,7 @@ public class EditorThemeTests
             Assert.Equal(EditorTheme.Classic, Settings.FromJson("{}").Theme);
             await Choose(EditorTheme.DarkNeutral, false);
             Assert.Equal(EditorTheme.Classic, app.CurrentTheme);
+            Assert.Equal("en", window.Settings.Language);
             foreach (var choice in new[] { EditorTheme.DarkNeutral, EditorTheme.LightNeutral, EditorTheme.Classic })
             {
                 await Choose(choice, true);
@@ -54,6 +58,7 @@ public class EditorThemeTests
                 if (choice != EditorTheme.Classic) Assert.True(Palette.Active.Color.R < panelBrush.Color.R);
                 window.Settings.SaveTo(path);
                 Assert.Equal(choice, Settings.LoadFrom(path).Theme);
+                Assert.Equal("ru", Settings.LoadFrom(path).Language);
                 Assert.True(Screenshots.Save(window, "workspace-theme-" + choice));
             }
             Assert.Equal(history, session.History.CurrentId);

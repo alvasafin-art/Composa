@@ -9,7 +9,7 @@ namespace Composa.App.Dialogs;
 public sealed class WorkspacesWindow : Window
 {
     private readonly ListBox layouts = new() { Name = "WorkspaceList", Height = 190 };
-    private readonly TextBox name = new() { Name = "WorkspaceName", Watermark = "Workspace name", MaxLength = 64 };
+    private readonly TextBox name = new() { Name = "WorkspaceName", Watermark = Locale.T("Workspace name"), MaxLength = 64 };
     private readonly TextBlock status = Ui.Label("", Palette.Secondary);
     private readonly Settings settings;
     private readonly Func<WorkspaceLayout> capture;
@@ -18,7 +18,7 @@ public sealed class WorkspacesWindow : Window
     public WorkspacesWindow(Settings settings, Func<WorkspaceLayout> capture, Action<WorkspaceLayout> apply)
     {
         this.settings = settings; this.capture = capture; this.apply = apply;
-        Title = "Workspaces"; Width = 530; SizeToContent = SizeToContent.Height; CanResize = false; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = Locale.T("Workspaces"); Width = 530; SizeToContent = SizeToContent.Height; CanResize = false; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var save = Ui.TextButton("Save Current", Save);
         var use = Ui.TextButton("Apply", () => { if (SelectedKey() is { } key) { apply(settings.Workspaces[key]); status.Text = "Workspace applied."; } });
         var delete = Ui.TextButton("Delete", () => { if (SelectedKey() is { } key) { settings.Workspaces.Remove(key); settings.Save(); Refresh(); status.Text = "Workspace deleted."; } });

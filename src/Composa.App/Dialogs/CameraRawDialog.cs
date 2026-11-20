@@ -35,7 +35,7 @@ public static class CameraRawDialog
         var display = Ui.DisplayProfile(owner);
         using var thumb = Ui.ToAvaloniaBitmap(original, previewSide, display);
         Avalonia.Media.Imaging.Bitmap? renderedThumb = null;
-        var compare = new ToggleButton { Content = "Before", MinWidth = 70 };
+        var compare = new ToggleButton { Content = Locale.T("Before"), MinWidth = 70 };
         var scale = Math.Min(previewSide / (double)original.Width, (wide ? Math.Clamp(owner.Bounds.Height - 220, 240, 540) : 145) / (double)original.Height);
         var preview = new Image { Source = thumb, Width = original.Width * scale, Height = original.Height * scale,
             Stretch = Stretch.Uniform, Cursor = new Cursor(StandardCursorType.Cross) };
@@ -150,7 +150,7 @@ public static class CameraRawDialog
             var tint = Slider("Tint", s => s.Tint, -100, 100, (s, v) => s with { Tint = v, WhiteBalance = CameraRawWhiteBalance.Custom }, tip: "Shifts the picture from green to magenta", track: Controls.SliderTracks.Tint);
             setTemperature = v => temperature.Value = v;
             setTint = v => tint.Value = v;
-            var balanceLabel = Ui.Label("White Balance");
+            var balanceLabel = Ui.Label(Locale.T("White Balance"));
             balanceLabel.Width = LabelWidth;
             balance = Ui.Combo(new[] { "Custom", "Auto" }, initial.WhiteBalance == CameraRawWhiteBalance.Auto ? "Auto" : "Custom", c => c, choice =>
             {
@@ -245,7 +245,7 @@ public static class CameraRawDialog
                 Slider("Shadows", s => s.Curve.Shadows, -100, 100, (s, v) => s with { Curve = s.Curve with { Shadows = v } }),
                 Slider("Refine Saturation", s => s.Curve.RefineSaturation, -100, 100, (s, v) => s with { Curve = s.Curve with { RefineSaturation = v } }, tip: "How much the curve also changes saturation"),
                 Heading("Point"),
-                Ui.Row(8, Ui.Label("Channel", Palette.Secondary), channelPicker, resetCurve),
+                Ui.Row(8, Ui.Label(Locale.T("Channel"), Palette.Secondary), channelPicker, resetCurve),
                 curveEditor));
 
             // Color Mixer: one tab of eight families at a time.
@@ -266,7 +266,7 @@ public static class CameraRawDialog
             }
             BuildMixer();
             Group(CameraRawGroup.Mixer, "Color Mixer", Column(
-                Ui.Row(8, Ui.Label("Adjust", Palette.Secondary), Ui.Combo(mixerTabs, "Hue", t => t, t => { mixerTab = Array.IndexOf(mixerTabs, t); BuildMixer(); }, 130)),
+                Ui.Row(8, Ui.Label(Locale.T("Adjust"), Palette.Secondary), Ui.Combo(mixerTabs, "Hue", t => t, t => { mixerTab = Array.IndexOf(mixerTabs, t); BuildMixer(); }, 130)),
                 mixerRows));
 
 

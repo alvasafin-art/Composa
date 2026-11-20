@@ -19,10 +19,10 @@ public sealed class ScriptEditorWindow : Window
         Func<string, CancellationToken, Task<ScriptResult>> execute, Action saved)
     {
         libraryPath = path;
-        Title = "Script Editor"; Width = 760; Height = 620; MinWidth = 420; MinHeight = 320;
+        Title = Locale.T("Script Editor"); Width = 760; Height = 620; MinWidth = 420; MinHeight = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         code = new TextBox { Text = script, AcceptsReturn = true, AcceptsTab = true, FontFamily = FontFamily.Parse("monospace"), TextWrapping = TextWrapping.NoWrap };
-        name = new TextBox { Text = title, Watermark = "Script name", IsReadOnly = path != null };
+        name = new TextBox { Text = title, Watermark = Locale.T("Script name"), IsReadOnly = path != null };
         Button run = null!, stop = null!, save = null!, export = null!;
         run = Ui.TextButton("Run", () => _ = Run(), accent: true);
         stop = Ui.TextButton("Stop", () => running?.Cancel()); stop.IsVisible = false;
@@ -49,7 +49,7 @@ public sealed class ScriptEditorWindow : Window
         async Task SaveFile()
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            { Title = "Save Script", SuggestedFileName = name.Text + ".js", DefaultExtension = "js", FileTypeChoices = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
+            { Title = Locale.T("Save Script"), SuggestedFileName = name.Text + ".js", DefaultExtension = "js", FileTypeChoices = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
             if (file?.TryGetLocalPath() is not { } target) return;
             try { await File.WriteAllTextAsync(target, code.Text ?? ""); status.Text = "Saved " + Path.GetFileName(target); }
             catch (Exception error) { status.Text = error.Message; }

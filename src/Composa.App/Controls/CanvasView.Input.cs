@@ -758,6 +758,15 @@ public sealed partial class CanvasView
         }
     }
 
+    private static SKPoint RotationGrip(SKPoint a, SKPoint b, SKPoint opposite)
+    {
+        var mid = new SKPoint((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+        float dx = b.Y - a.Y, dy = a.X - b.X;
+        if (dx * (opposite.X - mid.X) + dy * (opposite.Y - mid.Y) > 0) { dx = -dx; dy = -dy; }
+        float scale = 23 / Math.Max(.01f, MathF.Sqrt(dx * dx + dy * dy));
+        return new(mid.X + dx * scale, mid.Y + dy * scale);
+    }
+
     /// <summary>Which handle of a frame (document-space corners) is under a screen point.</summary>
     private TransformHandle HitFrame(SKPoint[] corners, Point screen, bool allowRotate)
     {
@@ -769,6 +778,12 @@ public sealed partial class CanvasView
             (Mid(0, 1), TransformHandle.Top), (Mid(1, 2), TransformHandle.Right), (Mid(2, 3), TransformHandle.Bottom), (Mid(3, 0), TransformHandle.Left)
         ];
         foreach (var (p, h) in handles) if (Distance(p, screen) <= 7) return h;
+        if (allowRotate)
+        {
+            SKPoint P(int i) => new((float)points[i].X, (float)points[i].Y);
+            var grip = RotationGrip(P(0), P(1), P(2));
+            if (Distance(new Point(grip.X, grip.Y), screen) <= 9) return TransformHandle.Rotate;
+        }
         var inside = Contains(points, screen);
         if (inside) return TransformHandle.Move;
         if (allowRotate) foreach (var p in points) if (Distance(p, screen) <= 26) return TransformHandle.Rotate;

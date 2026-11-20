@@ -61,7 +61,7 @@ public static class ShortcutsDialog
         var problem = Ui.Label("", new SolidColorBrush(Color.Parse("#FFB454")));
         problem.TextWrapping = TextWrapping.Wrap;
         problem.MaxWidth = 560;
-        var search = new TextBox { PlaceholderText = "Search shortcuts", Width = 300 };
+        var search = new TextBox { PlaceholderText = Locale.T("Search shortcuts"), Width = 300 };
         var rows = new StackPanel { Spacing = 2 };
         DialogWindow? dialog = null;
 

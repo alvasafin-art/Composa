@@ -15,7 +15,6 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
-    private bool geometryOpen;
     private ShapeKind? optionsShapeKind;
     private bool optionsHaveWarp;
     private bool optionsEditingText;
@@ -53,7 +52,7 @@ public sealed partial class MainWindow
         }
         Control Title(string text)
         {
-            var label = Ui.Label(text, weight: Avalonia.Media.FontWeight.SemiBold);
+            var label = Ui.Label(Locale.T(text), weight: Avalonia.Media.FontWeight.SemiBold);
             ToolTip.SetTip(label, Hint(s));
             return label;
         }
@@ -85,15 +84,15 @@ public sealed partial class MainWindow
                     ToolTip.SetTip(grid, "Reset the deformation to choose a different grid. The source pixels stay intact.");
                     Add(grid, Flat("Reset", canvas.ResetWarp), Flat("Undo point", () => canvas.UndoWarpPoint()),
                         Ui.TextButton("Apply", () => canvas.FinishWarp(keep: true), accent: true), Flat("Cancel", () => canvas.FinishWarp(keep: false)),
-                        Ui.Label("Drag nodes · Shift locks direction · Enter applies · Esc cancels", Palette.Secondary));
+                        Ui.Label(Locale.T("Drag nodes · Shift locks direction · Enter applies · Esc cancels"), Palette.Secondary));
                     break;
                 }
                 Add(Title("Move"));
                 if (!s.IsEditingChannel && s.ActiveLayer?.Shape != null)
                 {
                     appearance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    if (geometryOpen || !dock.Section("Properties").State.Visible) BuildShapeFields(appearance, row);
-                    appearance.Children.Add(Flat("Edit points", () =>
+                    if (!dock.Section("Properties").State.Visible) BuildShapeFields(appearance, row);
+                    (dock.Section("Properties").State.Visible ? row : appearance).Children.Add(Flat("Edit points", () =>
                     {
                         canvas.EditVectorMask=false; SelectTool(Tool.Pen);
                     }));
@@ -104,14 +103,8 @@ public sealed partial class MainWindow
                 // Auto Select and the transform handles belong to Move; numeric geometry belongs to its inspector.
                 foreach (var toggle in geometry.Children.OfType<CheckBox>().ToArray())
                 { geometry.Children.Remove(toggle); row.Children.Add(toggle); }
-                if (geometry.Children.Count > 0)
-                {
-                    inspector = geometry;
-                    var properties = Flat("Properties", () => { geometryOpen = !geometryOpen; RebuildOptions(); });
-                    properties.Name = "TransformProperties";
-                    ToolTip.SetTip(properties, "Position, size and rotation");
-                    row.Children.Add(properties);
-                }
+                if (geometry.Children.Count > 0) inspector = geometry;
+                if (appearance?.Children.Count == 0) appearance = null;
                 var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
                 BuildAlignmentFields(row);
                 break;
@@ -120,6 +113,7 @@ public sealed partial class MainWindow
                 if (s.Tool == Tool.CloneStamp) Add(StampMode());
                 var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v => s.Brush = s.Brush with { Size = v });
                 var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => s.Brush = s.Brush with { Hardness = v / 100 });
+                if (s.Tool is Tool.Brush or Tool.Eraser) Add(BrushLibrary(s));
                 Add(size, hardness);
                 Action<double>? setOpacity = null;
                 if (s.Tool != Tool.SpotHealing)
@@ -133,11 +127,7 @@ public sealed partial class MainWindow
                     var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
                     var spacing = Ui.SliderField("Spacing", s.Brush.Spacing * 100, 1, 100, v => s.Brush = s.Brush with { Spacing = v / 100 }, width: 105);
                     Add(flow, spacing);
-                    var presets = new[] { new Composa.Painting.BrushPreset("Custom", s.Brush) }.Concat(Composa.Painting.BrushPresets.All)
-                        .Concat(settings.BrushPresets.Select(p => new Composa.Painting.BrushPreset(p.Key, p.Value))).ToArray();
-                    Add(Ui.Combo(presets, presets[0], p => p.Name,
-                        p => { if (p.Name != "Custom") { s.Brush = p.Settings with { Size = s.Brush.Size, Opacity = s.Brush.Opacity }; RebuildOptions(); } }, 130),
-                        BrushDynamicsMenu(s));
+                    Add(BrushDynamicsMenu(s));
                     refreshOptions += () => { flow.Value = s.Brush.Flow * 100; spacing.Value = s.Brush.Spacing * 100; };
                 }
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
@@ -185,12 +175,12 @@ public sealed partial class MainWindow
                         Add(ObjectSelectionModelMenu());
                         var edge = Ui.Number(s.ObjectEdgeOffset, -10, 10, v => s.ObjectEdgeOffset = (int)v, 1, "0", 52);
                         ToolTip.SetTip(edge, "Positive values tighten the detected outline inward; negative values loosen it outward");
-                        Add(Ui.Row(5, Ui.Scrub(Ui.Label("Edge", Palette.Secondary), edge), edge, Ui.Label("px", Palette.Secondary)));
+                        Add(Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Edge"), Palette.Secondary), edge), edge, Ui.Label("px", Palette.Secondary)));
                     }
                     Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
                     if (s.WandMode == WandMode.Object)
                     {
-                        Add(SelectionModifyMenu(), Flat("Deselect", s.Deselect), Ui.Label("Click or draw a rectangle", Palette.Secondary));
+                        Add(SelectionModifyMenu(), Flat("Deselect", s.Deselect), Ui.Label(Locale.T("Click or draw a rectangle"), Palette.Secondary));
                         break;
                     }
                 }
@@ -227,7 +217,7 @@ public sealed partial class MainWindow
                 break;
             case Tool.Bucket:
                 Add(Title("Paint Bucket"), Ui.SliderField("Tolerance", s.WandTolerance, 0, 255, value => s.WandTolerance = (int)value),
-                    Ui.Label("Fills connected pixels with the foreground color", Palette.Secondary));
+                    Ui.Label(Locale.T("Fills connected pixels with the foreground color"), Palette.Secondary));
                 break;
             case Tool.Gradient:
                 Add(Title("Gradient"),
@@ -266,8 +256,8 @@ public sealed partial class MainWindow
                 Add(Title("Crop"));
                 var ratio = Ui.Combo(EditorSession.CropRatios, s.CropRatio, r => r, r => { s.CropRatio = r; canvas.ChangeCropRatio(); }, 100);
                 ToolTip.SetTip(ratio, "The shape the crop box keeps while you drag it");
-                Add(Ui.Row(6, Ui.Label("Ratio", Palette.Secondary), ratio));
-                var readout = Ui.Label("Drag on the canvas to choose the area to keep", Palette.Secondary);
+                Add(Ui.Row(6, Ui.Label(Locale.T("Ratio"), Palette.Secondary), ratio));
+                var readout = Ui.Label(Locale.T("Drag on the canvas to choose the area to keep"), Palette.Secondary);
                 var apply = Ui.TextButton("Apply", canvas.ApplyCrop, accent: true);
                 var cancel = Ui.TextButton("Cancel", canvas.CancelCrop);
                 Add(readout, apply, cancel, Ui.Separator(), Flat("Trim transparent edges", () => { if (!s.Trim()) ShowProblem("Nothing to trim: no edge is transparent."); else canvas.Fit(); }));
@@ -280,7 +270,7 @@ public sealed partial class MainWindow
                 refreshOptions();
                 break;
             case Tool.Eyedropper:
-                Add(Title("Eyedropper"), Ui.Label("Samples the merged image", Palette.Secondary));
+                Add(Title("Eyedropper"), Ui.Label(Locale.T("Samples the merged image"), Palette.Secondary));
                 break;
             case Tool.Hand or Tool.Zoom:
                 Add(Title(s.Tool == Tool.Hand ? "Hand" : "Zoom"), Flat("Fit", canvas.Fit), Flat("100%", () => canvas.ZoomTo(1)), Flat("200%", () => canvas.ZoomTo(2)));
@@ -288,8 +278,8 @@ public sealed partial class MainWindow
         }
         if (s.Tool is Tool.Move or Tool.Text)
         {
-            var actions = ResponsiveOptions(row);
-            if (inspector != null && geometryOpen)
+            var actions = s.Tool == Tool.Move ? (Control)new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled } : ResponsiveOptions(row);
+            if (inspector != null)
             {
                 optionsHost.Height = appearance == null ? 75 : 108;
                 var fields = appearance == null ? inspector : Ui.Column(5, inspector, appearance);
@@ -434,7 +424,7 @@ public sealed partial class MainWindow
                 opacity.Show(Math.Round((Color(st)>>24)*100d/255).ToString("0"));
                 field.Opacity=visible ? 1 : .65;
             };
-            return Ui.Row(4,Ui.Label(label,Palette.Secondary),field,eye);
+            return Ui.Row(4,Ui.Label(Locale.T(label),Palette.Secondary),field,eye);
         }
         var paints=quick ?? row;
         if (style.Kind!=ShapeKind.Line) paints.Children.Add(PaintRow("Fill",false));
@@ -473,9 +463,9 @@ public sealed partial class MainWindow
         var updating = false;
         void Change(Func<TextStyle, TextStyle> change)
         {
-            if (!updating) s.ChangeTextStyle(change);
+            if (!updating) s.FormatText(change);
         }
-        var style = s.CurrentTextStyle;
+        var style = s.InspectedTextStyle;
         var families = EditorSession.FontFamilies;
         var family = families.Contains(style.FontFamily) ? style.FontFamily : families.FirstOrDefault(f => f.Contains("Sans", StringComparison.OrdinalIgnoreCase)) ?? families.FirstOrDefault() ?? style.FontFamily;
         // A long font name is cut off rather than widening the bar.
@@ -483,15 +473,15 @@ public sealed partial class MainWindow
         void ChangeFace(Func<TextFace, TextFace> change) { if (!updating) s.SetTextFace(change); }
         var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face), 190);
         font.MaxWidth = 190;
-        ToolTip.SetTip(font, "Font family · hover or use the arrow keys to preview");
+        ToolTip.SetTip(font, Locale.T("Font family · hover or use the arrow keys to preview"));
         EnableFontSamples(font, s);
         var size = Ui.Number(s.CurrentTextSize, 1, 2000, v => { if (!updating) s.SetTextSize(v); }, 1, "0.#", 64);
         size.Name = "TextSize";
-        ToolTip.SetTip(size, "Font size of the selected characters; select text on the canvas to change a fragment");
+        ToolTip.SetTip(size, Locale.T("Font size of the selected characters; select text on the canvas to change a fragment"));
         var faceChoices = Composa.Text.FontCatalog.ForFamily(family);
         var stylesFamily = family;
         var faceMenu = new ComboBox { Width = 145, MaxWidth = 145, ItemsSource = faceChoices.Select(c => c.Name).ToArray() };
-        ToolTip.SetTip(faceMenu, "Font style");
+        ToolTip.SetTip(faceMenu, Locale.T("Font style"));
         faceMenu.SelectionChanged += (_, _) =>
         {
             if (!updating && faceMenu.SelectedIndex >= 0 && faceMenu.SelectedIndex < faceChoices.Count)
@@ -501,7 +491,7 @@ public sealed partial class MainWindow
             }
         };
         var swatch = new Border { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Avalonia.Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
-        ToolTip.SetTip(swatch, "Text color");
+        ToolTip.SetTip(swatch, Locale.T("Text color"));
         swatch.PointerPressed += async (_, _) =>
         {
             // The picker's working color shows on the canvas as it changes. Text being typed takes it as any bar change;
@@ -536,15 +526,15 @@ public sealed partial class MainWindow
         foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight), (TextAlignment.Justify, new Icons.Icon("M3 5h18 M3 10h18 M3 15h18 M3 20h18")) })
         {
             var button = new ToggleButton { Classes = { "tool" }, Width = 30, Height = 26, Content = Icons.Create(icon, 15), IsChecked = style.Alignment == alignment };
-            ToolTip.SetTip(button, "Align " + alignment.ToString().ToLowerInvariant());
-            button.Click += (_, _) => { Change(st => st with { Alignment = alignment }); refreshOptions?.Invoke(); };
+            ToolTip.SetTip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
+            button.Click += (_, _) => { s.FormatText(st => st with { Alignment = alignment }, paragraph: true); refreshOptions?.Invoke(); };
             alignments[alignment] = button;
             alignRow.Children.Add(button);
         }
         var tracking = Ui.Number(style.Tracking, -100, 1000, v => Change(st => st with { Tracking = v }), 1, "0.##", 58);
-        ToolTip.SetTip(tracking, "Letter spacing · px or % of each character’s size");
+        ToolTip.SetTip(tracking, Locale.T("Letter spacing · px or % of each character’s size"));
         var leading = Ui.Number(style.Leading, 0, 5000, v => Change(st => st with { Leading = v }), 1, properties ? "0.#;-0.#;'Auto'" : "0", 58);
-        ToolTip.SetTip(leading, "Baseline to baseline · 0 is Auto (120% of font size)");
+        ToolTip.SetTip(leading, Locale.T("Baseline to baseline · 0 is Auto (120% of font size)"));
         var done = Ui.TextButton("Done", () => { s.FinishText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); }, accent: true);
         var cancel = Ui.TextButton("Cancel", () => { s.CancelText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); });
         var edit = Ui.TextButton("Edit Text", () => { if (s.ActiveLayer is { Text: not null } layer) BeginTextEdit(layer); });
@@ -585,18 +575,18 @@ public sealed partial class MainWindow
                 return st with { Tracking = value, Type = st.Type with { PercentTracking = percent } };
             }));
             row.Children.Add(PropertyPair(
-                Ui.Column(4, Ui.Label("Line height", Palette.Secondary, 11), PropertyNumber(leading, Icons.LineHeight, "Line height", lineUnit)),
-                Ui.Column(4, Ui.Label("Letter spacing", Palette.Secondary, 11), PropertyNumber(tracking, Icons.LetterSpacing, "Letter spacing", letterUnit))));
+                Ui.Column(4, Ui.Label(Locale.T("Line height"), Palette.Secondary, 11), PropertyNumber(leading, Icons.LineHeight, "Line height", lineUnit)),
+                Ui.Column(4, Ui.Label(Locale.T("Letter spacing"), Palette.Secondary, 11), PropertyNumber(tracking, Icons.LetterSpacing, "Letter spacing", letterUnit))));
             ToggleButton Decoration(string icon, string name, Func<Typography,Typography> toggle)
             {
                 var button = new ToggleButton { Classes = { "tool" }, Content = icon, Height = 28, Padding = default };
                 button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Center;
-                ToolTip.SetTip(button, name); Avalonia.Automation.AutomationProperties.SetName(button, name);
+                ToolTip.SetTip(button, Locale.T(name)); Avalonia.Automation.AutomationProperties.SetName(button, name);
                 button.Click += (_,_) => Change(st => st with { Type = toggle(st.Type) });
                 return button;
             }
-            underline = Decoration("U̲", "Underline", t => t with { Underline = !t.Underline });
-            strike = Decoration("S̶", "Strikethrough", t => t with { Strike = !t.Strike });
+            underline = Decoration("U̲", "Underline", t => t with { Underline = !s.InspectedTextStyle.Type.Underline });
+            strike = Decoration("S̶", "Strikethrough", t => t with { Strike = !s.InspectedTextStyle.Type.Strike });
             var decoration = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 2 };
             decoration.Children.Add(underline); AddAt(decoration,strike,1);
             swatch.Width = double.NaN; swatch.Height = 18; swatch.Margin = new Thickness(4,0);
@@ -614,14 +604,14 @@ public sealed partial class MainWindow
         else
         {
             row.Children.AddRange([font, faceMenu, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), swatch, alignRow,
-                Ui.Row(5, Ui.Scrub(Ui.Label("Tracking", Palette.Secondary), tracking), tracking),
-                Ui.Row(5, Ui.Scrub(Ui.Label("Leading", Palette.Secondary), leading), leading), Ui.Separator()]);
+                Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Tracking"), Palette.Secondary), tracking), tracking),
+                Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Leading"), Palette.Secondary), leading), leading), Ui.Separator()]);
             if (s.IsEditingText) row.Children.AddRange([done, cancel]);
             else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
         }
         void RefreshText()
         {
-            var current = s.CurrentTextStyle;
+            var current = s.InspectedTextStyle;
             updating = true;
             if (leadingUnit != null) leadingUnit.Text = current.Type.PercentLeading ? "%" : "px";
             if (trackingUnit != null) trackingUnit.Text = current.Type.PercentTracking ? "%" : "px";
@@ -634,7 +624,7 @@ public sealed partial class MainWindow
             // Selected letters in more than one family: the menu says so instead of naming one.
             var uniform = s.CurrentUniformTextFamily;
             var index = uniform == null ? -1 : families.ToList().IndexOf(uniform);
-            font.PlaceholderText = uniform ?? "(Multiple)";
+            font.PlaceholderText = uniform ?? Locale.T("(Multiple)");
             if (font.SelectedIndex != index) font.SelectedIndex = index;
             if (stylesFamily != face.FontFamily)
             {
@@ -644,7 +634,7 @@ public sealed partial class MainWindow
             }
             var uniformFace = s.CurrentUniformTextFace;
             faceMenu.IsEnabled = uniform != null;
-            faceMenu.PlaceholderText = uniformFace == null ? "(Multiple)" : Composa.Text.FontCatalog.Closest(face.FontFamily, face).Name;
+            faceMenu.PlaceholderText = uniformFace == null ? Locale.T("(Multiple)") : Composa.Text.FontCatalog.Closest(face.FontFamily, face).Name;
             var faceIndex = uniformFace == null ? -1 : faceChoices.ToList().IndexOf(Composa.Text.FontCatalog.Closest(face.FontFamily, face));
             if (faceMenu.SelectedIndex != faceIndex) faceMenu.SelectedIndex = faceIndex;
             swatch.Background = new Avalonia.Media.SolidColorBrush(new SKColor(s.CurrentTextColor).ToDisplay(s.Document.Profile, DisplayProfile));
@@ -674,7 +664,7 @@ public sealed partial class MainWindow
             var flyout = new MenuFlyout();
             void Item(string label, Func<Task> apply)
             {
-                var item = new MenuItem { Header = label };
+                var item = new MenuItem { Header = Locale.T(label) };
                 item.Click += (_, _) => _ = apply(); flyout.Items.Add(item);
             }
             Item("Expand…", () => ModifySelection("Expand Selection", "Expand by", () => s.SelectionExpandAmount, 500, v => { s.SelectionExpandAmount = v; s.ExpandSelection(v); }));
@@ -696,10 +686,10 @@ public sealed partial class MainWindow
         ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
         row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateCanvas(); RememberToolSettings(); }));
-        if (s.IndependentMaskTarget != null) row.Children.Add(Ui.Label("Mask", Palette.Secondary));
+        if (s.IndependentMaskTarget != null) row.Children.Add(Ui.Label(Locale.T("Mask"), Palette.Secondary));
         if (layer == null || layer.Pixels == null && s.IndependentMaskTarget != layer)
         {
-            row.Children.Add(Ui.Label(layer == null ? "No layer selected" : layer.IsGroup ? "Moves every layer in the folder" : "This layer has no pixels", Palette.Secondary));
+            if (layer != null) row.Children.Add(Ui.Label(Locale.T(layer.IsGroup ? "Moves every layer in the folder" : "This layer has no pixels"), Palette.Secondary));
             return;
         }
         var updating = false;
@@ -728,7 +718,8 @@ public sealed partial class MainWindow
             };
             box.KeyUp += (_, e) => { if (e.Key == Key.Enter) FinishChannelInspector(keep: true); };
             box.AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Escape && inspectorTransform != null) { FinishChannelInspector(keep: false); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
-            var scrub = Ui.Scrub(Ui.Label(label, Palette.Secondary), box);
+            if (label == "∠") { box.Name = "TransformRotation"; Avalonia.Automation.AutomationProperties.SetName(box, "Rotation (degrees)"); ToolTip.SetTip(box, Locale.T("Rotation (degrees)")); }
+            var scrub = Ui.Scrub(Ui.Label(Locale.T(label), Palette.Secondary), box);
             scrub.AddHandler(PointerPressedEvent, (_, e) => { if (s.IsEditingChannel && e.GetCurrentPoint(scrub).Properties.IsLeftButtonPressed) { channelInspectorDragging = true; channelInspectorPointer = e.Pointer; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
             void EndScrub() { if (!channelInspectorDragging) return; channelInspectorDragging = false; channelInspectorPointer = null; if (!row.IsKeyboardFocusWithin) FinishChannelInspector(keep: true); }
             scrub.AddHandler(PointerReleasedEvent, (_, _) => EndScrub(), Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);

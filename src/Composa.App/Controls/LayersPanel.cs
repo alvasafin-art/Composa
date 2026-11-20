@@ -80,7 +80,7 @@ public sealed partial class LayersPanel : UserControl
 
     static LayersPanel() => Composa.Rendering.Pixels.Invalidated += bitmap => Thumbnails.Remove(bitmap);
 
-    internal TextBlock PanelTitle { get; } = Ui.Label("Layers", size: 13, weight: FontWeight.SemiBold);
+    internal TextBlock PanelTitle { get; } = Ui.Label(Locale.T("Layers"), size: 13, weight: FontWeight.SemiBold);
 
     public LayersPanel()
     {
@@ -90,7 +90,7 @@ public sealed partial class LayersPanel : UserControl
         for (var group = 0; group < BlendModeExtensions.Groups.Length; group++)
         {
             if (group > 0) { items.Add(new ComboBoxItem { Content = Ui.Separator(false), IsEnabled = false, Padding = new Thickness(0, 4), MinHeight = 0 }); blendAt.Add(null); }
-            foreach (var mode in BlendModeExtensions.Groups[group]) { items.Add(new ComboBoxItem { Content = mode.DisplayName() }); blendAt.Add(mode); }
+            foreach (var mode in BlendModeExtensions.Groups[group]) { items.Add(new ComboBoxItem { Content = Locale.T(mode.DisplayName()) }); blendAt.Add(mode); }
         }
         blend = new ComboBox { ItemsSource = items, HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
@@ -129,7 +129,7 @@ public sealed partial class LayersPanel : UserControl
 
         var opacityRow = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 4,
             Height = HeaderFieldHeight, VerticalAlignment = VerticalAlignment.Center };
-        opacityRow.Children.Add(Ui.Label("Opacity", Palette.Secondary));
+        opacityRow.Children.Add(Ui.Label(Locale.T("Opacity"), Palette.Secondary));
         Grid.SetColumn(opacity, 1); opacityRow.Children.Add(opacity);
         Grid.SetColumn(opacityText, 2); opacityRow.Children.Add(opacityText);
         Grid.SetColumn(opacityRow, 1); Grid.SetRow(opacityRow, 1); header.Children.Add(opacityRow);
@@ -433,7 +433,7 @@ public sealed partial class LayersPanel : UserControl
         var menu = new ContextMenu();
         void Add(string header, Action action)
         {
-            var item = new MenuItem { Header = header };
+            var item = new MenuItem { Header = Locale.T(header) };
             item.Click += (_, _) => action();
             menu.Items.Add(item);
         }
@@ -458,7 +458,7 @@ public sealed partial class LayersPanel : UserControl
         var menu = new ContextMenu();
         void Add(string name, Action action, bool enabled = true)
         {
-            var item = new MenuItem { Header = name, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
+            var item = new MenuItem { Header = Locale.T(name), IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
         }
         var index = Array.FindIndex(layer.SmartFilters, f => f.Id == filter.Id);
         Add("Blending Options…", () => EditSmartFilterBlendingRequested?.Invoke(layer, filter));
@@ -489,12 +489,12 @@ public sealed partial class LayersPanel : UserControl
             var add = Ui.TextButton("Add filter mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); });
             ToolTip.SetTip(add, "Mask the smart filter stack without hiding the object"); content.Children.Add(add);
         }
-        content.Children.Add(Ui.Label("Smart Filters", Palette.Secondary));
+        content.Children.Add(Ui.Label(Locale.T("Smart Filters"), Palette.Secondary));
         var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = content };
         var menu = new ContextMenu();
         void Add(string title, Action action, bool enabled = true)
         {
-            var item = new MenuItem { Header = title, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
+            var item = new MenuItem { Header = Locale.T(title), IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item);
         }
         Add("Add Filter Mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); }, layer.SmartFilterMask == null);
         Add("Hide All Filters", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer, true); }, layer.SmartFilterMask == null);
@@ -612,16 +612,16 @@ public sealed partial class LayersPanel : UserControl
     private void PopulateMenu(ContextMenu menu, Layer layer)
     {
         var current = session!;
-        var locks = new MenuItem { Header = "Lock" };
+        var locks = new MenuItem { Header = Locale.T("Lock") };
         foreach (var (flag, title) in new[] { (LayerLocks.Pixels, "Pixels"), (LayerLocks.Position, "Position"), (LayerLocks.Transparency, "Transparency") })
         {
-            var item = new MenuItem { Header = title, ToggleType = MenuItemToggleType.CheckBox, IsChecked = layer.Locks.HasFlag(flag) };
+            var item = new MenuItem { Header = Locale.T(title), ToggleType = MenuItemToggleType.CheckBox, IsChecked = layer.Locks.HasFlag(flag) };
             item.Click += (_, _) => current.SetLayerLocks(layer, layer.Locks ^ flag);
             locks.Items.Add(item);
         }
         MenuItem Add(string header, Action action, bool enabled = true, MenuItem? parent = null)
         {
-            var item = new MenuItem { Header = header, IsEnabled = enabled };
+            var item = new MenuItem { Header = Locale.T(header), IsEnabled = enabled };
             item.Click += (_, _) => { if (!current.Document.SelectedLayerIds.Contains(layer.Id)) current.SelectLayer(layer.Id); action(); };
             (parent?.Items ?? menu.Items).Add(item);
             return item;
@@ -641,7 +641,7 @@ public sealed partial class LayersPanel : UserControl
         if (layer.IsLive) Add("Rasterize Layer", () => current.RasterizeShape(layer));
         if (layer.Shape?.Path is { Closed: true })
         {
-            var targets = new MenuItem { Header = "Use path as vector mask" };
+            var targets = new MenuItem { Header = Locale.T("Use path as vector mask") };
             foreach (var target in current.Document.AllLayers().Where(l => l.Id != layer.Id && l.Pixels != null))
                 Add(target.Name, () => current.ApplyPathAsVectorMask(layer, target), !current.PixelsLocked(target), targets);
             menu.Items.Add(targets);
@@ -674,7 +674,7 @@ public sealed partial class LayersPanel : UserControl
         Add(current.MergeTitle, current.MergeLayers, current.CanMerge);
         menu.Items.Add(new Separator());
 
-        var addMask = new MenuItem { Header = "Add Mask", IsEnabled = layer.Mask == null };
+        var addMask = new MenuItem { Header = Locale.T("Add Mask"), IsEnabled = layer.Mask == null };
         Add("Reveal All (White)", () => current.AddMask(layer), parent: addMask);
         Add("Hide All (Black)", () => current.AddMask(layer, hideAll: true), parent: addMask);
         menu.Items.Add(addMask);

@@ -242,6 +242,14 @@ public sealed partial class EditorSession
     /// field keeps the keyboard, and the change is only to the style, so nothing selects the text. Every keystroke in
     /// a field is a change of its own, so a run of them on one layer undoes as one step.
     /// </summary>
+    public TextStyle InspectedTextStyle => TextEdit is { } e ? e.Style.WithFormat(e.Style.FormatAt(e.HasSelection ? e.SelectionStart : Math.Max(0, e.Caret - 1))) : CurrentTextStyle;
+
+    public void FormatText(Func<TextStyle, TextStyle> change, bool paragraph = false, bool block = false)
+    {
+        var edit = TextEdit;
+        ChangeTextStyle(style => style.FormatRange(block ? 0 : edit?.SelectionStart ?? 0, block ? 0 : edit?.SelectionEnd ?? 0, change, paragraph));
+    }
+
     public void ChangeTextStyle(Func<TextStyle, TextStyle> change)
     {
         if (TextEdit is { } editor) { editor.ChangeStyle(change); return; }

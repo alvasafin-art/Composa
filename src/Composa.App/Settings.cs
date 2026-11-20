@@ -15,6 +15,7 @@ public sealed class Settings
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }
+    public string Language { get; set; } = "en";
     public EditorTheme Theme { get; set; } = EditorTheme.Classic;
     public bool CanvasOnly { get; set; }
     public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
@@ -34,6 +35,8 @@ public sealed class Settings
     public string? ObjectSelectionComfyModel { get; set; }
     public Composa.Editing.ViewOptions View { get; set; } = new();
     public Composa.Painting.BrushSettings Brush { get; set; } = new();
+    public Composa.Painting.BrushSettings? EraserBrush { get; set; }
+    public Dictionary<string, Composa.Painting.BrushSettings> EraserPresets { get; set; } = [];
     public Dictionary<string, Composa.Painting.BrushSettings> BrushPresets { get; set; } = [];
     /// <summary>The panels under the Layers panel by title: whether each is shown, collapsed to its header, and how tall it is.</summary>
     public bool TabbedPanels { get; set; }
@@ -239,6 +242,9 @@ public sealed class Settings
     internal static Settings FromJson(string json)
     {
         var value = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+        if (value.Language is not ("en" or "ru")) value.Language = "en";
+        value.EraserPresets ??= [];
+        value.BrushPresets ??= [];
         if (!Enum.IsDefined(value.Theme)) value.Theme = EditorTheme.Classic;
         // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
         foreach (var choices in value.ComfyModelSelections.Values)

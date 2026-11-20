@@ -68,21 +68,21 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
         var fullResolution = Ui.Check("Full-resolution preview", false, v => { fullPreview = v; RequestPreview(); });
         var allLayers = Ui.Check("Sample all visible layers", !activeLayerSource, v => { requestedAll = v; Track(ChangeSource()); }); allLayers.IsEnabled = activeLayerSource && visibleCanvas != null;
         var controls = Ui.Column(10, allLayers,
-            Ui.Label("Preview", Palette.Secondary),
+            Ui.Label(Locale.T("Preview"), Palette.Secondary),
             Ui.Combo(new[] { "Gray", "Black", "White", "Mask", "Overlay", "Trimap", "Original" }, background, v => v, v => { background = v; RequestPreview(); }, 220),
             Ui.Row(8, Ui.TextButton("Fit", view.Fit), Ui.TextButton("100%", () => { view.ActualSize(); fullResolution.IsChecked = true; })), fullResolution,
-            Ui.Label("Refinement", Palette.Secondary), methodMenu,
+            Ui.Label(Locale.T("Refinement"), Palette.Secondary), methodMenu,
             Ui.SliderField("Edge radius", radius, 0, 100, v => { radius = (int)v; RequestPreview(); }, width: 220, reset: 0),
             Ui.SliderField("Smooth", 0, 0, 20, v => { settings = settings with { Smooth = v }; RequestPreview(); }, width: 220, reset: 0),
             Ui.SliderField("Feather", 0, 0, 100, v => { settings = settings with { Feather = v }; RequestPreview(); }, width: 220, reset: 0),
             Ui.SliderField("Contrast", 0, 0, 100, v => { settings = settings with { Contrast = v }; RequestPreview(); }, width: 220, reset: 0),
             Ui.SliderField("Shift edge", 0, -100, 100, v => { settings = settings with { Shift = (int)v }; RequestPreview(); }, width: 220, reset: 0),
-            Ui.Label("Local brush", Palette.Secondary),
+            Ui.Label(Locale.T("Local brush"), Palette.Secondary),
             Ui.Combo(new[] { "Refine edge", "Keep foreground", "Remove background", "Erase local mark" }, brush, v => v, v => brush = v, 220),
             Ui.SliderField("Brush size", 30, 1, 500, v => { view.BrushSize = v; view.InvalidateVisual(); }, width: 220, reset: 30),
             Ui.Row(8, Ui.TextButton("Undo stroke", UndoStroke), Ui.TextButton("Reset marks", () => { if (finalizing) return; strokes.Clear(); marks.Erase(SKColors.Transparent); Pixels.Invalidate(marks); RequestPreview(); })),
             Ui.Check("Show local marks", true, v => { showMarks = v; RequestPreview(); }),
-            Ui.Label("Output", Palette.Secondary),
+            Ui.Label(Locale.T("Output"), Palette.Secondary),
             Ui.SliderField("Decontaminate", decontamination * 100, 0, 100, v => { decontamination = v / 100; if (v > 0) outputMenu.SelectedItem = "New layer with mask"; outputMenu.IsEnabled = v == 0; RequestPreview(); }, width: 220, reset: 0), outputMenu);
         var grid = new Grid { ColumnDefinitions = new("*,18,250"), RowDefinitions = new("Auto,*,Auto") };
         var sourceHint = activeLayerSource ? "New layer output hides its source when sampling only the active layer" : "Source: visible canvas";

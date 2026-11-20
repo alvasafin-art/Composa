@@ -24,7 +24,7 @@ public sealed class HistoryPanel : UserControl
     private EditorSession? session;
     private readonly StackPanel rows = new() { Background = Brushes.Transparent };
     private readonly ScrollViewer scroll;
-    private readonly TextBlock dropped = new() { Text = "Older steps are no longer kept", Foreground = Palette.Secondary, FontSize = 11, Margin = new Thickness(10, 0, 10, 4), IsVisible = false };
+    private readonly TextBlock dropped = new() { Text = Locale.T("Older steps are no longer kept"), Foreground = Palette.Secondary, FontSize = 11, Margin = new Thickness(10, 0, 10, 4), IsVisible = false };
     private readonly record struct RowState(History.Step Step, bool First, bool Current, bool Ahead, bool Saved);
     private readonly List<RowState> displayed = [];
     private Control? scrollTarget;
@@ -153,7 +153,7 @@ public sealed class HistoryPanel : UserControl
         var brush = ahead ? Palette.Secondary : Palette.Foreground;
         var name = new TextBlock
         {
-            Text = step.Name, Foreground = brush, FontStyle = ahead ? FontStyle.Italic : FontStyle.Normal,
+            Text = Locale.T(step.Name), Foreground = brush, FontStyle = ahead ? FontStyle.Italic : FontStyle.Normal,
             TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(8, 0, 0, 0)
         };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };

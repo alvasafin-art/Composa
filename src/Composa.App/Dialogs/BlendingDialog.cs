@@ -65,7 +65,7 @@ public static class BlendingDialog
         controls.Children.Add(Ui.Combo(new[] { "Gray", "Red", "Green", "Blue" }, "Gray", v => v, value => { channel = Array.IndexOf(new[] { "Gray", "Red", "Green", "Blue" }, value); Build(); }, 150));
         controls.Children.Add(new TextBlock { Text = "Separate fade handles soften the black and white cutoffs.\nGray and RGB ranges combine; edits remain reversible.", Foreground = Palette.Secondary });
         controls.Children.Add(rows);
-        var reset = new Button { Content = "Reset Blend If" };
+        var reset = new Button { Content = Locale.T("Reset Blend If") };
         reset.Click += (_, _) => { ranges = new(); Build(); Preview(); };
         controls.Children.Add(reset);
         Build();

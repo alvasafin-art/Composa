@@ -22,7 +22,7 @@ public sealed partial class MainWindow
         var load = Ui.TextButton("Load ICC…", async () =>
         {
             var provider = TopLevel.GetTopLevel(combo)?.StorageProvider ?? StorageProvider;
-            var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "RGB ICC Profile", AllowMultiple = false,
+            var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = Locale.T("RGB ICC Profile"), AllowMultiple = false,
                 FileTypeFilter = [new FilePickerFileType("RGB ICC Profile") { Patterns = ["*.icc", "*.icm"] }] });
             if (files.Count == 0) return;
             try
@@ -39,8 +39,8 @@ public sealed partial class MainWindow
             catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException)
             { await Prompts.Alert(this, "RGB Profile", error.Message); }
         });
-        var flatten = new CheckBox { Content = "Flatten image to preserve composite appearance", IsChecked = true, IsVisible = !assign };
-        var currentLabel = Ui.Label("Current profile: " + current.Name, Palette.Secondary);
+        var flatten = new CheckBox { Content = Locale.T("Flatten image to preserve composite appearance"), IsChecked = true, IsVisible = !assign };
+        var currentLabel = Ui.Label(Locale.T("Current profile:") + " " + current.Name, Palette.Secondary);
         currentLabel.MaxWidth = 390; currentLabel.TextTrimming = TextTrimming.CharacterEllipsis; ToolTip.SetTip(currentLabel, current.Name);
         var rows = Ui.Column(12, currentLabel, Ui.Row(8, combo, load),
             new TextBlock { Text = assign ? "Keeps RGB numbers and changes their meaning. The image's appearance may change."

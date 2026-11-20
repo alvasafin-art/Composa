@@ -1,0 +1,719 @@
+(Multiple)	Несколько
+-1 = random	−1 — случайное
+16 Bits/Channel	16 бит на канал
+2nd object	2-й объект
+8 Bits/Channel	8 бит на канал
+A document as an image	Документ как изображение
+A document's layers	Слои документа
+AI	ИИ
+AI Settings…	Настройки ИИ…
+AI Upscale	Увеличение с ИИ
+AI ▾	ИИ ▾
+API base URL	Базовый адрес API
+API key for this session	Ключ API для этого сеанса
+API mode	Режим API
+About Composa	О программе Composa
+Actual Pixels	Фактический размер
+Add Layer	Добавление слоя
+Add Layer Mask	Добавить маску слоя
+Add Mask	Добавить маску
+Add Shape	Добавление фигуры
+Add Smart Filter	Добавить смарт-фильтр
+Add Text	Добавление текста
+Add color stop	Добавить точку цвета
+Add filter mask	Добавить маску фильтра
+Add folder…	Добавить папку…
+Add opacity stop	Добавить точку непрозрачности
+Adjust	Коррекция
+Adjustments	Коррекции
+Airbrush	Аэрограф
+Align	Выровнять
+Align bottom	По нижнему краю
+Align center	По центру
+Align justify	По ширине
+Align left	По левому краю
+Align middle	По вертикальному центру
+Align pixels	Совместить пиксели
+Align right	По правому краю
+Align top	По верхнему краю
+Aligned	С выравниванием
+All	Всё
+All kinds	Все типы
+Allow AI Control	Разрешить управление через ИИ
+Allow Assistant to read this folder	Разрешить ассистенту читать эту папку
+Amount	Величина
+Anchor	Привязка
+Angle °	Угол, °
+Anti-alias	Сглаживание
+Apply	Применить
+Apply Layer Mask	Применить маску слоя
+Apply edit	Применить правку
+Apply requested edits	Применить правки
+Assign Color Profile…	Назначить цветовой профиль…
+Assistant	Ассистент
+Assistant Settings	Настройки ассистента
+Assistant…	Ассистент…
+Attach scripts, text, or images	Прикрепить сценарии, текст или изображения
+Attach…	Прикрепить…
+Auto	Авто
+Auto Levels	Автоуровни
+Auto Select	Автовыбор
+Automatic light direction	Автоматическое направление света
+Automatically refresh linked files	Обновлять связанные файлы автоматически
+Automatically update changed linked files	Автоматически обновлять изменённые связанные файлы
+Back to parent	К исходному документу
+Background	Фон
+Background color	Фоновый цвет
+Based On	На основе
+Baseline	На базовой линии
+Baseline to baseline · 0 is Auto (120% of font size)	Расстояние между базовыми линиями · 0 для автоматического значения
+Before	До
+Before / After	До / после
+Black	Чёрный
+Black & White…	Чёрно-белое…
+Blending Options	Параметры наложения
+Blue	Синий
+Bottom	К нижнему краю
+Brightness/Contrast…	Яркость и контрастность…
+Browse…	Обзор…
+Brush	Кисть
+Brush (B)	Кисть (B)
+Brush presets	Наборы кисти
+Brush size	Размер кисти
+Bulleted list	Маркированный список
+Camera Raw Filter	Фильтр Camera Raw
+Cancel	Отмена
+Cancel edit	Отменить правку
+Canvas	Холст
+Canvas Only	Только холст
+Canvas Size	Размер холста
+Canvas Size…	Размер холста…
+Canvas reach	Область холста
+Capital spacing	Интервалы прописных
+Case forms	Формы знаков
+Case-sensitive forms	Знаки с учётом регистра
+Center vertically	По центру
+Change Background…	Заменить фон…
+Change Text Style	Изменение оформления текста
+Channel	Канал
+Channel Mixer…	Микширование каналов…
+Channels	Каналы
+Characters	По буквам
+Check for Updates Automatically	Автоматически проверять обновления
+Check for Updates…	Проверить обновления…
+Check for updates on startup	Проверять обновления при запуске
+Choose Reference Images	Выбрать изображения-образцы
+Choose display ICC…	Выбрать профиль экрана ICC…
+Choose folder & create launcher…	Выбрать папку и создать файл запуска…
+Choose plugin.json	Выберите plugin.json
+Choose preset	Выберите набор
+Choose the documents to recover.	Выберите документы для восстановления.
+Classic blue	Классическая синяя
+Clear	Очистить
+Clear Guides	Удалить направляющие
+Click and hold	Нажмите и удерживайте
+Click or draw a rectangle	Щёлкните или нарисуйте прямоугольник
+Clipboard	Буфер обмена
+Clone Stamp	Штамп
+Clone Stamp (S) · Alt-click sets the source	Штамп (S) · Alt + щелчок задаёт образец
+Close	Закрыть
+Close Project	Закрыть проект
+Collapse panel	Свернуть панель
+Color	Цвет
+Color Balance…	Цветовой баланс…
+Color Burn	Затемнение основы
+Color Dodge	Осветление основы
+Color Lookup	Поиск цвета
+Color Lookup…	Поиск цвета…
+Color Range…	Цветовой диапазон…
+Color mode	Цветовой режим
+Color stops · positions in %	Точки цвета · позиции в %
+Colorize	Тонирование
+Comfy credits	Кредиты Comfy
+Comfy.org API key	Ключ API Comfy.org
+ComfyUI Settings…	Настройки ComfyUI…
+ComfyUI server	Сервер ComfyUI
+Connect	Подключиться
+Connect / refresh models to read the server's LoRA list.	Подключитесь к серверу и обновите модели, чтобы получить список LoRA.
+Connect to check this operation.	Подключитесь для проверки этой операции.
+Connection	Подключение
+Connection timeout	Время ожидания
+Connection…	Подключение…
+Constant	Константа
+Constrain proportions	Сохранять пропорции
+Content-Aware Fill	Заливка с учётом содержимого
+Content-Aware Fill Workspace…	Настроить заливку с учётом содержимого…
+Contiguous	Смежные пиксели
+Continue	Продолжить
+Contract	Сжать
+Contract…	Сжать…
+Contrast	Контрастность
+Controls	Рамка
+Convert Color Profile…	Преобразовать цветовой профиль…
+Convert to Smart Object	Преобразовать в смарт-объект
+Copy	Копировать
+Copy Merged	Скопировать совмещённые данные
+Copy script	Скопировать сценарий
+Corner radius	Радиус углов
+Create	Создать
+Create Clipping Mask	Создать обтравочную маску
+Create a separate shadow layer	Создать отдельный слой тени
+Crop	Кадрирование
+Crop (C)	Кадрирование (C)
+Current operations	Текущие операции
+Current operations · 00:00	Текущие операции · 00:00
+Current profile:	Текущий профиль:
+Curves…	Кривые…
+Custom	Свой размер
+Cut	Вырезать
+Dark neutral	Тёмная нейтральная
+Darken	Затемнение
+Decontaminate	Очистить цвета
+Default Layout	Исходная раскладка
+Defaults by operation	Настройки операций
+Delete	Удалить
+Delete Effect	Удалить эффект
+Delete Layer	Удалить слой
+Delete saved channel	Удалить сохранённый канал
+Denoise	Шумоподавление
+Density	Плотность
+Describe the background, surface and lighting	Опишите фон, поверхность и освещение
+Deselect	Снять выделение
+Difference	Разница
+Display Color	Цвет экрана
+Display Color…	Цвет экрана…
+Display RGB ICC Profile	Профиль экрана RGB ICC
+Distance	Расстояние
+Distribution	Распределение
+Divide	Деление
+Document	Документ
+Document Bounds	Границы документа
+Document colors	Цвета документа
+Don't Save	Не сохранять
+Done	Готово
+Download changes	Загрузить изменения
+Drag nodes · Shift locks direction · Enter applies · Esc cancels	Перетащите узел · Shift фиксирует направление · Enter применяет · Esc отменяет
+Drag on the canvas to choose the area to keep	Потяните на холсте, чтобы выбрать область кадрирования
+Drop an image or project here	Перетащите сюда изображение или проект
+Duplicate	Создать копию
+Duplicate Layer / Layer via Copy	Создать слой путём копирования
+Dynamics ▾	Динамика ▾
+Edge	Край
+Edge radius	Радиус края
+Edit Adjustment…	Изменить коррекцию…
+Edit Script…	Изменить сценарий…
+Edit Smart Object Contents…	Редактировать содержимое смарт-объекта…
+Edit Text	Редактирование текста
+Edit Text…	Редактировать текст…
+Edit points	Изменить узлы
+Edit selection	Изменить выделение
+Edit vector mask	Править векторную маску
+Editor	Редактор
+Editor preferences	Настройки редактора
+Ellipse	Эллипс
+Ellipsis	Многоточие
+Elliptical Marquee	Эллиптическое выделение
+Embed	Встроить
+Embed Linked Smart Object	Встроить связанный смарт-объект
+Enable Lens Profile Corrections	Включить коррекцию профиля объектива
+Enable LoRAs	Включить LoRA
+Enter a key to save or replace it	Введите ключ для сохранения
+Enter a name	Введите название
+Enter a new key to save or replace it	Введите новый ключ для сохранения
+Equal horizontal gaps (3+ objects)	Равные интервалы по горизонтали (от 3 объектов)
+Equal vertical gaps (3+ objects)	Равные интервалы по вертикали (от 3 объектов)
+Erase	Стирание
+Eraser	Ластик
+Eraser (E)	Ластик (E)
+Eraser presets	Наборы ластика
+Exclusion	Исключение
+Expand	Расширить
+Expand…	Расширить…
+Export	Экспорт
+Export JPEG	Экспорт JPEG
+Export JPEG…	Экспорт в JPEG…
+Export PNG…	Экспорт в PNG…
+Export TIFF…	Экспорт в TIFF…
+Export WebP…	Экспорт в WebP…
+Exposure (EV)	Экспозиция (EV)
+Exposure…	Экспозиция…
+Eyedropper	Пипетка
+Eyedropper (I)	Пипетка (I)
+F_ilter	Ф_ильтры
+Fast preview	Быстрый предпросмотр
+Feather	Растушёвка
+Feather…	Растушевать…
+Fill	Заливка
+Fill with Background Color	Залить фоновым цветом
+Fill with Foreground Color	Залить основным цветом
+Fills connected pixels with the foreground color	Заливает смежные пиксели основным цветом
+Find Command	Поиск команд
+Find Command…	Найти команду…
+Find layers / #tag	Найти слой / #тег
+Find object	Найти объект
+First-line indent	Красная строка
+Fit	Вписать
+Fit Canvas	Холст целиком
+Flatten Image	Выполнить сведение
+Flatten image to preserve composite appearance	Свести слои для сохранения вида изображения
+Flip Canvas Horizontal	Отразить холст по горизонтали
+Flip Canvas Vertical	Отразить холст по вертикали
+Flip Layer Horizontal	Отразить слой по горизонтали
+Flip Layer Vertical	Отразить слой по вертикали
+Flow	Нажим
+Font default	Как в шрифте
+Font family · hover or use the arrow keys to preview	Гарнитура · наведите указатель или используйте стрелки для просмотра
+Font size of the selected characters; select text on the canvas to change a fragment	Размер выделенных символов
+Font style	Начертание
+Foreground color	Основной цвет
+Foreground to transparent	От основного цвета к прозрачному
+Forget saved key	Удалить сохранённый ключ
+Freeze / Reconstruct…	Заморозка и реконструкция…
+Full brush outline	Полный контур кисти
+Full-resolution preview	Предпросмотр в полном разрешении
+Fuzziness	Разброс
+Generate Image…	Создать изображение…
+Generation	Генерация
+Generation settings…	Параметры генерации…
+Generative Expand	Генеративное расширение
+Generative Fill…	Генеративная заливка…
+Generative expand	Генеративное расширение
+Gradient	Градиент
+Gradient (G)	Градиент (G)
+Gradient Map…	Карта градиента…
+Gradient stops	Точки градиента
+Grain…	Зерно…
+Green	Зелёный
+Grid	Сетка
+Grid Settings	Настройки сетки
+Grid Settings…	Настройки сетки…
+Group Selected Layers	Сгруппировать выделенные слои
+Group panels in tabs	Объединить панели во вкладки
+Group side panels in tabs	Объединять боковые панели во вкладки
+Groups	Группы
+Guides	Направляющие
+Hand	Рука
+Hand (H) · hold Space with any tool	Рука (H) · удерживайте пробел с любым инструментом
+Hanging indent	Выступ
+Hanging list indent	Выступ маркеров списка
+Hanging punctuation	Висячая пунктуация
+Hard Light	Жёсткий свет
+Hard Mix	Жёсткое смешение
+Hard round	Жёсткая круглая
+Hardness	Жёсткость
+Harmonize…	Гармонизация…
+Healing Brush	Восстанавливающая кисть
+Height	Высота
+Height (px)	Высота (пикс.)
+History	История
+Hue	Цветовой тон
+Hue range and feathering	Диапазон тона и растушёвка
+Hue/Saturation…	Цветовой тон и насыщенность…
+Image Edit…	Редактировать изображение…
+Image Size	Размер изображения
+Image Size…	Размер изображения…
+Image model	Модель изображений
+Image models	Модели изображений
+Image size	Размер изображения
+Import Script	Импортировать сценарий
+Import Script…	Импортировать сценарий…
+Import as	Импортировать как
+Input	Вход
+Input black	Чёрная точка входа
+Input white	Белая точка входа
+Install Plugin…	Установить плагин…
+Installed Plugins	Установленные плагины
+Interface theme	Тема интерфейса
+Inverse	Инвертировать выделение
+Invert	Инвертировать
+Invert Layer Mask	Инвертировать маску
+Keyboard Shortcuts	Сочетания клавиш
+Keyboard Shortcuts…	Сочетания клавиш…
+Language	Язык
+Lasso	Лассо
+Lasso (L)	Лассо (L)
+Layer	Слой
+Layer Effects	Эффекты слоя
+Layer Mask Properties	Свойства маски слоя
+Layer Opacity	Непрозрачность слоя
+Layer Tags	Метки слоя
+Layer's Mask	Маска слоя
+Layer's Pixels	Пиксели слоя
+Layers	Слои
+Leading	Интерлиньяж
+Letter case	Регистр
+Letter spacing	Трекинг
+Letter spacing · px or % of each character’s size	Трекинг в пикселях или процентах от кегля
+Levels…	Уровни…
+Light neutral	Светлая нейтральная
+Lighten	Замена светлым
+Lightness	Светлота
+Line	Линия
+Line height	Интерлиньяж
+Linear Burn	Линейное затемнение
+Linear Dodge (Add)	Линейный осветлитель
+Linear Light	Линейный свет
+Lining figures	Маюскульные цифры
+Link Layer Mask	Связать маску со слоем
+Linked Smart Object	Связанный смарт-объект
+Linked Source Info…	Сведения о связанном файле…
+Liquify…	Пластика…
+List	Список
+List markers	Маркеры списка
+Load .cube…	Загрузить .cube…
+Load ICC…	Загрузить ICC…
+Load Selection	Загрузить выделение
+Load Selection…	Загрузить выделение…
+Load selection	Загрузить выделение
+Load server models	Загрузить модели сервера
+Local brush	Локальная кисть
+Lock	Блокировка
+Lock Guides	Закрепить направляющие
+Lock proportions	Сохранять пропорции
+Lowercase	Строчные
+Luminosity	Яркость
+Make default	Использовать по умолчанию
+Marquee (M)	Выделение области (M)
+Mask	Маска
+Mask properties	Свойства маски
+Mask properties…	Свойства маски…
+Match to Scene	Согласовать со сценой
+Measuring…	Расчёт…
+Merge Down	Объединить с нижним
+Merge Visible	Объединить видимые
+Message Assistant… (Enter to send, Shift+Enter for a new line)	Сообщение ассистенту… (Enter — отправить, Shift+Enter — новая строка)
+Midtones	Средние тона
+Model	Модель
+Model ID	Идентификатор модели
+Model ID from your provider	Идентификатор модели у провайдера
+Model components	Компоненты модели
+Model components…	Компоненты модели…
+Modify ▾	Изменить ▾
+Monochromatic	Монохромный
+Monochrome	Монохромный
+More	Ещё
+More…	Ещё…
+Move	Перемещение
+Move / Transform (V)	Перемещение и трансформация (V)
+Move Layer	Перемещение слоя
+Move Layer Down	Переместить слой ниже
+Move Layer Up	Переместить слой выше
+Moves every layer in the folder	Переместятся все слои группы
+Multiply	Умножение
+My brush	Моя кисть
+My eraser	Мой ластик
+My presets	Мои наборы
+Name	Название
+Navigator	Навигатор
+New	Создать
+New Adjustment Layer	Новый корректирующий слой
+New Alpha Channel	Новый альфа-канал
+New Canvas	Новый холст
+New Canvas…	Создать холст…
+New Layer	Новый слой
+New Script	Новый сценарий
+New Smart Object via Copy	Создать смарт-объект путём копирования
+New canvas	Новый холст
+New canvas (Ctrl+N)	Создать холст (Ctrl+N)
+New chat	Новый чат
+No document	Нет документа
+No list	Без списка
+No matching settings	Настройки не найдены
+No presets installed	Наборы не установлены
+No scripts or enabled plugin commands yet.	Пока нет сценариев и активных команд плагинов.
+No workflow installed.	Рабочий процесс не установлен.
+No wrap	Без переноса
+Normal	Обычный
+Number position	Индекс
+Numbered list	Нумерованный список
+Numerals	Цифры
+OK	ОК
+Object Selection	Выделение объектов
+Old-style figures	Минускульные цифры
+Older steps are no longer kept	Более ранние шаги недоступны
+One absolute folder path per line	Абсолютные пути к папкам, по одному на строку
+Opacity	Непрозрачность
+Opacity %	Непрозрачность, %
+Opacity stops · positions in %	Точки непрозрачности · позиции в %
+Open	Открыть
+Open Recent	Недавние документы
+Open documents	Открытые документы
+Open…	Открыть…
+Operation	Операция
+Operations	Операции
+Optional matching mmproj GGUF	Совместимый mmproj GGUF (необязательно)
+Original case	Исходный регистр
+Output	Результат
+Output black	Чёрная точка выхода
+Output channel	Выходной канал
+Output to new layer	Результат на новом слое
+Output white	Белая точка выхода
+Overall %	Общая сила, %
+Overlay	Перекрытие
+Paint Bucket	Заливка
+Paragraph	Абзац
+Paragraph gap	Интервал абзацев
+Paste	Вставить
+Paste Into	Вставить в выделение
+Paste Special	Специальная вставка
+Paste in Place	Вставить на исходное место
+Pen	Перо
+Pen (P) · drag points on the selected vector layer · double-click a segment to add a point · click away from the contour to draw · Enter finishes	Перо (P) · перетащите узел, дважды щёлкните по сегменту для добавления узла. Enter завершает контур
+Pen pressure controls flow	Нажим зависит от давления пера
+Pen pressure controls size	Размер зависит от давления пера
+Pen pressure, smoothing, cursor outline and saved brushes	Нажим пера, сглаживание и контур курсора
+Pencil	Карандаш
+Photoshop JSX · File → Scripts → Browse. Not executed.	Photoshop JSX · Файл → Сценарии → Обзор. Сценарий ещё не запущен.
+Pin Light	Точечный свет
+Pixel Grid (800% and above)	Пиксельная сетка (от 800%)
+Pixels	Пиксели
+Place Embedded Smart Object…	Поместить встроенный смарт-объект…
+Place Images as Layers	Поместить изображения как слои
+Place Images as Layers…	Поместить изображения как слои…
+Place Linked Smart Object…	Поместить связанный смарт-объект…
+Polygonal Lasso	Прямолинейное лассо
+Position	Положение
+Preferences…	Настройки…
+Preserve Luminosity	Сохранять яркость
+Preserve source detail	Сохранять детали исходника
+Preset	Набор
+Preset name	Название набора
+Presets	Наборы
+Preview	Предпросмотр
+Prompt enhancer	Улучшение промптов
+Properties	Свойства
+Proportional figures	Пропорциональные цифры
+Provider	Провайдер
+Punctuation	Пунктуация
+Quality	Качество
+Quit	Выйти
+RGB ICC Profile	Профиль RGB ICC
+RGB Precision	Разрядность RGB
+Range	Диапазон
+Rasterize Layer	Растрировать слой
+Ratio	Пропорции
+Ready	Готово
+Reasoning effort	Уровень рассуждения
+Recent files	Недавние файлы
+Rectangle	Прямоугольник
+Rectangular Marquee	Прямоугольное выделение
+Red	Красный
+Redo	Повторить
+Redo stroke	Повторить мазок
+Refinement	Уточнение
+Refresh	Обновить
+Refresh Models on ComfyUI to read available upscale models.	Обновите список моделей ComfyUI, чтобы выбрать модель увеличения.
+Relative	Относительно
+Release Clipping Mask	Отменить обтравочную маску
+Release notes	Описание обновления
+Relight…	Изменить освещение…
+Relink Smart Object…	Обновить ссылку на смарт-объект…
+Relink…	Изменить ссылку…
+Remove	Удалить
+Remove Chromatic Aberration	Устранить хроматическую аберрацию
+Remove Object	Удалить объект
+Remove Object · paint an area to remove with AI	Удаление объектов · закрасьте область для удаления с помощью ИИ
+Rename Alpha Channel	Переименовать альфа-канал
+Rename Layer…	Переименовать слой…
+Replace Smart Object Contents…	Заменить содержимое смарт-объекта…
+Request JSON response format (if supported)	Запрашивать ответ в JSON при поддержке моделью
+Reset	Сбросить
+Reset Blend If	Сбросить условия наложения
+Reset hue range	Сбросить диапазон тона
+Reset marks	Сбросить метки
+Reset output	Сбросить результат
+Reset sampling	Сбросить образцы
+Resize	Изменение размера
+Resolution	Разрешение
+Resolution (ppi)	Плотность (ppi)
+Response options	Параметры ответа
+Restore Defaults	По умолчанию
+Restore all distortions	Сбросить все искажения
+Restore default	Восстановить по умолчанию
+Reveal All	Показать всё
+Reverse	Обратить
+Rotate	Поворот
+Rotate Canvas 90° Clockwise	Повернуть холст на 90° по часовой
+Rotate Canvas 90° Counterclockwise	Повернуть холст на 90° против часовой
+Rotate Layer 180°	Повернуть слой на 180°
+Rotate Layer 90° Clockwise	Повернуть слой на 90° по часовой
+Rotate Layer 90° Counterclockwise	Повернуть слой на 90° против часовой
+Rotation (degrees)	Угол поворота в градусах
+Rulers	Линейки
+Run	Запустить
+Run JavaScript	Запустить JavaScript
+Running script / AI tasks…	Выполняются сценарий или задачи ИИ…
+Sample all layers	Образец со всех слоёв
+Sample all visible layers	Образец со всех видимых слоёв
+Samples the merged image	Берёт цвет со всех видимых слоёв
+Sampling area	Область образца
+Saturation	Насыщенность
+Save	Сохранить
+Save .js…	Сохранить .js…
+Save As…	Сохранить как…
+Save Current	Сохранить текущую
+Save Editable Copy and Relink	Сохранить копию и обновить ссылку
+Save Script	Сохранить сценарий
+Save Selection	Сохранить выделение
+Save Selection…	Сохранить выделение…
+Save as PSD…	Сохранить в PSD…
+Save brush preset	Сохранить набор кисти
+Save current tip…	Сохранить как набор…
+Save editable copy and relink…	Сохранить редактируемую копию и обновить ссылку…
+Save eraser preset	Сохранить набор ластика
+Save preset	Сохранить набор
+Save script…	Сохранить сценарий…
+Save settings	Сохранить настройки
+Save to Library	Сохранить в библиотеку
+Saved API key	Сохранённый ключ API
+Scale	Масштаб
+Scale %	Масштаб, %
+Screen	Экран
+Script	Сценарий
+Script Editor	Редактор сценариев
+Script name	Название сценария
+Scripts & Plugins	Сценарии и плагины
+Search settings…	Поиск настроек…
+Search shortcuts	Поиск сочетаний клавиш
+Seed	Зерно генерации
+Select and Mask…	Выделение и маска…
+Selection	Выделение
+Send	Отправить
+Send document preview and attached images (vision model)	Отправлять предпросмотр документа и вложения модели с поддержкой изображений
+Server API base URL	Адрес API сервера
+Server URL	Адрес сервера
+Server model	Модель сервера
+Set API key…	Задать ключ API…
+Settings	Настройки
+Shape (U)	Фигура (U)
+Shape Properties	Свойства фигуры
+Shapes	Фигуры
+Shift edge	Сместить край
+Show	Показать
+Show AI context bounds after selection	Показывать область контекста ИИ после выделения
+Show Transform Controls	Показать рамку трансформации
+Show frozen areas	Показать замороженные области
+Show local marks	Показать локальные метки
+Show original	Показать оригинал
+Size	Размер
+Skip this version	Пропустить эту версию
+Small capitals	Капитель
+Smart Filter Blending	Наложение смарт-фильтра
+Smart Filters	Смарт-фильтры
+Smart Objects	Смарт-объекты
+Smear (R)	Размазывание (R)
+Smooth	Сглаживание
+Smoothing	Сглаживание
+Snap	Привязка
+Snap To	Привязать к
+Soft Light	Мягкий свет
+Soft eraser	Мягкий ластик
+Soft round	Мягкая круглая
+Source contributions (%)	Доли исходных каналов (%)
+Spacing	Интервалы
+Spot Healing	Точечная коррекция
+Stamp Visible	Создать слой из видимых
+Start local server when needed	Запускать локальный сервер при необходимости
+Start with white (reveal all)	Заполнить белым (показать всё)
+Stop	Остановить
+Stops	Точки
+Strength	Интенсивность
+Strikethrough	Зачёркивание
+Stroke	Обводка
+Stroke width	Толщина обводки
+Style	Стиль
+Subject	Главный объект
+Subscript	Нижний индекс
+Subtract	Вычитание
+Superscript	Верхний индекс
+System instructions	Системные инструкции
+Table RGB	Таблица RGB
+Tabular figures	Табличные цифры
+Temperature	Температура
+Test connection	Проверить подключение
+Test model and tools	Проверить модель и инструменты
+Text	Текст
+Text color	Цвет текста
+Text model	Текстовая модель
+Thaw all marks	Снять всю заморозку
+This adjustment has no settings.	У этой коррекции нет параметров.
+This layer has no pixels	В слое нет пикселей
+This name is already in use	Это название уже используется
+Tint	Оттенок
+Title case	С прописной буквы
+Token limit	Лимит токенов
+Tolerance	Допуск
+Tool	Инструмент
+Top	К верхнему краю
+Tracking	Трекинг
+Transform	Трансформация
+Transform Controls	Рамка трансформации
+Transform Layer	Трансформировать слой
+Transparent	Прозрачный
+Trim	Тримминг
+Trim Away	Обрезать края
+Trim height	Обрезать высоту
+Trim vertical font metrics	Убрать вертикальные поля шрифта
+Trim…	Тримминг…
+Truncate with ellipsis	Обрезать текст с многоточием
+Type (T) · click for point text, drag a paragraph box, click text to edit it	Текст (T) · щёлкните для ввода, потяните для создания текстовой рамки
+Type a command, tool or menu name…	Введите название команды, инструмента или меню…
+Type details	Параметры шрифта
+Typography	Типографика
+Underline	Подчёркивание
+Undo	Отменить
+Undo stroke	Отменить мазок
+Ungroup	Разгруппировать
+Unlink Layer Mask	Отвязать маску от слоя
+Unsaved Changes	Несохранённые изменения
+Untitled	Без названия
+Update Linked Smart Object	Обновить связанный смарт-объект
+Update from File	Обновить из файла
+Uppercase	Прописные
+Upscale	Увеличить
+Upscale…	Увеличить изображение…
+Use Foreground/Background	Основной и фоновый цвета
+Use Photoshop's merged image instead (one layer)	Использовать сведённое изображение Photoshop (один слой)
+Use current selection	Использовать текущее выделение
+Use default	По умолчанию
+Use path as vector mask	Использовать контур как векторную маску
+Use this model by default	Использовать эту модель по умолчанию
+Variable font	Вариативный шрифт
+Vertical alignment	По вертикали
+Vivid Light	Яркий свет
+Warp	Деформация
+Warp…	Деформация…
+White	Белый
+White Balance	Баланс белого
+Width	Ширина
+Width (px)	Ширина (пикс.)
+Word wrap	Переносить по словам
+Words	По словам
+Workspace name	Название рабочей области
+Workspaces	Рабочие области
+Workspaces…	Рабочие области…
+Wrap	Перенос
+Wrap characters	Переносить по символам
+Zoom	Масштаб
+Zoom (Z)	Масштаб (Z)
+Zoom In	Увеличить
+Zoom Out	Уменьшить
+Zoom in (Ctrl++)	Увеличить (Ctrl++)
+Zoom out (Ctrl+-)	Уменьшить (Ctrl+-)
+Zoom to selection	Уместить выделение
+_AI	И_И
+_Edit	_Правка
+_File	_Файл
+_Help	Спра_вка
+_Image	_Изображение
+_Layer	_Слой
+_Plugins	Пла_гины
+_Scripts	С_ценарии
+_Select	_Выделение
+_View	Ви_д
+_Window	_Окно
+llama.cpp folder	Папка llama.cpp
+pixels	пиксели
+seconds	сек.
+title, product, hero-image	название, товар, обложка
+↑ ↓ to choose · Enter to run · Esc to close	↑ ↓ — выбор · Enter — выполнить · Esc — закрыть

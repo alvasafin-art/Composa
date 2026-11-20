@@ -155,6 +155,10 @@ public sealed partial class CanvasView
                 path.AddPoly(corners, close: true);
                 using var line = new SKPaint { Color = Accent, StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
                 canvas.DrawPath(path, line);
+                var grip = RotationGrip(corners[0], corners[1], corners[2]);
+                canvas.DrawLine((corners[0].X + corners[1].X)/2, (corners[0].Y + corners[1].Y)/2, grip.X, grip.Y, line);
+                using var fill = new SKPaint { Color = SKColors.White, IsAntialias = true };
+                canvas.DrawCircle(grip, 4, fill); canvas.DrawCircle(grip, 4, line);
                 DrawHandles(canvas, corners, hair);
             });
         }

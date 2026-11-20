@@ -29,7 +29,7 @@ public static partial class PsdExport
         if (layer.Text is { IsBox: true } boxed && (boxed.BoxWidth <= TextLayout.Padding * 2 || boxed.BoxHeight <= TextLayout.Padding * 2))
             return "The paragraph frame is too small for a portable Photoshop text box.";
         if (layer.Text is { } text && Segments(text).Count > MaxNativeStyleRuns) return "The text has too many separate style runs for a portable Photoshop text block.";
-        if (layer.Text is { } styled && NeedsTypeAppearance(styled.Type))
+        if (layer.Text is { } styled && (NeedsTypeAppearance(styled.Type) || styled.FormatRuns?.Any(r => NeedsTypeAppearance(r.Format.Type)) == true))
             return TypeAppearanceNote;
         if (layer.Shape is { } shape)
         {
@@ -55,12 +55,12 @@ public static partial class PsdExport
     private static Layer EditableTextSource(Layer original)
     {
         var style = original.Text!;
-        var portable = style.Type with
+        var portable = style.FormatRange(0, 0, st => st with { Type = st.Type with
         {
             Axes = "", Wrap = TextWrap.Word, Vertical = TextVertical.Top, Trim = false, Ellipsis = false,
             List = TextList.None, HangingList = false, CaseForms = false, CapitalSpacing = false, Figures = FigureStyle.Default
-        };
-        return new Layer { Name = original.Name, Pixels = original.Pixels, Transform = original.Transform, Text = style with { Type = portable } };
+        } });
+        return new Layer { Name = original.Name, Pixels = original.Pixels, Transform = original.Transform, Text = portable };
     }
 
     private static bool Uniform(SKMatrix m)
@@ -77,7 +77,7 @@ public static partial class PsdExport
         else WriteShape(o, layer, document);
     }
 
-    private sealed record Segment(int Start, int Length, TextFace Face, uint Color, double Size);
+    private sealed record Segment(int Start, int Length, TextFace Face, uint Color, double Size, TextFormat Format);
 
     private static List<Segment> Segments(TextStyle style)
     {
@@ -85,6 +85,7 @@ public static partial class PsdExport
         foreach (var r in style.ColorRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
         foreach (var r in style.FontRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
         foreach (var r in style.SizeRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
+        foreach (var r in style.FormatRuns ?? []) { cuts.Add(r.Start); cuts.Add(r.End); }
         var result = new List<Segment>();
         var points = cuts.ToArray();
         int colorIndex = 0, fontIndex = 0;
@@ -97,10 +98,10 @@ public static partial class PsdExport
             var face = style.FontRuns != null && fontIndex < style.FontRuns.Count && style.FontRuns[fontIndex].Start <= start ? style.FontRuns[fontIndex].Face : style.Face;
             var length = points[i + 1] - start;
             var size = style.SizeAt(start);
-            if (result.Count > 0 && result[^1].Face == face && result[^1].Color == color && result[^1].Size == size) result[^1] = result[^1] with { Length = result[^1].Length + length };
-            else result.Add(new(start, length, face, color, size));
+            if (result.Count > 0 && result[^1].Face == face && result[^1].Color == color && result[^1].Size == size && result[^1].Format == style.FormatAt(start)) result[^1] = result[^1] with { Length = result[^1].Length + length };
+            else result.Add(new(start, length, face, color, size, style.FormatAt(start)));
         }
-        if (result.Count == 0) result.Add(new(0, 0, style.Face, style.Color, style.Size));
+        if (result.Count == 0) result.Add(new(0, 0, style.Face, style.Color, style.Size, style.Format));
         return result;
     }
 
@@ -110,7 +111,7 @@ public static partial class PsdExport
         var layout = new TextLayout(style);
         var first = layout.Lines[0];
         var anchor = style.IsBox ? new SKPoint(TextLayout.Padding, TextLayout.Padding)
-            : new SKPoint(first.X + first.VisibleWidth * (style.Alignment == TextAlignment.Right ? 1 : style.Alignment == TextAlignment.Center ? .5f : 0), first.Baseline);
+            : new SKPoint(first.X + first.VisibleWidth * (style.FormatAt(0).Alignment == TextAlignment.Right ? 1 : style.FormatAt(0).Alignment == TextAlignment.Center ? .5f : 0), first.Baseline);
         var m = layer.Matrix;
         var position = m.MapPoint(anchor);
         var frame = style.IsBox ? new SKRect(0, 0, (float)style.BoxWidth!.Value - TextLayout.Padding * 2, (float)style.BoxHeight!.Value - TextLayout.Padding * 2)
@@ -138,8 +139,7 @@ public static partial class PsdExport
 
     private static string PhotoshopText(TextStyle style)
     {
-        var text = style.Type.Case is TextLetterCase.Title or TextLetterCase.Lower
-            ? TextLayout.DisplayCase(style.Text, style.Type.Case) : style.Text;
+        var text = TextLayout.DisplayText(style, photoshop: true);
         return text.Replace('\n', '\r').Replace('\u2028', '\u0003');
     }
 
@@ -149,43 +149,44 @@ public static partial class PsdExport
         var faces = new List<TextFace> { s.Face };
         foreach (var run in segments) if (!faces.Contains(run.Face)) faces.Add(run.Face);
         object Color(uint color) => Dict(("Type", 1), ("Values", new object[] { 1.0, (color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0 }));
-        object Sheet(TextFace face, uint color, double? fontSize = null)
+        object Sheet(TextFace face, uint color, double? fontSize = null, TextFormat? format = null)
         {
+            var st = s.WithFormat(format ?? s.Format);
             var intrinsic = PsdFonts.IntrinsicFace(TextLayout.TypefaceFor(face));
             return Dict(
-            ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? s.Size), ("FauxBold", face.FontStyle == null && face.Bold && !intrinsic.Bold),
+            ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? st.Size), ("FauxBold", face.FontStyle == null && face.Bold && !intrinsic.Bold),
             ("FauxItalic", face.FontStyle == null && face.Italic && !intrinsic.Italic),
-            ("AutoLeading", s.Leading == 0), ("Leading", s.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
-            ("Tracking", (int)Math.Round(s.Type.PercentTracking ? s.Tracking * 10 : s.Tracking * 1000 / (fontSize ?? s.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
-            ("FontCaps", s.Type.Case switch { TextLetterCase.Upper => 2, TextLetterCase.SmallCaps => 1, _ => 0 }),
-            ("FontBaseline", s.Type.FigurePosition switch { FigurePosition.Superscript => 1, FigurePosition.Subscript => 2, _ => 0 }),
-            ("Underline", s.Type.Underline), ("Strikethrough", s.Type.Strike), ("Ligatures", true), ("DLigatures", false),
+            ("AutoLeading", st.Leading == 0), ("Leading", st.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
+            ("Tracking", (int)Math.Round(st.Type.PercentTracking ? st.Tracking * 10 : st.Tracking * 1000 / (fontSize ?? st.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
+            ("FontCaps", st.Type.Case switch { TextLetterCase.Upper => 2, TextLetterCase.SmallCaps => 1, _ => 0 }),
+            ("FontBaseline", st.Type.FigurePosition switch { FigurePosition.Superscript => 1, FigurePosition.Subscript => 2, _ => 0 }),
+            ("Underline", st.Type.Underline), ("Strikethrough", st.Type.Strike), ("Ligatures", true), ("DLigatures", false),
             ("BaselineDirection", 2), ("Tsume", 0.0), ("StyleRunAlignment", 2), ("Language", 0), ("NoBreak", false),
-            ("FillColor", Color(color)), ("StrokeColor", Color(s.Color)), ("FillFlag", true), ("StrokeFlag", false), ("FillFirst", true),
+            ("FillColor", Color(color)), ("StrokeColor", Color(st.Color)), ("FillFlag", true), ("StrokeFlag", false), ("FillFirst", true),
             ("YUnderline", 1), ("OutlineWidth", 1.0), ("CharacterDirection", 0), ("HindiNumbers", false), ("Kashida", 1), ("DiacriticPos", 2));
         }
-        var paragraphProperties = Dict(("Justification", s.Alignment == TextAlignment.Right ? 1 : s.Alignment == TextAlignment.Center ? 2 : s.Alignment == TextAlignment.Justify ? 3 : 0),
-            ("FirstLineIndent", s.Type.Indent), ("Hanging", s.Type.HangingPunctuation), ("StartIndent", 0.0), ("EndIndent", 0.0), ("SpaceBefore", 0.0), ("SpaceAfter", s.Type.ParagraphSpacing),
+        object Properties(TextFormat f) => Dict(("Justification", f.Alignment == TextAlignment.Right ? 1 : f.Alignment == TextAlignment.Center ? 2 : f.Alignment == TextAlignment.Justify ? 3 : 0),
+            ("FirstLineIndent", f.Type.Indent), ("Hanging", f.Type.HangingPunctuation), ("StartIndent", 0.0), ("EndIndent", 0.0), ("SpaceBefore", 0.0), ("SpaceAfter", f.Type.ParagraphSpacing),
             ("AutoHyphenate", false), ("AutoLeading", 1.2), ("LeadingType", 0), ("WordSpacing", new object[] { .8, 1.0, 1.33 }),
             ("LetterSpacing", new object[] { 0.0, 0.0, 0.0 }), ("GlyphSpacing", new object[] { 1.0, 1.0, 1.0 }), ("EveryLineComposer", false));
-        var paragraph = Dict(("ParagraphSheet", Dict(("DefaultStyleSheet", 0), ("Properties", paragraphProperties))),
+        object Paragraph(TextFormat f) => Dict(("ParagraphSheet", Dict(("DefaultStyleSheet", 0), ("Properties", Properties(f)))),
             ("Adjustments", Dict(("Axis", new object[] { 1.0, 0.0, 1.0 }), ("XY", new object[] { 0.0, 0.0 }))));
         var content = PhotoshopText(s) + "\r";
         var paragraphs = new List<object>(); var lengths = new List<object>();
-        for (int start = 0, i = 0; i < content.Length; i++) if (content[i] == '\r') { paragraphs.Add(paragraph); lengths.Add(i - start + 1); start = i + 1; }
+        for (int start = 0, i = 0; i < content.Length; i++) if (content[i] == '\r') { paragraphs.Add(Paragraph(s.FormatAt(start))); lengths.Add(i - start + 1); start = i + 1; }
         var fonts = new List<object> { Dict(("Name", "AdobeInvisFont"), ("Script", 0), ("FontType", 0), ("Synthetic", 0)) };
         foreach (var face in faces) fonts.Add(Dict(("Name", PsdFonts.PostScriptName(TextLayout.TypefaceFor(face))), ("Script", 0), ("FontType", 0), ("Synthetic", 0)));
         var resources = Dict(("KinsokuSet", Array.Empty<object>()), ("MojiKumiSet", Array.Empty<object>()), ("TheNormalStyleSheet", 0), ("TheNormalParagraphSheet", 0),
-            ("ParagraphSheetSet", new object[] { Dict(("Name", "Normal RGB"), ("DefaultStyleSheet", 0), ("Properties", paragraphProperties)) }),
+            ("ParagraphSheetSet", new object[] { Dict(("Name", "Normal RGB"), ("DefaultStyleSheet", 0), ("Properties", Properties(s.Format))) }),
             ("StyleSheetSet", new object[] { Dict(("Name", "Normal RGB"), ("StyleSheetData", Sheet(s.Face, s.Color))) }), ("FontSet", fonts),
             ("SuperscriptSize", .583), ("SuperscriptPosition", .333), ("SubscriptSize", .583), ("SubscriptPosition", .333), ("SmallCapSize", .7));
         var photoshop = Dict(("ShapeType", s.IsBox ? 1 : 0));
         photoshop[s.IsBox ? "BoxBounds" : "PointBase"] = s.IsBox ? new object[] { (double)frame.Left, (double)frame.Top, (double)frame.Right, (double)frame.Bottom } : new object[] { 0.0, 0.0 };
         photoshop["Base"] = Dict(("ShapeType", s.IsBox ? 1 : 0), ("TransformPoint0", new object[] { 1.0, 0.0 }), ("TransformPoint1", new object[] { 0.0, 1.0 }), ("TransformPoint2", new object[] { 0.0, 0.0 }));
         var engine = Dict(("EngineDict", Dict(("Editor", Dict(("Text", content))),
-            ("ParagraphRun", Dict(("DefaultRunData", paragraph), ("RunArray", paragraphs), ("RunLengthArray", lengths), ("IsJoinable", 1))),
+            ("ParagraphRun", Dict(("DefaultRunData", Paragraph(s.Format)), ("RunArray", paragraphs), ("RunLengthArray", lengths), ("IsJoinable", 1))),
             ("StyleRun", Dict(("DefaultRunData", Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(s.Face, s.Color)))))),
-                ("RunArray", segments.Select(r => (object)Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(r.Face, r.Color, r.Size)))))).ToArray()),
+                ("RunArray", segments.Select(r => (object)Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(r.Face, r.Color, r.Size, r.Format)))))).ToArray()),
                 ("RunLengthArray", segments.Select((r, i) => (object)(r.Length + (i == segments.Count - 1 ? 1 : 0))).ToArray()), ("IsJoinable", 2))),
             ("GridInfo", Dict(("GridIsOn", false), ("ShowGrid", false), ("GridSize", 18.0), ("GridLeading", 22.0),
                 ("GridColor", Color(0xFF0000FF)), ("GridLeadingFillColor", Color(0xFF0000FF)), ("AlignLineHeightToGridFlags", false))),

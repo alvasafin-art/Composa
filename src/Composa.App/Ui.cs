@@ -33,15 +33,15 @@ public static class Ui
     public static Button IconButton(Icons.Icon icon, string tip, Action click, double size = 16)
     {
         var button = new Button { Content = Icons.Create(icon, size), Classes = { "flat" } };
-        Avalonia.Automation.AutomationProperties.SetName(button, tip);
-        ToolTip.SetTip(button, tip);
+        Avalonia.Automation.AutomationProperties.SetName(button, Locale.T(tip));
+        ToolTip.SetTip(button, Locale.T(tip));
         button.Click += (_, _) => click();
         return button;
     }
 
-    public static Button TextButton(string text, Action click, bool accent = false)
+    public static Button TextButton(string text, Action click, bool accent = false, bool translate = true)
     {
-        var button = new Button { Content = text, MinWidth = 72, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var button = new Button { Content = translate ? Locale.T(text) : text, MinWidth = 72, HorizontalContentAlignment = HorizontalAlignment.Center };
         if (accent) button.Classes.Add("accent");
         button.Click += (_, _) => click();
         return button;
@@ -49,7 +49,7 @@ public static class Ui
 
     public static CheckBox Check(string text, bool value, Action<bool> changed)
     {
-        var box = new CheckBox { Content = text, IsChecked = value };
+        var box = new CheckBox { Content = Locale.T(text), IsChecked = value };
         box.IsCheckedChanged += (_, _) => changed(box.IsChecked == true);
         return box;
     }
@@ -57,7 +57,7 @@ public static class Ui
     public static ComboBox Combo<T>(IEnumerable<T> items, T selected, Func<T, string> label, Action<T> changed, double width = 130)
     {
         var list = items.ToList();
-        var combo = new ComboBox { ItemsSource = list.Select(label).ToList(), SelectedIndex = list.IndexOf(selected), Width = width };
+        var combo = new ComboBox { ItemsSource = list.Select(value => typeof(T).IsEnum ? Locale.T(label(value)) : label(value)).ToList(), SelectedIndex = list.IndexOf(selected), Width = width };
         combo.SelectionChanged += (_, _) => { if (combo.SelectedIndex >= 0) changed(list[combo.SelectedIndex]); };
         return combo;
     }
@@ -144,7 +144,7 @@ public static class Ui
     public static Controls.SliderField SliderField(string label, double value, double min, double max, Action<double> changed, double step = 1, string format = "0", double width = 120,
         IReadOnlyList<Avalonia.Media.Color>? track = null, double? reset = null)
     {
-        var field = new Controls.SliderField(label, value, min, max, step, format) { Width = width, Track = track, Reset = reset };
+        var field = new Controls.SliderField(label, value, min, max, step, format) { Width = width + Math.Max(0, Locale.T(label).Length - label.Length) * 6, Track = track, Reset = reset };
         field.Changed += changed;
         return field;
     }

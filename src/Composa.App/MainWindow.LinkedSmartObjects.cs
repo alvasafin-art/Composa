@@ -122,7 +122,7 @@ public sealed partial class MainWindow
         var dialog = new DialogWindow("Linked Smart Object", body, "Close", cancellable: false);
         var update = Ui.TextButton("Update from File", async () => { dialog.Close(true); await UpdateLinkedFromUi(layer); });
         update.IsEnabled = state.State is not (LinkedSourceState.Missing or LinkedSourceState.Unavailable);
-        var automatic = new CheckBox { Content = "Automatically update changed linked files", IsChecked = settings.AutoUpdateLinkedSources };
+        var automatic = new CheckBox { Content = Locale.T("Automatically update changed linked files"), IsChecked = settings.AutoUpdateLinkedSources };
         automatic.IsCheckedChanged += (_, _) => { settings.AutoUpdateLinkedSources = automatic.IsChecked == true; settings.Save(); };
         body.Children.Add(automatic);
         var buttons = Ui.Row(8, update,

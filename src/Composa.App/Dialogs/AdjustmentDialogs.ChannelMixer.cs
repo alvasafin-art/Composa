@@ -34,6 +34,6 @@ public static partial class AdjustmentDialogs
         var selected = ChannelMixerAdjustment.Presets.FirstOrDefault(p => p.Value.ContentEquals(mixer)).Key ?? "Custom";
         presets = Ui.Combo(new[] { "Custom" }.Concat(ChannelMixerAdjustment.Presets.Keys), selected, v => v, v => { if (!refreshing && v != "Custom") ApplyPreset(ChannelMixerAdjustment.Presets[v]); }, FieldWidth); presets.Name = "MixerPreset";
         ToolTip.SetTip(total, "Sum of source contributions, excluding Constant. Totals above 100% can clip highlights; negative coefficients subtract source color.");
-        BuildOutput(); return Ui.Column(10, presets, mono, Ui.Label("Output channel", Palette.Secondary), outputHost, Ui.Label("Source contributions (%)", Palette.Secondary), rows, total);
+        BuildOutput(); return Ui.Column(10, presets, mono, Ui.Label(Locale.T("Output channel"), Palette.Secondary), outputHost, Ui.Label(Locale.T("Source contributions (%)"), Palette.Secondary), rows, total);
     }
 }

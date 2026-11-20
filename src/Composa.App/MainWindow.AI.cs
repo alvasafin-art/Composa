@@ -290,11 +290,11 @@ public sealed partial class MainWindow
             flyout.Items.Add(item);
         }
         flyout.Items.Add(new Separator());
-        var settingsItem = new MenuItem { Header = "AI Settings…" };
+        var settingsItem = new MenuItem { Header = Locale.T("AI Settings…") };
         flyout.Opening += (_, _) => settingsItem.IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
         settingsItem.Click += (_, _) => _ = ShowAiSettings();
         flyout.Items.Add(settingsItem);
-        return new Button { Name = "AiTaskMenu", Content = "AI ▾", Flyout = flyout, MinWidth = 0 };
+        return new Button { Name = "AiTaskMenu", Content = Locale.T("AI ▾"), Flyout = flyout, MinWidth = 0 };
     }
 
     private Control BuildAiFloatingMenu()
@@ -412,7 +412,7 @@ public sealed partial class MainWindow
         }
         if (modelDrafts.ContainsKey(AiTaskKind.GenerativeFill))
         {
-            var save = new MenuItem { Header = "Use this model by default" };
+            var save = new MenuItem { Header = Locale.T("Use this model by default") };
             save.Click += (_, _) =>
             {
                 if (aiEngineCombo?.SelectedItem is not ImageModelChoice choice) return;
@@ -535,7 +535,7 @@ public sealed partial class MainWindow
     {
         var files = await (aiDialogReferences?.Owner ?? this).StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Choose Reference Images", AllowMultiple = true, FileTypeFilter = [ImageType]
+            Title = Locale.T("Choose Reference Images"), AllowMultiple = true, FileTypeFilter = [ImageType]
         });
         AddAiReferencePaths(files.Select(file => file.TryGetLocalPath()).OfType<string>());
     }

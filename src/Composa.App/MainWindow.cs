@@ -36,7 +36,6 @@ public sealed partial class MainWindow : Window
     private readonly Grid combinedOptions = new() { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
     private readonly Dictionary<Tool, ToolButton> toolButtons = [];
     private readonly TextBlock zoomText = new() { FontSize = 11.5, Foreground = Palette.Secondary };
-    private readonly TextBlock sizeText = new() { Foreground = Palette.Secondary, FontSize = 11.5, TextWrapping = TextWrapping.Wrap };
     private readonly Border commandNotice = new() { Background = Palette.PanelRaised, CornerRadius = new CornerRadius(5),
         HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
         Padding = new Thickness(12,6), Margin = new Thickness(10,8), IsVisible = false };
@@ -132,7 +131,7 @@ public sealed partial class MainWindow : Window
         generationSection.Changed += () => { settings.Dock[generationSection.Title] = generationSection.State; settings.Save(); };
         var properties = new DockSection("Properties", propertiesView, settings.Dock.GetValueOrDefault("Properties") ?? new DockPanelState(Height: 232));
         properties.Changed += () => { settings.Dock["Properties"] = properties.State; settings.Save(); };
-        dock = new SideDock(layers, BuildDocumentInfo(), (header, title) => AttachPanelDrag(header, title), properties, navigatorSection, channelsSection, generationSection, historySection);
+        dock = new SideDock(layers, (header, title) => AttachPanelDrag(header, title), properties, navigatorSection, channelsSection, generationSection, historySection);
         var layersSection = dock.Section("Layers");
         layersSection.Changed += () => { settings.Dock["Layers"] = layersSection.State; settings.Save(); };
         dock.RestoreLayout(settings.Dock, persist: false);
@@ -245,7 +244,7 @@ public sealed partial class MainWindow : Window
         })).ToArray();
         var selected = Ui.Column(4, choices.Select(choice => (Control)choice.Check).ToArray());
         var dialog = new Dialogs.DialogWindow("Recover unsaved work",
-            Ui.Column(8, Ui.Label("Choose the documents to recover."), new ScrollViewer { Content = selected, MaxHeight = 300 }), "Recover selected");
+            Ui.Column(8, Ui.Label(Locale.T("Choose the documents to recover.")), new ScrollViewer { Content = selected, MaxHeight = 300 }), "Recover selected");
         dialog.SetCancelLabel("Later");
         bool deleting = false;
         dialog.AddSecondaryAction("Delete selected…", async () =>
@@ -317,7 +316,7 @@ public sealed partial class MainWindow : Window
         // The first document starts from the remembered view options; later ones inherit them from the current tab.
         if (lastToolSource == null)
         {
-            added.View = settings.View; added.Brush = settings.Brush;
+            added.View = settings.View; added.PaintBrush = settings.Brush; added.EraserBrush = settings.EraserBrush ?? settings.Brush;
             if (settings.ToolPalette is { } palette)
             {
                 added.Tool = Enum.IsDefined(palette.Active) ? palette.Active : Tool.Move;
@@ -399,7 +398,7 @@ public sealed partial class MainWindow : Window
         target.Detect = LocalDetect;
         if (lastToolSource is { } from && from != target)
         {
-            target.Foreground = from.Foreground; target.Background = from.Background; target.Brush = from.Brush;
+            target.Foreground = from.Foreground; target.Background = from.Background; target.PaintBrush = from.PaintBrush; target.EraserBrush = from.EraserBrush;
             target.GradientRamp = from.GradientRamp;
             target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
             target.Feather = from.Feather; target.WandTolerance = from.WandTolerance; target.WandContiguous = from.WandContiguous;
@@ -415,13 +414,15 @@ public sealed partial class MainWindow : Window
         ShowTool(target.Tool);
     }
 
-    private readonly List<(EditorSession Document, TextBlock Title, MenuItem Folder)> tabTitles = [];
+    private readonly List<(EditorSession Document, TextBlock Title, TextBlock Mode, MenuItem Folder)> tabTitles = [];
 
     private void UpdateTabTitles()
     {
-        foreach (var (item, title, folder) in tabTitles)
+        foreach (var (item, title, mode, folder) in tabTitles)
         {
-            title.Text = item.Title + (item.IsModified ? " •" : "");
+            title.Text = (item.FilePath == null && item.SuggestedName == null ? Locale.T("Untitled") : item.Title) + (item.IsModified ? " •" : "");
+            mode.Text = $"(RGB/{(int)item.Document.WorkingDepth})";
+            ToolTip.SetTip(mode, item.Document.Profile.Name);
             folder.IsEnabled = item.FilePath != null;
         }
         Title = session == null ? "Composa" : $"{session.Title}{(session.IsModified ? " •" : "")} - Composa";
@@ -434,11 +435,12 @@ public sealed partial class MainWindow : Window
         foreach (var item in sessions)
         {
             var label = Ui.Label("", item == session ? Palette.Foreground : Palette.Secondary);
+            var mode = Ui.Label("", Palette.Secondary, 11.5);
             var close = new Button { Classes = { "flat" }, Padding = new Thickness(3), Content = Icons.Create(Icons.Close, 10), VerticalAlignment = VerticalAlignment.Center };
             close.Click += (_, e) => { _ = CloseSession(item); e.Handled = true; };
             var tab = new Border
             {
-                Child = Ui.Row(8, label, close), Padding = new Thickness(12, 4, 6, 4), CornerRadius = new CornerRadius(6),
+                Child = Ui.Row(5, label, mode, close), Padding = new Thickness(12, 4, 6, 4), CornerRadius = new CornerRadius(6),
                 Background = item == session ? Palette.ActiveTab : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand)
             };
             if (item != session)
@@ -454,7 +456,7 @@ public sealed partial class MainWindow : Window
                 else if (pressed.IsLeftButtonPressed && item != session) SetSession(item);
             };
             tab.ContextMenu = TabMenu(item, out var folder);
-            tabTitles.Add((item, label, folder));
+            tabTitles.Add((item, label, mode, folder));
             tabs.Children.Add(tab);
         }
         UpdateTabTitles();
@@ -568,7 +570,7 @@ public sealed partial class MainWindow : Window
         settings.ShowPixelGrid = canvas.ShowPixelGrid;
         settings.ShowTransformControls = canvas.ShowTransformControls;
         settings.AutoSelect = canvas.AutoSelect;
-        if (session != null) { settings.View = session.View; settings.Brush = session.Brush; RememberToolPalette(); }
+        if (session != null) { settings.View = session.View; settings.Brush = session.PaintBrush; settings.EraserBrush = session.EraserBrush; RememberToolPalette(); }
         settings.Save();
     }
 
@@ -651,7 +653,9 @@ public sealed partial class MainWindow : Window
     {
         var newButton = Ui.IconButton(Icons.Plus, "New canvas (Ctrl+N)", () => _ = NewCanvas());
         var scroll = new ScrollViewer { Content = tabs, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        var zoomControls = Ui.Row(2,
+        zoomText.Name = "DocumentZoom";
+        zoomText.Margin = new Thickness(6, 0);
+        var zoomControls = Ui.Row(2, zoomText,
             Ui.TextButton("Fit", () => canvas.Fit()), Ui.TextButton("100%", () => canvas.ZoomTo(1)),
             Ui.IconButton(Icons.ZoomOut, "Zoom out (Ctrl+-)", canvas.ZoomOut), Ui.IconButton(Icons.ZoomIn, "Zoom in (Ctrl++)", canvas.ZoomIn));
         foreach (var button in zoomControls.Children.OfType<Button>()) { button.MinWidth = 0; button.Classes.Add("flat"); }
@@ -762,8 +766,8 @@ public sealed partial class MainWindow : Window
         }
 
         foregroundSwatch.Cursor = backgroundSwatch.Cursor = new Cursor(StandardCursorType.Hand);
-        ToolTip.SetTip(foregroundSwatch, "Foreground color");
-        ToolTip.SetTip(backgroundSwatch, "Background color");
+        ToolTip.SetTip(foregroundSwatch, Locale.T("Foreground color"));
+        ToolTip.SetTip(backgroundSwatch, Locale.T("Background color"));
         foregroundSwatch.PointerPressed += (_, _) => _ = PickColor(foreground: true);
         backgroundSwatch.PointerPressed += (_, _) => _ = PickColor(foreground: false);
         backgroundSwatch.Margin = new Thickness(14, 14, 0, 0);
@@ -793,16 +797,6 @@ public sealed partial class MainWindow : Window
         return tools;
     }
 
-    private Control BuildDocumentInfo()
-    {
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 12 };
-        zoomText.VerticalAlignment = sizeText.VerticalAlignment = VerticalAlignment.Center;
-        row.Children.Add(zoomText);
-        AddAt(row, sizeText, 1);
-        return new Border { Name = "DocumentInfo", Background = Palette.Panel, Padding = new Thickness(12,7),
-            BorderThickness = new Thickness(0,1,0,0), BorderBrush = Palette.Divider, Child = row };
-    }
-
     private Panel BuildWelcome()
     {
         var content = Ui.Column(12);
@@ -819,8 +813,8 @@ public sealed partial class MainWindow : Window
                 if (image.Source is IDisposable bitmap) { image.Source = null; bitmap.Dispose(); }
             recent.Children.Clear();
             var paths = settings.RecentFiles.Where(p => File.Exists(p) || Directory.Exists(p)).Take(5).ToList();
-            if (paths.Count == 0) { recent.Children.Add(Ui.Label("Drop an image or project here", Palette.Secondary)); return; }
-            recent.Children.Add(Ui.Label("Recent files", Palette.Secondary, 12, FontWeight.SemiBold));
+            if (paths.Count == 0) { recent.Children.Add(Ui.Label(Locale.T("Drop an image or project here"), Palette.Secondary)); return; }
+            recent.Children.Add(Ui.Label(Locale.T("Recent files"), Palette.Secondary, 12, FontWeight.SemiBold));
             foreach (var path in paths)
             {
                 var preview = RecentPreviews.Load(path);
@@ -935,12 +929,9 @@ public sealed partial class MainWindow : Window
         if (session == null)
         {
             zoomText.Text = "";
-            sizeText.Text = "";
             return;
         }
         zoomText.Text = canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
-        sizeText.Text = $"{session.Document.Width} × {session.Document.Height} px · {session.Document.Resolution:0.#} ppi · {session.Document.Profile.Name} · {(int)session.Document.WorkingDepth}-bit";
-        ToolTip.SetTip(sizeText, sizeText.Text);
     }
 
     private static string Hint(EditorSession s) => s.WarpEdit != null ? "Drag Warp nodes · Shift locks direction · Arrows nudge selected node · Ctrl+Z undoes a point · Enter applies · Esc cancels"

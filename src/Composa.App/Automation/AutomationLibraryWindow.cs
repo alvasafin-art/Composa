@@ -12,7 +12,7 @@ public sealed class AutomationLibraryWindow : Window
     public AutomationLibraryWindow(AutomationCatalog catalog, Settings settings, Action changed,
         Action<AutomationCommand> run, Action<AutomationCommand> edit, Action create)
     {
-        Title = "Scripts & Plugins"; Width = 680; Height = 620; MinWidth = 440; MinHeight = 360;
+        Title = Locale.T("Scripts & Plugins"); Width = 680; Height = 620; MinWidth = 440; MinHeight = 360;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var body = new StackPanel { Spacing = 10 };
         var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary };
@@ -27,7 +27,7 @@ public sealed class AutomationLibraryWindow : Window
         {
             changed(); body.Children.Clear();
             body.Children.Add(Ui.Label("Commands · shortcuts can be assigned in Help > Keyboard Shortcuts", Palette.Secondary));
-            if (catalog.Commands.Count == 0) body.Children.Add(Ui.Label("No scripts or enabled plugin commands yet."));
+            if (catalog.Commands.Count == 0) body.Children.Add(Ui.Label(Locale.T("No scripts or enabled plugin commands yet.")));
             foreach (var command in catalog.Commands)
             {
                 var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 8 };
@@ -42,7 +42,7 @@ public sealed class AutomationLibraryWindow : Window
                 }
                 body.Children.Add(row);
             }
-            body.Children.Add(Ui.Label("Installed Plugins", weight: FontWeight.SemiBold));
+            body.Children.Add(Ui.Label(Locale.T("Installed Plugins"), weight: FontWeight.SemiBold));
             foreach (var plugin in catalog.Plugins)
             {
                 var checkbox = Ui.Check(plugin.Manifest.Name + " · " + plugin.Manifest.Version, !settings.DisabledScriptPlugins.Contains(plugin.Manifest.Id), enabled =>
@@ -59,14 +59,14 @@ public sealed class AutomationLibraryWindow : Window
         async Task Import()
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            { Title = "Import Script", FileTypeFilter = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
+            { Title = Locale.T("Import Script"), FileTypeFilter = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
             if (files.FirstOrDefault()?.TryGetLocalPath() is not { } path) return;
             try { catalog.ImportScript(path); Refresh(); } catch (Exception error) { status.Text = error.Message; }
         }
         async Task Install()
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            { Title = "Choose plugin.json", FileTypeFilter = [new FilePickerFileType("Plugin manifest") { Patterns = ["plugin.json"] }] });
+            { Title = Locale.T("Choose plugin.json"), FileTypeFilter = [new FilePickerFileType("Plugin manifest") { Patterns = ["plugin.json"] }] });
             if (files.FirstOrDefault()?.TryGetLocalPath() is not { } path) return;
             try
             {

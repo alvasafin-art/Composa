@@ -105,7 +105,7 @@ public sealed record TextFontRun(int Start, int Length, string FontFamily, bool 
 }
 
 /// <summary>Live text: kept as characters and redrawn sharp whenever it is edited or its layer is scaled.</summary>
-public sealed record TextStyle
+public sealed partial record TextStyle
 {
     public const int MaxFamilyName = 200;
     public const int MaxLength = 100_000;
@@ -193,7 +193,8 @@ public sealed record TextStyle
             FontStyle = FontStyle is { IsValid: true } ? FontStyle : null,
             ColorRuns = ValidRuns(ColorRuns, text.Length),
             FontRuns = ValidFontRuns(FontRuns, text.Length),
-            SizeRuns = ValidSizeRuns(SizeRuns, text.Length)
+            SizeRuns = ValidSizeRuns(SizeRuns, text.Length),
+            FormatRuns = ValidateFormatting(text.Length)
         };
     }
 
@@ -338,11 +339,11 @@ public sealed record TextStyle
     /// </summary>
     public TextStyle WithReplacedCharacters(int start, int end, int length)
     {
-        if (ColorRuns == null && FontRuns == null && SizeRuns == null) return this;
+        if (ColorRuns == null && FontRuns == null && SizeRuns == null && FormatRuns == null) return this;
         var count = Text.Length;
         start = Math.Clamp(start, 0, count);
         end = Math.Clamp(end, start, count);
-        var result = this;
+        var result = this with { FormatRuns = ReplaceFormatting(start, end, length) };
         if (SizeRuns != null)
         {
             var sizes = Enumerable.Range(0, count).Select(SizeAt).ToList();
@@ -371,7 +372,7 @@ public sealed record TextStyle
     }
 
     /// <summary>The style the next text takes: the same look, without this text's wording, box and per-letter colors and faces.</summary>
-    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, ColorRuns = null, FontRuns = null, SizeRuns = null };
+    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, ColorRuns = null, FontRuns = null, SizeRuns = null, FormatRuns = null };
 
     private List<TextFace> UnitFaces()
     {
@@ -421,6 +422,7 @@ public sealed record TextStyle
         && Type == other.Type && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight
         && (ColorRuns == null ? other.ColorRuns == null : other.ColorRuns != null && ColorRuns.SequenceEqual(other.ColorRuns))
         && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns))
+        && (FormatRuns == null ? other.FormatRuns == null : other.FormatRuns != null && FormatRuns.SequenceEqual(other.FormatRuns))
         && (SizeRuns == null ? other.SizeRuns == null : other.SizeRuns != null && SizeRuns.SequenceEqual(other.SizeRuns));
 
     public override int GetHashCode() =>
@@ -431,6 +433,7 @@ public sealed record TextStyle
 
     public TextStyle Scaled(double horizontal, double vertical) => (this with
     {
+        FormatRuns = FormatRuns?.Select(r => r with { Format = r.Format.Scale(horizontal, vertical) }).ToArray(),
         Size = Size * vertical, SizeRuns = SizeRuns?.Select(r => r with { Size = Math.Clamp(r.Size * vertical, 1, 2000) }).ToArray(), Tracking = Type.PercentTracking ? Tracking : Tracking * horizontal, Leading = Type.PercentLeading ? Leading : Leading * vertical,
         Type = Type with { Indent = Type.Indent * horizontal, ParagraphSpacing = Type.ParagraphSpacing * vertical },
         BoxWidth = BoxWidth * horizontal, BoxHeight = BoxHeight * vertical

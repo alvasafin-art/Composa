@@ -48,7 +48,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
         redo = Ui.TextButton("Redo stroke", () => { if (BusyStroke) return; history.Redo(); current = history.Current; Changed(); }); redo.Name = "LiquifyRedo";
         var toolMenu = Ui.Combo(Enum.GetValues<LiquifyTool>(), tool, t => t == LiquifyTool.Push ? "Forward Warp" : t.ToString(), t => tool = t, 220); toolMenu.Name = "LiquifyTool";
         var fullResolution = Ui.Check("Full-resolution preview", false, v => { fullPreview = v; RequestPreview(); });
-        var controls = Ui.Column(12, Ui.Label("Tool", Palette.Secondary), toolMenu,
+        var controls = Ui.Column(12, Ui.Label(Locale.T("Tool"), Palette.Secondary), toolMenu,
             Ui.SliderField("Size", 150, 1, 2000, v => { view.BrushSize = v; view.InvalidateVisual(); }, width: 220, reset: 150),
             Ui.SliderField("Strength", 50, 1, 100, v => strength = v / 100, width: 220, reset: 50),
             Ui.SliderField("Hardness", 50, 0, 100, v => hardness = v / 100, width: 220, reset: 50),

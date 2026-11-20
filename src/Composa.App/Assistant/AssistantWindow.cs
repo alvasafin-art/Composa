@@ -30,9 +30,9 @@ public sealed class AssistantWindow : Window
     private readonly TextBox prompt = new()
     {
         AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 68, MaxHeight = 150,
-        PlaceholderText = "Message Assistant… (Enter to send, Shift+Enter for a new line)"
+        PlaceholderText = Locale.T("Message Assistant… (Enter to send, Shift+Enter for a new line)")
     };
-    private readonly TextBlock status = Ui.Label("Ready", Palette.Secondary);
+    private readonly TextBlock status = Ui.Label(Locale.T("Ready"), Palette.Secondary);
     private readonly ScrollViewer scroll;
     private readonly Button send, cancel, attach, newChat;
     private readonly ComboBox mode;
@@ -51,7 +51,7 @@ public sealed class AssistantWindow : Window
     {
         this.owner = owner; this.session = session; this.settings = settings; this.server = server;
         this.runtime = runtime; this.aiTasks = aiTasks; this.conversation = conversation ?? new();
-        Title = "Assistant"; Width = 640; Height = 710; MinWidth = 360; MinHeight = 430;
+        Title = Locale.T("Assistant"); Width = 640; Height = 710; MinWidth = 360; MinHeight = 430;
         WindowStartupLocation = WindowStartupLocation.CenterOwner; ShowInTaskbar = false;
         send = Ui.TextButton("Send", () => _ = SendAsync(), accent: true);
         cancel = Ui.TextButton("Stop", () => running?.Cancel()); cancel.IsVisible = false;
@@ -63,7 +63,7 @@ public sealed class AssistantWindow : Window
         });
         var preferences = Ui.IconButton(Icons.Gear, "Assistant provider and settings", () => _ = ShowSettings());
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8 };
-        header.Children.Add(Ui.Label("Assistant", size: 16, weight: FontWeight.SemiBold));
+        header.Children.Add(Ui.Label(Locale.T("Assistant"), size: 16, weight: FontWeight.SemiBold));
         At(header, newChat, column: 1); At(header, preferences, column: 2);
         scroll = new ScrollViewer { Content = messages, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var applyEdits = Ui.Check("Apply requested edits", settings.AssistantApplyEdits, value => { settings.AssistantApplyEdits = value; settings.Save(); });
@@ -74,7 +74,7 @@ public sealed class AssistantWindow : Window
         ToolTip.SetTip(applyEdits, "Requested edits run as one Undo step. Disable to review scripts before applying.");
         var controls = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 8 };
         controls.Children.Add(attach); At(controls, applyEdits, column: 1); At(controls, cancel, column: 2); At(controls, send, column: 3);
-        activityPanel = new Expander { Header = "Current operations", Content = activity, IsVisible = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        activityPanel = new Expander { Header = Locale.T("Current operations"), Content = activity, IsVisible = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         activityTimer.Tick += (_, _) => activityPanel.Header = $"Current operations · {busyClock.Elapsed:mm\\:ss}";
         var composer = Ui.Column(8, attachments, mode, activityPanel, prompt, controls, status);
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), RowSpacing = 8, Margin = new Thickness(12) };
@@ -105,7 +105,7 @@ public sealed class AssistantWindow : Window
         busy = value; send.IsEnabled = attach.IsEnabled = newChat.IsEnabled = mode.IsEnabled = !value;
         cancel.IsVisible = value;
         activityPanel.IsVisible = value;
-        if (value) { busyClock.Restart(); activityPanel.Header = "Current operations · 00:00"; activityTimer.Start(); }
+        if (value) { busyClock.Restart(); activityPanel.Header = Locale.T("Current operations · 00:00"); activityTimer.Start(); }
         else { busyClock.Stop(); activityTimer.Stop(); }
     }
 
@@ -129,7 +129,7 @@ public sealed class AssistantWindow : Window
     {
         var chosen = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Attach scripts, text, or images", AllowMultiple = true,
+            Title = Locale.T("Attach scripts, text, or images"), AllowMultiple = true,
             FileTypeFilter = [new FilePickerFileType("Assistant files") { Patterns = ["*.js", "*.ts", "*.txt", "*.md", "*.json", "*.csv", "*.yaml", "*.yml", "*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.svg"] }]
         });
         await AddFilesAsync(chosen.Select(file => file.TryGetLocalPath()).OfType<string>());
@@ -295,7 +295,7 @@ public sealed class AssistantWindow : Window
         {
             var body = Ui.Column(7, Ui.Label(entry.Role == "user" ? "You" : entry.IsScriptArtifact ? "Assistant · script" : entry.Script.Length > 0 && entry.Outcome == null ? "Assistant · proposed edit" : "Assistant", weight: FontWeight.SemiBold),
                 new SelectableTextBlock { Text = entry.Text, TextWrapping = TextWrapping.Wrap });
-            if (entry.ActionLog.Length > 0) body.Children.Add(new Expander { Header = "Operations", HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            if (entry.ActionLog.Length > 0) body.Children.Add(new Expander { Header = Locale.T("Operations"), HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Content = new TextBox { Text = entry.ActionLog, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 260 } });
             if (entry.Script.Length == 0 && entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
             if (entry.Script.Length > 0)
@@ -316,8 +316,8 @@ public sealed class AssistantWindow : Window
                 var edit = Ui.TextButton("Edit Script…", () => owner.ShowScriptEditor(entry.Script, "Assistant script"));
                 var scriptButtons = new WrapPanel { Orientation = Orientation.Horizontal };
                 foreach (var button in entry.ScriptTarget == "photoshop" ? new[] { save, copyScript } : new[] { save, copyScript, library, edit }) { button.Margin = new Thickness(0, 0, 6, 4); scriptButtons.Children.Add(button); }
-                if (entry.ScriptTarget == "photoshop") body.Children.Add(Ui.Label("Photoshop JSX · File → Scripts → Browse. Not executed."));
-                body.Children.Add(new Expander { Header = "Script", Content = Ui.Column(6, code, scriptButtons), HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                if (entry.ScriptTarget == "photoshop") body.Children.Add(Ui.Label(Locale.T("Photoshop JSX · File → Scripts → Browse. Not executed.")));
+                body.Children.Add(new Expander { Header = Locale.T("Script"), Content = Ui.Column(6, code, scriptButtons), HorizontalContentAlignment = HorizontalAlignment.Stretch,
                     IsExpanded = entry.IsScriptArtifact && entry.Outcome == null });
                 if (entry.Outcome != null) body.Children.Add(new TextBlock { Text = entry.Outcome, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap });
                 else if (pending.ContainsKey(entry))
@@ -350,7 +350,7 @@ public sealed class AssistantWindow : Window
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Save Script", SuggestedFileName = target == "photoshop" ? "photoshop-script.jsx" : "composa-script.js", DefaultExtension = target == "photoshop" ? "jsx" : "js",
+            Title = Locale.T("Save Script"), SuggestedFileName = target == "photoshop" ? "photoshop-script.jsx" : "composa-script.js", DefaultExtension = target == "photoshop" ? "jsx" : "js",
             FileTypeChoices = [new FilePickerFileType("JavaScript") { Patterns = [target == "photoshop" ? "*.jsx" : "*.js"] }]
         });
         if (file?.TryGetLocalPath() is not { } path) return;
@@ -378,7 +378,7 @@ public static class AssistantDialogs
         var launcherNote = new TextBlock { Text = "Choose the complete llama.cpp folder, including its libraries.", Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 };
         async Task PickDirectory()
         {
-            var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "llama.cpp folder", AllowMultiple = false });
+            var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = Locale.T("llama.cpp folder"), AllowMultiple = false });
             if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
             try
             {
@@ -389,8 +389,8 @@ public static class AssistantDialogs
             catch (Exception error) { launcherNote.Text = error.Message; }
         }
         var apiUrl = new TextBox { Text = settings.AssistantApiUrl, Width = 340, PlaceholderText = "https://server.example/v1" };
-        var apiModel = new TextBox { Text = settings.AssistantApiModel, Width = 340, PlaceholderText = "Model ID from your provider" };
-        var apiKey = new TextBox { Text = settings.AssistantApiKey, Width = 340, PasswordChar = '●', PlaceholderText = "API key for this session" };
+        var apiModel = new TextBox { Text = settings.AssistantApiModel, Width = 340, PlaceholderText = Locale.T("Model ID from your provider") };
+        var apiKey = new TextBox { Text = settings.AssistantApiKey, Width = 340, PasswordChar = '●', PlaceholderText = Locale.T("API key for this session") };
         var environment = new TextBox { Text = settings.AssistantApiKeyEnvironment, Width = 340 };
         async Task Pick(TextBox target, string title, string pattern)
         {
@@ -403,20 +403,20 @@ public static class AssistantDialogs
         var reasoning = new ComboBox { ItemsSource = new[] { "none", "medium", "xhigh" }, SelectedItem = settings.AssistantReasoning };
         var temperature = Ui.Number(settings.AssistantTemperature, 0, 2, _ => { }, 0.05, "0.00", 110);
         var gpu = Ui.Number(settings.AssistantGpuLayers, -1, 999, _ => { }, 1, "0", 110);
-        var projector = new TextBox { Text = settings.AssistantProjectorPath, Width = 270, PlaceholderText = "Optional matching mmproj GGUF" };
+        var projector = new TextBox { Text = settings.AssistantProjectorPath, Width = 270, PlaceholderText = Locale.T("Optional matching mmproj GGUF") };
         var roots = new TextBox { Text = string.Join("\n", settings.AssistantReadFolders), AcceptsReturn = true, Width = 340, Height = 75,
-            TextWrapping = TextWrapping.Wrap, PlaceholderText = "One absolute folder path per line" };
+            TextWrapping = TextWrapping.Wrap, PlaceholderText = Locale.T("One absolute folder path per line") };
         async Task AddFolder()
         {
-            var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Allow Assistant to read this folder", AllowMultiple = true });
+            var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = Locale.T("Allow Assistant to read this folder"), AllowMultiple = true });
             var paths = (roots.Text ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries).Concat(folders.Select(f => f.TryGetLocalPath()).OfType<string>()).Distinct();
             roots.Text = string.Join("\n", paths);
         }
         var diagnostics = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 150, Width = 340 };
-        var auto = new CheckBox { Content = "Start local server when needed", IsChecked = settings.AssistantAutoStart };
+        var auto = new CheckBox { Content = Locale.T("Start local server when needed"), IsChecked = settings.AssistantAutoStart };
         using var dialogLifetime = new CancellationTokenSource();
         var probing = false;
-        var vision = new CheckBox { Content = "Send document preview and attached images (vision model)", IsChecked = settings.AssistantVision };
+        var vision = new CheckBox { Content = Locale.T("Send document preview and attached images (vision model)"), IsChecked = settings.AssistantVision };
         Settings Draft() => new()
         {
             AssistantServerUrl = url.Text?.Trim() ?? "", AssistantServerExecutable = executable.Text?.Trim() ?? "",
@@ -445,7 +445,7 @@ public static class AssistantDialogs
             catch (Exception error) { diagnostics.Text = error.Message + "\n" + host.Diagnostics; }
             finally { probing = false; }
         }
-        var json = new CheckBox { Content = "Request JSON response format (if supported)", IsChecked = settings.AssistantJsonResponse };
+        var json = new CheckBox { Content = Locale.T("Request JSON response format (if supported)"), IsChecked = settings.AssistantJsonResponse };
         var local = CanvasDialogs.Form(("Server URL", url),
             ("llama.cpp folder", Ui.Column(6, Ui.TextButton("Choose folder & create launcher…", () => _ = PickDirectory()), launcherNote)),
             ("llama-server", Ui.Row(6, executable, Ui.TextButton("Browse…", () => _ = Pick(executable, "llama-server", "*")))),

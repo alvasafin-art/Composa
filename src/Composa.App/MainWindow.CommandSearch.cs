@@ -10,7 +10,7 @@ public sealed partial class MainWindow
         RefreshMenuState();
         var choices = AllShortcuts.Where(c => c.Id != FindCommandId).Concat(new[]
         {
-            Setting("Editor preferences", "Editor", 3, terms: "panels tabs updates linked files interface theme light dark appearance тема"),
+            Setting("Editor preferences", "Editor", 3, terms: "panels tabs updates linked files interface theme light dark appearance language русский язык оформление тема"),
             Setting("ComfyUI server", "Connection", 0, "server", "сервер подключение адрес"),
             Setting("Comfy credits API key", "Connection", 0, "key", "ключ токен"),
             Setting("Image models", "AI", 1, terms: "модели изображения"),

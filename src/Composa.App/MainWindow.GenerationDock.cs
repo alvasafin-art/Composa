@@ -133,10 +133,10 @@ public sealed partial class MainWindow
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
-        var settingsItem = new MenuItem { Header = "AI Settings…" };
+        var settingsItem = new MenuItem { Header = Locale.T("AI Settings…") };
         settingsItem.Click += (_, _) => _ = ShowAiSettings();
         menu.Items.Add(settingsItem);
-        var collapse = new MenuItem { Header = "Collapse panel" };
+        var collapse = new MenuItem { Header = Locale.T("Collapse panel") };
         collapse.Click += (_, _) => dock.SetCollapsed(generationSection, true);
         menu.Opening += (_, _) => collapse.IsVisible = !dock.Tabbed;
         menu.Items.Add(collapse);

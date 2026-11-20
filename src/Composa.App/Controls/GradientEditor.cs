@@ -66,11 +66,11 @@ public sealed class GradientEditor : StackPanel
         var preset = GradientRamp.Presets.FirstOrDefault(p => p.Value == ramp).Key ?? "Custom";
         Children.Add(Ui.Combo(new[] { "Custom" }.Concat(GradientRamp.Presets.Keys).ToArray(), preset, s => s, s => { if (s != "Custom") { Set(GradientRamp.Presets[s]); Build(); } }, 180));
         preview.Ramp = ramp.Normalized(); Children.Add(preview);
-        Children.Add(Ui.Label("Color stops · positions in %", Palette.Secondary));
+        Children.Add(Ui.Label(Locale.T("Color stops · positions in %"), Palette.Secondary));
         for (var index = 0; index < ramp.Colors.Length; index++)
         {
             var at = index; var stop = ramp.Colors[at];
-            var swatch = new Button { Content = "Color", Width = 80, Background = new SolidColorBrush(new SKColor(stop.Color).ToDisplay(Ui.WorkingProfile(profileOwner), Ui.DisplayProfile(profileOwner))) };
+            var swatch = new Button { Content = Locale.T("Color"), Width = 80, Background = new SolidColorBrush(new SKColor(stop.Color).ToDisplay(Ui.WorkingProfile(profileOwner), Ui.DisplayProfile(profileOwner))) };
             swatch.Click += async (_, _) =>
             {
                 if (await Prompts.Color(owner, "Gradient stop", new SKColor(ramp.Colors[at].Color)) is { } color)
@@ -80,7 +80,7 @@ public sealed class GradientEditor : StackPanel
             Children.Add(Ui.Row(8, swatch, position, Ui.TextButton("Remove", () => { if (ramp.Colors.Length > 2) { Set(ramp with { Colors = ramp.Colors.Where((_, i) => i != at).ToArray() }); Build(); } })));
         }
         Children.Add(Ui.TextButton("Add color stop", () => { if (ramp.Colors.Length < 64) { Set(ramp with { Colors = ramp.Colors.Append(new GradientColorStop(.5, (uint)ramp.Normalized().Sample(.5))).ToArray() }); Build(); } }));
-        Children.Add(Ui.Label("Opacity stops · positions in %", Palette.Secondary));
+        Children.Add(Ui.Label(Locale.T("Opacity stops · positions in %"), Palette.Secondary));
         for (var index = 0; index < ramp.Opacities.Length; index++)
         {
             var at = index; var stop = ramp.Opacities[at];

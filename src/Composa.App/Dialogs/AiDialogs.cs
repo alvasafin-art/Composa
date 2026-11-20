@@ -18,11 +18,11 @@ public static partial class AiDialogs
     private static Border Section(string title, params Control[] controls) => new()
     {
         Background = Palette.Panel, CornerRadius = new CornerRadius(5), Padding = new Thickness(10),
-        Child = Ui.Column(8, new Control[] { Ui.Label(title, weight: Avalonia.Media.FontWeight.SemiBold) }.Concat(controls).ToArray())
+        Child = Ui.Column(8, new Control[] { Ui.Label(Locale.T(title), weight: Avalonia.Media.FontWeight.SemiBold) }.Concat(controls).ToArray())
     };
     public static async Task<IReadOnlyList<string>?> LayerTags(Window owner, Layer layer, Settings settings)
     {
-        var box = new TextBox { Text = string.Join(", ", layer.Tags.Order()), Width = 390, PlaceholderText = "title, product, hero-image" };
+        var box = new TextBox { Text = string.Join(", ", layer.Tags.Order()), Width = 390, PlaceholderText = Locale.T("title, product, hero-image") };
         var suggestions = new WrapPanel { Orientation = Orientation.Horizontal };
         foreach (var tag in Composa.Model.LayerTags.Standard.Concat(settings.CustomLayerTags).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -32,7 +32,7 @@ public static partial class AiDialogs
                 if (!values.Contains(tag, StringComparer.OrdinalIgnoreCase)) values.Add(tag);
                 box.Text = string.Join(", ", values);
                 box.CaretIndex = box.Text.Length;
-            });
+            }, translate: false);
             button.MinWidth = 0;
             button.Margin = new Thickness(0, 0, 5, 5);
             suggestions.Children.Add(button);
@@ -137,12 +137,12 @@ public static partial class AiDialogs
         service = live.SettingsPreview();
         using var lifetime = new CancellationTokenSource();
         DialogWindow? settingsDialog = null;
-        var showContext = new CheckBox { Content = "Show AI context bounds after selection", IsChecked = settings.AiShowContextBounds };
+        var showContext = new CheckBox { Content = Locale.T("Show AI context bounds after selection"), IsChecked = settings.AiShowContextBounds };
         var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
         var url = new TextBox { Text = settings.ComfyServerUrl, Width = 330 };
         var timeout = Ui.Number(settings.ComfyConnectionTimeoutSeconds, 1, 120, _ => { }, 1, "0", 80);
         var keyEnvironment = new TextBox { Text = settings.ComfyApiKeyEnvironment, Width = 330 };
-        var sessionKey = new TextBox { PasswordChar = '●', Width = 330, PlaceholderText = "Enter a new key to save or replace it" };
+        var sessionKey = new TextBox { PasswordChar = '●', Width = 330, PlaceholderText = Locale.T("Enter a new key to save or replace it") };
         var clearKey = false;
         var clear = Ui.TextButton("Forget saved key", () => { sessionKey.Text = ""; clearKey = true; });
         var keyNote = Ui.Label("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN.", Palette.Secondary);
@@ -159,10 +159,10 @@ public static partial class AiDialogs
         var effort = new ComboBox { Width = 140 };
         tokens.HorizontalAlignment = HorizontalAlignment.Left;
         var apiUrl = new TextBox { Text = settings.EnhancerApiUrl, MinWidth = 220 };
-        var apiModel = new TextBox { Text = settings.EnhancerApiModel, PlaceholderText = "Model ID" };
+        var apiModel = new TextBox { Text = settings.EnhancerApiModel, PlaceholderText = Locale.T("Model ID") };
         var selectedProvider = settings.EffectiveEnhancerProvider();
         var serverModels = new Dictionary<string,string>(settings.EnhancerServerModels);
-        var serverModel = new TextBox { PlaceholderText = "Model ID", Text = serverModels.GetValueOrDefault(selectedProvider) };
+        var serverModel = new TextBox { PlaceholderText = Locale.T("Model ID"), Text = serverModels.GetValueOrDefault(selectedProvider) };
         var serverUrl = new TextBox { Text = settings.EnhancerServerApiUrl };
         var serverHelp = Ui.Label("", Palette.Secondary);
         serverHelp.MaxWidth = 435; serverHelp.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
@@ -217,7 +217,7 @@ public static partial class AiDialogs
             return form;
         }
         var chatFields = EnhancerFields(("Text model", model));
-        var directKey = new TextBox { PasswordChar = '●', PlaceholderText = "Enter a key to save or replace it" };
+        var directKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a key to save or replace it") };
         var forgetDirect = false;
         var clearDirect = Ui.TextButton("Forget saved key", () => { directKey.Text = ""; forgetDirect = true; });
         var apiFields = EnhancerFields(("API base URL", apiUrl), ("Model ID", apiModel), ("Saved API key", directKey), ("", clearDirect));
@@ -226,7 +226,7 @@ public static partial class AiDialogs
         var serverFields = Ui.Column(6, serverApiFields, EnhancerFields(("Server model", serverModel)),
             EnhancerFields(("", Ui.Row(6, discover, detected)), ("", discovery), ("", serverHelp)));
         var reasoning = EnhancerFields(("Reasoning effort", effort));
-        var budget = new Expander { Header = "Response options", Content = EnhancerFields(("Token limit", tokens)) };
+        var budget = new Expander { Header = Locale.T("Response options"), Content = EnhancerFields(("Token limit", tokens)) };
         void ShowProvider()
         {
             apiFields.IsVisible = selectedProvider == "direct";
@@ -422,7 +422,7 @@ public static partial class AiDialogs
         engine.IsEnabled = service.Engines.Profiles.Count > 0;
         var connection = CanvasDialogs.Form(
             ("ComfyUI Server URL", url),
-            ("Connection timeout", Ui.Row(6, timeout, Ui.Label("seconds", Palette.Secondary))),
+            ("Connection timeout", Ui.Row(6, timeout, Ui.Label(Locale.T("seconds"), Palette.Secondary))),
             ("", test),
             ("Status", status));
         var taskRows = new List<(string, Control)>();
@@ -470,11 +470,11 @@ public static partial class AiDialogs
             assignmentPickers[task] = assignmentPicker;
             taskRows.Add((task.DisplayName(), assignmentPicker));
         }
-        var assignments = new Expander { Header = "Defaults by operation", Content = CanvasDialogs.Form(taskRows.ToArray()) };
-        var files = new Expander { Header = "Model components", Content = Ui.Column(8, routePicker, models) };
+        var assignments = new Expander { Header = Locale.T("Defaults by operation"), Content = CanvasDialogs.Form(taskRows.ToArray()) };
+        var files = new Expander { Header = Locale.T("Model components"), Content = Ui.Column(8, routePicker, models) };
         var auth = CanvasDialogs.Form(("Saved API key", sessionKey), ("", clear), ("Environment variable", keyEnvironment));
-        var credentials = new Expander { Header = "Comfy credits", Content = Ui.Column(8, auth, keyNote), IsExpanded = focusField == "key" };
-        var advancedPrompt = new Expander { Header = "System instructions", Content = Ui.Column(8, instructionMode, instructions,
+        var credentials = new Expander { Header = Locale.T("Comfy credits"), Content = Ui.Column(8, auth, keyNote), IsExpanded = focusField == "key" };
+        var advancedPrompt = new Expander { Header = Locale.T("System instructions"), Content = Ui.Column(8, instructionMode, instructions,
             Ui.TextButton("Restore default", () => instructions.Text = service.InstructionsFor(new Dictionary<string, string>(), service.Engines.Find(promptPack), instructionTask))) };
         void ReadEnhancer(Settings target)
         {
@@ -523,7 +523,7 @@ public static partial class AiDialogs
         Control Page(string title, params Control[] controls)
         {
             var column = Ui.Column(12, controls);
-            column.Children.Insert(0, Ui.Label(title, size: 20, weight: Avalonia.Media.FontWeight.SemiBold));
+            column.Children.Insert(0, Ui.Label(Locale.T(title), size: 20, weight: Avalonia.Media.FontWeight.SemiBold));
             column.Margin = new Thickness(compact ? 4 : 18, 8, 8, 12);
             return new ScrollViewer { Name = "SettingsPage", Content = column, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         }
@@ -531,7 +531,7 @@ public static partial class AiDialogs
         {
             var tab = new TabItem { Header = title, Content = content, Padding = new Thickness(8, 7) };
             tab.HeaderTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((label, _) =>
-                new TextBlock { Text = label, FontSize = 13, FontWeight = Avalonia.Media.FontWeight.Medium,
+                new TextBlock { Text = Locale.T(label ?? ""), FontSize = 13, FontWeight = Avalonia.Media.FontWeight.Medium,
                     MinWidth = compact ? 0 : 130, VerticalAlignment = VerticalAlignment.Center });
             return tab;
         }
@@ -545,6 +545,9 @@ public static partial class AiDialogs
         var app = Application.Current as App;
         var previousTheme = app?.CurrentTheme ?? settings.Theme;
         var chosenTheme = settings.Theme;
+        string language = settings.Language;
+        var languagePicker = Ui.Combo(new[] { "en", "ru" }, language, code => code == "ru" ? "Русский" : "English", value => language = value, 190);
+        languagePicker.Name = "EditorLanguagePicker";
         var themePicker = Ui.Combo(Enum.GetValues<EditorTheme>(), chosenTheme, theme => theme switch
         {
             EditorTheme.DarkNeutral => "Dark neutral",
@@ -553,9 +556,9 @@ public static partial class AiDialogs
         }, theme => { chosenTheme = theme; app?.ApplyTheme(theme); }, 190);
         themePicker.Name = "EditorThemePicker";
         Avalonia.Automation.AutomationProperties.SetName(themePicker, "Interface theme");
-        var groupedPanels = new CheckBox { Content = "Group side panels in tabs", IsChecked = settings.TabbedPanels };
-        var linkedSources = new CheckBox { Content = "Automatically refresh linked files", IsChecked = settings.AutoUpdateLinkedSources };
-        var updates = new CheckBox { Content = "Check for updates on startup", IsChecked = settings.CheckForUpdates };
+        var groupedPanels = new CheckBox { Content = Locale.T("Group side panels in tabs"), IsChecked = settings.TabbedPanels };
+        var linkedSources = new CheckBox { Content = Locale.T("Automatically refresh linked files"), IsChecked = settings.AutoUpdateLinkedSources };
+        var updates = new CheckBox { Content = Locale.T("Check for updates on startup"), IsChecked = settings.CheckForUpdates };
         var body = new TabControl
         {
             Width = Math.Clamp(owner.Bounds.Width - 64, 520, 780), Height = Math.Clamp(owner.Bounds.Height - 150, 300, 450),
@@ -565,7 +568,7 @@ public static partial class AiDialogs
                 Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
                     serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
-                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label("Interface theme", Palette.Secondary), themePicker), groupedPanels, linkedSources, updates))
+                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label("Language / Язык", Palette.Secondary), languagePicker, Ui.Label("After restart / После перезапуска", Palette.Secondary, 11)), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -591,7 +594,7 @@ public static partial class AiDialogs
                 models.SetOperation(operationPicker.SelectedItem as AiTaskKind?);
                 readiness.Foreground = Palette.Secondary;
                 fix.IsVisible = true;
-                fix.Content = "Connection…";
+                fix.Content = Locale.T("Connection…");
                 fixAction = () => { body.SelectedIndex = 0; url.Focus(); };
                 if (service.ConnectionState != ComfyConnectionState.Connected || service.ConnectedServerUrl != ComfyServerAddress.Parse(url.Text ?? "").ToString())
                 { readiness.Text = "Connect to check this operation."; return; }
@@ -601,13 +604,13 @@ public static partial class AiDialogs
                 {
                     readiness.Foreground = Avalonia.Media.Brushes.Orange;
                     readiness.Text = string.Join("\n", result.Missing);
-                    fix.Content = "Model components…";
+                    fix.Content = Locale.T("Model components…");
                     fixAction = () => { files.IsExpanded = true; files.BringIntoView(); };
                 }
                 else if (pack.PaidApi && string.IsNullOrWhiteSpace(DraftCredential(ComfyServerAddress.Parse(url.Text ?? ""))))
                 {
                     readiness.Text = "Workflow ready · Comfy credits key required";
-                    fix.Content = "Set API key…"; fixAction = () => { body.SelectedIndex = 0; credentials.IsExpanded = true; sessionKey.Focus(); };
+                    fix.Content = Locale.T("Set API key…"); fixAction = () => { body.SelectedIndex = 0; credentials.IsExpanded = true; sessionKey.Focus(); };
                 }
                 else { readiness.Text = "Ready"; fix.IsVisible = false; }
             }
@@ -620,7 +623,7 @@ public static partial class AiDialogs
         files.IsExpanded = focusField == "files";
         var validation = Ui.Label("", Avalonia.Media.Brushes.Orange);
         validation.IsVisible = false; validation.MaxWidth = 520; validation.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var search = new TextBox { Name = "SettingsSearch", PlaceholderText = "Search settings…", MaxLength = 120 };
+        var search = new TextBox { Name = "SettingsSearch", PlaceholderText = Locale.T("Search settings…"), MaxLength = 120 };
         var matches = new ListBox { Name = "SettingsMatches", IsVisible = false, MaxHeight = 165 };
         var anchors = new List<(string Title, string Keywords, int Page, Control Target, Expander? Section, Action? Select)>
         {
@@ -635,6 +638,7 @@ public static partial class AiDialogs
             ("Reasoning effort", "reasoning рассуждение", 2, effort, null, null),
             ("Response options", "token limit токены", 2, tokens, budget, null),
             ("System instructions", "системный промт", 2, instructions, advancedPrompt, null),
+            ("Language", "language russian english русский английский язык", 3, languagePicker, null, null),
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
             ("Group side panels in tabs", "панели вкладки", 3, groupedPanels, null, null),
             ("Automatically refresh linked files", "обновление связь", 3, linkedSources, null, null),
@@ -661,10 +665,10 @@ public static partial class AiDialogs
             for (int i = 0; i < anchors.Count; i++)
             {
                 var entry = anchors[i];
-                if (words.All(word => (entry.Title + " " + entry.Keywords).Contains(word, StringComparison.OrdinalIgnoreCase)))
-                    matches.Items.Add(new ListBoxItem { Content = entry.Title, Tag = i, Padding = new Thickness(8, 4) });
+                if (words.All(word => (Locale.T(entry.Title) + " " + entry.Title + " " + entry.Keywords).Contains(word, StringComparison.OrdinalIgnoreCase)))
+                    matches.Items.Add(new ListBoxItem { Content = Locale.T(entry.Title), Tag = i, Padding = new Thickness(8, 4) });
             }
-            if (matches.ItemCount == 0) matches.Items.Add(new ListBoxItem { Content = "No matching settings", IsEnabled = false });
+            if (matches.ItemCount == 0) matches.Items.Add(new ListBoxItem { Content = Locale.T("No matching settings"), IsEnabled = false });
             matches.SelectedIndex = 0;
         };
         matches.PointerReleased += (_, _) => OpenMatch();
@@ -752,6 +756,7 @@ public static partial class AiDialogs
         try { accepted = await settingsDialog.Ask(owner); }
         finally { if (!accepted && chosenTheme != previousTheme) app?.ApplyTheme(previousTheme); }
         if (!accepted) return false;
+        settings.Language = language;
         settings.Theme = chosenTheme;
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
@@ -819,9 +824,9 @@ public static partial class AiDialogs
         var editor = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         Func<AiOperationSettings> read;
         editor.Content = GenerationFields(profile, service, task, paid, out read);
-        var list = new ComboBox { MinWidth = 165, PlaceholderText = "Choose preset" };
+        var list = new ComboBox { MinWidth = 165, PlaceholderText = Locale.T("Choose preset") };
         AiGenerationControls.StyleModelField(list, "Generation preset");
-        var name = new TextBox { Width = 165, MaxLength = 70, PlaceholderText = "Preset name" };
+        var name = new TextBox { Width = 165, MaxLength = 70, PlaceholderText = Locale.T("Preset name") };
         var save = Ui.TextButton("Save preset", () =>
         {
             var key = name.Text?.Trim();
@@ -850,7 +855,7 @@ public static partial class AiDialogs
         };
         delete.IsEnabled = save.IsEnabled = false;
         name.TextChanged += (_, _) => save.IsEnabled = !string.IsNullOrWhiteSpace(name.Text);
-        var library = new Expander { Header = "Presets", HorizontalAlignment = HorizontalAlignment.Stretch,
+        var library = new Expander { Header = Locale.T("Presets"), HorizontalAlignment = HorizontalAlignment.Stretch,
             Content = Ui.Column(6, Ui.Row(8, list, delete), Ui.Row(8, name, save)) };
         var body = new ScrollViewer { Content = Ui.Column(12, editor, library), MaxHeight = Math.Clamp((owner.Owner?.Bounds.Height ?? owner.Bounds.Height) - 160, 300, 650),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -875,7 +880,7 @@ public static partial class AiDialogs
 
     private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, out Func<AiOperationSettings> read)
     {
-        var align = new CheckBox { Content = "Align pixels", IsChecked = profile.AlignPixels ?? true };
+        var align = new CheckBox { Content = Locale.T("Align pixels"), IsChecked = profile.AlignPixels ?? true };
         var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
         var reference = profile.ReferenceMegapixels;
         var fluxMemory = profile.FluxMemory is "reduced" or "standard" ? profile.FluxMemory : "auto";
@@ -900,7 +905,7 @@ public static partial class AiDialogs
                     : value == AiVariantMode.List ? "List · lower VRAM" : "Batch · faster, more VRAM", value => mode = value, 250)),
             ("Memory use", Ui.Combo(new[] { "auto", "reduced", "standard" }, fluxMemory,
                 value => value == "auto" ? "Auto" : value == "reduced" ? "Lower VRAM" : "Standard", value => fluxMemory = value, 150)),
-            ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label("-1 = random")))];
+            ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label(Locale.T("-1 = random"))))];
         var form = CanvasDialogs.Form(fields.Where(field => field.Item1 != "Memory use" || service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
             .Where(field => !paid || field.Item1 != "Seed").ToArray());
         var note = Ui.Label(task == AiTaskKind.GenerateImage
@@ -937,7 +942,7 @@ public static partial class AiDialogs
                 rows.Children.Add(Ui.Column(3, Ui.Label($"LoRA {i + 1}", Palette.Secondary), Ui.Row(7, toggle, combo, strength)));
             }
             extra.Children.Add(rows);
-            if (names.Count == 0) extra.Children.Add(Ui.Label("Connect / refresh models to read the server's LoRA list.", Palette.Secondary));
+            if (names.Count == 0) extra.Children.Add(Ui.Label(Locale.T("Connect / refresh models to read the server's LoRA list."), Palette.Secondary));
         }
         if (task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight)
             note.Text = "Lighting preserves the source silhouette. A separate shadow layer uses darkening generated near the subject's support. Undo restores the original.";
@@ -959,7 +964,7 @@ public static partial class AiDialogs
 
     public static async Task<string?> ApiKey(Window owner, CancellationToken cancellationToken, string? serverUrl = null)
     {
-        var key = new TextBox { Width = 390, PasswordChar = '●', PlaceholderText = "Comfy.org API key", Name = "ComfyApiKeyEntry" };
+        var key = new TextBox { Width = 390, PasswordChar = '●', PlaceholderText = Locale.T("Comfy.org API key"), Name = "ComfyApiKeyEntry" };
         var note = Ui.Label("Composa saves your Comfy.org key in your user profile for this server. Manage it in AI Settings → Connection → Comfy credits.", Palette.Secondary);
         note.MaxWidth = 390; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var dialog = new DialogWindow("Comfy.org API key", Ui.Column(10, note, key), "Continue");
@@ -993,7 +998,7 @@ public static partial class AiDialogs
         var selected = models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == savedModels.GetValueOrDefault(choice.Slot.Key))
             ?? models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == choice.Slot.Default) ?? models.FirstOrDefault();
         if (selected != null) { engine = selected.Engine; EngineNote(); }
-        Control picker = selected == null ? Ui.Label("Refresh Models on ComfyUI to read available upscale models.") : Ui.Combo(models.ToArray(), selected,
+        Control picker = selected == null ? Ui.Label(Locale.T("Refresh Models on ComfyUI to read available upscale models.")) : Ui.Combo(models.ToArray(), selected,
             choice => choice.ToString(), choice => { selected = choice; engine = choice.Engine; EngineNote(); }, 430);
         if (picker is ComboBox upscaleModels) AiGenerationControls.StyleModelField(upscaleModels, "Upscale model");
         ToolTip.SetTip(picker, note);
@@ -1044,13 +1049,13 @@ public static partial class AiDialogs
         var qualityOptions = new[] { "low", "medium", "high", "xhigh", "max" };
         var qualityCombo = new ComboBox { ItemsSource = qualityOptions, SelectedItem = qualityOptions.Contains(quality) ? quality : "low", Width = 150 };
         AiGenerationControls.StyleModelField(qualityCombo, "Quality");
-        qualityHost.Children.Add(Ui.Row(8, Ui.Label("Quality", Palette.Secondary), qualityCombo));
+        qualityHost.Children.Add(Ui.Row(8, Ui.Label(Locale.T("Quality"), Palette.Secondary), qualityCombo));
         var size = new ComboBox { Width = 115, ItemsSource = sizeOptions, SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp) };
         var expandSize = new ComboBox { Width = 245 };
         Button? addReference = null;
         var more = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "Image size and quality", () => { });
         var actions = Ui.Row(3, more);
-        var imageSize = Ui.Row(8, Ui.Label("Image size", Palette.Secondary), size);
+        var imageSize = Ui.Row(8, Ui.Label(Locale.T("Image size"), Palette.Secondary), size);
         more.Flyout = new Flyout { Content = Ui.Column(7, imageSize, qualityHost), Placement = PlacementMode.BottomEdgeAlignedRight };
         AiGenerationControls.StyleModelField(size, "Image size");
         qualityCombo.SelectionChanged += (_, _) =>

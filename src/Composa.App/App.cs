@@ -38,6 +38,7 @@ public sealed class App : Application
 
     public override void Initialize()
     {
+        Locale.Language = Settings.Load().Language;
         Palette.Use(EditorTheme.Classic);
         RequestedThemeVariant = ThemeVariant.Dark;
         // Native controls otherwise inherit Windows' accent, which can turn the blue interface purple.

@@ -44,7 +44,7 @@ public sealed partial class MainWindow
     private async Task PickScriptToRun()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        { Title = "Run JavaScript", FileTypeFilter = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
+        { Title = Locale.T("Run JavaScript"), FileTypeFilter = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
         if (files.FirstOrDefault()?.TryGetLocalPath() is not { } path) return;
         try { ShowScriptEditor(AutomationCatalog.ReadScript(path), Path.GetFileNameWithoutExtension(path)); }
         catch (Exception error) { ShowProblem(error.Message); }
@@ -61,7 +61,7 @@ public sealed partial class MainWindow
                 progress = new Window { Title = command.Title, Width = 440, Height = 140, MinWidth = 300, MinHeight = 140,
                     WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
                 progress.Content = new StackPanel { Margin = new Avalonia.Thickness(12), Spacing = 10, Children =
-                { Ui.Label("Running script / AI tasks…"), new ProgressBar { IsIndeterminate = true, Height = 6 },
+                { Ui.Label(Locale.T("Running script / AI tasks…")), new ProgressBar { IsIndeterminate = true, Height = 6 },
                     Ui.TextButton("Stop", () => automationCancellation?.Cancel()) } };
                 progress.Closing += (_, _) => automationCancellation?.Cancel(); progress.Show(this);
             }

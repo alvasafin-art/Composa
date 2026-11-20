@@ -8,8 +8,8 @@ namespace Composa.App.Controls;
 
 public sealed partial class LayersPanel
 {
-    private readonly TextBox search = new() { PlaceholderText = "Find layers / #tag", MaxLength = 256, MinWidth = 0 };
-    private readonly ComboBox searchKind = new() { ItemsSource = new[] { "All kinds", "Pixels", "Text", "Shapes", "Adjustments", "Smart Objects", "Groups" }, SelectedIndex = 0, MinWidth = 0, Height = HeaderFieldHeight, FontSize = 12, Padding = new Thickness(8, 0), HorizontalAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center };
+    private readonly TextBox search = new() { PlaceholderText = Locale.T("Find layers / #tag"), MaxLength = 256, MinWidth = 0 };
+    private readonly ComboBox searchKind = new() { ItemsSource = new[] { "All kinds", "Pixels", "Text", "Shapes", "Adjustments", "Smart Objects", "Groups" }.Select(Locale.T).ToArray(), SelectedIndex = 0, MinWidth = 0, Height = HeaderFieldHeight, FontSize = 12, Padding = new Thickness(8, 0), HorizontalAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly TextBlock searchStatus = new() { Foreground = Palette.Secondary, FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private HashSet<Guid>? filterRows;
     private bool IsFiltering => !string.IsNullOrWhiteSpace(search.Text) || searchKind.SelectedIndex > 0;

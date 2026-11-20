@@ -115,15 +115,15 @@ internal sealed class DockColumn : UserControl
             {
                 var host = new Grid();
                 host.Children.Add(section.Content);
-                var tab = new TabItem { Header = section.Title, Content = host };
+                var tab = new TabItem { Header = Locale.T(section.Title), Tag = section.Title, Content = host };
                 dragHeader(tab, section.Title);
                 return tab;
             }).ToArray() };
             tabs.SelectedIndex = Math.Max(0, Array.FindIndex(visible, s => s.Title == activeTab));
-            if (tabs.SelectedItem is TabItem { Header: string selected }) activeTab = selected;
+            if (tabs.SelectedItem is TabItem { Tag: string selected }) activeTab = selected;
             tabs.SelectionChanged += (_, e) =>
             {
-                if (ReferenceEquals(e.Source, tabs) && tabs.SelectedItem is TabItem { Header: string name } && name != activeTab)
+                if (ReferenceEquals(e.Source, tabs) && tabs.SelectedItem is TabItem { Tag: string name } && name != activeTab)
                 { activeTab = name; PresentationChanged?.Invoke(); }
             };
             grid.RowDefinitions.Add(new RowDefinition(new GridLength(TabHeight())));
@@ -206,7 +206,7 @@ internal sealed class DockColumn : UserControl
     private Control Build(DockSection section, bool open)
     {
         var chevron = Icons.Create(open ? Icons.ChevronDown : Icons.ChevronRight, 12, Palette.Secondary);
-        var title = Ui.Label(section.Title, weight: FontWeight.SemiBold);
+        var title = Ui.Label(Locale.T(section.Title), weight: FontWeight.SemiBold);
         var header = new Button
         {
             Classes = { "flat" }, HorizontalContentAlignment = HorizontalAlignment.Left,
@@ -240,13 +240,10 @@ public sealed class SideDock : UserControl
     public Border LeftHost { get; } = new();
     public bool Tabbed { get; private set; }
     public event Action? PresentationChanged;
-    private readonly Control documentInfo;
     private readonly DockPanel leftFrame = new() { Background = Palette.Panel }, rightFrame = new() { Background = Palette.Panel };
-    public SideDock(LayersPanel layerPanel, Control documentInfo, Action<Control, string> dragHeader, params DockSection[] panels)
+    public SideDock(LayersPanel layerPanel, Action<Control, string> dragHeader, params DockSection[] panels)
     {
         this.dragHeader = dragHeader;
-        this.documentInfo = documentInfo;
-        DockPanel.SetDock(documentInfo, Dock.Bottom);
         LeftHost.Child = leftFrame;
         Content = rightFrame;
         layers = new DockSection("Layers", layerPanel, new DockPanelState(Height: 285));
@@ -380,11 +377,6 @@ public sealed class SideDock : UserControl
         double columnWidth = ColumnWidth(available, left + right);
         LeftHost.Width = left * columnWidth;
         Width = right * columnWidth;
-        var footerHost = Width > 0 ? rightFrame : leftFrame;
-        if (documentInfo.Parent != footerHost)
-        {
-            if (documentInfo.Parent is Panel old) old.Children.Remove(documentInfo);
-            footerHost.Children.Insert(0, documentInfo);
-        }
+
     }
 }

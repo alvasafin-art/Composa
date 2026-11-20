@@ -18,7 +18,7 @@ public class DialogWindow : Window
 
     public DialogWindow(string title, Control body, string okText = "OK", bool cancellable = true)
     {
-        Title = title;
+        Title = Locale.T(title);
         SizeToContent = SizeToContent.WidthAndHeight;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -110,7 +110,7 @@ public static class Prompts
             var picker = new Controls.WorkingColorPicker(initial, profile, display);
             var after = new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) };
             picker.Changed += color => { after.Background = new SolidColorBrush(color.ToDisplay(profile, display)); preview?.Invoke(color); };
-            var rows = Ui.Column(10, picker, Ui.Row(10, Ui.Label("Before / After", Palette.Secondary),
+            var rows = Ui.Column(10, picker, Ui.Row(10, Ui.Label(Locale.T("Before / After"), Palette.Secondary),
                 new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) }, after));
             return await new DialogWindow(title, rows).Ask(owner) ? picker.Color : null;
         }
@@ -126,7 +126,7 @@ public static class Prompts
         var swatches = Ui.Row(0,
             new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToAvalonia()) },
             new Border { Width = 60, Height = 28, [!Border.BackgroundProperty] = view.GetObservable(ColorView.ColorProperty).Select(c => (IBrush)new SolidColorBrush(c)).ToBinding() });
-        var body = Ui.Column(10, view, Ui.Row(10, Ui.Label("Before / After", Palette.Secondary), swatches));
+        var body = Ui.Column(10, view, Ui.Row(10, Ui.Label(Locale.T("Before / After"), Palette.Secondary), swatches));
         return await new DialogWindow(title, body).Ask(owner) ? view.Color.ToSkia().WithAlpha(255) : null;
     }
 
@@ -162,7 +162,7 @@ public static class CanvasDialogs
         ("A4 at 300 ppi", 2480, 3508), ("Photo 6000 × 4000", 6000, 4000)
     ];
 
-    private static string PresetLabel((string Name, int W, int H) preset) => preset.W == 0 || preset.Name.Contains('×') ? preset.Name : $"{preset.Name}  {preset.W} × {preset.H}";
+    private static string PresetLabel((string Name, int W, int H) preset) => preset.W == 0 || preset.Name.Contains('×') ? Locale.T(preset.Name) : $"{Locale.T(preset.Name)}  {preset.W} × {preset.H}";
 
     /// <summary>
     /// With the size of the image on the clipboard, the dialog opens on a Clipboard preset of that size, listed first,
@@ -204,7 +204,7 @@ public static class CanvasDialogs
         }
         widthBox.ValueChanged += FollowSize;
         heightBox.ValueChanged += FollowSize;
-        var background = Ui.Combo(new[] { "Transparent", "White", "Background color" }, "Transparent", s => s, s => fill = s == "White" ? 1 : s == "Transparent" ? 0 : 2, 220);
+        var background = Ui.Combo(new[] { "Transparent", "White", "Background color" }, "Transparent", Locale.T, s => fill = s == "White" ? 1 : s == "Transparent" ? 0 : 2, 220);
         var depth = ColorDepth.Eight;
         DialogWindow? dialog = null;
         var limit = Ui.Label("", Palette.Secondary); limit.MaxWidth = 300; limit.TextWrapping = TextWrapping.Wrap;
@@ -293,7 +293,7 @@ public static class CanvasDialogs
         var display = Ui.DisplayProfile(owner);
         var quality = initial;
         var preview = new Image { Width = 520, Height = 340, Stretch = Stretch.Uniform };
-        var info = Ui.Label("Measuring…", Palette.Secondary);
+        var info = Ui.Label(Locale.T("Measuring…"), Palette.Secondary);
         var generation = 0;
         var closed = false;
         Task inFlight = Task.CompletedTask;
@@ -355,7 +355,7 @@ public static class CanvasDialogs
         for (var i = 0; i < rows.Length; i++)
         {
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var label = Ui.Label(rows[i].Label, Palette.Secondary);
+            var label = Ui.Label(Locale.T(rows[i].Label), Palette.Secondary);
             if ((rows[i].Field as NumericUpDown ?? (rows[i].Field as Panel)?.Children.FirstOrDefault() as NumericUpDown) is { } number) Ui.Scrub(label, number);
             label.Margin = new Thickness(0, 6);
             Grid.SetRow(label, i);

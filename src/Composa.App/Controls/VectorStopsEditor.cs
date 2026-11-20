@@ -54,7 +54,7 @@ internal sealed class VectorStopsEditor : StackPanel
         });
         add.MinWidth = 0; add.Width = 26; add.Padding = new Thickness(0);
         ToolTip.SetTip(add, "Add gradient stop");
-        var header = new DockPanel(); DockPanel.SetDock(add, Dock.Right); header.Children.Add(add); header.Children.Add(Ui.Label("Stops", Palette.Secondary));
+        var header = new DockPanel(); DockPanel.SetDock(add, Dock.Right); header.Children.Add(add); header.Children.Add(Ui.Label(Locale.T("Stops"), Palette.Secondary));
         var labels = PaintLayout.Columns(Columns, 4, PaintLayout.Caption("Position"), PaintLayout.Caption("Stop color"),
             PaintLayout.Caption("Opacity"), new Border());
         labels.Margin = new Thickness(4, 0);

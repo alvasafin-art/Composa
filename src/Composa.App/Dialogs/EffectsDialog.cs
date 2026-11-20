@@ -46,7 +46,7 @@ public static class EffectsDialog
         {
             case LayerEffectKind.Stroke:
                 var stroke = effects.Stroke!;
-                rows.Children.Add(Ui.Row(10, Width(Ui.Label("Position", Palette.Secondary), 70),
+                rows.Children.Add(Ui.Row(10, Width(Ui.Label(Locale.T("Position"), Palette.Secondary), 70),
                     Ui.Combo(new[] { "Outside", "Inside" }, stroke.Inside ? "Inside" : "Outside", v => v, v => Set(effects with { Stroke = effects.Stroke! with { Inside = v == "Inside" } }), 120)));
                 rows.Children.Add(Swatch());
                 rows.Children.Add(Slider("Size", stroke.Size, 0, 100, v => Set(effects with { Stroke = effects.Stroke! with { Size = v } })));
@@ -71,7 +71,7 @@ public static class EffectsDialog
                 var gradient = effects.GradientOverlay!;
                 rows.Children.Add(new Controls.GradientEditor(owner, gradient.Ramp ?? GradientRamp.Between(gradient.StartColor, gradient.EndColor),
                     ramp => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Ramp = ramp } })));
-                rows.Children.Add(Ui.Row(10, Width(Ui.Label("Style", Palette.Secondary), 70),
+                rows.Children.Add(Ui.Row(10, Width(Ui.Label(Locale.T("Style"), Palette.Secondary), 70),
                     Ui.Combo(new[] { "Linear", "Radial" }, gradient.Radial ? "Radial" : "Linear", v => v,
                         v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Radial = v == "Radial" } }), 120)));
                 rows.Children.Add(Slider("Opacity", gradient.Opacity * 100, 0, 100, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Opacity = v / 100 } })));

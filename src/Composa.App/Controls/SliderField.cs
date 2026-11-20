@@ -223,14 +223,14 @@ public sealed class SliderField : Control
             var opacity = IsEnabled ? 1.0 : 0.45;
             using (context.PushOpacity(opacity))
             {
-                var name = new FormattedText(label, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Palette.Secondary);
+                var name = new FormattedText(Locale.T(label), System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Palette.Secondary);
                 var number = new FormattedText(Text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Palette.Foreground);
                 var namePoint = new Point(8, (bounds.Height - name.Height) / 2);
                 var numberPoint = new Point(bounds.Width - 8 - number.Width, (bounds.Height - number.Height) / 2);
                 if (trackBrush != null)
                 {
                     // A bright track would swallow the text; a shadow under it keeps it readable on every color.
-                    var shadowName = new FormattedText(label, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, TextShadowBrush);
+                    var shadowName = new FormattedText(Locale.T(label), System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, TextShadowBrush);
                     var shadowNumber = new FormattedText(Text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, TextShadowBrush);
                     context.DrawText(shadowName, namePoint + new Vector(0, 1));
                     context.DrawText(shadowNumber, numberPoint + new Vector(0, 1));

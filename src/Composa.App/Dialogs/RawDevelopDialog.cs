@@ -76,7 +76,7 @@ public static class RawDevelopDialog
             settings = settings with { OutputDepth = d };
             ValidatePrecision();
         }, 220);
-        var body = Ui.Column(12, frame, info, exposure, temperature, tint, Ui.Row(12, Ui.Label("Import as", Palette.Secondary), precision), Ui.Row(12, reset, note));
+        var body = Ui.Column(12, frame, info, exposure, temperature, tint, Ui.Row(12, Ui.Label(Locale.T("Import as"), Palette.Secondary), precision), Ui.Row(12, reset, note));
         dialog = new DialogWindow($"Develop {fileName}", body, "Import");
         ValidatePrecision();
         dialog.Opened += (_, _) => Render();

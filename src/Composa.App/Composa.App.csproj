@@ -45,6 +45,7 @@
     <PackageReference Include="Jint" Version="4.9.2" />
     <PackageReference Include="Velopack" Version="1.2.161" />
     <AvaloniaResource Include="Assets/**" />
+    <EmbeddedResource Include="Localization/ru.tsv" WithCulture="false" LogicalName="Composa.Locale.ru.tsv" />
     <Content Include="../../ai/**" Link="ai/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../examples/**" Link="examples/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../scripts/photoshop/*" Link="scripts/photoshop/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

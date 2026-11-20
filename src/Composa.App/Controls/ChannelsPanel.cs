@@ -18,7 +18,7 @@ public sealed class ChannelsPanel : UserControl
     private EditorSession? session;
     private readonly StackPanel rows = new();
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
-    private readonly TextBlock target = Ui.Label("No document", Palette.Secondary);
+    private readonly TextBlock target = Ui.Label(Locale.T("No document"), Palette.Secondary);
     private readonly Button add, saveSelection, loadSelection, delete;
     private bool rebuilding;
     private bool showedMaskTarget;

@@ -9,6 +9,29 @@ namespace Composa.Core.Tests;
 
 public class PsdNativeTests
 {
+    [Fact]
+    public void Selected_typography_is_preserved_in_project_and_native_PSD_runs()
+    {
+        var style = new TextStyle { Text = "ab cd\nef", FontFamily = Family, Size = 20, BoxWidth = 250, BoxHeight = 110 };
+        var styled = style.FormatRange(3, 5, s => s with { Tracking = 2, Type = s.Type with { Case = TextLetterCase.Upper, Underline = true } })
+            .FormatRange(6, 7, s => s with { Alignment = TextAlignment.Right }, paragraphs: true);
+        var layout = new TextLayout(styled);
+        Assert.Equal("ab CD\nef", layout.Text);
+        Assert.True(layout.Lines[1].X > layout.Lines[0].X);
+        var doc = new Document(320, 160); doc.Layers.Add(TextLayer(styled));
+        using var project = new MemoryStream(); Composa.IO.ProjectFile.Write(doc, project); project.Position = 0;
+        Assert.Equal(styled, Composa.IO.ProjectFile.Read(project).Layers[0].Text);
+        Assert.Empty(PsdExport.Conversions(doc));
+        var result = PsdImport.Load(Write(doc));
+        try
+        {
+            var imported = Assert.IsType<TextStyle>(result.Layers[0].Text);
+            foreach (int i in Enumerable.Range(0, styled.Text.Length)) Assert.Equal(styled.FormatAt(i), imported.FormatAt(i));
+            Picture(doc, result.ToDocument());
+        }
+        finally { result.Discard(); }
+    }
+
     [Theory]
     [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
     public void Regular_PostScript_font_with_faux_styles_stays_editable_and_keeps_its_faces_after_reexport(bool bold, bool italic)

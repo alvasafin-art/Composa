@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         DialogWindow? dialog = null;
         Task previewTask = Task.CompletedTask;
         CancellationTokenSource? request = null;
-        var status = Ui.Label("Preview", Palette.Secondary);
+        var status = Ui.Label(Locale.T("Preview"), Palette.Secondary);
         var brushRing = new Avalonia.Controls.Shapes.Ellipse { Stroke = Brushes.White, StrokeThickness = 1, IsVisible = false };
         var overlay = new Canvas { IsHitTestVisible = false, ClipToBounds = true };
         overlay.Children.Add(brushRing);
@@ -220,7 +220,7 @@ public sealed partial class MainWindow
         foreach (var control in toolItems) { control.Margin = new Thickness(0, 0, 10, 6); toolWrap.Children.Add(control); }
         var views = new Grid { ColumnDefinitions = new ColumnDefinitions("*,14,*") };
         views.RowDefinitions = new RowDefinitions("Auto,*");
-        views.Children.Add(Ui.Label("Sampling area", Palette.Secondary));
+        views.Children.Add(Ui.Label(Locale.T("Sampling area"), Palette.Secondary));
         Grid.SetColumn(status, 2); views.Children.Add(status);
         Grid.SetRow(sample, 1); views.Children.Add(sample); Grid.SetRow(overlay, 1); views.Children.Add(overlay);
         Grid.SetColumn(resultView, 2); Grid.SetRow(resultView, 1); views.Children.Add(resultView);

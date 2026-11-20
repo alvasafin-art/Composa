@@ -99,7 +99,7 @@ internal static class VectorPaintDialog
                 };
                 palette.Children.Add(chip);
             }
-            if (palette.Children.Count > 0) body.Children.Add(Ui.Column(4, Ui.Label("Document colors", Palette.Secondary, 11), palette));
+            if (palette.Children.Count > 0) body.Children.Add(Ui.Column(4, Ui.Label(Locale.T("Document colors"), Palette.Secondary, 11), palette));
         }
         ShowMode();
         return await dialog.Ask(owner);

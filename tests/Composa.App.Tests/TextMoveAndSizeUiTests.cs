@@ -15,6 +15,28 @@ namespace Composa.App.Tests;
 public class TextMoveAndSizeUiTests
 {
     [AvaloniaFact]
+    public void Dragging_the_round_rotation_handle_turns_the_layer_over_another_layer()
+    {
+        var window = new MainWindow { Width = 1440, Height = 850 };
+        var session = EditorSession.NewCanvas(800, 500, SKColors.White);
+        try
+        {
+            window.Show(); window.AddSession(session);
+            var layer = session.AddShape(new ShapeStyle(ShapeKind.Rectangle, 0xff465869, 0), new SKRect(200, 140, 400, 300))!;
+            window.SelectTool(Tool.Move); window.Canvas.ShowTransformControls = true; Dispatcher.UIThread.RunJobs();
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+            var grip = At(300, 140) - new Vector(0, 23);
+            var center = At(300, 220);
+            var end = center + new Vector(center.Y - grip.Y, 0);
+            window.MouseDown(grip, MouseButton.Left); window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(layer.Id, session.Document.ActiveLayerId);
+            Assert.InRange(layer.Transform.Rotation, 89, 91);
+        }
+        finally { session.MarkSaved("turn.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Move_picks_text_in_a_space_over_a_filled_layer_and_undo_restores_its_position()
     {
         var window = new MainWindow { Width = 1440, Height = 850 }; window.Settings.CheckForUpdates = false; window.Show();
@@ -51,9 +73,7 @@ public class TextMoveAndSizeUiTests
         session.FinishText(); window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
         Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Name == "AlignmentReference");
         var reference = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "AlignmentReference");
-        var transform = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties");
-        Assert.Equal(transform.TranslatePoint(new Avalonia.Point(0, transform.Bounds.Height / 2), window)!.Value.Y,
-            reference.TranslatePoint(new Avalonia.Point(0, reference.Bounds.Height / 2), window)!.Value.Y, 1);
+        Assert.Single(window.GetVisualDescendants().OfType<NumericUpDown>(), n => n.Name == "TransformRotation");
         Assert.Equal(6, window.GetVisualDescendants().OfType<Button>().Count(b => b.Name?.StartsWith("Align", StringComparison.Ordinal) == true));
         Screenshots.Save(window, "move-alignment-options"); window.Close();
     }

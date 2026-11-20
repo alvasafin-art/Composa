@@ -10,6 +10,21 @@ namespace Composa.Core.Tests;
 public class TypographyTests
 {
     [Fact]
+    public void Formatting_follows_letters_through_typing_and_soft_breaks()
+    {
+        var s = new TextStyle { Text = "a\u2028b\nc" };
+        s = s.FormatRange(2, 3, st => st with { Type = st.Type with { Strike = true } })
+             .FormatRange(2, 3, st => st with { Type = st.Type with { ParagraphSpacing = 14 } }, paragraphs: true);
+        Assert.Equal(14, s.FormatAt(0).Type.ParagraphSpacing);
+        Assert.Equal(0, s.FormatAt(4).Type.ParagraphSpacing);
+        var editor = new TextEditor(s);
+        editor.MoveTo(3, false); editor.Insert("!");
+        Assert.True(editor.Style.FormatAt(3).Type.Strike);
+        Assert.False(editor.Style.FormatAt(4).Type.Strike);
+        Assert.Equal(14, editor.Style.FormatAt(4).Type.ParagraphSpacing);
+    }
+
+    [Fact]
     public void Paragraph_settings_reflow_preserve_source_and_roundtrip()
     {
         var session = EditorSession.NewCanvas(420, 280, SKColors.White);

@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         })
         {
             var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(new Icons.Icon(line, fill), 16), Name = "Align" + alignment };
-            ToolTip.SetTip(button, "Align " + alignment.ToString().ToLowerInvariant());
+            ToolTip.SetTip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
             button.Click += (_, _) => { s.AlignObjects(alignment, alignmentReference); refreshOptions?.Invoke(); };
             alignButtons.Add(button);
             group.Children.Add(button);
@@ -42,7 +42,7 @@ public sealed partial class MainWindow
                 : "M4 3 H20 M4 21 H20 M12 4 V7 M12 11 V13 M12 17 V20", horizontal
                 ? "M8 7 H10 V17 H8 Z M14 7 H16 V17 H14 Z"
                 : "M7 8 H17 V10 H7 Z M7 14 H17 V16 H7 Z"), 16), Name = horizontal ? "DistributeHorizontal" : "DistributeVertical" };
-            ToolTip.SetTip(button, horizontal ? "Equal horizontal gaps (3+ objects)" : "Equal vertical gaps (3+ objects)");
+            ToolTip.SetTip(button, Locale.T(horizontal ? "Equal horizontal gaps (3+ objects)" : "Equal vertical gaps (3+ objects)"));
             button.Click += (_, _) => { s.DistributeObjectGaps(horizontal); refreshOptions?.Invoke(); };
             distributeButtons.Add(button);
             group.Children.Add(button);
@@ -59,12 +59,29 @@ public sealed partial class MainWindow
         {
             var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 28, Name = horizontal ? "FlipHorizontal" : "FlipVertical",
                 Content = Icons.Create(new Icons.Icon(horizontal ? "M12 3 V21" : "M3 12 H21", horizontal ? "M3 7 L9 12 L3 17 Z M21 7 L15 12 L21 17 Z" : "M7 3 L12 9 L17 3 Z M7 21 L12 15 L17 21 Z"), 16) };
-            ToolTip.SetTip(button, horizontal ? "Flip Layer Horizontal" : "Flip Layer Vertical");
+            ToolTip.SetTip(button, Locale.T(horizontal ? "Flip Layer Horizontal" : "Flip Layer Vertical"));
             button.Click += (_, _) => { s.FlipLayers(horizontal); refreshOptions?.Invoke(); };
             refreshOptions += () => button.IsEnabled = s.ActiveLayer != null && !s.IsInteracting;
             flips.Children.Add(button);
         }
         row.Children.Add(flips);
+        var turns = Ui.Row(2);
+        turns.Margin = new Avalonia.Thickness(8, 0, 0, 0);
+        foreach (var (angle, name, tip, path) in new[]
+        {
+            (-90, "RotateLeft", "Rotate Layer 90° Counterclockwise", "M4 4 V10 H10 M4.5 9.5 A8 8 0 1 1 5.5 18"),
+            (90, "RotateRight", "Rotate Layer 90° Clockwise", "M20 4 V10 H14 M19.5 9.5 A8 8 0 1 0 18.5 18")
+        })
+        {
+            var button = Ui.IconButton(new Icons.Icon(path), tip, () => s.RotateLayers(angle));
+            button.Name = name;
+            button.Width = 28;
+            button.MinWidth = 0;
+            button.Padding = default;
+            refreshOptions += () => button.IsEnabled = s.ActiveLayer != null && !s.IsInteracting;
+            turns.Children.Add(button);
+        }
+        row.Children.Add(turns);
         refreshOptions?.Invoke();
     }
 }

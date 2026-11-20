@@ -16,14 +16,14 @@ public static partial class AdjustmentDialogs
         panel.DetachedFromVisualTree += (_, _) => { detached = true; lifetime.Cancel(); lifetime.Dispose(); };
         void Refresh()
         { title.Text = lookup.Table?.Title ?? "No table loaded"; ToolTip.SetTip(title, title.Text); details.Text = lookup.Table?.Description ?? "Load a .cube color preset"; }
-        var load = new Button { Content = "Load .cube…", Name = "LoadLookup" };
+        var load = new Button { Content = Locale.T("Load .cube…"), Name = "LoadLookup" };
         load.Click += async (_, _) =>
         {
             load.IsEnabled = false; error.Text = "";
             try
             {
                 var provider = TopLevel.GetTopLevel(panel)?.StorageProvider ?? owner.StorageProvider;
-                var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Color Lookup", AllowMultiple = false,
+                var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = Locale.T("Color Lookup"), AllowMultiple = false,
                     FileTypeFilter = [new FilePickerFileType("Cube color lookup") { Patterns = ["*.cube"] }] });
                 if (files.Count == 0 || detached) return;
                 await using var input = await files[0].OpenReadAsync();
@@ -42,7 +42,7 @@ public static partial class AdjustmentDialogs
         var space = Ui.Combo(Enum.GetValues<LookupRgbSpace>(), lookup.Space, s => s switch
         { LookupRgbSpace.Srgb => "sRGB", LookupRgbSpace.WorkingRgb => "Document RGB", LookupRgbSpace.DisplayP3 => "Display P3", _ => "RGB (1998)" }, s => update(lookup = lookup with { Space = s }), FieldWidth); space.Name = "LookupSpace";
         var strength = Ui.SliderField("Strength", lookup.Strength, 0, 100, v => update(lookup = lookup with { Strength = v }), .1, "0.0", FieldWidth, reset: 100); strength.Name = "LookupStrength";
-        foreach (var child in new Control[] { Ui.Row(8, load, clear), title, details, Ui.Label("Table RGB", Palette.Secondary), space, strength,
+        foreach (var child in new Control[] { Ui.Row(8, load, clear), title, details, Ui.Label(Locale.T("Table RGB"), Palette.Secondary), space, strength,
             new TextBlock { Text = "Use sRGB for most photo presets. Choose the color space the table was made for. Camera Log presets need matching source encoding. The table is saved inside your project.", MaxWidth = FieldWidth, TextWrapping = TextWrapping.Wrap }, error }) panel.Children.Add(child);
         Refresh(); return panel;
     }

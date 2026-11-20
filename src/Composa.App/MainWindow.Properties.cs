@@ -82,12 +82,42 @@ public sealed partial class MainWindow
         var body = new StackPanel { Margin = new Thickness(12, 6, 12, 12), Spacing = 8 };
         propertiesView.Content = body;
         var layer = s.ActiveLayer;
-        if (layer == null) { body.Children.Add(Ui.Label("No layer selected", Palette.Secondary)); return; }
+        if (layer == null)
+        {
+            body.Children.Add(Ui.Label(Locale.T("Document"), weight: Avalonia.Media.FontWeight.SemiBold));
+            NumericUpDown Dimension(string name, double value, double max)
+            {
+                var field = Ui.Number(value, 1, max, _ => { }, format: "0.##");
+                field.Width = double.NaN; field.Height = 30; field.HorizontalAlignment = HorizontalAlignment.Stretch;
+                field.VerticalContentAlignment = VerticalAlignment.Center;
+                AutomationProperties.SetName(field, name);
+                return field;
+            }
+            var width = Dimension("Width", s.Document.Width, DocumentLimits.MaxSide);
+            var height = Dimension("Height", s.Document.Height, DocumentLimits.MaxSide);
+            var density = Dimension("Resolution", s.Document.Resolution, 9600);
+            body.Children.Add(PropertyPair(Ui.Column(4, Ui.Label(Locale.T("Width (px)"), Palette.Secondary), width),
+                Ui.Column(4, Ui.Label(Locale.T("Height (px)"), Palette.Secondary), height)));
+            body.Children.Add(Ui.Column(4, Ui.Label(Locale.T("Resolution (ppi)"), Palette.Secondary), density));
+            body.Children.Add(Ui.TextButton("Apply", () =>
+            {
+                if (width.Value is { } w && height.Value is { } h && density.Value is { } dpi)
+                    Busy(() => s.ResizeImage((int)Math.Round(w), (int)Math.Round(h), (double)dpi));
+            }));
+            var last = (s.Document.Width, s.Document.Height, s.Document.Resolution);
+            refreshOptions += () =>
+            {
+                var current = (s.Document.Width, s.Document.Height, s.Document.Resolution);
+                if (current == last) return;
+                last = current; width.Value = current.Width; height.Value = current.Height; density.Value = (decimal)current.Resolution;
+            };
+            return;
+        }
         body.Children.Add(Ui.Label(layer.Name, weight: Avalonia.Media.FontWeight.SemiBold));
         if (s.IsEditingMask)
         {
             if (s.EditingMask && layer.Mask != null) body.Children.Add(Flat("Mask properties…", () => _ = EditMaskProperties(layer)));
-            else body.Children.Add(Ui.Label("Channel", Palette.Secondary));
+            else body.Children.Add(Ui.Label(Locale.T("Channel"), Palette.Secondary));
             return;
         }
         var updating = false;
@@ -97,7 +127,7 @@ public sealed partial class MainWindow
             BuildTypography(body, s);
             return;
         }
-        if (layer.Shape != null && !(s.Tool == Tool.Move && geometryOpen))
+        if (layer.Shape != null)
         {
             BuildShapeFields(body);
         }
@@ -106,7 +136,7 @@ public sealed partial class MainWindow
             if (!updating && s.ActiveLayer is { } live && live.Id == layer.Id && !s.IsLocked(live) && live.Opacity != v / 100)
                 s.Apply("Layer Opacity", () => s.SetOpacity(live, v / 100));
         });
-        body.Children.Add(Ui.Row(6, Ui.Label("Opacity %"), opacity));
+        body.Children.Add(Ui.Row(6, Ui.Label(Locale.T("Opacity %")), opacity));
         refreshOptions += () =>
         {
             if (s.ActiveLayer is not { } live) return;
@@ -120,7 +150,7 @@ public sealed partial class MainWindow
     private StackPanel TypeGroup(string name, Control content)
     {
         var arrow = Icons.Create(Icons.ChevronDown, 20, Palette.Secondary);
-        var title = Ui.Label(name, weight: Avalonia.Media.FontWeight.SemiBold);
+        var title = Ui.Label(Locale.T(name), weight: Avalonia.Media.FontWeight.SemiBold);
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,20") };
         header.Children.Add(title);
         AddAt(header, arrow, 1);
@@ -163,9 +193,9 @@ public sealed partial class MainWindow
             if (tag != null) optional.Add((control, tag));
         }
         bool updating = false;
-        void Change(Func<Typography, Typography> edit)
+        void Change(Func<Typography, Typography> edit, bool paragraph = false, bool block = false)
         {
-            if (!updating) s.ChangeTextStyle(st => st with { Type = edit(st.Type) });
+            if (!updating) s.FormatText(st => st with { Type = edit(st.Type) }, paragraph, block);
         }
         Control Choices<T>(string name, Func<Typography, T> get, Func<Typography, T, Typography> set,
             params (T Value, string Icon, string Tip)[] entries)
@@ -175,11 +205,11 @@ public sealed partial class MainWindow
             {
                 var b = new ToggleButton
                 {
-                    Classes = { "tool" }, Width = double.NaN, Height = 26, MinWidth = 0, Padding = new Thickness(3, 0), Content = icon,
+                    Classes = { "tool" }, Width = double.NaN, Height = 26, MinWidth = 0, Padding = new Thickness(3, 0), Content = value is TextVertical align ? Icons.Create(align switch { TextVertical.Top => Icons.TextTop, TextVertical.Bottom => Icons.TextBottom, _ => Icons.TextMiddle }, 18) : Locale.T(icon),
                     HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center
                 };
-                ToolTip.SetTip(b, tip); AutomationProperties.SetName(b, tip); RegisterFeature(b, tip);
-                b.Click += (_, _) => { Change(t => set(t, value)); refreshOptions?.Invoke(); };
+                ToolTip.SetTip(b, Locale.T(tip)); AutomationProperties.SetName(b, tip); RegisterFeature(b, tip);
+                b.Click += (_, _) => { Change(t => set(t, value), name is "Wrap" or "List", value is TextVertical); refreshOptions?.Invoke(); };
                 refresh.Add(t => b.IsChecked = EqualityComparer<T>.Default.Equals(get(t), value));
                 row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
                 AddAt(row, b, row.Children.Count);
@@ -202,7 +232,7 @@ public sealed partial class MainWindow
                 };
             }
             var group = new Border { Background = Palette.Field, CornerRadius = new CornerRadius(6), Padding = new Thickness(3), Child = row };
-            return Ui.Column(5, Ui.Label(name, Palette.Secondary, 11), group);
+            return Ui.Column(5, Ui.Label(Locale.T(name), Palette.Secondary, 11), group);
         }
 
         Control Flag(string label, string tip, Func<Typography, bool> get, Func<Typography, bool, Typography> set)
@@ -212,7 +242,7 @@ public sealed partial class MainWindow
             {
                 var row = new Grid { ColumnDefinitions = new ColumnDefinitions("22,*"), ColumnSpacing = 8,
                     Background = Avalonia.Media.Brushes.Transparent };
-                var caption = Ui.Label(label, size: 12);
+                var caption = Ui.Label(Locale.T(label), size: 12);
                 caption.VerticalAlignment = VerticalAlignment.Center;
                 caption.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
                 AddAt(row, caption, 1);
@@ -235,22 +265,22 @@ public sealed partial class MainWindow
                 };
                 return row;
             });
-            ToolTip.SetTip(box, tip); AutomationProperties.SetName(box, tip); RegisterFeature(box, tip);
-            box.IsCheckedChanged += (_, _) => Change(t => set(t, box.IsChecked == true));
+            ToolTip.SetTip(box, Locale.T(tip)); AutomationProperties.SetName(box, tip); RegisterFeature(box, tip);
+            box.IsCheckedChanged += (_, _) => Change(t => set(t, box.IsChecked == true), tip is "Hanging punctuation" or "Hanging list indent" or "Trim vertical font metrics", tip == "Truncate with ellipsis");
             refresh.Add(t => box.IsChecked = get(t));
             return box;
         }
 
         Control Number(string label, Func<Typography, double> get, Func<Typography, double, Typography> set)
         {
-            var field = Ui.Number(get(s.CurrentTextStyle.Type), 0, 5000, v => Change(t => set(t, v)), format: "0.##");
+            var field = Ui.Number(get(s.InspectedTextStyle.Type), 0, 5000, v => Change(t => set(t, v), paragraph: true), format: "0.##");
             field.Width = double.NaN; field.Height = 30;
             field.Padding = new Thickness(8, 0);
             field.VerticalContentAlignment = VerticalAlignment.Center;
             field.HorizontalAlignment = HorizontalAlignment.Stretch;
             AutomationProperties.SetName(field, label);
             refresh.Add(t => field.Value = (decimal)get(t));
-            return Ui.Column(4, Ui.Label(label, Palette.Secondary, 11), field);
+            return Ui.Column(4, Ui.Label(Locale.T(label), Palette.Secondary, 11), field);
         }
         var vertical = Choices("Vertical alignment", t => t.Vertical, (t, v) => t with { Vertical = v },
             (TextVertical.Top, "↥", "Top"), (TextVertical.Center, "↕", "Center vertically"), (TextVertical.Bottom, "↧", "Bottom"));
@@ -265,7 +295,7 @@ public sealed partial class MainWindow
         var paragraph = Ui.Column(12, PropertyPair(vertical, list), Ui.Column(4, wrap, flowFlags),
             PropertyPair(Number("Paragraph gap", t => t.ParagraphSpacing, (t, v) => t with { ParagraphSpacing = v }),
                 Number("First-line indent", t => t.Indent, (t, v) => t with { Indent = v })),
-            Ui.Column(3, Ui.Label("Hanging indent", Palette.Secondary, 11), indentFlags));
+            Ui.Column(3, Ui.Label(Locale.T("Hanging indent"), Palette.Secondary, 11), indentFlags));
         var casing = Choices("Letter case", t => t.Case, (t, v) => t with { Case = v },
             (TextLetterCase.Original, "—", "Original case"), (TextLetterCase.Upper, "AG", "Uppercase"), (TextLetterCase.Lower, "ag", "Lowercase"),
             (TextLetterCase.Title, "Ag", "Title case"), (TextLetterCase.SmallCaps, "Aɢ", "Small capitals"));
@@ -290,7 +320,7 @@ public sealed partial class MainWindow
             updating = true;
             try
             {
-                var type = s.CurrentTextStyle.Type;
+                var type = s.InspectedTextStyle.Type;
                 foreach (var update in refresh) update(type);
                 var face = s.CurrentTextFace;
                 if (face != displayed)

@@ -86,7 +86,14 @@ public sealed partial class EditorSession
     }
     public SKColor Foreground { get; set; } = SKColors.Black;
     public SKColor Background { get; set; } = SKColors.White;
-    public BrushSettings Brush { get; set; } = new();
+    public BrushSettings PaintBrush { get; set; } = new();
+    private BrushSettings? eraserBrush;
+    public BrushSettings EraserBrush { get => eraserBrush ?? PaintBrush; set => eraserBrush = value; }
+    public BrushSettings Brush
+    {
+        get => Tool == Tool.Eraser ? EraserBrush : PaintBrush;
+        set { if (Tool == Tool.Eraser) EraserBrush = value; else PaintBrush = value; }
+    }
     private bool eraserMode;
     public bool EraserMode
     {

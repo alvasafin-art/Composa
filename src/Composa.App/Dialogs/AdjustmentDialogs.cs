@@ -51,7 +51,7 @@ public static partial class AdjustmentDialogs
             ColorBalanceAdjustment balance => ColorBalanceEditor(balance, Update),
             ChannelMixerAdjustment mixer => ChannelMixerEditor(mixer, Update),
             ColorLookupAdjustment lookup => ColorLookupEditor(owner, lookup, Update),
-            _ => Ui.Label("This adjustment has no settings.", Palette.Secondary)
+            _ => Ui.Label(Locale.T("This adjustment has no settings."), Palette.Secondary)
         };
         var previewBox = Ui.Check("Preview", true, v => { preview = v; timer.Stop(); timer.Start(); });
         var dialog = new DialogWindow(initial.DisplayName, Ui.Column(12, body, previewBox));
@@ -90,7 +90,7 @@ public static partial class AdjustmentDialogs
         var amount = Ui.SliderField("Amount", noise.Amount, AddNoiseAdjustment.MinAmount, 100, v => update(noise = noise with { Amount = v }), 0.1, "0.0", FieldWidth, reset: new AddNoiseAdjustment().Amount);
         var distribution = Ui.Combo(NoiseDistributions, noise.Gaussian ? "Gaussian" : "Uniform", d => d, d => update(noise = noise with { Gaussian = d == "Gaussian" }), 120);
         var mono = Ui.Check("Monochromatic", noise.Monochromatic, v => update(noise = noise with { Monochromatic = v }));
-        return Ui.Column(10, amount, Ui.Row(10, Ui.Label("Distribution", Palette.Secondary), distribution), mono);
+        return Ui.Column(10, amount, Ui.Row(10, Ui.Label(Locale.T("Distribution"), Palette.Secondary), distribution), mono);
     }
 
     private static Control LevelsEditor(LevelsAdjustment levels, Histogram? histogram, Action<Adjustment> update)
@@ -118,7 +118,7 @@ public static partial class AdjustmentDialogs
         });
         var reset = Ui.TextButton("Reset", () => { update(levels = new LevelsAdjustment()); Build(); });
         Build();
-        return Ui.Column(10, Ui.Row(10, Ui.Label("Channel", Palette.Secondary), picker, auto, reset), graph, rows);
+        return Ui.Column(10, Ui.Row(10, Ui.Label(Locale.T("Channel"), Palette.Secondary), picker, auto, reset), graph, rows);
     }
 
     private static Control CurvesEditor(CurvesAdjustment curves, Histogram? histogram, Action<Adjustment> update)
@@ -135,7 +135,7 @@ public static partial class AdjustmentDialogs
             if (editor.SelectedPoint is { } point) { input.Value = point.X; output.Value = point.Y; }
         }
         editor.SelectionChanged += RefreshPoint; editor.Changed += _ => RefreshPoint(); RefreshPoint();
-        return Ui.Column(10, Ui.Row(10, Ui.Label("Channel", Palette.Secondary), picker, reset), editor,
+        return Ui.Column(10, Ui.Row(10, Ui.Label(Locale.T("Channel"), Palette.Secondary), picker, reset), editor,
             Ui.Row(10, input, output),
             Ui.Label("Drag a point · arrows adjust (Shift: 10) · Ctrl-click or Delete removes it.", Palette.Secondary));
     }
@@ -177,7 +177,7 @@ public static partial class AdjustmentDialogs
                     for (var i = 0; i < fields.Count; i++) fields[i].Value = values[i];
                 }
                 editor.Changed += SetBand;
-                rows.Children.Add(Ui.Label("Hue range and feathering", Palette.Secondary)); rows.Children.Add(editor);
+                rows.Children.Add(Ui.Label(Locale.T("Hue range and feathering"), Palette.Secondary)); rows.Children.Add(editor);
                 var labels = new[] { "Range start", "Fade in", "Full range", "Fade out" };
                 var values = new[] { band.Start, band.FadeIn, band.Width, band.FadeOut }; var resets = new[] { defaults.Start, defaults.FadeIn, defaults.Width, defaults.FadeOut };
                 for (var i = 0; i < labels.Length; i++)
@@ -201,7 +201,7 @@ public static partial class AdjustmentDialogs
         });
         Build();
         picker.IsEnabled = !hue.Colorize;
-        return Ui.Column(10, Ui.Row(10, Ui.Label("Range", Palette.Secondary), picker, colorize), rows);
+        return Ui.Column(10, Ui.Row(10, Ui.Label(Locale.T("Range"), Palette.Secondary), picker, colorize), rows);
     }
 
     private static readonly string[] ColorFamilies = ["Reds", "Yellows", "Greens", "Cyans", "Blues", "Magentas"];
@@ -334,7 +334,7 @@ public static partial class AdjustmentDialogs
                 break;
             case FilterKind.AddNoise:
                 Slider("Amount", initial.Amount, 0, 100, v => current with { Amount = v });
-                panel.Children.Add(Ui.Row(10, Ui.Label("Distribution", Palette.Secondary),
+                panel.Children.Add(Ui.Row(10, Ui.Label(Locale.T("Distribution"), Palette.Secondary),
                     Ui.Combo(NoiseDistributions, initial.Gaussian ? "Gaussian" : "Uniform", d => d, d => Update(current with { Gaussian = d == "Gaussian" }), 120)));
                 panel.Children.Add(Ui.Check("Monochromatic", initial.Monochrome, v => Update(current with { Monochrome = v })));
                 break;
@@ -349,7 +349,7 @@ public static partial class AdjustmentDialogs
                     Update(current with { VignetteColor = (uint)picked | 0xFF000000 });
                     PaintSwatch();
                 };
-                var colorLabel = Ui.Label("Color", Palette.Secondary);
+                var colorLabel = Ui.Label(Locale.T("Color"), Palette.Secondary);
                 colorLabel.Width = 90;
                 panel.Children.Add(Ui.Row(8, colorLabel, swatch));
                 Slider("Amount", initial.VignetteAmount, 0, 100, v => current with { VignetteAmount = v });
@@ -383,7 +383,7 @@ public static partial class AdjustmentDialogs
                 });
                 break;
             case FilterKind.Painterly:
-                panel.Children.Add(Ui.Row(10, Ui.Label("Style", Palette.Secondary),
+                panel.Children.Add(Ui.Row(10, Ui.Label(Locale.T("Style"), Palette.Secondary),
                     Ui.Combo(Enum.GetValues<PainterlyStyle>(), initial.Painterly.Style, PainterlySettings.DisplayName, v => Update(current with { Painterly = current.Painterly with { Style = v } }), 140)));
                 Slider("Brush Size", initial.Painterly.BrushSize, 0, 200, v => current with { Painterly = current.Painterly with { BrushSize = v } });
                 Slider("Passes", initial.Painterly.Passes, 1, 4, v => current with { Painterly = current.Painterly with { Passes = (int)Math.Round(v) } });

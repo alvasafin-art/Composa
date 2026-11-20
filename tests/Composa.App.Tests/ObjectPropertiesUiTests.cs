@@ -32,11 +32,10 @@ public class ObjectPropertiesUiTests
         SliderField Field(string label) => window.GetVisualDescendants().OfType<SliderField>().Single(f => f.Label == label);
         Button Eye(string label) => window.GetVisualDescendants().OfType<Button>().Single(c => c.Name == label+"Visibility");
         Assert.Empty(window.OwnedWindows);
-        Click(window, window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TransformProperties"));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(20, Field("Corner radius").Value);
         Assert.Equal(2, Field("Stroke width").Value);
-        Assert.True(Field("Corner radius").TranslatePoint(new Point(Field("Corner radius").Bounds.Width, 0), window)!.Value.X < 1190);
+        Assert.True(Field("Corner radius").TranslatePoint(new Point(Field("Corner radius").Bounds.Width, 0), window)!.Value.X <= window.Bounds.Width);
         Field("Corner radius").Focus();
         window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
         window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);

@@ -71,7 +71,7 @@ public sealed partial class MainWindow
                 if (copyPath == null)
                 {
                     var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-                    { Title = "Save Editable Copy and Relink", SuggestedFileName = Path.GetFileNameWithoutExtension(link.Path) + ProjectFile.Extension,
+                    { Title = Locale.T("Save Editable Copy and Relink"), SuggestedFileName = Path.GetFileNameWithoutExtension(link.Path) + ProjectFile.Extension,
                         DefaultExtension = ProjectFile.Extension.TrimStart('.'), FileTypeChoices = [ProjectType], ShowOverwritePrompt = true });
                     copyPath = file?.TryGetLocalPath(); if (copyPath == null) return new OperationCanceledException();
                     if (!Path.HasExtension(copyPath)) copyPath += ProjectFile.Extension;

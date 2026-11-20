@@ -27,7 +27,7 @@ public static class PsdConversionDialog
         var body = Ui.Column(12, intro, list);
         if (!exporting && chooseMerged != null)
         {
-            var merged = new CheckBox { Content = "Use Photoshop's merged image instead (one layer)" };
+            var merged = new CheckBox { Content = Locale.T("Use Photoshop's merged image instead (one layer)") };
             merged.IsCheckedChanged += (_, _) => chooseMerged(merged.IsChecked == true);
             body.Children.Add(merged);
         }

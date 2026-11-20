@@ -15,6 +15,51 @@ namespace Composa.App.Tests;
 public class PanelTypographyTests
 {
     [AvaloniaFact]
+    public async Task Russian_document_properties_apply_pixel_size_and_density_and_presets_are_independent()
+    {
+        var previous = Locale.Language;
+        Locale.Language = "ru";
+        var window = new MainWindow { Width = 1440, Height = 850 };
+        var session = EditorSession.NewCanvas(300, 180);
+        try
+        {
+            window.Show(); window.AddSession(session); session.ClearLayerSelection(); Dispatcher.UIThread.RunJobs();
+            var visual = window.GetVisualDescendants();
+            Assert.Contains(visual.OfType<MenuItem>(), i => Equals(i.Header, "_Файл"));
+            NumericUpDown Field(string name) => window.GetVisualDescendants().OfType<NumericUpDown>()
+                .Single(f => Avalonia.Automation.AutomationProperties.GetName(f) == name);
+            Field("Width").Value = 360; Field("Height").Value = 200; Field("Resolution").Value = 300;
+            var apply = visual.OfType<Button>().Single(b => Equals(b.Content, "Применить"));
+            apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal((360, 200, 300d), (session.Document.Width, session.Document.Height, session.Document.Resolution));
+            Assert.True(Screenshots.Save(window, "russian-document-properties"));
+            window.SelectTool(Tool.Brush);
+            session.Brush = session.Brush with { Hardness = .73 };
+            window.SelectTool(Tool.Eraser);
+            session.Brush = session.Brush with { Hardness = .1 };
+            Assert.Equal(.73, session.PaintBrush.Hardness);
+            var picker = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "BrushPresetPicker");
+            var library = Assert.IsType<Flyout>(picker.Flyout);
+            library.ShowAt(picker);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(Screenshots.Save(window, "russian-eraser-presets"));
+            var panel = Assert.IsType<StackPanel>(library.Content);
+            var save = panel.Children.OfType<Button>().Single();
+            save.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            var dialog = Assert.Single(window.OwnedWindows);
+            dialog.GetVisualDescendants().OfType<TextBox>().Single().Text = "Мягкая кромка";
+            var confirm = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.IsDefault);
+            confirm.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            for (int i = 0; i < 50 && window.Settings.EraserPresets.Count == 0; i++)
+            { await Task.Delay(10); Dispatcher.UIThread.RunJobs(); }
+            Assert.Equal(session.EraserBrush, window.Settings.EraserPresets["Мягкая кромка"]);
+            Assert.Empty(window.Settings.BrushPresets);
+        }
+        finally { Locale.Language = previous; session.MarkSaved("document.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Font_arrows_preview_the_canvas_and_escape_preserves_the_selected_text()
     {
         var window = new MainWindow { Width = 1360, Height = 900 }; window.Show();
@@ -189,15 +234,15 @@ public class PanelTypographyTests
             Assert.Equal("Bottom", window.CaptureWorkspace().ToolsPosition);
             Assert.Equal(revision, session.Revision);
             Assert.Single(window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Text == "Layers" && t.IsEffectivelyVisible));
-            var info = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "DocumentInfo");
-            Assert.True(info.TranslatePoint(default, window)!.Value.X > window.Bounds.Width / 2);
+            Assert.DoesNotContain(window.GetVisualDescendants(), c => c.Name == "DocumentInfo");
+            var info = window.GetVisualDescendants().OfType<TextBlock>().Single(b => b.Name == "DocumentZoom");
+            var zoomPosition = info.TranslatePoint(default, window);
+            Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "(RGB/8)");
             Assert.True(Screenshots.Save(window, "movable-properties-and-tools"));
             foreach (var section in dock.Ordered(false).Where(p => p.State.Visible).ToArray())
                 dock.Move(section.Title, true, null);
             Dispatcher.UIThread.RunJobs();
-            Assert.True(info.TranslatePoint(default, window)!.Value.X < window.Bounds.Width / 2);
-            Assert.Equal(window.Bounds.Height, info.TranslatePoint(new Point(0, info.Bounds.Height), window)!.Value.Y, 0);
-            Assert.True(Screenshots.Save(window, "document-info-left"));
+            Assert.Equal(zoomPosition, info.TranslatePoint(default, window));
             window.ApplyWorkspace(window.CaptureWorkspace());
             Assert.Single(window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Text == "Layers" && t.IsEffectivelyVisible));
         }

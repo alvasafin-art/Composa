@@ -67,7 +67,7 @@ public sealed partial class MainWindow
         var load = Ui.TextButton("Choose display ICC…", async () =>
         {
             var provider = TopLevel.GetTopLevel(combo)?.StorageProvider ?? StorageProvider;
-            var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Display RGB ICC Profile", AllowMultiple = false,
+            var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = Locale.T("Display RGB ICC Profile"), AllowMultiple = false,
                 FileTypeFilter = [new FilePickerFileType("RGB ICC Profile") { Patterns = ["*.icc", "*.icm"] }] });
             if (files.Count == 0 || files[0].TryGetLocalPath() is not { } selected) return;
             try { _ = await Task.Run(() => SystemDisplayProfile.Load(selected)); path = selected; fileLabel.Text = Path.GetFileName(path); combo.SelectedIndex = 2; validate(); }

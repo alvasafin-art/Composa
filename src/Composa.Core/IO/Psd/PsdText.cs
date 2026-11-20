@@ -19,7 +19,7 @@ internal static class PsdText
     public sealed record Source(TextStyle Style, List<string> Notes, SKPoint DocumentAnchor, double Rotation, bool FlipY, bool AnchorIsFrame, SKMatrix? Affine = null);
 
     public const string RasterizedNote = "Editable Photoshop text becomes pixels and can't be retyped.";
-    public const string FirstStyleNote = "Different character spacing or leading cannot be kept; the first spacing and leading were used.";
+    public const string FirstStyleNote = "A malformed style range or unsupported character scale could not be kept.";
     public const string WarpNote = "The Photoshop text warp was omitted.";
     public const string JustifyNote = "Full justification was imported as left alignment.";
 
@@ -189,6 +189,7 @@ internal static class PsdText
         style = style with { Bold = style.Bold || EngineData.Bool(EngineData.Walk(sheet, "FauxBold")) == true,
             Italic = style.Italic || EngineData.Bool(EngineData.Walk(sheet, "FauxItalic")) == true };
         var lengths = EngineData.List(EngineData.Walk(engine, "EngineDict", "StyleRun", "RunLengthArray"));
+        var characters = new List<TextFormatRun>();
         if (runs.Count == lengths.Count && lengths.Count > 0)
         {
             bool relativeTracking = tracking != 0 && runs.Any(run =>
@@ -221,7 +222,15 @@ internal static class PsdText
                 // Photoshop quantizes each run independently to thousandths of its own em.
                 var runTracking = EngineData.Number(EngineData.Walk(data, "Tracking")) ?? 0;
                 bool sameSpacing = relativeTracking || Math.Abs(runTracking * size - tracking * points) <= (size + points) / 2;
-                if ((!sameSpacing || Signature(runs[i]) != Signature(first)) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
+                var local = style.Format with
+                {
+                    Tracking = sameSpacing ? style.Tracking : Math.Clamp(runTracking * size * pixelScale / 1000, -100, 1000),
+                    Leading = (EngineData.Bool(EngineData.Walk(data, "AutoLeading")) ?? auto) ? 0 :
+                        Math.Clamp((EngineData.Number(EngineData.Walk(data, "Leading")) ?? style.Leading / pixelScale) * pixelScale, 0, 5000),
+                    Type = CharacterType(data, CharacterType(sheet, style.Type))
+                };
+                if (length > 0) characters.Add(new((int)start, length, local));
+                if ((Signature(runs[i]) != Signature(first)) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
                 start += (int)n.Value;
                 if (start >= style.Text.Length) break;
             }
@@ -250,14 +259,67 @@ internal static class PsdText
             case 3: style = style with { Alignment = TextAlignment.Justify }; break;
             default: style = style with { Alignment = TextAlignment.Left }; notes.Add(JustifyNote); break;
         }
-        return style;
+        var paraLengths = EngineData.List(EngineData.Walk(engine, "EngineDict", "ParagraphRun", "RunLengthArray"));
+        var paragraphFormats = new List<TextFormatRun>();
+        int offset = 0;
+        for (int i = 0; i < Math.Min(paragraphs.Count, paraLengths.Count) && offset < style.Text.Length; i++)
+        {
+            if (EngineData.Number(paraLengths[i]) is not { } count || !(count > 0 && count <= TextStyle.MaxLength + 1) || count != Math.Truncate(count)) break;
+            var length = Math.Min((int)count, style.Text.Length - offset);
+            var data = EngineData.Walk(paragraphs[i], "ParagraphSheet", "Properties");
+            var format = style.Format with
+            {
+                Alignment = EngineData.Number(EngineData.Walk(data, "Justification")) switch
+                { 0 => TextAlignment.Left, 1 => TextAlignment.Right, 2 => TextAlignment.Center, 3 => TextAlignment.Justify, _ => style.Alignment },
+                Type = style.Type with
+                {
+                    HangingPunctuation = EngineData.Bool(EngineData.Walk(data, "Hanging")) ?? style.Type.HangingPunctuation,
+                    ParagraphSpacing = Math.Clamp((EngineData.Number(EngineData.Walk(data, "SpaceAfter")) ?? 0) * pixelScale, 0, 5000),
+                    Indent = Math.Clamp((EngineData.Number(EngineData.Walk(data, "FirstLineIndent")) ?? 0) * pixelScale, 0, 5000)
+                }
+            };
+            paragraphFormats.Add(new(offset, length, format));
+            offset += length;
+        }
+        var mixed = new List<TextFormatRun>();
+        int ci = 0, pi = 0;
+        for (int start = 0; start < style.Text.Length;)
+        {
+            var c = ci < characters.Count ? characters[ci] : null;
+            var p = pi < paragraphFormats.Count ? paragraphFormats[pi] : null;
+            var end = Math.Min(c?.End ?? style.Text.Length, p?.End ?? style.Text.Length);
+            var character = c?.Format ?? style.Format;
+            var para = p?.Format ?? style.Format;
+            var value = character with { Alignment = para.Alignment, Type = character.Type with
+            { Indent = para.Type.Indent, ParagraphSpacing = para.Type.ParagraphSpacing, HangingPunctuation = para.Type.HangingPunctuation } };
+            if (value != style.Format)
+            {
+                if (mixed.Count > 0 && mixed[^1].End == start && mixed[^1].Format == value)
+                    mixed[^1] = mixed[^1] with { Length = end - mixed[^1].Start };
+                else mixed.Add(new(start, end - start, value));
+            }
+            if (c?.End == end) ci++;
+            if (p?.End == end) pi++;
+            start = end;
+        }
+        return style with { FormatRuns = mixed.Count == 0 ? null : mixed };
     }
+
+    private static Typography CharacterType(object? sheet, Typography fallback) => fallback with
+    {
+        Case = EngineData.Number(EngineData.Walk(sheet, "FontCaps")) switch
+        { 0 => TextLetterCase.Original, 1 => TextLetterCase.SmallCaps, 2 => TextLetterCase.Upper, _ => fallback.Case },
+        FigurePosition = EngineData.Number(EngineData.Walk(sheet, "FontBaseline")) switch
+        { 0 => FigurePosition.Baseline, 1 => FigurePosition.Superscript, 2 => FigurePosition.Subscript, _ => fallback.FigurePosition },
+        Underline = EngineData.Bool(EngineData.Walk(sheet, "Underline")) ?? fallback.Underline,
+        Strike = EngineData.Bool(EngineData.Walk(sheet, "Strikethrough")) ?? fallback.Strike
+    };
 
     /// <summary>What a run's style amounts to, so runs that differ only in things this model ignores still count as one style.</summary>
     private static string Signature(object? run)
     {
         var sheet = EngineData.Walk(run, "StyleSheet", "StyleSheetData") ?? run;
-        return string.Join("|", new[] { "AutoLeading", "Leading", "HorizontalScale", "VerticalScale" }
+        return string.Join("|", new[] { "HorizontalScale", "VerticalScale" }
             .Select(key => EngineData.Walk(sheet, key) switch { double d => d.ToString("0.###", CultureInfo.InvariantCulture), bool b => b.ToString(), _ => "" }));
     }
 

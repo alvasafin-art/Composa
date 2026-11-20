@@ -72,7 +72,7 @@ public static class GridSettingsDialog
             ("Color", Ui.Row(8, presetBox, swatch)),
             ("Style", styleBox),
             ("Opacity", opacityField),
-            ("Gridline every", Ui.Row(6, spacingBox, Ui.Label("pixels", Palette.Secondary))),
+            ("Gridline every", Ui.Row(6, spacingBox, Ui.Label(Locale.T("pixels"), Palette.Secondary))),
             ("Subdivisions", subdivisionsBox));
         dialog = new DialogWindow("Grid Settings", Ui.Column(12, form, note, restore));
         Change(appearance, grid);
