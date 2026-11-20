@@ -83,7 +83,9 @@ public sealed partial class EditorSession
         uint Color(uint value) => converter.Convert(value);
         GradientRamp? Ramp(GradientRamp? ramp) => ramp == null ? null : ramp with { Colors = ramp.Colors.Select(s => s with { Color = Color(s.Color) }).ToArray() };
         if (layer.Text is { } text) layer.Text = text with { Color = Color(text.Color), ColorRuns = text.ColorRuns?.Select(r => r with { Color = Color(r.Color) }).ToArray() };
-        if (layer.Shape is { } shape) layer.Shape = shape with { Fill = Color(shape.Fill), Stroke = shape.Stroke is { } stroke ? Color(stroke) : null };
+        if (layer.Shape is { } shape) layer.Shape = shape with { FillGradient = shape.FillGradient is {} fg ? fg with { Ramp = Ramp(fg.Ramp)! } : null,
+            StrokeGradient = shape.StrokeGradient is {} sg ? sg with { Ramp = Ramp(sg.Ramp)! } : null,
+            Fill = Color(shape.Fill), Stroke = shape.Stroke is { } stroke ? Color(stroke) : null };
         if (layer.Adjustment is GradientMapAdjustment map) layer.Adjustment = map with { Shadows = Color(map.Shadows), Highlights = Color(map.Highlights) };
         layer.SmartFilters = layer.SmartFilters.Select(f => f with { Settings = f.Settings with { VignetteColor = Color(f.Settings.VignetteColor) } }).ToArray();
         if (layer.Effects is { } e) layer.Effects = e with

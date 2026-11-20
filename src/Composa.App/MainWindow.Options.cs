@@ -84,6 +84,12 @@ public sealed partial class MainWindow
                 {
                     appearance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
                     BuildShapeFields(appearance, row);
+                    appearance.Children.Add(Flat("Edit points", () =>
+                    {
+                        if (s.ActiveLayer is not {} target) return;
+                        s.ConvertShapeToPath(target);
+                        canvas.EditVectorMask=false; SelectTool(Tool.Pen);
+                    }));
                 }
                 if (s.IsEditingChannel) { BuildTransformFields(row); break; }
                 var geometry = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Classes = { "options" } };
@@ -147,11 +153,16 @@ public sealed partial class MainWindow
                 break;
             case Tool.Pen:
                 var penTitle = Title("Pen");
-                ToolTip.SetTip(penTitle, "Shift-click curve adds a node · Delete removes selected node · Alt breaks handles · Ctrl starts a new path");
+                ToolTip.SetTip(penTitle, "Drag a point to move it · Shift-click or double-click a curve to add a point · Click a point or segment, then Delete · Alt on the last point continues straight");
                 Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
                     Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateCanvas(); }),
                     Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
-                if (s.ActiveLayer?.Shape?.Path != null) BuildShapeFields(row);
+                if (s.ActiveLayer?.Shape is {} penShape)
+                {
+                    if (penShape.Path == null)
+                        Add(Flat("Edit points", () => { if (s.ActiveLayer is {} target) s.ConvertShapeToPath(target); }));
+                    BuildShapeFields(row);
+                }
                 break;
             case Tool.Marquee or Tool.Lasso or Tool.Wand:
                 Add(Title(Chosen()));
@@ -329,25 +340,50 @@ public sealed partial class MainWindow
             swatch.PointerPressed += async (_, e) =>
             {
                 if (!e.GetCurrentPoint(swatch).Properties.IsLeftButtonPressed || canvas.IsDragging || Current() is not { Shape: { } original } layer) return;
+                bool stroke = label == "Stroke";
+                var result = original;
                 s.Begin("Shape Properties");
-                SKColor? picked;
+                bool accepted;
                 try
                 {
-                    picked = await Dialogs.Prompts.Color(this, label + " Color", new SKColor(get(original)), color =>
+                    accepted = await Dialogs.VectorPaintDialog.Edit(this, label, get(original),
+                        stroke ? original.StrokeGradient : original.FillGradient, (color, gradient) =>
                     {
-                        if (Current() is { Shape: { } live } current) s.ChangeShapeStyle(current, set(live, (uint)color | 0xFF000000), preview: true);
+                        var changed = set(original, color);
+                        result = stroke ? changed with { StrokeGradient = gradient } : changed with { FillGradient = gradient };
+                        if (Current() is {} current) s.ChangeShapeStyle(current, result, preview: true);
                     });
                 }
                 finally { s.Cancel(); }
-                if (picked is { } color) Change(st => set(st, (uint)color | 0xFF000000));
+                if (accepted && Current() is {} target) s.ChangeShapeStyle(target, result);
                 refreshOptions?.Invoke();
             };
-            refreshOptions += () => { if (Current()?.Shape is { } live) swatch.Background = new SolidColorBrush(new SKColor(get(live)).ToDisplay(s.Document.Profile, DisplayProfile)); };
+            refreshOptions += () =>
+            {
+                if (Current()?.Shape is not {} live) return;
+                var gradient = label == "Stroke" ? live.StrokeGradient : live.FillGradient;
+                var color = new SKColor(get(live));
+                if (gradient == null) swatch.Background = new SolidColorBrush(color.ToDisplay(s.Document.Profile, DisplayProfile));
+                else
+                {
+                    GradientBrush brush = gradient.Radial ? new RadialGradientBrush() : new LinearGradientBrush
+                        { StartPoint=new RelativePoint(0,.5,RelativeUnit.Relative), EndPoint=new RelativePoint(1,.5,RelativeUnit.Relative) };
+                    brush.Opacity=color.Alpha/255.0;
+                    foreach (var stop in gradient.Ramp.Colors.Select(x=>x.Position).Concat(gradient.Ramp.Opacities.Select(x=>x.Position)).Distinct().Order())
+                        brush.GradientStops.Add(new GradientStop(gradient.Ramp.Sample(stop).ToDisplay(s.Document.Profile, DisplayProfile),stop));
+                    swatch.Background=brush;
+                }
+            };
             return swatch;
         }
         if (quick != null)
+        {
             quick.Children.Add(Ui.Row(5, Ui.Label(style.Kind == ShapeKind.Line ? "Color" : "Fill", Palette.Secondary),
                 Swatch("Fill", st => st.Fill, (st, c) => st with { Fill = c, FillEnabled = true })));
+            if (style.Kind != ShapeKind.Line)
+                quick.Children.Add(Ui.Row(5, Ui.Label("Stroke",Palette.Secondary),
+                    Swatch("Stroke",st=>st.Stroke ?? strokeColor,(st,c)=>st with { Stroke=c })));
+        }
         else row.Children.Add(Ui.Separator());
         if (style.Kind == ShapeKind.Line)
         {

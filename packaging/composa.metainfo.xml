@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.14" date="2026-11-20" type="development">
+      <description><p>Vector gradient paints, editable primitives and shape-preserving path editing.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.13" date="2026-11-19" type="development">
       <description><p>Smaller portable downloads, live generation progress, local FLUX 3 Image Klein and Seedream 5.5 support.</p></description>
     </release>

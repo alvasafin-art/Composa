@@ -601,7 +601,10 @@ public sealed partial class EditorSession
         var pixels = Pixels.NewWorkingColor(width, height, depth, profile ?? Composa.ColorManagement.RgbProfile.Srgb);
         using var canvas = new SKCanvas(pixels);
         using var paint = new SKPaint { IsAntialias = true };
+        using var fillShader = style.FillGradient?.Shader(pixels);
+        using var strokeShader = style.Stroke != null ? style.StrokeGradient?.Shader(pixels) : null;
         paint.SetColor((SKColorF)new SKColor(style.Fill), pixels.ColorSpace);
+        paint.Shader = fillShader;
         if (style.Kind == ShapeKind.Line)
         {
             var thickness = (float)style.LineWidth;
@@ -623,7 +626,7 @@ public sealed partial class EditorSession
                 if (style.Kind == ShapeKind.Path && style.Path is { } geometry)
                 {
                     using var path = geometry.Build(width, height);
-                    if (paint.Style == SKPaintStyle.Stroke || geometry.Closed) canvas.DrawPath(path, paint);
+                    canvas.DrawPath(path, paint);
                 }
                 else if (style.Kind == ShapeKind.Ellipse) canvas.DrawOval(rect, paint);
                 else if (style.Kind == ShapeKind.RoundedRectangle)
@@ -636,9 +639,11 @@ public sealed partial class EditorSession
             if (style.FillEnabled) Draw();
             if (style.Stroke is { } stroke && strokeWidth > 0)
             {
+                paint.Shader = strokeShader;
                 paint.SetColor((SKColorF)new SKColor(stroke), pixels.ColorSpace);
                 paint.Style = SKPaintStyle.Stroke;
                 paint.StrokeWidth = strokeWidth;
+                if (style.RoundCaps) paint.StrokeCap = SKStrokeCap.Round;
                 Draw();
             }
         }

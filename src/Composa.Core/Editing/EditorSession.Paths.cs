@@ -16,11 +16,63 @@ public sealed partial class EditorSession
         var width = Math.Max(2, (int)Math.Ceiling(nodes.Max(n => Math.Max(n.X, Math.Max(n.InX, n.OutX))) - left + 2));
         var height = Math.Max(2, (int)Math.Ceiling(nodes.Max(n => Math.Max(n.Y, Math.Max(n.InY, n.OutY))) - top + 2));
         if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The path exceeds the surface size limit.");
-        var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height)).ToArray() };
+        var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height) { StartsContour = n.StartsContour }).ToArray() };
         var style = new ShapeStyle(ShapeKind.Path, (uint)Foreground, 0) { Path = local, FillEnabled = documentPath.Closed, Stroke = (uint)Foreground, StrokeWidth = 2 };
         var layer = Layer.Raster(document.UniqueName("Path"), RenderWorkingShape(style, width, height), left, top); layer.Shape = style;
         Apply("New Path", () => document.InsertAboveActive(layer)); InvalidateAll(); LayersChanged?.Invoke(); return layer;
     }
+    public void ConvertShapeToPath(Layer layer)
+    {
+        if (layer.Shape is not {} style || style.Kind == ShapeKind.Path || layer.Pixels is not {} pixels || PixelsLocked(layer)) return;
+        double w=pixels.Width, h=pixels.Height;
+        var nodes=new List<BezierNode>();
+        void Corner(double x,double y)
+        {
+            var point=BezierNode.Corner(x/w,y/h);
+            if(nodes.Count==0 || nodes[^1].X!=point.X || nodes[^1].Y!=point.Y) nodes.Add(point);
+        }
+        void Arc(double x1,double y1,double x2,double y2,double x,double y)
+        {
+            nodes[^1]=nodes[^1] with { OutX=x1/w, OutY=y1/h };
+            nodes.Add(BezierNode.Corner(x/w,y/h) with { InX=x2/w, InY=y2/h });
+        }
+        bool line=style.Kind==ShapeKind.Line;
+        if(line)
+        {
+            double dx=Math.Min(style.LineWidth,w)/2, dy=Math.Min(style.LineWidth,h)/2;
+            Corner(style.StartX*w ?? dx, style.StartY*h ?? dy);
+            Corner(style.EndX*w ?? w-dx, style.EndY*h ?? h-dy);
+            if(nodes.Count==1) nodes.Add(nodes[0]);
+        }
+        else
+        {
+            double inset=style.Stroke==null ? 0 : Math.Min(style.StrokeWidth,Math.Min(w,h))/2;
+            double l=inset,t=inset,r=w-inset,b=h-inset;
+            double radius=style.Kind==ShapeKind.RoundedRectangle ? Math.Clamp(style.CornerRadius-inset,0,Math.Min(r-l,b-t)/2) : 0;
+            double rx=style.Kind==ShapeKind.Ellipse ? (r-l)/2 : radius;
+            double ry=style.Kind==ShapeKind.Ellipse ? (b-t)/2 : radius;
+            if(rx==0 || ry==0) { Corner(l,t); Corner(r,t); Corner(r,b); Corner(l,b); }
+            else
+            {
+                const double k=.5522847498307936;
+                Corner(r-rx,t); Arc(r-rx+k*rx,t,r,t+ry-k*ry,r,t+ry);
+                Corner(r,b-ry); Arc(r,b-ry+k*ry,r-rx+k*rx,b,r-rx,b);
+                Corner(l+rx,b); Arc(l+rx-k*rx,b,l,b-ry+k*ry,l,b-ry);
+                Corner(l,t+ry); Arc(l,t+ry-k*ry,l+rx-k*rx,t,l+rx,t);
+                if(nodes[^1].X==nodes[0].X && nodes[^1].Y==nodes[0].Y)
+                {
+                    nodes[0]=nodes[0] with { InX=nodes[^1].InX,InY=nodes[^1].InY };
+                    nodes.RemoveAt(nodes.Count-1);
+                }
+            }
+        }
+        var path=new VectorPath { Nodes=nodes.ToArray(), Closed=!line };
+        var converted=style with { Kind=ShapeKind.Path,Path=path };
+        if(line) converted=converted with { FillEnabled=false, Stroke=style.Fill, StrokeGradient=style.FillGradient,
+            FillGradient=null, StrokeWidth=style.LineWidth, RoundCaps=true };
+        ChangeShapeStyle(layer,converted);
+    }
+
     public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;
@@ -31,26 +83,25 @@ public sealed partial class EditorSession
     public void CompletePathEdit(Layer layer)
     {
         if (layer.Shape?.Path is not { Nodes.Length: >= 2 } geometry || layer.Pixels == null || PixelsLocked(layer)) return;
-        var old = layer.Pixels; var nodes = geometry.Nodes;
-        var minX = nodes.Min(n => Math.Min(n.X, Math.Min(n.InX, n.OutX))) * old.Width;
-        var minY = nodes.Min(n => Math.Min(n.Y, Math.Min(n.InY, n.OutY))) * old.Height;
-        var maxX = nodes.Max(n => Math.Max(n.X, Math.Max(n.InX, n.OutX))) * old.Width;
-        var maxY = nodes.Max(n => Math.Max(n.Y, Math.Max(n.InY, n.OutY))) * old.Height;
-        var pad = layer.Shape.Stroke == null ? 1 : layer.Shape.StrokeWidth / 2 + 1;
-        var left = (int)Math.Floor(minX - pad); var top = (int)Math.Floor(minY - pad);
-        var w = Math.Max(2, (int)Math.Ceiling(maxX + pad) - left); var h = Math.Max(2, (int)Math.Ceiling(maxY + pad) - top);
+        var old = layer.Pixels;
+        using var outline = geometry.Build(old.Width, old.Height);
+        var bounds = outline.TightBounds;
+        if (outline.IsEmpty) return;
+        var pad = layer.Shape.Stroke == null ? 0 : layer.Shape.StrokeWidth / 2;
+        int left=Math.Min(0,(int)Math.Floor(bounds.Left-pad)), top=Math.Min(0,(int)Math.Floor(bounds.Top-pad));
+        int right=Math.Max(old.Width,(int)Math.Ceiling(bounds.Right+pad)), bottom=Math.Max(old.Height,(int)Math.Ceiling(bounds.Bottom+pad));
+        if (left==0 && top==0 && right==old.Width && bottom==old.Height) return;
+        var w=right-left; var h=bottom-top;
         if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException("The edited path exceeds the surface size limit.");
         VectorPath Remap(VectorPath path) => path with { Nodes = path.Nodes.Select(n => new BezierNode((n.X * old.Width - left) / w, (n.Y * old.Height - top) / h,
-            (n.InX * old.Width - left) / w, (n.InY * old.Height - top) / h, (n.OutX * old.Width - left) / w, (n.OutY * old.Height - top) / h)).ToArray() };
-        var matrix = layer.Matrix; var center = matrix.MapPoint(left + w / 2f, top + h / 2f);
-        var width = layer.Transform.Width * w / old.Width; var height = layer.Transform.Height * h / old.Height;
-        if (layer.Mask is { } mask)
-        {
-            var moved = Pixels.NewMask(w, h); using var canvas = new SKCanvas(moved); canvas.DrawBitmap(mask, -left, -top); layer.Mask = moved;
-        }
+            (n.InX * old.Width - left) / w, (n.InY * old.Height - top) / h, (n.OutX * old.Width - left) / w, (n.OutY * old.Height - top) / h) { StartsContour = n.StartsContour }).ToArray() };
+        var matrix = layer.Matrix;
+        var maskPlacement = layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
         if (layer.VectorMask != null) layer.VectorMask = Remap(layer.VectorMask);
-        layer.Shape = layer.Shape with { Path = Remap(geometry) }; layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
-        layer.Transform = layer.Transform with { X = center.X - width / 2, Y = center.Y - height / 2, Width = width, Height = height };
+        layer.Shape = layer.Shape with { Path = Remap(geometry) };
+        layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
+        layer.Transform = LayerTransform.FromMatrix(SKMatrix.CreateTranslation(left,top).PostConcat(matrix),w,h);
+        if (maskPlacement is {} placement) layer.PlaceMask(placement);
         InvalidateAll(); LayersChanged?.Invoke();
     }
     public void PathToSelection(Layer layer)
@@ -70,7 +121,7 @@ public sealed partial class EditorSession
             var anchor = matrix.MapPoint((float)n.X * source.Pixels.Width, (float)n.Y * source.Pixels.Height);
             var incoming = matrix.MapPoint((float)n.InX * source.Pixels.Width, (float)n.InY * source.Pixels.Height);
             var outgoing = matrix.MapPoint((float)n.OutX * source.Pixels.Width, (float)n.OutY * source.Pixels.Height);
-            return new(anchor.X / target.Pixels.Width, anchor.Y / target.Pixels.Height, incoming.X / target.Pixels.Width, incoming.Y / target.Pixels.Height, outgoing.X / target.Pixels.Width, outgoing.Y / target.Pixels.Height);
+            return new(anchor.X / target.Pixels.Width, anchor.Y / target.Pixels.Height, incoming.X / target.Pixels.Width, incoming.Y / target.Pixels.Height, outgoing.X / target.Pixels.Width, outgoing.Y / target.Pixels.Height) { StartsContour = n.StartsContour };
         }
         Apply("Vector Mask", () => { target.VectorMask = geometry with { Nodes = geometry.Nodes.Select(Convert).ToArray() }; target.VectorMaskFollowsWarp = !target.HasWarp; }); InvalidateAll(); LayersChanged?.Invoke();
     }

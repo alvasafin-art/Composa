@@ -14,6 +14,27 @@ namespace Composa.App.Tests;
 public class ExpandAndPenUiTests
 {
     [AvaloniaFact]
+    public void Alt_on_the_last_anchor_keeps_the_incoming_curve_and_next_edge_is_straight()
+    {
+        var w=new MainWindow { Width=1280,Height=820 }; w.Show(); var s=EditorSession.NewCanvas(320,220);
+        w.AddSession(s); w.SelectTool(Tool.Pen); Dispatcher.UIThread.RunJobs();
+        Point At(float x,float y) => w.Canvas.TranslatePoint(w.Canvas.ToScreen(new SKPoint(x,y)),w)!.Value;
+        void Click(float x,float y,RawInputModifiers keys=RawInputModifiers.None)
+        { w.MouseDown(At(x,y),MouseButton.Left,keys);w.MouseUp(At(x,y),MouseButton.Left,keys); }
+        Click(30,160); w.MouseDown(At(130,70),MouseButton.Left);
+        w.MouseMove(At(165,50),RawInputModifiers.LeftMouseButton); w.MouseUp(At(165,50),MouseButton.Left);
+        Click(130,70,RawInputModifiers.Alt); Click(265,150); w.Canvas.FinishPen();
+        var layer=s.ActiveLayer!; var path=layer.Shape!.Path!; var n=path.Nodes[1];
+        Assert.NotEqual(n.X,n.InX); Assert.Equal(n.X,n.OutX); Assert.Equal(n.Y,n.OutY);
+        Click(197.5f,110,RawInputModifiers.Shift); Assert.Equal(4,s.ActiveLayer!.Shape!.Path!.Nodes.Length);
+        w.KeyPress(Key.Delete,RawInputModifiers.None,PhysicalKey.Delete,null); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(3,s.ActiveLayer!.Shape!.Path!.Nodes.Length);
+        Click(231.25f,130); w.KeyPress(Key.Delete,RawInputModifiers.None,PhysicalKey.Delete,null);
+        Dispatcher.UIThread.RunJobs(); Assert.Equal(2,s.ActiveLayer!.Shape!.Path!.Nodes.Length);
+        s.Undo(); Assert.Equal(3,s.ActiveLayer!.Shape!.Path!.Nodes.Length); w.Close();
+    }
+
+    [AvaloniaFact]
     public void Crop_has_expand_and_photoshop_is_only_in_scripts()
     {
         var w = new MainWindow { Width = 1280, Height = 850 }; w.Show(); w.AddSession(EditorSession.NewCanvas(300, 200)); w.SelectTool(Tool.Crop);

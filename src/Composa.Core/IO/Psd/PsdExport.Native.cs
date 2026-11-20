@@ -31,6 +31,8 @@ public static partial class PsdExport
         if (layer.Text is { } text && Segments(text).Count > MaxNativeStyleRuns) return "The text has too many separate style runs for a portable Photoshop text block.";
         if (layer.Shape is { } shape)
         {
+            if (shape.FillEnabled && shape.FillGradient != null || shape.Kind == ShapeKind.Line && shape.FillGradient != null || shape.Stroke != null && shape.StrokeGradient != null)
+                return "This vector gradient is exported with its rendered appearance.";
             var corners = layer.Transform.Corners(layer.Pixels.Width, layer.Pixels.Height);
             if (corners.Any(p => p.X / document.Width < -128 || p.X / document.Width >= 128 || p.Y / document.Height < -128 || p.Y / document.Height >= 128))
                 return "The vector contour is too far outside the canvas for Photoshop's fixed-point path coordinates.";

@@ -100,7 +100,7 @@ public sealed partial class EditorSession
             {
                 var dx = growX - layer.FilterPaddingX; var dy = growY - layer.FilterPaddingY;
                 layer.VectorMask = vector with { Nodes = vector.Nodes.Select(n => new BezierNode((n.X * old.Width + dx) / result.Width, (n.Y * old.Height + dy) / result.Height,
-                    (n.InX * old.Width + dx) / result.Width, (n.InY * old.Height + dy) / result.Height, (n.OutX * old.Width + dx) / result.Width, (n.OutY * old.Height + dy) / result.Height)).ToArray() };
+                    (n.InX * old.Width + dx) / result.Width, (n.InY * old.Height + dy) / result.Height, (n.OutX * old.Width + dx) / result.Width, (n.OutY * old.Height + dy) / result.Height) { StartsContour=n.StartsContour }).ToArray() };
             }
             layer.Transform = sourceTransform.Distort != null
                 ? LayerTransform.FromMatrix(SKMatrix.CreateTranslation(-growX, -growY).PostConcat(sourceTransform.Matrix(source.Width, source.Height)), result.Width, result.Height)

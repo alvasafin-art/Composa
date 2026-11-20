@@ -81,6 +81,37 @@ public class ObjectPropertiesUiTests
     }
 
     [AvaloniaFact]
+    public void Vector_paint_modes_preview_commit_and_cancel_independently()
+    {
+        var window=new MainWindow { Width=1280,Height=800 }; window.Show();
+        var session=EditorSession.NewCanvas(600,400,SKColors.White); window.AddSession(session);
+        var layer=session.AddShape(new ShapeStyle(ShapeKind.Ellipse,0xffa04025,0) { Stroke=0xff254086,StrokeWidth=12 },new SKRect(100,50,480,300))!;
+        window.SelectTool(Tool.Shape); Dispatcher.UIThread.RunJobs();
+        void Open(string name) => Click(window,window.GetVisualDescendants().OfType<Border>().Single(b=>ToolTip.GetTip(b) as string==name+" color"));
+        void Mode(Window dialog,string mode)
+        {
+            dialog.GetVisualDescendants().OfType<ComboBox>().Single(c=>c.Items.Contains("Linear")).SelectedItem=mode;
+            Dispatcher.UIThread.RunJobs();
+        }
+        Open("Fill"); var fill=window.OwnedWindows.Last(); Mode(fill,"Linear");
+        Assert.False(session.ActiveLayer!.Shape!.FillGradient!.Radial);
+        var strip = fill.GetVisualDescendants().OfType<Control>().Single(c => c.GetType().Name == "RampPreview");
+        Point StripAt(double fraction) => strip.TranslatePoint(new Point(7+(strip.Bounds.Width-14)*fraction,8),fill)!.Value;
+        fill.MouseDown(StripAt(.36),MouseButton.Left);
+        fill.MouseMove(StripAt(.64),RawInputModifiers.LeftMouseButton);
+        fill.MouseUp(StripAt(.64),MouseButton.Left); Dispatcher.UIThread.RunJobs();
+        var stops=session.ActiveLayer!.Shape!.FillGradient!.Ramp.Colors;
+        Assert.Equal(3,stops.Length); Assert.InRange(stops[1].Position,.63,.65);
+        Screenshots.Save(fill,"vector-paint-stops");
+        Click(fill,fill.GetVisualDescendants().OfType<Button>().Single(b=>b.IsDefault));
+        var accepted=session.ActiveLayer!.Shape;
+        Open("Stroke"); var stroke=window.OwnedWindows.Last(); Mode(stroke,"Radial");
+        Assert.True(session.ActiveLayer!.Shape!.StrokeGradient!.Radial);
+        stroke.Close(false); Dispatcher.UIThread.RunJobs(); Assert.Equal(accepted,session.ActiveLayer!.Shape);
+        session.Undo(); Assert.Null(session.ActiveLayer!.Shape!.FillGradient); window.Close();
+    }
+
+    [AvaloniaFact]
     public void Gradient_effect_uses_existing_fields_and_preview_cancels_with_the_dialog()
     {
         var window = new MainWindow { Width = 1280, Height = 800 }; window.Show();

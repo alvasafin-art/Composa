@@ -989,8 +989,17 @@ public sealed partial class CanvasView
         if (session.Tool == Tool.Pen)
         {
             if (e.Key == Key.Escape) { CancelInteraction(); penDraft.Clear(); InvalidateCanvas(); return true; }
+            if (e.Key is Key.LeftAlt or Key.RightAlt && drag == Drag.None && penDraft.Count > 0 && cursorInside)
+            {
+                var last = penDraft[^1];
+                if (SKPoint.Distance(ToDocument(cursorScreen), new SKPoint((float)last.X,(float)last.Y))*UnitsPerPixel < 9)
+                {
+                    penDraft[^1] = last with { OutX = last.X, OutY = last.Y };
+                    InvalidateCanvas(); return true;
+                }
+            }
             if (e.Key == Key.Enter) { FinishPen(); return true; }
-            if (e.Key == Key.Back && penDraft.Count > 0) { penDraft.RemoveAt(penDraft.Count - 1); InvalidateCanvas(); return true; }
+            if (drag == Drag.None && e.Key is Key.Back or Key.Delete && penDraft.Count > 0) { DeleteDraftPoint(); return true; }
             if (drag == Drag.None && e.Key is Key.Back or Key.Delete && DeletePenNode()) return true;
         }
         if (session.ColorRange != null && drag == Drag.None)

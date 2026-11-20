@@ -41,9 +41,11 @@ Right-click a layer and open **Lock**. Pixels blocks painting and destructive pi
 
 ## Pen and vector masks
 
-Choose **Pen (P)**. Click for a corner; drag for curve handles. Click the first node to close a path, or Enter to finish it open. Ctrl-click begins another path. Drag existing nodes/handles; Alt moves one handle independently. Shift-click near a curve inserts a node without altering its geometry. Click a node and press Delete to remove it. Escape cancels a draft or drag.
+Choose **Pen (P)**. Click to place a corner, or drag to set its tangent. Press Alt over the last anchor or Alt-click it to keep the incoming curve and continue with a straight segment. Click the first node to close the path, or press Enter to finish it open.
 
-Fill and stroke controls are available in the Pen, Shape and Move bars. **Path to selection** loads the outline. Right-click a closed path and choose **Use path as vector mask**, then the target layer. On the target, enable **Edit vector mask** in the Pen bar to edit its nodes. Vector and raster masks multiply if both exist. Right-click the target to load or delete its vector mask.
+Drag an existing anchor, handle or segment to reshape it. Alt-drag a handle to adjust one side. Shift-click or double-click a finished curve to insert a point at the pointer without changing its shape. Select a point and press Delete to merge its adjoining curves while preserving the outer tangents. Select a segment and press Delete to cut it. In the Move inspector or Pen bar, **Edit points** converts a rectangle, ellipse, rounded rectangle or line to an editable path. Undo restores the original shape.
+
+Open the fill or stroke swatch to choose solid, linear or radial paint. Each paint has its own opacity. In a gradient, drag upper color stops or lower opacity stops, or click to insert one. The angle and scale follow the shape. Changes preview on the canvas and Cancel restores the previous paint. CMPS retains the editable paints. PSD export preserves gradient shapes as rendered layers. **Path to selection** loads the outline. Right-click a closed path and choose **Use path as vector mask**, then the target layer. On the target, enable **Edit vector mask** in the Pen bar to edit its nodes. Vector and raster masks multiply if both exist. Right-click the target to load or delete its vector mask.
 
 ## Smart filters
 

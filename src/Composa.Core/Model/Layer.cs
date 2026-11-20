@@ -14,15 +14,18 @@ public enum LayerLocks { None = 0, Pixels = 1, Position = 2, Transparency = 4, A
 public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
 {
     public VectorPath? Path { get; init; }
+    public VectorGradient? FillGradient { get; init; }
+    public VectorGradient? StrokeGradient { get; init; }
+    public bool RoundCaps { get; init; }
     public bool FillEnabled { get; init; } = true;
     public uint? Stroke { get; init; }
     public double StrokeWidth { get; init; } = 2;
 
     public ShapeStyle Clamped() => this with
     {
-        Path = Path?.Normalized(),
+        Path = Path?.Normalized(), FillGradient = FillGradient?.Normalized(), StrokeGradient = StrokeGradient?.Normalized(),
         CornerRadius = double.IsFinite(CornerRadius) ? Math.Clamp(CornerRadius, 0, DocumentLimits.MaxSide) : 0,
-        StrokeWidth = double.IsFinite(StrokeWidth) ? Math.Clamp(StrokeWidth, 0, 500) : 2,
+        StrokeWidth = double.IsFinite(StrokeWidth) ? Math.Clamp(StrokeWidth, 0, Kind == ShapeKind.Path ? 5000 : 500) : 2,
         LineWidth = double.IsFinite(LineWidth) ? Math.Clamp(LineWidth, Kind == ShapeKind.Line ? 1 : 0, 5000) : (Kind == ShapeKind.Line ? 1 : 0)
     };
 
