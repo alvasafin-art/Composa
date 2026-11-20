@@ -12,7 +12,7 @@ internal static class VectorPaintDialog
     internal static async Task<bool> Edit(Window owner, string label, uint color, VectorGradient? current,
         Action<uint, VectorGradient?> preview)
     {
-        var body = new StackPanel { Spacing = 10, Width = PaintLayout.Width };
+        var body = new StackPanel { Spacing = 12, Width = PaintLayout.Width };
         var dialog = new DialogWindow(label + " Color", body);
         var initial = new SKColor(color);
         uint other = Math.Min(initial.Red, Math.Min(initial.Green, initial.Blue)) > 215 ? 0xff222222 : 0xffffffff;
@@ -44,7 +44,7 @@ internal static class VectorPaintDialog
         var paintOpacity = Ui.SliderField("Overall %", opacity * 100d / 255, 0, 100, value =>
         { opacity = (byte)Math.Round(value * 255 / 100); Update(); }, width: double.NaN);
         var geometryRow = PaintLayout.Columns("*,*,*", 4, angle, scale, paintOpacity);
-        var geometry = Ui.Column(3, PaintLayout.Caption("Gradient settings"), geometryRow);
+        var geometry = Ui.Column(5, PaintLayout.Caption("Gradient settings"), geometryRow);
         var hexCaption = PaintLayout.Caption("HEX");
         void ShowMode()
         {
@@ -62,8 +62,8 @@ internal static class VectorPaintDialog
             mode = value; gradient = gradient with { Radial = value == "Radial" }; ShowMode(); Update();
         }, double.NaN);
         type.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
-        body.Children.Add(PaintLayout.Columns("*,*", 8,
-            Ui.Column(3, PaintLayout.Caption(label + " type"), type), Ui.Column(3, hexCaption, fields.HexEntry)));
+        body.Children.Add(PaintLayout.Columns("*,*", 10,
+            Ui.Column(5, PaintLayout.Caption(label + " type"), type), Ui.Column(5, hexCaption, fields.HexEntry)));
         body.Children.Add(stops);
         body.Children.Add(geometry);
         body.Children.Add(fields);

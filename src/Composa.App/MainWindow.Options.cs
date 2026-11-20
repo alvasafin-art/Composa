@@ -384,7 +384,7 @@ public sealed partial class MainWindow
             VectorGradient? Gradient(ShapeStyle st) => stroke ? st.StrokeGradient : st.FillGradient;
             var swatch=Swatch(stroke ? "Stroke" : style.Kind==ShapeKind.Line ? "Line" : "Fill",Color,SetColor);
             swatch.Width=18; swatch.Height=18; swatch.BorderThickness=new Thickness(1); swatch.BorderBrush=Palette.Edge;
-            var hex=new Controls.PaintValueField(label+"Hex",52,text=>
+            var hex=new Controls.PaintValueField(label+"Hex",65,text=>
             {
                 if(!Controls.PaintValueField.TryRgb(text,out var rgb)) return;
                 Change(st=>

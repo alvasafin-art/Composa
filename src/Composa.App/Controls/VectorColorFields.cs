@@ -22,7 +22,7 @@ internal sealed class VectorColorFields : StackPanel
     private double[] ink = new double[4];
     public VectorColorFields(RgbProfile profile, RgbProfile display, Action<SKColor> changed, Action<byte> changeAlpha)
     {
-        this.changed = changed; this.profile = profile; this.display = display; Spacing = 6;
+        this.changed = changed; this.profile = profile; this.display = display; Spacing = 8;
         square = new(profile, display, false, Pick) { Width = PaintLayout.Width, Height = 125 };
         hueStrip = new(profile, display, true, Pick, true) { Width = PaintLayout.Width, Height = 13 };
         Children.Add(square); Children.Add(hueStrip);
@@ -44,8 +44,8 @@ internal sealed class VectorColorFields : StackPanel
         alpha.TextAlignment = Avalonia.Media.TextAlignment.Center;
         var percent = PaintLayout.Caption("%"); percent.Margin = new(0, 0, 4, 0);
         var alphaCell = PaintLayout.Surface(PaintLayout.Columns("*,Auto", 0, alpha, percent));
-        Children.Add(PaintLayout.Columns("78,*,49", 4, Ui.Column(3, PaintLayout.Caption("Model"), space),
-            channelRow, Ui.Column(3, PaintLayout.Caption("Opacity"), alphaCell)));
+        Children.Add(PaintLayout.Columns("78,*,53", 6, Ui.Column(5, PaintLayout.Caption("Model"), space),
+            channelRow, Ui.Column(5, PaintLayout.Caption("Opacity"), alphaCell)));
         BuildChannels();
     }
     private void BuildChannels()
@@ -74,7 +74,7 @@ internal sealed class VectorColorFields : StackPanel
             });
             field.TextAlignment = Avalonia.Media.TextAlignment.Center;
             var caption = PaintLayout.Caption(names[i]); caption.HorizontalAlignment = HorizontalAlignment.Center;
-            var cell = Ui.Column(3, caption, PaintLayout.Surface(field));
+            var cell = Ui.Column(5, caption, PaintLayout.Surface(field));
             Grid.SetColumn(cell, i); channelRow.Children.Add(cell); channels.Add(field);
         }
         Refresh();

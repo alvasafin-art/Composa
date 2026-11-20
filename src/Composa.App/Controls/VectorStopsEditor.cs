@@ -13,7 +13,7 @@ internal sealed class VectorStopsEditor : StackPanel
     private const string Columns = "64,*,63,24";
     private sealed class Stop(double position, SKColor color) { public double Position = position; public SKColor Color = color; }
     private readonly List<Stop> stops = [];
-    private readonly StackPanel rows = new() { Spacing = 2 };
+    private readonly StackPanel rows = new() { Spacing = 3 };
     private readonly List<Action> syncRows = [];
     private readonly GradientEditor.RampPreview strip;
     private readonly Action<GradientRamp> changed;
@@ -23,13 +23,13 @@ internal sealed class VectorStopsEditor : StackPanel
     public SKColor SelectedColor => selected.Color;
     public VectorStopsEditor(GradientRamp ramp, RgbProfile profile, RgbProfile display, Action<GradientRamp> changed)
     {
-        this.changed = changed; this.profile = profile; this.display = display; Spacing = 4;
+        this.changed = changed; this.profile = profile; this.display = display; Spacing = 6;
         var colors = ramp.Colors; var alpha = ramp.Opacities;
         if (colors.Select(x => x.Position).SequenceEqual(alpha.Select(x => x.Position)))
             for (int i = 0; i < colors.Length; i++) stops.Add(new(colors[i].Position, new SKColor(colors[i].Color).WithAlpha((byte)Math.Round(255 * alpha[i].Opacity))));
         else foreach (var p in colors.Select(x => x.Position).Concat(alpha.Select(x => x.Position)).Distinct().Order()) stops.Add(new(p, ramp.Sample(p)));
         selected = stops[0];
-        strip = new(profile, display) { PairedStops = true, Width = 312, Height = 37 };
+        strip = new(profile, display) { PairedStops = true, Width = PaintLayout.Width, Height = 37 };
         ToolTip.SetTip(strip, "Click to add a stop. Drag a stop to move it.");
         strip.PointerPressed += (_, e) =>
         {
@@ -107,7 +107,7 @@ internal sealed class VectorStopsEditor : StackPanel
             });
             remove.MinWidth = 0; remove.Width = 24; remove.Padding = new Thickness(0);
             remove.IsEnabled = stops.Count > 2; ToolTip.SetTip(remove, "Remove gradient stop");
-            var row = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 1),
+            var row = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 2),
                 Child = PaintLayout.Columns(Columns, 4, Ui.Row(1, position, PaintLayout.Caption("%")), Ui.Row(4, chip, hex),
                     Ui.Row(1, opacity, PaintLayout.Caption("%")), remove) };
             row.GotFocus += (_, _) => { if (selected != stop) Select(stop); };

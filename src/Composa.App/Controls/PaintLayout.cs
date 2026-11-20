@@ -6,7 +6,7 @@ namespace Composa.App.Controls;
 
 internal static class PaintLayout
 {
-    internal const int Width = 312;
+    internal const int Width = 336;
 
     internal static Grid Columns(string widths, double gap, params Control[] cells)
     {
