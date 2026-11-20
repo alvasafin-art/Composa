@@ -12,7 +12,7 @@ internal static class VectorPaintDialog
     internal static async Task<bool> Edit(Window owner, string label, uint color, VectorGradient? current,
         Action<uint, VectorGradient?> preview)
     {
-        var body = new StackPanel { Spacing = 8, Width = 360 };
+        var body = new StackPanel { Spacing = 10, Width = PaintLayout.Width };
         var dialog = new DialogWindow(label + " Color", body);
         var initial = new SKColor(color);
         uint other = Math.Min(initial.Red, Math.Min(initial.Green, initial.Blue)) > 215 ? 0xff222222 : 0xffffffff;
@@ -31,26 +31,39 @@ internal static class VectorPaintDialog
         {
             if (mode == "Solid") { rgb = value; Update(); }
             else stops.SetColor(value);
+        }, value =>
+        {
+            if (mode == "Solid") { opacity = value; Update(); }
+            else stops.SetOpacity(value);
         });
-        stops.SelectedColorChanged += value => fields.Show(value);
-        var angle = Ui.AngleField("Angle", gradient.Angle, -180, 180, value =>
-        { gradient = gradient with { Angle = value }; Update(); }, 150);
-        var scale = Ui.SliderField("Scale (%)", gradient.Scale * 100, 1, 400, value =>
-        { gradient = gradient with { Scale = value / 100 }; Update(); }, width: 140);
-        var geometry = Ui.Row(8, angle, scale);
+        stops.SelectedColorChanged += fields.Show;
+        var angle = Ui.SliderField("Angle °", gradient.Angle, -180, 180, value =>
+        { gradient = gradient with { Angle = value }; Update(); }, width: double.NaN);
+        var scale = Ui.SliderField("Scale %", gradient.Scale * 100, 1, 400, value =>
+        { gradient = gradient with { Scale = value / 100 }; Update(); }, width: double.NaN);
+        var paintOpacity = Ui.SliderField("Overall %", opacity * 100d / 255, 0, 100, value =>
+        { opacity = (byte)Math.Round(value * 255 / 100); Update(); }, width: double.NaN);
+        var geometryRow = PaintLayout.Columns("*,*,*", 4, angle, scale, paintOpacity);
+        var geometry = Ui.Column(3, PaintLayout.Caption("Gradient settings"), geometryRow);
+        var hexCaption = PaintLayout.Caption("HEX");
         void ShowMode()
         {
             stops.IsVisible = geometry.IsVisible = mode != "Solid";
             angle.IsVisible = mode == "Linear";
-            fields.Show(mode == "Solid" ? rgb : stops.SelectedColor);
+            geometryRow.ColumnDefinitions = new ColumnDefinitions(angle.IsVisible ? "*,*,*" : "*,*");
+            Grid.SetColumn(scale, angle.IsVisible ? 1 : 0);
+            Grid.SetColumn(paintOpacity, angle.IsVisible ? 2 : 1);
+            paintOpacity.Value = Math.Round(opacity * 100d / 255);
+            hexCaption.Text = mode == "Solid" ? "HEX" : "Selected stop · HEX";
+            fields.Show(mode == "Solid" ? rgb.WithAlpha(opacity) : stops.SelectedColor);
         }
         var type = Ui.Combo(new[] { "Solid", "Linear", "Radial" }, mode, value => value, value =>
         {
             mode = value; gradient = gradient with { Radial = value == "Radial" }; ShowMode(); Update();
-        }, 125);
-        body.Width = 312;
-        body.Children.Add(Ui.Row(8, type, Ui.SliderField("Opacity (%)", opacity * 100d / 255, 0, 100,
-            value => { opacity = (byte)Math.Round(value * 255 / 100); Update(); }, width: 148)));
+        }, double.NaN);
+        type.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        body.Children.Add(PaintLayout.Columns("*,*", 8,
+            Ui.Column(3, PaintLayout.Caption(label + " type"), type), Ui.Column(3, hexCaption, fields.HexEntry)));
         body.Children.Add(stops);
         body.Children.Add(geometry);
         body.Children.Add(fields);
@@ -79,7 +92,11 @@ internal static class VectorPaintDialog
                     Background = new Avalonia.Media.SolidColorBrush(colorValue.ToDisplay(profile, display))
                 };
                 ToolTip.SetTip(chip, $"#{swatch & 0xffffff:X6}");
-                chip.Click += (_, _) => { fields.Show(colorValue); if (mode == "Solid") { rgb = colorValue; Update(); } else stops.SetColor(colorValue); };
+                chip.Click += (_, _) =>
+                {
+                    if (mode == "Solid") { rgb = colorValue; fields.Show(rgb.WithAlpha(opacity)); Update(); }
+                    else { stops.SetColor(colorValue); fields.Show(stops.SelectedColor); }
+                };
                 palette.Children.Add(chip);
             }
             if (palette.Children.Count > 0) body.Children.Add(Ui.Column(4, Ui.Label("Document colors", Palette.Secondary, 11), palette));

@@ -102,6 +102,9 @@ public class ObjectPropertiesUiTests
         fill.MouseUp(StripAt(.64),MouseButton.Left); Dispatcher.UIThread.RunJobs();
         var stops=session.ActiveLayer!.Shape!.FillGradient!.Ramp.Colors;
         Assert.Equal(3,stops.Length); Assert.InRange(stops[1].Position,.63,.65);
+        var alpha=fill.GetVisualDescendants().OfType<TextBox>().Single(x=>x.Name=="PaintAlpha");
+        alpha.Focus(); alpha.Text="75"; fill.KeyPress(Key.Enter,RawInputModifiers.None,PhysicalKey.Enter,null); Dispatcher.UIThread.RunJobs();
+        Assert.InRange(session.ActiveLayer.Shape.FillGradient.Ramp.Opacities[1].Opacity,.747,.752);
         Screenshots.Save(fill,"vector-paint-stops");
         Click(fill,fill.GetVisualDescendants().OfType<Button>().Single(b=>b.IsDefault));
         var accepted=session.ActiveLayer!.Shape;
@@ -133,8 +136,17 @@ public class ObjectPropertiesUiTests
         Assert.Equal(0x80ff0000u,session.ActiveLayer.Shape.Fill);
         Click(w,w.GetVisualDescendants().OfType<Border>().Single(b=>ToolTip.GetTip(b) as string=="Fill color"));
         var dialog=w.OwnedWindows.Last();Assert.Equal("255",Field(dialog,"PaintR").Text);
+        Assert.Equal("50",Field(dialog,"PaintAlpha").Text);
+        Enter(dialog,"PaintAlpha","25");
+        Assert.Equal(0x40ff0000u,session.ActiveLayer.Shape.Fill);
+        Enter(dialog,"PaintAlpha","50");
+        var alphaPosition=Field(dialog,"PaintAlpha").TranslatePoint(default,dialog);
         var space=dialog.GetVisualDescendants().OfType<ComboBox>().Single(c=>c.Name=="PaintChannels");
+        var modelWidth=space.Bounds.Width;
+        Screenshots.Save(dialog,"vector-paint-rgb");
         space.SelectedItem="CMYK"; Dispatcher.UIThread.RunJobs();
+        Assert.Equal(modelWidth,space.Bounds.Width);
+        Assert.Equal(alphaPosition,Field(dialog,"PaintAlpha").TranslatePoint(default,dialog));
         Assert.Equal("100",Field(dialog,"PaintM").Text);Enter(dialog,"PaintM","0");
         Assert.Equal("FFFF00",Field(dialog,"PaintHex").Text);
         Screenshots.Save(dialog,"vector-paint-cmyk");

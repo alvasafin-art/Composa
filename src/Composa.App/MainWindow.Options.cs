@@ -384,7 +384,7 @@ public sealed partial class MainWindow
             VectorGradient? Gradient(ShapeStyle st) => stroke ? st.StrokeGradient : st.FillGradient;
             var swatch=Swatch(stroke ? "Stroke" : style.Kind==ShapeKind.Line ? "Line" : "Fill",Color,SetColor);
             swatch.Width=18; swatch.Height=18; swatch.BorderThickness=new Thickness(1); swatch.BorderBrush=Palette.Edge;
-            var hex=new Controls.PaintValueField(label+"Hex",60,text=>
+            var hex=new Controls.PaintValueField(label+"Hex",52,text=>
             {
                 if(!Controls.PaintValueField.TryRgb(text,out var rgb)) return;
                 Change(st=>
@@ -396,7 +396,7 @@ public sealed partial class MainWindow
                     return stroke ? st with { StrokeGradient=next } : st with { FillGradient=next };
                 });
             });
-            var opacity=new Controls.PaintValueField(label+"Opacity",34,text=>
+            var opacity=new Controls.PaintValueField(label+"Opacity",28,text=>
             {
                 if(Controls.PaintValueField.TryNumber(text,100,out var value))
                     Change(st=>SetColor(st,(Color(st)&0xffffff)|((uint)Math.Round(value*255/100)<<24)));
@@ -406,7 +406,7 @@ public sealed partial class MainWindow
                 ? st with { Stroke=Color(st),StrokeEnabled=!Visible(st) } : st.Kind == ShapeKind.Line ? st with { StrokeEnabled=!st.StrokeEnabled } : st with { FillEnabled=!Visible(st) }),14);
             eye.Name=label+"Visibility"; eye.Width=24; eye.Padding=new Thickness(2);
             var field=new Border { Background=Palette.PanelRaised,CornerRadius=new CornerRadius(4),Padding=new Thickness(4,0),
-                Child=Ui.Row(1,swatch,hex,new Border { Width=1,Height=14,Background=Palette.Edge },opacity,Ui.Label("%",Palette.Secondary,11)) };
+                Child=Ui.Row(1,swatch,Controls.PaintLayout.Caption("#"),hex,new Border { Width=1,Height=14,Background=Palette.Edge },opacity,Ui.Label("%",Palette.Secondary,11)) };
             bool? shown=null;
             refreshOptions+=()=>
             {

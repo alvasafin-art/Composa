@@ -10,6 +10,7 @@ namespace Composa.App.Controls;
 
 internal sealed class VectorStopsEditor : StackPanel
 {
+    private const string Columns = "64,*,63,24";
     private sealed class Stop(double position, SKColor color) { public double Position = position; public SKColor Color = color; }
     private readonly List<Stop> stops = [];
     private readonly StackPanel rows = new() { Spacing = 2 };
@@ -54,7 +55,12 @@ internal sealed class VectorStopsEditor : StackPanel
         add.MinWidth = 0; add.Width = 26; add.Padding = new Thickness(0);
         ToolTip.SetTip(add, "Add gradient stop");
         var header = new DockPanel(); DockPanel.SetDock(add, Dock.Right); header.Children.Add(add); header.Children.Add(Ui.Label("Stops", Palette.Secondary));
-        Children.Add(strip); Children.Add(header); Children.Add(new ScrollViewer { Content = rows, MaxHeight = 112 });
+        var labels = PaintLayout.Columns(Columns, 4, PaintLayout.Caption("Position"), PaintLayout.Caption("Stop color"),
+            PaintLayout.Caption("Opacity"), new Border());
+        labels.Margin = new Thickness(4, 0);
+        Children.Add(strip); Children.Add(header); Children.Add(labels);
+        Children.Add(new ScrollViewer { Content = rows, MaxHeight = 112,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         BuildRows(); Refresh(false);
     }
     private GradientRamp Ramp() => new GradientRamp
@@ -79,6 +85,10 @@ internal sealed class VectorStopsEditor : StackPanel
     }
     private void Publish() => Refresh(true);
     public void SetColor(SKColor color) { selected.Color = color.WithAlpha(selected.Color.Alpha); Publish(); }
+    public void SetOpacity(byte opacity)
+    {
+        selected.Color = selected.Color.WithAlpha(opacity); Publish(); SelectedColorChanged?.Invoke(selected.Color);
+    }
     private void BuildRows()
     {
         rows.Children.Clear(); syncRows.Clear();
@@ -86,7 +96,7 @@ internal sealed class VectorStopsEditor : StackPanel
         {
             var position = new PaintValueField("StopPosition", 38, text => { if (PaintValueField.TryNumber(text, 100, out var value)) { stop.Position = value / 100; Publish(); } });
             var hex = new PaintValueField("StopHex", 65, text => { if (PaintValueField.TryRgb(text, out var value)) { stop.Color = new SKColor(value | 0xff000000).WithAlpha(stop.Color.Alpha); Publish(); SelectedColorChanged?.Invoke(selected.Color); } });
-            var opacity = new PaintValueField("StopOpacity", 36, text => { if (PaintValueField.TryNumber(text, 100, out var value)) { stop.Color = stop.Color.WithAlpha((byte)Math.Round(value * 255 / 100)); Publish(); } });
+            var opacity = new PaintValueField("StopOpacity", 32, text => { if (PaintValueField.TryNumber(text, 100, out var value)) { stop.Color = stop.Color.WithAlpha((byte)Math.Round(value * 255 / 100)); Publish(); SelectedColorChanged?.Invoke(selected.Color); } });
             var chip = new Button { Width = 21, Height = 19, Padding = new Thickness(0), MinHeight = 0 };
             chip.Click += (_, _) => Select(stop);
             var remove = Ui.TextButton("−", () =>
@@ -97,7 +107,9 @@ internal sealed class VectorStopsEditor : StackPanel
             });
             remove.MinWidth = 0; remove.Width = 24; remove.Padding = new Thickness(0);
             remove.IsEnabled = stops.Count > 2; ToolTip.SetTip(remove, "Remove gradient stop");
-            var row = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 1), Child = Ui.Row(3, position, Ui.Label("%"), chip, hex, opacity, Ui.Label("%"), remove) };
+            var row = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 1),
+                Child = PaintLayout.Columns(Columns, 4, Ui.Row(1, position, PaintLayout.Caption("%")), Ui.Row(4, chip, hex),
+                    Ui.Row(1, opacity, PaintLayout.Caption("%")), remove) };
             row.GotFocus += (_, _) => { if (selected != stop) Select(stop); };
             row.PointerPressed += (_, _) => { if (selected != stop) Select(stop); };
             rows.Children.Add(row);
