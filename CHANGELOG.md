@@ -4,8 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.16.7] - 2026-11-20
+
 - Box selection follows lettering on shaded and textured backgrounds and preserves holes in separated objects. Loosely framed repeated details are checked against the predicted shape of the whole subject.
 - Box selection can separate caption strokes from a sign or photographic background when the object model merges the lettering. The correction follows inclined lines and retains the spaces inside letters.
+- Local object selection checks competing masks when a click lands on part of an object. Box selection recovers opaque interiors that edge refinement can lose on small fruit slices and rows of objects.
+- The [object selection study](docs/object-selection-study.md) records the algorithm, test gestures, measured results and known failures.
 
 ## [1.3.0-preview.4.studio.16] - 2026-11-20
 
