@@ -59,7 +59,7 @@ public sealed partial class MainWindow
             button.GroupPlacement = bottom ? PlacementMode.Top : right ? PlacementMode.LeftEdgeAlignedTop : PlacementMode.RightEdgeAlignedTop;
             if (bottom) button.Height = 32;
         }
-        ToolTip.SetTip(toolSurface, "Drag the top edge to dock tools on the left, right or bottom");
+        Locale.Tip(toolSurface, "Drag the top edge to dock tools on the left, right or bottom");
         toolChrome.ZIndex = 3;
         Grid.SetColumn(toolChrome, bottom ? 3 : right ? (inner ? 4 : 6) : (inner ? 2 : 0));
     }

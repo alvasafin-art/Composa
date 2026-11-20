@@ -24,9 +24,9 @@ public static class ProjectFile
     /// (<see cref="TextStyle.FontRuns"/>), 6 optional layer tags, 7 embedded smart object documents, 8 installed font styles,
     /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
     /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
-    /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data, custom hue ranges and embedded LUTs. Version 14 adds typography and justified paragraphs. Version 15 stores formatting ranges within a text layer.
+    /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data, custom hue ranges and embedded LUTs. Version 14 adds typography and justified paragraphs. Version 15 stores formatting ranges within a text layer. Version 16 adds parametric polygons, stars and independent corner radii.
     /// </summary>
-    public const int Version = 15;
+    public const int Version = 16;
 
     private static readonly JsonSerializerOptions Json = new()
     {

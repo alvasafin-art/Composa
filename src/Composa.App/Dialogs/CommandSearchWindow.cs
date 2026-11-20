@@ -71,7 +71,7 @@ public sealed class CommandSearchWindow : Window
         results.SelectedIndex = matching.Length > 0 ? 0 : -1; RefreshStatus();
     }
     private void RefreshStatus()
-    { status.Text = results.SelectedItem is ListBoxItem { Tag: Shortcut c } && !canRun(c) ? reason(c) : results.ItemCount == 0 ? "No matching commands" : $"{results.ItemCount} commands"; }
+    { status.Text = Locale.Message(results.SelectedItem is ListBoxItem { Tag: Shortcut c } && !canRun(c) ? reason(c) : results.ItemCount == 0 ? "No matching commands" : $"{results.ItemCount} commands"); }
     private void RunSelected()
     { if (results.SelectedItem is not ListBoxItem { Tag: Shortcut command }) return; if (!canRun(command)) { RefreshStatus(); return; } Close(command); }
 }

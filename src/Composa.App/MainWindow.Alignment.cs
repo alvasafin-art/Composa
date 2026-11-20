@@ -15,7 +15,7 @@ public sealed partial class MainWindow
         var reference = Ui.Combo(Enum.GetValues<AlignmentReference>(), alignmentReference,
             v => v == AlignmentReference.Canvas ? "Canvas" : "2nd object", v => { alignmentReference = v; refreshOptions?.Invoke(); }, 100);
         reference.Name = "AlignmentReference";
-        ToolTip.SetTip(reference, "Align to the canvas or to the second object selected; that object stays in place. Shift-click adds objects.");
+        Locale.Tip(reference, "Align to the canvas or to the second object selected; that object stays in place. Shift-click adds objects.");
         row.Children.Add(reference);
         var alignButtons = new List<Button>();
         var distributeButtons = new List<Button>();
@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         })
         {
             var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(new Icons.Icon(line, fill), 16), Name = "Align" + alignment };
-            ToolTip.SetTip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
+            Locale.Tip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
             button.Click += (_, _) => { s.AlignObjects(alignment, alignmentReference); refreshOptions?.Invoke(); };
             alignButtons.Add(button);
             group.Children.Add(button);
@@ -42,7 +42,7 @@ public sealed partial class MainWindow
                 : "M4 3 H20 M4 21 H20 M12 4 V7 M12 11 V13 M12 17 V20", horizontal
                 ? "M8 7 H10 V17 H8 Z M14 7 H16 V17 H14 Z"
                 : "M7 8 H17 V10 H7 Z M7 14 H17 V16 H7 Z"), 16), Name = horizontal ? "DistributeHorizontal" : "DistributeVertical" };
-            ToolTip.SetTip(button, Locale.T(horizontal ? "Equal horizontal gaps (3+ objects)" : "Equal vertical gaps (3+ objects)"));
+            Locale.Tip(button, Locale.T(horizontal ? "Equal horizontal gaps (3+ objects)" : "Equal vertical gaps (3+ objects)"));
             button.Click += (_, _) => { s.DistributeObjectGaps(horizontal); refreshOptions?.Invoke(); };
             distributeButtons.Add(button);
             group.Children.Add(button);
@@ -59,7 +59,7 @@ public sealed partial class MainWindow
         {
             var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 28, Name = horizontal ? "FlipHorizontal" : "FlipVertical",
                 Content = Icons.Create(new Icons.Icon(horizontal ? "M12 3 V21" : "M3 12 H21", horizontal ? "M3 7 L9 12 L3 17 Z M21 7 L15 12 L21 17 Z" : "M7 3 L12 9 L17 3 Z M7 21 L12 15 L17 21 Z"), 16) };
-            ToolTip.SetTip(button, Locale.T(horizontal ? "Flip Layer Horizontal" : "Flip Layer Vertical"));
+            Locale.Tip(button, Locale.T(horizontal ? "Flip Layer Horizontal" : "Flip Layer Vertical"));
             button.Click += (_, _) => { s.FlipLayers(horizontal); refreshOptions?.Invoke(); };
             refreshOptions += () => button.IsEnabled = s.ActiveLayer != null && !s.IsInteracting;
             flips.Children.Add(button);

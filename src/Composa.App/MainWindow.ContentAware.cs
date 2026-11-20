@@ -170,7 +170,7 @@ public sealed partial class MainWindow
         }
         async Task Preview(bool final, CancellationToken token)
         {
-            status.Text = final ? "Applying full-resolution fill…" : "Updating preview…";
+            status.Text = Locale.Message(final ? "Applying full-resolution fill…" : "Updating preview…");
             try
             {
                 var scale = !final && draft ? previewScale : 1;
@@ -196,14 +196,14 @@ public sealed partial class MainWindow
                     if (token.IsCancellationRequested || !target.IsPreviewing) return;
                     if (scale == 1) target.PreviewComputedFill(filled);
                     var next = Display(filled); resultView.Source = next; resultBitmap?.Dispose(); resultBitmap = next; ready = scale == 1;
-                    status.Text = ready ? "Full-resolution result" : "Draft preview";
+                    status.Text = Locale.Message(ready ? "Full-resolution result" : "Draft preview");
                 }
             }
             catch (OperationCanceledException) { }
-            catch (Exception error) { status.Text = "Preview failed"; ShowProblem("Content-Aware Fill failed: " + error.Message); }
+            catch (Exception error) { status.Text = Locale.Message("Preview failed"); ShowProblem("Content-Aware Fill failed: " + error.Message); }
         }
         RefreshSampling(); resultBitmap = Display(original); resultView.Source = resultBitmap;
-        var tools = Ui.Row(10, Ui.Combo(new[] { "Exclude sampling", "Include sampling" }, "Exclude sampling", s => s, s => erase = s == "Include sampling", 170),
+        var tools = Ui.Row(10, Ui.Combo(new[] { "Exclude sampling", "Include sampling" }, "Exclude sampling", Locale.T, s => erase = s == "Include sampling", 170),
             Ui.SliderField("Brush size", radius * 2, 4, 500, v => radius = v / 2, width: 140), Ui.TextButton("Reset sampling", () => { excluded.Erase(SKColors.Transparent); RefreshSampling(); QueuePreview(); }),
             Ui.Check("Zoom to selection", zoomToSelection, v =>
             {
@@ -225,7 +225,7 @@ public sealed partial class MainWindow
         Grid.SetRow(sample, 1); views.Children.Add(sample); Grid.SetRow(overlay, 1); views.Children.Add(overlay);
         Grid.SetColumn(resultView, 2); Grid.SetRow(resultView, 1); views.Children.Add(resultView);
         var body = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
-        body.Children.Add(Ui.Label("Green: sampling area · Red: excluded · Purple: repair area · Final fill uses full resolution", Palette.Secondary));
+        body.Children.Add(Ui.Label(Locale.T("Green: sampling area · Red: excluded · Purple: repair area · Final fill uses full resolution"), Palette.Secondary));
         Grid.SetRow(toolWrap, 1); toolWrap.Margin = new Thickness(0, 10, 0, 10); body.Children.Add(toolWrap);
         Grid.SetRow(views, 2); body.Children.Add(views);
         dialog = new DialogWindow("Content-Aware Fill", body) { CanResize = true, SizeToContent = SizeToContent.Manual,

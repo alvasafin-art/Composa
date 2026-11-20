@@ -623,7 +623,7 @@ public sealed partial class EditorSession
             var rect = new SKRect(inset, inset, width - inset, height - inset);
             void Draw()
             {
-                if (style.Kind == ShapeKind.Path && style.Path is { } geometry)
+                if ((style.IsRadial() || style.Corners != null ? style.ParametricOutline(width, height, inset) : style.Path) is { } geometry)
                 {
                     using var path = geometry.Build(width, height);
                     canvas.DrawPath(path, paint);
@@ -653,26 +653,28 @@ public sealed partial class EditorSession
     private SKBitmap RenderWorkingShape(ShapeStyle style, int width, int height) => RenderShape(style, width, height, document.WorkingDepth, document.Profile);
 
     /// <summary>Adds a live shape layer covering a document rectangle (a line runs corner to corner).</summary>
-    /// <summary>Adds the Shape tool's current shape in the foreground color.</summary>
     public Layer? AddShape(SKRect rect) =>
         ShapeKind == ShapeKind.Line ? AddLine(new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Bottom))
-                                    : AddShape(new ShapeStyle(ShapeKind, (uint)Foreground, ShapeCornerRadius), rect);
+                                    : AddShape(CurrentShapeStyle, rect);
 
-    /// <summary>Adds a live rectangle, rounded rectangle or ellipse filling <paramref name="rect"/>, whatever the tool is set to.</summary>
-    public Layer? AddShape(ShapeStyle style, SKRect rect)
+    /// <summary>Adds a live shape with the specified appearance and bounds.</summary>
+    public Layer? AddShape(ShapeStyle style, SKRect rect, double opacity = 1)
     {
         if (style.Kind == ShapeKind.Line) throw new ArgumentException("A line is added with AddLine.", nameof(style));
         rect = SKRect.Create((float)Math.Round(rect.Left), (float)Math.Round(rect.Top), (float)Math.Round(rect.Width), (float)Math.Round(rect.Height));
         if (rect.Width < 1 || rect.Height < 1) return null;
-        return AddShapeLayer(style, rect, style.Kind == ShapeKind.Ellipse ? "Ellipse" : "Rectangle");
+        return AddShapeLayer(style, rect, style.IsRectangle() ? "Rectangle" : ShapeStyle.DisplayName(style.Kind), opacity);
     }
 
     /// <summary>Adds a live line between two document points, <see cref="ShapeLineWidth"/> thick with round ends, in the foreground color.</summary>
     public Layer? AddLine(SKPoint from, SKPoint to) => AddLine(from, to, Foreground, ShapeLineWidth);
 
     /// <summary>Adds a live line between two document points with its own color and thickness, whatever the tool is set to.</summary>
-    public Layer? AddLine(SKPoint from, SKPoint to, SKColor color, double width)
+    public Layer? AddLine(SKPoint from, SKPoint to, SKColor color, double width) =>
+        AddLine(from, to, new ShapeStyle(ShapeKind.Line, (uint)color, 0) { LineWidth=width });
+    public Layer? AddLine(SKPoint from, SKPoint to, ShapeStyle appearance, double opacity = 1)
     {
+        var width = appearance.LineWidth;
         var thickness = Math.Clamp(width, 1, 5000);
         if (!float.IsFinite(from.X) || !float.IsFinite(from.Y) || !float.IsFinite(to.X) || !float.IsFinite(to.Y)) return null;
         // The layer is the box around the two ends with room for the stroke's thickness (and its round ends).
@@ -680,21 +682,22 @@ public sealed partial class EditorSession
         var box = new SKRect(Math.Min(from.X, to.X) - half, Math.Min(from.Y, to.Y) - half, Math.Max(from.X, to.X) + half, Math.Max(from.Y, to.Y) + half);
         box = SKRect.Create(MathF.Floor(box.Left), MathF.Floor(box.Top), MathF.Ceiling(box.Width), MathF.Ceiling(box.Height));
         if (box.Width < 1 || box.Height < 1 || (from.X == to.X && from.Y == to.Y)) return null;
-        var style = new ShapeStyle(ShapeKind.Line, (uint)color, 0)
+        var style = appearance with
         {
             LineWidth = thickness,
             StartX = (from.X - box.Left) / box.Width, StartY = (from.Y - box.Top) / box.Height,
             EndX = (to.X - box.Left) / box.Width, EndY = (to.Y - box.Top) / box.Height
         };
-        return AddShapeLayer(style, box, "Line");
+        return AddShapeLayer(style, box, "Line", opacity);
     }
 
-    private Layer? AddShapeLayer(ShapeStyle style, SKRect rect, string stem)
+    private Layer? AddShapeLayer(ShapeStyle style, SKRect rect, string stem, double opacity = 1)
     {
         style = style.Clamped();
-        if ((long)rect.Width * (long)rect.Height > DocumentLimits.MaxSurfacePixels) { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return null; }
+        if (!DocumentLimits.FitsSurface((long)rect.Width, (long)rect.Height, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4)) { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return null; }
         var layer = Layer.Raster(document.UniqueName(stem), RenderWorkingShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
         layer.Shape = style;
+        layer.Opacity = Math.Clamp(opacity, 0, 1);
         Apply(stem, () => document.InsertAboveActive(layer));
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();

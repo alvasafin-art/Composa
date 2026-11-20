@@ -63,12 +63,14 @@ public sealed partial class CanvasView
             var alt = dragModifiers.HasFlag(Avalonia.Input.KeyModifiers.Alt);
             var rect = drag == Drag.Shape ? MarqueeRect(shift, alt) : MarqueeRect(drag != Drag.AiRectangle && ConstrainsMarquee(dragModifiers), false);
             var ellipse = drag == Drag.Marquee ? session.MarqueeKind == MarqueeKind.Ellipse : drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.Ellipse;
-            var radius = drag == Drag.Shape && session.ShapeKind == Model.ShapeKind.RoundedRectangle ? (float)session.ShapeCornerRadius : 0;
+            var shapeStyle = drag == Drag.Shape ? session.CurrentShapeStyle : null;
+            var radius = shapeStyle?.IsRectangle() == true ? (float)shapeStyle.CornerRadius : 0;
             var fill = drag == Drag.Shape ? session.Document.Profile.ConvertColor(session.Foreground, DisplayProfile) : (SKColor?)null;
             steps.Add(canvas =>
             {
                 using var path = new SKPath();
-                if (ellipse) path.AddOval(rect); else if (radius > 0) path.AddRoundRect(rect, radius, radius); else path.AddRect(rect);
+                if (shapeStyle?.IsRadial() == true && rect.Width>0 && rect.Height>0) { using var contour=shapeStyle.ParametricOutline(rect.Width,rect.Height).Build(rect.Width,rect.Height); path.AddPath(contour,rect.Left,rect.Top); }
+                else if (ellipse) path.AddOval(rect); else if (radius > 0) path.AddRoundRect(rect, radius, radius); else path.AddRect(rect);
                 if (fill is { } color)
                 {
                     using var mapped = new SKPath();
@@ -146,6 +148,20 @@ public sealed partial class CanvasView
             });
         }
 
+        if (ShowShapeParameters() && session.ActiveLayer is {} shapeLayer && drag is Drag.None or Drag.ShapeParameter)
+        {
+            var handles = ShapeHandles(shapeLayer).Select(h => (h.Index, Point: view.MapPoint(shapeLayer.Matrix.MapPoint(h.Local)))).ToArray();
+            steps.Add(canvas =>
+            {
+                using var outline = new SKPaint { Color=Accent, IsAntialias=true, StrokeWidth=1.5f, Style=SKPaintStyle.Stroke };
+                using var fill = new SKPaint { Color=SKColors.White, IsAntialias=true };
+                foreach(var (index,p) in handles)
+                {
+                    if(index==4) { var r=SKRect.Create(p.X-4,p.Y-4,8,8); canvas.DrawRect(r,fill); canvas.DrawRect(r,outline); }
+                    else { canvas.DrawCircle(p,4,fill); canvas.DrawCircle(p,4,outline); }
+                }
+            });
+        }
         if (tool == Tool.Move && ShowTransformControls && CurrentFrame() is { } frame)
         {
             var corners = frame.Select(p => view.MapPoint(p)).ToArray();

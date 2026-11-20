@@ -150,10 +150,10 @@ public sealed partial class MainWindow : Window
         var assistantButton = Ui.TextButton("Assistant", ShowAssistant);
         assistantButton.Classes.Add("flat");
         assistantButton.MinWidth = 0;
-        ToolTip.SetTip(assistantButton, "Open the local editing Assistant");
+        Locale.Tip(assistantButton, "Open the local editing Assistant");
         generativeExpandButton = Ui.TextButton("Generative expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
         generativeExpandButton.IsVisible = false;
-        ToolTip.SetTip(generativeExpandButton, "Generate image content inside the extended crop frame");
+        Locale.Tip(generativeExpandButton, "Generate image content inside the extended crop frame");
         aiTaskText.IsVisible = aiText.IsVisible = false;
         var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, aiTaskText, aiText, assistantButton);
         AddAt(combinedOptions, intelligentTools, 1);
@@ -170,6 +170,7 @@ public sealed partial class MainWindow : Window
         StartUpdateCheck();
 
         canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
+        canvas.CreateShapeRequested += at => _ = CreateShapeAt(at);
         canvas.Problem += message => { problem = message; UpdateStatus(); };
         canvas.ToolStateChanged += () => { if (session?.WarpEdit != null || optionsHaveWarp) RebuildOptions(); else refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); UpdateStatus(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
@@ -403,7 +404,7 @@ public sealed partial class MainWindow : Window
             target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
             target.Feather = from.Feather; target.WandTolerance = from.WandTolerance; target.WandContiguous = from.WandContiguous;
             target.SampleAllLayers = from.SampleAllLayers; target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
-            target.ShapeCornerRadius = from.ShapeCornerRadius; target.GradientRadial = from.GradientRadial; target.GradientToTransparent = from.GradientToTransparent; target.TextDefaults = from.TextDefaults;
+            target.ShapePoints=from.ShapePoints; target.StarInnerRatio=from.StarInnerRatio; target.ShapeCornerRadius = from.ShapeCornerRadius; target.GradientRadial = from.GradientRadial; target.GradientToTransparent = from.GradientToTransparent; target.TextDefaults = from.TextDefaults;
             target.ShapeLineWidth = from.ShapeLineWidth; target.WandMode = from.WandMode; target.ObjectEdgeOffset = from.ObjectEdgeOffset; target.View = from.View;
             target.SelectionExpandAmount = from.SelectionExpandAmount; target.SelectionContractAmount = from.SelectionContractAmount; target.SelectionFeatherAmount = from.SelectionFeatherAmount;
             target.CropRatio = from.CropRatio;
@@ -745,9 +746,10 @@ public sealed partial class MainWindow : Window
             Tool.Smear => Kinds(SmearKey, s => s.SmearMode, (s, v) => s.SmearMode = v,
                 (SmearMode.Liquify, "Liquify", Icons.Liquify), (SmearMode.Blur, "Blur", Icons.Drop), (SmearMode.Smudge, "Smudge", Icons.Smudge),
                 (SmearMode.Dodge, "Dodge", Icons.Dodge), (SmearMode.Burn, "Burn", Icons.Burn)),
-            Tool.Shape => Kinds(ShapeKey, s => s.ShapeKind, (s, v) => s.ShapeKind = v,
+            Tool.Shape => Kinds(ShapeKey, s => s.ShapeKind == ShapeKind.RoundedRectangle ? ShapeKind.Rectangle : s.ShapeKind, (s, v) => s.ShapeKind = v,
                 (ShapeKind.Rectangle, ShapeStyle.DisplayName(ShapeKind.Rectangle), Icons.Rectangle),
-                (ShapeKind.RoundedRectangle, ShapeStyle.DisplayName(ShapeKind.RoundedRectangle), Icons.RoundedRectangle),
+                (ShapeKind.Polygon, "Polygon", new Icons.Icon("M12 3 L21 10 L18 21 H6 L3 10 Z")),
+                (ShapeKind.Star, "Star", new Icons.Icon("M12 2 L15 9 L22 10 L17 15 L18 22 L12 18 L6 22 L7 15 L2 10 L9 9 Z")),
                 (ShapeKind.Ellipse, ShapeStyle.DisplayName(ShapeKind.Ellipse), Icons.Ellipse), (ShapeKind.Line, ShapeStyle.DisplayName(ShapeKind.Line), Icons.Line)),
             _ => []
         };
@@ -766,8 +768,8 @@ public sealed partial class MainWindow : Window
         }
 
         foregroundSwatch.Cursor = backgroundSwatch.Cursor = new Cursor(StandardCursorType.Hand);
-        ToolTip.SetTip(foregroundSwatch, Locale.T("Foreground color"));
-        ToolTip.SetTip(backgroundSwatch, Locale.T("Background color"));
+        Locale.Tip(foregroundSwatch, Locale.T("Foreground color"));
+        Locale.Tip(backgroundSwatch, Locale.T("Background color"));
         foregroundSwatch.PointerPressed += (_, _) => _ = PickColor(foreground: true);
         backgroundSwatch.PointerPressed += (_, _) => _ = PickColor(foreground: false);
         backgroundSwatch.Margin = new Thickness(14, 14, 0, 0);
@@ -920,10 +922,18 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    internal void RefreshLanguage()
+    {
+        RebuildOptions();
+        UpdateTabTitles();
+        UpdateStatus();
+        foreach(var tool in toolButtons.Values) tool.Refresh();
+    }
+
     private void UpdateStatus()
     {
-        hintText.Text = problem ?? recovery?.Warning ?? (saving.Count > 0
-            ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note);
+        hintText.Text = Locale.Message(problem ?? recovery?.Warning ?? (saving.Count > 0
+            ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note) ?? "");
         commandNotice.IsVisible = !string.IsNullOrEmpty(hintText.Text);
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
         if (session == null)
@@ -956,7 +966,7 @@ public sealed partial class MainWindow : Window
         Tool.Patch => "Select an area, then drag it to the donor · Escape cancels",
         Tool.Smear => "Drag to " + (s.SmearMode == SmearMode.Liquify ? "push pixels" : s.SmearMode.ToString().ToLowerInvariant()) + " · [ ] size · 1–0 strength",
         Tool.Gradient => "Drag to draw from foreground to " + (s.GradientToTransparent ? "transparent" : "background") + " · Drag an end to adjust · Shift snaps to 45° · Enter applies · Escape cancels",
-        Tool.Shape => s.ShapeKind == ShapeKind.Line ? "Drag to draw a line on a new layer · Shift snaps to 45° · Tab for the next shape" : "Drag to draw a shape on a new layer · Shift square · Alt from center · Tab for the next shape",
+        Tool.Shape => s.ShapeKind == ShapeKind.Line ? "Drag to draw a line on a new layer · Shift snaps to 45° · Tab for the next shape" : "Click for dimensions · Drag to draw a shape on a new layer · Shift square · Alt from center · Tab for the next shape",
         Tool.Text => s.IsEditingText ? "Type · Drag the box's handles to resize it · Alt+arrows tracking and leading · Ctrl+Enter finishes · Escape cancels" : "Click for point text · Drag a box for paragraph text · Click text to edit it",
         Tool.Eyedropper => "Click to pick the foreground color · Alt-click for the background",
         Tool.Hand => "Drag to pan · Ctrl+wheel zooms",

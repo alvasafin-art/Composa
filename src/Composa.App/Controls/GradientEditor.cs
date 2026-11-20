@@ -56,7 +56,7 @@ public sealed class GradientEditor : StackPanel
         };
         preview.PointerReleased += (_,e) => { if(e.Pointer.Captured==preview) e.Pointer.Capture(null); };
         preview.PointerCaptureLost += (_,_) => { if(movingStop>=0) { movingStop=-1; Build(); } };
-        ToolTip.SetTip(preview,"Click to add a stop or drag to move it. Color above, opacity below.");
+        Locale.Tip(preview,"Click to add a stop or drag to move it. Color above, opacity below.");
         Build();
     }
     private void Set(GradientRamp next) { ramp = next; preview.Ramp = next.Normalized(); preview.InvalidateVisual(); changed(next.Normalized()); }

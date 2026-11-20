@@ -57,7 +57,7 @@ internal static class VectorPaintDialog
             hexCaption.Text = mode == "Solid" ? "HEX" : "Selected stop · HEX";
             fields.Show(mode == "Solid" ? rgb.WithAlpha(opacity) : stops.SelectedColor);
         }
-        var type = Ui.Combo(new[] { "Solid", "Linear", "Radial" }, mode, value => value, value =>
+        var type = Ui.Combo(new[] { "Solid", "Linear", "Radial" }, mode, Locale.T, value =>
         {
             mode = value; gradient = gradient with { Radial = value == "Radial" }; ShowMode(); Update();
         }, double.NaN);
@@ -91,7 +91,7 @@ internal static class VectorPaintDialog
                     Padding = new Avalonia.Thickness(0),
                     Background = new Avalonia.Media.SolidColorBrush(colorValue.ToDisplay(profile, display))
                 };
-                ToolTip.SetTip(chip, $"#{swatch & 0xffffff:X6}");
+                Locale.Tip(chip, $"#{swatch & 0xffffff:X6}");
                 chip.Click += (_, _) =>
                 {
                     if (mode == "Solid") { rgb = colorValue; fields.Show(rgb.WithAlpha(opacity)); Update(); }

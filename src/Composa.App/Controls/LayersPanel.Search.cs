@@ -28,9 +28,9 @@ public sealed partial class LayersPanel
         clear.VerticalContentAlignment = VerticalAlignment.Center;
         clear.HorizontalContentAlignment = HorizontalAlignment.Center;
         clear.Padding = new Thickness(0);
-        ToolTip.SetTip(clear, "Clear layer filters (Escape)");
+        Locale.Tip(clear, "Clear layer filters (Escape)");
         queryRow.Children.Add(search); queryRow.Children.Add(clear);
-        ToolTip.SetTip(search, "Words match layer names and tags. #tag matches an exact tag. All words must match. Escape clears. Reordering is available after clearing the filter.");
+        Locale.Tip(search, "Words match layer names and tags. #tag matches an exact tag. All words must match. Escape clears. Reordering is available after clearing the filter.");
         Grid.SetRow(queryRow, 2); header.Children.Add(queryRow);
         Grid.SetRow(searchKind, 2); Grid.SetColumn(searchKind, 1);
         searchKind.Margin = new Thickness(0, 6, 0, 0); header.Children.Add(searchKind);
@@ -82,7 +82,7 @@ public sealed partial class LayersPanel
         }
         foreach (var root in session.Document.Layers) IncludeMatches(root);
         var outside = session.Document.SelectedLayerIds.Count(id => !filterRows.Contains(id));
-        searchStatus.Text = $"{count} match{(count == 1 ? "" : "es")}" + (outside > 0 ? $" · {outside} selected outside filter" : "") + " · Clear to reorder";
+        searchStatus.Text = Locale.Message($"{count} match{(count == 1 ? "" : "es")}" + (outside > 0 ? $" · {outside} selected outside filter" : "") + " · Clear to reorder");
         ClearDropHighlight();
         pressed = null; dragging = false; dropTarget = null; dropLine.IsVisible = false;
     }

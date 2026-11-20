@@ -85,18 +85,18 @@ public sealed class ComfyModelPicker : StackPanel
                 || service.Engines.Find(slot.EngineId)!.RequiredNodeTypes.All(type => service.ServerCapabilities?.NodeTypes.Contains(type) == true);
             var combo = new ComboBox { Width = 410, ItemsSource = options, SelectedItem = options.First(option => option.Name == saved), IsEnabled = connected && available?.Count > 0 && backendAvailable };
             AiGenerationControls.StyleModelField(combo, slot.Label);
-            ToolTip.SetTip(combo, slot.NodeType + "." + slot.Input + " · node " + slot.NodeId);
+            Locale.Tip(combo, slot.NodeType + "." + slot.Input + " · node " + slot.NodeId);
             var hint = Note("");
             void Hint()
             {
                 var selected = (combo.SelectedItem as Option)?.Name ?? slot.Default;
                 var resolved = available == null ? null : WorkflowModels.Resolve(selected, available);
-                hint.Text = !connected ? "Not connected to this server." : !backendAvailable ? "This SeedVR2 backend is not installed on the server." : available == null
+                hint.Text = Locale.Message(!connected ? "Not connected to this server." : !backendAvailable ? "This SeedVR2 backend is not installed on the server." : available == null
                     ? (service.ServerCapabilities!.NodeTypes.Contains(slot.NodeType) ? "This loader does not report a model list." : "Missing node: " + slot.NodeType)
                     : resolved == null ? "Not found or ambiguous. Choose a model above; files must match this workflow's architecture."
-                    : "Server model: " + resolved;
+                    : "Server model: " + resolved);
                 hint.IsVisible = connected && resolved == null;
-                ToolTip.SetTip(combo, hint.Text);
+                Locale.Tip(combo, hint.Text);
                 hint.Foreground = connected && resolved == null ? Brushes.Orange : Palette.Secondary;
             }
             combo.SelectionChanged += (_, _) =>

@@ -36,7 +36,7 @@ internal static class AiGenerationControls
         marks.VerticalAlignment = VerticalAlignment.Center;
         var grip = new Border { Name = "AiDragHandle", Width = 13, Height = 28, Background = Brushes.Transparent,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll), Child = marks };
-        ToolTip.SetTip(grip, "Drag to move");
+        Locale.Tip(grip, "Drag to move");
         return grip;
     }
 
@@ -65,7 +65,7 @@ internal static class AiGenerationControls
             button.VerticalContentAlignment = VerticalAlignment.Center;
             var label = $"Run {count} variants";
             AutomationProperties.SetName(button, label);
-            ToolTip.SetTip(button, label);
+            Locale.Tip(button, label);
             group.Children.Add(button);
         }
         return group;
@@ -82,7 +82,7 @@ internal static class AiGenerationControls
         run.BorderThickness = new Thickness(0);
         run.CornerRadius = new CornerRadius(4);
         run.Content = Ui.Row(5, new PathIcon { Data = Geometry.Parse(Icons.Run.Fill!), Width = 8, Height = 9 },
-            new TextBlock { Text = "Run", FontWeight = FontWeight.SemiBold });
+            new TextBlock { Text = Locale.T("Run"), FontWeight = FontWeight.SemiBold });
         run.MinHeight = run.Height = 28; run.MinWidth = 64; run.Padding = new Thickness(9, 0);
         run.HorizontalContentAlignment = HorizontalAlignment.Center; run.VerticalContentAlignment = VerticalAlignment.Center;
         AutomationProperties.SetName(run, "Run");
@@ -100,7 +100,7 @@ internal static class AiGenerationControls
             var name = Ui.Label(details ? model.Name : compact, size: details ? null : 12);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = details ? 310 : 155;
-            ToolTip.SetTip(name, model.Name == model.Identifier ? model.Name : $"{model.Name}\n{model.Identifier}");
+            Locale.Tip(name, model.Name == model.Identifier ? model.Name : $"{model.Name}\n{model.Identifier}");
             if (!details) return name;
             return Ui.Column(3, name, Ui.Label(model.Engine.PaidApi ? "Comfy credits" : "ComfyUI server", Palette.Secondary, 11));
         }

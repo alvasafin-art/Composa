@@ -79,7 +79,7 @@ public sealed class NavigatorPanel : UserControl
     {
         private readonly NavigatorPanel panel; private Bitmap? image; private IPointer? pointer; private SKPoint offset; private Size coverage = new(1, 1);
         private static readonly IPen framePen = new Pen(new SolidColorBrush(Color.Parse("#FF6658")), 1.5);
-        public NavigatorPreview(NavigatorPanel panel) { this.panel = panel; Focusable = true; Cursor = new Cursor(StandardCursorType.Hand); ToolTip.SetTip(this, "Click or drag to pan · wheel to zoom · arrows to pan"); }
+        public NavigatorPreview(NavigatorPanel panel) { this.panel = panel; Focusable = true; Cursor = new Cursor(StandardCursorType.Hand); Locale.Tip(this, "Click or drag to pan · wheel to zoom · arrows to pan"); }
         public Rect ImageBounds
         {
             get

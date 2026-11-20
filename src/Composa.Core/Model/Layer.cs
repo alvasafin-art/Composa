@@ -5,13 +5,13 @@ namespace Composa.Model;
 
 public enum LayerKind { Raster, Group, Adjustment }
 
-public enum ShapeKind { Rectangle, RoundedRectangle, Ellipse, Line, Path }
+public enum ShapeKind { Rectangle, RoundedRectangle, Ellipse, Line, Path, Polygon, Star }
 
 [Flags]
 public enum LayerLocks { None = 0, Pixels = 1, Position = 2, Transparency = 4, All = 7 }
 
 /// <summary>A live shape: redrawn at full sharpness whenever its layer is scaled.</summary>
-public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
+public sealed partial record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
 {
     public VectorPath? Path { get; init; }
     public VectorGradient? FillGradient { get; init; }
@@ -26,6 +26,8 @@ public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
     {
         Path = Path?.Normalized(), FillGradient = FillGradient?.Normalized(), StrokeGradient = StrokeGradient?.Normalized(),
         CornerRadius = double.IsFinite(CornerRadius) ? Math.Clamp(CornerRadius, 0, DocumentLimits.MaxSide) : 0,
+        Points = Math.Clamp(Points, 3, 64), InnerRatio = double.IsFinite(InnerRatio) ? Math.Clamp(InnerRatio, .05, .95) : .5,
+        Corners = IsRectangle() ? Corners?.Clamped() : null,
         StrokeWidth = double.IsFinite(StrokeWidth) ? Math.Clamp(StrokeWidth, 0, Kind == ShapeKind.Path ? 5000 : 500) : 2,
         LineWidth = double.IsFinite(LineWidth) ? Math.Clamp(LineWidth, Kind == ShapeKind.Line ? 1 : 0, 5000) : (Kind == ShapeKind.Line ? 1 : 0)
     };
@@ -38,7 +40,7 @@ public sealed record ShapeStyle(ShapeKind Kind, uint Fill, double CornerRadius)
     public double? EndX { get; init; }
     public double? EndY { get; init; }
 
-    public static string DisplayName(ShapeKind kind) => kind == ShapeKind.RoundedRectangle ? "Rounded Rectangle" : kind.ToString();
+    public static string DisplayName(ShapeKind kind) => kind == ShapeKind.RoundedRectangle ? "Rectangle" : kind.ToString();
 }
 
 public enum TextAlignment { Left, Center, Right, Justify }

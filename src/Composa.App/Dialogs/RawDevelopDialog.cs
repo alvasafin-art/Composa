@@ -60,7 +60,7 @@ public static class RawDevelopDialog
             Update(new RawDevelopSettings { OutputDepth = settings.OutputDepth });
             exposure.Value = 0; temperature.Value = 0; tint.Value = 0;
         });
-        var note = Ui.Label("Cooler to warmer, and green to magenta, away from the camera's own white balance.", Palette.Secondary);
+        var note = Ui.Label(Locale.T("Cooler to warmer, and green to magenta, away from the camera's own white balance."), Palette.Secondary);
         note.TextWrapping = TextWrapping.Wrap;
         note.MaxWidth = PreviewWidth;
 
@@ -69,7 +69,7 @@ public static class RawDevelopDialog
         {
             var valid = DocumentLimits.FitsSurface(raw.Width, raw.Height, settings.OutputDepth == ColorDepth.Sixteen ? 16 : 4);
             if (dialog != null) dialog.CanAccept = valid;
-            info.Text = $"{raw.Width} × {raw.Height} pixels · 16-bit source" + (valid ? "" : " · Choose 8-bit output for this frame size.");
+            info.Text = Locale.Message($"{raw.Width} × {raw.Height} pixels · 16-bit source" + (valid ? "" : " · Choose 8-bit output for this frame size."));
         }
         var precision = Ui.Combo(new[] { ColorDepth.Sixteen, ColorDepth.Eight }, settings.OutputDepth, d => $"RGB · {(int)d} bits/channel", d =>
         {

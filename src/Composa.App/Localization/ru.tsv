@@ -1,17 +1,58 @@
 (Multiple)	Несколько
 -1 = random	−1 — случайное
+100% enables full resolution	Масштаб 100% включает полное разрешение
 16 Bits/Channel	16 бит на канал
+16-bit source	Исходник 16 бит
+1–0 opacity	1–0 — непрозрачность
+1–0 strength	1–0 — интенсивность
 2nd object	2-й объект
 8 Bits/Channel	8 бит на канал
+A LUT asset requires a Color Lookup adjustment.	Для LUT требуется коррекция «Поиск цвета».
+A Warp surface requires a pixel layer.	Для деформации нужен пиксельный слой.
+A Warp surface requires image pixels.	Для деформации нужны пиксели изображения.
+A channel transform must be finite and have a positive size.	Параметры трансформации канала должны быть конечными, размеры — положительными.
+A composited result must match the original canvas dimensions.	Размер результата сведения должен совпадать с исходным холстом.
+A display guide cannot replace high precision repair pixels.	Экранный образец нельзя использовать для восстановления пикселей высокой точности.
 A document as an image	Документ как изображение
+A document cannot link to its own file.	Документ не может ссылаться на собственный файл.
 A document's layers	Слои документа
+A form is required.	Требуется форма.
+A high precision edit cannot use display pixels.	Для правки высокой точности нужны исходные пиксели.
+A line is added with AddLine.	Для добавления линии используйте AddLine.
+A llama.cpp launcher needs a localhost server URL.	Для запуска llama.cpp нужен адрес сервера на localhost.
+A mask cannot be linked to a singular layer transform.	Маску нельзя связать со слоем с необратимой трансформацией.
+A mask could not be encoded.	Не удалось закодировать маску.
+A mask inside the project is damaged.	Маска в проекте повреждена.
+A mask transform must be finite and have a positive size.	Параметры трансформации маски должны быть конечными, размеры — положительными.
+A path needs at least two finite nodes.	В контуре должно быть не менее двух узлов с конечными координатами.
+A plugin must contain 1–{0} commands.	Плагин должен содержать от 1 до {0} команд.
+A prompt preset is incomplete or has a duplicate/invalid id.	Набор промпта неполон либо его идентификатор повторяется или недопустим.
+A savepoint requires an enclosing transaction.	Для точки сохранения нужна открытая транзакция.
+A script returned before its input dialog. Use await ui.form(...) or await prompt(...).	Сценарий завершился до закрытия диалога ввода. Используйте await ui.form(...) или await prompt(...).
+A script-only request must return code for review, not execute editor operations.	В режиме сценария требуется вернуть код для просмотра. Операции редактора в этом режиме недоступны.
+A selection limits the edit	Выделение ограничивает область правки
+A shape preview needs an open edit.	Для предпросмотра фигуры начните редактирование.
+A smart object cannot also be a group, adjustment, text or shape layer.	Смарт-объект не может одновременно быть группой, коррекцией, текстом или фигурой.
+A smart object cannot contain itself.	Смарт-объект не может содержать сам себя.
+A smart object has an invalid placement.	Недопустимое положение смарт-объекта.
+A stitched workflow must return the original canvas dimensions. Refusing to stretch a cropped result over the selection.	Рабочий процесс со сшивкой должен вернуть исходный размер холста. Обрезанный результат нельзя растянуть поверх выделения.
+A stroke needs 1–10,000 points.	Мазок должен содержать от 1 до 10 000 точек.
+A verified incremental update is unavailable. Try again later or open the release notes for installation options.	Проверенное инкрементное обновление недоступно. Повторите позже или откройте описание выпуска со способами установки.
 AI	ИИ
+AI Matting packing requires matching sRGB8 and Alpha8 inputs.	Для AI Matting нужны согласованные входные данные sRGB8 и Alpha8.
+AI Matting returned an invalid alpha value.	AI Matting вернул недопустимое значение альфа-канала.
+AI Matting returned an unexpected output grid.	AI Matting вернул неожиданную сетку пикселей.
 AI Settings…	Настройки ИИ…
 AI Upscale	Увеличение с ИИ
+AI fine detail also examines uncertain areas at their original scale. Useful for fine mesh; slower. Compare the result at 100%.	Уточнение ИИ обрабатывает сложные границы в исходном разрешении. Для мелкой сетки потребуется больше времени. Сравните результат при масштабе 100%.
+AI output must be an RGBA8888 bitmap.	Результат ИИ должен быть изображением RGBA8888.
+AI tasks and settings	Задачи и настройки ИИ
+AI tasks require asynchronous script execution.	Для задач ИИ нужен асинхронный запуск сценария.
 AI ▾	ИИ ▾
 API base URL	Базовый адрес API
 API key for this session	Ключ API для этого сеанса
 API mode	Режим API
+AVS Prompt Helper is unavailable on this ComfyUI server.	На этом сервере ComfyUI недоступен AVS Prompt Helper.
 About Composa	О программе Composa
 Actual Pixels	Фактический размер
 Add Layer	Добавление слоя
@@ -20,11 +61,19 @@ Add Mask	Добавить маску
 Add Shape	Добавление фигуры
 Add Smart Filter	Добавить смарт-фильтр
 Add Text	Добавление текста
+Add a Comfy.org API key in AI Settings.	Добавьте ключ API Comfy.org в настройках ИИ.
+Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone does not authorize external requests.	Добавьте ключ API Comfy.org в меню ИИ → Настройки ComfyUI. Для внешних запросов требуется ключ.
+Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.	Добавьте ключ API Comfy.org в меню ИИ → Настройки ComfyUI. Входа в браузере недостаточно.
 Add color stop	Добавить точку цвета
 Add filter mask	Добавить маску фильтра
 Add folder…	Добавить папку…
+Add gradient stop	Добавить точку градиента
+Add layer mask (Alt: hide all)	Добавить маску слоя. Alt — скрыть всё
 Add opacity stop	Добавить точку непрозрачности
+Add reference image	Добавить изображение-образец
+Add your Comfy.org key in AI Settings → Connection → Comfy credits.	Добавьте ключ Comfy.org в разделе Настройки ИИ → Подключение → Кредиты Comfy.
 Adjust	Коррекция
+Adjustment layer "{0}" has no settings.	У корректирующего слоя «{0}» отсутствуют параметры.
 Adjustments	Коррекции
 Airbrush	Аэрограф
 Align	Выровнять
@@ -34,46 +83,93 @@ Align justify	По ширине
 Align left	По левому краю
 Align middle	По вертикальному центру
 Align pixels	Совместить пиксели
+Align pixels · use unchanged image details to correct small shifts before inserting the result.	Совместить пиксели · перед вставкой скорректировать сдвиг по неизменённым деталям изображения.
 Align right	По правому краю
+Align to the canvas or to the second object selected; that object stays in place. Shift-click adds objects.	Выровнять относительно холста или второго выбранного объекта. Второй объект останется на месте. Shift + щелчок добавляет объект.
 Align top	По верхнему краю
 Aligned	С выравниванием
 All	Всё
 All kinds	Все типы
 Allow AI Control	Разрешить управление через ИИ
 Allow Assistant to read this folder	Разрешить ассистенту читать эту папку
+Alpha channel	Альфа-канал
+Alpha edit region must match the canvas.	Область изменения альфа-канала должна совпадать с холстом.
+Alt changes one corner	Alt меняет один угол
+Alt from center	Alt рисует из центра
+Alt subtract	Alt вычитает
+Alt subtracts	Alt вычитает
+Alt symmetric	Alt изменяет рамку симметрично
+Alt+arrows tracking and leading	Alt + стрелки меняют трекинг и интерлиньяж
+Alt-click for background	Alt + щелчок берёт фоновый цвет
+Alt-click for the background	Alt + щелчок задаёт цвет фона
+Alt-click picks a color	Alt + щелчок берёт цвет
+Alt-click sets the source	Alt + щелчок задаёт образец
+Alt-click sets the texture source	Alt + щелчок задаёт образец текстуры
+Alt-click to zoom out	Alt + щелчок уменьшает масштаб
+Alt-drag duplicates	Alt + перетаскивание создаёт копию
 Amount	Величина
+An AI output mask must be Alpha8 and match its image.	Маска результата ИИ должна иметь формат Alpha8 и размер изображения.
+An AI selection must be a document-sized Alpha8 bitmap.	ИИ должен вернуть выделение Alpha8 размером с документ.
+An alpha channel already has that name.	Альфа-канал с таким именем уже существует.
+An alpha channel name needs 1–200 characters.	Имя альфа-канала должно содержать от 1 до 200 символов.
+An editable source copy ends in .cmps.	Редактируемая копия исходника должна иметь расширение .cmps.
+An engine id must be a lowercase, file-safe identifier.	Идентификатор движка должен состоять из строчных символов, допустимых в имени файла.
+An image inside the project is missing ({0}).	В проекте отсутствует изображение ({0}).
 Anchor	Привязка
 Angle °	Угол, °
+Another Composa window already allows AI control; agents reach that one.	Управление через ИИ уже включено в другом окне Composa.
 Anti-alias	Сглаживание
 Apply	Применить
 Apply Layer Mask	Применить маску слоя
 Apply edit	Применить правку
 Apply requested edits	Применить правки
+Applying changes…	Применение изменений…
+Applying full-resolution fill…	Заливка в полном разрешении…
+Arrow keys or scroll wheel	Стрелки или колесо мыши
+Arrows nudge selected node	Стрелки сдвигают выбранный узел
+Ask a question or describe an edit. Attach a script, instructions, or reference images when helpful.	Задайте вопрос или опишите правку. Можно приложить сценарий, инструкции или изображения для образца.
 Assign Color Profile…	Назначить цветовой профиль…
 Assistant	Ассистент
 Assistant Settings	Настройки ассистента
+Assistant is thinking…	Ассистент готовит ответ…
+Assistant provider and settings	Провайдер и настройки ассистента
 Assistant…	Ассистент…
+At most three LoRAs can be configured.	Можно настроить не более трёх LoRA.
+Attach a JavaScript, text/data file, or PNG/JPEG/WebP image.	Прикрепите сценарий JavaScript, текстовый файл, файл данных или изображение PNG/JPEG/WebP.
 Attach scripts, text, or images	Прикрепить сценарии, текст или изображения
+Attach up to six files per message.	К сообщению можно прикрепить до шести файлов.
 Attach…	Прикрепить…
 Auto	Авто
 Auto Levels	Автоуровни
 Auto Select	Автовыбор
+Auto balances the average color; Custom follows Temperature and Tint. Click the thumbnail to set them from one pixel.	Авто балансирует средний цвет. В ручном режиме задайте температуру и оттенок или выберите пиксель на миниатюре.
+Auto performs edits. Script modes produce reusable code without executing it.	В авторежиме правки выполняются сразу. В режиме сценария создаётся код для повторного использования.
 Automatic light direction	Автоматическое направление света
+Automatic llama.cpp startup is only allowed for a localhost server URL.	Автоматический запуск llama.cpp доступен только для сервера на localhost.
 Automatically refresh linked files	Обновлять связанные файлы автоматически
 Automatically update changed linked files	Автоматически обновлять изменённые связанные файлы
 Back to parent	К исходному документу
 Background	Фон
+Background cleanup changed image dimensions.	После очистки фона размеры изображения изменились.
 Background color	Фоновый цвет
+Background reconstruction dimensions differ.	Размеры изображения для восстановления фона различаются.
+Backspace removes a corner	Backspace удаляет последний угол
 Based On	На основе
 Baseline	На базовой линии
 Baseline to baseline · 0 is Auto (120% of font size)	Расстояние между базовыми линиями · 0 для автоматического значения
 Before	До
 Before / After	До / после
+Binary file: open or import it as an image instead.	Это двоичный файл. Откройте или импортируйте его как изображение.
 Black	Чёрный
 Black & White…	Чёрно-белое…
+Black removes	Чёрный скрывает
 Blending Options	Параметры наложения
+Blends the color into the edges while keeping the center. On an empty layer it paints across the whole canvas.	Смешивает цвет по краям, сохраняя центр. На пустом слое закрашивает весь холст.
 Blue	Синий
+Boolean fields need true/false.	Логические поля принимают значения true и false.
 Bottom	К нижнему краю
+Bottom left	Слева ↓
+Bottom right	Справа ↓
 Brightness/Contrast…	Яркость и контрастность…
 Browse…	Обзор…
 Brush	Кисть
@@ -84,58 +180,132 @@ Bulleted list	Маркированный список
 Camera Raw Filter	Фильтр Camera Raw
 Cancel	Отмена
 Cancel edit	Отменить правку
+Cannot escalate an inspect-only task to editing.	Задача просмотра не разрешает редактирование.
+Cannot reach ComfyUI at {0}. Start the server or check its address.	Не удалось подключиться к ComfyUI по адресу {0}. Запустите сервер или проверьте адрес.
+Cannot read the context crop.	Не удалось прочитать фрагмент контекста.
+Cannot read this bitmap region.	Не удалось прочитать область изображения.
+Cannot remove technical padding.	Не удалось удалить технические поля.
+Cannot remove technical scene padding.	Не удалось удалить технические поля сцены.
 Canvas	Холст
 Canvas Only	Только холст
 Canvas Size	Размер холста
 Canvas Size…	Размер холста…
+Canvas dimensions exceed the {0} px / {1} MP limit.	Холст превышает ограничение {0} пикс. / {1} Мп.
+Canvas exceeds document limits.	Холст превышает допустимые размеры документа.
 Canvas reach	Область холста
 Capital spacing	Интервалы прописных
 Case forms	Формы знаков
 Case-sensitive forms	Знаки с учётом регистра
 Center vertically	По центру
+Change	Изменение
 Change Background…	Заменить фон…
 Change Text Style	Изменение оформления текста
 Channel	Канал
 Channel Mixer…	Микширование каналов…
+Channel edits require matching RGB source grids.	Для изменения каналов нужны совпадающие сетки RGB.
 Channels	Каналы
 Characters	По буквам
 Check for Updates Automatically	Автоматически проверять обновления
 Check for Updates…	Проверить обновления…
 Check for updates on startup	Проверять обновления при запуске
+Choose 8-bit output for this frame size.	Для этого размера выберите 8-битный результат.
+Choose AI operation	Выбрать операцию ИИ
 Choose Reference Images	Выбрать изображения-образцы
+Choose a Composa project, Photoshop document or supported image file.	Выберите проект Composa, документ Photoshop или изображение поддерживаемого формата.
+Choose a JavaScript file smaller than 256 KB.	Выберите файл JavaScript размером менее 256 КБ.
+Choose a custom grid color	Выбрать цвет сетки
+Choose a different path for the editable source copy.	Выберите другой путь для редактируемой копии исходника.
+Choose a live shape layer to change its fill color.	Выберите редактируемую фигуру, чтобы изменить её заливку.
+Choose a prompt provider in ComfyUI Settings.	Выберите провайдера промптов в настройках ComfyUI.
+Choose a scene-editing workflow in AI Settings.	Выберите рабочий процесс редактирования сцены в настройках ИИ.
+Choose a supported Nano Banana resolution: 1K, 2K or 4K.	Выберите разрешение Nano Banana: 1K, 2K или 4K.
+Choose a supported RGB ICC profile.	Выберите поддерживаемый профиль RGB ICC.
+Choose a text/script file explicitly attached to this message.	Выберите текстовый файл или сценарий, прикреплённый к этому сообщению.
+Choose an alpha channel or specific RGB components before transforming channel contents.	Перед трансформацией выберите альфа-канал или отдельные компоненты RGB.
+Choose an editable raster layer before painting or filling.	Перед рисованием или заливкой выберите редактируемый растровый слой.
+Choose an image explicitly attached to this chat message.	Выберите изображение из вложений этого сообщения.
 Choose display ICC…	Выбрать профиль экрана ICC…
 Choose folder & create launcher…	Выбрать папку и создать файл запуска…
+Choose layers to group.	Выберите слои для группировки.
+Choose one RGB channel.	Выберите один канал RGB.
+Choose one RGB component.	Выберите один компонент RGB.
+Choose one, two or three variants.	Выберите от одного до трёх вариантов.
 Choose plugin.json	Выберите plugin.json
 Choose preset	Выберите набор
+Choose property from the tool schema's enum; no JSON paths or layer indices.	Выберите свойство из перечня в схеме инструмента. Пути JSON и индексы слоёв не поддерживаются.
+Choose the complete llama.cpp folder, including its libraries.	Выберите папку llama.cpp вместе с её библиотеками.
 Choose the documents to recover.	Выберите документы для восстановления.
+Choose the model name in Assistant Settings.	Задайте имя модели в настройках ассистента.
+Choose the server model in AI Settings → Prompt enhancer.	Выберите модель сервера в разделе Настройки ИИ → Улучшение промптов.
+Choose the vignette color	Выбрать цвет виньетки
+Choose ×2 or ×4.	Выберите увеличение ×2 или ×4.
 Classic blue	Классическая синяя
 Clear	Очистить
 Clear Guides	Удалить направляющие
+Clear layer filters	Очистить фильтры слоёв
+Clear layer filters (Escape)	Очистить фильтры слоёв (Esc)
+Clear to reorder	Сбросьте фильтр, чтобы изменить порядок
+Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.	Щёлкните по пикселям, чтобы выбрать слой. При отключённом автовыборе перетаскивается текущий слой. Ctrl + щелчок выбирает слой под курсором.
+Click a pixel that should be neutral to set the white balance from it	Щёлкните по нейтральному пикселю для настройки баланса белого
+Click a shortcut, then press its new key combination; Escape stops recording and Backspace clears it. Brush size and hardness ([ ] and { }), the opacity digits, Space to pan and the modifier-and-mouse gestures are fixed.	Щёлкните по сочетанию и нажмите новые клавиши. Esc завершает ввод, Backspace очищает сочетание. Клавиши размера и жёсткости кисти ([ ] и { }), цифры непрозрачности, пробел для перемещения холста и жесты мыши с модификаторами закреплены.
+Click an object or drag a box around it. Automatic refines hair and soft edges locally. Quick outline makes a crisp selection.	Щёлкните по объекту или обведите его рамкой. Автоматический режим уточняет волосы и мягкие края. Быстрый контур создаёт чёткую границу.
+Click an object or drag a rectangle	Щёлкните по объекту или обведите его рамкой
 Click and hold	Нажмите и удерживайте
+Click corners	Отметьте углы щелчками
+Click for dimensions	Щёлкните, чтобы ввести размеры
+Click for point text	Щелчок начинает ввод текста
+Click or drag to pan · wheel to zoom · arrows to pan	Щёлкните или перетащите для перемещения · колесо меняет масштаб · стрелки сдвигают вид
 Click or draw a rectangle	Щёлкните или нарисуйте прямоугольник
+Click text to edit it	Щёлкните по тексту для редактирования
+Click the image to pick the color to select.	Щёлкните по изображению, чтобы выбрать цвет для выделения.
+Click the start, double-click or Enter to close	Щелчок по началу, двойной щелчок или Enter замыкает контур
+Click to add a stop or drag to move it. Color above, opacity below.	Щелчок добавляет точку, перетаскивание перемещает её. Сверху цвет, снизу непрозрачность.
+Click to add a stop. Drag a stop to move it.	Щёлкните, чтобы добавить точку. Перетащите точку для перемещения.
+Click to fill connected pixels with the foreground color	Щёлкните для заливки смежных пикселей основным цветом
+Click to pick the foreground color	Щёлкните, чтобы взять основной цвет
+Click to select similar colors	Щёлкните, чтобы выделить близкие цвета
+Click to select, double-click to edit, Alt-drag onto another layer to copy the {0}	Щёлкните для выбора, дважды щёлкните для изменения. Чтобы скопировать {0}, перетащите на другой слой с Alt.
+Click to zoom in	Щёлкните для увеличения
 Clipboard	Буфер обмена
 Clone Stamp	Штамп
 Clone Stamp (S) · Alt-click sets the source	Штамп (S) · Alt + щелчок задаёт образец
+Clone from a source point or drag a selection to a donor	Клонируйте из точки-образца или перетащите выделение на область-образец
 Close	Закрыть
 Close Project	Закрыть проект
+Close preview	Закрыть предпросмотр
 Collapse panel	Свернуть панель
 Color	Цвет
 Color Balance…	Цветовой баланс…
 Color Burn	Затемнение основы
 Color Dodge	Осветление основы
 Color Lookup	Поиск цвета
+Color Lookup requires its bitmap's working RGB profile.	Для коррекции «Поиск цвета» нужен рабочий профиль RGB изображения.
 Color Lookup…	Поиск цвета…
 Color Range…	Цветовой диапазон…
 Color mode	Цветовой режим
 Color stops · positions in %	Точки цвета · позиции в %
+Color the result while keeping its tones, for a sepia or a cyanotype	Окрасить изображение с сохранением тонов, например для сепии или цианотипии
 Colorize	Тонирование
 Comfy credits	Кредиты Comfy
+Comfy credits key required	Требуется ключ Comfy Credits
 Comfy.org API key	Ключ API Comfy.org
 ComfyUI Settings…	Настройки ComfyUI…
+ComfyUI accepted the request without returning a prompt id.	ComfyUI принял запрос, но не вернул идентификатор промпта.
+ComfyUI closed the progress connection before completion.	ComfyUI закрыл соединение для передачи прогресса до завершения задачи.
+ComfyUI history polling ended unexpectedly.	Опрос истории ComfyUI неожиданно прервался.
+ComfyUI returned an empty prompt.	ComfyUI вернул пустой промпт.
+ComfyUI returned {0} images; expected {1}. No result was applied. Try List mode if this workflow does not support Batch.	ComfyUI вернул изображений: {0}, ожидалось: {1}. Результат не применён. Если пакетный режим недоступен, попробуйте режим списка.
 ComfyUI server	Сервер ComfyUI
+Commands · shortcuts can be assigned in Help > Keyboard Shortcuts	Команды · сочетания клавиш можно назначить в меню «Справка» → «Сочетания клавиш»
+Completed. Ctrl+Z undoes the whole script.	Готово. Ctrl+Z отменит все изменения сценария.
+Composa saves your Comfy.org key in your user profile for this server. Manage it in AI Settings → Connection → Comfy credits.	Composa сохраняет ключ Comfy.org в профиле пользователя отдельно для каждого сервера. Управлять ключом можно в настройках ИИ → «Подключение» → Comfy Credits.
 Connect	Подключиться
 Connect / refresh models to read the server's LoRA list.	Подключитесь к серверу и обновите модели, чтобы получить список LoRA.
+Connect ComfyUI and choose an installed object-selection model in the top bar.	Подключите ComfyUI и выберите установленную модель выделения объектов на верхней панели.
+Connect to ComfyUI and wait for the current AI operation to finish.	Подключитесь к ComfyUI и дождитесь завершения текущей операции.
 Connect to check this operation.	Подключитесь для проверки этой операции.
+Connect to load the server’s models.	Подключитесь, чтобы загрузить список моделей сервера.
+Connecting…	Подключение…
 Connection	Подключение
 Connection timeout	Время ожидания
 Connection…	Подключение…
@@ -143,6 +313,7 @@ Constant	Константа
 Constrain proportions	Сохранять пропорции
 Content-Aware Fill	Заливка с учётом содержимого
 Content-Aware Fill Workspace…	Настроить заливку с учётом содержимого…
+Content-Aware Fill failed: {0}	Не удалось выполнить заливку с учётом содержимого: {0}
 Contiguous	Смежные пиксели
 Continue	Продолжить
 Contract	Сжать
@@ -151,15 +322,35 @@ Contrast	Контрастность
 Controls	Рамка
 Convert Color Profile…	Преобразовать цветовой профиль…
 Convert to Smart Object	Преобразовать в смарт-объект
+Cooler to warmer, and green to magenta, away from the camera's own white balance.	Изменяет баланс белого камеры по двум осям: холоднее или теплее, зеленее или пурпурнее.
 Copy	Копировать
 Copy Merged	Скопировать совмещённые данные
 Copy script	Скопировать сценарий
 Corner radius	Радиус углов
+Correcting the script after a rolled-back edit…	Исправление сценария после отмены изменений…
+Could not attach layer pixels to Skia.	Не удалось передать пиксели слоя в Skia.
+Could not complete this message.	Не удалось обработать сообщение.
+Could not sample layers: {0}	Не удалось получить образцы слоёв: {0}
+Could not start llama-server.	Не удалось запустить llama-server.
+Couldn't open the folder {0}	Не удалось открыть папку {0}
+Couldn't open the folder {0}.	Не удалось открыть папку «{0}».
+Couldn't paste the reference: {0}	Не удалось вставить образец: {0}
+Couldn't read recovery copies: {0}	Не удалось прочитать копии для восстановления: {0}
+Couldn't send the image to Photoshop:	Не удалось передать изображение в Photoshop:
+Couldn't start the Photoshop exchange helper.	Не удалось запустить модуль обмена с Photoshop.
 Create	Создать
 Create Clipping Mask	Создать обтравочную маску
 Create a separate shadow layer	Создать отдельный слой тени
 Crop	Кадрирование
 Crop (C)	Кадрирование (C)
+Ctrl+D deselect	Ctrl+D снимает выделение
+Ctrl+D deselects	Ctrl+D снимает выделение
+Ctrl+Enter finishes	Ctrl+Enter завершает ввод
+Ctrl+Z undoes a point	Ctrl+Z отменяет изменение узла
+Ctrl+wheel zooms	Ctrl + колесо меняет масштаб
+Ctrl-click picks a layer	Ctrl + щелчок выбирает слой
+Ctrl-drag a corner distorts	Ctrl + перетаскивание угла искажает форму
+Ctrl-drag moves the layer	Ctrl + перетаскивание перемещает слой
 Current operations	Текущие операции
 Current operations · 00:00	Текущие операции · 00:00
 Current profile:	Текущий профиль:
@@ -170,19 +361,28 @@ Dark neutral	Тёмная нейтральная
 Darken	Затемнение
 Decontaminate	Очистить цвета
 Default Layout	Исходная раскладка
+Default panel layout restored. Saved workspaces are kept.	Восстановлено исходное расположение панелей. Сохранённые рабочие области доступны в списке.
 Defaults by operation	Настройки операций
 Delete	Удалить
 Delete Effect	Удалить эффект
 Delete Layer	Удалить слой
+Delete clears	Delete очищает
+Delete layer, mask or effect	Удалить слой, маску или эффект
 Delete saved channel	Удалить сохранённый канал
+Delete selected alpha channel	Удалить выбранный альфа-канал
+Delete smart filter	Удалить смарт-фильтр
 Denoise	Шумоподавление
 Density	Плотность
 Describe the background, surface and lighting	Опишите фон, поверхность и освещение
 Deselect	Снять выделение
+Develop the camera RAW file and save a .cmps project before linking it.	Обработайте RAW-файл и сохраните проект .cmps перед созданием связи.
 Difference	Разница
+Directory exceeds 100000 entries. Choose a subfolder.	В папке больше 100 000 элементов. Выберите вложенную папку.
+Dismiss	Закрыть
 Display Color	Цвет экрана
 Display Color…	Цвет экрана…
 Display RGB ICC Profile	Профиль экрана RGB ICC
+Display conversion affects previews only. Exports keep the document's profile. On Windows use System; with automatic system color management enabled, keep System or sRGB. Otherwise choose the ICC supplied for your calibrated display.	Профиль экрана используется для предпросмотра. При экспорте сохраняется профиль документа. В Windows выберите системный профиль. При автоматическом управлении цветом также подходит sRGB. Для откалиброванного монитора можно указать его ICC-профиль.
 Distance	Расстояние
 Distribution	Распределение
 Divide	Деление
@@ -191,13 +391,56 @@ Document Bounds	Границы документа
 Document colors	Цвета документа
 Don't Save	Не сохранять
 Done	Готово
+Double-click to type	Дважды щёлкните для ввода
+Double-click, then Reset	Дважды щёлкните и нажмите «Сбросить»
 Download changes	Загрузить изменения
+Draft preview	Черновой предпросмотр
+Drag Warp nodes	Перетаскивайте узлы деформации
+Drag a box for paragraph text	Потяните для создания текстовой рамки
+Drag a point to move it · Shift-click or double-click a curve to add a point · Click a point or segment, then Delete · Alt on the last point continues straight	Перетащите узел для перемещения · Shift + щелчок или двойной щелчок добавляет узел · Delete удаляет выбранный узел или сегмент · Alt на последнем узле продолжает прямую
+Drag a point · arrows adjust (Shift: 10) · Ctrl-click or Delete removes it.	Перетащите точку · стрелки перемещают её, с Shift — на 10 · Ctrl + щелчок или Delete удаляет точку.
+Drag an end to adjust	Перетащите конец градиента для настройки
+Drag channel contents	Перетащите содержимое канала
+Drag inside to move	Потяните внутри для перемещения
+Drag left or right	Перетащите влево или вправо
+Drag left or right to change the count	Перетащите влево или вправо, чтобы изменить количество
 Drag nodes · Shift locks direction · Enter applies · Esc cancels	Перетащите узел · Shift фиксирует направление · Enter применяет · Esc отменяет
 Drag on the canvas to choose the area to keep	Потяните на холсте, чтобы выбрать область кадрирования
+Drag over blemishes to heal	Проведите по дефекту для коррекции
+Drag right or left to zoom smoothly	Плавно меняйте масштаб движением вправо или влево
+Drag the box's handles to resize it	Перетащите маркеры для изменения рамки
+Drag the four handles to set the full hue range and its feathered edges. Drag elsewhere to move the band. Left/Right: 1°, Alt: 0.1°. Up/Down: choose handle. Escape: cancel drag.	Четыре маркера задают диапазон тонов и растушёвку краёв. Потяните между маркерами для сдвига диапазона. ←/→ меняют угол на 1°, с Alt — на 0,1°. ↑/↓ выбирают маркер, Esc отменяет.
+Drag the top edge to dock tools on the left, right or bottom	Перетащите верхний край, чтобы закрепить инструменты слева, справа или внизу
+Drag to adjust the inner radius	Перетащите для изменения внутреннего радиуса
+Drag to blur	Потяните для размытия
+Drag to burn	Потяните для затемнения
+Drag to change the value (Alt: finer)	Потяните для изменения значения. Alt уменьшает шаг
+Drag to clone	Потяните для клонирования
+Drag to crop	Потяните рамку кадрирования
+Drag to dodge	Потяните для осветления
+Drag to draw a line on a new layer	Потяните для создания линии на новом слое
+Drag to draw a shape on a new layer	Потяните для создания фигуры на новом слое
+Drag to draw from foreground to background	Потяните для градиента от основного цвета к фоновому
+Drag to draw from foreground to transparent	Потяните для градиента от основного цвета к прозрачности
+Drag to erase	Потяните для стирания
+Drag to heal	Потяните для восстановления
+Drag to move	Потяните для перемещения
+Drag to paint	Потяните для рисования
+Drag to pan	Потяните для перемещения холста
+Drag to push pixels	Потяните для сдвига пикселей
+Drag to round corners	Перетащите для скругления углов
+Drag to round corners · Alt changes one corner	Перетащите для скругления углов · Alt меняет один угол
+Drag to select	Потяните для выделения
+Drag to sharpen	Потяните для повышения резкости
+Drag to smudge	Потяните для размазывания
+Drag to zoom	Потяните для масштабирования
+Draw an AI selection rectangle inside the canvas.	Нарисуйте рамку выделения ИИ внутри холста.
+Draws in the foreground color	Используется основной цвет
 Drop an image or project here	Перетащите сюда изображение или проект
 Duplicate	Создать копию
 Duplicate Layer / Layer via Copy	Создать слой путём копирования
 Dynamics ▾	Динамика ▾
+Each field needs a unique name and a label.	У каждого поля должны быть уникальное имя и подпись.
 Edge	Край
 Edge radius	Радиус края
 Edit Adjustment…	Изменить коррекцию…
@@ -205,6 +448,7 @@ Edit Script…	Изменить сценарий…
 Edit Smart Object Contents…	Редактировать содержимое смарт-объекта…
 Edit Text	Редактирование текста
 Edit Text…	Редактировать текст…
+Edit failed: {0}	Не удалось применить изменения: {0}
 Edit points	Изменить узлы
 Edit selection	Изменить выделение
 Edit vector mask	Править векторную маску
@@ -215,42 +459,89 @@ Ellipsis	Многоточие
 Elliptical Marquee	Эллиптическое выделение
 Embed	Встроить
 Embed Linked Smart Object	Встроить связанный смарт-объект
+Embedded smart object content is missing.	Содержимое встроенного смарт-объекта отсутствует.
 Enable Lens Profile Corrections	Включить коррекцию профиля объектива
 Enable LoRAs	Включить LoRA
+Enable this LoRA	Включить эту LoRA
+Engine "{0}" binds a task more than once.	Движок «{0}» назначает задачу более одного раза.
+Engine "{0}" has an incomplete workflow declaration.	В движке «{0}» не полностью описан рабочий процесс.
+Engine "{0}" has an invalid manifest version.	У движка «{0}» недопустимая версия манифеста.
+Engine "{0}" has an unsafe workflow path.	В движке «{0}» указан недопустимый путь рабочего процесса.
+Engine "{0}" has duplicate workflow ids.	В движке «{0}» повторяются идентификаторы рабочих процессов.
+Engine "{0}" has no display name.	Для движка «{0}» не задано отображаемое имя.
+Engine "{0}" refers to missing workflow "{1}".	Движок «{0}» ссылается на отсутствующий рабочий процесс «{1}».
+Enter a complete ComfyUI URL beginning with http:// or https://.	Введите полный адрес ComfyUI, начиная с http:// или https://.
+Enter a complete ComfyUI URL.	Введите полный адрес ComfyUI.
 Enter a key to save or replace it	Введите ключ для сохранения
 Enter a name	Введите название
+Enter a name of 1–64 characters.	Введите название длиной от 1 до 64 символов.
 Enter a new key to save or replace it	Введите новый ключ для сохранения
+Enter an HTTP API base URL or full chat/completions URL without credentials or query parameters.	Введите базовый HTTP-адрес API или полный адрес chat/completions без учётных данных и параметров запроса.
+Enter applies	Enter применяет
+Enter the API model ID in AI Settings → Prompt enhancer.	Введите ID модели API в разделе Настройки ИИ → Улучшение промптов.
+Enter the API model ID.	Введите ID модели API.
+Enter the API model name.	Введите имя модели API.
 Equal horizontal gaps (3+ objects)	Равные интервалы по горизонтали (от 3 объектов)
 Equal vertical gaps (3+ objects)	Равные интервалы по вертикали (от 3 объектов)
 Erase	Стирание
+Erase local mark	Стереть локальную отметку
 Eraser	Ластик
 Eraser (E)	Ластик (E)
 Eraser presets	Наборы ластика
+Error: {0}	Ошибка: {0}
+Esc cancels	Esc отменяет
+Escape cancels	Esc отменяет
+Exact value	Точное значение
+Exclude sampling	Исключить из выборки
 Exclusion	Исключение
 Expand	Расширить
+Expand panel	Развернуть панель
+Expanded canvas exceeds document limits.	Расширенный холст превышает допустимые размеры документа.
 Expand…	Расширить…
+Expected a working RGB bitmap.	Требуется изображение в рабочем пространстве RGB.
+Expected an Alpha8 repair mask matching the source dimensions.	Требуется маска восстановления Alpha8 размером с исходник.
+Expected an Alpha8 sampling mask matching the source dimensions.	Требуется маска выборки Alpha8 размером с исходник.
+Expected an Alpha8 source-grid selection.	Требуется выделение Alpha8 в координатах исходника.
 Export	Экспорт
 Export JPEG	Экспорт JPEG
 Export JPEG…	Экспорт в JPEG…
 Export PNG…	Экспорт в PNG…
 Export TIFF…	Экспорт в TIFF…
 Export WebP…	Экспорт в WebP…
+Export needs a file path.	Для экспорта нужен путь к файлу.
 Exposure (EV)	Экспозиция (EV)
 Exposure…	Экспозиция…
 Eyedropper	Пипетка
 Eyedropper (I)	Пипетка (I)
+FLUX returned {0} × {1}; expected {2} × {3}. No result was applied.	FLUX вернул {0} × {1}, ожидалось {2} × {3}. Результат не применён.
 F_ilter	Ф_ильтры
 Fast preview	Быстрый предпросмотр
 Feather	Растушёвка
 Feather…	Растушевать…
+Field type is number, text or boolean.	Тип поля должен быть number, text или boolean.
 Fill	Заливка
 Fill with Background Color	Залить фоновым цветом
 Fill with Foreground Color	Залить основным цветом
 Fills connected pixels with the foreground color	Заливает смежные пиксели основным цветом
+Fills with the foreground color	Заливка основным цветом
+Final edit mask, context and result must share pixel coordinates.	Маска правки, контекст и результат должны иметь общие координаты пикселей.
+Final output uses full resolution	Результат сохраняется в полном разрешении
 Find Command	Поиск команд
 Find Command…	Найти команду…
+Find and filter layers	Поиск и фильтрация слоёв
 Find layers / #tag	Найти слой / #тег
 Find object	Найти объект
+Fine steps	Точная настройка
+Finish the current canvas action before applying the edit.	Завершите текущее действие на холсте перед применением правки.
+Finish the current edit before placing a source.	Завершите текущую правку перед размещением исходника.
+Finish the current edit before replacing contents.	Завершите текущую правку перед заменой содержимого.
+Finish the current edit before running a script.	Завершите текущую правку перед запуском сценария.
+Finish the current edit before running the Assistant.	Завершите текущую правку перед запуском ассистента.
+Finish the current edit before saving contents.	Завершите текущую правку перед сохранением содержимого.
+Finish the current edit before sending the image.	Завершите текущую правку перед передачей изображения.
+Finish the current edit before updating the source.	Завершите текущую правку перед обновлением исходника.
+Finish the current interaction before scene editing.	Завершите текущее действие перед редактированием сцены.
+Finish this document's edit first. Opening another document is only allowed before editing begins.	Завершите правку документа. Другой документ можно открыть перед началом редактирования.
 First-line indent	Красная строка
 Fit	Вписать
 Fit Canvas	Холст целиком
@@ -260,40 +551,61 @@ Flip Canvas Horizontal	Отразить холст по горизонтали
 Flip Canvas Vertical	Отразить холст по вертикали
 Flip Layer Horizontal	Отразить слой по горизонтали
 Flip Layer Vertical	Отразить слой по вертикали
-Flow	Нажим
+Flow	Поток
+Folder access requires the app's asynchronous script runner and allowed folders in Assistant Settings.	Для доступа к папкам нужен асинхронный запуск сценариев и разрешение в настройках ассистента.
 Font default	Как в шрифте
 Font family · hover or use the arrow keys to preview	Гарнитура · наведите указатель или используйте стрелки для просмотра
+Font size	Кегль
 Font size of the selected characters; select text on the canvas to change a fragment	Размер выделенных символов
 Font style	Начертание
+For automatic startup use http://localhost:port without a path or credentials.	Для автоматического запуска укажите http://localhost:порт без пути и учётных данных.
 Foreground color	Основной цвет
 Foreground to transparent	От основного цвета к прозрачному
 Forget saved key	Удалить сохранённый ключ
 Freeze / Reconstruct…	Заморозка и реконструкция…
 Full brush outline	Полный контур кисти
 Full-resolution preview	Предпросмотр в полном разрешении
+Full-resolution result	Результат в полном разрешении
 Fuzziness	Разброс
+GPT supports proportions from 1:3 to 3:1. Use FLUX for a wider canvas; no image will be stretched.	GPT поддерживает пропорции от 1:3 до 3:1. Для более широкого холста используйте FLUX.
 Generate Image…	Создать изображение…
+Generate image content inside the extended crop frame	Сгенерировать содержимое в расширенной области кадрирования
+Generated pixels, reference and coverage must share coordinates.	Сгенерированные пиксели, образец и покрытие должны иметь общие координаты.
 Generation	Генерация
+Generation exceeds the {0} px / {1} MP limit.	Размер генерации превышает ограничение {0} пикс. / {1} Мп.
+Generation including context exceeds document limits.	Область генерации с контекстом превышает допустимые размеры документа.
+Generation including context exceeds the {0} px / {1} MP limit. Reduce image size.	Область генерации с контекстом превышает ограничение {0} пикс. / {1} Мп. Уменьшите изображение.
 Generation settings…	Параметры генерации…
 Generative Expand	Генеративное расширение
 Generative Fill…	Генеративная заливка…
 Generative expand	Генеративное расширение
+Give a finite decontamination amount.	Укажите конечную величину очистки цвета.
 Gradient	Градиент
 Gradient (G)	Градиент (G)
 Gradient Map…	Карта градиента…
 Gradient stops	Точки градиента
 Grain…	Зерно…
+Gray sets partial intensity	Серый задаёт промежуточную интенсивность
 Green	Зелёный
+Green: sampling area · Red: excluded · Purple: repair area · Final fill uses full resolution	Зелёным показана область выборки · красным — исключённая область · фиолетовым — область восстановления · заливка выполняется в полном разрешении
 Grid	Сетка
 Grid Settings	Настройки сетки
 Grid Settings…	Настройки сетки…
 Group Selected Layers	Сгруппировать выделенные слои
+Group layers in the same folder before converting them to a smart object.	Перед преобразованием в смарт-объект поместите слои в одну группу.
 Group panels in tabs	Объединить панели во вкладки
+Group selected layers (Ctrl+G)	Сгруппировать выбранные слои (Ctrl+G)
 Group side panels in tabs	Объединять боковые панели во вкладки
 Groups	Группы
+Guide axis is vertical (X) or horizontal (Y).	Ось направляющей должна быть вертикальной (X) или горизонтальной (Y).
+Guide position must be within ±{0}px.	Положение направляющей должно быть в пределах ±{0} пикс.
 Guides	Направляющие
+Guides are locked.	Направляющие заблокированы.
+Guides are locked; unlock them before adding guides.	Разблокируйте направляющие перед добавлением новых.
 Hand	Рука
 Hand (H) · hold Space with any tool	Рука (H) · удерживайте пробел с любым инструментом
+Handles resize (Shift free, Alt from center)	Маркеры меняют размер (Shift — свободно, Alt — из центра)
+Handles transform	Маркеры изменяют форму
 Hanging indent	Выступ
 Hanging list indent	Выступ маркеров списка
 Hanging punctuation	Висячая пунктуация
@@ -305,38 +617,73 @@ Harmonize…	Гармонизация…
 Healing Brush	Восстанавливающая кисть
 Height	Высота
 Height (px)	Высота (пикс.)
+Hex	HEX
 History	История
+History grids must match.	Сетки пикселей в истории должны совпадать.
+Hold Alt while dragging	Удерживайте Alt при перетаскивании
+Hold to compare with the original	Удерживайте для сравнения с оригиналом
+How far a color may be from the picked ones and still be selected	Допустимое отличие от выбранных цветов
 Hue	Цветовой тон
+Hue boundaries must be finite.	Границы цветового тона должны быть конечными числами.
+Hue boundaries must form one clockwise interval.	Границы цветового тона должны образовывать один интервал по часовой стрелке.
 Hue range and feathering	Диапазон тона и растушёвка
 Hue/Saturation…	Цветовой тон и насыщенность…
 Image Edit…	Редактировать изображение…
 Image Size	Размер изображения
 Image Size…	Размер изображения…
+Image and mask must share coordinates.	Изображение и маска должны иметь общие координаты.
 Image model	Модель изображений
+Image model for this operation	Модель изображения для этой операции
 Image models	Модели изображений
 Image size	Размер изображения
 Import Script	Импортировать сценарий
 Import Script…	Импортировать сценарий…
 Import as	Импортировать как
+Include sampling	Включить в выборку
+Individual corners	Углы по отдельности
+Inner radius %	Внутренний радиус, %
 Input	Вход
 Input black	Чёрная точка входа
+Input dialogs require the app's asynchronous script runner. Use await ui.form(...).	Для диалогов ввода нужен асинхронный запуск сценария. Используйте await ui.form(...).
 Input white	Белая точка входа
+Inside	Внутри
 Install Plugin…	Установить плагин…
 Installed Plugins	Установленные плагины
 Interface theme	Тема интерфейса
+Invalid JPEG ICC segments.	Повреждены сегменты ICC в JPEG.
+Invalid LUT dimensions.	Недопустимые размеры LUT.
+Invalid LUT sample.	Недопустимое значение LUT.
+Invalid LUT title length.	Недопустимая длина названия LUT.
+Invalid RGB channel visibility.	Недопустимые параметры видимости каналов RGB.
+Invalid embedded document size or format.	Недопустимый размер или формат встроенного документа.
+Invalid encoded JPEG segment.	Некорректно закодирован сегмент JPEG.
+Invalid guide position.	Недопустимое положение направляющей.
+Invalid linked smart object file metadata.	Недопустимые метаданные файла связанного смарт-объекта.
+Invalid portable package path.	Недопустимый путь в переносимом пакете.
+Invalid smart object size.	Недопустимый размер смарт-объекта.
 Inverse	Инвертировать выделение
 Invert	Инвертировать
 Invert Layer Mask	Инвертировать маску
+Keep foreground	Сохранить передний план
 Keyboard Shortcuts	Сочетания клавиш
 Keyboard Shortcuts…	Сочетания клавиш…
+LUT domain minimum must be below maximum.	Минимум области значений LUT должен быть меньше максимума.
 Language	Язык
 Lasso	Лассо
 Lasso (L)	Лассо (L)
+Launcher arguments cannot contain line breaks.	Аргументы запуска не могут содержать переносы строк.
 Layer	Слой
+Layer "{0}" has no image.	В слое «{0}» нет изображения.
+Layer "{0}" is not editable text.	Слой «{0}» не содержит редактируемого текста.
 Layer Effects	Эффекты слоя
 Layer Mask Properties	Свойства маски слоя
 Layer Opacity	Непрозрачность слоя
 Layer Tags	Метки слоя
+Layer dimensions exceed the {0} px limit.	Размеры слоя превышают предел {0} пикселей.
+Layer effects: stroke, drop shadow, color overlay, inner shadow, outer glow, inner glow	Эффекты слоя: обводка, тень, наложение цвета, внутренняя тень, внешнее и внутреннее свечение
+Layer mask	Маска слоя
+Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection	Щелчок выбирает маску для рисования, Shift + щелчок отключает её, Ctrl + щелчок загружает как выделение
+Layer {0} no longer exists.	Слой {0} больше не существует.
 Layer's Mask	Маска слоя
 Layer's Pixels	Пиксели слоя
 Layers	Слои
@@ -347,9 +694,11 @@ Letter spacing · px or % of each character’s size	Трекинг в пикс�
 Levels…	Уровни…
 Light neutral	Светлая нейтральная
 Lighten	Замена светлым
+Lighting preserves the source silhouette. A separate shadow layer uses darkening generated near the subject's support. Undo restores the original.	Освещение сохраняет исходный силуэт. Для тени создаётся отдельный слой с затемнением у основания объекта. Отмена вернёт исходное изображение.
 Lightness	Светлота
 Line	Линия
 Line height	Интерлиньяж
+Line width must be positive and finite.	Толщина линии должна быть положительным конечным числом.
 Linear Burn	Линейное затемнение
 Linear Dodge (Add)	Линейный осветлитель
 Linear Light	Линейный свет
@@ -357,37 +706,59 @@ Lining figures	Маюскульные цифры
 Link Layer Mask	Связать маску со слоем
 Linked Smart Object	Связанный смарт-объект
 Linked Source Info…	Сведения о связанном файле…
+Linked files/folders are not allowed in automation packages.	В пакетах автоматизации запрещены ссылки на файлы и папки.
+Linked warp coverage must use the original source grid.	Покрытие связанной деформации должно использовать исходную сетку.
+Liquify failed: {0}	Не удалось применить пластику: {0}
 Liquify…	Пластика…
 List	Список
 List markers	Маркеры списка
+LoRA is missing or ambiguous on the connected server: {0}	На подключённом сервере не найдена однозначная модель LoRA: {0}
+LoRA strength is outside this workflow pack's range.	Сила LoRA выходит за пределы диапазона этого пакета.
 Load .cube…	Загрузить .cube…
 Load ICC…	Загрузить ICC…
 Load Selection	Загрузить выделение
 Load Selection…	Загрузить выделение…
 Load selection	Загрузить выделение
 Load server models	Загрузить модели сервера
+Loading model and checking a real tool call…	Загрузка модели и проверка вызова инструмента…
 Local brush	Локальная кисть
+Local model request failed:	Ошибка запроса к локальной модели:
 Lock	Блокировка
 Lock Guides	Закрепить направляющие
 Lock proportions	Сохранять пропорции
+Locked: {0}	Заблокировано: {0}
+Lower VRAM requires the stock ComfyUI node {0}. Choose Standard memory use or update ComfyUI.	Для экономии видеопамяти нужен стандартный узел ComfyUI {0}. Выберите обычный расход памяти или обновите ComfyUI.
 Lowercase	Строчные
 Luminosity	Яркость
+Make a selection before saving it as a channel.	Создайте выделение, чтобы сохранить его как канал.
 Make default	Использовать по умолчанию
 Marquee (M)	Выделение области (M)
 Mask	Маска
+Mask and context must share coordinates.	Маска и контекст должны иметь общие координаты.
 Mask properties	Свойства маски
 Mask properties…	Свойства маски…
+Mask support must match the canvas.	Область действия маски должна совпадать с холстом.
+Mask the smart filter stack without hiding the object	Добавить маску к смарт-фильтрам, сохранив видимость объекта
 Match to Scene	Согласовать со сценой
-Measuring…	Расчёт…
+Matting requires a working RGB image.	Для выделения по прозрачности требуется изображение в рабочем пространстве RGB.
+Matting requires matching image and Alpha8 grids.	Для выделения по прозрачности нужны совпадающие сетки изображения и Alpha8.
+Matting requires matching image and mask grids.	Для выделения по прозрачности нужны совпадающие сетки изображения и маски.
+Measuring…	Измерение…
+Memory use must be auto, reduced or standard.	Режим памяти должен быть auto, reduced или standard.
 Merge Down	Объединить с нижним
 Merge Visible	Объединить видимые
 Message Assistant… (Enter to send, Shift+Enter for a new line)	Сообщение ассистенту… (Enter — отправить, Shift+Enter — новая строка)
 Midtones	Средние тона
+Missing Russian interface catalog.	Отсутствует каталог русского интерфейса.
+Missing node: {0}	Отсутствует узел: {0}
+Missing parameter:	Отсутствует параметр:
 Model	Модель
 Model ID	Идентификатор модели
 Model ID from your provider	Идентификатор модели у провайдера
 Model components	Компоненты модели
 Model components…	Компоненты модели…
+Model input including padding exceeds document limits. Reduce image size.	Вход модели с техническими полями превышает допустимые размеры. Уменьшите изображение.
+Model returned {0} × {1}; expected {2} × {3}. No edit was applied.	Модель вернула {0} × {1}, ожидалось {2} × {3}. Правка не применена.
 Modify ▾	Изменить ▾
 Monochromatic	Монохромный
 Monochrome	Монохромный
@@ -404,7 +775,11 @@ My brush	Моя кисть
 My eraser	Мой ластик
 My presets	Мои наборы
 Name	Название
+Nano Banana accepts up to 14 input images, including the source.	Nano Banana принимает до 14 изображений, включая исходное.
+Nano Banana reference exceeds document limits.	Изображение-образец Nano Banana превышает ограничения документа.
+Nano Banana returned an unexpected aspect ratio. No result was applied.	Nano Banana вернула неожиданное соотношение сторон. Результат не применён.
 Navigator	Навигатор
+Neutral gray carries no detail. Use Overlay or Soft Light for sharpening.	Нейтральный серый не содержит деталей. Для повышения резкости используйте «Перекрытие» или «Мягкий свет».
 New	Создать
 New Adjustment Layer	Новый корректирующий слой
 New Alpha Channel	Новый альфа-канал
@@ -413,46 +788,84 @@ New Canvas…	Создать холст…
 New Layer	Новый слой
 New Script	Новый сценарий
 New Smart Object via Copy	Создать смарт-объект путём копирования
+New adjustment layer	Создать корректирующий слой
+New alpha channel	Создать альфа-канал
 New canvas	Новый холст
 New canvas (Ctrl+N)	Создать холст (Ctrl+N)
 New chat	Новый чат
+New layer (Ctrl+Shift+N)	Создать слой (Ctrl+Shift+N)
+New layer with mask	Новый слой с маской
+No automation library is configured.	Библиотека автоматизации не настроена.
+No corrected edit was provided.	Исправленный вариант не получен.
 No document	Нет документа
+No document is open. Use open_document or new_document before editor operations.	Нет открытого документа. Перед редактированием вызовите open_document или new_document.
+No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.	В целевой области нет свободного холста. Расширьте рамку, откройте прозрачную область или выберите всё изображение.
+No expanded image was prepared.	Расширенное изображение не подготовлено.
+No incremental package is available for this installation. See the release notes for installation options.	Для этой установки нет инкрементного пакета. Способы установки приведены в описании выпуска.
 No list	Без списка
+No matching commands	Подходящих команд нет
 No matching settings	Настройки не найдены
 No presets installed	Наборы не установлены
+No scene results.	Нет результатов обработки сцены.
 No scripts or enabled plugin commands yet.	Пока нет сценариев и активных команд плагинов.
+No subject found. Make a selection or use a transparent PNG.	Объект не найден. Создайте выделение или используйте PNG с прозрачностью.
+No workflow for {0}.	Нет рабочего процесса для {0}.
 No workflow installed.	Рабочий процесс не установлен.
 No wrap	Без переноса
 Normal	Обычный
+Not applied: {0}	Изменения не применены: {0}
+Not connected to this server.	Нет подключения к этому серверу.
+Not enough canvas space for text; move its origin or enlarge the canvas.	Для текста не хватает места. Переместите точку ввода или увеличьте холст.
+Not found or ambiguous. Choose a model above; files must match this workflow's architecture.	Модель не найдена или найдено несколько вариантов. Выберите выше модель подходящей архитектуры.
+Nothing to trim: no edge is empty in that sense.	По выбранному условию пустых краёв нет.
+Nothing to trim: no edge is transparent.	У изображения нет прозрачных краёв для обрезки.
+Number fields need a finite value within min/max.	Числовое поле требует конечного значения в заданном диапазоне.
 Number position	Индекс
 Numbered list	Нумерованный список
 Numerals	Цифры
 OK	ОК
 Object Selection	Выделение объектов
+Object selection failed: {0}	Не удалось выделить объект. {0}
 Old-style figures	Минускульные цифры
 Older steps are no longer kept	Более ранние шаги недоступны
 One absolute folder path per line	Абсолютные пути к папкам, по одному на строку
+Only 8-bit RGB Photoshop files can be imported.	Поддерживается импорт только 8-битных RGB-файлов Photoshop.
+Only 8-bit or 16-bit RGB Photoshop files can be imported.	Поддерживается импорт только 8- и 16-битных RGB-файлов Photoshop.
+Only a managed library script can be replaced.	Заменить можно только сценарий из управляемой библиотеки.
+Only the optional export permission is supported.	Поддерживается только необязательное разрешение на экспорт.
 Opacity	Непрозрачность
 Opacity %	Непрозрачность, %
+Opacity (percent)	Непрозрачность в процентах
 Opacity stops · positions in %	Точки непрозрачности · позиции в %
 Open	Открыть
 Open Recent	Недавние документы
+Open a document before running a script.	Перед запуском сценария откройте документ.
+Open a document first.	Сначала откройте документ.
 Open documents	Открытые документы
+Open the local editing Assistant	Открыть локальный ассистент редактирования
 Open…	Открыть…
 Operation	Операция
 Operations	Операции
+Optional bearer key: AVS_COMPATIBLE_API_KEY	Необязательный ключ доступа: AVS_COMPATIBLE_API_KEY
 Optional matching mmproj GGUF	Совместимый mmproj GGUF (необязательно)
 Original case	Исходный регистр
+Other channels stay unchanged	Правка действует в текущем канале
 Output	Результат
 Output black	Чёрная точка выхода
 Output channel	Выходной канал
 Output to new layer	Результат на новом слое
 Output white	Белая точка выхода
+Outside	Снаружи
+Outside a corner rotates	За углом рамки можно повернуть объект
 Overall %	Общая сила, %
 Overlay	Перекрытие
+PNG precision decoding requires a seekable stream.	Для декодирования PNG повышенной точности нужен поток с перемоткой.
 Paint Bucket	Заливка
+Paint over the object	Закрасьте объект
+Paint the selection mask	Рисуйте по маске выделения
 Paragraph	Абзац
 Paragraph gap	Интервал абзацев
+Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN.	Для партнёрских узлов нужен ключ API Comfy.org. Создайте его на platform.comfy.org. Ключ сохраняется для этого сервера в профиле пользователя. В Windows используется диспетчер учётных данных. Можно также задать ключ через переменную среды. Для серверов за пределами доверенной локальной сети используйте HTTPS.
 Paste	Вставить
 Paste Into	Вставить в выделение
 Paste Special	Специальная вставка
@@ -463,7 +876,11 @@ Pen pressure controls flow	Нажим зависит от давления пе�
 Pen pressure controls size	Размер зависит от давления пера
 Pen pressure, smoothing, cursor outline and saved brushes	Нажим пера, сглаживание и контур курсора
 Pencil	Карандаш
+Permission denied	Доступ запрещён
 Photoshop JSX · File → Scripts → Browse. Not executed.	Photoshop JSX · Файл → Сценарии → Обзор. Сценарий ещё не запущен.
+Photoshop exchange currently requires Windows.	Обмен с Photoshop доступен в Windows.
+Photoshop export needs a writable, seekable stream.	Для экспорта в Photoshop нужен поток с поддержкой записи и перемотки.
+Photoshop export supports at most {0} layer records, including folder dividers.	Экспорт в Photoshop поддерживает до {0} записей слоёв, включая разделители групп.
 Pin Light	Точечный свет
 Pixel Grid (800% and above)	Пиксельная сетка (от 800%)
 Pixels	Пиксели
@@ -471,27 +888,65 @@ Place Embedded Smart Object…	Поместить встроенный смар�
 Place Images as Layers	Поместить изображения как слои
 Place Images as Layers…	Поместить изображения как слои…
 Place Linked Smart Object…	Поместить связанный смарт-объект…
+Place the text origin inside the canvas, or explicitly disable fitToCanvas.	Разместите начало текста на холсте или отключите fitToCanvas.
+Plugin command ids must be unique; each command needs a title.	Командам плагина нужны уникальные идентификаторы и названия.
+Plugin folder must match its id.	Имя папки плагина должно совпадать с его идентификатором.
+Plugin is outside the managed folder.	Плагин находится вне управляемой папки.
+Plugin manifest is empty.	Манифест плагина пуст.
+Plugin manifest is too large.	Манифест плагина слишком велик.
+Plugin name and version are required.	Укажите название и версию плагина.
+Plugin scripts exceed the package size limit.	Сценарии плагина превышают допустимый размер пакета.
+Plugin scripts must be relative .js paths inside the package.	Пути сценариев должны быть относительными и вести к файлам .js внутри пакета.
+Points	Лучи
+Polygon	Многоугольник
 Polygonal Lasso	Прямолинейное лассо
+Portable installation file changed: {0}. Restore it from the original ZIP and retry.	Файл переносимой установки изменился: {0}. Восстановите его из исходного ZIP и повторите.
 Position	Положение
+Positive straightens lines that bow outward (barrel); negative, lines that bow inward (pincushion).	Положительные значения исправляют бочкообразное искажение, отрицательные — подушкообразное.
+Positive values tighten the detected outline inward; negative values loosen it outward	Положительные значения сдвигают контур внутрь, отрицательные — наружу
+Precise edges requires the bundled AI Matting model. Reinstall the complete Composa package.	Для точных краёв нужна модель AI Matting из комплекта Composa. Переустановите полный пакет.
+Preferences could not be read. Using defaults.	Не удалось прочитать настройки. Использованы значения по умолчанию.
+Preferences could not be saved: {0}	Не удалось сохранить настройки. {0}
+Preferences restored from the last backup.	Настройки восстановлены из резервной копии.
 Preferences…	Настройки…
+Preparing preview…	Подготовка предпросмотра…
 Preserve Luminosity	Сохранять яркость
 Preserve source detail	Сохранять детали исходника
 Preset	Набор
 Preset name	Название набора
 Presets	Наборы
+Pressure flow	Поток от нажима
+Pressure size	Размер от нажима
 Preview	Предпросмотр
+Preview failed	Не удалось построить предпросмотр
+Preview failed: {0}	Ошибка предпросмотра: {0}
+Preview pending…	Ожидание предпросмотра…
+Preview reference: {0}	Предпросмотр образца: {0}
+Preview unavailable	Предпросмотр недоступен
+Profile reading needs a seekable stream.	Для чтения профиля нужен поток с перемоткой.
+Project lookup samples must be stored as an embedded asset.	Таблицу коррекции проекта необходимо хранить как встроенный ресурс.
 Prompt enhancer	Улучшение промптов
 Properties	Свойства
 Proportional figures	Пропорциональные цифры
 Provider	Провайдер
 Punctuation	Пунктуация
+Put each pixel's brightness back afterwards, so only the color moves	Сохранить исходную яркость пикселей при изменении цвета
 Quality	Качество
 Quit	Выйти
+Qwen background layout has no reliable foreground support.	Qwen не обнаружил надёжную область переднего плана для размещения фона.
+Qwen moved or resized the subject too far while arranging the background ({0}; expected {1}). No edit was applied; retry with clearer placement guidance.	Qwen слишком сильно сместил или изменил размер объекта ({0}, ожидалось {1}). Правка не применена. Уточните положение объекта.
 RGB ICC Profile	Профиль RGB ICC
 RGB Precision	Разрядность RGB
+RGB component	Компонент RGB
+RGB guided matting requires corresponding sRGB guides and Alpha8 grids.	Для выделения по RGB нужны соответствующие образцы sRGB и сетки Alpha8.
+RGB uses the document profile. CMYK values use a mathematical RGB conversion without a printing profile.	RGB использует профиль документа. Значения CMYK рассчитаны из RGB без профиля печати.
 Range	Диапазон
 Rasterize Layer	Растрировать слой
+Rasterize the live layer before applying its mask. Keep the mask editable otherwise.	Перед применением маски растрируйте редактируемый слой либо оставьте маску редактируемой.
+Rasterize the smart object before applying its mask. Keep the mask editable otherwise.	Перед применением маски растрируйте смарт-объект либо оставьте маску редактируемой.
 Ratio	Пропорции
+Read and import only. Remove a line to revoke access. Links/junctions are blocked.	Разрешены чтение и импорт. Чтобы отозвать доступ, удалите строку. Символьные ссылки и точки соединения заблокированы.
+Reading the server catalogue…	Загрузка каталога сервера…
 Ready	Готово
 Reasoning effort	Уровень рассуждения
 Recent files	Недавние файлы
@@ -500,8 +955,15 @@ Rectangular Marquee	Прямоугольное выделение
 Red	Красный
 Redo	Повторить
 Redo stroke	Повторить мазок
+Refine edge	Уточнить край
 Refinement	Уточнение
+Refinement failed: {0}	Не удалось уточнить выделение: {0}
+Refinement parameters must be finite.	Параметры уточнения должны быть конечными числами.
+Refinement requires matching image and Alpha8 grids.	Для уточнения нужны совпадающие сетки изображения и Alpha8.
+Refining fine detail {0}/{1}…	Уточнение мелких деталей: {0}/{1}…
+Refining full resolution…	Уточнение выделения в полном разрешении…
 Refresh	Обновить
+Refresh ComfyUI models; LoraLoaderModelOnly and its model list are required for LoRAs.	Обновите модели ComfyUI. Для LoRA нужен узел LoraLoaderModelOnly и список его моделей.
 Refresh Models on ComfyUI to read available upscale models.	Обновите список моделей ComfyUI, чтобы выбрать модель увеличения.
 Relative	Относительно
 Release Clipping Mask	Отменить обтравочную маску
@@ -513,16 +975,28 @@ Remove	Удалить
 Remove Chromatic Aberration	Устранить хроматическую аберрацию
 Remove Object	Удалить объект
 Remove Object · paint an area to remove with AI	Удаление объектов · закрасьте область для удаления с помощью ИИ
+Remove background	Удалить фон
+Remove gradient stop	Удалить точку градиента
+Remove reference	Удалить образец
+Removes the plain backdrop connected to the image's edges. Raise the tolerance to take more.	Удаляет однотонный фон, связанный с краями изображения. Увеличьте допуск, чтобы захватить больше оттенков.
 Rename Alpha Channel	Переименовать альфа-канал
 Rename Layer…	Переименовать слой…
+Rendering full resolution…	Отрисовка в полном разрешении…
+Repaints the layer in brush strokes that follow the picture's edges, the largest brush first and each smaller one only where the picture still differs. A brush size of 0 fits the brush to the picture. Gaps between strokes stay transparent.	Перерисовывает слой мазками по контурам изображения. Сначала используется крупная кисть, затем мелкая уточняет детали. Размер 0 подбирается по изображению. Просветы между мазками сохраняют прозрачность.
+Repair area exceeds the retouching limit.	Область восстановления превышает ограничение ретуши.
 Replace Smart Object Contents…	Заменить содержимое смарт-объекта…
 Request JSON response format (if supported)	Запрашивать ответ в JSON при поддержке моделью
+Requested edits run as one Undo step. Disable to review scripts before applying.	Правки отменяются одним шагом. Отключите, чтобы просматривать сценарии перед применением.
+Requires PrismML llama.cpp. Medium reasoning improves multi-step work; none is faster. Increase the reply budget for long scripts. Vision requires the matching projector.	Требуется PrismML llama.cpp. Средняя глубина рассуждений помогает в задачах из нескольких шагов. Отключение рассуждений ускоряет ответ. Для длинных сценариев увеличьте лимит ответа. Для работы с изображениями нужен соответствующий проектор.
 Reset	Сбросить
 Reset Blend If	Сбросить условия наложения
 Reset hue range	Сбросить диапазон тона
 Reset marks	Сбросить метки
 Reset output	Сбросить результат
 Reset sampling	Сбросить образцы
+Reset the deformation before changing its grid.	Перед изменением сетки сбросьте деформацию.
+Reset the deformation to choose a different grid. The source pixels stay intact.	Чтобы выбрать другую сетку, сбросьте деформацию. Исходные пиксели сохранятся.
+Reset {0}	Сбросить {0}
 Resize	Изменение размера
 Resolution	Разрешение
 Resolution (ppi)	Плотность (ppi)
@@ -542,11 +1016,14 @@ Rotation (degrees)	Угол поворота в градусах
 Rulers	Линейки
 Run	Запустить
 Run JavaScript	Запустить JavaScript
+Run Send-to-Composa.js in Photoshop (File > Scripts > Browse). In Composa use Scripts > Run Script File > Send-to-Photoshop.js.	В Photoshop запустите Send-to-Composa.js через Файл → Сценарии → Обзор. В Composa выберите Сценарии → Запустить файл сценария → Send-to-Photoshop.js.
 Running script / AI tasks…	Выполняются сценарий или задачи ИИ…
+Running…	Выполнение…
 Sample all layers	Образец со всех слоёв
 Sample all visible layers	Образец со всех видимых слоёв
 Samples the merged image	Берёт цвет со всех видимых слоёв
 Sampling area	Область образца
+Sampling visible layers…	Получение образцов видимых слоёв…
 Saturation	Насыщенность
 Save	Сохранить
 Save .js…	Сохранить .js…
@@ -558,49 +1035,119 @@ Save Selection	Сохранить выделение
 Save Selection…	Сохранить выделение…
 Save as PSD…	Сохранить в PSD…
 Save brush preset	Сохранить набор кисти
+Save changes to "{0}" before closing?	Сохранить изменения в «{0}» перед закрытием?
 Save current tip…	Сохранить как набор…
 Save editable copy and relink…	Сохранить редактируемую копию и обновить ссылку…
 Save eraser preset	Сохранить набор ластика
+Save failed: {0}	Не удалось сохранить: {0}
+Save or close this smart object's open contents before replacing its source. Your edits are kept in their tab.	Сохраните или закройте открытое содержимое смарт-объекта перед заменой исходника. Правки сохранены во вкладке.
+Save or close this smart object's open contents before updating from its source. Your edits are kept in their tab.	Сохраните или закройте открытое содержимое смарт-объекта перед обновлением из исходника. Правки сохранены во вкладке.
+Save or discard these contents before reopening the parent version.	Сохраните или отмените изменения содержимого перед открытием родительской версии.
+Save panel visibility, collapsed sections, heights and Canvas Only.	Сохранить видимость и высоту панелей, свёрнутые разделы и режим «Только холст».
 Save preset	Сохранить набор
 Save script…	Сохранить сценарий…
+Save selection as an alpha channel	Сохранить выделение как альфа-канал
 Save settings	Сохранить настройки
+Save these contents as a .cmps project, PSD, PNG, JPEG, WebP or TIFF.	Сохраните содержимое как проект .cmps либо файл PSD, PNG, JPEG, WebP или TIFF.
 Save to Library	Сохранить в библиотеку
 Saved API key	Сохранённый ключ API
+Saved in the Scripts menu.	Сохранено в меню «Сценарии».
+Saved in the Scripts menu. Assign a key in Keyboard Shortcuts.	Сохранено в меню «Сценарии». Клавишу можно назначить в настройках сочетаний клавиш.
+Saved selection exceeds the document raster budget.	Сохранённое выделение превышает предел растровых данных документа.
+Saved {0}	Сохранено: {0}
+Saving these settings creates run-composa-assistant in this folder.	При сохранении настроек в этой папке будет создан файл run-composa-assistant.
+Saving {0}…	Сохранение {0}…
 Scale	Масштаб
 Scale %	Масштаб, %
+Scene editing exceeds the document's {0} MP budget. Use a smaller document.	Для правки сцены превышен лимит {0} Мп. Уменьшите документ.
+Scene editing expects one result per pass. No partial edit was applied.	Каждый проход обработки сцены должен вернуть один результат. Частичные правки не применены.
+Scene editing needs a Normal image layer. Keep a copy of the original blend before converting it.	Для редактирования сцены нужен слой с обычным наложением. Перед преобразованием сохраните копию с исходным наложением.
+Scene editing supports FLUX.2 Klein, Qwen Image 2.1 Turbo, GPT and Nano Banana.	Редактирование сцены поддерживает FLUX.2 Klein, Qwen Image 2.1 Turbo, GPT и Nano Banana.
+Scene input exceeds the {0} MP / {1} px limit.	Вход сцены превышает ограничение {0} Мп / {1} пикс.
+Scene reconstruction dimensions differ from the result.	Размеры восстановленной сцены не совпадают с результатом.
+Scene results exceed the document's {0} MP budget.	Результаты сцены превышают лимит документа {0} Мп.
+Scene workflow returned {0} × {1}; expected {2} × {3}. No edit was applied.	Обработка сцены вернула {0} × {1}, ожидалось {2} × {3}. Правка не применена.
 Screen	Экран
 Script	Сценарий
 Script Editor	Редактор сценариев
+Script authoring permits file reads only; return code without executing it.	При подготовке сценария доступно только чтение файлов. Верните код для просмотра.
+Script escapes its package.	Сценарий выходит за пределы своего пакета.
+Script interpreter memory budget exceeded.	Превышен лимит памяти интерпретатора сценариев.
+Script is outside the managed library.	Сценарий находится вне управляемой библиотеки.
 Script name	Название сценария
 Scripts & Plugins	Сценарии и плагины
+Scripts must be text, at most 256 KB.	Сценарии должны быть текстовыми файлами размером до 256 КБ.
 Search settings…	Поиск настроек…
 Search shortcuts	Поиск сочетаний клавиш
 Seed	Зерно генерации
+Seedream 5.5 supports aspect ratios from 1:16 through 16:1.	Seedream 5.5 поддерживает соотношения сторон от 1:16 до 16:1.
+Seedream accepts up to ten input images, including the source.	Seedream принимает до десяти изображений, включая исходное.
+Select a chat model offered by this server in AI Settings → Prompt enhancer. Current choice: {0}.	В разделе Настройки ИИ → Улучшение промптов выберите чат-модель, доступную на сервере. Сейчас выбрано: {0}.
+Select a layer with pixels to add an effect to.	Выберите слой с пикселями для добавления эффекта.
+Select a layer with pixels to move.	Выберите слой с пикселями для перемещения.
+Select a pixel layer or a mask first.	Сначала выберите пиксельный слой или маску.
+Select a pixel layer or a mask to draw a gradient on.	Выберите пиксельный слой или маску для градиента.
+Select a raster layer or a layer mask to use Paint Bucket.	Для заливки выберите растровый слой или маску слоя.
+Select a smaller area for Content-Aware Fill.	Для заливки с учётом содержимого выберите область меньшего размера.
+Select a smaller area to patch.	Для заплатки выберите область меньшего размера.
+Select a smart object first.	Сначала выберите смарт-объект.
+Select a smart object.	Выберите смарт-объект.
+Select a valid AI variant group.	Выберите группу вариантов ИИ.
+Select a visible image layer, a transparent PNG, or choose Whole image for Relight.	Выберите видимый слой изображения, прозрачный PNG или режим обработки всего изображения.
+Select an area below {0} MP for Content-Aware Fill.	Для заливки с учётом содержимого выберите область меньше {0} Мп.
+Select an area, then drag it to the donor	Выделите область и перетащите её на участок с образцом
+Select an image layer first.	Сначала выберите слой изображения.
+Select an unlocked image layer to warp.	Для деформации выберите разблокированный слой изображения.
+Select an unlocked pixel layer to create a layer mask.	Для создания маски выберите разблокированный пиксельный слой.
 Select and Mask…	Выделение и маска…
+Select at least one RGB channel.	Выберите хотя бы один канал RGB.
+Select everything except those colors, such as all but a green screen	Выделить всё, кроме заданных цветов, например всё вокруг зелёного фона
+Select layers to convert to a smart object.	Выберите слои для преобразования в смарт-объект.
+Select that workspace to replace it, or enter a new name.	Выберите рабочую область для замены или введите новое имя.
+Select the subject first, or install SAM Quality to find it automatically.	Выделите объект или установите SAM Quality для автоматического поиска.
+Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels	Обведите область рамкой или лассо и перетащите её на чистый участок для образца · Esc отменяет операцию
 Selection	Выделение
 Send	Отправить
 Send document preview and attached images (vision model)	Отправлять предпросмотр документа и вложения модели с поддержкой изображений
 Server API base URL	Адрес API сервера
 Server URL	Адрес сервера
 Server model	Модель сервера
+Server model: {0}	Модель сервера: {0}
 Set API key…	Задать ключ API…
 Settings	Настройки
+Settings saved.	Настройки сохранены.
 Shape (U)	Фигура (U)
 Shape Properties	Свойства фигуры
+Shape kind is rectangle, rounded or ellipse.	Допустимые типы фигуры: rectangle, rounded и ellipse.
+Shape options are required.	Требуются параметры фигуры.
 Shapes	Фигуры
+Shift add	Shift добавляет
+Shift adds	Shift добавляет
 Shift edge	Сместить край
+Shift keeps proportions	Shift сохраняет пропорции
+Shift locks direction	Shift фиксирует направление
+Shift snaps to 45°	Shift фиксирует угол с шагом 45°
+Shift square	Shift сохраняет равные стороны
+Shift+Alt intersect	Shift+Alt оставляет пересечение
+Shift-click adds a color, Alt-click takes one away. {0} pixels selected.	Shift + щелчок добавляет цвет, Alt + щелчок убирает. Выбрано пикселей: {0}.
+Shift-click draws a line	Shift + щелчок рисует прямую
 Show	Показать
 Show AI context bounds after selection	Показывать область контекста ИИ после выделения
 Show Transform Controls	Показать рамку трансформации
 Show frozen areas	Показать замороженные области
 Show local marks	Показать локальные метки
+Show or hide (drag down the column to swipe, Alt-click to show only this layer)	Показать или скрыть слой. Потяните по столбцу для нескольких слоёв. Alt + щелчок оставляет видимым только этот слой
 Show original	Показать оригинал
+Sides	Стороны
 Size	Размер
 Skip this version	Пропустить эту версию
 Small capitals	Капитель
 Smart Filter Blending	Наложение смарт-фильтра
 Smart Filters	Смарт-фильтры
 Smart Objects	Смарт-объекты
+Smart filter blending: {0}, {1}	Наложение смарт-фильтра: {0}, {1}
+Smart filter mask: paint black to hide filtering, white to reveal it; Shift-click to disable	На маске смарт-фильтра чёрный скрывает действие, белый проявляет. Shift + щелчок отключает маску
+Smart objects may be nested at most {0} levels.	Максимальная глубина вложения смарт-объектов — {0}.
 Smear (R)	Размазывание (R)
 Smooth	Сглаживание
 Smoothing	Сглаживание
@@ -609,13 +1156,19 @@ Snap To	Привязать к
 Soft Light	Мягкий свет
 Soft eraser	Мягкий ластик
 Soft round	Мягкая круглая
+Something went wrong	Не удалось выполнить действие
 Source contributions (%)	Доли исходных каналов (%)
-Spacing	Интервалы
+Spacing	Интервал
 Spot Healing	Точечная коррекция
 Stamp Visible	Создать слой из видимых
+Star	Звезда
 Start local server when needed	Запускать локальный сервер при необходимости
 Start with white (reveal all)	Заполнить белым (показать всё)
+Step by {0}	Шаг: {0}
 Stop	Остановить
+Stop the running script before closing the editor.	Перед закрытием редактора остановите выполняющийся сценарий.
+Stopped	Остановлено
+Stopped. Document changes were rolled back.	Выполнение остановлено. Изменения документа отменены.
 Stops	Точки
 Strength	Интенсивность
 Strikethrough	Зачёркивание
@@ -623,73 +1176,373 @@ Stroke	Обводка
 Stroke width	Толщина обводки
 Style	Стиль
 Subject	Главный объект
+Subject isolation needs equally sized Alpha8 masks.	Для отделения объекта нужны маски Alpha8 одинакового размера.
 Subscript	Нижний индекс
 Subtract	Вычитание
+Sum of source contributions, excluding Constant. Totals above 100% can clip highlights; negative coefficients subtract source color.	Сумма долей исходных каналов без константы. Значения выше 100% могут обрезать света. Отрицательные коэффициенты вычитают исходный цвет.
 Superscript	Верхний индекс
+Supply 1–32 explicit postconditions.	Укажите от 1 до 32 проверяемых условий результата.
+Supply a property to change.	Укажите свойство для изменения.
+Supply at most 32 postconditions.	Укажите не более 32 условий результата.
+Swap colors (X) · D resets to black and white	Поменять цвета местами (X) · D восстанавливает чёрный и белый
+Switch this group off or on without clearing its sliders	Включить или отключить группу с сохранением положений ползунков
 System instructions	Системные инструкции
+TIFF needs a writable, seekable stream.	Для TIFF нужен поток с поддержкой записи и перемотки.
+Tab for Object	Tab переключает на выделение объекта
+Tab for Wand	Tab переключает на волшебную палочку
+Tab for the next shape	Tab переключает фигуру
 Table RGB	Таблица RGB
 Tabular figures	Табличные цифры
+Tags	Метки
+Tags are optional metadata for templates, scripts and the future Assistant.	Метки помогают организовать шаблоны и сценарии. Заполнять их необязательно.
+Task {0} in engine "{1}" has an incomplete parameter binding.	В задаче {0} движка «{1}» не полностью задана привязка параметра.
+Task {0} in engine "{1}" has an invalid workflow binding.	В задаче {0} движка «{1}» недопустимая привязка рабочего процесса.
 Temperature	Температура
 Test connection	Проверить подключение
 Test model and tools	Проверить модель и инструменты
 Text	Текст
+Text attachments must be smaller than 256 KB.	Текстовые вложения должны быть меньше 256 КБ.
 Text color	Цвет текста
+Text coordinates must be finite.	Координаты текста должны быть конечными числами.
+Text fields need a string of at most 4096 characters.	Текстовые поля принимают строки длиной до 4096 символов.
+Text file exceeds 1 MB.	Текстовый файл превышает 1 МБ.
+Text files are limited to 1 MB. Use a smaller file or import the image.	Лимит текстовых файлов — 1 МБ. Выберите меньший файл или импортируйте изображение.
+Text has an invalid scale.	Недопустимый масштаб текста.
 Text model	Текстовая модель
+Text must be at most {0} characters.	Текст не может содержать больше {0} символов.
+That area is too large to heal in one stroke. Heal it in smaller strokes.	Область слишком велика для одного мазка. Обработайте её несколькими мазками.
+That shape is too large. A shape can cover up to {0} megapixels.	Фигура слишком велика. Максимальная площадь — {0} Мп.
 Thaw all marks	Снять всю заморозку
+The Assistant did not finish within 32 steps. All changes were rolled back; split the request into smaller tasks.	Ассистент не завершил работу за 32 шага. Правки отменены. Разделите запрос на несколько задач.
+The Assistant did not return a script. No operations were executed; ask it to return JavaScript code.	Ассистент не вернул сценарий. Операции не выполнялись. Попросите вернуть код JavaScript.
+The Assistant reached its command limit; all changes were rolled back.	Ассистент достиг лимита команд. Все изменения отменены.
+The Assistant repeated the same failing command without correcting it. All pending edits were rolled back. See Operations for the original error.	Ассистент повторил команду с той же ошибкой. Незавершённые правки отменены. Исходная ошибка доступна в разделе «Операции».
+The Assistant repeatedly requested an already-applied operation. Stopped to prevent duplicates; all pending edits were rolled back.	Ассистент повторно запросил выполненную операцию. Для предотвращения дубликатов незавершённые правки отменены.
+The Assistant response did not contain a JSON plan. Response:	Ответ ассистента не содержит плана JSON. Ответ:
+The Assistant returned an empty response.	Ассистент вернул пустой ответ.
+The Assistant returned an incomplete JSON plan.	Ассистент вернул неполный план JSON.
+The ComfyUI Server URL must not contain credentials, a path, query, or fragment.	URL сервера ComfyUI не должен содержать учётные данные, путь, запрос или фрагмент.
+The ComfyUI connection changed during this request. Retry after connecting to the desired server.	Во время запроса изменилось подключение ComfyUI. Подключитесь к нужному серверу и повторите.
+The ComfyUI connection changed. Retry on the selected server.	Подключение ComfyUI изменилось. Повторите запрос на выбранном сервере.
+The Cube file exceeds {0} MB.	Файл Cube превышает {0} МБ.
+The Cube file is too large.	Файл Cube слишком велик.
+The ICC profile is too large.	Профиль ICC слишком велик.
+The JPEG ICC profile is incomplete.	Профиль ICC в JPEG неполон.
+The LUT exceeds the supported memory budget.	Для LUT превышен допустимый объём памяти.
+The Liquify field exceeds the working memory limit.	Поле пластики превышает доступную рабочую память.
+The Liquify preview source could not be read.	Не удалось прочитать исходник для предпросмотра пластики.
+The Liquify result exceeds the document raster memory budget.	Результату пластики требуется больше растровой памяти, чем доступно документу.
+The Liquify result must retain its source grid, depth and profile.	Результат пластики должен сохранить исходную сетку, разрядность и профиль.
+The Liquify selection must be an Alpha8 source-grid plane.	Для пластики нужно выделение Alpha8 в сетке исходника.
+The Liquify source must match its working RGB grid.	Исходник пластики должен совпадать с рабочей сеткой RGB.
+The PNG ICC chunk is damaged.	Блок ICC в PNG повреждён.
+The PNG ICC profile is invalid.	Некорректный профиль ICC в PNG.
+The PNG profile chunk is truncated.	Блок профиля PNG обрезан.
+The PSD exceeds 2 GB. Save a Composa project instead.	Размер PSD превышает 2 ГБ. Сохраните документ в формате Composa.
+The Photoshop color profile could not be converted to sRGB.	Не удалось преобразовать профиль Photoshop в sRGB.
+The Photoshop file contains too many nested smart objects.	В файле Photoshop слишком много уровней вложенных смарт-объектов.
+The RGB ICC profile is truncated.	Данные профиля RGB ICC обрезаны.
+The RGB color conversion could not be completed.	Не удалось завершить преобразование RGB.
+The RGB profile has a singular color matrix.	Цветовая матрица профиля RGB необратима.
+The RGB profile has no supported linear color basis for scene lighting.	В профиле RGB нет поддерживаемого линейного базиса для освещения сцены.
+The RGB profile's tone curves could not be evaluated.	Не удалось вычислить тоновые кривые профиля RGB.
+The RGB swatch could not be converted.	Не удалось преобразовать образец цвета RGB.
+The TIFF exceeds the supported surface size.	Размер изображения TIFF превышает допустимый.
+The Warp appearance transform is singular.	Матрица трансформации деформации необратима.
+The Warp input region must be finite and nonempty.	Область деформации должна быть непустой и иметь конечные координаты.
+The Warp source region is too small to extend safely.	Исходная область слишком мала для расширения деформации.
+The Warp surface exceeds supported dimensions or memory.	Деформированная поверхность превышает ограничения размера или памяти.
+The actual document failed the requested postconditions. All pending edits were rolled back; a completion claim cannot override failed verification.	Проверка документа показала, что заданные условия результата не выполнены. Незавершённые правки отменены.
+The agent could not apply the requested edit. No changes were committed.	Агент не смог применить правку. Изменения не зафиксированы.
+The agent did not execute the requested edit. The document is unchanged. Inspect Operations or try a more capable model.	Агент не выполнил правку. Проверьте раздел «Операции» или выберите другую модель.
+The agent repeated the same read/search without progress. Inspect another tool or change the query. Pending document edits were rolled back.	Агент повторил безрезультатный поиск или чтение. Измените запрос или инструмент. Незавершённые правки отменены.
+The attachment is not a text file.	Вложение не является текстовым файлом.
+The background layout and subject mask have different dimensions.	У макета фона и маски объекта разные размеры.
+The bitmaps differ in size or format.	Размеры или форматы изображений различаются.
+The bitmaps must be the same size.	Изображения должны быть одинакового размера.
+The built-in sRGB profile is missing.	Встроенный профиль sRGB отсутствует.
+The cached source has local edits. Save them or explicitly choose to discard them before updating.	В локальной копии исходника есть правки. Перед обновлением сохраните их или подтвердите отмену.
+The chat API returned an empty prompt.	Чат-API вернул пустой промпт.
+The clipboard has no image.	В буфере обмена нет изображения.
+The connected ComfyUI does not offer {0}. Update ComfyUI and refresh its models.	Подключённый ComfyUI не предоставляет {0}. Обновите ComfyUI и список моделей.
+The connected server does not support this image quality or resolution. Choose an available value in Advanced.	Сервер не поддерживает выбранное качество или разрешение. Выберите доступное значение в дополнительных настройках.
+The conversion exceeds the document's {0} MP raster budget. Merge layers or reduce image dimensions first.	Преобразование превышает лимит растровых данных {0} Мп. Сначала объедините слои или уменьшите изображение.
+The converted document exceeds its raster memory budget.	Преобразованный документ превышает лимит растровой памяти.
+The decoded frame was cut short.	Декодированный кадр обрезан.
+The decoded frame was not in the expected format.	Декодированный кадр имеет неожиданный формат.
+The deformed surface exceeds the {0}-pixel side or supported surface memory limit.	Деформированная поверхность превышает предел {0} пикселей на сторону или лимит памяти.
+The destination already exists. Choose another path or explicitly allow replacement.	Файл назначения уже существует. Выберите другой путь или разрешите замену.
+The destination appeared while saving. Choose another path.	Во время сохранения по выбранному пути появился файл. Выберите другой путь.
+The destination changed during the save. Choose a different filename.	Файл назначения изменился во время сохранения. Выберите другое имя.
+The developed frame exceeds the supported surface memory. Reduce its dimensions before opening it.	Обработанный кадр превышает лимит памяти. Уменьшите его размеры перед открытием.
+The display ICC exceeds the profile size limit.	Профиль ICC экрана превышает допустимый размер.
+The document changed during generation. Results were not applied to a different document state; retry after finishing edits.	Документ изменился во время генерации. Завершите правки и повторите генерацию.
+The document changed during generation. Results were not applied; retry after finishing the edit.	Документ изменился во время генерации. Результат не применён. Завершите правку и повторите.
+The document changed during scene editing. No further request was submitted and no result was applied.	Документ изменился во время обработки сцены. Последующие запросы не отправлены, результат не применён.
+The document changed while preparing the scene. No generation was submitted.	Документ изменился при подготовке сцены. Запрос на генерацию не отправлен.
+The document lookup tables exceed {0} MB. Remove an unused table first.	Таблицы коррекции документа превышают {0} МБ. Удалите неиспользуемую таблицу.
+The document or active layer changed while Liquify was open; the result was not applied.	Во время работы с пластикой документ или активный слой изменился. Результат не применён.
+The document or active layer changed while refining; the result was not applied.	Во время уточнения документ или активный слой изменился. Результат не применён.
+The edit mask is empty.	Маска редактирования пуста.
+The edit mask is empty. For Expand, expose empty canvas or choose Whole image.	Маска редактирования пуста. Для расширения откройте пустую часть холста или выберите всё изображение.
+The edited path exceeds the surface size limit.	Размер изменённого контура превышает допустимый.
+The embedded ICC profile is too large.	Встроенный профиль ICC слишком велик.
+The embedded RGB color profile isn't supported. Convert the Photoshop file to sRGB before opening it.	Встроенный профиль RGB не поддерживается. Перед открытием преобразуйте файл Photoshop в sRGB.
+The embedded RGB profile is not supported.	Встроенный профиль RGB не поддерживается.
+The embedded content exceeds the document's {0} MP budget.	Встроенное содержимое превышает лимит документа {0} Мп.
+The engine manifest is empty.	Манифест движка пуст.
+The expected source revision belongs to another path.	Ожидаемая версия исходника относится к другому пути.
+The extended Warp geometry is outside the supported coordinate range.	Расширенная геометрия деформации выходит за диапазон поддерживаемых координат.
+The externally started llama server stopped responding while loading. Check its terminal or choose another port.	Внешний сервер llama перестал отвечать при загрузке. Проверьте его терминал или выберите другой порт.
+The full text cannot fit on this canvas, even at the minimum font size.	Весь текст не помещается на холсте даже при минимальном кегле.
+The generated content crop could not be read.	Не удалось прочитать фрагмент сгенерированного содержимого.
+The generated subject mask must be Alpha8 in layout coordinates.	Маска сгенерированного объекта должна иметь формат Alpha8 в координатах макета.
+The guide could not be added.	Не удалось добавить направляющую.
+The high precision surface exceeds the supported memory or dimensions.	Поверхность высокой точности превышает ограничения памяти или размера.
+The image could not be encoded.	Не удалось закодировать изображение.
+The image could not be resampled.	Не удалось пересчитать пиксели изображения.
+The image is larger than the supported {0} pixels a side and {1} megapixels.	Изображение превышает предел {0} пикселей на сторону или {1} Мп.
+The image layer is no longer in this document.	Слой изображения больше не находится в этом документе.
+The image model returned {0} × {1} with different proportions from {2} × {3}. Refusing to stretch or misalign it with the mask; no edit was applied.	Модель вернула {0} × {1} с пропорциями, отличными от {2} × {3}. Результат не применён, чтобы сохранить совпадение с маской.
+The image's RGB space cannot be embedded as an ICC profile.	Цветовое пространство изображения нельзя встроить в профиль ICC.
+The imported layer exceeds the document raster memory budget.	Импортируемый слой превышает лимит растровой памяти документа.
+The input form is too large.	Форма ввода слишком велика.
+The layer exceeds the supported memory or dimensions.	Слой превышает ограничения памяти или размера.
+The layer has no movable content.	В слое нет содержимого для перемещения.
+The layer has no pixels.	В слое нет пикселей.
+The layer has no visible pixels inside the canvas.	На холсте нет видимых пикселей этого слоя.
+The layer transform is singular.	Матрица трансформации слоя необратима.
+The line could not be created.	Не удалось создать линию.
+The linked file exceeds the supported file size.	Связанный файл превышает допустимый размер.
+The linked source exceeds the available document raster budget.	Связанный исходник превышает доступный лимит растровой памяти документа.
+The local Assistant server is not running.	Локальный сервер ассистента не запущен.
+The model did not return a script within 12 steps. No document changes were made.	Модель не вернула сценарий за 12 шагов. Изменения в документ не внесены.
+The model did not verify the requested result after two reminders. Pending edits were rolled back.	Модель не проверила результат после двух напоминаний. Незавершённые правки отменены.
+The model exhausted Maximum reply before completing its response. No partial commands were executed. Increase Maximum reply/context or turn reasoning off in Assistant Settings.	Модель достигла ограничения длины ответа. Команды из неполного ответа не выполнены. Увеличьте длину ответа или контекст, либо отключите рассуждения в настройках ассистента.
+The model returned invalid code after two repair attempts.	После двух попыток исправления модель вернула некорректный код.
+The new layer exceeds the document raster memory budget.	Новый слой превышает лимит растровой памяти документа.
+The open contents changed while the source was loading. Save or close them first; your edits are kept.	Открытое содержимое изменилось при загрузке исходника. Сохраните или закройте его. Правки доступны во вкладке.
+The parametric vector contour is exported with its rendered appearance.	В PSD параметрический контур сохраняется с отрисованным внешним видом.
+The parent document is closed.	Родительский документ закрыт.
+The parent document is closed. Save these contents as a separate project instead.	Родительский документ закрыт. Сохраните содержимое отдельным проектом.
+The parent smart object changed (for example through Undo). Reopen its contents before saving; your open contents remain available.	Родительский смарт-объект изменился, например после отмены. Перед сохранением снова откройте его содержимое. Текущая вкладка сохранена.
+The parent smart object changed. Your existing contents are kept; save them as a separate project or close their tabs and reopen to use the parent's version.	Родительский смарт-объект изменился. Сохраните текущее содержимое отдельным проектом или снова откройте вкладки для загрузки родительской версии.
+The parent source changed. Your contents remain available; reopen the parent source or save an editable copy.	Родительский исходник изменился. Откройте его заново или сохраните редактируемую копию.
+The path exceeds the surface size limit.	Контур превышает допустимый размер поверхности.
+The profile conversion exceeds the document raster memory budget.	Преобразование профиля превышает лимит растровой памяти документа.
+The project LUTs exceed the supported memory budget.	Таблицы LUT проекта превышают лимит памяти.
+The project LUTs exceed {0} MB.	Таблицы LUT проекта превышают {0} МБ.
+The project already has 64 alpha channels.	В проекте уже 64 альфа-канала.
+The project already has 64 saved selections.	В проекте уже 64 сохранённых выделения.
+The project color profile has an invalid size.	Недопустимый размер цветового профиля проекта.
+The project color profile is missing.	Цветовой профиль проекта отсутствует.
+The project contains cyclic or overly nested smart objects.	В проекте обнаружены циклически или слишком глубоко вложенные смарт-объекты.
+The project exceeds the document raster budget.	Проект превышает лимит растровых данных документа.
+The project has too many layers.	В проекте слишком много слоёв.
+The project lookup table is missing.	В проекте отсутствует таблица коррекции.
+The project mask is too large.	Маска проекта слишком велика.
+The project refers to an unsafe LUT path.	В проекте указан недопустимый путь к LUT.
+The project refers to an unsafe path.	В проекте указан недопустимый путь.
+The project refers to an unsafe profile path.	В проекте указан недопустимый путь к профилю.
+The project's canvas size is invalid.	Недопустимый размер холста проекта.
+The project's manifest is empty.	Манифест проекта пуст.
+The project's manifest is too large.	Манифест проекта слишком велик.
+The query matched no layers; inspect targets before editing.	По запросу не найдено слоёв. Проверьте выбор перед редактированием.
+The reference proportions exceed the model image limits.	Пропорции образца превышают ограничения модели.
+The refined cutout exceeds the document raster memory budget.	Уточнённая вырезка превышает лимит растровой памяти документа.
+The refined cutout must use the document canvas and RGB profile.	Уточнённая вырезка должна использовать холст и профиль RGB документа.
+The refined mask exceeds the document raster memory budget.	Уточнённая маска превышает лимит растровой памяти документа.
+The release has changed. Check for updates again.	Выпуск изменился. Ещё раз проверьте обновления.
+The rendered pixels could not be converted for display.	Не удалось преобразовать пиксели для вывода на экран.
+The resized smart filter mask exceeds the surface limit.	Маска смарт-фильтра после масштабирования превышает допустимый размер.
+The running server has only {0} context tokens per slot; Assistant Settings request {1}. Restart the server with a larger --ctx-size (and --parallel 1), or match the context setting to that server.	На сервере доступно {0} токенов контекста на слот, а в настройках задано {1}. Увеличьте --ctx-size при --parallel 1 или укажите доступный размер контекста.
+The sample count does not match the size.	Количество отсчётов не соответствует размеру.
+The scene result must have the original document dimensions.	Результат обработки сцены должен иметь исходные размеры документа.
+The scene workflow did not return its VAE reconstruction baseline.	Рабочий процесс сцены не вернул базовую реконструкцию VAE.
+The script is empty.	Сценарий пуст.
+The script is not a text file.	Сценарий не является текстовым файлом.
+The selection is too large for Content-Aware Fill. Select a smaller area (up to about {0} megapixels).	Выделение слишком велико для заливки с учётом содержимого. Выберите область до {0} Мп.
+The server does not offer the selected image model. Update ComfyUI.	На сервере нет выбранной модели изображения. Обновите ComfyUI.
+The server does not support this image quality or resolution.	Сервер не поддерживает выбранное качество или разрешение.
+The server is running a different model:	На сервере запущена другая модель:
+The shape could not be created.	Не удалось создать фигуру.
+The shape the crop box keeps while you drag it	Пропорции рамки при кадрировании
+The smart filter exceeds the document raster budget.	Смарт-фильтр превышает лимит растровых данных документа.
+The smart filter exceeds the surface size limit.	Смарт-фильтр превышает допустимый размер поверхности.
+The smart filter mask exceeds the document raster budget.	Маска смарт-фильтра превышает лимит растровых данных документа.
+The smart object changed; select its current revision.	Смарт-объект изменился. Выберите его текущую версию.
+The smart object exceeds the {0} MP document budget.	Смарт-объект превышает лимит документа {0} Мп.
+The source changed again immediately after saving. Your editing workspace remains available.	Исходник снова изменился сразу после сохранения. Рабочая область с правками остаётся доступной.
+The source changed outside Composa. Its current file and your edits were kept. Relink or save an editable copy before replacing it.	Исходник изменился за пределами Composa. Файл и ваши правки сохранены. Перед заменой обновите ссылку или сохраните редактируемую копию.
+The source changed while it was being read. Try again after its save finishes.	Исходник изменился во время чтения. Повторите после окончания сохранения.
+The source file is missing. Relink it or save these contents to another file.	Исходный файл отсутствует. Обновите ссылку или сохраните содержимое в другой файл.
+The source image and remove-object mask must have the same dimensions.	Размеры исходного изображения и маски удаления объекта должны совпадать.
+The subject fills the image. Make a subject selection or use a transparent PNG.	Объект занимает всё изображение. Выделите объект или используйте PNG с прозрачностью.
+The system cannot find the file specified.	Система не может найти указанный файл.
+The target document changed while the source was loading. Try again.	Целевой документ изменился во время загрузки исходника. Повторите операцию.
+The task document is already created. Continue editing it.	Документ задачи уже создан. Продолжите редактирование в нём.
+The task document is already open. Continue editing it; do not reopen or switch documents in this task.	Документ задачи уже открыт. Продолжите редактирование в этой вкладке.
+The task was already declared; its postconditions cannot be weakened or replaced during execution.	Задача уже задана. Её условия результата нельзя ослабить или заменить во время выполнения.
+The temporary subject could not be isolated reliably. No background was applied; try a clearer scene or another seed.	Не удалось надёжно отделить временный объект. Фон не применён. Попробуйте более простую сцену или другое зерно.
+The upscaled image exceeds the {0} px / {1} MP limit.	Увеличенное изображение превышает ограничение {0} пикс. / {1} Мп.
+The warp grid has invalid control points.	В сетке деформации недопустимые управляющие точки.
+The warp source region must be a positive normalized bitmap region.	Для деформации нужна нормализованная исходная область положительного размера.
+The workflow pack assigned to this task is unavailable. Choose one in ComfyUI Settings.	Назначенный пакет рабочих процессов недоступен. Выберите другой в настройках ComfyUI.
+The {0} model answered with {1} values for {2}×{3} pixels.	Модель {0} вернула {1} значений для сетки {2} × {3} пикселей.
+The {0} model is not installed: {1} is missing.	Модель {0} не установлена: отсутствует {1}.
+There is not enough visible surrounding image to match this layer to the scene.	Вокруг слоя недостаточно видимого изображения, чтобы согласовать его со сценой.
+There is nothing to copy here.	Нет содержимого для копирования.
+These AI layers exceed the document's {0} MP budget.	Слои ИИ превышают лимит документа {0} Мп.
+These adjustment masks exceed the document's {0} MP budget.	Маски коррекции превышают лимит документа {0} Мп.
+These variants exceed the document's {0} MP budget. Use fewer variants or a smaller image size.	Варианты превышают лимит документа {0} Мп. Уменьшите число вариантов или размер изображения.
+This PSD source was opened as a merged appearance. Save a separate editable copy to keep its original Photoshop layers intact.	PSD открыт как сведённое изображение. Чтобы сохранить оригинальные слои Photoshop, запишите отдельную редактируемую копию.
+This Photoshop file has no merged compatibility image to open.	В файле Photoshop нет сведённого изображения для открытия в режиме совместимости.
+This Photoshop file uses a format version Composa can't read.	Composa не поддерживает версию формата этого файла Photoshop.
+This Photoshop file uses a layer compression method that isn't supported.	Метод сжатия слоёв этого файла Photoshop не поддерживается.
+This Photoshop file uses an image compression method that isn't supported.	Метод сжатия изображения в этом файле Photoshop не поддерживается.
+This Photoshop source needs conversion review from the File menu.	Проверьте параметры преобразования исходника Photoshop через меню «Файл».
+This RGB ICC profile cannot be interpreted by the color engine.	Модуль управления цветом не может прочитать этот профиль RGB ICC.
+This RGB mode supports at most {0} pixels a side and {1} megapixels per surface.	Для этого режима RGB допустимо до {0} пикселей на сторону и до {1} Мп на поверхность.
+This SeedVR2 backend is not installed on the server.	Этот модуль SeedVR2 не установлен на сервере.
 This adjustment has no settings.	У этой коррекции нет параметров.
+This alpha channel does not exist.	Такого альфа-канала нет.
+This alpha channel exceeds the document raster budget.	Альфа-канал превышает лимит растровых данных документа.
+This edit exceeds the document's raster memory budget.	Правка превышает лимит растровой памяти документа.
+This is not a Composa project.	Файл не является проектом Composa.
+This is not a Composa project: it has no manifest.	В файле отсутствует манифест проекта Composa.
+This is not a Photoshop file.	Файл не является документом Photoshop.
+This is the state in the file	Состояние, сохранённое в файле
+This layer already has 64 smart filters.	У слоя уже 64 смарт-фильтра.
 This layer has no pixels	В слое нет пикселей
+This loader does not report a model list.	Загрузчик не предоставляет список моделей.
 This name is already in use	Это название уже используется
+This pack has no full-image edit workflow.	В пакете нет рабочего процесса редактирования всего изображения.
+This pack has no unambiguous diffusion-model LoRA target.	В пакете не удалось однозначно определить модель диффузии для LoRA.
+This plugin has no export permission.	У плагина нет разрешения на экспорт.
+This plugin is already installed. Remove it before installing a replacement.	Плагин уже установлен. Перед заменой удалите текущую версию.
+This plugin needs an unsupported scripting API version.	Плагину нужна неподдерживаемая версия API сценариев.
+This project uses format version {0}; this app supports up to version {1}.	Проект имеет версию формата {0}. Приложение поддерживает версии до {1}.
+This scene workflow accepts at most {0} references in addition to the source.	Этот рабочий процесс принимает до {0} образцов помимо исходника.
+This script belongs to another document or an earlier session. Send a new message to apply it.	Сценарий относится к другому документу или предыдущему сеансу. Для применения отправьте новое сообщение.
+This smart object is embedded.	Этот смарт-объект встроен в документ.
+This smart object no longer exists in the parent document.	Смарт-объекта больше нет в родительском документе.
+This source format cannot be saved. Save an editable .cmps copy and relink it.	Сохранение в исходном формате недоступно. Сохраните редактируемую копию .cmps и обновите ссылку.
+This source save needs conversion review.	Перед сохранением исходника проверьте параметры преобразования.
+This task is declared inspect-only. Editing is not permitted; answer from read-only tools.	Задача разрешает только просмотр. Для ответа используйте инструменты чтения.
+This workflow does not support a native batch. Choose List in Advanced to generate variants sequentially.	Пакетная генерация недоступна. Для последовательного создания вариантов выберите режим списка в дополнительных настройках.
 Tint	Оттенок
 Title case	С прописной буквы
+Toggle channel visibility	Переключить видимость канала
 Token limit	Лимит токенов
 Tolerance	Допуск
+Too many file calls while authoring a script.	Слишком много обращений к файлам при подготовке сценария.
 Tool	Инструмент
+Tool arguments must be a valid JSON object. Received:	Аргументы инструмента должны быть корректным объектом JSON. Получено:
 Top	К верхнему краю
+Top left	Слева ↑
+Top right	Справа ↑
 Tracking	Трекинг
 Transform	Трансформация
 Transform Controls	Рамка трансформации
 Transform Layer	Трансформировать слой
+Transform fields require a raster, shape or text layer. Use layer.moveBy(dx,dy) to move a group.	Поля трансформации работают с растровым, текстовым слоем или фигурой. Для группы используйте layer.moveBy(dx,dy).
+Transformed text cannot fit inside the canvas. Reduce its size or explicitly disable fitToCanvas.	Текст после трансформации не помещается на холсте. Уменьшите его размер или отключите fitToCanvas.
 Transparent	Прозрачный
 Trim	Тримминг
 Trim Away	Обрезать края
 Trim height	Обрезать высоту
 Trim vertical font metrics	Убрать вертикальные поля шрифта
+Trimap	Карта трёх областей
 Trim…	Тримминг…
 Truncate with ellipsis	Обрезать текст с многоточием
+Truncated JPEG metadata.	Метаданные JPEG обрезаны.
+Truncated WebP metadata.	Метаданные WebP обрезаны.
+Two passes create the scene and remove the temporary generated subject. Your original subject stays on a separate layer. Paid models bill both passes.	За два прохода создаётся сцена и удаляется временный объект. Исходный объект остаётся на отдельном слое. Платные модели тарифицируют оба прохода.
+Type	Текст
 Type (T) · click for point text, drag a paragraph box, click text to edit it	Текст (T) · щёлкните для ввода, потяните для создания текстовой рамки
 Type a command, tool or menu name…	Введите название команды, инструмента или меню…
 Type details	Параметры шрифта
 Typography	Типографика
+Unable to retain the reference image.	Не удалось сохранить изображение-образец.
 Underline	Подчёркивание
 Undo	Отменить
 Undo stroke	Отменить мазок
+Unexpected SAM image embedding dimensions.	Неожиданные размеры представления изображения SAM.
+Unexpected SAM mask dimensions.	Неожиданные размеры маски SAM.
+Unexpected trailing LUT data.	После таблицы LUT обнаружены лишние данные.
 Ungroup	Разгруппировать
+Unknown AI task {0}.	Неизвестная задача ИИ: {0}.
+Unknown AI task:	Неизвестная задача ИИ:
+Unknown blend mode:	Неизвестный режим наложения:
+Unknown canvas anchor:	Неизвестная точка привязки холста:
+Unknown editor operation:	Неизвестная операция редактора:
+Unknown parameter:	Неизвестный параметр:
+Unknown smart object action.	Неизвестное действие со смарт-объектом.
 Unlink Layer Mask	Отвязать маску от слоя
+Unlock the layer before warping it.	Разблокируйте слой перед деформацией.
+Unlock the selected layers before converting them to a smart object.	Разблокируйте выбранные слои перед преобразованием в смарт-объект.
+Unlock the smart object before changing its link.	Разблокируйте смарт-объект перед изменением ссылки.
 Unsaved Changes	Несохранённые изменения
+Unsupported LUT asset.	Неподдерживаемый ресурс LUT.
+Unsupported Photoshop engine value.	Неподдерживаемое значение движка Photoshop.
 Untitled	Без названия
+Up to 32 workspaces can be saved. Delete one first.	Можно сохранить до 32 рабочих областей. Чтобы добавить новую, удалите одну из сохранённых.
+Update ComfyUI: scene editing needs Custom dimensions to preserve proportions.	Обновите ComfyUI. Для сохранения пропорций при обработке сцены нужны произвольные размеры.
+Update ComfyUI: this model needs Custom dimensions to preserve image/mask proportions.	Обновите ComfyUI. Этой модели нужны произвольные размеры для сохранения пропорций изображения и маски.
 Update Linked Smart Object	Обновить связанный смарт-объект
 Update from File	Обновить из файла
+Updating preview…	Обновление предпросмотра…
 Uppercase	Прописные
 Upscale	Увеличить
+Upscale exceeds the document's {0} MP budget.	Увеличение превышает лимит документа {0} Мп.
 Upscale…	Увеличить изображение…
 Use Foreground/Background	Основной и фоновый цвета
 Use Photoshop's merged image instead (one layer)	Использовать сведённое изображение Photoshop (один слой)
+Use a color such as #87CEEB or #FF87CEEB (alpha first).	Укажите цвет в формате #87CEEB или #FF87CEEB (альфа-канал первым).
+Use a safe lowercase plugin id (letters, numbers and hyphens).	Для ID плагина используйте строчные буквы, цифры и дефисы.
+Use a title and 1–16 input fields.	Укажите название и от 1 до 16 полей ввода.
+Use an absolute path inside an allowed folder.	Укажите абсолютный путь внутри разрешённой папки.
+Use an exact native layer kind.	Укажите точное внутреннее название типа слоя.
+Use an exact native shapeKind.	Укажите точное внутреннее значение shapeKind.
+Use an existing guide id.	Укажите ID существующей направляющей.
+Use at most 8 dialogs, awaiting one at a time.	Используйте не более 8 диалогов и дожидайтесь закрытия каждого.
 Use current selection	Использовать текущее выделение
 Use default	По умолчанию
+Use finite coordinates and dimensions from 1 to {0} pixels.	Укажите конечные координаты и размеры от 1 до {0} пикселей.
 Use path as vector mask	Использовать контур как векторную маску
+Use sRGB for most photo presets. Choose the color space the table was made for. Camera Log presets need matching source encoding. The table is saved inside your project.	Для большинства фотопресетов подходит sRGB. Выбирайте цветовое пространство, для которого создана таблица. Для пресетов Camera Log нужна соответствующая кодировка исходника. Таблица сохраняется в проекте.
+Use the bounds of your current selection to find the object and refine its edges.	Искать объект внутри текущего выделения и уточнить его края.
 Use this model by default	Использовать эту модель по умолчанию
 Variable font	Вариативный шрифт
 Vertical alignment	По вертикали
+Vision is enabled, but the running server does not support images. Load a vision model with its matching --mmproj projector, restart the server, or disable sending images in Assistant Settings.	Включена передача изображений, но сервер не поддерживает их. Загрузите модель с подходящим проектором --mmproj и перезапустите сервер либо отключите передачу изображений в настройках ассистента.
 Vivid Light	Яркий свет
+Wait for selection to finish, or choose a local model in the options bar instead of ComfyUI.	Дождитесь завершения выделения или выберите локальную модель на панели параметров.
 Warp	Деформация
+Warp coverage must be Alpha8.	Покрытие деформации должно иметь формат Alpha8.
+Warp parameters must be finite.	Параметры деформации должны быть конечными числами.
+Warp requires working RGB pixels.	Для деформации нужны пиксели в рабочем пространстве RGB.
+Warp texture origins must be finite.	Начальные координаты текстуры деформации должны быть конечными числами.
 Warp…	Деформация…
+Wheel: zoom · Middle drag: pan · Alt: reconstruct / thaw · Ctrl+Z: undo stroke	Колесо меняет масштаб · перетаскивание средней кнопкой перемещает холст · Alt восстанавливает или размораживает · Ctrl+Z отменяет мазок
 White	Белый
 White Balance	Баланс белого
+White adds	Белый добавляет
 Width	Ширина
 Width (px)	Ширина (пикс.)
 Word wrap	Переносить по словам
 Words	По словам
+Words match layer names and tags. #tag matches an exact tag. All words must match. Escape clears. Reordering is available after clearing the filter.	Поиск по названиям и меткам слоёв. #метка ищет точное совпадение. Учитываются все слова. Esc очищает фильтр и возвращает возможность перемещать слои.
+Workflow "{0}" is not a JSON object.	Рабочий процесс «{0}» не является объектом JSON.
+Workflow has no node "{0}" required for "{1}".	В рабочем процессе отсутствует узел «{0}», необходимый для «{1}».
+Workflow node "{0}" has no inputs object.	У узла «{0}» отсутствует объект inputs.
+Workflow ready	Процесс готов
+Workflow ready · Comfy credits key required	Процесс готов · требуется ключ Comfy Credits
+Workspace applied.	Рабочая область применена.
+Workspace deleted.	Рабочая область удалена.
 Workspace name	Название рабочей области
+Workspace replaced with the current layout.	Расположение панелей в рабочей области обновлено.
+Workspace saved.	Рабочая область сохранена.
 Workspaces	Рабочие области
 Workspaces…	Рабочие области…
 Wrap	Перенос
@@ -701,6 +1554,8 @@ Zoom Out	Уменьшить
 Zoom in (Ctrl++)	Увеличить (Ctrl++)
 Zoom out (Ctrl+-)	Уменьшить (Ctrl+-)
 Zoom to selection	Уместить выделение
+[ ] changes size	[ ] меняют размер
+[ ] size	[ ] — размер
 _AI	И_И
 _Edit	_Правка
 _File	_Файл
@@ -712,8 +1567,57 @@ _Scripts	С_ценарии
 _Select	_Выделение
 _View	Ви_д
 _Window	_Окно
+addImageFile supports PNG/JPEG/WebP/BMP. Use the native import_file tool for other image formats.	addImageFile поддерживает PNG/JPEG/WebP/BMP. Для других форматов используйте import_file.
+arguments must be an object.	arguments должен быть объектом.
+aspectRatio must be finite and positive.	aspectRatio должен быть положительным конечным числом.
+expected must be a scalar literal (e.g. 2, true, #FFFF00), not {value:...}. Check array elements separately.	Для expected укажите скалярное значение, например 2, true или #FFFF00. Проверяйте элементы массива по отдельности.
+first color stop for gradients	Первая цветовая точка градиента
+intent must be edit or inspect.	Допустимые значения intent: edit и inspect.
+kind uses exact native values:	Для kind используйте точные внутренние значения:
 llama.cpp folder	Папка llama.cpp
+offset must be nonnegative; count must be 1–20.	offset должен быть неотрицательным, count — от 1 до 20.
+opacity must be 0–1.	opacity должен находиться в диапазоне от 0 до 1.
+operator must be equals, near, exists or absent.	Допустимые значения operator: equals, near, exists и absent.
+order is top/bottom; start >= 0; step >= 1.	order должен быть top или bottom, start ≥ 0, step ≥ 1.
+page >= 0; count 1–20.	page должен быть неотрицательным, count — от 1 до 20.
+parent must be a group.	parent должен быть группой.
+path must be a JSON Pointer, e.g. /text/value or /width.	path должен быть указателем JSON, например /text/value или /width.
 pixels	пиксели
+release to remove with AI	Отпустите кнопку для удаления с помощью ИИ
 seconds	сек.
+shapeColor must be a color such as #FFFF00.	Укажите цвет shapeColor, например #FFFF00.
+shapeColor requires only live shape targets; restrict query.kind to shape.	Для shapeColor нужны редактируемые фигуры. Ограничьте query.kind значением shape.
+switch between pixels and percent of font size	Переключить между пикселями и процентами от кегля
 title, product, hero-image	название, товар, обложка
+tolerance must be finite and nonnegative.	tolerance должен быть конечным неотрицательным числом.
+{ } hardness	{ } — жёсткость
+{0} HEX	{0} в HEX
+{0} MB deformation	Деформация: {0} МБ
+{0} color	Цвет: {0}
+{0} commands	Количество команд: {0}
+{0} could not be decoded ({1}).	Не удалось декодировать {0} ({1}).
+{0} could not be decoded. {1}	Не удалось декодировать {0}. {1}
+{0} could not be read ({1}). Supported formats are PNG, JPEG, WebP, BMP and GIF; HEIC, AVIF and TIFF open when ImageMagick is installed.	Не удалось прочитать {0} ({1}). Поддерживаются PNG, JPEG, WebP, BMP и GIF. Для HEIC, AVIF и TIFF требуется ImageMagick.
+{0} could not be read: ImageMagick did not start.	Не удалось прочитать {0}: ImageMagick не запустился.
+{0} does not support these LoRAs.	{0} не поддерживает эти LoRA.
+{0} does not support {1}.	{0} не поддерживает {1}.
+{0} does not yet have a high precision pixel operation.	Для {0} пока недоступна операция над пикселями высокой точности.
+{0} exceeds the supported surface memory.	Для {0} превышен допустимый объём памяти.
+{0} has no high precision filter implementation.	Для фильтра {0} недоступна обработка высокой точности.
+{0} is a camera RAW file. Opening one needs ImageMagick (with its LibRaw delegate), which is not installed.	{0} — файл RAW. Для открытия установите ImageMagick с модулем LibRaw.
+{0} is an SVG file. Opening one needs ImageMagick, which is not installed.	{0} — файл SVG. Для открытия установите ImageMagick.
+{0} is drawn by Skia, not here.	Отрисовку {0} выполняет Skia.
+{0} is larger than the supported {1} pixels a side and {2} megapixels.	Размер {0} превышает предел {1} пикселей на сторону или {2} Мп.
+{0} is not the {1} model Composa was built with, so it is not used.	{0} не совпадает с моделью {1}, для которой собрана Composa, и не будет использоваться.
+{0} match	Найдено: {0}
+{0} matches	Найдено: {0}
+{0} opacity	Непрозрачность: {0}
+{0} requires a selection.	Для {0} требуется выделение.
+{0} selected outside filter	За пределами фильтра выделено: {0}
+{0} took too long to decode.	Превышено время декодирования {0}.
+{0} units	Единицы: {0}
+{0} units · switch between pixels and percent of font size	{0}: переключить между пикселями и процентами от кегля
+{0} visibility	Видимость: {0}
+{0} would be larger than the supported {1} pixels a side and {2} megapixels, or than the document has room for.	Для {0} превышен предел {1} пикселей на сторону, {2} Мп либо оставшийся лимит памяти документа.
+{0} × {1} pixels	{0} × {1} пикс.
 ↑ ↓ to choose · Enter to run · Esc to close	↑ ↓ — выбор · Enter — выполнить · Esc — закрыть

@@ -75,15 +75,15 @@ public class DialogWindow : Window
 public static class Prompts
 {
     public static Task<bool> Confirm(Window owner, string title, string message, string okText = "OK") =>
-        new DialogWindow(title, new TextBlock { Text = message, MaxWidth = 420, TextWrapping = TextWrapping.Wrap }, okText).Ask(owner);
+        new DialogWindow(title, new TextBlock { Text = Locale.Message(message), MaxWidth = 420, TextWrapping = TextWrapping.Wrap }, okText).Ask(owner);
 
     public static Task Alert(Window owner, string title, string message) =>
-        new DialogWindow(title, new TextBlock { Text = message, MaxWidth = 460, TextWrapping = TextWrapping.Wrap }, cancellable: false).Ask(owner);
+        new DialogWindow(title, new TextBlock { Text = Locale.Message(message), MaxWidth = 460, TextWrapping = TextWrapping.Wrap }, cancellable: false).Ask(owner);
 
     /// <summary>Save / Don't Save / Cancel. Returns null for cancel.</summary>
     public static async Task<bool?> SaveChanges(Window owner, string name)
     {
-        var dialog = new DialogWindow("Unsaved Changes", new TextBlock { Text = $"Save changes to \"{name}\" before closing?", MaxWidth = 420, TextWrapping = TextWrapping.Wrap }, "Save");
+        var dialog = new DialogWindow("Unsaved Changes", new TextBlock { Text = Locale.Message($"Save changes to \"{name}\" before closing?"), MaxWidth = 420, TextWrapping = TextWrapping.Wrap }, "Save");
         bool? result = null;
         var discard = Ui.TextButton("Don't Save", () => { result = false; dialog.Close(false); });
         ((StackPanel)((StackPanel)dialog.Content!).Children[1]).Children.Insert(0, discard);
@@ -317,9 +317,9 @@ public static class CanvasDialogs
                     if (closed || mine != generation) { shown?.Dispose(); continue; }
                     (preview.Source as IDisposable)?.Dispose();
                     preview.Source = shown;
-                    info.Text = $"{flattened.Width} × {flattened.Height} px · {(bytes >= 1024 * 1024 ? $"{bytes / 1048576.0:0.0} MB" : $"{bytes / 1024.0:0} KB")}";
+                    info.Text = Locale.Message($"{flattened.Width} × {flattened.Height} px · {(bytes >= 1024 * 1024 ? $"{bytes / 1048576.0:0.0} MB" : $"{bytes / 1024.0:0} KB")}");
                 }
-                catch (Exception) { if (!closed) info.Text = "Preview unavailable"; }
+                catch (Exception) { if (!closed) info.Text = Locale.Message("Preview unavailable"); }
             } while (!closed && mine != generation);
         }
 
@@ -333,7 +333,7 @@ public static class CanvasDialogs
         {
             quality = (int)v;
             generation++;
-            info.Text = "Measuring…";
+            info.Text = Locale.Message("Measuring…");
             timer.Stop(); timer.Start();
         }, width: 380);
         var frame = new Border { Child = preview, Background = new SolidColorBrush(Color.Parse("#1A1A1A")), Padding = new Thickness(1) };

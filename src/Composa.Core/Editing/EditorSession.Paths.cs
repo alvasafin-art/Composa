@@ -36,6 +36,7 @@ public sealed partial class EditorSession
     private static VectorPath ShapeOutline(ShapeStyle style, SKBitmap pixels)
     {
         double w=pixels.Width, h=pixels.Height;
+        if (style.IsRadial() || style.Corners != null) return style.ParametricOutline(w, h, style.Stroke == null ? 0 : Math.Min(style.StrokeWidth, Math.Min(w,h))/2);
         var nodes=new List<BezierNode>();
         void Corner(double x,double y)
         {

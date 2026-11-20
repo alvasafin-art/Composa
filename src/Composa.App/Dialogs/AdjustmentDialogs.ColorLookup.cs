@@ -15,7 +15,7 @@ public static partial class AdjustmentDialogs
         var panel = new StackPanel { Spacing = 10 }; var detached = false; var lifetime = new CancellationTokenSource(); var token = lifetime.Token;
         panel.DetachedFromVisualTree += (_, _) => { detached = true; lifetime.Cancel(); lifetime.Dispose(); };
         void Refresh()
-        { title.Text = lookup.Table?.Title ?? "No table loaded"; ToolTip.SetTip(title, title.Text); details.Text = lookup.Table?.Description ?? "Load a .cube color preset"; }
+        { title.Text = lookup.Table?.Title ?? "No table loaded"; Locale.Tip(title, title.Text); details.Text = lookup.Table?.Description ?? "Load a .cube color preset"; }
         var load = new Button { Content = Locale.T("Load .cube…"), Name = "LoadLookup" };
         load.Click += async (_, _) =>
         {
@@ -43,7 +43,7 @@ public static partial class AdjustmentDialogs
         { LookupRgbSpace.Srgb => "sRGB", LookupRgbSpace.WorkingRgb => "Document RGB", LookupRgbSpace.DisplayP3 => "Display P3", _ => "RGB (1998)" }, s => update(lookup = lookup with { Space = s }), FieldWidth); space.Name = "LookupSpace";
         var strength = Ui.SliderField("Strength", lookup.Strength, 0, 100, v => update(lookup = lookup with { Strength = v }), .1, "0.0", FieldWidth, reset: 100); strength.Name = "LookupStrength";
         foreach (var child in new Control[] { Ui.Row(8, load, clear), title, details, Ui.Label(Locale.T("Table RGB"), Palette.Secondary), space, strength,
-            new TextBlock { Text = "Use sRGB for most photo presets. Choose the color space the table was made for. Camera Log presets need matching source encoding. The table is saved inside your project.", MaxWidth = FieldWidth, TextWrapping = TextWrapping.Wrap }, error }) panel.Children.Add(child);
+            new TextBlock { Text = Locale.T("Use sRGB for most photo presets. Choose the color space the table was made for. Camera Log presets need matching source encoding. The table is saved inside your project."), MaxWidth = FieldWidth, TextWrapping = TextWrapping.Wrap }, error }) panel.Children.Add(child);
         Refresh(); return panel;
     }
 }

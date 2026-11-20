@@ -26,14 +26,14 @@ public sealed class AutomationLibraryWindow : Window
         void Refresh()
         {
             changed(); body.Children.Clear();
-            body.Children.Add(Ui.Label("Commands · shortcuts can be assigned in Help > Keyboard Shortcuts", Palette.Secondary));
+            body.Children.Add(Ui.Label(Locale.T("Commands · shortcuts can be assigned in Help > Keyboard Shortcuts"), Palette.Secondary));
             if (catalog.Commands.Count == 0) body.Children.Add(Ui.Label(Locale.T("No scripts or enabled plugin commands yet.")));
             foreach (var command in catalog.Commands)
             {
                 var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 8 };
                 row.Children.Add(new TextBlock { Text = command.Title, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
                 var editButton = Ui.TextButton(command.PluginId == null ? "Edit" : "View / Copy", () =>
-                { try { edit(command); } catch (Exception error) { status.Text = error.Message; } });
+                { try { edit(command); } catch (Exception error) { status.Text = Locale.Message(error.Message); } });
                 Grid.SetColumn(editButton, 1); row.Children.Add(editButton);
                 var runButton = Ui.TextButton("Run", () => run(command)); Grid.SetColumn(runButton, 2); row.Children.Add(runButton);
                 if (command.PluginId == null)
@@ -53,15 +53,15 @@ public sealed class AutomationLibraryWindow : Window
                 var remove = Ui.TextButton("Remove", () => _ = Remove(plugin));
                 body.Children.Add(Ui.Row(8, checkbox, remove));
             }
-            status.Text = catalog.Errors.Count > 0 ? string.Join("\n", catalog.Errors) :
-                "Plugins run only when you choose a command. JavaScript only; no native modules or arbitrary file reads. Removed scripts/plugins are archived for recovery.";
+            status.Text = Locale.Message(catalog.Errors.Count > 0 ? string.Join("\n", catalog.Errors) :
+                "Plugins run only when you choose a command. JavaScript only; no native modules or arbitrary file reads. Removed scripts/plugins are archived for recovery.");
         }
         async Task Import()
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             { Title = Locale.T("Import Script"), FileTypeFilter = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
             if (files.FirstOrDefault()?.TryGetLocalPath() is not { } path) return;
-            try { catalog.ImportScript(path); Refresh(); } catch (Exception error) { status.Text = error.Message; }
+            try { catalog.ImportScript(path); Refresh(); } catch (Exception error) { status.Text = Locale.Message(error.Message); }
         }
         async Task Install()
         {
@@ -75,19 +75,19 @@ public sealed class AutomationLibraryWindow : Window
                     (manifest.Permissions.Contains("export") ? "This plugin requests permission to export files." : "No filesystem export permission requested."))) return;
                 catalog.Install(path); settings.DisabledScriptPlugins.Remove(manifest.Id); settings.Save(); Refresh();
             }
-            catch (Exception error) { status.Text = error.Message; }
+            catch (Exception error) { status.Text = Locale.Message(error.Message); }
         }
         async Task Remove(InstalledScriptPlugin plugin)
         {
             if (!await Prompts.Confirm(this, "Remove Plugin", $"Remove {plugin.Manifest.Name}? Its package will be moved to the automation archive, not erased.")) return;
             try { catalog.RemovePlugin(plugin.Manifest.Id); settings.DisabledScriptPlugins.Remove(plugin.Manifest.Id); settings.Save(); Refresh(); }
-            catch (Exception error) { status.Text = error.Message; }
+            catch (Exception error) { status.Text = Locale.Message(error.Message); }
         }
         async Task RemoveScript(AutomationCommand command)
         {
             if (!await Prompts.Confirm(this, "Remove Script", $"Move {command.Title} to the automation archive? It can be imported again for recovery.")) return;
             try { catalog.RemoveScript(command.Id); Refresh(); }
-            catch (Exception error) { status.Text = error.Message; }
+            catch (Exception error) { status.Text = Locale.Message(error.Message); }
         }
     }
 }

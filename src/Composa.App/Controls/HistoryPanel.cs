@@ -165,7 +165,7 @@ public sealed class HistoryPanel : UserControl
             var disk = Icons.Create(Icons.Disk, 12, Palette.Secondary);
             // The icon itself ignores the pointer, so the tip sits on a box around it.
             var mark = new Border { Background = Brushes.Transparent, Child = disk, Margin = new Thickness(6, 0, 0, 0) };
-            ToolTip.SetTip(mark, "This is the state in the file");
+            Locale.Tip(mark, "This is the state in the file");
             Grid.SetColumn(mark, 2);
             grid.Children.Add(mark);
         }

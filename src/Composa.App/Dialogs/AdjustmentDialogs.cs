@@ -137,7 +137,7 @@ public static partial class AdjustmentDialogs
         editor.SelectionChanged += RefreshPoint; editor.Changed += _ => RefreshPoint(); RefreshPoint();
         return Ui.Column(10, Ui.Row(10, Ui.Label(Locale.T("Channel"), Palette.Secondary), picker, reset), editor,
             Ui.Row(10, input, output),
-            Ui.Label("Drag a point · arrows adjust (Shift: 10) · Ctrl-click or Delete removes it.", Palette.Secondary));
+            Ui.Label(Locale.T("Drag a point · arrows adjust (Shift: 10) · Ctrl-click or Delete removes it."), Palette.Secondary));
     }
 
     private static Control HueEditor(Window owner, HueSaturationAdjustment hue, Action<Adjustment> update)
@@ -229,7 +229,7 @@ public static partial class AdjustmentDialogs
             Controls.SliderTracks.Saturation(bw.TintHue), reset: defaults.TintSaturation);
         tintRows.Children.Add(tintSaturation);
         var tint = Ui.Check("Tint", bw.Tint, v => { tintRows.IsVisible = v; update(bw = bw with { Tint = v }); });
-        ToolTip.SetTip(tint, "Color the result while keeping its tones, for a sepia or a cyanotype");
+        Locale.Tip(tint, "Color the result while keeping its tones, for a sepia or a cyanotype");
         var reset = Ui.TextButton("Reset", () =>
         {
             update(bw = new BlackAndWhiteAdjustment { Tint = bw.Tint, TintHue = bw.TintHue, TintSaturation = bw.TintSaturation });
@@ -257,7 +257,7 @@ public static partial class AdjustmentDialogs
             }
         }
         var preserve = Ui.Check("Preserve Luminosity", balance.PreserveLuminosity, v => update(balance = balance with { PreserveLuminosity = v }));
-        ToolTip.SetTip(preserve, "Put each pixel's brightness back afterwards, so only the color moves");
+        Locale.Tip(preserve, "Put each pixel's brightness back afterwards, so only the color moves");
         preserve.Margin = new Thickness(0, 6, 0, 0);
         panel.Children.Add(preserve);
         return panel;
@@ -329,7 +329,7 @@ public static partial class AdjustmentDialogs
                 break;
             case FilterKind.HighPass:
                 Slider("Radius", initial.Radius, .1, 250, v => current with { Radius = v }, .1, "0.0", reset: 2);
-                var highPassHint = Ui.Label("Neutral gray carries no detail. Use Overlay or Soft Light for sharpening.", Palette.Secondary); highPassHint.TextWrapping = TextWrapping.Wrap; highPassHint.Width = FieldWidth;
+                var highPassHint = Ui.Label(Locale.T("Neutral gray carries no detail. Use Overlay or Soft Light for sharpening."), Palette.Secondary); highPassHint.TextWrapping = TextWrapping.Wrap; highPassHint.Width = FieldWidth;
                 panel.Children.Add(highPassHint);
                 break;
             case FilterKind.AddNoise:
@@ -342,7 +342,7 @@ public static partial class AdjustmentDialogs
                 var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
                 void PaintSwatch() => swatch.Background = new SolidColorBrush(new SKColor(current.VignetteColor).ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner)));
                 PaintSwatch();
-                ToolTip.SetTip(swatch, "Choose the vignette color");
+                Locale.Tip(swatch, "Choose the vignette color");
                 swatch.PointerPressed += async (_, _) =>
                 {
                     if (await Prompts.Color(owner, "Vignette Color", new SKColor(current.VignetteColor)) is not { } picked) return;
@@ -359,7 +359,7 @@ public static partial class AdjustmentDialogs
                 Slider("Highlights", initial.VignetteHighlights, 0, 100, v => current with { VignetteHighlights = v });
                 panel.Children.Add(new TextBlock
                 {
-                    Text = "Blends the color into the edges while keeping the center. On an empty layer it paints across the whole canvas.",
+                    Text = Locale.T("Blends the color into the edges while keeping the center. On an empty layer it paints across the whole canvas."),
                     Foreground = Palette.Secondary, MaxWidth = 380, TextWrapping = TextWrapping.Wrap
                 });
                 break;
@@ -378,7 +378,7 @@ public static partial class AdjustmentDialogs
                 Slider("Remove Distortion", initial.Distortion, -100, 100, v => current with { Distortion = v });
                 panel.Children.Add(new TextBlock
                 {
-                    Text = "Positive straightens lines that bow outward (barrel); negative, lines that bow inward (pincushion).",
+                    Text = Locale.T("Positive straightens lines that bow outward (barrel); negative, lines that bow inward (pincushion)."),
                     Foreground = Palette.Secondary, MaxWidth = 380, TextWrapping = TextWrapping.Wrap
                 });
                 break;
@@ -390,7 +390,7 @@ public static partial class AdjustmentDialogs
                 Slider("Detail", initial.Painterly.Detail, 0, 100, v => current with { Painterly = current.Painterly with { Detail = v } });
                 panel.Children.Add(new TextBlock
                 {
-                    Text = "Repaints the layer in brush strokes that follow the picture's edges, the largest brush first and each smaller one only where the picture still differs. A brush size of 0 fits the brush to the picture. Gaps between strokes stay transparent.",
+                    Text = Locale.T("Repaints the layer in brush strokes that follow the picture's edges, the largest brush first and each smaller one only where the picture still differs. A brush size of 0 fits the brush to the picture. Gaps between strokes stay transparent."),
                     Foreground = Palette.Secondary, MaxWidth = 380, TextWrapping = TextWrapping.Wrap
                 });
                 break;
@@ -398,7 +398,7 @@ public static partial class AdjustmentDialogs
                 Slider("Tolerance", initial.Amount, 1, 100, v => current with { Amount = v });
                 panel.Children.Add(new TextBlock
                 {
-                    Text = "Removes the plain backdrop connected to the image's edges. Raise the tolerance to take more.",
+                    Text = Locale.T("Removes the plain backdrop connected to the image's edges. Raise the tolerance to take more."),
                     Foreground = Palette.Secondary, MaxWidth = 380, TextWrapping = TextWrapping.Wrap
                 });
                 break;

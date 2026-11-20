@@ -43,7 +43,7 @@ public sealed class WorkingColorPicker : StackPanel
         }
         hex.LostFocus += (_, _) => ReadHex();
         hex.KeyDown += (_, e) => { if (e.Key == Key.Enter) { ReadHex(); e.Handled = true; } };
-        Children.Add(Ui.Row(10, new TextBlock { Text = "Hex", Width = 34 }, hex));
+        Children.Add(Ui.Row(10, new TextBlock { Text = Locale.T("Hex"), Width = 34 }, hex));
         Children.Add(Ui.Label(profile.Name + " · document RGB", Palette.Secondary, 11));
         Refresh();
     }

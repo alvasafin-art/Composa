@@ -37,12 +37,20 @@ public class EditorThemeTests
                 var language = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "EditorLanguagePicker");
                 Assert.Equal("Русский", language.Items[1]);
                 language.SelectedIndex = 1;
+                Assert.Equal("ru",Locale.Language);
+                Assert.Equal("Настройки", dialog.Title);
+                Assert.Contains(window.GetVisualDescendants().OfType<MenuItem>(),m=>Equals(m.Header,"_Файл"));
+                Assert.Equal("Ошибка предпросмотра: Настройки сохранены.", Locale.Message("Preview failed: Settings saved."));
+                language.SelectedIndex = 0;
+                Assert.Equal("Settings", dialog.Title);
+                Assert.Contains(window.GetVisualDescendants().OfType<MenuItem>(), m => Equals(m.Header, "_File"));
+                language.SelectedIndex = 1;
                 picker.SelectedIndex = (int)theme;
                 Dispatcher.UIThread.RunJobs();
                 Assert.Equal(theme, app.CurrentTheme);
                 Assert.Equal(theme == EditorTheme.LightNeutral ? ThemeVariant.Light : ThemeVariant.Dark, dialog.ActualThemeVariant);
                 if (theme == EditorTheme.LightNeutral) Assert.True(Screenshots.Save(dialog, "theme-settings-light"));
-                var action = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == (save ? "Save settings" : "Cancel"));
+                var action = dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == (save ? "Сохранить настройки" : "Отмена"));
                 action.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 Assert.Equal(save, await pending.WaitAsync(TimeSpan.FromSeconds(5)));
             }
@@ -65,6 +73,7 @@ public class EditorThemeTests
         }
         finally
         {
+            Locale.Language="en";
             app.ApplyTheme(EditorTheme.Classic);
             session.MarkSaved("theme.cmps", session.History.CurrentId);
             window.Close();

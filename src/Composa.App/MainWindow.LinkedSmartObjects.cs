@@ -114,7 +114,7 @@ public sealed partial class MainWindow
         if (state.State == LinkedSourceState.Modified && linkedObservations.TryGetValue((parent, source.Id, link.Path), out var observation)
             && observation.Revision.Sha256 == state.Revision?.Sha256 && observation.Status.State == LinkedSourceState.Modified) state = observation.Status;
         var path = Ui.Label(link.Path, Palette.Secondary); path.MaxWidth = 440; path.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var fileName = Ui.Label(Path.GetFileName(link.Path.Replace('\\', '/'))); fileName.MaxWidth = 440; fileName.TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis; ToolTip.SetTip(fileName, fileName.Text);
+        var fileName = Ui.Label(Path.GetFileName(link.Path.Replace('\\', '/'))); fileName.MaxWidth = 440; fileName.TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis; Locale.Tip(fileName, fileName.Text);
         var body = Ui.Column(12, fileName, path,
             Ui.Label(state.State switch { LinkedSourceState.Current => "Source is up to date", LinkedSourceState.Modified => "Source file has changed", LinkedSourceState.Missing => "Source file is missing · cached contents remain available",
                 LinkedSourceState.LocalEdits => "Cached contents have local edits", _ => "Source file is unavailable" }, Palette.Secondary));

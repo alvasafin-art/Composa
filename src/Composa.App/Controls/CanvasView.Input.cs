@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter }
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
@@ -124,6 +124,7 @@ public sealed partial class CanvasView
         if (session == null) { drag = Drag.None; return; }
         switch (drag)
         {
+            case Drag.ShapeParameter: session.Cancel(); adjustingShape = null; break;
             case Drag.WarpNode: EndWarpPoint(keep: false); break;
             case Drag.Stroke: session.CancelStroke(); break;
             case Drag.Patch: session.CancelPreview(); break;
@@ -232,6 +233,7 @@ public sealed partial class CanvasView
         else switch (session.Tool)
         {
             case Tool.Move:
+                if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
                 if (e.ClickCount >= 2 && BeginLiveTextEdit(shift)) break;
                 if (session.CanMovePixels && InsideSelection(pressDocument) && session.BeginMovePixels(duplicate: alt)) drag = Drag.MovePixels;
@@ -323,6 +325,7 @@ public sealed partial class CanvasView
                 drag = Drag.Gradient;
                 break;
             case Tool.Shape:
+                if (!control && BeginShapeParameter(point.Position, alt)) break;
                 if (TryEditSelectedPath(alt, shift, e.ClickCount)) break;
                 penSelectedLayer = null;
                 drag = Drag.Shape;
@@ -361,6 +364,7 @@ public sealed partial class CanvasView
 
         switch (drag)
         {
+            case Drag.ShapeParameter: UpdateShapeParameter(); break;
             case Drag.Pan: PanBy(delta); break;
             case Drag.Patch: session.PreviewPatch(currentDocument - pressDocument); break;
             case Drag.PenNode: PenMove(alt); break;
@@ -405,6 +409,7 @@ public sealed partial class CanvasView
                 UpdateTextCursor(position);
                 break;
         }
+        if (session.Tool is Tool.Move or Tool.Shape || hoveredParameter >= 0) UpdateShapeHint(position);
         if (drag == Drag.None) SetControlHover(e.KeyModifiers.HasFlag(KeyModifiers.Control));
         if (drag == Drag.Marquee && !shift) shiftReleased = true;
         dragModifiers = e.KeyModifiers;
@@ -425,12 +430,13 @@ public sealed partial class CanvasView
         }
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
-        if (drag == Drag.AiRectangle)
+        if (drag is Drag.AiRectangle or Drag.Shape or Drag.ShapeParameter)
         {
             // A fast drag can release beyond the last delivered move event.
             cursorScreen = e.GetPosition(this);
             currentDocument = ToDocument(cursorScreen);
-            snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
+            if (drag == Drag.ShapeParameter) UpdateShapeParameter();
+            else snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
         var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
@@ -441,6 +447,9 @@ public sealed partial class CanvasView
 
         switch (finished)
         {
+            case Drag.ShapeParameter:
+                if (adjustingShape?.Shape != originalShape) session.Commit(); else session.Cancel();
+                adjustingShape = null; break;
             case Drag.WarpNode: EndWarpPoint(keep: true); break;
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
@@ -504,7 +513,7 @@ public sealed partial class CanvasView
                 break;
             case Drag.Shape:
                 guides.Clear();
-                if (!moved) break;
+                if (!moved) { CreateShapeRequested?.Invoke(snapFrom); break; }
                 if (session.ShapeKind == ShapeKind.Line) session.AddLine(snapFrom, LineEnd(shift));
                 else session.AddShape(MarqueeRect(shift, alt));
                 break;

@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             };
             var tip = name + " units · switch between pixels and percent of font size";
             AutomationProperties.SetName(button, tip);
-            ToolTip.SetTip(button, tip);
+            Locale.Tip(button, tip);
             button.Click += (_, _) => switchUnit();
             unit.Children.Add(button);
         }
@@ -136,7 +136,8 @@ public sealed partial class MainWindow
             if (!updating && s.ActiveLayer is { } live && live.Id == layer.Id && !s.IsLocked(live) && live.Opacity != v / 100)
                 s.Apply("Layer Opacity", () => s.SetOpacity(live, v / 100));
         });
-        body.Children.Add(Ui.Row(6, Ui.Label(Locale.T("Opacity %")), opacity));
+        opacity.Width = double.NaN;
+        body.Children.Add(Ui.Column(4, Ui.Label(Locale.T("Opacity %"), Palette.Secondary, 11), opacity));
         refreshOptions += () =>
         {
             if (s.ActiveLayer is not { } live) return;
@@ -208,7 +209,7 @@ public sealed partial class MainWindow
                     Classes = { "tool" }, Width = double.NaN, Height = 26, MinWidth = 0, Padding = new Thickness(3, 0), Content = value is TextVertical align ? Icons.Create(align switch { TextVertical.Top => Icons.TextTop, TextVertical.Bottom => Icons.TextBottom, _ => Icons.TextMiddle }, 18) : Locale.T(icon),
                     HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center
                 };
-                ToolTip.SetTip(b, Locale.T(tip)); AutomationProperties.SetName(b, tip); RegisterFeature(b, tip);
+                Locale.Tip(b, Locale.T(tip)); AutomationProperties.SetName(b, tip); RegisterFeature(b, tip);
                 b.Click += (_, _) => { Change(t => set(t, value), name is "Wrap" or "List", value is TextVertical); refreshOptions?.Invoke(); };
                 refresh.Add(t => b.IsChecked = EqualityComparer<T>.Default.Equals(get(t), value));
                 row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
@@ -265,7 +266,7 @@ public sealed partial class MainWindow
                 };
                 return row;
             });
-            ToolTip.SetTip(box, Locale.T(tip)); AutomationProperties.SetName(box, tip); RegisterFeature(box, tip);
+            Locale.Tip(box, Locale.T(tip)); AutomationProperties.SetName(box, tip); RegisterFeature(box, tip);
             box.IsCheckedChanged += (_, _) => Change(t => set(t, box.IsChecked == true), tip is "Hanging punctuation" or "Hanging list indent" or "Trim vertical font metrics", tip == "Truncate with ellipsis");
             refresh.Add(t => box.IsChecked = get(t));
             return box;

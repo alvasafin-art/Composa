@@ -350,7 +350,7 @@ public sealed partial class MainWindow
         Key(SmearKey, Avalonia.Input.Key.R, () => SelectTool(Tool.Smear), label: "Smear tool");
         Key("Gradient tool", Avalonia.Input.Key.G, () => SelectTool(gradientShowsBucket ? Tool.Bucket : Tool.Gradient));
         Key(ShapeKey, Avalonia.Input.Key.U, () => SelectTool(Tool.Shape), label: "Shape tool");
-        Key("Next shape", Avalonia.Input.Key.U, () => { session!.ShapeKind = (ShapeKind)(((int)session.ShapeKind + 1) % Enum.GetValues<ShapeKind>().Length); SelectTool(Tool.Shape); }, KeyModifiers.Shift);
+        Key("Next shape", Avalonia.Input.Key.U, () => { session!.CycleShape(); SelectTool(Tool.Shape); }, KeyModifiers.Shift);
         Key("Type tool", Avalonia.Input.Key.T, () => SelectTool(Tool.Text));
         Key("Eyedropper tool", Avalonia.Input.Key.I, () => SelectTool(Tool.Eyedropper));
         Key("Hand tool", Avalonia.Input.Key.H, () => SelectTool(Tool.Hand));
@@ -463,7 +463,7 @@ public sealed partial class MainWindow
         RefreshAiUi();
         UpdateColors();
         if (session == null) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || session.ActiveLayer?.Shape?.Kind != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText || session.IsEditingMask != optionsEditingMask) RebuildOptions();
+        if (session.ActiveLayerIdOrNull() != optionsLayer || InspectorShapeKind(session.ActiveLayer?.Shape) != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText || session.IsEditingMask != optionsEditingMask) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }

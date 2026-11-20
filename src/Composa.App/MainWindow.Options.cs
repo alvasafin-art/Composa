@@ -15,6 +15,7 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
+    private static ShapeKind? InspectorShapeKind(ShapeStyle? style) => style?.IsRectangle() == true ? ShapeKind.Rectangle : style?.Kind;
     private ShapeKind? optionsShapeKind;
     private bool optionsHaveWarp;
     private bool optionsEditingText;
@@ -25,8 +26,9 @@ public sealed partial class MainWindow
     private void RebuildOptions()
     {
         refreshOptions = null;
-        optionsHost.Height = 40;
-        optionsShapeKind = session?.ActiveLayer?.Shape?.Kind;
+        optionsHost.Height = double.NaN;
+        optionsHost.MinHeight = 40;
+        optionsShapeKind = InspectorShapeKind(session?.ActiveLayer?.Shape);
         optionsHaveWarp = session?.WarpEdit != null;
         optionsEditingText = session?.IsEditingText == true;
         optionsEditingMask = session?.IsEditingMask == true;
@@ -44,7 +46,7 @@ public sealed partial class MainWindow
         {
             var find = Flat("Find object", SelectSubject);
             find.Name = "FindObjectInSelection";
-            ToolTip.SetTip(find, "Use the bounds of your current selection to find the object and refine its edges.");
+            Locale.Tip(find, "Use the bounds of your current selection to find the object and refine its edges.");
             void Refresh() => find.IsEnabled = s.Selection != null && canvas.ObjectSelectionAvailable?.Invoke() == true;
             refreshOptions += Refresh;
             Refresh();
@@ -53,7 +55,7 @@ public sealed partial class MainWindow
         Control Title(string text)
         {
             var label = Ui.Label(Locale.T(text), weight: Avalonia.Media.FontWeight.SemiBold);
-            ToolTip.SetTip(label, Hint(s));
+            Locale.Tip(label, Hint(s));
             return label;
         }
         if (embeddedTabs.TryGetValue(s, out var embedded))
@@ -67,7 +69,7 @@ public sealed partial class MainWindow
             var mode = Ui.Combo(new[] { Tool.CloneStamp, Tool.Patch }, s.Tool,
                 tool => tool == Tool.Patch ? "Patch" : "Clone", SelectTool, 105);
             mode.Name = "StampMode";
-            ToolTip.SetTip(mode, "Clone from a source point or drag a selection to a donor");
+            Locale.Tip(mode, "Clone from a source point or drag a selection to a donor");
             return mode;
         }
         string Chosen() => RailButton(s.Tool).Current!.Name;
@@ -81,7 +83,7 @@ public sealed partial class MainWindow
                     var grids = new[] { (Columns: 3, Rows: 3), (Columns: 4, Rows: 4), (Columns: 5, Rows: 5), (warp.Mesh.Columns, warp.Mesh.Rows) }.Distinct().ToArray();
                     var grid = Ui.Combo(grids, (warp.Mesh.Columns, warp.Mesh.Rows), v => $"{v.Columns} × {v.Rows}", v => canvas.ChangeWarpGrid(v.Columns, v.Rows), 94);
                     grid.Name = "WarpGrid"; grid.IsEnabled = warp.Mesh.IsIdentity;
-                    ToolTip.SetTip(grid, "Reset the deformation to choose a different grid. The source pixels stay intact.");
+                    Locale.Tip(grid, "Reset the deformation to choose a different grid. The source pixels stay intact.");
                     Add(grid, Flat("Reset", canvas.ResetWarp), Flat("Undo point", () => canvas.UndoWarpPoint()),
                         Ui.TextButton("Apply", () => canvas.FinishWarp(keep: true), accent: true), Flat("Cancel", () => canvas.FinishWarp(keep: false)),
                         Ui.Label(Locale.T("Drag nodes · Shift locks direction · Enter applies · Esc cancels"), Palette.Secondary));
@@ -127,7 +129,7 @@ public sealed partial class MainWindow
                     var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
                     var spacing = Ui.SliderField("Spacing", s.Brush.Spacing * 100, 1, 100, v => s.Brush = s.Brush with { Spacing = v / 100 }, width: 105);
                     Add(flow, spacing);
-                    Add(BrushDynamicsMenu(s));
+                    Add(BrushDynamicsFields(s));
                     refreshOptions += () => { flow.Value = s.Brush.Flow * 100; spacing.Value = s.Brush.Spacing * 100; };
                 }
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
@@ -146,7 +148,7 @@ public sealed partial class MainWindow
                 };
                 break;
             case Tool.Patch:
-                Add(Title("Clone Stamp"), StampMode(), Ui.Label("Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels", Palette.Secondary));
+                Add(Title("Clone Stamp"), StampMode(), Ui.Label(Locale.T("Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels"), Palette.Secondary));
                 break;
             case Tool.Pen:
                 var penTitle = Title("Pen");
@@ -158,7 +160,7 @@ public sealed partial class MainWindow
                 }
                 refreshOptions += RefreshMaskToggle;
                 RefreshMaskToggle();
-                ToolTip.SetTip(penTitle, "Drag a point to move it · Shift-click or double-click a curve to add a point · Click a point or segment, then Delete · Alt on the last point continues straight");
+                Locale.Tip(penTitle, "Drag a point to move it · Shift-click or double-click a curve to add a point · Click a point or segment, then Delete · Alt on the last point continues straight");
                 Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
                     maskToggle,
                     Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
@@ -174,7 +176,7 @@ public sealed partial class MainWindow
                     {
                         Add(ObjectSelectionModelMenu());
                         var edge = Ui.Number(s.ObjectEdgeOffset, -10, 10, v => s.ObjectEdgeOffset = (int)v, 1, "0", 52);
-                        ToolTip.SetTip(edge, "Positive values tighten the detected outline inward; negative values loosen it outward");
+                        Locale.Tip(edge, "Positive values tighten the detected outline inward; negative values loosen it outward");
                         Add(Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Edge"), Palette.Secondary), edge), edge, Ui.Label("px", Palette.Secondary)));
                     }
                     Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
@@ -223,24 +225,24 @@ public sealed partial class MainWindow
                 Add(Title("Gradient"),
                     Flat("Edit stops…", () => _ = EditGradientRamp()),
                     Flat("Use foreground / background", () => s.GradientRamp = null),
-                    Ui.Combo(new[] { "Linear", "Radial" }, s.GradientRadial ? "Radial" : "Linear", v => v, v => s.GradientRadial = v == "Radial", 90),
+                    Ui.Combo(new[] { "Linear", "Radial" }, s.GradientRadial ? "Radial" : "Linear", Locale.T, v => s.GradientRadial = v == "Radial", 90),
                     Ui.Check("Foreground to transparent", s.GradientToTransparent, v => { s.GradientToTransparent = v; s.GradientRamp = null; UpdateStatus(); }));
                 var gradientOpacity = Ui.SliderField("Opacity", s.GradientOpacity * 100, 1, 100, v => s.GradientOpacity = v / 100);
                 Add(gradientOpacity);
                 refreshOptions = () => gradientOpacity.Value = s.GradientOpacity * 100;
                 break;
             case Tool.Shape:
-                if (s.ActiveLayer?.Shape is { } shape)
+                if (s.ActiveLayer?.Shape != null)
                 {
-                    Add(Title(ShapeStyle.DisplayName(shape.Kind)));
+                    Add(Title(Chosen()));
                     if (!dock.Section("Properties").State.Visible) BuildShapeFields(row);
                 }
                 else
                 {
                     Add(Title(Chosen()));
                     if (s.ShapeKind == ShapeKind.Line) Add(Ui.SliderField("Width", s.ShapeLineWidth, 1, 100, v => s.ShapeLineWidth = v));
-                    else if (s.ShapeKind == ShapeKind.RoundedRectangle) Add(Ui.SliderField("Corner radius", s.ShapeCornerRadius, 0, 400, v => s.ShapeCornerRadius = v, width: 150));
-                    Add(Ui.Label(s.ShapeKind == ShapeKind.Line ? "Draws in the foreground color · Shift snaps to 45°" : "Fills with the foreground color", Palette.Secondary));
+                    else if (s.ShapeKind is ShapeKind.Rectangle or ShapeKind.RoundedRectangle or ShapeKind.Polygon or ShapeKind.Star) Add(Ui.SliderField("Corner radius", s.ShapeCornerRadius, 0, 400, v => s.ShapeCornerRadius = v, width: 150));
+                    Add(Ui.Label(Locale.Message(s.ShapeKind == ShapeKind.Line ? "Draws in the foreground color · Shift snaps to 45°" : "Fills with the foreground color"), Palette.Secondary));
                 }
                 break;
             case Tool.Text:
@@ -255,7 +257,7 @@ public sealed partial class MainWindow
             case Tool.Crop:
                 Add(Title("Crop"));
                 var ratio = Ui.Combo(EditorSession.CropRatios, s.CropRatio, r => r, r => { s.CropRatio = r; canvas.ChangeCropRatio(); }, 100);
-                ToolTip.SetTip(ratio, "The shape the crop box keeps while you drag it");
+                Locale.Tip(ratio, "The shape the crop box keeps while you drag it");
                 Add(Ui.Row(6, Ui.Label(Locale.T("Ratio"), Palette.Secondary), ratio));
                 var readout = Ui.Label(Locale.T("Drag on the canvas to choose the area to keep"), Palette.Secondary);
                 var apply = Ui.TextButton("Apply", canvas.ApplyCrop, accent: true);
@@ -276,82 +278,52 @@ public sealed partial class MainWindow
                 Add(Title(s.Tool == Tool.Hand ? "Hand" : "Zoom"), Flat("Fit", canvas.Fit), Flat("100%", () => canvas.ZoomTo(1)), Flat("200%", () => canvas.ZoomTo(2)));
                 break;
         }
-        if (s.Tool is Tool.Move or Tool.Text)
+        var wrap = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Classes = { "options" } };
+        foreach (var group in new[] { row, inspector, appearance })
         {
-            var actions = s.Tool == Tool.Move ? (Control)new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled } : ResponsiveOptions(row);
-            if (inspector != null)
+            if (group == null) continue;
+            foreach (var control in group.Children.ToArray())
             {
-                optionsHost.Height = appearance == null ? 75 : 108;
-                var fields = appearance == null ? inspector : Ui.Column(5, inspector, appearance);
-                toolOptionsHost.Child = Ui.Column(6, actions, new ScrollViewer { Content = fields,
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
+                group.Children.Remove(control);
+                wrap.Children.Add(new Border { Padding = new Thickness(0, 3, 6, 3), Child = control, VerticalAlignment = VerticalAlignment.Center });
             }
-            else toolOptionsHost.Child = actions;
         }
-        else toolOptionsHost.Child = new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        toolOptionsHost.Child = wrap;
         BuildObjectProperties();
         UpdateLayout();
     }
 
-    private static Control ResponsiveOptions(StackPanel row)
-    {
-        var controls = row.Children.ToArray();
-        var extra = new StackPanel { Spacing = 8, Classes = { "options" } };
-        var more = Ui.TextButton("More…", () => { });
-        more.Flyout = new Flyout { Content = new ScrollViewer { Content = extra, MaxHeight = 350 } };
-        more.IsVisible = false;
-        var host = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ClipToBounds = true };
-        host.Children.Add(row); Grid.SetColumn(more, 1); host.Children.Add(more);
-        var fit = controls.Length;
-        void Arrange(double width)
-        {
-            if (width <= 0) return;
-            double used = 0;
-            var count = 0;
-            foreach (var control in controls)
-            {
-                control.Measure(Size.Infinity);
-                var next = used + (count == 0 ? 0 : row.Spacing) + control.DesiredSize.Width;
-                if (next > width - (count == controls.Length - 1 ? 0 : 80)) break;
-                used = next; count++;
-            }
-            if (count == fit) return;
-            row.Children.Clear(); extra.Children.Clear();
-            row.Children.AddRange(controls.Take(count)); extra.Children.AddRange(controls.Skip(count));
-            fit = count; more.IsVisible = count < controls.Length;
-        }
-        host.SizeChanged += (_, e) => Arrange(e.NewSize.Width);
-        return host;
-    }
-
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
-    private void BuildShapeFields(StackPanel row, StackPanel? quick = null)
+    private void BuildShapeFields(StackPanel row, StackPanel? quick = null, ShapeStyle? initial = null, Action<ShapeStyle>? draftChanged = null, Func<Window>? owner = null)
     {
         var s = session!;
-        var id = s.ActiveLayer!.Id;
-        var style = s.ActiveLayer.Shape!;
+        var id = s.ActiveLayer?.Id;
+        var style = initial ?? s.ActiveLayer!.Shape!;
+        var draft = initial;
+        Action? refresh = null;
         var updating = false;
-        Layer? Current() => s.Document.Find(id);
+        Layer? Current() => draft == null && id is { } selected ? s.Document.Find(selected) : null;
+        ShapeStyle? ReadStyle() => draft ?? Current()?.Shape;
         void Change(Func<ShapeStyle, ShapeStyle> change)
         {
-            if (updating || canvas.IsDragging || Current() is not { Shape: { } live } layer) return;
-            s.ChangeShapeStyle(layer, change(live), merge: true);
+            if (updating || canvas.IsDragging || ReadStyle() is not {} live) return;
+            if (draft == null && Current() is {} layer) s.ChangeShapeStyle(layer, change(live), merge: true);
+            else { draft = change(live).Clamped(); draftChanged?.Invoke(draft); Sync(); }
         }
         Border Swatch(string label, Func<ShapeStyle, uint> get, Func<ShapeStyle, uint, ShapeStyle> set)
         {
             var swatch = new Border { Width = 28, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Cursor(StandardCursorType.Hand) };
-            ToolTip.SetTip(swatch, label + " color");
+            Locale.Tip(swatch, label + " color");
             swatch.PointerPressed += async (_, e) =>
             {
-                if (!e.GetCurrentPoint(swatch).Properties.IsLeftButtonPressed || canvas.IsDragging || Current() is not { Shape: { } original } layer) return;
+                if (!e.GetCurrentPoint(swatch).Properties.IsLeftButtonPressed || canvas.IsDragging || ReadStyle() is not {} original) return;
                 bool stroke = label == "Stroke";
                 var result = original;
-                s.Begin("Shape Properties");
+                if (draft == null) s.Begin("Shape Properties");
                 bool accepted;
                 try
                 {
-                    accepted = await Dialogs.VectorPaintDialog.Edit(this, label, get(original),
+                    accepted = await Dialogs.VectorPaintDialog.Edit(owner?.Invoke() ?? this, label, get(original),
                         stroke ? original.StrokeGradient : original.FillGradient, (color, gradient) =>
                     {
                         var changed = set(original, color);
@@ -359,13 +331,13 @@ public sealed partial class MainWindow
                         if (Current() is {} current) s.ChangeShapeStyle(current, result, preview: true);
                     });
                 }
-                finally { s.Cancel(); }
-                if (accepted && Current() is {} target) s.ChangeShapeStyle(target, result);
-                refreshOptions?.Invoke();
+                finally { if (draft == null) s.Cancel(); }
+                if (accepted) Change(_ => result);
+                refresh?.Invoke();
             };
-            refreshOptions += () =>
+            refresh += () =>
             {
-                if (Current()?.Shape is not {} live) return;
+                if (ReadStyle() is not {} live) return;
                 var gradient = label == "Stroke" ? live.StrokeGradient : live.FillGradient;
                 var color = new SKColor(get(live));
                 if (gradient == null) swatch.Background = new SolidColorBrush(color.ToDisplay(s.Document.Profile, DisplayProfile));
@@ -407,16 +379,16 @@ public sealed partial class MainWindow
                 if(Controls.PaintValueField.TryNumber(text,100,out var value))
                     Change(st=>SetColor(st,(Color(st)&0xffffff)|((uint)Math.Round(value*255/100)<<24)));
             });
-            ToolTip.SetTip(hex,label+" HEX · first color stop for gradients"); ToolTip.SetTip(opacity,label+" opacity");
+            Locale.Tip(hex,label+" HEX · first color stop for gradients"); Locale.Tip(opacity,label+" opacity");
             var eye=Ui.IconButton(Icons.Eye,label+" visibility",()=>Change(st=>stroke
                 ? st with { Stroke=Color(st),StrokeEnabled=!Visible(st) } : st.Kind == ShapeKind.Line ? st with { StrokeEnabled=!st.StrokeEnabled } : st with { FillEnabled=!Visible(st) }),14);
             eye.Name=label+"Visibility"; eye.Width=24; eye.Padding=new Thickness(2);
             var field=new Border { Background=Palette.PanelRaised,CornerRadius=new CornerRadius(4),Padding=new Thickness(4,0),
                 Child=Ui.Row(1,swatch,Controls.PaintLayout.Caption("#"),hex,new Border { Width=1,Height=14,Background=Palette.Edge },opacity,Ui.Label("%",Palette.Secondary,11)) };
             bool? shown=null;
-            refreshOptions+=()=>
+            refresh+=()=>
             {
-                if(Current()?.Shape is not {} st) return;
+                if(ReadStyle() is not {} st) return;
                 var visible=Visible(st);
                 if(shown!=visible) eye.Content=Icons.Create(visible ? Icons.Eye : Icons.EyeOff,14,Palette.Secondary);
                 shown=visible;
@@ -424,7 +396,12 @@ public sealed partial class MainWindow
                 opacity.Show(Math.Round((Color(st)>>24)*100d/255).ToString("0"));
                 field.Opacity=visible ? 1 : .65;
             };
-            return Ui.Row(4,Ui.Label(Locale.T(label),Palette.Secondary),field,eye);
+            var caption = Ui.Label(Locale.T(label), Palette.Secondary);
+            if (row.Orientation == Orientation.Horizontal) return Ui.Row(4, caption, field, eye);
+            var paintRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,26"), ColumnSpacing = 6 };
+            caption.VerticalAlignment = VerticalAlignment.Center;
+            paintRow.Children.Add(caption); AddAt(paintRow, field, 1); AddAt(paintRow, eye, 2);
+            return paintRow;
         }
         var paints=quick ?? row;
         if (style.Kind!=ShapeKind.Line) paints.Children.Add(PaintRow("Fill",false));
@@ -433,30 +410,74 @@ public sealed partial class MainWindow
         {
             var width = Ui.SliderField("Width", style.LineWidth, 1, 500, v => Change(st => st with { LineWidth = v }), width: 115);
             row.Children.Add(width);
-            refreshOptions += () => { if (Current()?.Shape is { } live) width.Value = live.LineWidth; };
+            refresh += () => { if (ReadStyle() is { } live) width.Value = live.LineWidth; };
         }
         else
         {
             var width = Ui.SliderField("Stroke width", style.StrokeWidth, 0, 500, v => Change(st => st with { StrokeWidth = v }), width: 115);
             row.Children.Add(width);
-            refreshOptions += () =>
+            refresh += () =>
             {
-                if (Current()?.Shape is not { } live) return;
-                updating = true;
+                if (ReadStyle() is not { } live) return;
                 width.Value = live.StrokeWidth;
-                updating = false;
             };
-            if (style.Kind == ShapeKind.RoundedRectangle)
+            if (style.IsRectangle() || style.IsRadial())
             {
-                var radius = Ui.SliderField("Corner radius", style.CornerRadius, 0, DocumentLimits.MaxSide, v => Change(st => st with { CornerRadius = v }), width: 130);
+                var radius = Ui.SliderField("Corner radius", style.RadiusAt(0), 0, DocumentLimits.MaxSide, v => Change(st => st.WithRadius(v)), width: 140);
+                radius.DragUnitsPerPixel = 1;
                 row.Children.Add(radius);
-                refreshOptions += () => { if (Current()?.Shape is { } live) radius.Value = live.CornerRadius; };
+                refresh += () => { if (ReadStyle() is {} live) radius.Value = live.RadiusAt(0); };
+                if (style.IsRectangle())
+                {
+                    var corners = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), RowDefinitions = new RowDefinitions("Auto,Auto"), RowSpacing = 6, ColumnSpacing = 8 };
+                    string[] names = ["Top left", "Top right", "Bottom right", "Bottom left"];
+                    for (int i=0; i<4; i++)
+                    {
+                        int index=i;
+                        var number=Ui.Number(style.RadiusAt(i),0,DocumentLimits.MaxSide,v => Change(st => st.WithCorner(index,v)),width:46);
+                        number.Width=double.NaN;
+                        var cell = Ui.Column(4, Ui.Label(Locale.T(names[i]), Palette.Secondary, 11), number);
+                        Grid.SetRow(cell, i < 2 ? 0 : 1);
+                        AddAt(corners, cell, i is 1 or 2 ? 1 : 0);
+                        refresh += () => { if (ReadStyle() is {} live) number.Value=(decimal)live.RadiusAt(index); };
+                    }
+                    row.Children.Add(new Expander { Header=Locale.T("Individual corners"), Content=corners, IsExpanded=style.Corners!=null });
+                }
+                if (style.IsRadial())
+                {
+                    var count = Ui.SliderField(style.Kind == ShapeKind.Star ? "Points" : "Sides", style.Points,3,64,v=>Change(st=>st with {Points=(int)v}));
+                    row.Children.Add(count); refresh += () => { if (ReadStyle() is {} live) count.Value=live.Points; };
+                    if (style.Kind == ShapeKind.Star) { var ratio=Ui.SliderField("Inner radius %",style.InnerRatio*100,5,95,v=>Change(st=>st with {InnerRatio=v/100})); row.Children.Add(ratio); refresh += () => { if(ReadStyle() is {} live) ratio.Value=live.InnerRatio*100; }; }
+                }
             }
         }
-        refreshOptions?.Invoke();
+        if (row.Orientation == Orientation.Vertical)
+            foreach (var field in row.Children.OfType<Controls.SliderField>()) { field.Width=double.NaN; field.HorizontalAlignment=HorizontalAlignment.Stretch; }
+        void Sync() { updating = true; try { refresh?.Invoke(); } finally { updating = false; } }
+        if (initial == null) refreshOptions += Sync;
+        Sync();
     }
 
-    /// <summary>The Type bar: font, size, style, color, alignment and spacing for the text being typed (or the next text).</summary>
+    private async Task CreateShapeAt(SKPoint at)
+    {
+        if (session is not {} target) return;
+        var style = target.CurrentShapeStyle;
+        var body = new StackPanel { Width = 320, Spacing = 10 };
+        double width = 120, height = style.Kind == ShapeKind.Line ? 0 : 120, opacity = 100;
+        var w = Ui.Number(width, 1, DocumentLimits.MaxSide, v => width=v);
+        var h = Ui.Number(height, style.Kind == ShapeKind.Line ? 0 : 1, DocumentLimits.MaxSide, v => height=v);
+        w.Width = h.Width = double.NaN;
+        body.Children.Add(PropertyPair(Ui.Column(4,Ui.Label(Locale.T("Width (px)"),Palette.Secondary),w),
+            Ui.Column(4,Ui.Label(Locale.T("Height (px)"),Palette.Secondary),h)));
+        var dialog = new Dialogs.DialogWindow(ShapeStyle.DisplayName(style.Kind), body, "Create");
+        BuildShapeFields(body, initial:style, draftChanged:v=>style=v, owner:()=>dialog);
+        var alpha=Ui.SliderField("Opacity",100,0,100,v=>opacity=v); alpha.Width=double.NaN; alpha.HorizontalAlignment=HorizontalAlignment.Stretch;
+        body.Children.Add(alpha);
+        if (!await dialog.Ask(this) || session != target) return;
+        if (style.Kind == ShapeKind.Line) target.AddLine(at, new SKPoint(at.X+(float)width,at.Y+(float)height),style,opacity/100);
+        else target.AddShape(style,SKRect.Create(at.X,at.Y,(float)width,(float)height),opacity/100);
+    }
+
     private void BuildTextFields(StackPanel row, bool properties = false)
     {
         var s = session!;
@@ -473,15 +494,15 @@ public sealed partial class MainWindow
         void ChangeFace(Func<TextFace, TextFace> change) { if (!updating) s.SetTextFace(change); }
         var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face), 190);
         font.MaxWidth = 190;
-        ToolTip.SetTip(font, Locale.T("Font family · hover or use the arrow keys to preview"));
+        Locale.Tip(font, Locale.T("Font family · hover or use the arrow keys to preview"));
         EnableFontSamples(font, s);
         var size = Ui.Number(s.CurrentTextSize, 1, 2000, v => { if (!updating) s.SetTextSize(v); }, 1, "0.#", 64);
         size.Name = "TextSize";
-        ToolTip.SetTip(size, Locale.T("Font size of the selected characters; select text on the canvas to change a fragment"));
+        Locale.Tip(size, Locale.T("Font size of the selected characters; select text on the canvas to change a fragment"));
         var faceChoices = Composa.Text.FontCatalog.ForFamily(family);
         var stylesFamily = family;
         var faceMenu = new ComboBox { Width = 145, MaxWidth = 145, ItemsSource = faceChoices.Select(c => c.Name).ToArray() };
-        ToolTip.SetTip(faceMenu, Locale.T("Font style"));
+        Locale.Tip(faceMenu, Locale.T("Font style"));
         faceMenu.SelectionChanged += (_, _) =>
         {
             if (!updating && faceMenu.SelectedIndex >= 0 && faceMenu.SelectedIndex < faceChoices.Count)
@@ -491,7 +512,7 @@ public sealed partial class MainWindow
             }
         };
         var swatch = new Border { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Avalonia.Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
-        ToolTip.SetTip(swatch, Locale.T("Text color"));
+        Locale.Tip(swatch, Locale.T("Text color"));
         swatch.PointerPressed += async (_, _) =>
         {
             // The picker's working color shows on the canvas as it changes. Text being typed takes it as any bar change;
@@ -526,15 +547,15 @@ public sealed partial class MainWindow
         foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight), (TextAlignment.Justify, new Icons.Icon("M3 5h18 M3 10h18 M3 15h18 M3 20h18")) })
         {
             var button = new ToggleButton { Classes = { "tool" }, Width = 30, Height = 26, Content = Icons.Create(icon, 15), IsChecked = style.Alignment == alignment };
-            ToolTip.SetTip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
+            Locale.Tip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
             button.Click += (_, _) => { s.FormatText(st => st with { Alignment = alignment }, paragraph: true); refreshOptions?.Invoke(); };
             alignments[alignment] = button;
             alignRow.Children.Add(button);
         }
         var tracking = Ui.Number(style.Tracking, -100, 1000, v => Change(st => st with { Tracking = v }), 1, "0.##", 58);
-        ToolTip.SetTip(tracking, Locale.T("Letter spacing · px or % of each character’s size"));
+        Locale.Tip(tracking, Locale.T("Letter spacing · px or % of each character’s size"));
         var leading = Ui.Number(style.Leading, 0, 5000, v => Change(st => st with { Leading = v }), 1, properties ? "0.#;-0.#;'Auto'" : "0", 58);
-        ToolTip.SetTip(leading, Locale.T("Baseline to baseline · 0 is Auto (120% of font size)"));
+        Locale.Tip(leading, Locale.T("Baseline to baseline · 0 is Auto (120% of font size)"));
         var done = Ui.TextButton("Done", () => { s.FinishText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); }, accent: true);
         var cancel = Ui.TextButton("Cancel", () => { s.CancelText(); canvas.Focus(); RebuildOptions(); UpdateStatus(); });
         var edit = Ui.TextButton("Edit Text", () => { if (s.ActiveLayer is { Text: not null } layer) BeginTextEdit(layer); });
@@ -581,7 +602,7 @@ public sealed partial class MainWindow
             {
                 var button = new ToggleButton { Classes = { "tool" }, Content = icon, Height = 28, Padding = default };
                 button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Center;
-                ToolTip.SetTip(button, Locale.T(name)); Avalonia.Automation.AutomationProperties.SetName(button, name);
+                Locale.Tip(button, Locale.T(name)); Avalonia.Automation.AutomationProperties.SetName(button, name);
                 button.Click += (_,_) => Change(st => st with { Type = toggle(st.Type) });
                 return button;
             }
@@ -683,7 +704,7 @@ public sealed partial class MainWindow
         var layer = s.IsEditingChannel ? s.ChannelControlLayer : s.ActiveLayer;
         var autoSelect = Ui.Check("Auto Select", canvas.AutoSelect, v => { canvas.AutoSelect = v; RememberToolSettings(); });
         autoSelect.IsEnabled = !s.IsEditingChannel;
-        ToolTip.SetTip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
+        Locale.Tip(autoSelect, "Click a layer's pixels to select it. Off, a drag moves the current layer from anywhere; Ctrl-click still picks.");
         row.Children.Add(autoSelect);
         row.Children.Add(Ui.Check("Controls", canvas.ShowTransformControls, v => { canvas.ShowTransformControls = v; canvas.InvalidateCanvas(); RememberToolSettings(); }));
         if (s.IndependentMaskTarget != null) row.Children.Add(Ui.Label(Locale.T("Mask"), Palette.Secondary));
@@ -718,7 +739,7 @@ public sealed partial class MainWindow
             };
             box.KeyUp += (_, e) => { if (e.Key == Key.Enter) FinishChannelInspector(keep: true); };
             box.AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Escape && inspectorTransform != null) { FinishChannelInspector(keep: false); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
-            if (label == "∠") { box.Name = "TransformRotation"; Avalonia.Automation.AutomationProperties.SetName(box, "Rotation (degrees)"); ToolTip.SetTip(box, Locale.T("Rotation (degrees)")); }
+            if (label == "∠") { box.Name = "TransformRotation"; Avalonia.Automation.AutomationProperties.SetName(box, "Rotation (degrees)"); Locale.Tip(box, Locale.T("Rotation (degrees)")); }
             var scrub = Ui.Scrub(Ui.Label(Locale.T(label), Palette.Secondary), box);
             scrub.AddHandler(PointerPressedEvent, (_, e) => { if (s.IsEditingChannel && e.GetCurrentPoint(scrub).Properties.IsLeftButtonPressed) { channelInspectorDragging = true; channelInspectorPointer = e.Pointer; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
             void EndScrub() { if (!channelInspectorDragging) return; channelInspectorDragging = false; channelInspectorPointer = null; if (!row.IsKeyboardFocusWithin) FinishChannelInspector(keep: true); }

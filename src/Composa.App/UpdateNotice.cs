@@ -32,7 +32,7 @@ public sealed class UpdateNotice : Border
         // Built here rather than through Ui.IconButton, which leaves the icon its default muted
         // foreground: readable on a dark panel, nearly invisible on this one.
         var dismiss = new Button { Content = Icons.Create(Icons.Close, 11, Palette.OnActive), Classes = { "flat" } };
-        ToolTip.SetTip(dismiss, "Dismiss");
+        Locale.Tip(dismiss, "Dismiss");
         dismiss.Click += (_, _) => Hide();
         Add(row, dismiss, 4);
         Child = row;

@@ -28,10 +28,10 @@ internal sealed class VectorColorFields : StackPanel
         Children.Add(square); Children.Add(hueStrip);
         hex = new("PaintHex", double.NaN, text => { if (PaintValueField.TryRgb(text, out var rgb)) Set(new SKColor(rgb | 0xff000000), true); });
         HexEntry = PaintLayout.Surface(PaintLayout.Columns("Auto,Auto,*", 4, chip, PaintLayout.Caption("#"), hex));
-        var space = Ui.Combo(new[] { "RGB", "CMYK" }, "RGB", x => x, x => { cmyk = x == "CMYK"; BuildChannels(); }, double.NaN);
+        var space = Ui.Combo(new[] { "RGB", "CMYK" }, "RGB", Locale.T, x => { cmyk = x == "CMYK"; BuildChannels(); }, double.NaN);
         space.Name = "PaintChannels";
         space.HorizontalAlignment = HorizontalAlignment.Stretch;
-        ToolTip.SetTip(space, "RGB uses the document profile. CMYK values use a mathematical RGB conversion without a printing profile.");
+        Locale.Tip(space, "RGB uses the document profile. CMYK values use a mathematical RGB conversion without a printing profile.");
         alpha = new("PaintAlpha", double.NaN, text =>
         {
             if (PaintValueField.TryNumber(text, 100, out var value))

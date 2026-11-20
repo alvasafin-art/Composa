@@ -30,7 +30,7 @@ internal sealed class VectorStopsEditor : StackPanel
         else foreach (var p in colors.Select(x => x.Position).Concat(alpha.Select(x => x.Position)).Distinct().Order()) stops.Add(new(p, ramp.Sample(p)));
         selected = stops[0];
         strip = new(profile, display) { PairedStops = true, Width = PaintLayout.Width, Height = 37 };
-        ToolTip.SetTip(strip, "Click to add a stop. Drag a stop to move it.");
+        Locale.Tip(strip, "Click to add a stop. Drag a stop to move it.");
         strip.PointerPressed += (_, e) =>
         {
             if (!e.GetCurrentPoint(strip).Properties.IsLeftButtonPressed) return;
@@ -53,7 +53,7 @@ internal sealed class VectorStopsEditor : StackPanel
             AddAt((selected.Position + neighbor) / 2);
         });
         add.MinWidth = 0; add.Width = 26; add.Padding = new Thickness(0);
-        ToolTip.SetTip(add, "Add gradient stop");
+        Locale.Tip(add, "Add gradient stop");
         var header = new DockPanel(); DockPanel.SetDock(add, Dock.Right); header.Children.Add(add); header.Children.Add(Ui.Label(Locale.T("Stops"), Palette.Secondary));
         var labels = PaintLayout.Columns(Columns, 4, PaintLayout.Caption("Position"), PaintLayout.Caption("Stop color"),
             PaintLayout.Caption("Opacity"), new Border());
@@ -106,7 +106,7 @@ internal sealed class VectorStopsEditor : StackPanel
                 BuildRows(); Publish(); SelectedColorChanged?.Invoke(selected.Color);
             });
             remove.MinWidth = 0; remove.Width = 24; remove.Padding = new Thickness(0);
-            remove.IsEnabled = stops.Count > 2; ToolTip.SetTip(remove, "Remove gradient stop");
+            remove.IsEnabled = stops.Count > 2; Locale.Tip(remove, "Remove gradient stop");
             var row = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 2),
                 Child = PaintLayout.Columns(Columns, 4, Ui.Row(1, position, PaintLayout.Caption("%")), Ui.Row(4, chip, hex),
                     Ui.Row(1, opacity, PaintLayout.Caption("%")), remove) };

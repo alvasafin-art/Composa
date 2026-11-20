@@ -31,7 +31,7 @@ internal sealed class HueBandEditor : Control
             var color = new HsvColor(1, i, .85, .9).ToRgb();
             return (IBrush)new SolidColorBrush(new SKColor(color.R, color.G, color.B).ToDisplay(profile, displayProfile));
         }).ToArray();
-        ToolTip.SetTip(this, "Drag the four handles to set the full hue range and its feathered edges. Drag elsewhere to move the band. Left/Right: 1°, Alt: 0.1°. Up/Down: choose handle. Escape: cancel drag.");
+        Locale.Tip(this, "Drag the four handles to set the full hue range and its feathered edges. Drag elsewhere to move the band. Left/Right: 1°, Alt: 0.1°. Up/Down: choose handle. Escape: cancel drag.");
     }
     public override void Render(DrawingContext context)
     {

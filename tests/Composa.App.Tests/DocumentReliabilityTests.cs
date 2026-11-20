@@ -163,9 +163,9 @@ public class DocumentReliabilityTests
             Assert.True(dock.Section("History").State.Collapsed);
             if (width == 900)
             {
-                var more = window.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "More…");
-                Assert.True(more.IsVisible);
-                Assert.NotNull(more.Flyout);
+                var wrap = window.GetVisualDescendants().OfType<WrapPanel>().First(p => p.Classes.Contains("options"));
+                Assert.All(wrap.Children, c => Assert.InRange(c.Bounds.Right,0,wrap.Bounds.Width+1));
+
             }
         }
         finally { window.Close(); }

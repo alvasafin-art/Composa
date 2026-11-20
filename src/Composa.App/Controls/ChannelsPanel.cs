@@ -125,7 +125,7 @@ public sealed class ChannelsPanel : UserControl
     {
         var current = session!;
         var eye = Ui.IconButton(visible ? Icons.Eye : Icons.EyeOff, "Toggle channel visibility", () => Run(toggle)); eye.Width = 28;
-        var label = Ui.Label(name); label.TextTrimming = TextTrimming.CharacterEllipsis; ToolTip.SetTip(label, name);
+        var label = Ui.Label(name); label.TextTrimming = TextTrimming.CharacterEllipsis; Locale.Tip(label, name);
         var grid = new Grid { ColumnDefinitions = new("Auto,44,*"), ColumnSpacing = 6 };
         grid.Children.Add(eye);
         var image = new Image { Source = Ui.ToAvaloniaBitmap(pixels, 56, displayProfile), Width = 38, Height = 28, Stretch = Stretch.Uniform };

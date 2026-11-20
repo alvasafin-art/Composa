@@ -71,18 +71,21 @@ public sealed class SliderField : Control
         VisualChildren.Add(editor);
         LogicalChildren.Add(editor);
         // Not focusable, so pressing it leaves the editor focused until the reset has closed it on purpose.
-        resetText = new TextBlock { Text = "Reset", FontSize = 11.5, Foreground = Palette.Secondary, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        resetText = new TextBlock { Text = Locale.T("Reset"), FontSize = 11.5, Foreground = Palette.Secondary, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         resetButton = new Border { IsVisible = false, Background = Palette.PanelRaised, CornerRadius = new CornerRadius(3), Child = resetText, Cursor = new Cursor(StandardCursorType.Hand), Focusable = false };
         resetButton.PointerEntered += (_, _) => resetText.Foreground = Palette.Foreground;
         resetButton.PointerExited += (_, _) => resetText.Foreground = Palette.Secondary;
         resetButton.PointerPressed += OnResetPressed;
         VisualChildren.Add(resetButton);
         LogicalChildren.Add(resetButton);
-        ToolTip.SetTip(this, BuildTip());
+        Locale.Tip(this, BuildTip());
         ToolTip.SetShowDelay(this, 450);
     }
 
     public string Label => label;
+
+    /// <summary>Linear drag sensitivity for fields whose typed range exceeds a useful drag distance.</summary>
+    public double? DragUnitsPerPixel { get; set; }
     public double Minimum => min;
     public double Maximum => max;
     public double Step => step;
@@ -112,7 +115,7 @@ public sealed class SliderField : Control
         set
         {
             reset = value;
-            ToolTip.SetTip(this, BuildTip());
+            Locale.Tip(this, BuildTip());
             if (editing) { resetButton.IsVisible = value != null; InvalidateArrange(); }
         }
     }
@@ -156,8 +159,8 @@ public sealed class SliderField : Control
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"), ColumnSpacing = 10, RowSpacing = 2 };
         void Row(int row, string what, string how)
         {
-            var w = new TextBlock { Text = what, Foreground = Palette.Secondary };
-            var h = new TextBlock { Text = how };
+            var w = new TextBlock { Text = Locale.Message(what), Foreground = Palette.Secondary };
+            var h = new TextBlock { Text = Locale.T(how) };
             Grid.SetRow(w, row); Grid.SetColumn(w, 0); Grid.SetRow(h, row); Grid.SetColumn(h, 1);
             grid.Children.Add(w); grid.Children.Add(h);
         }
@@ -280,7 +283,7 @@ public sealed class SliderField : Control
             InvalidateVisual();
         }
         var logarithmic = Logarithmic && min > 0 && max > min;
-        var unitsPerPixel = (logarithmic ? 1 : max - min) / Math.Max(1, Bounds.Width);
+        var unitsPerPixel = DragUnitsPerPixel ?? ((logarithmic ? 1 : max - min) / Math.Max(1, Bounds.Width));
         var scale = e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? FineScale : 1;
         dragTravel += (position.X - lastX) * unitsPerPixel * scale;
         lastX = position.X;

@@ -65,7 +65,7 @@ public static class CameraRawDialog
         }
 
         // The thumbnail: click a pixel that should be neutral and Temperature and Tint follow.
-        ToolTip.SetTip(preview, "Click a pixel that should be neutral to set the white balance from it");
+        Locale.Tip(preview, "Click a pixel that should be neutral to set the white balance from it");
         var readout = Ui.Label("R —   G —   B —", Palette.Secondary);
         readout.FontSize = 11;
         Action<double>? setTemperature = null, setTint = null;
@@ -97,7 +97,7 @@ public static class CameraRawDialog
             Expander Group(CameraRawGroup group, string title, Control body, bool open = false)
             {
                 var eye = new Button { Classes = { "flat" }, Padding = new Thickness(4), Content = Icons.Create(hidden.Contains(group) ? Icons.EyeOff : Icons.Eye, 13, Palette.Secondary), IsVisible = initial.Adjusts(group) };
-                ToolTip.SetTip(eye, "Switch this group off or on without clearing its sliders");
+                Locale.Tip(eye, "Switch this group off or on without clearing its sliders");
                 eye.Click += (_, _) =>
                 {
                     if (!hidden.Remove(group)) hidden.Add(group);
@@ -113,7 +113,7 @@ public static class CameraRawDialog
                     BuildGroups();
                 });
                 reset.Classes.Add("flat");
-                ToolTip.SetTip(reset, "Reset " + title);
+                Locale.Tip(reset, "Reset " + title);
                 var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), Width = 272 };
                 Grid.SetColumn(reset, 1); header.Children.Add(reset);
                 header.Children.Add(Ui.Label(title, weight: FontWeight.SemiBold));
@@ -130,7 +130,7 @@ public static class CameraRawDialog
             {
                 var field = Ui.SliderField(label, get(current), min, max, v => Update(set(current, v)), step, format, FieldWidth, track, get(defaults));
                 // The field's own tip explains its gestures; what the slider adjusts goes above that.
-                if (tip != null) ToolTip.SetTip(field, Ui.Column(6, Ui.Label(tip), (Control)ToolTip.GetTip(field)!));
+                if (tip != null) Locale.Tip(field, Ui.Column(6, Ui.Label(tip), (Control)ToolTip.GetTip(field)!));
                 return field;
             }
             Control Column(params Control[] rows) => Ui.Column(6, rows);
@@ -161,7 +161,7 @@ public static class CameraRawDialog
                 temperature.Value = current.Temperature;
                 tint.Value = current.Tint;
             }, 120);
-            ToolTip.SetTip(balance, "Auto balances the average color; Custom follows Temperature and Tint. Click the thumbnail to set them from one pixel.");
+            Locale.Tip(balance, "Auto balances the average color; Custom follows Temperature and Tint. Click the thumbnail to set them from one pixel.");
             Group(CameraRawGroup.Color, "Color", Column(
                 Ui.Row(8, balanceLabel, balance), temperature, tint,
                 Slider("Vibrance", s => s.Vibrance, -100, 100, (s, v) => s with { Vibrance = v }, tip: "Strengthens quiet colors more than strong ones, and protects skin tones", track: Controls.SliderTracks.Chroma),

@@ -10,20 +10,13 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
-    private Button BrushDynamicsMenu(EditorSession target)
-    {
-        var button = new Button { Content = Locale.T("Dynamics ▾"), Padding = new Thickness(8, 0) };
-        button.Click += (_, _) =>
-        {
-            var body = Ui.Column(10,
-                Ui.Check("Pen pressure controls size", target.Brush.PressureSize, v => target.Brush = target.Brush with { PressureSize = v }),
-                Ui.Check("Pen pressure controls flow", target.Brush.PressureFlow, v => target.Brush = target.Brush with { PressureFlow = v }),
-                Ui.Check("Full brush outline", target.Brush.FullCursor, v => { target.Brush = target.Brush with { FullCursor = v }; canvas.InvalidateCanvas(); }),
-                Ui.SliderField("Smoothing", target.Brush.Smoothing, 0, 100, v => target.Brush = target.Brush with { Smoothing = v }, width: 230));
-            body.Margin = new Thickness(12); var flyout = new Flyout { Content = body }; flyout.ShowAt(button);
-        };
-        ToolTip.SetTip(button, Locale.T("Pen pressure, smoothing, cursor outline and saved brushes")); return button;
-    }
+    private Control[] BrushDynamicsFields(EditorSession target) =>
+    [
+        Ui.Check("Pressure size", target.Brush.PressureSize, v => target.Brush = target.Brush with { PressureSize = v }),
+        Ui.Check("Pressure flow", target.Brush.PressureFlow, v => target.Brush = target.Brush with { PressureFlow = v }),
+        Ui.Check("Full brush outline", target.Brush.FullCursor, v => { target.Brush = target.Brush with { FullCursor = v }; canvas.InvalidateCanvas(); }),
+        Ui.SliderField("Smoothing", target.Brush.Smoothing, 0, 100, v => target.Brush = target.Brush with { Smoothing = v })
+    ];
     private static Control TipSample(BrushSettings brush, double size)
     {
         var fill = new RadialGradientBrush();
@@ -40,7 +33,7 @@ public sealed partial class MainWindow
         var custom = eraser ? settings.EraserPresets : settings.BrushPresets;
         var title = eraser ? "Eraser presets" : "Brush presets";
         var button = new Button { Name = "BrushPresetPicker", Content = Ui.Row(6, TipSample(target.Brush, 17), Ui.Label(Locale.T("Presets")), Icons.Create(Icons.ChevronDown, 12)) };
-        ToolTip.SetTip(button, Locale.T(title));
+        Locale.Tip(button, Locale.T(title));
         var flyout = new Flyout();
         button.Flyout = flyout;
         flyout.Opening += (_, _) =>

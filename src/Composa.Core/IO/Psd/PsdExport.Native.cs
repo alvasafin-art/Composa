@@ -233,6 +233,12 @@ public static partial class PsdExport
             Corner((float)(s.StartX * w ?? Math.Min(s.LineWidth, w) / 2), (float)(s.StartY * h ?? Math.Min(s.LineWidth, h) / 2));
             Corner((float)(s.EndX * w ?? w - Math.Min(s.LineWidth, w) / 2), (float)(s.EndY * h ?? h - Math.Min(s.LineWidth, h) / 2));
         }
+        else if (s.IsRadial() || s.Corners != null)
+        {
+            SKPoint Point(double x, double y) => new((float)(x*w),(float)(y*h));
+            foreach (var n in s.ParametricOutline(w,h,width/2).Nodes)
+                knots.Add(new(Point(n.InX,n.InY),Point(n.X,n.Y),Point(n.OutX,n.OutY)));
+        }
         else if (s.Kind == ShapeKind.Ellipse)
         {
             var rx = box.Width / 2; var ry = box.Height / 2; var cx = box.MidX; var cy = box.MidY;
@@ -284,7 +290,7 @@ public static partial class PsdExport
             .Enum("strokeStyleBlendMode", "BlnM", "Nrml").Unit("strokeStyleOpacity", "#Prc", 100)
             .Obj("strokeStyleContent", FillDescriptor(line ? s.Fill : s.Stroke ?? s.Fill)).Double("strokeStyleResolution", document.Resolution);
         o.Additional("vstk", () => stroke.Write(o, true));
-        if (!line)
+        if (!line && !s.IsRadial() && s.Corners == null)
         {
             var origin = new D("null").Long("keyOriginType", s.Kind == ShapeKind.Ellipse ? 5 : s.Kind == ShapeKind.RoundedRectangle ? 2 : 1)
                 .Double("keyOriginResolution", document.Resolution).Obj("keyOriginShapeBBox", RectDescriptor(box, "unitRect", "#Pxl").Long("unitValueQuadVersion", 1))

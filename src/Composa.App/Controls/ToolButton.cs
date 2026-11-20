@@ -45,7 +45,7 @@ public sealed class ToolButton : ToggleButton
         this.group = group ?? [];
         Classes.Add("tool");
         Show(icon);
-        ToolTip.SetTip(this, Locale.T(tip));
+        Locale.Tip(this, Locale.T(tip));
         holdTimer = new DispatcherTimer { Interval = HoldDelay };
         holdTimer.Tick += (_, _) =>
         {
@@ -82,7 +82,7 @@ public sealed class ToolButton : ToggleButton
         var key = current.Key() is { } gesture ? $" ({Shortcut.Label(gesture)})" : "";
         var others = group.Where(c => c != current).Select(c => Locale.T(c.Name)).ToList();
         var list = others.Count == 1 ? others[0] : string.Join(", ", others.SkipLast(1)) + ", " + others[^1];
-        ToolTip.SetTip(this, $"{Locale.T(current.Name)}{key} · {Locale.T("Click and hold")}: {list}");
+        Locale.Tip(this, $"{Locale.T(current.Name)}{key} · {Locale.T("Click and hold")}: {list}");
     }
 
     /// <summary>

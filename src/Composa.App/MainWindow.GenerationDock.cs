@@ -58,7 +58,7 @@ public sealed partial class MainWindow
         dockOperation.MinWidth = 0;
         dockOperation.Padding = new Thickness(2, 0);
         dockOperation.HorizontalAlignment = HorizontalAlignment.Left;
-        ToolTip.SetTip(dockOperation, "Choose AI operation");
+        Locale.Tip(dockOperation, "Choose AI operation");
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         header.Children.Add(dockOperation);
         AddAt(header, Ui.Row(0, DockSlot(aiHeaderReference!), DockSlot(aiEnhance), DockSlot(aiFloatingAlignment!), DockSlot(aiAdvanced)), 1);
@@ -127,7 +127,7 @@ public sealed partial class MainWindow
                 var availability = AiAvailability(task);
                 item.IsEnabled = CanRunAi(task);
                 item.IsChecked = EditorTask == task;
-                ToolTip.SetTip(item, availability.Reason);
+                Locale.Tip(item, availability.Reason);
             };
             item.Click += (_, _) => ChooseAiOperation(task);
             menu.Items.Add(item);

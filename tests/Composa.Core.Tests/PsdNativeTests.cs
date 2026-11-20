@@ -9,6 +9,24 @@ namespace Composa.Core.Tests;
 
 public class PsdNativeTests
 {
+    [Theory]
+    [InlineData(ShapeKind.Star)]
+    [InlineData(ShapeKind.Polygon)]
+    [InlineData(ShapeKind.RoundedRectangle)]
+    public void Custom_shape_outlines_survive_PSD_export(ShapeKind kind)
+    {
+        var style = new ShapeStyle(kind, 0xFF37628F, 5) { Points = 7, InnerRatio = .3 };
+        if (kind == ShapeKind.RoundedRectangle) style = style.WithCorner(1, 17).WithCorner(3, 0);
+        var document = new Document(220, 210);
+        document.Layers.Add(ShapeLayer(style));
+        Assert.Empty(PsdExport.Conversions(document));
+        var bytes = Write(document);
+        Assert.Contains("vmsk", System.Text.Encoding.Latin1.GetString(bytes));
+        var imported = PsdImport.Load(bytes);
+        try { Picture(document, imported.ToDocument()); }
+        finally { imported.Discard(); }
+    }
+
     [Fact]
     public void Selected_typography_is_preserved_in_project_and_native_PSD_runs()
     {

@@ -95,7 +95,7 @@ public sealed partial class MainWindow
             settings.Save();
         };
         RefreshObjectModelChoices();
-        ToolTip.SetTip(combo, "Click an object or drag a box around it. Automatic refines hair and soft edges locally. Quick outline makes a crisp selection.");
+        Locale.Tip(combo, "Click an object or drag a box around it. Automatic refines hair and soft edges locally. Quick outline makes a crisp selection.");
         return combo;
     }
 

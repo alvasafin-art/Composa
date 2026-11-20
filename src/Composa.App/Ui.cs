@@ -34,7 +34,7 @@ public static class Ui
     {
         var button = new Button { Content = Icons.Create(icon, size), Classes = { "flat" } };
         Avalonia.Automation.AutomationProperties.SetName(button, Locale.T(tip));
-        ToolTip.SetTip(button, Locale.T(tip));
+        Locale.Tip(button, Locale.T(tip));
         button.Click += (_, _) => click();
         return button;
     }
@@ -89,7 +89,7 @@ public static class Ui
         if (!insideField) label.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
         // Only what a control draws is hit; a label without a background would take the pointer on its glyphs alone.
         if (label is TextBlock { Background: null } text) text.Background = Brushes.Transparent;
-        if (!insideField) ToolTip.SetTip(label, "Drag to change the value (Alt: finer)");
+        if (!insideField) Locale.Tip(label, "Drag to change the value (Alt: finer)");
         ToolTip.SetShowDelay(label, 450);
         double pressX = 0, lastX = 0, start = 0, travel = 0;
         bool pressed = false, dragging = false;

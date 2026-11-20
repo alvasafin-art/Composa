@@ -126,7 +126,7 @@ public sealed partial class EditorSession
                         }
                         else if (layer.Shape is { } shape)
                         {
-                            layer.Shape = shape with { CornerRadius = shape.CornerRadius * Math.Min(sx, sy), LineWidth = shape.LineWidth * Math.Min(sx, sy) };
+                            layer.Shape = shape with { CornerRadius = shape.CornerRadius * Math.Min(sx, sy), Corners = shape.Corners?.Scaled(Math.Min(sx,sy)), LineWidth = shape.LineWidth * Math.Min(sx, sy) };
                             layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
                         }
                         else

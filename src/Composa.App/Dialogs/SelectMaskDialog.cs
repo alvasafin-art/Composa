@@ -60,16 +60,16 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
         var methods = new List<string> { "Keep edge", "Image edges", "Alpha matting" };
         if (TrimapMatting.IsAvailable) { methods.AddRange(["AI matting", "AI fine detail"]); method = "AI matting"; }
         methodMenu = Ui.Combo(methods, method, v => v, v => { method = v; RequestPreview(); }, 220);
-        ToolTip.SetTip(methodMenu, "AI fine detail also examines uncertain areas at their original scale. Useful for fine mesh; slower. Compare the result at 100%.");
+        Locale.Tip(methodMenu, "AI fine detail also examines uncertain areas at their original scale. Useful for fine mesh; slower. Compare the result at 100%.");
         methodMenu.Name = "RefineMethod";
-        outputMenu = Ui.Combo(new[] { "Selection", "Layer mask", "New layer with mask" }, Output, v => v, v => Output = v, 220);
+        outputMenu = Ui.Combo(new[] { "Selection", "Layer mask", "New layer with mask" }, Output, Locale.T, v => Output = v, 220);
         outputMenu.Name = "RefineOutput";
         outputMenu.IsEnabled = decontamination == 0;
         var fullResolution = Ui.Check("Full-resolution preview", false, v => { fullPreview = v; RequestPreview(); });
         var allLayers = Ui.Check("Sample all visible layers", !activeLayerSource, v => { requestedAll = v; Track(ChangeSource()); }); allLayers.IsEnabled = activeLayerSource && visibleCanvas != null;
         var controls = Ui.Column(10, allLayers,
             Ui.Label(Locale.T("Preview"), Palette.Secondary),
-            Ui.Combo(new[] { "Gray", "Black", "White", "Mask", "Overlay", "Trimap", "Original" }, background, v => v, v => { background = v; RequestPreview(); }, 220),
+            Ui.Combo(new[] { "Gray", "Black", "White", "Mask", "Overlay", "Trimap", "Original" }, background, Locale.T, v => { background = v; RequestPreview(); }, 220),
             Ui.Row(8, Ui.TextButton("Fit", view.Fit), Ui.TextButton("100%", () => { view.ActualSize(); fullResolution.IsChecked = true; })), fullResolution,
             Ui.Label(Locale.T("Refinement"), Palette.Secondary), methodMenu,
             Ui.SliderField("Edge radius", radius, 0, 100, v => { radius = (int)v; RequestPreview(); }, width: 220, reset: 0),
@@ -78,7 +78,7 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
             Ui.SliderField("Contrast", 0, 0, 100, v => { settings = settings with { Contrast = v }; RequestPreview(); }, width: 220, reset: 0),
             Ui.SliderField("Shift edge", 0, -100, 100, v => { settings = settings with { Shift = (int)v }; RequestPreview(); }, width: 220, reset: 0),
             Ui.Label(Locale.T("Local brush"), Palette.Secondary),
-            Ui.Combo(new[] { "Refine edge", "Keep foreground", "Remove background", "Erase local mark" }, brush, v => v, v => brush = v, 220),
+            Ui.Combo(new[] { "Refine edge", "Keep foreground", "Remove background", "Erase local mark" }, brush, Locale.T, v => brush = v, 220),
             Ui.SliderField("Brush size", 30, 1, 500, v => { view.BrushSize = v; view.InvalidateVisual(); }, width: 220, reset: 30),
             Ui.Row(8, Ui.TextButton("Undo stroke", UndoStroke), Ui.TextButton("Reset marks", () => { if (finalizing) return; strokes.Clear(); marks.Erase(SKColors.Transparent); Pixels.Invalidate(marks); RequestPreview(); })),
             Ui.Check("Show local marks", true, v => { showMarks = v; RequestPreview(); }),
@@ -116,7 +116,7 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
         {
             if (requestedAll && canvasSource == null)
             {
-                status.Text = "Sampling visible layers…";
+                status.Text = Locale.Message("Sampling visible layers…");
                 canvasTask ??= Task.Run(visibleCanvas, lifetime.Token);
                 var rendered = await canvasTask;
                 if (canvasSource == null) { canvasSource = rendered; canvasSmall = Resize(rendered, false); }
@@ -124,13 +124,13 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
             if (!closed) { source = requestedAll ? canvasSource! : activeSource; smallSource = requestedAll ? canvasSmall! : activeSmall; RequestPreview(); }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (!closed) status.Text = "Could not sample layers: " + error.Message; }
+        catch (Exception error) { if (!closed) status.Text = Locale.Message("Could not sample layers: " + error.Message); }
         finally { loadingSource = false; if (!closed) CanAccept = !requestedAll || canvasSource != null; }
     }
     private void RequestPreview()
     {
         if (closed || finalizing) return;
-        generation++; previewCancellation?.Cancel(); status.Text = "Updating preview…"; timer.Stop(); timer.Start();
+        generation++; previewCancellation?.Cancel(); status.Text = Locale.Message("Updating preview…"); timer.Stop(); timer.Start();
     }
     private void Paint(SKPoint from, SKPoint to, bool backgroundBrush)
     {
@@ -173,15 +173,15 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
         var edge = radius == 0 ? 0 : Math.Max(1, (int)Math.Round(radius * previewScale));
         var selectedMethod = method; var selectedBackground = background; var show = showMarks; var decontaminate = decontamination;
         var image = full ? source : smallSource;
-        var progress = new Progress<(int Done, int Total)>(p => { if (!closed && revision == generation && !cancellation.IsCancellationRequested) status.Text = $"Refining fine detail {p.Done}/{p.Total}…"; });
+        var progress = new Progress<(int Done, int Total)>(p => { if (!closed && revision == generation && !cancellation.IsCancellationRequested) status.Text = Locale.Message($"Refining fine detail {p.Done}/{p.Total}…"); });
         try
         {
             using var rendered = await Task.Run(() => DrawPreview(image, full ? original : smallMask, local, selectedBackground, show, decontaminate, grade, edge, selectedMethod, cancellation.Token, progress), cancellation.Token);
             if (closed || revision != generation || cancellation.IsCancellationRequested) return;
-            view.SetBitmap(Ui.ToAvaloniaBitmap(rendered, full ? DocumentLimits.MaxSide : 1000, displayProfile)); status.Text = full ? "Full-resolution preview" : "Draft preview · 100% enables full resolution · Final output uses full resolution";
+            view.SetBitmap(Ui.ToAvaloniaBitmap(rendered, full ? DocumentLimits.MaxSide : 1000, displayProfile)); status.Text = Locale.Message(full ? "Full-resolution preview" : "Draft preview · 100% enables full resolution · Final output uses full resolution");
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (!closed && revision == generation) status.Text = "Preview failed: " + error.Message; }
+        catch (Exception error) { if (!closed && revision == generation) status.Text = Locale.Message("Preview failed: " + error.Message); }
         finally { if (previewCancellation == cancellation) previewCancellation = null; }
     }
 
@@ -238,12 +238,12 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
     }
     private async Task FinalizeResult()
     {
-        status.Text = "Refining full resolution…";
+        status.Text = Locale.Message("Refining full resolution…");
         try
         {
             var output = decontamination > 0 ? "New layer with mask" : Output; var selectedMethod = method; var grade = settings; var edge = radius; var amount = decontamination;
             using var local = Pixels.Clone(marks);
-            var progress = new Progress<(int Done, int Total)>(p => { if (!closed) status.Text = $"Refining fine detail {p.Done}/{p.Total}…"; });
+            var progress = new Progress<(int Done, int Total)>(p => { if (!closed) status.Text = Locale.Message($"Refining fine detail {p.Done}/{p.Total}…"); });
             var result = await Task.Run(() =>
             {
                 var mask = Refine(source, original, local, grade, edge, selectedMethod, lifetime.Token, progress);
@@ -254,7 +254,7 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
             ResultMask = result.Mask; ResultColors = result.Colors; Output = output; Close(true);
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (!closed) status.Text = "Refinement failed: " + error.Message; }
+        catch (Exception error) { if (!closed) status.Text = Locale.Message("Refinement failed: " + error.Message); }
         finally { if (!closed) { finalizing = false; body.IsEnabled = true; CanAccept = true; } }
     }
 

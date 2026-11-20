@@ -214,7 +214,7 @@ internal sealed class DockColumn : UserControl
             Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { chevron, title } }
         };
         var label = (open ? "Collapse " : "Expand ") + section.Title;
-        ToolTip.SetTip(header, label);
+        Locale.Tip(header, label);
         Avalonia.Automation.AutomationProperties.SetName(header, label);
         dragHeader(header, section.Title);
         header.Click += (_, _) => SetCollapsed(section, open);

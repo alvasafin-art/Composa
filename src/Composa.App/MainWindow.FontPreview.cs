@@ -47,7 +47,7 @@ public sealed partial class MainWindow
                 var warning = Ui.Label("⚠", Palette.Secondary);
                 warning.Margin = new Thickness(8, 0, 0, 0);
                 const string message = "Some characters in this text are missing from the font";
-                ToolTip.SetTip(warning, message);
+                Locale.Tip(warning, message);
                 Avalonia.Automation.AutomationProperties.SetName(warning, message);
                 AddAt(row, warning, 1);
             }

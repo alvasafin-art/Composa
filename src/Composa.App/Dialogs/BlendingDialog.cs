@@ -62,7 +62,7 @@ public static class BlendingDialog
         var fillField = Ui.SliderField("Fill", fill * 100, 0, 100, value => { fill = value / 100; Preview(); }, width: 330, reset: 100);
         fillField.IsEnabled = layer.Pixels != null;
         controls.Children.Add(fillField);
-        controls.Children.Add(Ui.Combo(new[] { "Gray", "Red", "Green", "Blue" }, "Gray", v => v, value => { channel = Array.IndexOf(new[] { "Gray", "Red", "Green", "Blue" }, value); Build(); }, 150));
+        controls.Children.Add(Ui.Combo(new[] { "Gray", "Red", "Green", "Blue" }, "Gray", Locale.T, value => { channel = Array.IndexOf(new[] { "Gray", "Red", "Green", "Blue" }, value); Build(); }, 150));
         controls.Children.Add(new TextBlock { Text = "Separate fade handles soften the black and white cutoffs.\nGray and RGB ranges combine; edits remain reversible.", Foreground = Palette.Secondary });
         controls.Children.Add(rows);
         var reset = new Button { Content = Locale.T("Reset Blend If") };

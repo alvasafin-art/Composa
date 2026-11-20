@@ -28,8 +28,8 @@ public sealed class ScriptEditorWindow : Window
         stop = Ui.TextButton("Stop", () => running?.Cancel()); stop.IsVisible = false;
         save = Ui.TextButton("Save to Library", () =>
         {
-            try { libraryPath = catalog.SaveScript(name.Text ?? "Script", code.Text ?? "", libraryPath); saved(); status.Text = "Saved in the Scripts menu. Assign a key in Keyboard Shortcuts."; }
-            catch (Exception error) { status.Text = error.Message; }
+            try { libraryPath = catalog.SaveScript(name.Text ?? "Script", code.Text ?? "", libraryPath); saved(); status.Text = Locale.Message("Saved in the Scripts menu. Assign a key in Keyboard Shortcuts."); }
+            catch (Exception error) { status.Text = Locale.Message(error.Message); }
         });
         export = Ui.TextButton("Save .js…", () => _ = SaveFile());
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal }; foreach (var button in new[] { save, export, stop, run }) { button.Margin = new Thickness(0, 0, 8, 0); buttons.Children.Add(button); }
@@ -40,10 +40,10 @@ public sealed class ScriptEditorWindow : Window
         {
             if (running != null) return;
             running = new CancellationTokenSource(); run.IsEnabled = save.IsEnabled = export.IsEnabled = code.IsEnabled = false; stop.IsVisible = true;
-            status.Text = "Running…";
-            try { var result = await execute(code.Text ?? "", running.Token); status.Text = "Completed. Ctrl+Z undoes the whole script." + (result.Output.Length == 0 ? "" : "\n" + result.Output); }
-            catch (OperationCanceledException) { status.Text = "Stopped. Document changes were rolled back."; }
-            catch (Exception error) { status.Text = "Not applied: " + error.Message; }
+            status.Text = Locale.Message("Running…");
+            try { var result = await execute(code.Text ?? "", running.Token); status.Text = Locale.Message("Completed. Ctrl+Z undoes the whole script." + (result.Output.Length == 0 ? "" : "\n" + result.Output)); }
+            catch (OperationCanceledException) { status.Text = Locale.Message("Stopped. Document changes were rolled back."); }
+            catch (Exception error) { status.Text = Locale.Message("Not applied: " + error.Message); }
             finally { running.Dispose(); running = null; run.IsEnabled = save.IsEnabled = export.IsEnabled = code.IsEnabled = true; stop.IsVisible = false; }
         }
         async Task SaveFile()
@@ -51,8 +51,8 @@ public sealed class ScriptEditorWindow : Window
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             { Title = Locale.T("Save Script"), SuggestedFileName = name.Text + ".js", DefaultExtension = "js", FileTypeChoices = [new FilePickerFileType("JavaScript") { Patterns = ["*.js"] }] });
             if (file?.TryGetLocalPath() is not { } target) return;
-            try { await File.WriteAllTextAsync(target, code.Text ?? ""); status.Text = "Saved " + Path.GetFileName(target); }
-            catch (Exception error) { status.Text = error.Message; }
+            try { await File.WriteAllTextAsync(target, code.Text ?? ""); status.Text = Locale.Message("Saved " + Path.GetFileName(target)); }
+            catch (Exception error) { status.Text = Locale.Message(error.Message); }
         }
     }
 }

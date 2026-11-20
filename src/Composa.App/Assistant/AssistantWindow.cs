@@ -59,7 +59,7 @@ public sealed class AssistantWindow : Window
         newChat = Ui.TextButton("New chat", () =>
         {
             this.conversation.Entries.Clear(); pending.Clear(); files.Clear(); prompt.Text = "";
-            RenderAttachments(); RenderMessages(); status.Text = "New chat";
+            RenderAttachments(); RenderMessages(); status.Text = Locale.Message("New chat");
         });
         var preferences = Ui.IconButton(Icons.Gear, "Assistant provider and settings", () => _ = ShowSettings());
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8 };
@@ -70,8 +70,8 @@ public sealed class AssistantWindow : Window
         mode = new ComboBox { ItemsSource = new[] { "Auto", "Composa script", "Photoshop script (.jsx)" },
             SelectedIndex = settings.AssistantMode == "photoshop" ? 2 : settings.AssistantMode == "composa" ? 1 : 0, MinWidth = 150 };
         mode.SelectionChanged += (_, _) => { settings.AssistantMode = mode.SelectedIndex == 2 ? "photoshop" : mode.SelectedIndex == 1 ? "composa" : "auto"; settings.Save(); };
-        ToolTip.SetTip(mode, "Auto performs edits. Script modes produce reusable code without executing it.");
-        ToolTip.SetTip(applyEdits, "Requested edits run as one Undo step. Disable to review scripts before applying.");
+        Locale.Tip(mode, "Auto performs edits. Script modes produce reusable code without executing it.");
+        Locale.Tip(applyEdits, "Requested edits run as one Undo step. Disable to review scripts before applying.");
         var controls = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 8 };
         controls.Children.Add(attach); At(controls, applyEdits, column: 1); At(controls, cancel, column: 2); At(controls, send, column: 3);
         activityPanel = new Expander { Header = Locale.T("Current operations"), Content = activity, IsVisible = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -114,13 +114,13 @@ public sealed class AssistantWindow : Window
         if (busy) return;
         foreach (var path in paths)
         {
-            if (files.Count >= 6) { status.Text = "Attach up to six files per message."; break; }
+            if (files.Count >= 6) { status.Text = Locale.Message("Attach up to six files per message."); break; }
             try
             {
                 if (files.Any(file => file.Path == path)) continue;
                 files.Add(await AssistantFile.ReadAsync(path));
             }
-            catch (Exception error) { status.Text = error.Message; }
+            catch (Exception error) { status.Text = Locale.Message(error.Message); }
         }
         RenderAttachments();
     }
@@ -166,12 +166,12 @@ public sealed class AssistantWindow : Window
         prompt.Text = ""; files.Clear(); RenderAttachments(); RenderMessages();
         running?.Dispose(); running = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = running.Token;
-        SetBusy(true); status.Text = "Assistant is thinking…";
+        SetBusy(true); status.Text = Locale.Message("Assistant is thinking…");
         activity.Text = "";
         var clock = System.Diagnostics.Stopwatch.StartNew();
         void Progress(string value)
         {
-            status.Text = value;
+            status.Text = Locale.Message(value);
             var text = activity.Text + $"[{clock.Elapsed:mm\\:ss}] {value}\n";
             activity.Text = text.Length > 10000 ? text[^10000..] : text;
             activity.CaretIndex = activity.Text.Length;
@@ -203,7 +203,7 @@ public sealed class AssistantWindow : Window
                     var applied = outcome.Changed ? $"Applied · {outcome.ToolCount} tool calls. Ctrl+Z undoes this request." : "No document changes were made.";
                     conversation.Entries.Add(new("assistant", outcome.Changed ? outcome.Summary : "Документ не изменён.\n" + outcome.Summary,
                         Outcome: applied) { ActionLog = outcome.Log });
-                    status.Text = applied; owner.Canvas.InvalidateVisual();
+                    status.Text = Locale.Message(applied); owner.Canvas.InvalidateVisual();
                 }
                 finally { if (content != null) content.IsEnabled = true; }
                 return;
@@ -223,7 +223,7 @@ public sealed class AssistantWindow : Window
                 try { await ApplyAsync(entry, token); }
                 catch (Exception error) when (error is not OperationCanceledException && current != null && ReferenceEquals(session(), current))
                 {
-                    status.Text = "Correcting the script after a rolled-back edit…"; RenderMessages();
+                    status.Text = Locale.Message("Correcting the script after a rolled-back edit…"); RenderMessages();
                     // One bounded repair attempt. The first transaction has already restored
                     // the document; the model gets the actual error and the same API contract.
                     var repaired = await provider.PlanAsync(request with
@@ -236,18 +236,18 @@ public sealed class AssistantWindow : Window
                     conversation.Entries.Add(retry); RenderMessages();
                     if (!string.IsNullOrWhiteSpace(retry.Script))
                     { pending[retry] = (current, sentFiles); await ApplyAsync(retry, token); }
-                    else status.Text = "No corrected edit was provided.";
+                    else status.Text = Locale.Message("No corrected edit was provided.");
                 }
             }
-            else status.Text = entry.Script.Length == 0 ? "Ready" : entry.ScriptTarget == "photoshop"
+            else status.Text = Locale.Message(entry.Script.Length == 0 ? "Ready" : entry.ScriptTarget == "photoshop"
                 ? "Photoshop script ready. Save as JSX and run it in Photoshop."
-                : "Script ready. Not executed; save it or choose Apply edit.";
+                : "Script ready. Not executed; save it or choose Apply edit.");
         }
-        catch (OperationCanceledException) { conversation.Entries.Add(new("assistant", "Stopped.")); status.Text = "Stopped"; }
+        catch (OperationCanceledException) { conversation.Entries.Add(new("assistant", "Stopped.")); status.Text = Locale.Message("Stopped"); }
         catch (Exception error)
         {
             conversation.Entries.Add(new("assistant", "Error: " + error.Message) { ActionLog = error is AssistantAgentException agent ? agent.ActionLog : "" });
-            status.Text = "Could not complete this message.";
+            status.Text = Locale.Message("Could not complete this message.");
         }
         finally { SetBusy(false); RenderMessages(); prompt.Focus(); }
     }
@@ -257,7 +257,7 @@ public sealed class AssistantWindow : Window
         if (!pending.TryGetValue(entry, out var edit) || edit.Session == null || !ReferenceEquals(session(), edit.Session))
             throw new InvalidOperationException("This script belongs to another document or an earlier session. Send a new message to apply it.");
         if (edit.Session.IsInteracting) throw new InvalidOperationException("Finish the current canvas action before applying the edit.");
-        status.Text = "Applying changes…";
+        status.Text = Locale.Message("Applying changes…");
         var editorContent = owner.Content as Control;
         if (editorContent != null) editorContent.IsEnabled = false;
         try
@@ -268,7 +268,7 @@ public sealed class AssistantWindow : Window
             var index = conversation.Entries.IndexOf(entry);
             if (index >= 0) conversation.Entries[index] = entry with { Outcome = outcome };
             pending.Remove(entry);
-            status.Text = outcome;
+            status.Text = Locale.Message(outcome);
             owner.Canvas.InvalidateVisual();
         }
         catch (Exception error)
@@ -288,7 +288,7 @@ public sealed class AssistantWindow : Window
         if (conversation.Entries.Count == 0)
             messages.Children.Add(new TextBlock
             {
-                Text = "Ask a question or describe an edit. Attach a script, instructions, or reference images when helpful.",
+                Text = Locale.T("Ask a question or describe an edit. Attach a script, instructions, or reference images when helpful."),
                 TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary, Margin = new Thickness(4, 20)
             });
         foreach (var entry in conversation.Entries)
@@ -310,8 +310,8 @@ public sealed class AssistantWindow : Window
                 var copyScript = Ui.TextButton("Copy script", () => _ = Clipboard?.SetTextAsync(entry.Script));
                 var library = Ui.TextButton("Save to Library", () =>
                 {
-                    try { owner.Automation.SaveScript("Assistant script", entry.Script); owner.ReloadAutomation(); status.Text = "Saved in the Scripts menu."; }
-                    catch (Exception error) { status.Text = error.Message; }
+                    try { owner.Automation.SaveScript("Assistant script", entry.Script); owner.ReloadAutomation(); status.Text = Locale.Message("Saved in the Scripts menu."); }
+                    catch (Exception error) { status.Text = Locale.Message(error.Message); }
                 });
                 var edit = Ui.TextButton("Edit Script…", () => owner.ShowScriptEditor(entry.Script, "Assistant script"));
                 var scriptButtons = new WrapPanel { Orientation = Orientation.Horizontal };
@@ -342,7 +342,7 @@ public sealed class AssistantWindow : Window
         if (busy) return;
         running?.Dispose(); running = new CancellationTokenSource(); SetBusy(true);
         try { await ApplyAsync(entry, running.Token); }
-        catch (Exception error) { status.Text = "Edit failed: " + error.Message; }
+        catch (Exception error) { status.Text = Locale.Message("Edit failed: " + error.Message); }
         finally { SetBusy(false); RenderMessages(); }
     }
 
@@ -354,15 +354,15 @@ public sealed class AssistantWindow : Window
             FileTypeChoices = [new FilePickerFileType("JavaScript") { Patterns = [target == "photoshop" ? "*.jsx" : "*.js"] }]
         });
         if (file?.TryGetLocalPath() is not { } path) return;
-        try { await File.WriteAllTextAsync(path, script); status.Text = "Saved " + Path.GetFileName(path); }
-        catch (Exception error) { status.Text = "Save failed: " + error.Message; }
+        try { await File.WriteAllTextAsync(path, script); status.Text = Locale.Message("Saved " + Path.GetFileName(path)); }
+        catch (Exception error) { status.Text = Locale.Message("Save failed: " + error.Message); }
     }
 
     private async Task ShowSettings()
     {
         if (busy) return;
-        try { if (await AssistantDialogs.Settings(this, settings)) status.Text = "Settings saved."; }
-        catch (Exception error) { status.Text = error.Message; }
+        try { if (await AssistantDialogs.Settings(this, settings)) status.Text = Locale.Message("Settings saved."); }
+        catch (Exception error) { status.Text = Locale.Message(error.Message); }
     }
 }
 
@@ -375,7 +375,7 @@ public static class AssistantDialogs
         var executable = new TextBox { Text = settings.AssistantServerExecutable, Width = 270 };
         var model = new TextBox { Text = settings.AssistantModelPath, Width = 270 };
         string? launcherDirectory = null;
-        var launcherNote = new TextBlock { Text = "Choose the complete llama.cpp folder, including its libraries.", Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 };
+        var launcherNote = new TextBlock { Text = Locale.T("Choose the complete llama.cpp folder, including its libraries."), Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 };
         async Task PickDirectory()
         {
             var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = Locale.T("llama.cpp folder"), AllowMultiple = false });
@@ -384,9 +384,9 @@ public static class AssistantDialogs
             {
                 executable.Text = LlamaLauncher.FindExecutable(directory);
                 launcherDirectory = directory;
-                launcherNote.Text = "Saving these settings creates run-composa-assistant in this folder.";
+                launcherNote.Text = Locale.Message("Saving these settings creates run-composa-assistant in this folder.");
             }
-            catch (Exception error) { launcherNote.Text = error.Message; }
+            catch (Exception error) { launcherNote.Text = Locale.Message(error.Message); }
         }
         var apiUrl = new TextBox { Text = settings.AssistantApiUrl, Width = 340, PlaceholderText = "https://server.example/v1" };
         var apiModel = new TextBox { Text = settings.AssistantApiModel, Width = 340, PlaceholderText = Locale.T("Model ID from your provider") };
@@ -430,7 +430,7 @@ public static class AssistantDialogs
         {
             if (probing) return;
             probing = true;
-            diagnostics.Text = "Loading model and checking a real tool call…";
+            diagnostics.Text = Locale.Message("Loading model and checking a real tool call…");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(dialogLifetime.Token);
             timeout.CancelAfter(TimeSpan.FromMinutes(5));
             using var host = new LlamaServerHost(Draft());
@@ -439,10 +439,10 @@ public static class AssistantDialogs
                 await host.EnsureReadyAsync(timeout.Token);
                 var result = await new LlamaAssistantProvider(Draft(), host).PlanAsync(new Composa.AI.AssistantRequest("Call connection_test with value 7. Do not edit anything.", "{}", "")
                 { Tools = [new("connection_test", "Connection test. Call with value 7.", System.Text.Json.JsonSerializer.SerializeToElement(new { type = "object", properties = new { value = new { type = "integer" } }, required = new[] { "value" } }))] }, timeout.Token);
-                diagnostics.Text = result.Calls.Any(c => c.Name == "connection_test" && c.Arguments.TryGetProperty("value", out var v) && v.GetInt32() == 7)
-                    ? "Ready: the model returned a valid tool call.\n" + host.Diagnostics : "Server responds, but the tool test failed. Check model/runtime/template.\n" + result.Summary;
+                diagnostics.Text = Locale.Message(result.Calls.Any(c => c.Name == "connection_test" && c.Arguments.TryGetProperty("value", out var v) && v.GetInt32() == 7)
+                    ? "Ready: the model returned a valid tool call.\n" + host.Diagnostics : "Server responds, but the tool test failed. Check model/runtime/template.\n" + result.Summary);
             }
-            catch (Exception error) { diagnostics.Text = error.Message + "\n" + host.Diagnostics; }
+            catch (Exception error) { diagnostics.Text = Locale.Message(error.Message + "\n" + host.Diagnostics); }
             finally { probing = false; }
         }
         var json = new CheckBox { Content = Locale.T("Request JSON response format (if supported)"), IsChecked = settings.AssistantJsonResponse };
@@ -453,13 +453,13 @@ public static class AssistantDialogs
             ("Context", context), ("GPU layers (-1 auto, 0 CPU)", gpu),
             ("Vision projector", Ui.Row(6, projector, Ui.TextButton("Browse…", () => _ = Pick(projector, "Vision projector", "*.gguf")))),
             ("", auto), ("Connection", Ui.Column(6, Ui.TextButton("Test model and tools", () => _ = Probe()), diagnostics)),
-            ("Bonsai PQ2_0", new TextBlock { Text = "Requires PrismML llama.cpp. Medium reasoning improves multi-step work; none is faster. Increase the reply budget for long scripts. Vision requires the matching projector.", TextWrapping = TextWrapping.Wrap, MaxWidth = 340 }));
+            ("Bonsai PQ2_0", new TextBlock { Text = Locale.T("Requires PrismML llama.cpp. Medium reasoning improves multi-step work; none is faster. Increase the reply budget for long scripts. Vision requires the matching projector."), TextWrapping = TextWrapping.Wrap, MaxWidth = 340 }));
         var remote = CanvasDialogs.Form(("API URL", apiUrl), ("Model", apiModel), ("API key", apiKey), ("Key environment variable", environment), ("", json));
         void Refresh() { local.IsVisible = provider.SelectedIndex == 0; remote.IsVisible = !local.IsVisible; }
         provider.SelectionChanged += (_, _) => Refresh(); Refresh();
         var form = Ui.Column(10, CanvasDialogs.Form(("Provider", provider)), local, remote,
             CanvasDialogs.Form(("Maximum reply", tokens), ("Reasoning (local)", reasoning), ("Temperature", temperature),
-                ("Read folders", Ui.Column(6, roots, Ui.TextButton("Add folder…", () => _ = AddFolder()), new TextBlock { Text = "Read and import only. Remove a line to revoke access. Links/junctions are blocked.", TextWrapping = TextWrapping.Wrap, MaxWidth = 340 }))), vision);
+                ("Read folders", Ui.Column(6, roots, Ui.TextButton("Add folder…", () => _ = AddFolder()), new TextBlock { Text = Locale.T("Read and import only. Remove a line to revoke access. Links/junctions are blocked."), TextWrapping = TextWrapping.Wrap, MaxWidth = 340 }))), vision);
         var settingsScroll = new ScrollViewer { Content = form, MaxHeight = Math.Max(240, Math.Min(590, owner.Bounds.Height - 140)),
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         bool accepted;

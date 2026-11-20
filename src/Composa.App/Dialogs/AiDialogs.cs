@@ -37,7 +37,7 @@ public static partial class AiDialogs
             button.Margin = new Thickness(0, 0, 5, 5);
             suggestions.Children.Add(button);
         }
-        var note = Ui.Label("Tags are optional metadata for templates, scripts and the future Assistant.", Palette.Secondary);
+        var note = Ui.Label(Locale.T("Tags are optional metadata for templates, scripts and the future Assistant."), Palette.Secondary);
         note.MaxWidth = 390;
         note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var dialog = new DialogWindow("Layer Tags", Ui.Column(10, box, suggestions, note));
@@ -57,7 +57,7 @@ public static partial class AiDialogs
             Width = 30, Height = 28, Padding = new Thickness(4), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
         toggle.Classes.Add("tool");
         Avalonia.Automation.AutomationProperties.SetName(toggle, "Align pixels");
-        ToolTip.SetTip(toggle, "Align pixels · use unchanged image details to correct small shifts before inserting the result.");
+        Locale.Tip(toggle, "Align pixels · use unchanged image details to correct small shifts before inserting the result.");
         return toggle;
     }
 
@@ -72,7 +72,7 @@ public static partial class AiDialogs
         string ProviderHint() => "Enhance prompt · " + AiTaskService.Providers.GetValueOrDefault(settings.EffectiveEnhancerProvider());
         var label = ProviderHint();
 
-        ToolTip.SetTip(button, label);
+        Locale.Tip(button, label);
         Avalonia.Automation.AutomationProperties.SetName(button, label);
         CancellationTokenSource? running = null;
         void RefreshButton() => button.IsEnabled = running != null || prompt.IsEnabled;
@@ -99,7 +99,7 @@ public static partial class AiDialogs
             void Progress()
             {
                 var tip = $"Stop waiting · {started.Elapsed:m\\:ss}. A submitted server request may still be billed.";
-                ToolTip.SetTip(button, tip);
+                Locale.Tip(button, tip);
                 Avalonia.Automation.AutomationProperties.SetName(button, tip);
             }
             var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -123,7 +123,7 @@ public static partial class AiDialogs
             finally
             {
                 timer.Stop(); running = null; AiGenerationControls.ShowBusy(button, false);
-                ToolTip.SetTip(button, ProviderHint());
+                Locale.Tip(button, ProviderHint());
                 Avalonia.Automation.AutomationProperties.SetName(button, ProviderHint());
                 RefreshButton();
             }
@@ -145,7 +145,7 @@ public static partial class AiDialogs
         var sessionKey = new TextBox { PasswordChar = '●', Width = 330, PlaceholderText = Locale.T("Enter a new key to save or replace it") };
         var clearKey = false;
         var clear = Ui.TextButton("Forget saved key", () => { sessionKey.Text = ""; clearKey = true; });
-        var keyNote = Ui.Label("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN.", Palette.Secondary);
+        var keyNote = Ui.Label(Locale.T("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN."), Palette.Secondary);
         keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var promptPack = service.SelectedEngine?.Id ?? "";
         var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
@@ -166,7 +166,7 @@ public static partial class AiDialogs
         var serverUrl = new TextBox { Text = settings.EnhancerServerApiUrl };
         var serverHelp = Ui.Label("", Palette.Secondary);
         serverHelp.MaxWidth = 435; serverHelp.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var apiMode = Ui.Combo(new[] { "auto", "chat", "responses" }, settings.EnhancerServerApiMode, value => value, _ => { }, 130);
+        var apiMode = Ui.Combo(new[] { "auto", "chat", "responses" }, settings.EnhancerServerApiMode, Locale.T, _ => { }, 130);
         var detected = new ComboBox { IsVisible = false, MinWidth = 160 };
         AiGenerationControls.StyleModelField(detected, "Detected server model");
         detected.SelectionChanged += (_, _) => { if (detected.SelectedItem is string id) serverModel.Text = id; };
@@ -221,7 +221,7 @@ public static partial class AiDialogs
         var forgetDirect = false;
         var clearDirect = Ui.TextButton("Forget saved key", () => { directKey.Text = ""; forgetDirect = true; });
         var apiFields = EnhancerFields(("API base URL", apiUrl), ("Model ID", apiModel), ("Saved API key", directKey), ("", clearDirect));
-        ToolTip.SetTip(apiUrl, "Optional bearer key: AVS_COMPATIBLE_API_KEY");
+        Locale.Tip(apiUrl, "Optional bearer key: AVS_COMPATIBLE_API_KEY");
         var serverApiFields = EnhancerFields(("Server API base URL", serverUrl), ("API mode", apiMode));
         var serverFields = Ui.Column(6, serverApiFields, EnhancerFields(("Server model", serverModel)),
             EnhancerFields(("", Ui.Row(6, discover, detected)), ("", discovery), ("", serverHelp)));
@@ -280,17 +280,17 @@ public static partial class AiDialogs
             refreshOperation?.Invoke();
             string address;
             try { address = ComfyServerAddress.Parse(url.Text ?? "").ToString(); }
-            catch (FormatException) { status.Text = "Enter a complete ComfyUI URL."; if (settingsDialog != null) settingsDialog.CanAccept = false; return; }
+            catch (FormatException) { status.Text = Locale.Message("Enter a complete ComfyUI URL."); if (settingsDialog != null) settingsDialog.CanAccept = false; return; }
             if (settingsDialog != null) settingsDialog.CanAccept = true;
             if (service.ConnectedServerUrl != address || service.ConnectionState != ComfyConnectionState.Connected)
             {
-                status.Text = "Connect to load the server’s models.";
+                status.Text = Locale.Message("Connect to load the server’s models.");
                 status.Foreground = Palette.Secondary;
                 return;
             }
             var info = service.ServerInfo;
-            status.Text = $"Connected{(info?.Version == null ? "" : " · ComfyUI " + info.Version)}" +
-                (info?.Devices.Count > 0 ? "\n" + string.Join(", ", info.Devices) : "");
+            status.Text = Locale.Message($"Connected{(info?.Version == null ? "" : " · ComfyUI " + info.Version)}" +
+                (info?.Devices.Count > 0 ? "\n" + string.Join(", ", info.Devices) : ""));
             status.Foreground = Palette.Accent;
         }
         models.ChoicesChanged += RefreshStatus;
@@ -299,7 +299,7 @@ public static partial class AiDialogs
         test.Click += async (_, _) =>
         {
             test.IsEnabled = false;
-            status.Text = "Connecting…";
+            status.Text = Locale.Message("Connecting…");
             try
             {
                 service.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
@@ -312,7 +312,7 @@ public static partial class AiDialogs
             }
             catch (Exception error)
             {
-                status.Text = "Error: " + error.Message;
+                status.Text = Locale.Message("Error: " + error.Message);
                 status.Foreground = Avalonia.Media.Brushes.Orange;
                 models.Refresh();
             }
@@ -545,8 +545,9 @@ public static partial class AiDialogs
         var app = Application.Current as App;
         var previousTheme = app?.CurrentTheme ?? settings.Theme;
         var chosenTheme = settings.Theme;
+        string previousLanguage = Locale.Language;
         string language = settings.Language;
-        var languagePicker = Ui.Combo(new[] { "en", "ru" }, language, code => code == "ru" ? "Русский" : "English", value => language = value, 190);
+        var languagePicker = Ui.Combo(new[] { "en", "ru" }, language, code => code == "ru" ? "Русский" : "English", value => { language = value; Locale.Apply(value,owner,settingsDialog); }, 190);
         languagePicker.Name = "EditorLanguagePicker";
         var themePicker = Ui.Combo(Enum.GetValues<EditorTheme>(), chosenTheme, theme => theme switch
         {
@@ -568,7 +569,7 @@ public static partial class AiDialogs
                 Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
                     serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
-                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label("Language / Язык", Palette.Secondary), languagePicker, Ui.Label("After restart / После перезапуска", Palette.Secondary, 11)), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, linkedSources, updates))
+                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -742,7 +743,7 @@ public static partial class AiDialogs
             }
             catch (Exception error)
             {
-                validation.Text = error.Message; validation.IsVisible = true;
+                validation.Text = Locale.Message(error.Message); validation.IsVisible = true;
                 if (error is FormatException)
                 {
                     body.SelectedIndex = tab;
@@ -754,7 +755,7 @@ public static partial class AiDialogs
         RefreshStatus();
         bool accepted = false;
         try { accepted = await settingsDialog.Ask(owner); }
-        finally { if (!accepted && chosenTheme != previousTheme) app?.ApplyTheme(previousTheme); }
+        finally { if (!accepted) { if (chosenTheme != previousTheme) app?.ApplyTheme(previousTheme); Locale.Apply(previousLanguage,owner,settingsDialog); } }
         if (!accepted) return false;
         settings.Language = language;
         settings.Theme = chosenTheme;
@@ -936,7 +937,7 @@ public static partial class AiDialogs
                 var combo = Ui.Combo(options, string.IsNullOrWhiteSpace(draft.Name) ? "None" : draft.Name, value => value,
                     value => loras[index] = loras[index] with { Name = value == "None" ? "" : value }, 255);
                 combo.IsEnabled = service.ConnectionState == ComfyConnectionState.Connected && names.Count > 0;
-                var toggle = Ui.Check("", draft.Enabled, value => loras[index] = loras[index] with { Enabled = value }); ToolTip.SetTip(toggle, "Enable this LoRA");
+                var toggle = Ui.Check("", draft.Enabled, value => loras[index] = loras[index] with { Enabled = value }); Locale.Tip(toggle, "Enable this LoRA");
                 var strength = Ui.SliderField("", Math.Clamp(draft.Strength, 0, 3), 0, 3, value => loras[index] = loras[index] with { Strength = value }, 0.01, "0.00", 100, reset: 1);
                 loras[index] = loras[index] with { Strength = Math.Clamp(draft.Strength, 0, 3) };
                 rows.Children.Add(Ui.Column(3, Ui.Label($"LoRA {i + 1}", Palette.Secondary), Ui.Row(7, toggle, combo, strength)));
@@ -965,7 +966,7 @@ public static partial class AiDialogs
     public static async Task<string?> ApiKey(Window owner, CancellationToken cancellationToken, string? serverUrl = null)
     {
         var key = new TextBox { Width = 390, PasswordChar = '●', PlaceholderText = Locale.T("Comfy.org API key"), Name = "ComfyApiKeyEntry" };
-        var note = Ui.Label("Composa saves your Comfy.org key in your user profile for this server. Manage it in AI Settings → Connection → Comfy credits.", Palette.Secondary);
+        var note = Ui.Label(Locale.T("Composa saves your Comfy.org key in your user profile for this server. Manage it in AI Settings → Connection → Comfy credits."), Palette.Secondary);
         note.MaxWidth = 390; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var dialog = new DialogWindow("Comfy.org API key", Ui.Column(10, note, key), "Continue");
         dialog.CanAccept = false;
@@ -1001,7 +1002,7 @@ public static partial class AiDialogs
         Control picker = selected == null ? Ui.Label(Locale.T("Refresh Models on ComfyUI to read available upscale models.")) : Ui.Combo(models.ToArray(), selected,
             choice => choice.ToString(), choice => { selected = choice; engine = choice.Engine; EngineNote(); }, 430);
         if (picker is ComboBox upscaleModels) AiGenerationControls.StyleModelField(upscaleModels, "Upscale model");
-        ToolTip.SetTip(picker, note);
+        Locale.Tip(picker, note);
         note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var upscaleDialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", picker), ("Scale", scale)), dimensions), "Upscale") { CanAccept = selected != null };
         if (!await upscaleDialog.Ask(owner)) return false;
@@ -1189,7 +1190,7 @@ public static partial class AiDialogs
                         task == AiTaskKind.GenerativeExpand ? regionSide == 0 : originalSize, width, height, quality);
                 else if (nano) description += $"\nNano Banana: {quality} · {NanoBanana.Aspect(width, height)}";
                 else if (paid && api != (width, height)) description += $"\nModel request  {api.Item1} × {api.Item2} px";
-                ToolTip.SetTip(task == AiTaskKind.GenerativeExpand ? expandSize : size, description);
+                Locale.Tip(task == AiTaskKind.GenerativeExpand ? expandSize : size, description);
                 sizeError.IsVisible = false;
                 if (dialog != null) dialog.CanAccept = true;
             }
@@ -1214,7 +1215,7 @@ public static partial class AiDialogs
         var content = Ui.Column(AiGenerationControls.EditorSpacing, prompt, new AiPromptToolbar(controls, actions));
         content.Width = Math.Clamp(owner.Bounds.Width > 0 ? owner.Bounds.Width - 32 : 532, 285, 532);
         if(task==AiTaskKind.Relight) content.Children.Add(Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
-        if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText="Describe the background, surface and lighting";
+        if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText=Locale.T("Describe the background, surface and lighting");
         if (references != null) content.Children.Add(references.View);
         if (task == AiTaskKind.GenerativeExpand) content.Children.Add(resolution);
         content.Children.Add(cost);

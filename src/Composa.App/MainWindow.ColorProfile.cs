@@ -41,7 +41,7 @@ public sealed partial class MainWindow
         });
         var flatten = new CheckBox { Content = Locale.T("Flatten image to preserve composite appearance"), IsChecked = true, IsVisible = !assign };
         var currentLabel = Ui.Label(Locale.T("Current profile:") + " " + current.Name, Palette.Secondary);
-        currentLabel.MaxWidth = 390; currentLabel.TextTrimming = TextTrimming.CharacterEllipsis; ToolTip.SetTip(currentLabel, current.Name);
+        currentLabel.MaxWidth = 390; currentLabel.TextTrimming = TextTrimming.CharacterEllipsis; Locale.Tip(currentLabel, current.Name);
         var rows = Ui.Column(12, currentLabel, Ui.Row(8, combo, load),
             new TextBlock { Text = assign ? "Keeps RGB numbers and changes their meaning. The image's appearance may change."
                 : "Converts RGB numbers to preserve color within the destination gamut. Keeping layers can change blends and adjustments.",

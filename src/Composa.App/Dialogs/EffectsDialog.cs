@@ -32,7 +32,7 @@ public static class EffectsDialog
             var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
             void Paint() => swatch.Background = new SolidColorBrush(new SKColor(get()).ToDisplay(session.Document.Profile, Ui.DisplayProfile(owner)));
             Paint();
-            ToolTip.SetTip(swatch, LayerEffects.DisplayName(kind) + " " + label.ToLowerInvariant());
+            Locale.Tip(swatch, LayerEffects.DisplayName(kind) + " " + label.ToLowerInvariant());
             swatch.PointerPressed += async (_, _) =>
             {
                 if (TopLevel.GetTopLevel(swatch) is not Window window || await Prompts.Color(window, LayerEffects.DisplayName(kind) + " " + label, new SKColor(get())) is not { } picked) return;
@@ -47,7 +47,7 @@ public static class EffectsDialog
             case LayerEffectKind.Stroke:
                 var stroke = effects.Stroke!;
                 rows.Children.Add(Ui.Row(10, Width(Ui.Label(Locale.T("Position"), Palette.Secondary), 70),
-                    Ui.Combo(new[] { "Outside", "Inside" }, stroke.Inside ? "Inside" : "Outside", v => v, v => Set(effects with { Stroke = effects.Stroke! with { Inside = v == "Inside" } }), 120)));
+                    Ui.Combo(new[] { "Outside", "Inside" }, stroke.Inside ? "Inside" : "Outside", Locale.T, v => Set(effects with { Stroke = effects.Stroke! with { Inside = v == "Inside" } }), 120)));
                 rows.Children.Add(Swatch());
                 rows.Children.Add(Slider("Size", stroke.Size, 0, 100, v => Set(effects with { Stroke = effects.Stroke! with { Size = v } })));
                 rows.Children.Add(Slider("Opacity", stroke.Opacity * 100, 0, 100, v => Set(effects with { Stroke = effects.Stroke! with { Opacity = v / 100 } })));
@@ -72,7 +72,7 @@ public static class EffectsDialog
                 rows.Children.Add(new Controls.GradientEditor(owner, gradient.Ramp ?? GradientRamp.Between(gradient.StartColor, gradient.EndColor),
                     ramp => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Ramp = ramp } })));
                 rows.Children.Add(Ui.Row(10, Width(Ui.Label(Locale.T("Style"), Palette.Secondary), 70),
-                    Ui.Combo(new[] { "Linear", "Radial" }, gradient.Radial ? "Radial" : "Linear", v => v,
+                    Ui.Combo(new[] { "Linear", "Radial" }, gradient.Radial ? "Radial" : "Linear", Locale.T,
                         v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Radial = v == "Radial" } }), 120)));
                 rows.Children.Add(Slider("Opacity", gradient.Opacity * 100, 0, 100, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Opacity = v / 100 } })));
                 rows.Children.Add(Angle(gradient.Angle, v => Set(effects with { GradientOverlay = effects.GradientOverlay! with { Angle = v } })));

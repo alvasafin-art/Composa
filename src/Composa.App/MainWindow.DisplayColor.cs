@@ -74,7 +74,7 @@ public sealed partial class MainWindow
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { await Prompts.Alert(this, "Display Profile", error.Message); }
         });
         var description = Ui.Label(displayDescription, Palette.Secondary); description.MaxWidth = 420; description.TextTrimming = TextTrimming.CharacterEllipsis;
-        ToolTip.SetTip(description, displayDescription);
+        Locale.Tip(description, displayDescription);
         var dialog = new DialogWindow("Display Color", Ui.Column(12, description, combo, Ui.Row(10, load, fileLabel),
             new TextBlock { MaxWidth = 420, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left, TextWrapping = TextWrapping.Wrap, Text = "Display conversion affects previews only. Exports keep the document's profile. On Windows use System; with automatic system color management enabled, keep System or sRGB. Otherwise choose the ICC supplied for your calibrated display." }));
         validate = () => dialog.CanAccept = combo.SelectedIndex != 2 || path != null && File.Exists(path);

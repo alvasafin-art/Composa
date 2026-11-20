@@ -39,7 +39,7 @@ public class ToolRailTests
         while (DateTime.UtcNow < until) { await Task.Delay(10); Dispatcher.UIThread.RunJobs(); }
     }
 
-    private List<string> BarTexts() => window.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Classes.Contains("options"))
+    private List<string> BarTexts() => window.GetVisualDescendants().OfType<WrapPanel>().Single(p => p.Classes.Contains("options"))
         .GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
 
     [AvaloniaFact]
@@ -102,7 +102,7 @@ public class ToolRailTests
         Assert.StartsWith("Polygonal Lasso (L)", ToolTip.GetTip(lasso) as string);
         // The bar names the lasso in use and has no box to switch it.
         Assert.Contains("Polygonal Lasso", BarTexts());
-        Assert.Empty(window.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Classes.Contains("options")).GetVisualDescendants().OfType<ComboBox>());
+        Assert.Empty(window.GetVisualDescendants().OfType<WrapPanel>().Single(p => p.Classes.Contains("options")).GetVisualDescendants().OfType<ComboBox>());
     }
 
     [AvaloniaFact]
@@ -138,7 +138,7 @@ public class ToolRailTests
 
         Assert.True(shape.IsGroupOpen);
         Assert.Equal(Tool.Move, session.Tool);
-        Assert.Equal(["Rectangle", "Rounded Rectangle", "Ellipse", "Line"], shape.GroupItems.Select(i => (string)i.Header!));
+        Assert.Equal(["Rectangle", "Polygon", "Star", "Ellipse", "Line"], shape.GroupItems.Select(i => (string)i.Header!));
         Assert.All(shape.GroupItems, i => Assert.Equal(new KeyGesture(Key.U), i.InputGesture));
     }
 

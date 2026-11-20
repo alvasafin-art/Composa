@@ -134,7 +134,11 @@ public sealed partial class EditorSession
         _ => null
     };
     public ShapeKind ShapeKind { get; set; } = ShapeKind.Rectangle;
-    public double ShapeCornerRadius { get; set; } = 24;
+    public double ShapeCornerRadius { get; set; }
+    public int ShapePoints { get; set; } = 5;
+    public double StarInnerRatio { get; set; } = .5;
+    public ShapeStyle CurrentShapeStyle => new ShapeStyle(ShapeKind, (uint)Foreground, ShapeCornerRadius)
+        { Points = ShapePoints, InnerRatio = StarInnerRatio, LineWidth = ShapeLineWidth }.WithRadius(ShapeCornerRadius);
     public GradientRamp? GradientRamp { get; set; }
     /// <summary>A Line shape's thickness in document pixels.</summary>
     public double ShapeLineWidth { get; set; } = 4;
@@ -556,6 +560,15 @@ public sealed partial class EditorSession
     /// <summary>
     /// Tab steps the current tool through its own modes, the setting at the left of its options bar. Tools without
     /// modes (Move, Crop, Text, Eyedropper, Hand, Zoom) ignore it.
+    public void CycleShape() => ShapeKind = ShapeKind switch
+    {
+        ShapeKind.Rectangle or ShapeKind.RoundedRectangle => ShapeKind.Polygon,
+        ShapeKind.Polygon => ShapeKind.Star,
+        ShapeKind.Star => ShapeKind.Ellipse,
+        ShapeKind.Ellipse => ShapeKind.Line,
+        _ => ShapeKind.Rectangle
+    };
+
     /// </summary>
     public void CycleToolMode()
     {
@@ -566,7 +579,7 @@ public sealed partial class EditorSession
             case Tool.Lasso: LassoKind = Next(LassoKind); break;
             case Tool.Wand: WandMode = Next(WandMode); break;
             case Tool.SelectionBrush: SelectionBrushMode = SelectionBrushMode == SelectionMode.Add ? SelectionMode.Subtract : SelectionMode.Add; break;
-            case Tool.Shape: ShapeKind = Next(ShapeKind); if (ShapeKind == ShapeKind.Path) ShapeKind = ShapeKind.Rectangle; break;
+            case Tool.Shape: CycleShape(); break;
             case Tool.Brush: Tool = Tool.Eraser; break;
             case Tool.Eraser: Tool = Tool.Brush; break;
             case Tool.Smear: SmearMode = Next(SmearMode); break;

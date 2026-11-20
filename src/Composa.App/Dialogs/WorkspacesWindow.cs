@@ -20,16 +20,16 @@ public sealed class WorkspacesWindow : Window
         this.settings = settings; this.capture = capture; this.apply = apply;
         Title = Locale.T("Workspaces"); Width = 530; SizeToContent = SizeToContent.Height; CanResize = false; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var save = Ui.TextButton("Save Current", Save);
-        var use = Ui.TextButton("Apply", () => { if (SelectedKey() is { } key) { apply(settings.Workspaces[key]); status.Text = "Workspace applied."; } });
-        var delete = Ui.TextButton("Delete", () => { if (SelectedKey() is { } key) { settings.Workspaces.Remove(key); settings.Save(); Refresh(); status.Text = "Workspace deleted."; } });
+        var use = Ui.TextButton("Apply", () => { if (SelectedKey() is { } key) { apply(settings.Workspaces[key]); status.Text = Locale.Message("Workspace applied."); } });
+        var delete = Ui.TextButton("Delete", () => { if (SelectedKey() is { } key) { settings.Workspaces.Remove(key); settings.Save(); Refresh(); status.Text = Locale.Message("Workspace deleted."); } });
         var reset = Ui.TextButton("Default Layout", () =>
         {
             apply(new(new() { ["Navigator"] = new(false, false, 220), ["Channels"] = new(false, false, 250), ["AI Generation"] = new(false, false, 164), ["History"] = new(true, false, 220) }, false));
-            status.Text = "Default panel layout restored. Saved workspaces are kept.";
+            status.Text = Locale.Message("Default panel layout restored. Saved workspaces are kept.");
         });
         Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children =
         {
-            Ui.Label("Save panel visibility, collapsed sections, heights and Canvas Only.", Palette.Secondary),
+            Ui.Label(Locale.T("Save panel visibility, collapsed sections, heights and Canvas Only."), Palette.Secondary),
             layouts, name, Ui.Row(8, save, use, delete), status, Ui.Row(8, reset, Ui.TextButton("Close", () => Close()))
         } };
         layouts.SelectionChanged += (_, _) =>
@@ -50,12 +50,12 @@ public sealed class WorkspacesWindow : Window
     private void Save()
     {
         var requested = name.Text?.Trim() ?? "";
-        if (requested.Length == 0 || requested.Length > 64 || requested.Any(char.IsControl)) { status.Text = "Enter a name of 1–64 characters."; return; }
+        if (requested.Length == 0 || requested.Length > 64 || requested.Any(char.IsControl)) { status.Text = Locale.Message("Enter a name of 1–64 characters."); return; }
         var key = settings.Workspaces.Keys.FirstOrDefault(key => key.Equals(requested, StringComparison.OrdinalIgnoreCase));
-        if (key == null && settings.Workspaces.Count >= 32) { status.Text = "Up to 32 workspaces can be saved. Delete one first."; return; }
+        if (key == null && settings.Workspaces.Count >= 32) { status.Text = Locale.Message("Up to 32 workspaces can be saved. Delete one first."); return; }
         // Replacing the selected workspace is explicit; a colliding typed name must first be selected.
-        if (key != null && SelectedKey() != key) { status.Text = "Select that workspace to replace it, or enter a new name."; return; }
+        if (key != null && SelectedKey() != key) { status.Text = Locale.Message("Select that workspace to replace it, or enter a new name."); return; }
         var current = capture(); settings.Workspaces[key ?? requested] = current with { Panels = new(current.Panels) };
-        settings.Save(); Refresh(key ?? requested); status.Text = key == null ? "Workspace saved." : "Workspace replaced with the current layout.";
+        settings.Save(); Refresh(key ?? requested); status.Text = Locale.Message(key == null ? "Workspace saved." : "Workspace replaced with the current layout.");
     }
 }

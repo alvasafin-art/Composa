@@ -60,7 +60,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
             Ui.Row(8, Ui.TextButton("Fit", view.Fit), Ui.TextButton("100%", () => { view.ActualSize(); fullResolution.IsChecked = true; })), fullResolution,
             Ui.Label(selection == null ? "Freeze protects the current shape." : "The selection protects unselected pixels.", Palette.Secondary));
         var grid = new Grid { ColumnDefinitions = new("*,18,250"), RowDefinitions = new("Auto,*,Auto") };
-        var help = Ui.Label("Wheel: zoom · Middle drag: pan · Alt: reconstruct / thaw · Ctrl+Z: undo stroke", Palette.Secondary);
+        var help = Ui.Label(Locale.T("Wheel: zoom · Middle drag: pan · Alt: reconstruct / thaw · Ctrl+Z: undo stroke"), Palette.Secondary);
         Grid.SetColumnSpan(help, 3); grid.Children.Add(help); Grid.SetRow(view, 1); grid.Children.Add(view);
         var scroll = new ScrollViewer { Content = controls, Margin = new Thickness(0, 12, 0, 0), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         Grid.SetColumn(scroll, 2); Grid.SetRow(scroll, 1); grid.Children.Add(scroll); Grid.SetRow(status, 2); Grid.SetColumnSpan(status, 3); grid.Children.Add(status); body = grid;
@@ -82,7 +82,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
         if (closed || finalizing || showOriginal) return;
         var mode = alt ? tool is LiquifyTool.Freeze or LiquifyTool.Thaw ? LiquifyTool.Thaw : LiquifyTool.Reconstruct : tool;
         try { current = current.Stroke(from, to, mode, view.BrushSize, strength, hardness, selection); RequestPreview(); }
-        catch (Exception error) { status.Text = error.Message; }
+        catch (Exception error) { status.Text = Locale.Message(error.Message); }
     }
     private void RequestPreview()
     {
@@ -107,11 +107,11 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
             }, cancellation.Token); }
             finally { renderGate.Release(); }
             if (!closed && !finalizing && version == generation)
-            { view.SetBitmap(preview); status.Text = $"{preview.PixelSize.Width}×{preview.PixelSize.Height} · {field.AllocatedBytes / (1024.0 * 1024):0.0} MB deformation · {(native ? "Full-resolution preview" : "Draft preview")}"; }
+            { view.SetBitmap(preview); status.Text = Locale.Message($"{preview.PixelSize.Width}×{preview.PixelSize.Height} · {field.AllocatedBytes / (1024.0 * 1024):0.0} MB deformation · {(native ? "Full-resolution preview" : "Draft preview")}"); }
             else preview.Dispose();
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (!closed) status.Text = "Preview failed: " + error.Message; }
+        catch (Exception error) { if (!closed) status.Text = Locale.Message("Preview failed: " + error.Message); }
         finally { if (ReferenceEquals(previewCancellation, cancellation)) previewCancellation = null; }
     }
     private SKBitmap DrawPreview(LiquifyField appearance, LiquifyField field, bool marks, int maxSide, CancellationToken token)
@@ -144,7 +144,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
     }
     private async Task FinalizeResult()
     {
-        status.Text = "Rendering full resolution…";
+        status.Text = Locale.Message("Rendering full resolution…");
         try
         {
             await renderGate.WaitAsync(lifetime.Token);
@@ -154,7 +154,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
             if (closed) result.Dispose(); else { Result = result; Close(true); }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (!closed) { status.Text = "Liquify failed: " + error.Message; finalizing = false; CanAccept = true; body.IsEnabled = true; } }
+        catch (Exception error) { if (!closed) { status.Text = Locale.Message("Liquify failed: " + error.Message); finalizing = false; CanAccept = true; body.IsEnabled = true; } }
     }
     public void AdoptResult() => Result = null;
     public async ValueTask DisposeAsync()

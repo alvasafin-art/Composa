@@ -25,7 +25,9 @@ public sealed partial class LayersPanel : UserControl
     private const double HeaderFieldHeight = 28;
     private readonly ComboBox blend;
     private readonly Slider opacity;
-    private readonly TextBlock opacityText = new() { Width = 33, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right, Foreground = Palette.Secondary };
+    private readonly NumericUpDown opacityNumber = new() { Name="LayerOpacity", Width=44, Minimum=0, Maximum=100, Increment=1,
+        ShowButtonSpinner=false, ClipValueToMinMax=true, FormatString="0", Padding=new Thickness(3,0), VerticalContentAlignment=VerticalAlignment.Center };
+
     private readonly Border dropLine = new() { Height = 2, Background = Palette.Accent, IsVisible = false, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
     private readonly Dictionary<Guid, Border> rowFor = [];
     private bool updating;
@@ -108,10 +110,14 @@ public sealed partial class LayersPanel : UserControl
         opacity.Resources["SliderHorizontalHeight"] = HeaderFieldHeight;
         opacity.Resources["SliderHorizontalThumbHeight"] = 14d;
         opacity.Resources["SliderHorizontalThumbWidth"] = 14d;
+        opacity.IsSnapToTickEnabled = true;
+        opacity.TickFrequency = 1;
         opacity.ValueChanged += (_, e) =>
         {
-            opacityText.Text = $"{Math.Round(e.NewValue)}%";
             if (updating || session?.ActiveLayer is not { } layer) return;
+            updating = true;
+            try { opacityNumber.SetCurrentValue(NumericUpDown.ValueProperty, (decimal)Math.Round(e.NewValue)); }
+            finally { updating = false; }
             if (!opacityDragging) { opacityDragging = true; opacityStart = layer.Opacity; session.Begin("Opacity"); }
             session.SetOpacity(layer, Math.Round(e.NewValue) / 100);
         };
@@ -127,11 +133,23 @@ public sealed partial class LayersPanel : UserControl
         Grid.SetRow(blend, 1);
         header.Children.Add(blend);
 
-        var opacityRow = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 4,
-            Height = HeaderFieldHeight, VerticalAlignment = VerticalAlignment.Center };
-        opacityRow.Children.Add(Ui.Label(Locale.T("Opacity"), Palette.Secondary));
-        Grid.SetColumn(opacity, 1); opacityRow.Children.Add(opacity);
-        Grid.SetColumn(opacityText, 2); opacityRow.Children.Add(opacityText);
+        opacityNumber.ValueChanged += (_, e) =>
+        {
+            if (updating || e.NewValue is not {} value || opacity.Value == (double)value) return;
+            opacity.Value = (double)value;
+            EndOpacityDrag();
+        };
+        opacityNumber.LostFocus += (_, _) => EndOpacityDrag();
+        var opacityRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 3, Height = HeaderFieldHeight };
+        opacityRow.Children.Add(opacity);
+        Grid.SetColumn(opacityNumber, 1); opacityRow.Children.Add(opacityNumber);
+        var percent = Ui.Label("%", Palette.Secondary, 11); percent.VerticalAlignment=VerticalAlignment.Center;
+        Grid.SetColumn(percent, 2); opacityRow.Children.Add(percent);
+        foreach (var control in new Control[] { opacity, opacityNumber })
+        {
+            Avalonia.Automation.AutomationProperties.SetName(control, Locale.T("Layer Opacity"));
+            Locale.Tip(control, "Layer Opacity");
+        }
         Grid.SetColumn(opacityRow, 1); Grid.SetRow(opacityRow, 1); header.Children.Add(opacityRow);
         AddSearchHeader(header);
 
@@ -269,11 +287,11 @@ public sealed partial class LayersPanel : UserControl
     {
         updating = true;
         var active = session?.ActiveLayer;
-        blend.IsEnabled = opacity.IsEnabled = active != null;
+        blend.IsEnabled = opacityNumber.IsEnabled = opacity.IsEnabled = active != null;
         blend.SelectedIndex = blendAt.IndexOf(active?.Blend ?? BlendMode.Normal);
         if(blend.Items[blendAt.IndexOf(BlendMode.PassThrough)] is ComboBoxItem passThrough)passThrough.IsEnabled=active?.IsGroup==true;
         if (!opacityDragging) opacity.Value = (active?.Opacity ?? 1) * 100;
-        opacityText.Text = $"{Math.Round(opacity.Value)}%";
+        opacityNumber.Value = (decimal)Math.Round(opacity.Value);
         updating = false;
         RefreshRows();
     }
@@ -286,7 +304,7 @@ public sealed partial class LayersPanel : UserControl
         var dim = !layer.Visible || !entry.ParentVisible;
 
         var eye = new Button { Classes = { "flat" }, Width = 28, Height = 28, Padding = new Thickness(0), Content = Icons.Create(Icons.Eye, 15, layer.Visible ? null : new SolidColorBrush(Color.Parse("#555555"))) };
-        ToolTip.SetTip(eye, "Show or hide (drag down the column to swipe, Alt-click to show only this layer)");
+        Locale.Tip(eye, "Show or hide (drag down the column to swipe, Alt-click to show only this layer)");
         eye.AddHandler(PointerPressedEvent, (_, e) =>
         {
             if (e.KeyModifiers.HasFlag(KeyModifiers.Alt))
@@ -324,7 +342,7 @@ public sealed partial class LayersPanel : UserControl
             {
                 var status = state.LinkStatus;
                 var badge = Ui.Label(layer.SmartObject!.Link != null ? status is { State: not Composa.IO.LinkedSourceState.Current } ? "↗!" : "↗" : "◇", Palette.Accent);
-                ToolTip.SetTip(badge, layer.SmartObject.Link is { } link ? $"Linked smart object · {link.Path}" + (link.HasLocalEdits ? " · local cached edits" : "")
+                Locale.Tip(badge, layer.SmartObject.Link is { } link ? $"Linked smart object · {link.Path}" + (link.HasLocalEdits ? " · local cached edits" : "")
                     + (status?.Detail is { } detail ? "\n" + detail : status is { State: not Composa.IO.LinkedSourceState.Current } ? "\n" + status.State : "") : "Smart object · double-click the thumbnail to edit contents");
                 content.Children.Add(badge);
             }
@@ -332,13 +350,13 @@ public sealed partial class LayersPanel : UserControl
         if (layer.Mask != null)
         {
             var link = new Button { Classes = { "flat" }, Width = 18, Height = 28, Padding = new Thickness(0), Content = Icons.Create(layer.MaskLinked ? Icons.Link : Icons.Unlink, 16, Palette.Secondary) };
-            ToolTip.SetTip(link, layer.MaskLinked ? "Unlink mask: move and transform it independently" : "Link mask: move it together with the layer");
+            Locale.Tip(link, layer.MaskLinked ? "Unlink mask: move and transform it independently" : "Link mask: move it together with the layer");
             link.Click += (_, _) => current.SetMaskLinked(entry.Layer, !entry.Layer.MaskLinked);
             content.Children.Add(link);
             var maskThumb = Thumb(new Image { Source = state.Mask, Stretch = Stretch.Uniform, Opacity = layer.MaskEnabled ? 1 : 0.35 },
                 state.ActiveMask, mask: true);
             maskThumb.PointerPressed += (_, _) => thumbnailTarget = true;
-            ToolTip.SetTip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
+            Locale.Tip(maskThumb, "Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection");
             maskThumb.AddHandler(PointerPressedEvent, (_, e) =>
             {
                 if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { current.SetMaskEnabled(entry.Layer, !entry.Layer.MaskEnabled); e.Handled = true; }
@@ -369,11 +387,11 @@ public sealed partial class LayersPanel : UserControl
         else
         {
             var name = Ui.Label(layer.Name);
-            if (layer.Locks != LayerLocks.None) { name.Text += "  [locked]"; ToolTip.SetTip(name, "Locked: " + layer.Locks); }
+            if (layer.Locks != LayerLocks.None) { name.Text += "  [locked]"; Locale.Tip(name, "Locked: " + layer.Locks); }
             if (layer.VectorMask != null) { name.Text += "  [vector mask]"; }
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.MaxWidth = 150;
-            ToolTip.SetTip(name, state.Tags == null ? layer.Name : layer.Name + "\nTags: " + state.Tags);
+            ToolTip.SetTip(name, state.Tags == null ? layer.Name : layer.Name + "\n" + Locale.T("Tags") + ": " + state.Tags);
             if (layer.IsLive) name.FontStyle = FontStyle.Italic;
             content.Children.Add(name);
         }
@@ -402,7 +420,7 @@ public sealed partial class LayersPanel : UserControl
         var enabled = layer.Effects!.IsEnabled(kind);
         var selected = current.SelectedEffect is { } s && s.LayerId == layer.Id && s.Kind == kind;
         var eye = new Button { Classes = { "flat" }, Width = 24, Height = 22, Padding = new Thickness(0), Content = Icons.Create(enabled ? Icons.Eye : Icons.EyeOff, 12, enabled ? Palette.Secondary : new SolidColorBrush(Color.Parse("#555555"))) };
-        ToolTip.SetTip(eye, enabled ? "Hide " + LayerEffects.DisplayName(kind).ToLowerInvariant() : "Show " + LayerEffects.DisplayName(kind).ToLowerInvariant());
+        Locale.Tip(eye, enabled ? "Hide " + LayerEffects.DisplayName(kind).ToLowerInvariant() : "Show " + LayerEffects.DisplayName(kind).ToLowerInvariant());
         eye.Click += (_, _) => current.ToggleEffect(layer, kind);
         var name = Ui.Label(LayerEffects.DisplayName(kind), enabled ? Palette.Foreground : Palette.Secondary);
         name.FontSize = 11.5;
@@ -412,7 +430,7 @@ public sealed partial class LayersPanel : UserControl
             Child = content, Background = selected ? Palette.Selected : Brushes.Transparent, Padding = new Thickness(4, 1), Height = 24,
             CornerRadius = new CornerRadius(4), Margin = new Thickness(4, 0), Tag = (layer, kind)
         };
-        ToolTip.SetTip(row, "Click to select, double-click to edit, Alt-drag onto another layer to copy the " + LayerEffects.DisplayName(kind).ToLowerInvariant());
+        Locale.Tip(row, "Click to select, double-click to edit, Alt-drag onto another layer to copy the " + LayerEffects.DisplayName(kind).ToLowerInvariant());
         row.PointerPressed += (_, e) =>
         {
             if (e.Source == eye || (e.Source as Control)?.FindAncestorOfType<Button>() == eye) return;
@@ -450,9 +468,9 @@ public sealed partial class LayersPanel : UserControl
         var toggle = Ui.Check("", filter.Enabled, enabled => current.ChangeSmartFilter(layer, filter.Id, enabled: enabled));
         var edit = Ui.TextButton(FilterSettings.DisplayName(filter.Settings.Kind) + "…", () => EditSmartFilterRequested?.Invoke(layer, filter));
         edit.MaxWidth = 130;
-        ToolTip.SetTip(edit, FilterSettings.DisplayName(filter.Settings.Kind));
+        Locale.Tip(edit, FilterSettings.DisplayName(filter.Settings.Kind));
         var blending = Ui.TextButton($"{filter.Opacity:P0}", () => EditSmartFilterBlendingRequested?.Invoke(layer, filter));
-        ToolTip.SetTip(blending, $"Smart filter blending: {filter.Blend.DisplayName()}, {filter.Opacity:P0}");
+        Locale.Tip(blending, $"Smart filter blending: {filter.Blend.DisplayName()}, {filter.Opacity:P0}");
         var delete = Ui.IconButton(Icons.Trash, "Delete smart filter", () => current.ChangeSmartFilter(layer, filter.Id, remove: true));
         var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = Ui.Row(5, toggle, edit, blending, delete) };
         var menu = new ContextMenu();
@@ -475,7 +493,7 @@ public sealed partial class LayersPanel : UserControl
         {
             var thumbnail = Thumb(new Image { Source = Thumbnail(mask), Stretch = Stretch.Uniform, Opacity = layer.SmartFilterMaskEnabled ? 1 : .35 },
                 current.ActiveLayer?.Id == layer.Id && current.IsEditingSmartFilterMask, mask: true);
-            ToolTip.SetTip(thumbnail, "Smart filter mask: paint black to hide filtering, white to reveal it; Shift-click to disable");
+            Locale.Tip(thumbnail, "Smart filter mask: paint black to hide filtering, white to reveal it; Shift-click to disable");
             thumbnail.PointerPressed += (_, e) =>
             {
                 if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) current.SetSmartFilterMaskEnabled(layer, !layer.SmartFilterMaskEnabled);
@@ -487,7 +505,7 @@ public sealed partial class LayersPanel : UserControl
         else
         {
             var add = Ui.TextButton("Add filter mask", () => { current.SelectLayer(layer.Id); current.AddSmartFilterMask(layer); });
-            ToolTip.SetTip(add, "Mask the smart filter stack without hiding the object"); content.Children.Add(add);
+            Locale.Tip(add, "Mask the smart filter stack without hiding the object"); content.Children.Add(add);
         }
         content.Children.Add(Ui.Label(Locale.T("Smart Filters"), Palette.Secondary));
         var row = new Border { Padding = new Thickness(38 + depth * 16, 2, 4, 2), Child = content };

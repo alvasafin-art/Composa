@@ -226,6 +226,10 @@ public class LineShapeTests
         Assert.Equal(ShapeKind.Line, session.ShapeKind);
         session.CycleToolMode();
         Assert.Equal(ShapeKind.Rectangle, session.ShapeKind);
+        session.CycleToolMode();
+        Assert.Equal(ShapeKind.Polygon, session.ShapeKind);
+        session.CycleToolMode();
+        Assert.Equal(ShapeKind.Star, session.ShapeKind);
         session.ShapeLineWidth = 10;
         var line = session.AddLine(new SKPoint(0, 50), new SKPoint(100, 50))!;
         session.ResizeImage(50, 50);

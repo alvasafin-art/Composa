@@ -51,7 +51,7 @@ public static class GridSettingsDialog
         }
 
         presetBox = Ui.Combo(presets, appearance.Preset, GridAppearance.DisplayName, p => { if (!updating) Change(appearance with { Preset = p }, grid); }, 150);
-        ToolTip.SetTip(swatch, "Choose a custom grid color");
+        Locale.Tip(swatch, "Choose a custom grid color");
         swatch.PointerPressed += async (_, _) =>
         {
             // The picker shows on the canvas as it goes; a color other than the one in use becomes the Custom color.

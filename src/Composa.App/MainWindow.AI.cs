@@ -156,7 +156,7 @@ public sealed partial class MainWindow
         if (shownConnection != aiTasks.ConnectionState)
         {
             shownConnection = aiTasks.ConnectionState;
-            ToolTip.SetTip(aiTaskMenuButton, "AI tasks and settings · ComfyUI " + aiTasks.ConnectionState.ToString().ToLowerInvariant());
+            Locale.Tip(aiTaskMenuButton, "AI tasks and settings · ComfyUI " + aiTasks.ConnectionState.ToString().ToLowerInvariant());
         }
         var variants = session?.AiVariantGroup;
         if (aiVariantStrip.Children.Count != 0) aiVariantStrip.Children.Clear();
@@ -182,7 +182,7 @@ public sealed partial class MainWindow
                 if (variants.Children[i].Pixels is { } pixels)
                     button.Content = new Image { Source = variantPreviews.GetValue(pixels, p => Ui.ToAvaloniaBitmap(p, 54, DisplayProfile)),
                         Width = 30, Height = 22, Stretch = Stretch.Uniform };
-                ToolTip.SetTip(button, $"Variant {i + 1}");
+                Locale.Tip(button, $"Variant {i + 1}");
                 Avalonia.Automation.AutomationProperties.SetName(button, $"Variant {i + 1}");
                 button.Padding = new Thickness(2);
                 button.MinWidth = 28; button.IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
@@ -284,7 +284,7 @@ public sealed partial class MainWindow
             flyout.Opening += (_, _) =>
             {
                 item.IsEnabled = CanRunAi(task);
-                ToolTip.SetTip(item, AiAvailability(task).Reason);
+                Locale.Tip(item, AiAvailability(task).Reason);
             };
             item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
@@ -329,7 +329,7 @@ public sealed partial class MainWindow
         var close = aiFloatingCollapse = Ui.TextButton("Edit selection", ToggleCollapsed);
         close.Classes.Add("flat");
         close.Name = "AiFloatingExpand";
-        ToolTip.SetTip(close, "Expand panel");
+        Locale.Tip(close, "Expand panel");
         aiFloatingHost.DoubleTapped += (_, e) =>
         {
             if (e.Source is not Visual visual || visual.GetSelfAndVisualAncestors().TakeWhile(v => v != aiFloatingHost)
@@ -352,7 +352,7 @@ public sealed partial class MainWindow
             modelDrafts[EditorTask] = model.Engine.Id;
             RefreshAiUi();
         };
-        ToolTip.SetTip(aiEngineCombo, "Image model for this operation");
+        Locale.Tip(aiEngineCombo, "Image model for this operation");
         RefreshAiReferenceUi();
         aiFloatingAlignment = AiDialogs.AlignmentToggle(settings);
         aiFloatingAlignment.IsCheckedChanged += (_, _) =>
@@ -406,7 +406,7 @@ public sealed partial class MainWindow
                 Header = task.DisplayName(),
                 IsEnabled = availability.Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running)
             };
-            if (availability.Reason != null) ToolTip.SetTip(item, availability.Reason);
+            if (availability.Reason != null) Locale.Tip(item, availability.Reason);
             item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
@@ -476,7 +476,7 @@ public sealed partial class MainWindow
             AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
             _ => ""
         });
-        if (aiFloatingGenerate != null) ToolTip.SetTip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
+        if (aiFloatingGenerate != null) Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
         aiPriceBadge.IsVisible = expanded && fillEngine?.PaidApi == true;
         PartnerPriceEstimate? estimate = null;
         if (aiPriceBadge.IsVisible)
@@ -485,7 +485,7 @@ public sealed partial class MainWindow
             estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, 1);
             aiApiCost.Text = estimate?.RoundedCredits(1) ?? "—";
             var tip = estimate == null ? "Paid API · estimate unavailable" : $"One variant · {estimate.Label} (ComfyUI credits)";
-            ToolTip.SetTip(aiPriceBadge, tip);
+            Locale.Tip(aiPriceBadge, tip);
             Avalonia.Automation.AutomationProperties.SetName(aiPriceBadge, tip);
         }
         if (aiVariantButtons != null)
@@ -493,7 +493,7 @@ public sealed partial class MainWindow
             {
                 var variants = button.Name == "AiVariants2" ? 2 : 3;
                 var label = $"Run {variants} variants";
-                ToolTip.SetTip(button, estimate == null ? label : $"{label} · {estimate.RoundedCredits(variants)} ComfyUI credits total");
+                Locale.Tip(button, estimate == null ? label : $"{label} · {estimate.RoundedCredits(variants)} ComfyUI credits total");
             }
         if (DockEditorVisible)
         {
@@ -577,16 +577,16 @@ public sealed partial class MainWindow
                 RefreshAiReferenceUi();
             };
             remove.SetValue(Panel.ZIndexProperty, 1);
-            ToolTip.SetTip(remove, "Remove reference");
+            Locale.Tip(remove, "Remove reference");
             var cell = new Grid { Width = side, Height = side };
             var show = new Button { Content = preview, Padding = new Thickness(0), CornerRadius = new CornerRadius(radius),
                 BorderThickness = new Thickness(0), Background = Brushes.Transparent,
                 HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
             show.Click += (_, _) => _ = ShowAiReferencePreview(item, TopLevel.GetTopLevel(host) as Window);
-            ToolTip.SetTip(show, "Preview reference: " + item.Name);
+            Locale.Tip(show, "Preview reference: " + item.Name);
             cell.Children.Add(show);
             cell.Children.Add(remove);
-            ToolTip.SetTip(cell, item.Name);
+            Locale.Tip(cell, item.Name);
             items.Children.Add(cell);
         }
         if (host == aiReferenceHost) aiInlineAddReference = null;
@@ -604,7 +604,7 @@ public sealed partial class MainWindow
             add.VerticalContentAlignment = VerticalAlignment.Center;
             add.HorizontalContentAlignment = HorizontalAlignment.Center;
             add.FontSize = 22;
-            ToolTip.SetTip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
+            Locale.Tip(add, aiReferences.Count == 0 ? "Add reference image · paste with Ctrl+V or drag files here" : "Add another reference image");
             if (host == aiReferenceHost) aiInlineAddReference = add;
             items.Children.Add(add);
         }
