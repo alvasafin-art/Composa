@@ -4,6 +4,13 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17] - 2026-11-21
+
+- Dock and rearrange workspace panels, place the toolbar along the bottom, and edit the selected object in Properties. Settings now includes neutral dark and light themes and an immediately switchable Russian interface.
+- Preview fonts on the canvas, search by name, and format a selected text range. Typography controls include character, line and paragraph spacing.
+- Edit rectangle corners, polygons and stars on the canvas. Brush and eraser presets include hard and soft tips. The brush toolbar places flow before opacity and groups the pressure and outline controls under Dynamics.
+- Automatic object selection reduces geometric fringes around fine fur and hair when the cutout is composited over a new background.
+
 ## [1.3.0-preview.4.studio.16.7] - 2026-11-20
 
 - Box selection follows lettering on shaded and textured backgrounds and preserves holes in separated objects. Loosely framed repeated details are checked against the predicted shape of the whole subject.

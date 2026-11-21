@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17" date="2026-11-21" type="development">
+      <description><p>Dockable properties, live typography, Russian interface and themes, editable shapes, brush presets and cleaner fur edges in object selections.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.14" date="2026-11-20" type="development">
       <description><p>Vector gradient paints, editable primitives and shape-preserving path editing.</p></description>
     </release>
