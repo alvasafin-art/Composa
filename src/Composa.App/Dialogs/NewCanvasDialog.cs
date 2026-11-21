@@ -190,7 +190,7 @@ internal sealed class NewCanvasView : Grid
         swap.Name = "SwapCanvasDimensions";
         swap.Background = Palette.Field;
         swap.VerticalAlignment = VerticalAlignment.Bottom;
-        var dimensions = Dimensions(width, height, swap);
+        var dimensions = Dimensions(width, height, swap, scrubLabels: true);
 
         var backgroundMenu = new MenuFlyout();
         var editBackground = new Button

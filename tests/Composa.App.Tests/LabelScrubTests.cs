@@ -81,11 +81,23 @@ public class LabelScrubTests
         _ = CanvasDialogs.NewCanvas(window, SKColors.White);
         Dispatcher.UIThread.RunJobs();
         var dialog = window.OwnedWindows.Last();
-        var width = dialog.GetVisualDescendants().OfType<NumericUpDown>().First(n => n.Value == 1920);
-        Drag(dialog, Label(dialog, "Width"), -20);
-        Assert.Equal(1900, width.Value);
-        Assert.Equal(1080, dialog.GetVisualDescendants().OfType<NumericUpDown>().First(n => n.Value == 1080).Value);
-        dialog.Close();
-        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var width = dialog.GetVisualDescendants().OfType<NumericUpDown>().Single(n => n.Name == "NewCanvasWidth");
+            var height = dialog.GetVisualDescendants().OfType<NumericUpDown>().Single(n => n.Name == "NewCanvasHeight");
+            Assert.Equal(1080m, width.Value);
+            Assert.Equal(1350m, height.Value);
+            Drag(dialog, Label(dialog, "Width"), -20);
+            Assert.Equal(1060m, width.Value);
+            Assert.Equal(1350m, height.Value);
+            Drag(dialog, Label(dialog, "Height"), 20);
+            Assert.Equal(1060m, width.Value);
+            Assert.Equal(1370m, height.Value);
+        }
+        finally
+        {
+            dialog.Close(false);
+            Dispatcher.UIThread.RunJobs();
+        }
     }
 }

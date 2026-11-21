@@ -282,7 +282,7 @@ internal sealed class CanvasLayoutEditor : StackPanel
     }
 
     internal static TextBlock Heading(string title) => Ui.Label(Locale.T(title), weight: FontWeight.SemiBold);
-    internal static StackPanel Field(string label, Control field, string? unit = null)
+    internal static StackPanel Field(string label, Control field, string? unit = null, bool scrubLabel = false)
     {
         if (field is ComboBox choice)
         {
@@ -292,16 +292,18 @@ internal sealed class CanvasLayoutEditor : StackPanel
             choice.Padding = new Thickness(8, 0);
             choice.FontSize = 12;
         }
-        return Ui.Column(5, Ui.Label(Locale.T(label), Palette.Secondary, 11), unit == null ? field : UnitSurface(field, unit));
+        var caption = Ui.Label(Locale.T(label), Palette.Secondary, 11);
+        if (scrubLabel && field is NumericUpDown number) Ui.Scrub(caption, number);
+        return Ui.Column(5, caption, unit == null ? field : UnitSurface(field, unit));
     }
 
-    internal static Grid Dimensions(NumericUpDown width, NumericUpDown height, Button swap)
+    internal static Grid Dimensions(NumericUpDown width, NumericUpDown height, Button swap, bool scrubLabels = false)
     {
         SizeIconButton(swap);
         var row = Row("*,Auto,*", 7);
-        Put(row, Field("Width", width, "px"), 0);
+        Put(row, Field("Width", width, "px", scrubLabels), 0);
         Put(row, swap, 1);
-        Put(row, Field("Height", height, "px"), 2);
+        Put(row, Field("Height", height, "px", scrubLabels), 2);
         return row;
     }
 
