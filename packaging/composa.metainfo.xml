@@ -46,7 +46,7 @@
   <content_rating type="oars-1.1"/>
 
   <!--
-    Newest first. GNOME Software and KDE Discover show this as the version history. A new entry is
+    Highest version first. GNOME Software and KDE Discover show this as the version history. A new entry is
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
@@ -58,9 +58,6 @@
     </release>
     <release version="1.3.0-preview.4.studio.17.2" date="2026-11-21" type="development">
       <description><p>Windows GPU acceleration for local SAM and ViTMatte, with CPU fallback and improved selection of display lettering.</p></description>
-    </release>
-    <release version="1.3.0-preview.4.lettering.1" date="2026-11-21" type="development">
-      <description><p>Branch preview of box selection for occluded, image-filled and calligraphic lettering.</p></description>
     </release>
     <release version="1.3.0-preview.4.studio.17.1" date="2026-11-21" type="development">
       <description><p>More responsive layer dragging and reliable selection inside the transform frame.</p></description>
@@ -79,6 +76,9 @@
     </release>
     <release version="1.3.0-preview.4.studio.11" date="2026-11-19" type="development">
       <description><p>Automatic object selection and foreground colour recovery for hair and fur cutouts.</p></description>
+    </release>
+    <release version="1.3.0-preview.4.lettering.1" date="2026-11-21" type="development">
+      <description><p>Branch preview of box selection for occluded, image-filled and calligraphic lettering.</p></description>
     </release>
     <release version="1.3.0-preview.3" date="2026-11-18" type="development">
       <description><p>Updated AI panel and workflow controls, prompt enhancement through Comfy credits, API or server CLI, optional pixel alignment, and Qwen Image and GPT Image Sunburst workflows.</p></description>
