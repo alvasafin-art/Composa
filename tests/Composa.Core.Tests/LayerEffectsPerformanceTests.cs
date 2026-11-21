@@ -68,17 +68,18 @@ public sealed class LayerEffectsPerformanceTests
     {
         using var closedPixels = Pixels.NewColor(160, 120);
         using var sharedPixels = Pixels.NewColor(160, 120);
+        closedPixels.Erase(SKColors.CornflowerBlue);
         var effects = new LayerEffects { Shadow = new() };
         var closing = new Document(160, 120);
         closing.Layers.Add(Layer.Raster("Private", closedPixels));
         closing.Layers.Add(Layer.Raster("Shared", sharedPixels));
         var other = new Document(160, 120);
         other.Layers.Add(Layer.Raster("Shared", sharedPixels));
-        var retained = LayerEffectsRenderer.Cached(closedPixels, null, effects)!.Value.Image;
+        var retained = LayerEffectsRenderer.Cached(closedPixels, null, effects)!.Value;
         var shared = LayerEffectsRenderer.Cached(sharedPixels, null, effects)!.Value.Image;
         new EditorSession(closing).ReleaseEffectCache([new EditorSession(other)]);
-        Assert.Equal(SKColors.Transparent, retained.GetPixel(0, 0));
-        Assert.NotSame(retained, LayerEffectsRenderer.Cached(closedPixels, null, effects)!.Value.Image);
+        Assert.Equal(SKColors.CornflowerBlue, retained.Image.GetPixel(retained.Inset + 80, retained.Inset + 60));
+        Assert.NotSame(retained.Image, LayerEffectsRenderer.Cached(closedPixels, null, effects)!.Value.Image);
         Assert.Same(shared, LayerEffectsRenderer.Cached(sharedPixels, null, effects)!.Value.Image);
     }
 
