@@ -1,4 +1,7 @@
 <Project>
+  <PropertyGroup Condition="'$(CanvasPerformance)' == 'true'">
+    <DefineConstants>$(DefineConstants);CANVAS_PERFORMANCE</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>

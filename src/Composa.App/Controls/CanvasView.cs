@@ -415,6 +415,9 @@ public sealed partial class CanvasView : Decorator
             if (outline != null) DrawAnts(canvas, outline, view, phase, scaling);
             overlay?.Invoke(canvas);
             rulers?.Invoke(canvas);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.FrameCompleted();
+#endif
         }));
     }
 

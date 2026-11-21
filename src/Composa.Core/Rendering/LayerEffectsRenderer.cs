@@ -23,7 +23,13 @@ public static class LayerEffectsRenderer
     {
         // A stroke in progress keeps its effects from the moment it started; the final pixels are rendered once it ends.
         if (Pixels.IsLive(bitmap)) return;
-        lock (Cache) Cache.RemoveAll(e => ReferenceEquals(e.Pixels, bitmap) || ReferenceEquals(e.Mask, bitmap));
+        lock (Cache)
+        {
+            Cache.RemoveAll(e => ReferenceEquals(e.Pixels, bitmap) || ReferenceEquals(e.Mask, bitmap));
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.EffectCacheSize(Cache.Sum(e => (long)e.Result.ByteCount));
+#endif
+        }
     };
 
     /// <summary>
@@ -42,10 +48,20 @@ public static class LayerEffectsRenderer
             {
                 var hit = Cache[index];
                 if (index != Cache.Count - 1) { Cache.RemoveAt(index); Cache.Add(hit); }
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.EffectHit();
+#endif
                 return (hit.Result, hit.Inset);
             }
         }
-        var made = Render(pixels, mask, visible, fillOpacity);
+        (SKBitmap Image, int Inset)? made;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.EffectStarted(pixels, mask, visible, fillOpacity);
+        try { made = Render(pixels, mask, visible, fillOpacity); }
+        finally { CanvasPerformanceTrace.EffectCompleted(pixels, mask, visible, fillOpacity); }
+#else
+        made = Render(pixels, mask, visible, fillOpacity);
+#endif
         if (made == null) return null;
         lock (Cache)
         {
@@ -55,6 +71,9 @@ public static class LayerEffectsRenderer
             Cache.Add(new Entry(pixels, mask, visible, fillOpacity, made.Value.Image, made.Value.Inset));
             // Evicted results are left to the garbage collector: a render on another thread may still be drawing them.
             while (Cache.Count > MaxEntries || (Cache.Count > 1 && Cache.Sum(e => (long)e.Result.ByteCount) > Budget)) Cache.RemoveAt(0);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.EffectCacheSize(Cache.Sum(e => (long)e.Result.ByteCount));
+#endif
         }
         return made;
     }
@@ -62,7 +81,13 @@ public static class LayerEffectsRenderer
     /// <summary>Drops every cached result, for tests and when memory is short.</summary>
     public static void ClearCache()
     {
-        lock (Cache) Cache.Clear();
+        lock (Cache)
+        {
+            Cache.Clear();
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.EffectCacheSize(0);
+#endif
+        }
     }
 
     /// <summary>Renders the effects without the cache. <paramref name="visible"/> should come from <see cref="LayerEffects.Visible"/>.</summary>
@@ -77,6 +102,10 @@ public static class LayerEffectsRenderer
 
         // The layer as it is shown: its pixels through its mask, with room around them for the effects.
         using var shown = Pixels.NewLike(pixels, (int)width, (int)height);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.SurfaceAllocated("effect result", result);
+        CanvasPerformanceTrace.SurfaceAllocated("effect masked source", shown);
+#endif
         using (var shownCanvas = new SKCanvas(shown))
         {
             shownCanvas.DrawBitmap(pixels, inset, inset);
@@ -88,6 +117,9 @@ public static class LayerEffectsRenderer
         }
         // Its coverage: white where the layer is.
         using var coverage = Pixels.NewMask((int)width, (int)height);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.SurfaceAllocated("effect coverage", coverage);
+#endif
         using (var coverageCanvas = new SKCanvas(coverage)) coverageCanvas.DrawBitmap(shown, 0, 0);
 
         if (visible.Shadow is { Opacity: > 0 } shadow)
@@ -201,6 +233,9 @@ public static class LayerEffectsRenderer
     private static SKBitmap Shifted(SKBitmap coverage, float dx, float dy, float sigma)
     {
         var moved = Pixels.NewMask(coverage.Width, coverage.Height);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.SurfaceAllocated("effect shifted coverage", moved);
+#endif
         using var canvas = new SKCanvas(moved);
         using var paint = new SKPaint();
         if (sigma > 0.01f) paint.ImageFilter = SKImageFilter.CreateBlur(sigma, sigma);

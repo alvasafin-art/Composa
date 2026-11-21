@@ -28,6 +28,9 @@ internal sealed class Tile : IDisposable
         Depth = depth;
         this.profile = profile ?? RgbProfile.Srgb;
         Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.SurfaceAllocated(mask ? "render mask tile" : "render color tile", Bitmap);
+#endif
         Canvas = new SKCanvas(Bitmap);
         Canvas.Translate(-area.Left, -area.Top);
         Canvas.Scale(view.Scale);

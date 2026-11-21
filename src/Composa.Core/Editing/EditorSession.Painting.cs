@@ -168,6 +168,9 @@ public sealed partial class EditorSession
             Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset, CloneFraction = fraction,
             LockTransparency = !IsEditingMask && (IsEditingComponent || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
         };
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.SurfaceAllocated("stroke working surface", stroke.Working);
+#endif
         strokeLayer = layer;
         strokeOriginal = target;
         if (mode == BrushMode.Heal && SampleAllLayers)
