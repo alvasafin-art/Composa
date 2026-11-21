@@ -149,9 +149,15 @@ jobs:
           $app = Start-Process -FilePath $exe.FullName -WorkingDirectory $folder -WindowStyle Hidden -PassThru
           try {
             if (-not $app.WaitForInputIdle(30000)) { throw 'The portable editor did not reach its UI event loop.' }
-            Start-Sleep -Seconds 2
-            $app.Refresh()
+            # The event loop can become idle while Avalonia is still creating its main window.
+            $startup = [Diagnostics.Stopwatch]::StartNew()
+            do {
+              $app.Refresh()
+              if ($app.HasExited -or $app.MainWindowHandle -ne [IntPtr]::Zero) { break }
+              Start-Sleep -Milliseconds 250
+            } while ($startup.Elapsed.TotalSeconds -lt 45)
             if ($app.HasExited) { throw "The portable editor exited on startup: $($app.ExitCode)" }
+            if ($app.MainWindowHandle -eq [IntPtr]::Zero) { throw 'The portable editor did not open its main window.' }
             Write-Host "Portable editor $version started from the final archive."
             if (-not $app.CloseMainWindow() -or -not $app.WaitForExit(10000)) { throw 'The portable editor did not close cleanly.' }
             if ($app.ExitCode -ne 0) { throw "The portable editor exited with code $($app.ExitCode)" }
