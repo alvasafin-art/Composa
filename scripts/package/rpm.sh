@@ -78,6 +78,7 @@ exit 0
 /usr/share/metainfo/$APP_ID.metainfo.xml
 /usr/share/icons/hicolor/*/apps/$APP.*
 %doc /usr/share/doc/$APP/README.md
+%doc /usr/share/doc/$APP/docs
 %doc /usr/share/doc/$APP/CHANGELOG.md
 %doc /usr/share/doc/$APP/nano-banana.md
 %doc /usr/share/doc/$APP/scene-matching.md

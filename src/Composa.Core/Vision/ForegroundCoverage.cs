@@ -167,6 +167,7 @@ internal static unsafe class ForegroundCoverage
                 alpha[y * stride + x] = (byte)Math.Clamp(MathF.Round(a + trust * (255 * fitted - a)), 0, 255);
             }
         });
+        if (!plate.HasValue) StrandMatting.Refine(image, matte, radius, cancellation);
         Pixels.Invalidate(matte);
     }
 
@@ -186,12 +187,12 @@ internal static unsafe class ForegroundCoverage
         return ColourPlate(samples);
     }
 
-    internal static PixelValue? ColourPlate(List<PixelValue> samples, bool allowUniformNeutral = false)
+    internal static PixelValue? ColourPlate(List<PixelValue> samples, bool allowUniformNeutral = false, float minimumChroma = .18f)
     {
         if (samples.Count < 16) return null;
         float Median(Func<PixelValue, float> channel) => samples.Select(channel).Order().ElementAt(samples.Count / 2);
         var bg = new PixelValue(Median(p => p.R), Median(p => p.G), Median(p => p.B), 1);
-        if (Math.Max(bg.R, Math.Max(bg.G, bg.B)) - Math.Min(bg.R, Math.Min(bg.G, bg.B)) < .18f)
+        if (Math.Max(bg.R, Math.Max(bg.G, bg.B)) - Math.Min(bg.R, Math.Min(bg.G, bg.B)) < minimumChroma)
         {
             // A truly uniform neutral studio backdrop is useful for inverse compositing,
             // but greys in an ordinary photo must not act as a chroma key.

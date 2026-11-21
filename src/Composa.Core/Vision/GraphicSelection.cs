@@ -17,6 +17,84 @@ internal static class GraphicSelection
             (axis.R * axis.R + axis.G * axis.G + axis.B * axis.B), 0, 1);
     }
 
+    // A clicked hairline can enclose a large area of paper. Follow the connected
+    // ink at source resolution and recover antialiasing from the two local colours.
+    internal static SKBitmap? AtPoint(SKBitmap image, SKPointI seed, CancellationToken cancel)
+    {
+        var rgb = new PixelBuffer(image);
+        var samples = new List<PixelValue>();
+        for (int dy = -24; dy <= 24; dy += 6)
+            for (int dx = -24; dx <= 24; dx += 6)
+                if ((dx != 0 || dy != 0) && SKRectI.Create(image.Width, image.Height).Contains(seed.X + dx, seed.Y + dy))
+                    samples.Add(rgb.Read(seed.X + dx, seed.Y + dy));
+        if (samples.Count < 20) return null;
+        float Median(int c) => samples.Select(p => p[c]).Order().ElementAt(samples.Count / 2);
+        var paper = new PixelValue(Median(0), Median(1), Median(2), 1);
+        if (samples.Count(p => p.A >= .98f && Distance(p, paper) < .07f) < .6 * samples.Count) return null;
+        var ink = rgb.Read(seed.X, seed.Y);
+        if (ink.A < .98f || Distance(ink, paper) < .2f) return null;
+        for (int y = Math.Max(0, seed.Y - 2); y <= Math.Min(image.Height - 1, seed.Y + 2); y++)
+            for (int x = Math.Max(0, seed.X - 2); x <= Math.Min(image.Width - 1, seed.X + 2); x++)
+            {
+                var p = rgb.Read(x, y);
+                if (p.A >= .98f && Distance(p, paper) > Distance(ink, paper)) ink = p;
+            }
+        if (Distance(ink, paper) < .45f) return null;
+        var component = new Dictionary<int, byte>();
+        var queue = new Queue<SKPointI>();
+        void Visit(int x, int y)
+        {
+            int offset = y * image.Width + x;
+            if (component.ContainsKey(offset)) return;
+            var p = rgb.Read(x, y);
+            float coverage = Coverage(p, paper, ink);
+            if (p.A < .98f || coverage < .075f || Distance(p, paper + (ink - paper) * coverage) > .09f) return;
+            component.Add(offset, (byte)Math.Round(255 * coverage));
+            queue.Enqueue(new(x, y));
+        }
+        Visit(seed.X, seed.Y);
+        int count = 0, left = seed.X, right = seed.X, top = seed.Y, bottom = seed.Y;
+        while (queue.TryDequeue(out var p))
+        {
+            if ((count++ & 511) == 0) cancel.ThrowIfCancellationRequested();
+            if (count > 120_000) return null;
+            left = Math.Min(left, p.X); right = Math.Max(right, p.X);
+            top = Math.Min(top, p.Y); bottom = Math.Max(bottom, p.Y);
+            for (int y = Math.Max(0, p.Y - 1); y <= Math.Min(image.Height - 1, p.Y + 1); y++)
+                for (int x = Math.Max(0, p.X - 1); x <= Math.Min(image.Width - 1, p.X + 1); x++)
+                    Visit(x, y);
+        }
+        int w = right - left + 1, h = bottom - top + 1;
+        long area = (long)w * h;
+        if (w < 24 || h < 24 || count < 100 || count > .22 * area || area > 5_000_000) return null;
+        int complex = 0, paperSamples = 0, total = 0, step = Math.Max(1, Math.Max(w, h) / 160);
+        for (int y = top; y <= bottom; y += step)
+        {
+            cancel.ThrowIfCancellationRequested();
+            int runs = 0; bool previous = false;
+            for (int x = left; x <= right; x++)
+            {
+                bool mark = component.GetValueOrDefault(y * image.Width + x) >= 64;
+                if (mark && !previous) runs++;
+                previous = mark;
+                if ((x - left) % step == 0)
+                {
+                    total++;
+                    if (Distance(rgb.Read(x, y), paper) < .09f) paperSamples++;
+                }
+            }
+            if (runs >= 3) complex++;
+        }
+        if (complex < .22 * ((h + step - 1) / step) || paperSamples < .80 * total) return null;
+        cancel.ThrowIfCancellationRequested();
+        var mask = Pixels.NewMask(image.Width, image.Height);
+        var bytes = mask.GetPixelSpan();
+        foreach (var (pixel, alpha) in component)
+            bytes[pixel / image.Width * mask.RowBytes + pixel % image.Width] = alpha;
+        Pixels.Invalidate(mask);
+        return mask;
+    }
+
     // A photo can carry a flat printed caption even when the surface behind each letter
     // has a different color. Estimate that local color only along the semantic contour.
     internal static SKBitmap? RefinePrintedEdges(SKBitmap image, SKBitmap matte, SKRectI gesture, CancellationToken cancel)

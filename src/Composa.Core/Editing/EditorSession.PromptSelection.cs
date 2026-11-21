@@ -62,6 +62,12 @@ public sealed partial class EditorSession
                 var guide = subset ?? copy;
                 using var display = !Pixels.IsSrgb8(guide) ? Pixels.DisplayCopy(guide) : null;
                 var image = display ?? guide;
+                if (preciseEdges && point is { } click && box == null)
+                {
+                    // Point prompts use the full canvas, so the mask is already in document coordinates.
+                    var strokes = GraphicSelection.AtPoint(image, click, cancellation);
+                    if (strokes != null) return (embedding: previous, mask: (SKBitmap?)strokes);
+                }
                 var localBox = box;
                 if (localBox is { } rect) { rect.Offset(-area.Left, -area.Top); localBox = SKRectI.Intersect(rect, SKRectI.Create(image.Width, image.Height)); }
                 bool checkShape = false;
@@ -69,8 +75,12 @@ public sealed partial class EditorSession
                     ? GraphicSelection.FromBox(image, marks, cancellation) ?? RepeatedDetailSelection.FromBox(image, marks, cancellation, out checkShape) : null;
                 if (graphics != null && !checkShape) return (embedding: previous, mask: (SKBitmap?)PromptSegmentation.Place(graphics, area, bounds));
                 var embedding = PromptSegmentation.Encode(image, model, previous, cancellation);
-                using var decoded = PromptSegmentation.Decode(embedding, model, image.Width, image.Height,
-                    point is { } pt ? new SKPoint(pt.X - area.Left, pt.Y - area.Top) : null, localBox, cancellation);
+                using var predicted = PromptSegmentation.Decode(embedding, model, image.Width, image.Height,
+                    point is { } pt ? new SKPoint(pt.X - area.Left, pt.Y - area.Top) : null, localBox, cancellation,
+                    checkLooseBox: point == null && box != bounds);
+                using var centralSubject = box == bounds && point == null
+                    ? PromptSegmentation.ForegroundOnBackdrop(image, predicted, embedding, model, cancellation) : null;
+                var decoded = centralSubject ?? predicted;
                 if (graphics != null && localBox is { } search && PromptSegmentation.IsBoxSilhouette(decoded, image, search))
                     return (embedding, mask: PromptSegmentation.Place(graphics, area, bounds));
                 if (area != bounds && PromptSegmentation.TouchesCrop(SelectionMask.Bounds(decoded), area, bounds))

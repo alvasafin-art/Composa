@@ -55,6 +55,8 @@ for size in 16 32 48 64 128 256; do
 done
 install -Dm644 "$ROOT/LICENSE"      "$STAGE/usr/share/doc/$APP/copyright"
 install -Dm644 "$ROOT/README.md"    "$STAGE/usr/share/doc/$APP/README.md"
+mkdir -p "$STAGE/usr/share/doc/$APP/docs"
+cp -R "$ROOT/docs/images" "$STAGE/usr/share/doc/$APP/docs/"
 install -Dm644 "$ROOT/CHANGELOG.md" "$STAGE/usr/share/doc/$APP/CHANGELOG.md"
 
 chmod 755 "$STAGE/usr/lib/$APP/$APP"

@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.3" date="2026-11-21" type="development">
+      <description><p>Improved local object selection with loose boxes, finer calligraphic strokes and cleaner gaps between hair strands on mixed backgrounds.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.2" date="2026-11-21" type="development">
       <description><p>Windows GPU acceleration for local SAM and ViTMatte, with CPU fallback and improved selection of display lettering.</p></description>
     </release>

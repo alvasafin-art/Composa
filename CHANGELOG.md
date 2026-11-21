@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.3] - 2026-11-21
+
+- Local Object Selection can confirm an object inside a loose box by comparing a narrower box and a point on the same image embedding.
+- Clicking a thin calligraphic stroke can preserve its counters. Wide lettering boxes can recover visible strokes and keep photographs clipped inside letters.
+- Automatic matting uses nearby foreground and background samples to reopen gaps between strands on mixed backgrounds. Full-image selection can recover a central subject when its first prediction is a strip of backdrop.
+
 ## [1.3.0-preview.4.studio.17.2] - 2026-11-21
 
 - Automatic local Object Selection and ViTMatte use DirectML on supported Windows GPUs by default. Settings → Editor can switch to CPU. A failed GPU session retries the operation on CPU.

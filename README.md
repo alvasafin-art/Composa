@@ -1,18 +1,34 @@
 # Composa
 
-## Готовая версия AI-форка для Windows
+Composa Studio — редактор для Windows и Linux. В нём можно собрать композицию из слоёв, выделить объект, перенести его на другой фон и продолжить ретушь в RGB8 или RGB16. Рабочий проект сохраняется в `.cmps`. Для обмена с Photoshop доступен многослойный PSD.
 
-Выделение объектов работает локально с EfficientSAM. Опция **Precise edges** уточняет границы с помощью ViTMatte. Обе модели входят в Windows-сборку. В панели Object Selection также доступны совместимые модели подключённого ComfyUI.
+**Тестовая версия Studio 17.3** включает исправления для широких рамок, каллиграфических букв и просветов в волосах на неоднородном фоне. [Скачать релиз для Windows или Linux](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3)
 
-Скачайте программу из [Releases этого форка](https://github.com/alvasafin-art/Composa/releases), а не **Source code**. Для обычного компьютера с Windows выберите файл `-win-x64.zip` (переносная версия) или `-win-x64-setup.exe` (установщик). Распакуйте ZIP целиком и запустите `run-composa.bat` или `composa.exe`. **SDK и отдельная установка .NET не нужны.** Windows on ARM использует файлы `win-arm64`.
+## Быстрый старт в Windows
 
-Это предварительная AI-версия. ComfyUI, локальный сервер ассистента и генеративные модели в пакет не входят: на другом компьютере настройте подключение к своим AI-сервисам отдельно. Сам редактор и встроенное выделение объектов запускаются без них.
+1. Для обычного ПК выберите установщик с окончанием `-win-x64-setup.exe` или переносную сборку `-win-x64.zip`. Для Windows on Arm выберите `win-arm64`. В переносной версии распакуйте весь архив и запустите `composa.exe`.
+2. Откройте фотографию и выберите **Object Selection → Automatic · Local**. Щёлкните по объекту или обведите его рамкой. Для надписи целиком обведите строку, для отдельной буквы щёлкните по штриху.
+3. Нажмите **Ctrl+J**, чтобы скопировать выделенное на новый слой. Чтобы проверить тонкие края, скройте исходный слой и подложите контрастный фон.
 
-Встроенный агент поддерживает разрешённые папки, проверяемые правки и отдельные режимы скриптов Composa / Photoshop JSX. [Настройка llama и Bonsai, доступ к папкам и реальные проверки агента](docs/assistant-setup.md). [Отчёт об исправлениях и проверках](docs/assistant-rework-report.md).
+EfficientSAM находит объект, а ViTMatte уточняет прозрачность края. Обе модели и среда .NET входят в сборку. В Windows ускорение через DirectML включено по умолчанию. Если видеокарта не может выполнить операцию, редактор повторяет её на CPU. Ускорение можно отключить в **Настройки → Редактор**. В Linux модели работают на CPU. [Руководство по выделению](docs/object-selection-models.md)
 
-В AI-панели выберите локальный workflow FLUX или Qwen либо платную модель GPT Image 2.5, GPT Image 2.6 Sunburst или Nano Banana. Для платной генерации введите ключ Comfy.org в **AI → ComfyUI Settings → API access**. На Windows он сохраняется в диспетчере учётных данных. Кнопка **Run** запускает генерацию, кнопки **2** и **3** выбирают число вариантов. [Настройка AI](docs/ai-platform.md).
+## Как выглядит выделение
 
-В **AI → ComfyUI Settings** укажите адрес запущенного ComfyUI, нажмите **Refresh Models / Test Connection** и выберите модели из серверных списков. Выбор сохраняется отдельно для каждого адреса. Если сервер на другом компьютере, используйте его адрес в локальной сети вместо `127.0.0.1`; доступ к его диску из Composa не нужен. Дополнительные папки (`shared` и другие) должны быть подключены в самом ComfyUI. Выбирайте веса, подходящие архитектуре workflow: список загрузчика не гарантирует совместимость произвольной модели с FLUX.2. [Подробности подключения](docs/ai-models.md).
+На примере гривы слева показан исходник. В центре и справа — результат копирования выделения на одинаковый бордовый фон в версиях 17.2 и 17.3. Между прядями видны просветы там, где раньше оставались небо и листва. У некоторых полупрозрачных волосков сохраняется цветная кайма.
+
+![Исходная грива и два выреза на бордовом фоне](docs/images/mane-comparison.png)
+
+Один и тот же клик по белому штриху «Б». Бордовый фон виден внутри завитков. Для фотографий с несколькими соседними предметами более тесная рамка по-прежнему помогает указать цель.
+
+![Сравнение клика по каллиграфической букве в версиях 17.2 и 17.3](docs/images/letter-comparison.png)
+
+## Генерация и ассистент
+
+Для генерации через FLUX, Qwen и совместимые облачные модели подключите свой ComfyUI. В настройках укажите адрес сервера, проверьте соединение и выберите модели, установленные на нём. Для платных операций настройте ключ соответствующего сервиса. [Настройка моделей](docs/ai-models.md) · [Руководство по AI-панели](docs/ai-platform.md)
+
+Встроенный ассистент поддерживает разрешённые папки, проверяемые правки и отдельные режимы скриптов Composa и Photoshop JSX. [Настройка ассистента](docs/assistant-setup.md) · [Обмен с Photoshop](docs/photoshop-exchange.md)
+
+## About Composa
 
 A layer-based image editor for compositing and retouching, with Photoshop-style tools and shortcuts. It is a from-scratch implementation of [Compositor](https://github.com/robbietilton/Compositor), Robbie Tilton's free and open-source macOS app.
 
@@ -20,14 +36,14 @@ https://github.com/user-attachments/assets/e215c376-2bb3-44d2-af26-3117d2c70348
 
 The macOS app is written in Swift on top of AppKit, SwiftUI, CoreImage, Metal and Vision, so it cannot be compiled for anything else. Composa rebuilds the same editor from scratch in C# with .NET 10, [Avalonia](https://avaloniaui.net/) and [SkiaSharp](https://github.com/mono/SkiaSharp), which run on Linux, Windows and macOS alike.
 
-Composa is developed on Linux, on X11 and Wayland (through XWayland), and that is where it gets the most use. Windows builds are published too and the full test suite runs on Windows for every change, but the Windows version is newer and has seen far less real use. A macOS build is planned.
+This fork publishes Windows and Linux builds for x64 and arm64. Linux supports X11 and Wayland through XWayland. A macOS build is planned.
 
 ## Features
 
 ### Layers
 - Layers and folders with 24 blend modes, grouped in the menu as Photoshop groups them, and opacity
 - Layer effects: Stroke (outside or inside), Drop Shadow, Outer Glow, Inner Glow, Color Overlay, Gradient Overlay and Inner Shadow, each switchable, editable with a live preview and copied between layers by Alt-dragging
-- Layer masks on layers, folders and adjustment layers: paint, fill, gradient, invert, blur, apply, disable
+- Layer masks support painting, gradients, inversion and feathering. Unlink a raster mask to transform it independently of its layer.
 - Clipping masks (Alt-click a layer, or Ctrl+Alt+G)
 - Adjustment layers: Hue/Saturation, Levels, Curves, Exposure, Gradient Map, Grain, Brightness/Contrast, Black & White, Color Balance, Invert, and the live Gaussian Blur, Motion Blur and Add Noise, which work on everything beneath them
 - Merge Down, Merge Layers, Merge Group (Ctrl+E) and Flatten Image
@@ -36,6 +52,8 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 - Swipe down the eye column to show or hide many layers; Alt-click an eye to solo a layer
 
 ### Transform
+
+- With Ctrl+T active, drag anywhere inside the selected transform frame to move the selected layer, including from a transparent gap.
 - Non-destructive move, scale, rotate and flip: images keep their full resolution however small you make them
 - Free distort by Ctrl-dragging a corner; the handles follow the corners, which keep distorting once the layer is distorted, and a corner dragged past the opposite edge folds the layer over itself
 - Ctrl-drag moves the current layer with any tool active, as Photoshop's temporary Move tool does
@@ -48,6 +66,8 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 - Rulers, guides dragged out of them, a layout grid with its own color, style, spacing and subdivisions (View > Grid Settings), and snapping of moves, marquees, shapes, selection outlines and crops to guides, grid, layers and the canvas (View > Snap To)
 
 ### Selections
+
+- Local Object Selection accepts clicks and boxes. Automatic mode uses EfficientSAM and ViTMatte for soft edges. Quick outline produces a crisp mask.
 - Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, Magic tool with Wand (similar colors) and Object (the thing under the click) modes
 - Add, subtract and intersect; move the outline; move or duplicate the pixels inside
 - Select All, Inverse, Subject, Color Range (click colors on the canvas, with fuzziness and invert), Expand, Contract, Feather (also as buttons with amounts in the tool bar); load a layer's pixels or mask as a selection
@@ -80,7 +100,7 @@ Composa is developed on Linux, on X11 and Wayland (through XWayland), and that i
 - Canvas Size, Image Size, and quarter-turn rotation of the canvas or of single layers
 - Smooth downsampling when zoomed out, crisp pixels and a pixel grid when zoomed in
 - Open PNG, JPEG, WebP, BMP and GIF (and HEIC, AVIF, TIFF and SVG through ImageMagick when it is installed); drop files onto the window; paste images from other apps. An SVG placed into a document is drawn to fit the canvas, so a small icon comes in sharp
-- Open camera RAW files (Canon, Nikon, Sony, Fujifilm, DNG and more) through ImageMagick when it is installed: a develop step with exposure, temperature and tint and a live preview comes first, working on a 16-bit decode, so you choose what to keep before the image becomes an 8-bit layer
+- Open camera RAW files (Canon, Nikon, Sony, Fujifilm, DNG and more) through ImageMagick when it is installed: a develop step with exposure, temperature and tint and a live preview comes first, working on a 16-bit decode, so you can adjust the image before adding it to the document
 - Open 8-bit or 16-bit RGB Photoshop files, `.psd` and Large Document `.psb`: layers, folders, masks, clipping, opacity, blend modes, solid fill shapes, adjustments and simple horizontal text come in editable, and a report lists everything that has to be converted before anything is applied; dropped onto an open document, a Photoshop file arrives inside a folder
 - Export PNG, JPEG (with a live preview of the compression and the file size) and WebP; Copy Merged
 - Undo history limited by memory, not by a fixed step count
@@ -109,18 +129,15 @@ The tools create a document, list and describe the open ones, place an image fil
 ## Differences from the macOS app
 
 - Projects are saved as `.cmps` files: a zip archive with a JSON manifest and one PNG per layer and mask. Projects saved by the macOS app (`.comp` packages) cannot be opened.
-- Remove Background, Select > Subject and the Magic tool's Object mode work from the plain backdrop connected to the image's edges: the subject is everything else, and an object is the connected piece of it under the click. The macOS app uses Apple's Vision subject detection, which exists only on Apple's platforms, so busy backgrounds defeat these here.
 - HEIC, AVIF, TIFF, SVG and camera RAW open through ImageMagick, because Skia does not decode them itself. The Windows build includes it; on Linux they open when ImageMagick (`magick` or `convert`) is installed. SVG files are drawn by ImageMagick's librsvg rather than by macOS's own renderer, so an SVG that leans on features librsvg lacks may look different.
-- A mask always moves and scales with its layer; it cannot be unlinked and transformed on its own.
 - Layers cannot be dragged between tabs. Copy and paste (Ctrl+C, Ctrl+V) carries whole layers across when nothing is selected, and pixels when something is; layers pasted into another project arrive centered on its canvas.
 - Hue/Saturation offers the master and six fixed color ranges; the ranges' widths are not adjustable.
 - Double-clicking a slider types an exact value; a Reset button then appears on its left. The macOS app resets on double-click and types in a separate field.
 - Point text grows from the edge its alignment reads from (right-aligned text grows leftward); the macOS app keeps the top-left corner.
 - Layer effects are drawn on the CPU from a cached image; while a brush stroke is in progress they follow the pixels the stroke started from and catch up when it ends.
-- Photoshop interchange: opens 8-bit or 16-bit RGB PSD/PSB (16-bit is converted to 8-bit), and writes layered 8-bit RGB PSD with editable horizontal text, character colors and faces, paragraph frames, vector rectangles, rounded rectangles, ellipses and round-ended lines, fills and strokes. Groups, masks, clipping, opacity, blend modes, Unicode names, resolution, guides and a tagged sRGB merged preview survive. Unsupported live features, smart objects and effects are rendered to pixels with a conversion report; adjustments get a merged appearance layer with separate sources in a hidden folder. Import can use Photoshop's merged image to preserve complex effects. CMYK, 32-bit RGB and PSD export above 2 GB are not supported; `.cmps` retains every Composa setting.
+- Photoshop interchange supports 8-bit and 16-bit RGB documents. A conversion report identifies features that need a rendered representation for export. Keep a native `.cmps` copy to retain all editable settings.
 - Camera RAW files open only through ImageMagick's LibRaw delegate. The develop step applies exposure and white balance to the 16-bit decoded frame rather than to the sensor data, as Apple's RAW pipeline does on macOS, so its temperature and tint are relative to the camera's reading and there is no tone Boost control.
 - The Camera Raw Filter has no Geometry group (Upright and guided lines), no vectorscope, no Option-drag clipping views, no point colors and no sharpening-mask overlay; its white-balance eyedropper works on the thumbnail in the panel rather than on the canvas, because the panel is a dialog. The filter renders on the full layer while you drag, so a very large layer answers more slowly than the macOS preview does.
-- Layer masks always move with their layer, so the layer menu has no Link Mask item.
 - A project changed on disk by another program while it is open is not reloaded; the macOS app watches its project folder and reloads it. Composa's projects are single files that nothing else edits.
 - The transform bar's angle field has no dial; the dials sit beside the angle fields in the effects and blur dialogs.
 - Windows Studio can download incremental patches on request and restart after you save your work. See [Update checks](#update-checks).
@@ -256,6 +273,7 @@ dotnet test
 | B E J S R | Brush, Eraser, Spot Healing, last used tool in the stamp group, Smear |
 | G U T I H Z | Last Gradient/Paint Bucket choice, Shape, Type, Eyedropper, Hand, Zoom |
 | Tab | Switch the current tool's mode (Wand/Object, Brush/Eraser, the shape, and so on) |
+| Ctrl+T | Transform the selection or layer |
 | Ctrl+drag | Move the current layer with any tool |
 | Space, middle button, Ctrl+wheel | Pan, zoom at the cursor |
 | Ctrl+0, Ctrl+1 | Fit canvas, actual pixels |

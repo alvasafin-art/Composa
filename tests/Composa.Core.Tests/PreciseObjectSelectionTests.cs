@@ -11,6 +11,28 @@ namespace Composa.Core.Tests;
 public class PreciseObjectSelectionTests
 {
     [Fact]
+    public void Opaque_gaps_between_strands_can_use_local_backdrop_samples_on_a_mixed_background()
+    {
+        using var image = Pixels.NewColor(200, 200);
+        using var mask = Pixels.NewMask(200, 200);
+        image.Erase(SKColors.LightSkyBlue);
+        using var surface = new SKCanvas(image);
+        using var selection = new SKCanvas(mask);
+        using var paint = new SKPaint { Color = SKColors.DarkOliveGreen };
+        surface.DrawRect(110, 100, 90, 100, paint);
+        paint.Color = SKColors.SlateGray;
+        surface.DrawRect(0, 90, 110, 110, paint);
+        for (int x = 8; x < 95; x += 8) surface.DrawRect(x, 45, 2, 50, paint);
+        paint.Color = SKColors.White;
+        selection.DrawRect(0, 60, 100, 40, paint);
+        selection.DrawRect(0, 90, 110, 110, paint);
+        StrandMatting.Refine(image, mask, 24, default);
+        Assert.True(mask.GetPixel(44, 74).Alpha < 32);
+        Assert.Equal(255, mask.GetPixel(40, 74).Alpha);
+        Assert.Equal(255, mask.GetPixel(60, 150).Alpha);
+    }
+
+    [Fact]
     public void A_box_inside_a_small_coloured_photo_limits_matting_to_the_panel()
     {
         using var photo = Pixels.NewColor(640, 360);

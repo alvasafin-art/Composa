@@ -21,7 +21,11 @@ internal static class DisplayLettering
         using var display = Pixels.IsSrgb8(crop) ? null : Pixels.DisplayCopy(crop);
         var local = box;
         local.Offset(-area.Left, -area.Top);
-        using var proposal = FromBox(display ?? crop, local, cancel, out bool clipped);
+        var image = display ?? crop;
+        using var direct = FromBox(image, local, cancel, out bool clipped);
+        using var fitted = direct == null && FindTextFrame(image, local, cancel) is { } frame
+            ? FromBox(image, frame, cancel, out clipped) : null;
+        var proposal = direct ?? fitted;
         if (proposal == null) return null;
         if (!clipped && original != null)
         {
@@ -47,6 +51,79 @@ internal static class DisplayLettering
 
     private static bool CandidateSize(SKRectI box) => box.Width >= 80 && box.Height >= 32 &&
         box.Width >= .8 * box.Height && (long)box.Width * box.Height <= 5_000_000;
+
+    // Estimate a smaller prompt from repeated strokes. FromBox still has to verify
+    // their cap line, baselines or swash, palette, components and counters.
+    private static SKRectI? FindTextFrame(SKBitmap image, SKRectI box, CancellationToken cancel)
+    {
+        var rgb = new PixelBuffer(image);
+        int w = box.Width, h = box.Height, step = Math.Max(1, Math.Max(w, h) / 300);
+        int best = 0, cap = 0, left = 0, right = 0;
+        PixelValue paper = default;
+        for (int y = box.Top + 2 * step; y < box.Top + h / 2; y += step)
+        {
+            cancel.ThrowIfCancellationRequested();
+            int count = 0, first = box.Right, last = box.Left, runLength = 0, strokes = 0;
+            PixelValue sum = default;
+            for (int x = box.Left; x < box.Right; x += step)
+            {
+                var above = rgb.Read(x, y - 2 * step);
+                if (Distance(above, rgb.Read(x, y + step)) < .48f) { runLength = 0; continue; }
+                if (++runLength == Math.Max(2, w / (45 * step))) strokes++;
+                first = Math.Min(first, x); last = x; count++; sum += above;
+            }
+            if (strokes < 4 || count <= best || count * step < .36 * w || last - first < .58 * w) continue;
+            best = count; cap = y; left = first; right = last; paper = sum * (1f / count);
+        }
+        SKRectI Pad(SKRectI frame)
+        {
+            frame.Inflate(Math.Max(4, frame.Width / 55), Math.Max(5, frame.Height / 55));
+            return SKRectI.Intersect(frame, box);
+        }
+        if (best > 0)
+        {
+            int lastRow = cap;
+            for (int y = cap + 2 * step; y < box.Bottom; y += step)
+            {
+                cancel.ThrowIfCancellationRequested();
+                int count = 0, first = right, last = left;
+                for (int x = left; x <= right; x += step)
+                    if (Distance(rgb.Read(x, y), paper) > .28f)
+                    { count++; first = Math.Min(first, x); last = x; }
+                if (count * step > .25 * (right - left) && last - first > .67 * (right - left)) lastRow = y;
+                else if (y - lastRow > 3 * step) break;
+            }
+            if (lastRow - cap > .35 * h) return Pad(new(left, cap, right + 1, lastRow + 1));
+        }
+        if (w < 1.5 * h) return null;
+        var samples = new List<PixelValue>();
+        for (int y = box.Top; y < box.Bottom; y += Math.Max(1, h / 12))
+            for (int x = box.Left; x < box.Right; x += Math.Max(1, w / 12))
+                samples.Add(rgb.Read(x, y));
+        float Median(int c) => samples.Select(p => p[c]).Order().ElementAt(samples.Count / 2);
+        paper = new(Median(0), Median(1), Median(2), 1);
+        if (!TryInk(rgb, box, paper, cancel, out var ink)) return null;
+        var lines = new List<SKRectI>();
+        for (int y = box.Top; y < box.Bottom; y += step)
+        {
+            cancel.ThrowIfCancellationRequested();
+            int count = 0, first = box.Right, last = box.Left;
+            for (int x = box.Left; x < box.Right; x += step)
+                if (Distance(rgb.Read(x, y), ink) < .14f)
+                { count++; first = Math.Min(first, x); last = x; }
+            if (count * step < .017 * w || last - first < .16 * w) continue;
+            var row = new SKRectI(first, y, last + 1, y + 1);
+            if (lines.Count > 0 && y - lines[^1].Bottom < Math.Max(6, w / 32))
+                lines[^1] = SKRectI.Union(lines[^1], row);
+            else lines.Add(row);
+        }
+        var groups = lines.Where(b => b.Width > .48 * w && b.Height > .18 * h &&
+            Math.Abs(b.MidY - box.MidY) < .30 * h).ToArray();
+        if (groups.Length != 1) return null;
+        var text = groups[0];
+        text.Inflate(Math.Max(step, text.Width / 50), Math.Max(3 * step, text.Height / 16));
+        return Pad(text);
+    }
 
     private static SKBitmap? FromBox(SKBitmap image, SKRectI box, CancellationToken cancel, out bool clipped)
     {

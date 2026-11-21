@@ -91,6 +91,45 @@ public static unsafe class PromptSegmentation
         mask.IsEmpty || (crop.Left > canvas.Left && mask.Left <= 1) || (crop.Top > canvas.Top && mask.Top <= 1)
         || (crop.Right < canvas.Right && mask.Right >= crop.Width - 1) || (crop.Bottom < canvas.Bottom && mask.Bottom >= crop.Height - 1);
 
+    // A full-image box can select a flat strip of backdrop along a canvas edge.
+    // Accept a separate central subject only when the two masks are disjoint.
+    internal static SKBitmap? ForegroundOnBackdrop(SKBitmap image, SKBitmap mask, ImageEmbedding embedding,
+        PromptModel model, CancellationToken cancel)
+    {
+        int w = image.Width, h = image.Height;
+        if (mask.GetPixel(w / 2, h / 2).Alpha >= 128) return null;
+        var extent = Selections.SelectionMask.Bounds(mask, 128);
+        if (extent.Width < .85 * w && extent.Height < .85 * h) return null;
+        if (extent.Left > 1 && extent.Top > 1 && extent.Right < w - 1 && extent.Bottom < h - 1) return null;
+        int step = Math.Max(1, Math.Max(w, h) / 80);
+        var samples = new List<PixelValue>();
+        var rgb = new PixelBuffer(image);
+        for (int y = 0; y < h; y += step)
+        {
+            cancel.ThrowIfCancellationRequested();
+            for (int x = 0; x < w; x += step)
+                if (mask.GetPixel(x, y).Alpha >= 224) samples.Add(rgb.Read(x, y).Straight);
+        }
+        if (ForegroundCoverage.ColourPlate(samples) is not { } bg ||
+            samples.Count(p => Math.Max(Math.Abs(p.R - bg.R), Math.Max(Math.Abs(p.G - bg.G), Math.Abs(p.B - bg.B))) < .06f)
+                < .90 * samples.Count) return null;
+        using var subject = Decode(embedding, model, w, h, new SKPoint(w / 2, h / 2), null, cancel);
+        if (subject.GetPixel(w / 2, h / 2).Alpha < 128) return null;
+        int count = 0, overlap = 0, total = 0;
+        for (int y = 0; y < h; y += step)
+        {
+            cancel.ThrowIfCancellationRequested();
+            for (int x = 0; x < w; x += step)
+            {
+                total++;
+                if (subject.GetPixel(x, y).Alpha < 128) continue;
+                count++;
+                if (mask.GetPixel(x, y).Alpha >= 128) overlap++;
+            }
+        }
+        return count >= .15 * total && count <= .85 * total && overlap <= .04 * count ? Pixels.Clone(subject) : null;
+    }
+
     // A thumbnail or product photo nested in a larger layout can itself be the
     // highest-scoring SAM object. When the gesture points inside its coloured
     // backdrop, fit the matte inside the panel and exclude its rectangular edge.
@@ -210,6 +249,10 @@ public static unsafe class PromptSegmentation
     }
 
     public static SKBitmap Decode(ImageEmbedding image, PromptModel model, int width, int height, SKPoint? point, SKRectI? box, CancellationToken cancellation = default)
+        => Decode(image, model, width, height, point, box, cancellation, checkLooseBox: false);
+
+    internal static SKBitmap Decode(ImageEmbedding image, PromptModel model, int width, int height, SKPoint? point,
+        SKRectI? box, CancellationToken cancellation, bool checkLooseBox)
     {
         var mobile = model.Kind == PromptModelKind.MobileSam;
         var coords = box is { } b ? new[] { (float)b.Left / width * image.Width, (float)b.Top / height * image.Height,
@@ -249,6 +292,41 @@ public static unsafe class PromptSegmentation
         var probeGrid = new SKRectI((int)Math.Floor(probe.Left * sx), (int)Math.Floor(probe.Top * sy),
             (int)Math.Ceiling(probe.Right * sx), (int)Math.Ceiling(probe.Bottom * sy));
         var candidate = PromptCandidate(masks.Data, scores, mw, mh, probeGrid, cancellation);
+        void CheckNarrowerBox()
+        {
+            var current = candidate < 0 ? SKRectI.Empty : LogitBounds(masks.Data, candidate, mw, mh, cancellation);
+            var inner = probeGrid;
+            inner.Inflate(-inner.Width / 5, -inner.Height / 5);
+            var tolerance = probeGrid;
+            tolerance.Inflate(Math.Max(2, probeGrid.Width / 16), Math.Max(2, probeGrid.Height / 16));
+            bool spansWidth = current.Width > .80 * probeGrid.Width;
+            bool spansHeight = current.Height > .80 * probeGrid.Height;
+            if (tolerance.Contains(current) && current.Contains(inner.MidX, inner.MidY) && spansWidth == spansHeight) return;
+
+            float scaleX = (float)image.Width / mw, scaleY = (float)image.Height / mh;
+            float[] narrower = [inner.Left * scaleX, inner.Top * scaleY, inner.Right * scaleX, inner.Bottom * scaleY];
+            var second = Predict(narrower, labels);
+            var alternatives = second[0]; var confidence = second[1].Data;
+            int choice = PromptCandidate(alternatives.Data, confidence, mw, mh, inner, cancellation);
+            if (choice < 0 || confidence[choice] < .72f || candidate >= 0 && confidence[choice] < scores[candidate] - .07f) return;
+            var extent = LogitBounds(alternatives.Data, choice, mw, mh, cancellation);
+            var safe = probeGrid;
+            safe.Inflate(-probeGrid.Width / 14, -probeGrid.Height / 14);
+            if (probeGrid.Left == 0) safe.Left = 0;
+            if (probeGrid.Top == 0) safe.Top = 0;
+            if (probeGrid.Right == mw) safe.Right = mw;
+            if (probeGrid.Bottom == mh) safe.Bottom = mh;
+            if (!safe.Contains(extent) || !extent.Contains(inner.MidX, inner.MidY) ||
+                extent.Width < .30 * probeGrid.Width || extent.Height < .30 * probeGrid.Height) return;
+            if (candidate >= 0 && Agree(alternatives.Data, choice, masks.Data, candidate, mw, mh, extent, .60, cancellation)) return;
+            // The centered click must independently identify the same silhouette.
+            var click = Predict([(inner.MidX + .5f) * scaleX, (inner.MidY + .5f) * scaleY, 0, 0], [1, -1]);
+            if (!Enumerable.Range(0, click[1].Data.Length).Any(i => click[1].Data[i] >= .65f &&
+                Agree(alternatives.Data, choice, click[0].Data, i, mw, mh, extent, .83, cancellation))) return;
+            masks = alternatives; scores = confidence; candidate = choice;
+            probeGrid = inner; coords = narrower;
+        }
+        if (checkLooseBox && !mobile && box != null && Math.Min(probeGrid.Width, probeGrid.Height) >= 20) CheckNarrowerBox();
         if (candidate < 0) return Pixels.NewMask(width, height);
         if (box == null && !mobile)
         {
@@ -294,6 +372,44 @@ public static unsafe class PromptSegmentation
             : masks.Data.AsSpan(candidate * mw * mh, mw * mh).ToArray();
         return Reconstruct(plane, mw, mh,
             image.Width, image.Height, width, height, mobile, cancellation);
+    }
+
+    private static SKRectI LogitBounds(float[] planes, int index, int w, int h, CancellationToken cancel)
+    {
+        int left = w, right = -1, top = h, bottom = -1, offset = index * w * h;
+        for (int y = 0; y < h; y++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            for (int x = 0; x < w; x++)
+                if (planes[offset + y * w + x] > 0)
+                {
+                    left = Math.Min(left, x); right = Math.Max(right, x);
+                    top = Math.Min(top, y); bottom = y;
+                }
+        }
+        return right < 0 ? SKRectI.Empty : new(left, top, right + 1, bottom + 1);
+    }
+
+    private static bool Agree(float[] proposed, int index, float[] others, int other, int w, int h, SKRectI bounds,
+        double required, CancellationToken cancel)
+    {
+        int size = w * h;
+        var check = LogitBounds(others, other, w, h, cancel);
+        if (check.IsEmpty) return false;
+        var region = SKRectI.Union(check, bounds);
+        int intersection = 0, union = 0;
+        for (int y = region.Top; y < region.Bottom; y++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            for (int x = region.Left; x < region.Right; x++)
+            {
+                int p = y * w + x;
+                bool a = proposed[index * size + p] > 0, b = others[other * size + p] > 0;
+                if (a || b) union++;
+                if (a && b) intersection++;
+            }
+        }
+        return union > 0 && intersection >= required * union;
     }
 
     internal static int PromptCandidate(float[] logits, float[] scores, int width, int height, SKRectI probe, CancellationToken cancellation)
