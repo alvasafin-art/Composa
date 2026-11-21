@@ -2,7 +2,9 @@
 
 **Automatic · Local** is the default. Click a subject, drag a box around it, or choose **Find object** after marking an area with the marquee, lasso or Selection Brush. The bounds of the marked area guide recognition. A small object can be encoded with surrounding context at higher resolution. On a coloured backdrop, a box inside a thumbnail can target the subject inside that photograph.
 
-EfficientSAM finds the object. The bundled ViTMatte estimates partial coverage along its boundary. Local foreground and background colour samples help resolve gaps in hair or fur. **Quick outline · Local** produces a crisp selection. Both modes run on CPU using ONNX Runtime. The original active-layer RGB or the visible composition is sampled according to **Sample all layers**. An interrupted or stale result is discarded. Each completed selection is one undo step.
+EfficientSAM finds the object. The bundled ViTMatte estimates partial coverage along its boundary. Local foreground and background colour samples help resolve gaps in hair or fur. **Quick outline · Local** produces a crisp selection. The original active-layer RGB or the visible composition is sampled according to **Sample all layers**. An interrupted or stale result is discarded. Each completed selection is one undo step.
+
+On Windows, EfficientSAM and ViTMatte use the GPU through DirectML by default. If the driver cannot load or run a model, Composa retries that model on the CPU. Turn off GPU acceleration in **Settings → Editor** to force CPU processing. On other platforms both models use the CPU.
 
 ## Moving a subject to another background
 

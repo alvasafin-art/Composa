@@ -1,14 +1,12 @@
 // Ported from Lolly (github.com/lolly-tools/lolly, packages/node-shell/src/ml/session.ts at 12b26ff), MPL-2.0, used under the MIT licence by permission of Andy Fitzsimon, 2026-09-30.
+using System.Collections.Concurrent;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace Composa.Vision;
 
 /// <summary>
-/// Runs the models through ONNX Runtime on the CPU: one session per model file, kept for the application's lifetime,
-/// with a fixed thread count so the same picture gives the same answer. The runtime is a native library that may be
-/// missing or refuse to load (a package built without it, an unsupported CPU); <see cref="IsAvailable"/> says so once
-/// and everything then falls back to what worked without models, the way <c>ImageMagick.IsAvailable</c> gates formats.
+/// Caches verified ONNX sessions. Local selection models can use DirectML on Windows.
 /// </summary>
 public static class ModelRunner
 {
@@ -59,7 +57,12 @@ public static class ModelRunner
     /// </summary>
     public static (float[] Planes, int Width, int Height) RunImage(OnnxModel model, float[] input, int width, int height, CancellationToken cancellation = default)
     {
-        var session = Session(model);
+        return Execute(model, session => RunImage(session, input, width, height, cancellation), cancellation);
+    }
+
+    private static (float[] Planes, int Width, int Height) RunImage(InferenceSession session, float[] input,
+        int width, int height, CancellationToken cancellation)
+    {
         cancellation.ThrowIfCancellationRequested();
         var channels = input.Length / (width * height);
         var tensor = new DenseTensor<float>(input, [1, channels, height, width]);
@@ -78,32 +81,122 @@ public static class ModelRunner
         }
     }
 
-    internal static InferenceSession Session(OnnxModel model)
+    private sealed class GpuModel
+    {
+        internal readonly SemaphoreSlim Access = new(1);
+        internal InferenceSession? Session;
+        internal volatile string? Failure;
+        internal volatile bool Ran;
+    }
+
+    private static readonly ConcurrentDictionary<(string Path, string Hash), GpuModel> gpuModels = new();
+    private static int preferGpu = 1;
+    public static bool PreferGpu
+    {
+        get => Volatile.Read(ref preferGpu) != 0;
+        set
+        {
+            if (Interlocked.Exchange(ref preferGpu, value ? 1 : 0) == 0 || value) return;
+            // Release VRAM after any current run finishes without blocking the settings window.
+            foreach (var gpu in gpuModels.Values)
+                _ = Task.Run(async () =>
+                {
+                    await gpu.Access.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        if (PreferGpu) return;
+                        gpu.Session?.Dispose();
+                        gpu.Session = null;
+                        gpu.Ran = false;
+                        gpu.Failure = null;
+                    }
+                    finally { gpu.Access.Release(); }
+                });
+        }
+    }
+
+    public static string? DeviceFor(OnnxModel model)
+    {
+        if (PreferGpu && gpuModels.TryGetValue((model.Path, model.Sha256), out var gpu))
+        {
+            if (gpu.Failure != null) return "CPU (" + gpu.Failure + ")";
+            if (gpu.Ran) return "DirectML";
+        }
+        return PreferGpu && OperatingSystem.IsWindows() ? null : "CPU";
+    }
+
+    internal static T Execute<T>(OnnxModel model, Func<InferenceSession, T> run, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (OperatingSystem.IsWindows() && PreferGpu && (model is PromptModelFile || model == RefinementModels.VitMatte))
+        {
+            var gpu = gpuModels.GetOrAdd((model.Path, model.Sha256), _ => new());
+            // DirectML allows only one Run at a time on each session.
+            gpu.Access.Wait(cancellation);
+            try
+            {
+                if (PreferGpu && gpu.Failure == null)
+                {
+                    try
+                    {
+                        gpu.Session ??= CreateSession(model, directML: true);
+                        var result = run(gpu.Session);
+                        gpu.Ran = true;
+                        return result;
+                    }
+                    catch (Exception ex) when (ex is OnnxRuntimeException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        gpu.Failure = ex.Message;
+                        gpu.Session?.Dispose();
+                        gpu.Session = null;
+                    }
+                }
+            }
+            finally { gpu.Access.Release(); }
+        }
+        cancellation.ThrowIfCancellationRequested();
+        return run(Session(model));
+    }
+
+    internal static void Prepare(OnnxModel model, CancellationToken cancellation) =>
+        Execute(model, static _ => true, cancellation);
+
+    private static InferenceSession Session(OnnxModel model)
     {
         lock (gate)
         {
             var key = model.Path + "|" + model.Sha256;
             if (sessions.TryGetValue(key, out var existing)) return existing;
+            return sessions[key] = CreateSession(model, directML: false);
+        }
+    }
+
+    private static InferenceSession CreateSession(OnnxModel model, bool directML)
+    {
+        lock (gate)
+        {
+            var key = model.Path + "|" + model.Sha256;
             if (!model.IsInstalled) throw new InvalidDataException($"The {model.Name} model is not installed: {model.Path} is missing.");
             if (!verified.Contains(key))
             {
                 if (!model.Verify()) throw new InvalidDataException($"{model.Path} is not the {model.Name} model Composa was built with, so it is not used.");
                 verified.Add(key);
             }
-            var options = new SessionOptions
-            {
-                IntraOpNumThreads = Threads,
-                InterOpNumThreads = 1,
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-                LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR
-            };
-            try
-            {
-                var session = new InferenceSession(model.Path, options);
-                sessions[key] = session;
-                return session;
-            }
-            finally { options.Dispose(); }
         }
+        using var options = new SessionOptions
+        {
+            IntraOpNumThreads = Threads,
+            InterOpNumThreads = 1,
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR
+        };
+        if (directML)
+        {
+            options.EnableMemoryPattern = false;
+            options.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
+            options.AppendExecutionProvider_DML(0);
+        }
+        return new InferenceSession(model.Path, options);
     }
 }

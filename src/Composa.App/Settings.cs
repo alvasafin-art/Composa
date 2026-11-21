@@ -53,6 +53,7 @@ public sealed class Settings
     public string AiApiQuality { get; set; } = "low";
     public string AiApiSize { get; set; } = "auto";
     public bool AiLorasEnabled { get; set; }
+    public bool UseSelectionGpu { get; set; } = true;
     public bool AiShowContextBounds { get; set; } = true;
     public bool AiFloatingCollapsed { get; set; }
     public int AiDefaultsRevision { get; set; } = 1;

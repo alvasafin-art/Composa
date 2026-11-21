@@ -11,9 +11,9 @@ public static class SceneBackgroundSubject
     public static void EnsureAvailable(CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
-        _ = ModelRunner.Session(PromptModels.EfficientSamS.Encoder);
+        ModelRunner.Prepare(PromptModels.EfficientSamS.Encoder, token);
         token.ThrowIfCancellationRequested();
-        _ = ModelRunner.Session(PromptModels.EfficientSamS.Decoder);
+        ModelRunner.Prepare(PromptModels.EfficientSamS.Decoder, token);
         token.ThrowIfCancellationRequested();
     }
 

@@ -4,7 +4,7 @@
 
 У инструментов **Object Selection** и **Object Selection AI** в верхней панели есть список **Model**:
 
-- **SAM Quality** — локальная EfficientSAM S, поставляется в сборке и работает на CPU без Python и интернета.
+- **SAM Quality** — локальная EfficientSAM S, поставляется в сборке и работает без Python и интернета. В Windows по умолчанию использует DirectML, при недоступности ускорения переходит на CPU. Ускорение можно отключить в настройках редактора.
 - **BiRefNet** — только совместимые установленные варианты, обнаруженные на подключённом сервере ComfyUI.
 
 **Select → Subject** использует тот же выбор. Старые настройки моделей переходят на SAM Quality. Релизные пакеты содержат два ONNX-файла SAM Quality и ViTMatte Small для Select and Mask; MobileSAM, EfficientSAM Ti, U²-Net и MODNet исключены. Для разработчиков старые тестовые модели доступны отдельно через `bash scripts/models/fetch.sh --all`; обычный запуск скрипта получает SAM Quality и ViTMatte. Веса BiRefNet находятся на сервере, в Composa они не включаются.

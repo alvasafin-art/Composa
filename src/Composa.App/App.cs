@@ -38,7 +38,9 @@ public sealed class App : Application
 
     public override void Initialize()
     {
-        Locale.Language = Settings.Load().Language;
+        var settings = Settings.Load();
+        Locale.Language = settings.Language;
+        Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;
         Palette.Use(EditorTheme.Classic);
         RequestedThemeVariant = ThemeVariant.Dark;
         // Native controls otherwise inherit Windows' accent, which can turn the blue interface purple.

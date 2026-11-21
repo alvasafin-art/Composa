@@ -557,6 +557,14 @@ public static partial class AiDialogs
         }, theme => { chosenTheme = theme; app?.ApplyTheme(theme); }, 190);
         themePicker.Name = "EditorThemePicker";
         Avalonia.Automation.AutomationProperties.SetName(themePicker, "Interface theme");
+        const string gpuLabel = "Use GPU for local object selection and matting when available";
+        var selectionGpu = new CheckBox { Name = "UseSelectionGpu", Content = Locale.T(gpuLabel),
+            IsChecked = settings.UseSelectionGpu, IsEnabled = OperatingSystem.IsWindows() };
+        var devices = new Composa.Vision.OnnxModel[] { Composa.Vision.PromptModels.EfficientSamS.Encoder,
+            Composa.Vision.PromptModels.EfficientSamS.Decoder, Composa.Vision.RefinementModels.VitMatte };
+        var usedDevices = devices.Select(m => (m.Name, Device: Composa.Vision.ModelRunner.DeviceFor(m)))
+            .Where(m => m.Device != null).Select(m => $"{m.Name}: {m.Device}").ToArray();
+        if (usedDevices.Length > 0) ToolTip.SetTip(selectionGpu, string.Join(Environment.NewLine, usedDevices));
         var groupedPanels = new CheckBox { Content = Locale.T("Group side panels in tabs"), IsChecked = settings.TabbedPanels };
         var linkedSources = new CheckBox { Content = Locale.T("Automatically refresh linked files"), IsChecked = settings.AutoUpdateLinkedSources };
         var updates = new CheckBox { Content = Locale.T("Check for updates on startup"), IsChecked = settings.CheckForUpdates };
@@ -569,7 +577,7 @@ public static partial class AiDialogs
                 Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
                     serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
-                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, linkedSources, updates))
+                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, selectionGpu, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -641,6 +649,7 @@ public static partial class AiDialogs
             ("System instructions", "системный промт", 2, instructions, advancedPrompt, null),
             ("Language", "language russian english русский английский язык", 3, languagePicker, null, null),
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
+            (gpuLabel, "GPU CPU SAM ViTMatte DirectML видеокарта выделение", 3, selectionGpu, null, null),
             ("Group side panels in tabs", "панели вкладки", 3, groupedPanels, null, null),
             ("Automatically refresh linked files", "обновление связь", 3, linkedSources, null, null),
             ("Check for updates", "обновления", 3, updates, null, null)
@@ -792,6 +801,8 @@ public static partial class AiDialogs
         }
         settings.AiModelRoutes = routeDrafts;
         settings.AiTaskEngineIds = taskDrafts;
+        settings.UseSelectionGpu = selectionGpu.IsChecked == true;
+        Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;
         settings.TabbedPanels = groupedPanels.IsChecked == true;
         settings.AutoUpdateLinkedSources = linkedSources.IsChecked == true;
         settings.CheckForUpdates = updates.IsChecked == true;

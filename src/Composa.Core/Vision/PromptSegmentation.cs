@@ -8,6 +8,7 @@ namespace Composa.Vision;
 
 public sealed record ImageEmbedding(float[] Data, int Width, int Height)
 {
+    internal bool PreferGpu { get; init; }
     internal byte[]? InputHash { get; init; }
 }
 
@@ -194,7 +195,8 @@ public static unsafe class PromptSegmentation
         // Selection history can change while a sampled composition stays identical.
         // Compare exactly what the encoder sees, including document color conversion.
         var hash = SHA256.HashData(resized.GetPixelSpan());
-        if (previous?.InputHash is { } priorHash && previous.Width == w && previous.Height == h && hash.AsSpan().SequenceEqual(priorHash))
+        var preferGpu = ModelRunner.PreferGpu;
+        if (previous?.InputHash is { } priorHash && previous.PreferGpu == preferGpu && previous.Width == w && previous.Height == h && hash.AsSpan().SequenceEqual(priorHash))
             return previous;
         var data = new float[w * h * 3]; var pixels = (byte*)resized.GetPixels();
         var mobile = model.Kind == PromptModelKind.MobileSam;
@@ -204,7 +206,7 @@ public static unsafe class PromptSegmentation
         var inputName = mobile ? "input_image" : "batched_images";
         var result = Run(model.Encoder, [NamedOnnxValue.CreateFromTensor(inputName, tensor)], ["image_embeddings"], cancellation)[0];
         if (!result.Dimensions.SequenceEqual(new[] { 1, 256, 64, 64 })) throw new InvalidDataException("Unexpected SAM image embedding dimensions.");
-        return new(result.Data, w, h) { InputHash = hash };
+        return new(result.Data, w, h) { InputHash = hash, PreferGpu = preferGpu };
     }
 
     public static SKBitmap Decode(ImageEmbedding image, PromptModel model, int width, int height, SKPoint? point, SKRectI? box, CancellationToken cancellation = default)
@@ -377,7 +379,12 @@ public static unsafe class PromptSegmentation
     private sealed record Output(float[] Data, int[] Dimensions);
     private static Output[] Run(OnnxModel model, IReadOnlyCollection<NamedOnnxValue> inputs, string[] names, CancellationToken cancellation)
     {
-        cancellation.ThrowIfCancellationRequested(); var session = ModelRunner.Session(model);
+        return ModelRunner.Execute(model, session => Run(session, inputs, names, cancellation), cancellation);
+    }
+
+    private static Output[] Run(InferenceSession session, IReadOnlyCollection<NamedOnnxValue> inputs, string[] names, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
         using var options = new RunOptions(); using var stop = cancellation.Register(() => options.Terminate = true);
         try
         {

@@ -1622,3 +1622,4 @@ tolerance must be finite and nonnegative.	tolerance должен быть кон
 {0} would be larger than the supported {1} pixels a side and {2} megapixels, or than the document has room for.	Для {0} превышен предел {1} пикселей на сторону, {2} Мп либо оставшийся лимит памяти документа.
 {0} × {1} pixels	{0} × {1} пикс.
 ↑ ↓ to choose · Enter to run · Esc to close	↑ ↓ — выбор · Enter — выполнить · Esc — закрыть
+Use GPU for local object selection and matting when available	Использовать видеокарту для локального выделения и уточнения краёв, если доступна

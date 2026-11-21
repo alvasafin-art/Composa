@@ -18,7 +18,7 @@ public class SettingsTests
     {
         var settings = new Settings
         {
-            ShowTransformControls = false, AutoSelect = false, ShowPixelGrid = false,
+            UseSelectionGpu = false, ShowTransformControls = false, AutoSelect = false, ShowPixelGrid = false,
             AiGptContextPadding = 64,
             AiTaskEngineIds = new() { [nameof(AiTaskKind.GenerateImage)] = "chatgpt-image-2.5", [nameof(AiTaskKind.GenerativeExpand)] = "flux2-klein-intel-xpu" },
             AssistantServerUrl = "http://127.0.0.1:18080", AssistantServerExecutable = "llama-server.exe",
@@ -34,6 +34,7 @@ public class SettingsTests
         Assert.Contains("\"Dots\"", json); // Named, so the file survives the enums being reordered.
         var loaded = JsonSerializer.Deserialize<Settings>(json)!;
         Assert.Equal((false, false, false), (loaded.ShowTransformControls, loaded.AutoSelect, loaded.ShowPixelGrid));
+        Assert.False(loaded.UseSelectionGpu);
         Assert.Equal(settings.View, loaded.View);
         Assert.Equal(64, loaded.AiGptContextPadding);
         Assert.Equal("chatgpt-image-2.5", loaded.EngineForTask(AiTaskKind.GenerateImage));
@@ -45,6 +46,7 @@ public class SettingsTests
         // A settings file from before these were remembered keeps the defaults.
         var old = JsonSerializer.Deserialize<Settings>("""{ "JpegQuality": 80 }""")!;
         Assert.Equal((true, true, true), (old.ShowTransformControls, old.AutoSelect, old.View.Snap));
+        Assert.True(old.UseSelectionGpu);
         Assert.Equal(0, old.AiGptContextPadding);
         Assert.Empty(old.AiTaskEngineIds);
     }

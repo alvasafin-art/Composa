@@ -33,7 +33,7 @@ echo "Building Composa $VERSION for $RID"
 
 # Nothing manages a Windows install, so this build announces new releases itself.
 dotnet publish "$ROOT/src/Composa.App" -c Release -r "$RID" --self-contained true \
-  -p:DebugType=none -p:UpdateChannel=github -o "$TREE"
+  -p:UseDirectML=true -p:DirectMLRid="$RID" -p:DebugType=none -p:UpdateChannel=github -o "$TREE"
 for model in "$TREE"/models/*.onnx; do
   case "$(basename "$model")" in
     efficient_sam_vits_encoder.onnx|efficient_sam_vits_decoder.onnx|vitmatte_small.onnx) ;;
@@ -42,6 +42,8 @@ for model in "$TREE"/models/*.onnx; do
 done
 test -f "$TREE/models/efficient_sam_vits_encoder.onnx" && test -f "$TREE/models/efficient_sam_vits_decoder.onnx"
 test -f "$TREE/models/vitmatte_small.onnx"
+test -s "$TREE/DirectML.dll"
+test -s "$TREE/onnxruntime.dll"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$TREE/"
 cp "$ROOT/run-composa.bat" "$TREE/"
 mkdir -p "$TREE/docs"
@@ -61,7 +63,7 @@ cp "$ROOT/scripts/photoshop/Exchange.ps1" "$ROOT/scripts/photoshop/Send-to-Compo
 
 # Bundling ImageMagick redistributes LGPL libraries, and the notices are what makes that allowed.
 # The project file adds them; this makes sure no change there can ship a build without them.
-for notice in THIRD-PARTY-NOTICES.txt ImageMagick-NOTICE.txt; do
+for notice in THIRD-PARTY-NOTICES.txt ImageMagick-NOTICE.txt DirectML-LICENSE.txt DirectML-ThirdPartyNotices.txt; do
   [ -f "$TREE/$notice" ] || { echo "windows.sh: $notice is missing from the published build." >&2; exit 1; }
 done
 
