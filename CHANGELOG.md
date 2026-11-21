@@ -4,6 +4,10 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.lettering.1] - 2026-11-21
+
+- In Automatic local Object Selection, a box around display lettering can separate visible strokes from an overlapping subject, preserve counters and disconnected letters, and retain photographs clipped into type.
+
 ## [1.3.0-preview.4.studio.17.1] - 2026-11-21
 
 - Dragging a layer updates its position immediately and refreshes transform fields at display cadence. Fast drags use the pointer position at release.

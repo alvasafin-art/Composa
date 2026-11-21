@@ -7,6 +7,44 @@ namespace Composa.Core.Tests;
 
 public class CaptionSelectionTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Display_type_distinguishes_an_image_clipped_into_strokes_from_an_occluding_object(bool clipped)
+    {
+        using var image = Pixels.NewColor(244, 200);
+        image.Erase(SKColors.DarkRed);
+        using var canvas = new SKCanvas(image);
+        using var paint = new SKPaint();
+        for (int x = 18; x < 230; x += 43)
+        {
+            paint.Color = SKColors.Ivory;
+            canvas.DrawRect(x, 15, 35, 169, paint);
+            if (clipped)
+            {
+                paint.Color = SKColors.DarkSlateBlue;
+                canvas.DrawRect(x, 78, 35, 101, paint);
+            }
+            paint.Color = SKColors.DarkRed;
+            canvas.DrawRect(x + 12, 32, 6, 122, paint);
+        }
+        if (!clipped)
+        {
+            paint.Color = SKColors.DarkSlateBlue;
+            canvas.DrawRect(15, 85, 214, 50, paint);
+        }
+        using var selection = DisplayLettering.FromBox(image, new(12, 8, 232, 191), default);
+        Assert.NotNull(selection);
+        for (int x = 18; x < 230; x += 43)
+        {
+            Assert.Equal(255, selection.GetPixel(x + 4, 35).Alpha);
+            Assert.Equal(clipped ? 255 : 0, selection.GetPixel(x + 4, 99).Alpha);
+            Assert.Equal(0, selection.GetPixel(x + 15, 99).Alpha);
+            Assert.Equal(0, selection.GetPixel(x + 37, 99).Alpha);
+            Assert.Equal(255, selection.GetPixel(x + 5, 164).Alpha);
+        }
+    }
+
     [Fact]
     public void Inclined_line_is_measured_in_its_own_direction_and_rasterized_on_the_original_grid()
     {
