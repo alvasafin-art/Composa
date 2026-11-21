@@ -11,6 +11,7 @@ public sealed partial class EditorSession
     private Layer? strokeLayer;
     private SKBitmap? strokeOriginal;
     private SKBitmap? strokeHealingSample;
+    private LayerEffectsRenderer.StrokeBase? strokeEffectBase;
     private Guid? finishingStrokeEffect;
     private SKMatrix strokeToLayer;
     private BrushMode strokeMode;
@@ -111,6 +112,8 @@ public sealed partial class EditorSession
         if (mode is BrushMode.Clone or BrushMode.Healing && cloneSource == null) { problem = "Alt-click to set the source first."; return false; }
         if (mode is BrushMode.Heal or BrushMode.Healing && IsEditingMask) { problem = "Healing brushes work on pixels, not masks."; return false; }
 
+        var effectBase = ViewZoom < 1 && document.WorkingDepth == ColorDepth.Eight && mode is BrushMode.Paint or BrushMode.Erase
+            ? LayerEffectsRenderer.CaptureStrokeBase(layer) : null;
         Begin(channelErase ? "Eraser" : mode.Value switch
         {
             BrushMode.Erase => "Eraser", BrushMode.Clone => "Clone Stamp", BrushMode.Heal => "Spot Healing Brush", BrushMode.Healing => "Healing Brush",
@@ -174,6 +177,7 @@ public sealed partial class EditorSession
 #endif
         strokeLayer = layer;
         strokeOriginal = target;
+        strokeEffectBase = effectBase;
         if (mode == BrushMode.Heal && SampleAllLayers)
         {
             // Snapshot before the dark drag overlay, mapping the visible document into
@@ -353,9 +357,12 @@ public sealed partial class EditorSession
             SetTarget(layer, healed);
             Invalidate(AffectedArea(layer));
         }
-        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null)
-            finishingStrokeEffect = layer.Id;
+        var effectBase = strokeEffectBase;
+        var changedPixels = stroke.Touched;
         CloseStroke();
+        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null
+            && (effectBase == null || !LayerEffectsRenderer.CacheStroke(layer, effectBase, changedPixels)))
+            finishingStrokeEffect = layer.Id;
         Commit();
         LayersChanged?.Invoke();
     }
@@ -376,6 +383,7 @@ public sealed partial class EditorSession
         stroke = null;
         strokeLayer = null;
         strokeOriginal = null;
+        strokeEffectBase = null;
         strokeHealingSample?.Dispose(); strokeHealingSample = null;
         smoothingAnchor = smoothingPointer = null;
     }

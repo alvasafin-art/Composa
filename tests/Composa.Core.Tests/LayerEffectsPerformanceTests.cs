@@ -59,6 +59,7 @@ public sealed class LayerEffectsPerformanceTests
         Assert.False(firstDab.GetPixelSpan().SequenceEqual(live.GetPixelSpan()));
         if (cancel) session.CancelStroke();
         else session.EndStroke();
+        if (zoom < 1 && !cancel) Assert.NotNull(LayerEffectsRenderer.CaptureStrokeBase(layer));
 
         using var committed = Pixels.NewColor(area.Width, area.Height);
         session.RenderView(committed, area, view);
@@ -67,6 +68,14 @@ public sealed class LayerEffectsPerformanceTests
         AssertExact(final, committed);
         Assert.True(final.GetPixelSpan().SequenceEqual((cancel ? original : live).GetPixelSpan()),
             $"Preview at {zoom:P0} differs from full rendering for {(editMask ? "mask" : "color")} painting.");
+        if (zoom < 1 && !cancel)
+        {
+            var cached = LayerEffectsRenderer.Cached(layer.Pixels!, layer.RenderMask(), layer.Effects)!.Value;
+            var rebuilt = LayerEffectsRenderer.Render(layer.Pixels!, layer.RenderMask(), layer.Effects!.Visible())!.Value;
+            using var reference = rebuilt.Image;
+            Assert.Equal(rebuilt.Inset, cached.Inset);
+            AssertExact(reference, cached.Image);
+        }
     }
 
     private static void AssertExact(SKBitmap expected, SKBitmap actual)

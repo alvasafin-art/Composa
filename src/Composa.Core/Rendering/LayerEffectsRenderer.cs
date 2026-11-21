@@ -120,12 +120,7 @@ public static class LayerEffectsRenderer
                 // Invalidation or clearing the cache can detach an in-flight request.
                 // Its original callers can finish; the old image must not reenter the cache.
                 if (made is { } result && InFlight.GetValueOrDefault(key) == request)
-                {
-                    var entry = new Entry(key, result.Image, result.Inset);
-                    Cache.GetOrCreateValue(key.Pixels).Add(entry);
-                    entry.Order = Lru.AddLast(new WeakReference<Entry>(entry));
-                    Trim();
-                }
+                    Remember(key, result.Image, result.Inset);
             }
             return made;
         }
@@ -134,6 +129,14 @@ public static class LayerEffectsRenderer
             lock (Lru)
                 if (InFlight.GetValueOrDefault(key) == request) InFlight.Remove(key);
         }
+    }
+
+    private static void Remember(Key key, SKBitmap image, int inset)
+    {
+        var entry = new Entry(key, image, inset);
+        Cache.GetOrCreateValue(key.Pixels).Add(entry);
+        entry.Order = Lru.AddLast(new WeakReference<Entry>(entry));
+        Trim();
     }
 
     private static void Trim()
@@ -189,6 +192,73 @@ public static class LayerEffectsRenderer
     internal sealed record Patch(Guid LayerId, SKBitmap Image, int Inset, SKPointI Offset, SKSize Scale) : IDisposable
     {
         public void Dispose() => Image.Dispose();
+    }
+
+    internal sealed record StrokeBase(SKBitmap Image, int Inset, SKPointI Origin, LayerEffects Effects, double FillOpacity);
+
+    internal static StrokeBase? CaptureStrokeBase(Layer layer)
+    {
+        if (PatchEffects(layer) is not { } effects) return null;
+        var key = new Key(layer.Pixels!, layer.RenderMask(), effects, layer.FillOpacity);
+        lock (Lru)
+        {
+            if (!Cache.TryGetValue(key.Pixels, out var entries) || entries.Find(entry => entry.Key == key) is not { } hit)
+                return null;
+            var matrix = layer.Matrix;
+            return new(hit.Result.Image, hit.Result.Inset, new SKPointI((int)matrix.TransX, (int)matrix.TransY), effects, layer.FillOpacity);
+        }
+    }
+
+    internal static bool CacheStroke(Layer layer, StrokeBase basis, SKRectI changed)
+    {
+        if (PatchEffects(layer) != basis.Effects || layer.FillOpacity != basis.FillOpacity) return false;
+        var pixels = layer.Pixels!;
+        var mask = layer.RenderMask();
+        var inset = basis.Inset;
+        var full = new SKRectI(-inset, -inset, pixels.Width + inset, pixels.Height + inset);
+        if ((long)full.Width * full.Height > MaxPixels || full.Width > Document.MaxSide * 2 || full.Height > Document.MaxSide * 2)
+            return false;
+        var matrix = layer.Matrix;
+        var previous = SKRectI.Create(basis.Origin.X - (int)matrix.TransX, basis.Origin.Y - (int)matrix.TransY,
+            basis.Image.Width, basis.Image.Height);
+        if (!SKRectI.Create(full.Width, full.Height).Contains(previous)) return false;
+
+        var halo = PatchHalo(basis.Effects);
+        changed.Inflate(halo, halo);
+        changed = SKRectI.Intersect(changed, full);
+        if (changed.IsEmpty) return false;
+        var region = changed;
+        region.Inflate(halo, halo);
+        region = SKRectI.Intersect(region, full);
+        if (region == full) return false;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.EffectPatch();
+#endif
+        using var patch = RenderArea(pixels, mask, basis.Effects, layer.FillOpacity, region);
+        var result = Pixels.NewLike(pixels, full.Width, full.Height);
+        try
+        {
+            DocumentRenderer.CopyRows(basis.Image, SKPointI.Empty, result, previous);
+            var source = new SKPointI(changed.Left - region.Left, changed.Top - region.Top);
+            changed.Offset(inset, inset);
+            DocumentRenderer.CopyRows(patch, source, result, changed);
+            var key = new Key(pixels, mask, basis.Effects, layer.FillOpacity);
+            lock (Lru)
+            {
+                if (!InFlight.ContainsKey(key) &&
+                    (!Cache.TryGetValue(pixels, out var entries) || entries.Find(entry => entry.Key == key) == null))
+                {
+                    Remember(key, result, inset);
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.SurfaceAllocated("effect retained after stroke", result);
+#endif
+                    return true;
+                }
+            }
+        }
+        catch { result.Dispose(); throw; }
+        result.Dispose();
+        return false;
     }
 
     // Four sigmas cover the CPU Gaussian sampling footprint with room for filtering
