@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.5] - 2026-11-22
+
+- Ctrl+N opens a redesigned New Canvas dialog with a live preview, built-in, recent and saved presets, and a button to swap width and height. Press Enter to create the canvas.
+- Set safe margins, bleed, columns, rows and a square grid when creating a document. The same editor appears in Properties when no layer is selected. The project stores the grid geometry, with independent controls for visibility and snapping. Guides stay out of exports.
+- Choose RGB or CMYK when creating a document or from canvas Properties. The CMYK option prepares separated TIFF output while editing uses an RGB preview.
+
 ## [1.3.0-preview.4.studio.17.4] - 2026-11-22
 
 - Painting pixels and masks on large layers with effects is more responsive at Fit and 100% zoom. The canvas redraws the affected region and reuses the rendered effect when the stroke ends.
