@@ -1,59 +1,59 @@
 # Composa Studio
 
-Composa Studio — графический редактор для Windows и Linux. В одном проекте можно собрать постер из фотографий, векторных фигур и текста, вырезать объект с тонкими волосами, отретушировать фон и подготовить изображение к экспорту. Выделение объектов работает локально. Для генеративной заливки и расширения кадра можно подключить ComfyUI.
+Composa Studio is a layer-based image editor for Windows and Linux. Combine photographs, editable text, and vector shapes in one project, cut out subjects with fine hair, and retouch the background. Object selection runs on your computer. Connect a ComfyUI server for generative fill, object removal, and canvas expansion.
 
-![Рабочее окно Composa Studio с открытой фотографией, панелью слоёв и генеративной заливкой для выделенного участка](docs/images/studio-workspace.png)
+![Composa Studio showing a brown bear inside a generative fill selection in a mountain landscape, with the layer mask and prompt visible](docs/images/studio-workspace.png)
 
-## Скачать
+## Download Studio 17.3 preview
 
-| Платформа | Как запустить тестовую версию Studio 17.3 |
+| Platform | Download |
 | --- | --- |
-| Windows x64 | [Установщик](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-x64-setup.exe) или [переносной ZIP](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-x64.zip). Для переносной версии распакуйте весь архив и запустите `composa.exe`. |
-| Windows ARM64 | [Установщик](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-arm64-setup.exe) или [переносной ZIP](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-arm64.zip). |
-| Linux x86-64 и ARM64 | На [странице выпуска](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3) выберите AppImage, DEB, RPM или архив `.tar.gz` для своей архитектуры. Для AppImage разрешите запуск файла в его свойствах. |
+| Windows x64 | [Installer](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-x64-setup.exe) · [Portable ZIP](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-x64.zip) |
+| Windows ARM64 | [Installer](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-arm64-setup.exe) · [Portable ZIP](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-arm64.zip) |
+| Linux x86-64 and ARM64 | Choose the AppImage, DEB, RPM, or `.tar.gz` for your architecture from the [release downloads](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3). |
 
-Среда .NET и модели локального выделения входят в готовые сборки. В настройках редактора можно включить русский интерфейс, выбрать тему и настроить ускорение выделения. Список изменений и контрольные суммы доступны на [странице выпуска](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3).
+For a portable Windows installation, extract the entire ZIP and run `composa.exe`. On Linux, mark the AppImage as executable before opening it. The packages include the .NET runtime and local selection models. In **Settings → Editor**, you can switch between English and Russian, choose a theme, and configure GPU acceleration for object selection. [Release notes and checksums](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3)
 
-## Работа с композицией
+## Working with layers
 
-Откройте фотографию через **Ctrl+O** или создайте холст через **Ctrl+N**. Чтобы поместить второе изображение на отдельный слой, перетащите его из проводника на открытый холст. Сохраните рабочий проект в формате **.cmps** — при следующем открытии можно будет продолжить редактирование слоёв, текста и масок.
+Open a photograph with **Ctrl+O** or create a canvas with **Ctrl+N**. Drag another image from your file manager onto the canvas to place it on a new layer. Save your working document as a **.cmps** project to keep its layers, text, and masks editable.
 
-- **Компоновка.** Собирайте слои в группы, задавайте прозрачность и режим наложения. После **Ctrl+T** слой можно перемещать за любую точку внутри рамки, в том числе за прозрачный промежуток между буквами. Для точного размещения используйте направляющие и числовые поля.
-- **Текст и вектор.** Примеряйте шрифт на холсте, меняйте оформление отдельных символов, межбуквенные и межстрочные интервалы. У фигур можно править узлы и изгибы пером, а также задавать отдельные градиенты для заливки и обводки.
-- **Ретушь и цвет.** Кисть, штамп и точечное восстановление работают по активному слою или выделению. Для повторно редактируемой обработки используйте корректирующие слои и смарт-фильтры. Редактор поддерживает рабочие документы RGB с глубиной 8 и 16 бит на канал и цветовыми профилями ICC.
-- **Передача результата.** Экспортируйте готовую композицию в PNG или JPEG. Для продолжения работы со слоями в Photoshop используйте PSD. При преобразовании редактор показывает, каким элементам потребуется растрирование. Для передачи открытого документа между приложениями в Windows есть [скрипты обмена с Photoshop](https://github.com/alvasafin-art/Composa/blob/main/docs/photoshop-exchange.md).
+- **Arrange a composition.** Group related layers, adjust opacity, and choose a blend mode. Press **Ctrl+T** and drag anywhere inside the transform frame to move a layer, even through a transparent gap between letters. Use guides and numeric fields for precise placement.
+- **Edit type and vector shapes.** Preview fonts on the canvas, format individual characters, and adjust tracking and line spacing. Use the Pen tool to edit points and curves. A shape's fill and stroke can each have their own gradient.
+- **Retouch and adjust color.** Use the Brush, Clone Stamp, or Spot Healing tool on the active layer. An active selection limits the edit to that area. Adjustment layers and smart filters let you revisit an edit later. Documents support 8-bit and 16-bit RGB and ICC color profiles.
+- **Export or continue in Photoshop.** Export the finished composition as PNG or JPEG. For layered work, export a PSD and review the conversion report to see which elements need rasterizing. On Windows, you can also send an open document directly between the two applications. [Photoshop exchange scripts](https://github.com/alvasafin-art/Composa/blob/main/docs/photoshop-exchange.md)
 
-## Вырезать объект или надпись
+## Cutting out subjects and lettering
 
-1. Выберите инструмент **Object Selection** в режиме **Automatic · Local**. Щёлкните по предмету или растяните рамку вокруг него. Для одной буквы щёлкните по штриху, для слова целиком обведите все нужные буквы. Если в рамку попало несколько предметов, более тесная рамка поможет указать нужный.
-2. Нажмите **Ctrl+J**, чтобы вынести выделенное на новый слой. Скройте исходное изображение и подложите контрастный фон — так видны и просветы между прядями, и тонкая кайма по краю.
-3. Если краю нужна ручная доводка, откройте **Select and Mask**. В предварительном просмотре можно скорректировать мягкость границы и степень удаления оттенка прежнего фона.
+1. Choose **Object Selection → Automatic · Local**. Click a subject or drag a box around it. To select a single letter, click one of its strokes. To select a word, include every letter in the box. If several objects fit inside, a tighter box helps identify the one you want.
+2. Press **Ctrl+J** to copy the selection to a new layer. Hide the original layer and place a contrasting color beneath the cutout to inspect openings in lettering and gaps between strands of hair.
+3. Open **Select and Mask** for finer control. Use the preview to adjust edge softness and reduce color picked up from the original background.
 
-EfficientSAM находит объект, а ViTMatte уточняет прозрачность края. В Windows по умолчанию используется поддерживаемая видеокарта через DirectML. Если драйвер не может выполнить модель, редактор повторяет обработку на CPU. Принудительно выбрать CPU можно в **Настройки → Редактор**. В Linux обе модели работают на CPU. [Подробнее о режимах выделения](https://github.com/alvasafin-art/Composa/blob/main/docs/object-selection-models.md)
+EfficientSAM finds the subject and ViTMatte refines opacity along its edges. On Windows, both use a supported GPU through DirectML by default. If the driver cannot run a model, Composa retries it on the CPU. To force CPU processing, turn off GPU acceleration in **Settings → Editor**. On Linux, both models run on the CPU. [Object selection guide](https://github.com/alvasafin-art/Composa/blob/main/docs/object-selection-models.md)
 
-На примере ниже один и тот же щелчок по белому штриху «Б» дал два разных выреза. На бордовом фоне видно, где Studio 17.3 сохранила просветы внутри завитков.
+**Calligraphy.** Both cutouts below started with the same click on a white stroke of the Cyrillic letter *Б*. The burgundy background shows where Studio 17.3 preserved the openings inside its loops.
 
-![Исходная буква Б и результаты одного клика в Studio 17.2 и 17.3](docs/images/letter-comparison.png)
+![Original calligraphic letter and cutouts from the same click in Studio 17.2 and 17.3](docs/images/letter-comparison.png)
 
-У гривы важны полупрозрачные края и просветы между волосками. В версии 17.3 сквозь пряди лучше виден новый фон. У некоторых волосков ещё заметен оттенок неба или листвы.
+**Fine hair.** In the horse's mane, more of the new background shows through the gaps between strands in Studio 17.3. Some translucent hairs still carry a tint from the sky or foliage.
 
-![Исходная грива лошади и вырезы в Studio 17.2 и 17.3 на одинаковом бордовом фоне](docs/images/mane-comparison.png)
+![Original horse's mane and cutouts from Studio 17.2 and 17.3 on the same burgundy background](docs/images/mane-comparison.png)
 
-## Генеративные инструменты и ассистент
+## Generative tools and the assistant
 
-Подключите свой сервер ComfyUI в настройках и выберите модель для нужной операции. Чтобы заменить деталь фотографии, выделите участок, опишите замену в панели генерации и нажмите **Run**. Можно запросить несколько вариантов и сравнить их на холсте. Через ту же панель доступны удаление объекта и генеративное расширение кадра. Набор операций зависит от модели и узлов на сервере. Для облачных моделей могут потребоваться кредиты. [Настройка моделей и подключений](https://github.com/alvasafin-art/Composa/blob/main/docs/ai-models.md)
+Connect your ComfyUI server in Settings and choose a model for the operation. To replace part of a photograph, select the area, describe the change in the generation panel, and click **Run**. You can generate several variations and compare them on the canvas. The same panel offers object removal and generative expansion. Available operations depend on the models and nodes installed on the server. Cloud models may require credits. [Image models and connections](https://github.com/alvasafin-art/Composa/blob/main/docs/ai-models.md)
 
-Панель **Assistant** подключается отдельно к локальной модели через llama.cpp или к совместимому с OpenAI API серверу. Ассистент может работать с открытым документом и выполнять команды редактора. В его настройках задаются модель, доступ к папкам и отправка превью холста. [Настройка ассистента](https://github.com/alvasafin-art/Composa/blob/main/docs/assistant-setup.md)
+The **Assistant** panel connects separately to a local model through llama.cpp or to an OpenAI-compatible API. The assistant can inspect the current document and run editor commands. Its settings control which folders it can access and whether it receives a canvas preview. [Assistant setup](https://github.com/alvasafin-art/Composa/blob/main/docs/assistant-setup.md)
 
-## Сборка из исходников
+## Building from source
 
-Установите .NET SDK 10 и выполните из корня репозитория следующие команды. Для первого шага нужен Bash, в Windows подойдёт Git Bash. Скрипт загружает модели выделения и проверяет их контрольные суммы.
+Install the .NET 10 SDK and run the following commands from the repository root. The first command downloads the selection models and verifies their checksums. It requires Bash, available on Windows through Git Bash.
 
 ```sh
 bash scripts/models/fetch.sh
 dotnet run --project src/Composa.App
 ```
 
-Для запуска тестов выполните `dotnet test Composa.slnx`. Инструкции по упаковке находятся в [RELEASING.md](https://github.com/alvasafin-art/Composa/blob/main/RELEASING.md).
+Run the test suite with `dotnet test Composa.slnx`. [Packaging and release instructions](https://github.com/alvasafin-art/Composa/blob/main/RELEASING.md)
 
-[Руководство пользователя](https://github.com/alvasafin-art/Composa/tree/main/docs) · [Горячие клавиши](https://github.com/alvasafin-art/Composa/blob/main/docs/shortcuts.md) · [История версий](https://github.com/alvasafin-art/Composa/blob/main/CHANGELOG.md) · [Лицензия](https://github.com/alvasafin-art/Composa/blob/main/LICENSE)
+[User guide](https://github.com/alvasafin-art/Composa/tree/main/docs) · [Keyboard shortcuts](https://github.com/alvasafin-art/Composa/blob/main/docs/shortcuts.md) · [Changelog](https://github.com/alvasafin-art/Composa/blob/main/CHANGELOG.md) · [License](https://github.com/alvasafin-art/Composa/blob/main/LICENSE)
