@@ -220,6 +220,8 @@ public sealed class HistoryPanel : UserControl
         "Blending Options" => Icons.Layers,
         "8 Bits/Channel" or "16 Bits/Channel" => Icons.Adjust,
         "Assign Color Profile" or "Convert Color Profile" => Icons.Adjust,
+        "Color mode" => Icons.Adjust,
+        "Layout Grid" => Icons.LayoutSquares,
         "Object Selection" or "Select Subject" => Icons.ObjectSelect,
         "Select and Mask" => Icons.Mask,
         "Move Selection Pixels" or "Duplicate Selection" => Icons.Move,

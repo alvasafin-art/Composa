@@ -9,6 +9,8 @@ namespace Composa.App;
 /// <summary>Small builders that keep code-built layouts readable.</summary>
 public static class Ui
 {
+    internal const int OverlayScrollBarGutter = 22;
+
     public static TextBlock Label(string text, IBrush? brush = null, double? size = null, FontWeight weight = FontWeight.Normal)
     {
         var block = new TextBlock { Text = text, Foreground = brush ?? Palette.Foreground, FontWeight = weight };
@@ -62,7 +64,7 @@ public static class Ui
         return combo;
     }
 
-    public static NumericUpDown Number(double value, double min, double max, Action<double> changed, double step = 1, string format = "0", double width = 72)
+    public static NumericUpDown Number(double value, double min, double max, Action<double> changed, double step = 1, string format = "0", double width = 72, bool scrub = true)
     {
         var box = new NumericUpDown
         {
@@ -70,7 +72,7 @@ public static class Ui
             Width = width, ClipValueToMinMax = true, ShowButtonSpinner = false
         };
         box.ValueChanged += (_, e) => { if (e.NewValue is { } v) changed((double)v); };
-        Scrub(box, box);
+        if (scrub) Scrub(box, box);
         return box;
     }
 

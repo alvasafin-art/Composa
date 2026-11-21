@@ -117,7 +117,8 @@ public static class ImageFiles
         finally { flattened?.Dispose(); }
     }
 
-    public static void Save(SKBitmap bitmap, string path, ExportFormat format, int quality = 90, double resolution = 72, CancellationToken cancellationToken = default)
+    public static void Save(SKBitmap bitmap, string path, ExportFormat format, int quality = 90, double resolution = 72,
+        CancellationToken cancellationToken = default, CanvasColorMode colorMode = CanvasColorMode.RGB)
     {
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         try
@@ -125,7 +126,8 @@ public static class ImageFiles
             if (format == ExportFormat.Tiff)
             {
                 using var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
-                TiffCodec.Write(bitmap, output, resolution); output.Flush(flushToDisk: true);
+                TiffCodec.Write(bitmap, output, resolution, cmyk: colorMode == CanvasColorMode.CMYK);
+                output.Flush(flushToDisk: true);
             }
             else File.WriteAllBytes(temp, Encode(bitmap, format, quality, resolution: resolution));
             cancellationToken.ThrowIfCancellationRequested();

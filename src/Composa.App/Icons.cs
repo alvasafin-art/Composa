@@ -13,6 +13,10 @@ public static class Icons
 
     public static readonly Icon Move = new(null, "M12 2 L15.5 6 H13 V11 H18 V8.5 L22 12 L18 15.5 V13 H13 V18 H15.5 L12 22 L8.5 18 H11 V13 H6 V15.5 L2 12 L6 8.5 V11 H11 V6 H8.5 Z");
     public static readonly Icon Link = new("M10 8 H8 A4 4 0 0 0 8 16 H10 M14 8 H16 A4 4 0 0 1 16 16 H14 M8 12 H16");
+    public static readonly Icon LayoutColumns = new("M3 4 H8 V20 H3 Z M10 4 H14 V20 H10 Z M16 4 H21 V20 H16 Z");
+    public static readonly Icon LayoutRows = new("M4 3 H20 V8 H4 Z M4 10 H20 V14 H4 Z M4 16 H20 V21 H4 Z");
+    public static readonly Icon LayoutSquares = new("M3 3 H21 V21 H3 Z M9 3 V21 M15 3 V21 M3 9 H21 M3 15 H21");
+    public static readonly Icon Magnet = new("M4 5 H9 V13 A3 3 0 0 0 15 13 V5 H20 V13 A8 8 0 0 1 4 13 Z M4 9 H9 M15 9 H20");
     public static readonly Icon Unlink = new("M9 8 H7 A4 4 0 0 0 7 16 H9 M15 8 H17 A4 4 0 0 1 17 16 H15 M10 4 L14 20");
     public static readonly Icon Marquee = new("M4 4 H20 V20 H4 Z", null, true);
     public static readonly Icon MarqueeEllipse = new("M12 4 A8 8 0 1 1 12 20 A8 8 0 1 1 12 4 Z", null, true);

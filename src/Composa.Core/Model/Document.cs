@@ -14,6 +14,8 @@ public sealed class Document
     public ColorDepth Depth { get; set; } = ColorDepth.Eight;
     public ColorDepth WorkingDepth => Depth;
     public RgbProfile Profile { get; set; } = RgbProfile.Srgb;
+    public CanvasColorMode ColorMode { get; set; }
+    public CanvasLayout Layout { get; set; } = CanvasLayout.Empty;
     /// <summary>Root layers, bottom to top.</summary>
     public List<Layer> Layers { get; init; } = [];
     public Guid? ActiveLayerId { get; set; }
@@ -47,7 +49,11 @@ public sealed class Document
 
     public Document Clone()
     {
-        var copy = new Document(Width, Height) { Resolution = Resolution, Depth = Depth, Profile = Profile, ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection };
+        var copy = new Document(Width, Height)
+        {
+            Resolution = Resolution, Depth = Depth, Profile = Profile, ColorMode = ColorMode, Layout = Layout,
+            ActiveLayerId = ActiveLayerId, SelectionAnchorId = SelectionAnchorId, Selection = Selection
+        };
         foreach (var layer in Layers) copy.Layers.Add(layer.Clone());
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.SelectionOrder.AddRange(SelectionOrder);

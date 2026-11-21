@@ -15,6 +15,7 @@ public class DialogWindow : Window
 {
     private readonly Button ok;
     protected readonly StackPanel Buttons;
+    internal StackPanel FooterButtons => Buttons;
 
     public DialogWindow(string title, Control body, string okText = "OK", bool cancellable = true)
     {
@@ -145,84 +146,8 @@ public static class Prompts
     }
 }
 
-public sealed record NewCanvasResult(int Width, int Height, SKColor? Background, ColorDepth Depth = ColorDepth.Eight, double Resolution = 72);
-
-public static class CanvasDialogs
+public static partial class CanvasDialogs
 {
-    /// <summary>
-    /// Preset sizes, as the macOS app groups them: resolutions, screens and social formats, plus two print sizes. The
-    /// first entry is Custom; the combo shows the one the typed size matches.
-    /// </summary>
-    public static readonly (string Name, int W, int H)[] Presets =
-    [
-        ("Custom", 0, 0),
-        ("4K", 3840, 2160), ("1440p", 2560, 1440), ("1080p", 1920, 1080),
-        ("iPhone 18 Pro", 1206, 2622), ("iPhone 18 Pro Max", 1320, 2868), ("MacBook Pro 14\"", 3024, 1964), ("MacBook Pro 16\"", 3456, 2234), ("Studio Display", 5120, 2880),
-        ("Instagram Square", 1080, 1080), ("Instagram Portrait", 1080, 1350), ("Instagram Story", 1080, 1920), ("YouTube Thumb", 1080, 608),
-        ("A4 at 300 ppi", 2480, 3508), ("Photo 6000 × 4000", 6000, 4000)
-    ];
-
-    private static string PresetLabel((string Name, int W, int H) preset) => preset.W == 0 || preset.Name.Contains('×') ? Locale.T(preset.Name) : $"{Locale.T(preset.Name)}  {preset.W} × {preset.H}";
-
-    /// <summary>
-    /// With the size of the image on the clipboard, the dialog opens on a Clipboard preset of that size, listed first,
-    /// so what is pasted next fills the new canvas exactly; every other preset is still a choice away. An image too
-    /// large for a canvas offers no preset.
-    /// </summary>
-    public static async Task<NewCanvasResult?> NewCanvas(Window owner, SKColor backgroundColor, (int W, int H)? clipboardSize = null)
-    {
-        if (clipboardSize is { } clip && !DocumentLimits.FitsSurface(clip.W, clip.H)) clipboardSize = null;
-        var presets = clipboardSize is { } size ? Presets.Prepend(("Clipboard", size.W, size.H)).ToArray() : Presets;
-        var custom = Array.FindIndex(presets, p => p.W == 0);
-        int width = clipboardSize?.W ?? 1920, height = clipboardSize?.H ?? 1080;
-        var fill = 0;
-        var widthBox = Ui.Number(width, 1, DocumentLimits.MaxSide, v => width = (int)v, width: 120);
-        var heightBox = Ui.Number(height, 1, DocumentLimits.MaxSide, v => height = (int)v, width: 120);
-        double resolution = 72;
-        var printSize = Ui.Label("", Palette.Secondary);
-        void UpdatePrintSize() => printSize.Text = $"{width * 25.4 / resolution:0.#} × {height * 25.4 / resolution:0.#} mm";
-        var ppi = Ui.Number(72, 1, 9600, v => { resolution = v; UpdatePrintSize(); }, width: 100);
-        var applying = false;
-        ComboBox preset = null!;
-        preset = Ui.Combo(presets, presets.FirstOrDefault(p => p.W == width && p.H == height, presets[custom]), PresetLabel, p =>
-        {
-            if (p.W == 0 || applying) return;
-            applying = true;
-            widthBox.Value = p.W; heightBox.Value = p.H;
-            if (p.Item1 == "A4 at 300 ppi") ppi.Value = 300;
-            UpdatePrintSize();
-            applying = false;
-        }, 220);
-        // A typed size shows the preset it matches, or Custom.
-        void FollowSize(object? _, NumericUpDownValueChangedEventArgs __)
-        {
-            if (applying) return;
-            applying = true;
-            var match = Array.FindIndex(presets, p => p.W == width && p.H == height);
-            preset.SelectedIndex = match >= 0 ? match : custom;
-            applying = false;
-        }
-        widthBox.ValueChanged += FollowSize;
-        heightBox.ValueChanged += FollowSize;
-        var background = Ui.Combo(new[] { "Transparent", "White", "Background color" }, "Transparent", Locale.T, s => fill = s == "White" ? 1 : s == "Transparent" ? 0 : 2, 220);
-        var depth = ColorDepth.Eight;
-        DialogWindow? dialog = null;
-        var limit = Ui.Label("", Palette.Secondary); limit.MaxWidth = 300; limit.TextWrapping = TextWrapping.Wrap;
-        void Validate()
-        {
-            UpdatePrintSize();
-            var valid = DocumentLimits.FitsSurface(width, height, depth == ColorDepth.Sixteen ? 16 : 4);
-            if (dialog != null) dialog.CanAccept = valid;
-            limit.Text = valid ? "" : $"Choose a smaller canvas. This RGB mode supports up to {DocumentLimits.MaxSurfaceBytes / (depth == ColorDepth.Sixteen ? 16 : 4) / 1_000_000:N0} megapixels.";
-        }
-        var precision = Ui.Combo(new[] { ColorDepth.Eight, ColorDepth.Sixteen }, depth, d => $"RGB · {(int)d} bits/channel", d => { depth = d; Validate(); }, 220);
-        widthBox.ValueChanged += (_, _) => Validate(); heightBox.ValueChanged += (_, _) => Validate();
-        var grid = Form(("Preset", preset), ("Width", Ui.Row(6, widthBox, Ui.Label("px", Palette.Secondary))), ("Height", Ui.Row(6, heightBox, Ui.Label("px", Palette.Secondary))), ("Resolution", Ui.Row(7, ppi, Ui.Label("ppi"), printSize)), ("Background", background), ("Color mode", precision));
-        dialog = new DialogWindow("New Canvas", Ui.Column(8, grid, limit), "Create"); Validate();
-        if (!await dialog.Ask(owner)) return null;
-        return new NewCanvasResult(width, height, fill == 0 ? null : fill == 1 ? SKColors.White : backgroundColor, depth, resolution);
-    }
-
     public static async Task<(int Width, int Height, Anchor Anchor)?> CanvasSize(Window owner, int currentWidth, int currentHeight)
     {
         int width = currentWidth, height = currentHeight;

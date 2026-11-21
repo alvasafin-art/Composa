@@ -1623,3 +1623,61 @@ tolerance must be finite and nonnegative.	tolerance должен быть кон
 {0} × {1} pixels	{0} × {1} пикс.
 ↑ ↓ to choose · Enter to run · Esc to close	↑ ↓ — выбор · Enter — выполнить · Esc — закрыть
 Use GPU for local object selection and matting when available	Использовать видеокарту для локального выделения и уточнения краёв, если доступна
+Alignment	Выравнивание
+Ad landscape	Горизонтальная реклама
+Bits per channel	Бит на канал
+Bleed	Вылет под обрез
+Built-in · Digital	Встроенные · экран
+Built-in · Print	Встроенные · печать
+Canvas edge	Край холста
+Canvas Settings	Параметры холста
+Choose a smaller canvas for this bit depth.	Уменьшите холст для выбранной глубины цвета.
+CMYK TIFF output · RGB editing preview · no print ICC profile	Экспорт CMYK TIFF · редактирование в RGB · без печатного ICC-профиля
+Column width (px)	Ширина колонки (пикс.)
+Columns	Колонки
+Fixed	Фиксированный
+Gap (px)	Промежуток (пикс.)
+Grid exceeds available space	Сетка не помещается на холсте
+Landscape	Альбомная
+Layout Grid	Сетка макета
+Link safe area sides	Связать стороны безопасной зоны
+Live Preview	Предпросмотр
+Millimeters	Миллиметры
+Outer margins (px)	Внешние поля (пикс.)
+Photo 4 × 6 in	Фото 4 × 6 дюймов
+Portrait	Книжная
+Portrait card	Карточка 4:5
+Row height (px)	Высота ряда (пикс.)
+Rows	Ряды
+Safe area	Безопасная зона
+Safe area (px)	Безопасная зона (пикс.)
+Save preset…	Сохранить набор…
+Show Layout Grid	Показать сетку макета
+Show the bleed guide outside the canvas edge.	Показать контур вылета за краем холста.
+Sizing	Размер
+Snap to Layout Grid	Привязка к сетке макета
+Square	Квадратная
+Square post	Квадратная публикация
+Square size (px)	Размер ячейки (пикс.)
+Squares	Квадратная сетка
+Story / Reel	История / Reels
+Stretch	Растягиваемый
+Swap width and height	Поменять ширину и высоту
+Top side	Верх
+Right side	Справа
+Bottom side	Низ
+Left side	Слева
+Top inset	Верхнее поле
+Right inset	Правое поле
+Bottom inset	Нижнее поле
+Left inset	Левое поле
+Web banner	Веб-баннер
+YouTube thumbnail	Обложка видео YouTube
+YouTube channel banner	Баннер канала YouTube
+Choose background color	Выбрать цвет фона
+Export CMYK TIFF	Экспорт CMYK TIFF
+Safe area exceeds canvas size	Безопасная зона не помещается на холсте
+Column width	Ширина колонки
+Row height	Высота ряда
+Outer margins	Внешние поля
+Square size	Размер ячейки

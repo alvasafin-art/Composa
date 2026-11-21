@@ -72,6 +72,16 @@ public sealed partial class EditorSession
         Crop(new SKRectI(left, top, left + width, top + height), "Canvas Size");
     }
 
+    /// <summary>Changes print density without resampling the document.</summary>
+    public void SetCanvasResolution(double resolution)
+    {
+        if (!double.IsFinite(resolution)) return;
+        resolution = Math.Clamp(resolution, 1, 9600);
+        if (resolution == document.Resolution) return;
+        Apply("Image Size", () => document.Resolution = resolution);
+        LayersChanged?.Invoke();
+    }
+
     /// <summary>Resamples the whole document to a new pixel size.</summary>
     public void ResizeImage(int width, int height, double? resolution = null)
     {
@@ -80,7 +90,7 @@ public sealed partial class EditorSession
         ValidateCanvasDepth(width, height, document.WorkingDepth);
         if (width == document.Width && height == document.Height)
         {
-            if (resolution is { } only && only != document.Resolution) Apply("Image Size", () => document.Resolution = Math.Clamp(only, 1, 9600));
+            if (resolution is { } only) SetCanvasResolution(only);
             return;
         }
         double sx = (double)width / document.Width, sy = (double)height / document.Height;

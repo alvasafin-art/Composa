@@ -236,6 +236,7 @@ public sealed partial class MainWindow
                 var rulersShown = session!.View.ShowRulers;
                 session.View = flip(session.View);
                 canvas.ViewOptionsChanged(rulersShown);
+                RefreshCanvasLayoutView();
                 RememberToolSettings();
             }, key, modifiers, id: id, viewOnly: true);
             item.ToggleType = MenuItemToggleType.CheckBox;
@@ -258,6 +259,7 @@ public sealed partial class MainWindow
             ViewToggle("Rulers", v => v.ShowRulers, v => v with { ShowRulers = !v.ShowRulers }, Key.R, ctrl),
             Sub("Show",
                 ViewToggle("Grid", v => v.ShowGrid, v => v with { ShowGrid = !v.ShowGrid }, Key.OemQuotes, ctrl, "Show Grid"),
+                ViewToggle("Show Layout Grid", v => v.ShowCanvasLayout, v => v with { ShowCanvasLayout = !v.ShowCanvasLayout }),
                 ViewToggle("Guides", v => v.ShowGuides, v => v with { ShowGuides = !v.ShowGuides }, Key.OemSemicolon, ctrl, "Show Guides")),
             Item("Grid Settings…", () => _ = ShowGridSettings()),
             Item("Display Color…", () => _ = EditDisplayColor(), needsDocument: false, viewOnly: true),
@@ -266,6 +268,7 @@ public sealed partial class MainWindow
             Sub("Snap To",
                 ViewToggle("Guides", v => v.SnapToGuides, v => v with { SnapToGuides = !v.SnapToGuides }, id: "Snap To Guides"),
                 ViewToggle("Grid", v => v.SnapToGrid, v => v with { SnapToGrid = !v.SnapToGrid }, id: "Snap To Grid"),
+                ViewToggle("Snap to Layout Grid", v => v.SnapToCanvasLayout, v => v with { SnapToCanvasLayout = !v.SnapToCanvasLayout }),
                 ViewToggle("Layers", v => v.SnapToLayers, v => v with { SnapToLayers = !v.SnapToLayers }, id: "Snap To Layers"),
                 ViewToggle("Document Bounds", v => v.SnapToDocumentBounds, v => v with { SnapToDocumentBounds = !v.SnapToDocumentBounds }, id: "Snap To Document Bounds")),
             Line(),
@@ -460,6 +463,7 @@ public sealed partial class MainWindow
 
     private void OnSessionLayersChanged()
     {
+        RefreshCanvasLayoutView();
         RefreshAiUi();
         UpdateColors();
         if (session == null) return;
@@ -560,11 +564,9 @@ public sealed partial class MainWindow
 
     private async Task NewCanvas()
     {
-        var result = await CanvasDialogs.NewCanvas(this, session?.Background ?? SKColors.White, await ClipboardImageSize());
+        var result = await CanvasDialogs.NewCanvas(this, session?.Background ?? SKColors.White, await ClipboardImageSize(), settings);
         if (result == null) return;
-        var created = EditorSession.NewCanvas(result.Width, result.Height, result.Background, result.Depth);
-        created.Document.Resolution = result.Resolution;
-        AddSession(created);
+        AddSession(result.CreateSession());
     }
 
     private async Task Open()
@@ -903,7 +905,8 @@ public sealed partial class MainWindow
             }
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "Export " + extension.ToUpperInvariant(), SuggestedFileName = target.Title + "." + extension, DefaultExtension = extension,
+                Title = format == ExportFormat.Tiff && snapshot.ColorMode == CanvasColorMode.CMYK ? Locale.T("Export CMYK TIFF") : "Export " + extension.ToUpperInvariant(),
+                SuggestedFileName = target.Title + "." + extension, DefaultExtension = extension,
                 FileTypeChoices = [new FilePickerFileType(extension.ToUpperInvariant() + " image") { Patterns = ["*." + extension] }]
             });
             if (file?.TryGetLocalPath() is not { } path) return;
@@ -912,7 +915,7 @@ public sealed partial class MainWindow
             {
                 flattened ??= DocumentRenderer.Flatten(snapshot);
                 token.ThrowIfCancellationRequested();
-                ImageFiles.Save(flattened, path, format, encodeQuality, snapshot.Resolution, token);
+                ImageFiles.Save(flattened, path, format, encodeQuality, snapshot.Resolution, token, snapshot.ColorMode);
             })) ShowNote($"Exported {Path.GetFileName(path)}");
         }
         catch (Exception error) { await Prompts.Alert(this, "Couldn't export", error.Message); }

@@ -46,10 +46,15 @@ public sealed partial class MainWindow
         optionsHaveWarp = session?.WarpEdit != null;
         optionsEditingText = session?.IsEditingText == true;
         optionsEditingMask = session?.IsEditingMask == true;
-        optionsLayer = session?.ActiveLayerIdOrNull();
+        var nextLayer = session?.ActiveLayerIdOrNull();
+        if (nextLayer == null && optionsLayer != null) propertiesView.Offset = default;
+        optionsLayer = nextLayer;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         propertiesView.Content = null;
+        var propertiesPanel = dock.Section("Properties");
+        dock.SetExtraHeight(propertiesPanel, session is { ActiveLayer: null, IsEditingAlphaChannel: false }
+            ? Math.Max(0, 455 - propertiesPanel.State.Height) : 0);
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
         StackPanel? inspector = null;

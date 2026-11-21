@@ -10,6 +10,8 @@ public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, 
 public sealed class Settings
 {
     public List<string> RecentFiles { get; set; } = [];
+    public List<Dialogs.CanvasPreset> RecentCanvasPresets { get; set; } = [];
+    public List<Dialogs.CanvasPreset> UserCanvasPresets { get; set; } = [];
     public string GenerateImagePrompt { get; set; } = "";
     public string ImageEditPrompt { get; set; } = "";
     public double WindowWidth { get; set; } = 1280;
@@ -246,6 +248,8 @@ public sealed class Settings
         if (value.Language is not ("en" or "ru")) value.Language = "en";
         value.EraserPresets ??= [];
         value.BrushPresets ??= [];
+        value.RecentCanvasPresets ??= [];
+        value.UserCanvasPresets ??= [];
         if (!Enum.IsDefined(value.Theme)) value.Theme = EditorTheme.Classic;
         // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
         foreach (var choices in value.ComfyModelSelections.Values)

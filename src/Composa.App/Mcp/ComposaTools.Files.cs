@@ -82,15 +82,15 @@ public sealed partial class ComposaTools
         };
         if (quality is < 1 or > 100) throw new McpException("quality is from 1 to 100.");
         Fresh(path, null, overwrite);
-        var (title, flat, resolution) = await OnUi(() =>
+        var (title, flat, resolution, colorMode) = await OnUi(() =>
         {
             var s = Session(document);
             if (window.IsDragging || s.IsInteracting) throw new McpException("Finish the current edit before exporting the image.");
-            return (s.Title, s.Flatten(), s.Document.Resolution);
+            return (s.Title, s.Flatten(), s.Document.Resolution, s.Document.ColorMode);
         });
         try
         {
-            await Task.Run(() => ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : quality, resolution));
+            await Task.Run(() => ImageFiles.Save(flat, path, format, format == ExportFormat.Png ? 100 : quality, resolution, colorMode: colorMode));
             return $"Exported \"{title}\" as a {flat.Width}×{flat.Height} px {format.ToString().ToUpperInvariant()} to {path}.";
         }
         catch (Exception error) when (error is not McpException) { throw new McpException($"Couldn't export {Path.GetFileName(path)}: {error.Message}"); }

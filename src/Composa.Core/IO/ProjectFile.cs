@@ -47,6 +47,8 @@ public static class ProjectFile
         public int Width { get; set; }
         public int Height { get; set; }
         public double Resolution { get; set; } = 72;
+        public CanvasColorMode? CanvasColorMode { get; set; }
+        public CanvasLayout? CanvasLayout { get; set; }
         public Guid? ActiveLayerId { get; set; }
         public List<LayerRecord> Layers { get; set; } = [];
         /// <summary>Alignment guides; absent on version 1 files.</summary>
@@ -204,6 +206,8 @@ public static class ProjectFile
         Manifest RecordDocument(Document value) => new()
         {
             Width = value.Width, Height = value.Height, Resolution = value.Resolution,
+            CanvasColorMode = value.ColorMode == CanvasColorMode.CMYK ? value.ColorMode : null,
+            CanvasLayout = value.Layout != CanvasLayout.Empty ? value.Layout : null,
             BitDepth = value.WorkingDepth,
             ColorSpace = value.Profile.Name, ColorProfileFile = StoreProfile(value.Profile),
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
@@ -371,6 +375,8 @@ public static class ProjectFile
             if (!DocumentLimits.FitsSurface(value.Width, value.Height) || value.Format != Format || value.Version > Version)
                 throw new InvalidDataException("Invalid embedded document size or format.");
             var result = new Document(value.Width, value.Height) { Resolution = double.IsFinite(value.Resolution) ? Math.Clamp(value.Resolution, 1, 9600) : 72,
+                ColorMode = value.CanvasColorMode == CanvasColorMode.CMYK ? CanvasColorMode.CMYK : CanvasColorMode.RGB,
+                Layout = value.CanvasLayout?.Normalized() ?? CanvasLayout.Empty,
                 Depth = value.BitDepth == ColorDepth.Sixteen ? ColorDepth.Sixteen : ColorDepth.Eight,
                 Profile = FetchProfile(value.ColorProfileFile, value.ColorSpace) };
             foreach (var record in value.Layers) result.Layers.Add(Build(record, 0, value.Version));

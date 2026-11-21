@@ -26,6 +26,7 @@ public static class DocumentLimits
     public const int MaxLutTextBytes = 256 * 1024 * 1024;
     public const int MaxLutLineLength = 4096;
     public const int MaxWarpGridDivisions = 8;
+    public const int MaxLayoutTracks = 4096;
     public const double MaxWarpCoordinate = 16;
 
     /// <summary>

@@ -28,6 +28,8 @@ public static class Palette
     public static readonly SolidColorBrush Secondary = Brush("#AFB3B9", "#575757");
     public static readonly SolidColorBrush Accent = Brush("#3D9BFF", "#535353", "#B8B8B8");
     public static readonly SolidColorBrush Selected = Brush("#384B63", "#CCCCCC", "#18191B");
+    internal static readonly SolidColorBrush SelectedOutline = Brush("#577DA9", "#8C8C8C", "#57585B");
+    internal static readonly SolidColorBrush RaisedIconWell = Brush("#373A3E", "#E6E6E6", "#303235");
     public static readonly SolidColorBrush Hover = Brush("#464A50", "#D9D9D9");
     public static readonly SolidColorBrush Field = Brush("#373A3E", "#E6E6E6");
     public static readonly SolidColorBrush Edge = Brush("#585D64", "#A4A4A4");
@@ -46,7 +48,7 @@ public static class Palette
     internal static readonly SolidColorBrush ActiveTab = Brush("#35383D", "#CCCCCC", "#18191B");
     internal static readonly SolidColorBrush StopSelection = Brush("#334356", "#CCCCCC", "#18191B");
     private static readonly SolidColorBrush Action = Brush("#30649B", "#BEBEBE", "#121315");
-    private static readonly SolidColorBrush ActionHover = Brush("#386FA8", "#B1B1B1", "#1C1D1F");
+    internal static readonly SolidColorBrush ActionHover = Brush("#386FA8", "#B1B1B1", "#1C1D1F");
 
     internal static void Use(EditorTheme theme)
     {

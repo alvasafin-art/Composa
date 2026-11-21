@@ -15,7 +15,7 @@ namespace Composa.App.Tests;
 public class PanelTypographyTests
 {
     [AvaloniaFact]
-    public async Task Russian_document_properties_apply_pixel_size_and_density_and_presets_are_independent()
+    public async Task Russian_document_properties_update_pixel_size_and_density_and_presets_are_independent()
     {
         var previous = Locale.Language;
         Locale.Language = "ru";
@@ -29,8 +29,7 @@ public class PanelTypographyTests
             NumericUpDown Field(string name) => window.GetVisualDescendants().OfType<NumericUpDown>()
                 .Single(f => Avalonia.Automation.AutomationProperties.GetName(f) == name);
             Field("Width").Value = 360; Field("Height").Value = 200; Field("Resolution").Value = 300;
-            var apply = visual.OfType<Button>().Single(b => Equals(b.Content, "Применить"));
-            apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.DoesNotContain(visual.OfType<Button>(), b => Equals(b.Content, "Применить"));
             Assert.Equal((360, 200, 300d), (session.Document.Width, session.Document.Height, session.Document.Resolution));
             Assert.True(Screenshots.Save(window, "russian-document-properties"));
             window.SelectTool(Tool.Brush);

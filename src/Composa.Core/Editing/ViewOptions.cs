@@ -7,6 +7,8 @@ public sealed record ViewOptions
 {
     /// <summary>Layout grid (View > Show > Grid). Off until turned on; independent of the 800% pixel grid.</summary>
     public bool ShowGrid { get; init; }
+    public bool ShowCanvasLayout { get; init; } = true;
+    public bool SnapToCanvasLayout { get; init; } = true;
     /// <summary>The layout grid's spacing and subdivisions (View > Grid Settings).</summary>
     public LayoutGrid Grid { get; init; } = new();
     /// <summary>The layout grid's color, line style and opacity (View > Grid Settings).</summary>

@@ -331,7 +331,7 @@ public sealed partial class CanvasView : Decorator
 
     // ---- Rendering ----------------------------------------------------------------------------------------------
 
-    private sealed class DrawOperation(Rect bounds, Action<SKCanvas> draw) : ICustomDrawOperation
+    internal sealed class DrawOperation(Rect bounds, Action<SKCanvas> draw) : ICustomDrawOperation
     {
         public Rect Bounds { get; } = bounds;
         public void Dispose() { }

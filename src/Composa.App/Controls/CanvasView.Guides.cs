@@ -127,6 +127,11 @@ public sealed partial class CanvasView
         if (session == null) return;
         var document = session.Document;
         var size = new SKSize((float)Bounds.Width, (float)Bounds.Height);
+        if (session.View.ShowCanvasLayout && document.Layout.HasGuides)
+        {
+            var (layout, width, height, resolution) = (document.Layout, document.Width, document.Height, document.Resolution);
+            steps.Add(canvas => CanvasLayoutDrawing.Draw(canvas, layout, width, height, resolution, view, hair));
+        }
         if (session.View.ShowGrid)
         {
             var grid = session.View.Grid;

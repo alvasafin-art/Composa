@@ -387,6 +387,7 @@ public sealed partial class MainWindow : Window
         dock.LeftHost.IsVisible = dock.IsVisible = session != null;
         RebuildTabs();
         RebuildOptions();
+        RefreshCanvasLayoutView();
         UpdateColors();
         UpdateStatus();
         RefreshAiUi();
@@ -666,7 +667,7 @@ public sealed partial class MainWindow : Window
         var scroll = new ScrollViewer { Content = tabs, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
         zoomText.Name = "DocumentZoom";
         zoomText.Margin = new Thickness(6, 0);
-        var zoomControls = Ui.Row(2, zoomText,
+        var zoomControls = Ui.Row(2, LayoutViewButtons(), zoomText,
             Ui.TextButton("Fit", () => canvas.Fit()), Ui.TextButton("100%", () => canvas.ZoomTo(1)),
             Ui.IconButton(Icons.ZoomOut, "Zoom out (Ctrl+-)", canvas.ZoomOut), Ui.IconButton(Icons.ZoomIn, "Zoom in (Ctrl++)", canvas.ZoomIn));
         foreach (var button in zoomControls.Children.OfType<Button>()) { button.MinWidth = 0; button.Classes.Add("flat"); }

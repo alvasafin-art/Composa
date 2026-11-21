@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
+using Composa.App.Controls;
 using Composa.Editing;
 using Composa.Model;
 using Composa.Text;
@@ -84,32 +85,80 @@ public sealed partial class MainWindow
         var layer = s.ActiveLayer;
         if (layer == null)
         {
-            body.Children.Add(Ui.Label(Locale.T("Document"), weight: Avalonia.Media.FontWeight.SemiBold));
+            if (s.IsEditingAlphaChannel)
+            {
+                body.Children.Add(Ui.Label(Locale.T("Channel"), Palette.Secondary));
+                return;
+            }
+            body.Margin = new Thickness(15, 10, Ui.OverlayScrollBarGutter, 14);
+            body.Spacing = 13;
+            body.Children.Add(CanvasLayoutEditor.Heading("Canvas"));
             NumericUpDown Dimension(string name, double value, double max)
             {
-                var field = Ui.Number(value, 1, max, _ => { }, format: "0.##");
+                var field = Ui.Number(value, 1, max, _ => { }, format: "0.##", scrub: false);
                 field.Width = double.NaN; field.Height = 30; field.HorizontalAlignment = HorizontalAlignment.Stretch;
                 field.VerticalContentAlignment = VerticalAlignment.Center;
                 AutomationProperties.SetName(field, name);
+                field.Name = "CanvasProperty" + name;
                 return field;
             }
             var width = Dimension("Width", s.Document.Width, DocumentLimits.MaxSide);
             var height = Dimension("Height", s.Document.Height, DocumentLimits.MaxSide);
             var density = Dimension("Resolution", s.Document.Resolution, 9600);
-            body.Children.Add(PropertyPair(Ui.Column(4, Ui.Label(Locale.T("Width (px)"), Palette.Secondary), width),
-                Ui.Column(4, Ui.Label(Locale.T("Height (px)"), Palette.Secondary), height)));
-            body.Children.Add(Ui.Column(4, Ui.Label(Locale.T("Resolution (ppi)"), Palette.Secondary), density));
-            body.Children.Add(Ui.TextButton("Apply", () =>
-            {
-                if (width.Value is { } w && height.Value is { } h && density.Value is { } dpi)
-                    Busy(() => s.ResizeImage((int)Math.Round(w), (int)Math.Round(h), (double)dpi));
-            }));
+            var swap = Ui.IconButton(Icons.Swap, "Swap width and height", () => Resize(s.Document.Height, s.Document.Width));
+            swap.Name = "SwapCanvasPropertiesDimensions";
+            body.Children.Add(CanvasLayoutEditor.Dimensions(width, height, swap));
+            var syncingMode = false;
+            var mode = Ui.Combo(Enum.GetValues<CanvasColorMode>(), s.Document.ColorMode, mode => mode.ToString(),
+                value => { if (!syncingMode) s.SetCanvasColorMode(value); }, double.NaN);
+            Locale.Tip(mode, "CMYK TIFF output · RGB editing preview · no print ICC profile");
+            body.Children.Add(CanvasLayoutEditor.Pair(CanvasLayoutEditor.Field("Resolution", density, "ppi"), CanvasLayoutEditor.Field("Color mode", mode)));
+            body.Children.Add(Ui.Separator(vertical: false));
+            var grid = new CanvasLayoutEditor(s.SetCanvasLayout);
+            body.Children.Add(grid);
+            var syncingDimensions = false;
             var last = (s.Document.Width, s.Document.Height, s.Document.Resolution);
+            grid.Show(s.Document.Layout, last.Width, last.Height);
+            width.ValueChanged += (_, e) =>
+            {
+                if (!syncingDimensions && e.NewValue is { } w) Resize((int)Math.Round(w), s.Document.Height);
+            };
+            height.ValueChanged += (_, e) =>
+            {
+                if (!syncingDimensions && e.NewValue is { } h) Resize(s.Document.Width, (int)Math.Round(h));
+            };
+            density.ValueChanged += (_, e) =>
+            {
+                if (!syncingDimensions && e.NewValue is { } dpi) s.SetCanvasResolution((double)dpi);
+            };
+            void Resize(int w, int h)
+            {
+                if (session != s || s.ActiveLayer != null) return;
+                try { Busy(() => s.ResizeCanvas(w, h, Anchor.TopLeft)); }
+                catch (Exception error)
+                {
+                    SyncDimensions();
+                    ShowProblem(error.Message);
+                }
+            }
+            void SyncDimensions()
+            {
+                syncingDimensions = true;
+                width.Value = s.Document.Width;
+                height.Value = s.Document.Height;
+                density.Value = (decimal)s.Document.Resolution;
+                syncingDimensions = false;
+            }
             refreshOptions += () =>
             {
                 var current = (s.Document.Width, s.Document.Height, s.Document.Resolution);
+                syncingMode = true;
+                mode.SelectedIndex = (int)s.Document.ColorMode;
+                syncingMode = false;
+                grid.Show(s.Document.Layout, current.Width, current.Height);
                 if (current == last) return;
-                last = current; width.Value = current.Width; height.Value = current.Height; density.Value = (decimal)current.Resolution;
+                last = current;
+                SyncDimensions();
             };
             return;
         }

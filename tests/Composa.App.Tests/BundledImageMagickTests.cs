@@ -1,5 +1,6 @@
 using Composa.Core.Tests;
 using Composa.IO;
+using Composa.Model;
 using SkiaSharp;
 using Magick = ImageMagick;
 
@@ -12,6 +13,30 @@ namespace Composa.App.Tests;
 public class BundledImageMagickTests
 {
     private static BundledImageMagick Load() => BundledImageMagick.TryLoad() ?? throw new Xunit.Sdk.XunitException("The bundled ImageMagick did not load.");
+
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void Cmyk_tiff_has_four_ink_channels_and_flattens_transparency_to_paper(ColorDepth depth)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "composa-cmyk-" + Guid.NewGuid().ToString("N") + ".tiff");
+        try
+        {
+            using var bitmap = Composa.Rendering.Pixels.NewColor(2, 1, depth);
+            bitmap.SetPixel(0, 0, SKColors.Red);
+            bitmap.SetPixel(1, 0, SKColors.Transparent);
+            ImageFiles.Save(bitmap, path, ExportFormat.Tiff, resolution: 300, colorMode: CanvasColorMode.CMYK);
+            using var inks = new Magick.MagickImage(path);
+            Assert.Equal(Magick.ColorSpace.CMYK, inks.ColorSpace);
+            Assert.Equal((uint)depth, inks.Depth);
+            Assert.False(inks.HasAlpha);
+            Assert.Equal(300, inks.Density.X);
+            using var rgb = SKBitmap.Decode(Load().Convert(path, ImageMagickOutput.Png));
+            Assert.Equal(SKColors.Red, rgb.GetPixel(0, 0));
+            Assert.Equal(SKColors.White, rgb.GetPixel(1, 0));
+        }
+        finally { TempFiles.Delete(path); }
+    }
 
     /// <summary>
     /// The formats bundling was decided for. They depend on delegates compiled into the native library

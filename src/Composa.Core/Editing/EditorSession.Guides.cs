@@ -12,6 +12,21 @@ public sealed partial class EditorSession
     public bool CanClearGuides => document.Guides.Count > 0;
     public bool CanEditGuides => !View.LockGuides;
 
+    public void SetCanvasLayout(CanvasLayout layout)
+    {
+        layout = layout.Normalized();
+        if (layout == document.Layout) return;
+        Apply("Layout Grid", () => document.Layout = layout);
+        LayersChanged?.Invoke();
+    }
+
+    public void SetCanvasColorMode(CanvasColorMode mode)
+    {
+        if (!Enum.IsDefined(mode) || mode == document.ColorMode) return;
+        Apply("Color mode", () => document.ColorMode = mode);
+        LayersChanged?.Invoke();
+    }
+
     /// <summary>Adds a guide at a document position (X for vertical, Y for horizontal). Returns null while guides are locked.</summary>
     public Guide? AddGuide(GuideAxis axis, double position)
     {
@@ -84,6 +99,8 @@ public sealed partial class EditorSession
             xs.AddRange(View.Grid.Lines(document.Width).Select(v => (float)v));
             ys.AddRange(View.Grid.Lines(document.Height).Select(v => (float)v));
         }
+        if (View.SnapToCanvasLayout)
+            document.Layout.AddSnapTargets(document.Width, document.Height, xs, ys);
         if (View.SnapToGuides && View.ShowGuides)
         {
             foreach (var guide in document.Guides)

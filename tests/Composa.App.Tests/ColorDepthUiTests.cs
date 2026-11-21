@@ -20,7 +20,7 @@ public class ColorDepthUiTests
         var window = new MainWindow { Width = 1100, Height = 760 }; window.Show();
         var request = CanvasDialogs.NewCanvas(window, SKColors.White); Dispatcher.UIThread.RunJobs();
         var dialog = window.OwnedWindows.Single();
-        var precision = dialog.GetVisualDescendants().OfType<ComboBox>().Last();
+        var precision = dialog.GetVisualDescendants().OfType<ComboBox>().Single(box => box.Name == "NewCanvasDepth");
         precision.SelectedIndex = 1;
         var size = dialog.GetVisualDescendants().OfType<NumericUpDown>().ToArray();
         size[0].Value = 8000; size[1].Value = 8000;
