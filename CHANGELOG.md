@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.1] - 2026-11-21
+
+- Dragging a layer updates its position immediately and refreshes transform fields at display cadence. Fast drags use the pointer position at release.
+- After Ctrl+T, drag anywhere inside the selected transform frame, including transparent areas over another layer.
+
 ## [1.3.0-preview.4.studio.17] - 2026-11-21
 
 - Dock and rearrange workspace panels, place the toolbar along the bottom, and edit the selected object in Properties. Settings now includes neutral dark and light themes and an immediately switchable Russian interface.

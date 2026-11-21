@@ -186,7 +186,7 @@ public sealed partial class MainWindow
             Sub("New Adjustment Layer", Enum.GetValues<AdjustmentKind>().Select(kind => (object)Item(Adjustment.Create(kind).DisplayName + "…", () => _ = NewAdjustmentLayer(kind), id: "New " + Adjustment.Create(kind).DisplayName + " Layer")).ToArray()),
             Item("Edit Adjustment…", () => _ = EditAdjustmentLayer(session!.ActiveLayer!, false), enabled: () => session!.ActiveLayer?.IsAdjustment == true),
             Line(),
-            Item("Transform Layer", () => { canvas.ShowTransformControls = true; SelectTool(Tool.Move); }, Key.T, ctrl),
+            Item("Transform Layer", () => { canvas.ShowTransformControls = true; SelectTool(Tool.Move); canvas.TargetTransformSelection(); }, Key.T, ctrl),
             Item("Warp…", StartWarp, enabled: () => session!.CanWarp),
             Item("Duplicate Layer / Layer via Copy", () => session!.LayerViaCopy(), Key.J, ctrl, () => session!.ActiveLayer != null),
             Item("Rename Layer…", layers.BeginRename, Key.F2, enabled: () => session!.ActiveLayer != null),

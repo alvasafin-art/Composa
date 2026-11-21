@@ -18,6 +18,19 @@ public sealed partial class MainWindow
     private static ShapeKind? InspectorShapeKind(ShapeStyle? style) => style?.IsRectangle() == true ? ShapeKind.Rectangle : style?.Kind;
     private ShapeKind? optionsShapeKind;
     private bool optionsHaveWarp;
+    private Action? refreshTransformFields;
+    private bool transformRefreshPending;
+
+    private void QueueTransformFields()
+    {
+        if (transformRefreshPending || refreshTransformFields == null) return;
+        transformRefreshPending = true;
+        RequestAnimationFrame(_ =>
+        {
+            transformRefreshPending = false;
+            if (session?.Transform != null) refreshTransformFields?.Invoke();
+        });
+    }
     private bool optionsEditingText;
     private bool optionsEditingMask;
     private Button generativeExpandButton = null!;
@@ -26,6 +39,7 @@ public sealed partial class MainWindow
     private void RebuildOptions()
     {
         refreshOptions = null;
+        refreshTransformFields = null;
         optionsHost.Height = double.NaN;
         optionsHost.MinHeight = 40;
         optionsShapeKind = InspectorShapeKind(session?.ActiveLayer?.Shape);
@@ -763,7 +777,7 @@ public sealed partial class MainWindow
         var w = Field("W", t => t.Width, (t, v) => t with { Width = Math.Max(1, v), Height = Math.Max(1, t.Height * v / Math.Max(1e-6, t.Width)) }, 1, 100000, "0.#");
         var h = Field("H", t => t.Height, (t, v) => t with { Height = Math.Max(1, v) }, 1, 100000, "0.#");
         var angle = Field("∠", t => t.Rotation, (t, v) => t with { Rotation = v }, -360, 360, "0.##");
-        refreshOptions += () =>
+        refreshTransformFields = () =>
         {
             var live = s.IsEditingChannel ? s.ChannelControlLayer : s.Document.Find(layer.Id);
             if (live == null) return;
@@ -774,5 +788,6 @@ public sealed partial class MainWindow
             angle.Value = (decimal)control.Rotation;
             updating = false;
         };
+        refreshOptions += refreshTransformFields;
     }
 }

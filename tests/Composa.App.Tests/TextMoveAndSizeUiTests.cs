@@ -15,6 +15,39 @@ namespace Composa.App.Tests;
 public class TextMoveAndSizeUiTests
 {
     [AvaloniaFact]
+    public void Transform_moves_from_a_transparent_corner_and_uses_the_release_position()
+    {
+        var window = new MainWindow { Width = 1440, Height = 850 };
+        var session = EditorSession.NewCanvas(800, 500, SKColors.White);
+        try
+        {
+            window.Show(); window.AddSession(session);
+            var background = session.ActiveLayer!;
+            var original = background.Transform;
+            var layer = session.AddShape(new(ShapeKind.Ellipse, (uint)SKColors.Red, 0), new SKRect(180, 100, 580, 400))!;
+            var before = layer.Transform;
+            session.View = session.View with { Snap = false };
+            window.Canvas.AutoSelect = true;
+            window.Canvas.Focus();
+            window.KeyPress(Key.T, RawInputModifiers.Control, PhysicalKey.T, null);
+            Dispatcher.UIThread.RunJobs();
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+            Assert.Equal(0, layer.Pixels!.GetPixel(28, 22).Alpha);
+            window.MouseDown(At(208, 122), MouseButton.Left);
+            window.MouseMove(At(224, 132), RawInputModifiers.LeftMouseButton);
+            Assert.Equal(before.X + 16, layer.Transform.X);
+            window.MouseUp(At(255, 151), MouseButton.Left);
+            Assert.Equal(layer.Id, session.Document.ActiveLayerId);
+            Assert.Equal(before.X + 47, layer.Transform.X);
+            Assert.Equal(before.Y + 29, layer.Transform.Y);
+            Assert.Equal(original, background.Transform);
+            session.Undo();
+            Assert.Equal(before, session.Document.Find(layer.Id)!.Transform);
+        }
+        finally { session.MarkSaved("drag.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Dragging_the_round_rotation_handle_turns_the_layer_over_another_layer()
     {
         var window = new MainWindow { Width = 1440, Height = 850 };

@@ -172,6 +172,7 @@ public sealed partial class MainWindow : Window
         canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
         canvas.CreateShapeRequested += at => _ = CreateShapeAt(at);
         canvas.Problem += message => { problem = message; UpdateStatus(); };
+        canvas.TransformPreviewChanged += QueueTransformFields;
         canvas.ToolStateChanged += () => { if (session?.WarpEdit != null || optionsHaveWarp) RebuildOptions(); else refreshOptions?.Invoke(); UpdateColors(); RefreshAiUi(); UpdateStatus(); };
         canvas.AiToolsAvailable = () => aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.Operation?.Status is not (AiOperationStatus.Running or AiOperationStatus.Queued);
         canvas.ObjectSelectionAvailable = () => !localSelectionBusy && (settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI || canvas.AiToolsAvailable() == true);

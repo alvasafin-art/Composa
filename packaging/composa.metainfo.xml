@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.1" date="2026-11-21" type="development">
+      <description><p>More responsive layer dragging and reliable selection inside the transform frame.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17" date="2026-11-21" type="development">
       <description><p>Dockable properties, live typography, Russian interface and themes, editable shapes, brush presets and cleaner fur edges in object selections.</p></description>
     </release>

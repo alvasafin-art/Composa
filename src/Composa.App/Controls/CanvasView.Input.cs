@@ -82,6 +82,7 @@ public sealed partial class CanvasView
 
     public void ToolChanged()
     {
+        transformSelection = null;
         if (session?.Tool != Tool.Pen) FinishPen();
         CancelInteraction();
         if (session?.Tool != Tool.Crop) { cropRect = null; cropFramePristine = false; }
@@ -236,8 +237,10 @@ public sealed partial class CanvasView
                 if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
                 if (e.ClickCount >= 2 && BeginLiveTextEdit(shift)) break;
-                if (session.CanMovePixels && InsideSelection(pressDocument) && session.BeginMovePixels(duplicate: alt)) drag = Drag.MovePixels;
-                else BeginMove(control, e.ClickCount);
+                var moveHandle = ShowTransformControls && CurrentFrame() is { } moveFrame
+                    ? HitFrame(moveFrame, pressScreen, allowRotate: true) : TransformHandle.None;
+                if ((transformSelection == null || moveHandle == TransformHandle.None) && session.CanMovePixels && InsideSelection(pressDocument) && session.BeginMovePixels(duplicate: alt)) drag = Drag.MovePixels;
+                else BeginMove(control, e.ClickCount, moveHandle);
                 break;
             case Tool.Marquee:
                 dragMode = ModeFor(e.KeyModifiers & ~KeyModifiers.Control);
@@ -437,6 +440,12 @@ public sealed partial class CanvasView
             currentDocument = ToDocument(cursorScreen);
             if (drag == Drag.ShapeParameter) UpdateShapeParameter();
             else snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
+        }
+        if (drag == Drag.Transform && e.GetPosition(this) != cursorScreen)
+        {
+            cursorScreen = e.GetPosition(this);
+            currentDocument = ToDocument(cursorScreen);
+            DragTransform(shift, alt, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
         var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
@@ -916,13 +925,14 @@ public sealed partial class CanvasView
         UpdateCursor();
     }
 
-    private void BeginMove(bool control, int clicks)
+    private void BeginMove(bool control, int clicks, TransformHandle moveHandle)
     {
         if (session == null) return;
-        handle = ShowTransformControls && CurrentFrame() is { } frame ? HitFrame(frame, pressScreen, allowRotate: true) : TransformHandle.None;
+        handle = moveHandle;
         distortCorner = -1;
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
-        if (!onHandle && session.IndependentMaskTarget == null && !session.IsEditingChannel)
+        var keepFrame = handle == TransformHandle.Move && transformSelection != null && !control && !dragModifiers.HasFlag(KeyModifiers.Shift);
+        if (!onHandle && !keepFrame && session.IndependentMaskTarget == null && !session.IsEditingChannel)
         {
             var hit = LayerAt(pressDocument);
             var keepGroup = handle == TransformHandle.Move && session.ActiveLayer?.IsGroup == true && !dragModifiers.HasFlag(KeyModifiers.Shift);
@@ -973,7 +983,7 @@ public sealed partial class CanvasView
                 else edit.Resize(handle, currentDocument, free: shift, fromCenter: alt);
                 break;
         }
-        ToolStateChanged?.Invoke();
+        TransformPreviewChanged?.Invoke();
     }
 
     /// <summary>Pulls a move onto the View > Snap To targets (canvas, layers, grid, guides), recording the lines to draw.</summary>

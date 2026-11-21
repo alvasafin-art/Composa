@@ -95,6 +95,14 @@ public sealed partial class CanvasView : Decorator
     public event Action<string>? Problem;
     /// <summary>Raised when a tool changed session state the chrome displays (colors, brush size, crop presence).</summary>
     public event Action? ToolStateChanged;
+    internal event Action? TransformPreviewChanged;
+    private HashSet<Guid>? transformSelection;
+
+    internal void TargetTransformSelection()
+    {
+        transformSelection = session?.Document.SelectedLayerIds.ToHashSet();
+        InvalidateCanvas();
+    }
     /// <summary>The document pixel under the pointer, or null once it leaves the canvas.</summary>
     public event Action<SKPointI?>? PointerAt;
 
@@ -126,6 +134,7 @@ public sealed partial class CanvasView : Decorator
                 session.ColorRangeChanged -= OnColorRangeChanged;
                 session.LayersChanged -= OnLayersChanged;
             }
+            transformSelection = null;
             session = value;
             observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
             if (session != null)
@@ -183,7 +192,12 @@ public sealed partial class CanvasView : Decorator
         InvalidateCanvas();
     }
 
-    private void OnLayersChanged() => InvalidateCanvas();
+    private void OnLayersChanged()
+    {
+        if (transformSelection != null && session != null && !transformSelection.SetEquals(session.Document.SelectedLayerIds))
+            transformSelection = null;
+        InvalidateCanvas();
+    }
 
     // ---- Viewport -----------------------------------------------------------------------------------------------
 
