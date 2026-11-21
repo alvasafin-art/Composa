@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Composa.Filters;
@@ -268,10 +269,10 @@ public static class ProjectFile
             if (name.Contains("..") || name.Contains('/') || name.Contains('\\')) throw new InvalidDataException("The project refers to an unsafe path.");
             if (cache.TryGetValue(name, out var cached)) return cached;
             var image = zip.GetEntry("images/" + name) ?? throw new InvalidDataException($"An image inside the project is missing ({name}).");
-            using var buffer = new MemoryStream();
-            using (var input = image.Open()) input.CopyTo(buffer);
-            buffer.Position = 0;
-            var bitmap = mask ? DecodeMask(buffer) : Png16Codec.TryDecode(buffer, name, preserveProfile: true) ?? ImageFiles.Load(buffer, name, preserveProfile: true);
+            var useNativeBuffer = !mask && stream.CanSeek && image.Length >= 8 * 1024 * 1024
+                && image.Length <= Math.Min(DocumentLimits.MaxSurfaceBytes, int.MaxValue)
+                && image.CompressedLength == image.Length && image.Length <= stream.Length;
+            var bitmap = ReadRaster(image, name, mask, useNativeBuffer);
             allocatedPixels += ((long)bitmap.ByteCount + 3) / 4;
             cache[name] = bitmap;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
@@ -389,6 +390,34 @@ public static class ProjectFile
             foreach (var bitmap in allocated) bitmap.Dispose();
             throw;
         }
+    }
+
+    private static unsafe SKBitmap ReadRaster(ZipArchiveEntry entry, string name, bool mask, bool useNativeBuffer)
+    {
+        SKBitmap Decode(Stream encoded) => mask ? DecodeMask(encoded)
+            : Png16Codec.TryDecode(encoded, name, preserveProfile: true) ?? ImageFiles.Load(encoded, name, preserveProfile: true);
+
+        using var input = entry.Open();
+        if (!useNativeBuffer)
+        {
+            using var buffer = new MemoryStream();
+            input.CopyTo(buffer);
+            buffer.Position = 0;
+            return Decode(buffer);
+        }
+
+        // The project stores PNG entries without ZIP compression. Use a seekable buffer
+        // with a bounded lifetime for a large entry instead of growing arrays on the LOH.
+        var length = (int)entry.Length;
+        var memory = (byte*)NativeMemory.Alloc((nuint)length);
+        try
+        {
+            input.ReadExactly(new Span<byte>(memory, length));
+            if (input.ReadByte() != -1) throw new InvalidDataException("The project image exceeds its recorded size.");
+            using var buffer = new UnmanagedMemoryStream(memory, length);
+            return Decode(buffer);
+        }
+        finally { NativeMemory.Free(memory); }
     }
 
     /// <summary>A damaged file must not feed non-finite or degenerate placements into rendering.</summary>

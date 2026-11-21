@@ -361,8 +361,13 @@ public static class LayerEffectsRenderer
         if (region.Width < stride || region.Height < stride) return null;
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.EffectPatch();
+        var rendering = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
         var image = RenderArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("effect patch raster", rendering);
+        var placing = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         try
         {
             if (stroke?.Effects == effects && stroke.FillOpacity == layer.FillOpacity)
@@ -393,6 +398,9 @@ public static class LayerEffectsRenderer
             return new(layer.Id, positioned, inset, SKPointI.Empty, new SKSize((float)full.Width / mipWidth, (float)full.Height / mipHeight));
         }
         catch { image.Dispose(); throw; }
+#if CANVAS_PERFORMANCE
+        finally { CanvasPerformanceTrace.StageCompleted("effect patch scale and placement", placing); }
+#endif
     }
 
     /// <summary>Renders the effects without the cache. <paramref name="visible"/> should come from <see cref="LayerEffects.Visible"/>.</summary>
@@ -423,11 +431,13 @@ public static class LayerEffectsRenderer
 #endif
         using (var shownCanvas = new SKCanvas(shown))
         {
-            shownCanvas.DrawBitmap(pixels, x, y);
+            // Snapshotting a mutable SKBitmap can copy the entire source even when
+            // the destination is a small patch. This raster draw only borrows it.
+            shownCanvas.DrawImage(Pixels.ImageOf(pixels), x, y);
             if (mask != null)
             {
                 using var keep = new SKPaint { BlendMode = SKBlendMode.DstIn };
-                shownCanvas.DrawBitmap(mask, SKRect.Create(x, y, pixels.Width, pixels.Height), keep);
+                shownCanvas.DrawImage(Pixels.ImageOf(mask), SKRect.Create(x, y, pixels.Width, pixels.Height), keep);
             }
         }
         // Its coverage: white where the layer is.

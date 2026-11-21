@@ -46,28 +46,43 @@ internal static class Png16Codec
         origin = codec.EncodedOrigin;
         var space = retainedProfile?.Space ?? codec.Info.ColorSpace;
         input.Position = start + 8;
-        using var compressed = new MemoryStream();
         byte[]? transparency = null;
-        var ended = false;
+        long dataStart = -1, dataEnd;
+        // Project entries are already buffered. For other streams, keep a single pass over the source.
+        using var buffered = input is MemoryStream or UnmanagedMemoryStream ? null : new MemoryStream();
+        var scratch = new byte[(int)Math.Min(64 * 1024, input.Length - start)];
         Span<byte> chunkHeader = stackalloc byte[8];
         Span<byte> checksum = stackalloc byte[4];
-        while (!ended)
+        while (true)
         {
+            var chunkStart = input.Position;
             input.ReadExactly(chunkHeader);
             var length = checked((int)BinaryPrimitives.ReadUInt32BigEndian(chunkHeader[..4]));
             if (length < 0 || length > input.Length - input.Position - 4) throw Bad(name);
             var kind = chunkHeader[4..8];
-            var payload = new byte[length];
-            input.ReadExactly(payload);
+            var isData = kind.SequenceEqual("IDAT"u8);
+            var isTransparency = kind.SequenceEqual("tRNS"u8);
+            if (isData && dataStart < 0) dataStart = chunkStart;
+            var crc = UpdateCrc(0xffffffff, kind);
+            if (isTransparency) transparency = length is 2 or 6 ? new byte[length] : null;
+            for (var remaining = length; remaining > 0;)
+            {
+                var part = scratch.AsSpan(0, Math.Min(remaining, scratch.Length));
+                input.ReadExactly(part);
+                crc = UpdateCrc(crc, part);
+                if (isData) buffered?.Write(part);
+                if (isTransparency && transparency != null) part.CopyTo(transparency);
+                remaining -= part.Length;
+            }
             input.ReadExactly(checksum);
-            if (Crc(kind, payload) != BinaryPrimitives.ReadUInt32BigEndian(checksum)) throw Bad(name, "has a damaged PNG chunk");
-            if (kind.SequenceEqual("IDAT"u8)) compressed.Write(payload);
-            else if (kind.SequenceEqual("tRNS"u8)) transparency = payload;
-            else if (kind.SequenceEqual("IEND"u8)) ended = true;
-            else if (!kind.SequenceEqual("IHDR"u8) && !kind.SequenceEqual("PLTE"u8) && (kind[0] & 32) == 0) throw Bad(name, "contains an unsupported critical PNG chunk");
+            if (~crc != BinaryPrimitives.ReadUInt32BigEndian(checksum)) throw Bad(name, "has a damaged PNG chunk");
+            if (kind.SequenceEqual("IEND"u8)) { dataEnd = chunkStart; break; }
+            if (!isData && !kind.SequenceEqual("IHDR"u8) && !kind.SequenceEqual("PLTE"u8) && (kind[0] & 32) == 0)
+                throw Bad(name, "contains an unsupported critical PNG chunk");
         }
-        compressed.Position = 0;
-        using var zipped = new ZLibStream(compressed, CompressionMode.Decompress);
+        if (buffered != null) buffered.Position = 0;
+        using var imageData = buffered == null ? new ImageDataStream(input, dataStart < 0 ? dataEnd : dataStart, dataEnd, input.Position) : null;
+        using var zipped = new ZLibStream((Stream?)buffered ?? imageData!, CompressionMode.Decompress, leaveOpen: true);
         var source = LayerPixelStorage.Allocate(Pixels.ColorInfo(width, height, ColorDepth.Sixteen, space));
         if (retainedProfile != null) Pixels.TagProfile(source, retainedProfile);
         try
@@ -122,6 +137,68 @@ internal static class Png16Codec
         catch { source.Dispose(); throw; }
     }
 
+    /// <summary>Reads the payload of the validated IDAT chunks as one stream without concatenating them.</summary>
+    private sealed class ImageDataStream : Stream
+    {
+        private readonly Stream input;
+        private readonly long end;
+        private readonly long fullEnd;
+        private int remaining;
+
+        internal ImageDataStream(Stream input, long start, long end, long fullEnd)
+        {
+            this.input = input;
+            this.end = end;
+            this.fullEnd = fullEnd;
+            input.Position = start;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) input.Position = fullEnd;
+            base.Dispose(disposing);
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            var total = 0;
+            Span<byte> header = stackalloc byte[8];
+            while (total < buffer.Length)
+            {
+                if (remaining == 0)
+                {
+                    if (input.Position >= end) break;
+                    input.ReadExactly(header);
+                    var length = BinaryPrimitives.ReadUInt32BigEndian(header);
+                    if (length > end - input.Position - 4) throw new InvalidDataException("Truncated PNG image data.");
+                    if (length == 0 || !header[4..].SequenceEqual("IDAT"u8))
+                    {
+                        input.Position += length + 4L;
+                        continue;
+                    }
+                    remaining = checked((int)length);
+                }
+                var count = Math.Min(buffer.Length - total, remaining);
+                input.ReadExactly(buffer.Slice(total, count));
+                total += count;
+                remaining -= count;
+                if (remaining == 0) input.Position += 4; // CRC already checked.
+            }
+            return total;
+        }
+    }
+
     private static void Unfilter(Span<byte> row, ReadOnlySpan<byte> previous, int bpp, int filter, string name)
     {
         if (filter is < 0 or > 4) throw Bad(name, "uses an invalid PNG filter");
@@ -140,12 +217,13 @@ internal static class Png16Codec
         return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
     }
 
-    internal static uint Crc(ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload)
+    internal static uint Crc(ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload) =>
+        ~UpdateCrc(UpdateCrc(0xffffffff, kind), payload);
+
+    private static uint UpdateCrc(uint crc, ReadOnlySpan<byte> payload)
     {
-        var crc = uint.MaxValue;
-        foreach (var value in kind) crc = CrcTable[(crc ^ value) & 255] ^ (crc >> 8);
         foreach (var value in payload) crc = CrcTable[(crc ^ value) & 255] ^ (crc >> 8);
-        return ~crc;
+        return crc;
     }
 
     private static readonly uint[] CrcTable = Enumerable.Range(0, 256).Select(index =>

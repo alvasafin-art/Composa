@@ -58,6 +58,12 @@ public sealed class CanvasPerformanceBench
         try
         {
             if (scenario == "tabs") await TabCycles(folder);
+            else if (scenario == "photo-open")
+            {
+                var opened = await Open(folder, "photo");
+                Checkpoint("open", opened);
+                await CloseTab(opened);
+            }
             else if (scenario == "photo-cycles")
             {
                 for (var pass = 1; pass <= 3; pass++)
@@ -175,11 +181,13 @@ public sealed class CanvasPerformanceBench
             Assert.Equal(painted, Hash(NamedLayer(session, "Retouch").Pixels!));
             Assert.False(session.History.CanRedo);
             checks["redo"] = painted;
+            Checkpoint("after editing", session);
             var copy = PathCombine(folder, $"reopen-{Environment.ProcessId}.cmps");
             try
             {
                 StartPhase();
                 Assert.Null(await window.SaveTo(session, copy));
+                Checkpoint("after save", session);
                 await CloseTab(session);
                 var reopened = Assert.IsType<EditorSession>(await window.OpenPath(copy));
                 Pump();
@@ -271,11 +279,20 @@ public sealed class CanvasPerformanceBench
 
     private static void Measure(string input, Action action, List<InputFrame> times)
     {
+        var traceStages = input == "press" && Environment.GetEnvironmentVariable("COMPOSA_PERF_STAGE") == "1";
+        var before = traceStages ? CanvasPerformanceTrace.Snapshot().Stages : null;
         var begin = Stopwatch.GetTimestamp();
         action();
+        var afterInput = Stopwatch.GetTimestamp();
         Pump();
         var frame = CanvasPerformanceTrace.FrameAt;
-        times.Add(new(input, frame >= begin ? Stopwatch.GetElapsedTime(begin, frame).TotalMilliseconds : null));
+        var stages = before == null ? null : CanvasPerformanceTrace.Snapshot().Stages.Select(stage =>
+        {
+            var old = before.FirstOrDefault(s => s.Name == stage.Name);
+            return new CanvasPerformanceTrace.Stage(stage.Name, stage.Calls - (old?.Calls ?? 0), stage.Milliseconds - (old?.Milliseconds ?? 0));
+        }).Where(stage => stage.Calls != 0).ToArray();
+        times.Add(new(input, frame >= begin ? Stopwatch.GetElapsedTime(begin, frame).TotalMilliseconds : null,
+            traceStages ? Stopwatch.GetElapsedTime(begin, afterInput).TotalMilliseconds : null, stages));
     }
 
     private static void Pump()
@@ -301,7 +318,8 @@ public sealed class CanvasPerformanceBench
             closedTabs.Count(tab => tab.TryGetTarget(out _)), GC.CollectionCount(2), GC.GetGCMemoryInfo().TotalCommittedBytes,
             SKGraphics.GetResourceCacheTotalBytesUsed(),
             closedRasters.Where(raster => raster.Layer.TryGetTarget(out _) || raster.Pixels.TryGetTarget(out _))
-                .Select(raster => new ClosedRaster(raster.Name, raster.Layer.TryGetTarget(out _), raster.Pixels.TryGetTarget(out _))).ToArray()));
+                .Select(raster => new ClosedRaster(raster.Name, raster.Layer.TryGetTarget(out _), raster.Pixels.TryGetTarget(out _))).ToArray(),
+            Environment.GetEnvironmentVariable("COMPOSA_PERF_NATIVE_MEMORY") == "1" ? CanvasNativeMemory.Read() : null));
 
     private static SKPoint[] Path(SKPoint start, float dx, float dy, int moves = 13) =>
         Enumerable.Range(0, moves + 1).Select(i => new SKPoint(start.X + dx * i / moves, start.Y + dy * i / moves)).ToArray();
@@ -379,11 +397,11 @@ public sealed class CanvasPerformanceBench
         }
     }
 
-    private sealed record InputFrame(string Input, double? CompleteMs);
+    private sealed record InputFrame(string Input, double? CompleteMs, double? InputMs, CanvasPerformanceTrace.Stage[]? Stages);
     private sealed record Phase(string Name, double ElapsedMs, List<InputFrame> Events, Mem Peak, CanvasPerformanceTrace.Sample Diagnostics);
     private sealed record Snapshot(string Name, Mem Memory, long Managed, long DocumentRaster, long EffectCache,
         int MappedViews, long MappedBytes, int ClosedTabsAlive, int Gen2Collections, long ManagedCommitted, long SkiaResourceCache,
-        ClosedRaster[] ClosedRasters);
+        ClosedRaster[] ClosedRasters, CanvasNativeMemory.Sample? NativeMemory);
     private sealed record ClosedRaster(string Name, bool LayerAlive, bool PixelsAlive);
     private sealed record Mem(long Private, long WorkingSet);
 

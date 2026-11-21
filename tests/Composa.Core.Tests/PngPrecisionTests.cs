@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Composa.IO;
 using Composa.Model;
 using Composa.Rendering;
@@ -86,6 +87,54 @@ public class PngPrecisionTests
         for (var x = 0; x < 512; x++) Assert.InRange(Math.Abs(output.Read(x, 0).R * 65535 - 24000 - x), 0, .02);
         using var display = Pixels.DisplayCopy(source);
         Assert.InRange(Enumerable.Range(0, 512).Select(x => display.GetPixel(x, 0).Red).Distinct().Count(), 2, 4);
+    }
+
+    [Fact]
+    public void Split_PNG_image_data_is_read_across_chunks_and_every_checksum_is_validated()
+    {
+        var bytes = File.ReadAllBytes(Fixture(6, false));
+        using var original = new MemoryStream(bytes);
+        using var expected = Png16Codec.TryDecode(original)!;
+        using var split = new MemoryStream();
+        split.Write(bytes.AsSpan(0, 8));
+        long lastChecksum = -1;
+        for (var offset = 8; offset < bytes.Length;)
+        {
+            var length = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(offset, 4));
+            var kind = bytes.AsSpan(offset + 4, 4);
+            var payload = bytes.AsSpan(offset + 8, length);
+            if (kind.SequenceEqual("IDAT"u8) && length > 1)
+            {
+                WriteImageData(split, payload[..1]);
+                WriteImageData(split, []);
+                WriteImageData(split, payload[1..]);
+                lastChecksum = split.Position - 1;
+            }
+            else split.Write(bytes.AsSpan(offset, length + 12));
+            offset += length + 12;
+        }
+        Assert.True(lastChecksum >= 0);
+        var end = split.Position;
+        split.WriteByte(42);
+        split.Position = 0;
+        using var actual = Png16Codec.TryDecode(split)!;
+        Assert.Equal(expected.Bytes, actual.Bytes);
+        Assert.Equal(end, split.Position);
+
+        split.GetBuffer()[lastChecksum] ^= 1;
+        split.Position = 0;
+        Assert.Throws<InvalidDataException>(() => Png16Codec.TryDecode(split));
+    }
+
+    private static void WriteImageData(Stream output, ReadOnlySpan<byte> payload)
+    {
+        Span<byte> field = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(field, payload.Length);
+        output.Write(field);
+        output.Write("IDAT"u8);
+        output.Write(payload);
+        BinaryPrimitives.WriteUInt32BigEndian(field, Png16Codec.Crc("IDAT"u8, payload));
+        output.Write(field);
     }
 
     [Fact]

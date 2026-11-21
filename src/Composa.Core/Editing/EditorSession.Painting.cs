@@ -124,8 +124,14 @@ public sealed partial class EditorSession
         SKBitmap target;
         try
         {
+#if CANVAS_PERFORMANCE
+            var preparing = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             if ((!IsEditingMask || mode is BrushMode.Paint or BrushMode.Erase) && !EffectiveLocks(layer).HasFlag(LayerLocks.Transparency)) GrowToCanvas(layer);
             target = Target(layer);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("brush target preparation", preparing);
+#endif
         }
         catch (InvalidOperationException error) { Cancel(); problem = error.Message; return false; }
         var matrix = TargetMatrix(layer);
@@ -167,12 +173,16 @@ public sealed partial class EditorSession
             }
         }
         var color = mode == BrushMode.Paint ? ChannelPaintColor(channelErase ? Background : Foreground) : SKColors.Black;
+#if CANVAS_PERFORMANCE
+        var snapshotting = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         stroke = new BrushStroke(target, Brush, mode.Value, color, scale, LayerPixelStorage.CopyForStroke(target))
         {
             Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset, CloneFraction = fraction,
             LockTransparency = !IsEditingMask && (IsEditingComponent || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
         };
 #if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("brush snapshot and setup", snapshotting);
         CanvasPerformanceTrace.SurfaceAllocated("stroke working surface", stroke.Working);
 #endif
         strokeLayer = layer;
@@ -244,7 +254,13 @@ public sealed partial class EditorSession
 
     private void Paint(SKPoint point, float pressure)
     {
+#if CANVAS_PERFORMANCE
+        var dabbing = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var changed = stroke!.AddPoint(strokeToLayer.MapPoint(point), PressureSensitive ? pressure : 1);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("brush dabs", dabbing);
+#endif
         lastStrokeEnd = point;
         if (changed.IsEmpty) return;
         if (IsEditingComponent) Pixels.ConstrainChannels(stroke.Working, strokeOriginal!, EditingRgbChannels, changed);
