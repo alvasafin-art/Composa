@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.4] - 2026-11-22
+
+- Painting pixels and masks on large layers with effects is more responsive at Fit and 100% zoom. The canvas redraws the affected region and reuses the rendered effect when the stroke ends.
+- Closing projects releases their display caches and raster references. Large CMPS image entries use temporary buffers that are freed after decoding, reducing memory retained after closing RGB16 and RGB8 projects.
+
 ## [1.3.0-preview.4.studio.17.3] - 2026-11-21
 
 - Local Object Selection can confirm an object inside a loose box by comparing a narrower box and a point on the same image embedding.
