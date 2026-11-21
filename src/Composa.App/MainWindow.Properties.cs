@@ -114,9 +114,14 @@ public sealed partial class MainWindow
             return;
         }
         body.Children.Add(Ui.Label(layer.Name, weight: Avalonia.Media.FontWeight.SemiBold));
+        var layerId = layer.Id;
+        // Avalonia can retain detached controls. Resolve their target on demand so an
+        // old inspector cannot keep a closed layer's bitmap alive.
+        Layer? CurrentLayer() => session == s && s.ActiveLayer is { } live && live.Id == layerId ? live : null;
         if (s.IsEditingMask)
         {
-            if (s.EditingMask && layer.Mask != null) body.Children.Add(Flat("Mask properties…", () => _ = EditMaskProperties(layer)));
+            if (s.EditingMask && layer.Mask != null)
+                body.Children.Add(Flat("Mask properties…", () => { if (CurrentLayer() is { } live) _ = EditMaskProperties(live); }));
             else body.Children.Add(Ui.Label(Locale.T("Channel"), Palette.Secondary));
             return;
         }
@@ -133,14 +138,15 @@ public sealed partial class MainWindow
         }
         var opacity = Ui.Number(layer.Opacity * 100, 0, 100, v =>
         {
-            if (!updating && s.ActiveLayer is { } live && live.Id == layer.Id && !s.IsLocked(live) && live.Opacity != v / 100)
+            if (!updating && CurrentLayer() is { } live && !s.IsLocked(live) && live.Opacity != v / 100)
                 s.Apply("Layer Opacity", () => s.SetOpacity(live, v / 100));
         });
+        opacity.Name = "LayerPropertyOpacity";
         opacity.Width = double.NaN;
         body.Children.Add(Ui.Column(4, Ui.Label(Locale.T("Opacity %"), Palette.Secondary, 11), opacity));
         refreshOptions += () =>
         {
-            if (s.ActiveLayer is not { } live) return;
+            if (CurrentLayer() is not { } live) return;
             updating = true; opacity.Value = (decimal)(live.Opacity * 100); updating = false;
         };
         refreshOptions?.Invoke();

@@ -408,6 +408,7 @@ public sealed partial class EditorSession
         }
         closed.ExceptWith(inUse);
         LayerEffectsRenderer.Forget(closed);
+        foreach (var bitmap in closed) Pixels.ForgetDisplayLevels(bitmap);
         History.Clear();
         composite = null;
         pendingBefore = null;

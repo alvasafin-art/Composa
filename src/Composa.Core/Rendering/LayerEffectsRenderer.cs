@@ -194,7 +194,72 @@ public static class LayerEffectsRenderer
         public void Dispose() => Image.Dispose();
     }
 
-    internal sealed record StrokeBase(SKBitmap Image, int Inset, SKPointI Origin, LayerEffects Effects, double FillOpacity);
+    internal sealed class StrokeBase(SKBitmap image, int inset, SKPointI origin, LayerEffects effects, double fillOpacity) : IDisposable
+    {
+        private SKBitmap? firstPatch;
+        private SKRectI firstDestination;
+        public LayerEffects Effects { get; } = effects;
+        internal SKBitmap? Updated { get; set; }
+        internal SKRectI Pending { get; set; }
+        internal int Inset => inset;
+        internal double FillOpacity => fillOpacity;
+
+        internal void AddDamage(SKRectI changed)
+        {
+            if (changed.IsEmpty) return;
+            var halo = PatchHalo(Effects);
+            changed.Inflate(halo, halo);
+            Pending = Geometry.Union(Pending, changed);
+        }
+
+        internal SKBitmap? Prepare(Layer layer, SKRectI full)
+        {
+            if (Updated != null) return Updated;
+            if ((long)full.Width * full.Height > MaxPixels || full.Width > Document.MaxSide * 2 || full.Height > Document.MaxSide * 2)
+                return null;
+            var matrix = layer.Matrix;
+            var previous = SKRectI.Create(origin.X - (int)matrix.TransX, origin.Y - (int)matrix.TransY, image.Width, image.Height);
+            var bounds = SKRectI.Create(full.Width, full.Height);
+            if (!bounds.Contains(previous)) return null;
+            var result = previous == bounds ? Pixels.Clone(image) : Pixels.NewLike(layer.Pixels!, full.Width, full.Height);
+            try
+            {
+                if (previous != bounds) DocumentRenderer.CopyRows(image, SKPointI.Empty, result, previous);
+                if (firstPatch is { } first) DocumentRenderer.CopyRows(first, SKPointI.Empty, result, firstDestination);
+            }
+            catch { result.Dispose(); throw; }
+            firstPatch?.Dispose();
+            firstPatch = null;
+            return Updated = result;
+        }
+
+        internal void Apply(Layer layer, SKBitmap patch, SKRectI region, SKRectI valid, SKRectI full)
+        {
+            if (Pending.IsEmpty) return;
+            var changed = SKRectI.Intersect(Pending, full);
+            if (changed.IsEmpty || !valid.Contains(changed)) return;
+            var source = new SKPointI(changed.Left - region.Left, changed.Top - region.Top);
+            changed.Offset(inset, inset);
+            if (Updated == null && firstPatch == null)
+            {
+                // Let the first dab reach the screen before allocating the full cache image.
+                firstPatch = Pixels.Subset(patch, SKRectI.Create(source.X, source.Y, changed.Width, changed.Height));
+                firstDestination = changed;
+            }
+            else
+            {
+                if (Prepare(layer, full) is not { } result) return;
+                DocumentRenderer.CopyRows(patch, source, result, changed);
+            }
+            Pending = SKRectI.Empty;
+        }
+
+        public void Dispose()
+        {
+            firstPatch?.Dispose();
+            Updated?.Dispose();
+        }
+    }
 
     internal static StrokeBase? CaptureStrokeBase(Layer layer)
     {
@@ -209,56 +274,40 @@ public static class LayerEffectsRenderer
         }
     }
 
-    internal static bool CacheStroke(Layer layer, StrokeBase basis, SKRectI changed)
+    internal static bool CacheStroke(Layer layer, StrokeBase basis)
     {
         if (PatchEffects(layer) != basis.Effects || layer.FillOpacity != basis.FillOpacity) return false;
         var pixels = layer.Pixels!;
         var mask = layer.RenderMask();
         var inset = basis.Inset;
         var full = new SKRectI(-inset, -inset, pixels.Width + inset, pixels.Height + inset);
-        if ((long)full.Width * full.Height > MaxPixels || full.Width > Document.MaxSide * 2 || full.Height > Document.MaxSide * 2)
-            return false;
-        var matrix = layer.Matrix;
-        var previous = SKRectI.Create(basis.Origin.X - (int)matrix.TransX, basis.Origin.Y - (int)matrix.TransY,
-            basis.Image.Width, basis.Image.Height);
-        if (!SKRectI.Create(full.Width, full.Height).Contains(previous)) return false;
-
-        var halo = PatchHalo(basis.Effects);
-        changed.Inflate(halo, halo);
-        changed = SKRectI.Intersect(changed, full);
-        if (changed.IsEmpty) return false;
-        var region = changed;
-        region.Inflate(halo, halo);
-        region = SKRectI.Intersect(region, full);
-        if (region == full) return false;
-#if CANVAS_PERFORMANCE
-        CanvasPerformanceTrace.EffectPatch();
-#endif
-        using var patch = RenderArea(pixels, mask, basis.Effects, layer.FillOpacity, region);
-        var result = Pixels.NewLike(pixels, full.Width, full.Height);
-        try
+        if (!basis.Pending.IsEmpty)
         {
-            DocumentRenderer.CopyRows(basis.Image, SKPointI.Empty, result, previous);
-            var source = new SKPointI(changed.Left - region.Left, changed.Top - region.Top);
-            changed.Offset(inset, inset);
-            DocumentRenderer.CopyRows(patch, source, result, changed);
-            var key = new Key(pixels, mask, basis.Effects, layer.FillOpacity);
-            lock (Lru)
-            {
-                if (!InFlight.ContainsKey(key) &&
-                    (!Cache.TryGetValue(pixels, out var entries) || entries.Find(entry => entry.Key == key) == null))
-                {
-                    Remember(key, result, inset);
+            var changed = SKRectI.Intersect(basis.Pending, full);
+            var region = changed;
+            var halo = PatchHalo(basis.Effects);
+            region.Inflate(halo, halo);
+            region = SKRectI.Intersect(region, full);
+            if (changed.IsEmpty || region == full || basis.Prepare(layer, full) == null) return false;
 #if CANVAS_PERFORMANCE
-                    CanvasPerformanceTrace.SurfaceAllocated("effect retained after stroke", result);
+            CanvasPerformanceTrace.EffectPatch();
 #endif
-                    return true;
-                }
-            }
+            using var patch = RenderArea(pixels, mask, basis.Effects, layer.FillOpacity, region);
+            basis.Apply(layer, patch, region, changed, full);
         }
-        catch { result.Dispose(); throw; }
-        result.Dispose();
-        return false;
+        if (basis.Prepare(layer, full) is not { } result) return false;
+        var key = new Key(pixels, mask, basis.Effects, layer.FillOpacity);
+        lock (Lru)
+        {
+            if (InFlight.ContainsKey(key) ||
+                (Cache.TryGetValue(pixels, out var entries) && entries.Exists(entry => entry.Key == key))) return false;
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.SurfaceAllocated("effect retained after stroke", result);
+#endif
+            Remember(key, result, inset);
+            basis.Updated = null;
+            return true;
+        }
     }
 
     // Four sigmas cover the CPU Gaussian sampling footprint with room for filtering
@@ -280,7 +329,8 @@ public static class LayerEffectsRenderer
             ? effects : null;
     }
 
-    internal static Patch? RenderPatch(Layer layer, SKRectI localTarget, LayerEffects effects, float scale, bool nativeGrid)
+    internal static Patch? RenderPatch(Layer layer, SKRectI localTarget, LayerEffects effects, float scale, bool nativeGrid,
+        StrokeBase? stroke = null)
     {
         var pixels = layer.Pixels!;
         var inset = Math.Max(2, effects.Margin());
@@ -299,8 +349,9 @@ public static class LayerEffectsRenderer
         // The output tile sees exactly the same source neighbourhood as the full renderer.
         // Include the extra source pixels needed for reduction and linear sampling of the mip.
         var halo = PatchHalo(effects) + (nativeGrid ? 0 : 2 * stride);
-        localTarget.Inflate(halo, halo);
-        var region = SKRectI.Intersect(localTarget, full);
+        var region = localTarget;
+        region.Inflate(halo, halo);
+        region = SKRectI.Intersect(region, full);
         if (region.IsEmpty) return null;
         // Reduction averages the same 2×2 blocks as the full image, starting at its top-left.
         region.Left = full.Left + (region.Left - full.Left) / stride * stride;
@@ -314,6 +365,8 @@ public static class LayerEffectsRenderer
         var image = RenderArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region);
         try
         {
+            if (stroke?.Effects == effects && stroke.FillOpacity == layer.FillOpacity)
+                stroke.Apply(layer, image, region, localTarget, full);
             for (var step = stride; step > 1; step /= 2)
             {
                 var half = Pixels.Halve(image);

@@ -27,6 +27,7 @@ public sealed class CanvasPerformanceBench
     private readonly List<Snapshot> checkpoints = [];
     private readonly Dictionary<string, object> checks = [];
     private readonly List<WeakReference<EditorSession>> closedTabs = [];
+    private readonly List<(string Name, WeakReference<Layer> Layer, WeakReference<SKBitmap> Pixels)> closedRasters = [];
     private MainWindow window = null!;
     private ProcessMemory memory = null!;
     private long phaseStart;
@@ -37,6 +38,12 @@ public sealed class CanvasPerformanceBench
         var scenario = Environment.GetEnvironmentVariable("COMPOSA_PERF_CASE");
         if (scenario == null) return;
         var folder = Environment.GetEnvironmentVariable("COMPOSA_PERF_FIXTURES")!;
+        if (scenario == "photoshop-photo")
+        {
+            var document = ProjectFile.Load(PathCombine(folder, "photo.cmps"));
+            Composa.IO.Psd.PsdExport.Save(document, Environment.GetEnvironmentVariable("COMPOSA_PERF_OUTPUT")!);
+            return;
+        }
         if (scenario is "fixtures" or "fixture-photo")
         {
             MakeFixtures(folder, Environment.GetEnvironmentVariable("COMPOSA_PERF_PHOTO")!, scenario == "fixture-photo");
@@ -51,6 +58,15 @@ public sealed class CanvasPerformanceBench
         try
         {
             if (scenario == "tabs") await TabCycles(folder);
+            else if (scenario == "photo-cycles")
+            {
+                for (var pass = 1; pass <= 3; pass++)
+                {
+                    await Exercise(folder, "photo");
+                    await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                    Checkpoint($"closed photo {pass} +30s");
+                }
+            }
             else await Exercise(folder, scenario);
             Checkpoint("closed");
             await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
@@ -63,6 +79,8 @@ public sealed class CanvasPerformanceBench
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 Checkpoint("diagnostic GC 2");
+                SKGraphics.PurgeAllCaches();
+                Checkpoint("diagnostic Skia purge");
             }
             var output = Environment.GetEnvironmentVariable("COMPOSA_PERF_OUTPUT")!;
             File.WriteAllText(output, JsonSerializer.Serialize(new
@@ -70,6 +88,11 @@ public sealed class CanvasPerformanceBench
                 scenario, window = new { width = WindowWidth, height = WindowHeight },
                 backend = "Avalonia Headless / Skia raster", phases, checkpoints, checks
             }, new JsonSerializerOptions { WriteIndented = true }));
+            if (Environment.GetEnvironmentVariable("COMPOSA_PERF_INSPECT") == "1")
+            {
+                Console.WriteLine($"Inspect test process {Environment.ProcessId}");
+                await Task.Delay(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
+            }
         }
         finally { window.Close(); }
     }
@@ -207,6 +230,10 @@ public sealed class CanvasPerformanceBench
 
     private async Task CloseTab(EditorSession session)
     {
+        if (session.Document.Depth == ColorDepth.Sixteen)
+            foreach (var layer in session.Document.AllLayers())
+                if (layer.Pixels is { } pixels)
+                    closedRasters.Add(($"{closedTabs.Count + 1}: {layer.Name}", new(layer), new(pixels)));
         session.MarkSaved(session.FilePath!, session.History.CurrentId);
         var close = window.GetLogicalDescendants().OfType<MenuItem>().Single(m => Equals(m.Header, "Close Project"));
         close.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
@@ -271,7 +298,10 @@ public sealed class CanvasPerformanceBench
     private void Checkpoint(string name, EditorSession? session = null) =>
         checkpoints.Add(new(name, memory.Read(), GC.GetTotalMemory(false), session?.Document.RasterPixels() * 4 ?? 0,
             CanvasPerformanceTrace.Snapshot().CachedBytes, CanvasPerformanceTrace.Mapped.Views, CanvasPerformanceTrace.Mapped.Bytes,
-            closedTabs.Count(tab => tab.TryGetTarget(out _)), GC.CollectionCount(2), GC.GetGCMemoryInfo().TotalCommittedBytes));
+            closedTabs.Count(tab => tab.TryGetTarget(out _)), GC.CollectionCount(2), GC.GetGCMemoryInfo().TotalCommittedBytes,
+            SKGraphics.GetResourceCacheTotalBytesUsed(),
+            closedRasters.Where(raster => raster.Layer.TryGetTarget(out _) || raster.Pixels.TryGetTarget(out _))
+                .Select(raster => new ClosedRaster(raster.Name, raster.Layer.TryGetTarget(out _), raster.Pixels.TryGetTarget(out _))).ToArray()));
 
     private static SKPoint[] Path(SKPoint start, float dx, float dy, int moves = 13) =>
         Enumerable.Range(0, moves + 1).Select(i => new SKPoint(start.X + dx * i / moves, start.Y + dy * i / moves)).ToArray();
@@ -352,7 +382,9 @@ public sealed class CanvasPerformanceBench
     private sealed record InputFrame(string Input, double? CompleteMs);
     private sealed record Phase(string Name, double ElapsedMs, List<InputFrame> Events, Mem Peak, CanvasPerformanceTrace.Sample Diagnostics);
     private sealed record Snapshot(string Name, Mem Memory, long Managed, long DocumentRaster, long EffectCache,
-        int MappedViews, long MappedBytes, int ClosedTabsAlive, int Gen2Collections, long ManagedCommitted);
+        int MappedViews, long MappedBytes, int ClosedTabsAlive, int Gen2Collections, long ManagedCommitted, long SkiaResourceCache,
+        ClosedRaster[] ClosedRasters);
+    private sealed record ClosedRaster(string Name, bool LayerAlive, bool PixelsAlive);
     private sealed record Mem(long Private, long WorkingSet);
 
     private sealed class ProcessMemory : IDisposable

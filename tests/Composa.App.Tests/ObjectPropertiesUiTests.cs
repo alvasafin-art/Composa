@@ -10,11 +10,43 @@ using Composa.App.Dialogs;
 using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
+using System.Runtime.CompilerServices;
 
 namespace Composa.App.Tests;
 
 public class ObjectPropertiesUiTests
 {
+    [AvaloniaFact]
+    public void A_detached_opacity_control_does_not_keep_the_closed_layer_alive()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 };
+        window.Show();
+        try
+        {
+            var (opacity, formerLayer) = CloseProjectWithInspector(window);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Assert.False(formerLayer.TryGetTarget(out _));
+            GC.KeepAlive(opacity);
+        }
+        finally { window.Close(); }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (NumericUpDown Opacity, WeakReference<Layer> Layer) CloseProjectWithInspector(MainWindow window)
+    {
+        var session = EditorSession.NewCanvas(200, 100, SKColors.LightBlue);
+        window.AddSession(session);
+        Dispatcher.UIThread.RunJobs();
+        var opacity = window.GetVisualDescendants().OfType<NumericUpDown>().Single(field => field.Name == "LayerPropertyOpacity");
+        var formerLayer = new WeakReference<Layer>(session.ActiveLayer!);
+        window.KeyPressQwerty(PhysicalKey.W, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(window.Sessions);
+        return (opacity, formerLayer);
+    }
+
     private static void Click(Window window, Control control)
     {
         var at = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;

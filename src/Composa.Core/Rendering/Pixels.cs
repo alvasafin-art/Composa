@@ -198,6 +198,12 @@ public static partial class Pixels
     private static readonly ConditionalWeakTable<SKBitmap, Pyramid> Pyramids = new();
     private static readonly HashSet<SKBitmap> Live = new(ReferenceEqualityComparer.Instance);
 
+    internal static void ForgetDisplayLevels(SKBitmap bitmap)
+    {
+        // An image already borrowed by another renderer remains valid for that reader.
+        lock (bitmap) Pyramids.Remove(bitmap);
+    }
+
     /// <summary>A no-copy image over the bitmap's pixels. Call <see cref="Invalidate"/> after changing them.</summary>
     public static SKImage ImageOf(SKBitmap bitmap)
     {

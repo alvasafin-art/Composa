@@ -187,7 +187,11 @@ public sealed partial class EditorSession
         strokeMode = mode.Value;
         SetTarget(layer, stroke.Working, constrainChannels: false);
         Pixels.SetLive(stroke.Working, true);
-        if (lineFromLast && lastStrokeEnd is { } from) stroke.AddPoint(strokeToLayer.MapPoint(from));
+        if (lineFromLast && lastStrokeEnd is { } from)
+        {
+            var changed = stroke.AddPoint(strokeToLayer.MapPoint(from));
+            strokeEffectBase?.AddDamage(changed);
+        }
         // The first dab always lands; from here on Smoothing decides how the brush follows.
         smoothingAnchor = smoothingPointer = point;
         strokePressure = pressure;
@@ -244,6 +248,7 @@ public sealed partial class EditorSession
         lastStrokeEnd = point;
         if (changed.IsEmpty) return;
         if (IsEditingComponent) Pixels.ConstrainChannels(stroke.Working, strokeOriginal!, EditingRgbChannels, changed);
+        strokeEffectBase?.AddDamage(changed);
         var area = Geometry.RoundOut(stroke.ToDocument.MapRect(SKRect.Create(changed.Left, changed.Top, changed.Width, changed.Height)));
         if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(strokeLayer!) is { } effects)
         {
@@ -276,7 +281,7 @@ public sealed partial class EditorSession
             x + targetArea.Left / view.Scale, y + targetArea.Top / view.Scale,
             x + targetArea.Right / view.Scale, y + targetArea.Bottom / view.Scale));
         var nativeGrid = view.Scale == 1 && x == MathF.Round(x) && y == MathF.Round(y);
-        return LayerEffectsRenderer.RenderPatch(layer, localArea, effects, view.Scale, nativeGrid);
+        return LayerEffectsRenderer.RenderPatch(layer, localArea, effects, view.Scale, nativeGrid, strokeEffectBase);
     }
 
     public void EndStroke()
@@ -357,11 +362,11 @@ public sealed partial class EditorSession
             SetTarget(layer, healed);
             Invalidate(AffectedArea(layer));
         }
-        var effectBase = strokeEffectBase;
-        var changedPixels = stroke.Touched;
+        using var effectBase = strokeEffectBase;
+        strokeEffectBase = null;
         CloseStroke();
         if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null
-            && (effectBase == null || !LayerEffectsRenderer.CacheStroke(layer, effectBase, changedPixels)))
+            && (effectBase == null || !LayerEffectsRenderer.CacheStroke(layer, effectBase)))
             finishingStrokeEffect = layer.Id;
         Commit();
         LayersChanged?.Invoke();
@@ -383,6 +388,7 @@ public sealed partial class EditorSession
         stroke = null;
         strokeLayer = null;
         strokeOriginal = null;
+        strokeEffectBase?.Dispose();
         strokeEffectBase = null;
         strokeHealingSample?.Dispose(); strokeHealingSample = null;
         smoothingAnchor = smoothingPointer = null;
