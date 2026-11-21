@@ -33,7 +33,7 @@ public class CaptionSelectionTests
             paint.Color = SKColors.DarkSlateBlue;
             canvas.DrawRect(15, 85, 214, 50, paint);
         }
-        using var selection = DisplayLettering.FromBox(image, new(12, 8, 232, 191), default);
+        using var selection = DisplayLettering.Repair(image, new(12, 8, 232, 191), null, default);
         Assert.NotNull(selection);
         for (int x = 18; x < 230; x += 43)
         {

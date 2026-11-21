@@ -66,7 +66,7 @@ public sealed partial class EditorSession
                 if (localBox is { } rect) { rect.Offset(-area.Left, -area.Top); localBox = SKRectI.Intersect(rect, SKRectI.Create(image.Width, image.Height)); }
                 bool checkShape = false;
                 using var graphics = point == null && box != bounds && localBox is { } marks
-                    ? (preciseEdges ? DisplayLettering.FromBox(image, marks, cancellation) : null) ?? GraphicSelection.FromBox(image, marks, cancellation) ?? RepeatedDetailSelection.FromBox(image, marks, cancellation, out checkShape) : null;
+                    ? GraphicSelection.FromBox(image, marks, cancellation) ?? RepeatedDetailSelection.FromBox(image, marks, cancellation, out checkShape) : null;
                 if (graphics != null && !checkShape) return (embedding: previous, mask: (SKBitmap?)PromptSegmentation.Place(graphics, area, bounds));
                 var embedding = PromptSegmentation.Encode(image, model, previous, cancellation);
                 using var decoded = PromptSegmentation.Decode(embedding, model, image.Width, image.Height,
@@ -119,7 +119,10 @@ public sealed partial class EditorSession
                 return (embedding, mask: PromptSegmentation.Place(caption ?? printed ?? final, area, bounds));
             }
         }, cancellation);
-        using var result = found.mask;
+        using var semantic = found.mask;
+        using var lettering = preciseEdges && point == null && box is { } letteringBox && letteringBox != bounds
+            ? await Task.Run(() => DisplayLettering.Repair(copy, letteringBox, semantic, cancellation), cancellation) : null;
+        var result = lettering ?? semantic;
         cancellation.ThrowIfCancellationRequested();
         if (History.CurrentId != state || Revision != revision || document.ActiveLayerId != layerId || SampleAllLayers != sampleAll || IsInteracting || canApply?.Invoke() == false) return null;
         if (found.embedding != null) promptEmbedding = (model.Kind, found.embedding);

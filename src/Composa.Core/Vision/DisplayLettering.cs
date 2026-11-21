@@ -9,10 +9,50 @@ internal static class DisplayLettering
     private readonly record struct Run(int Left, int Right);
     private readonly record struct Component(SKRectI Bounds, int Count, int Solid);
 
-    internal static SKBitmap? FromBox(SKBitmap image, SKRectI box, CancellationToken cancel)
+    internal static SKBitmap? Repair(SKBitmap source, SKRectI box, SKBitmap? original, CancellationToken cancel)
+    {
+        if (!CandidateSize(box)) return null;
+        // Work on display RGB around the gesture even for large RGB16 documents.
+        var area = box;
+        area.Inflate(3, Math.Max(3, box.Height / 65));
+        var bounds = SKRectI.Create(source.Width, source.Height);
+        area = SKRectI.Intersect(area, bounds);
+        using var crop = Pixels.Subset(source, area);
+        using var display = Pixels.IsSrgb8(crop) ? null : Pixels.DisplayCopy(crop);
+        var local = box;
+        local.Offset(-area.Left, -area.Top);
+        using var proposal = FromBox(display ?? crop, local, cancel, out bool clipped);
+        if (proposal == null) return null;
+        if (!clipped && original != null)
+        {
+            int intersection = 0, union = 0;
+            var before = original.GetPixelSpan();
+            var after = proposal.GetPixelSpan();
+            for (int y = box.Top; y < box.Bottom; y++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                for (int x = box.Left; x < box.Right; x++)
+                {
+                    bool wasInk = before[y * original.RowBytes + x] >= 128;
+                    bool isInk = after[(y - area.Top) * proposal.RowBytes + x - area.Left] >= 128;
+                    if (wasInk || isInk) union++;
+                    if (wasInk && isInk) intersection++;
+                }
+            }
+            // Retain the existing antialiasing when both paths already agree on the strokes.
+            if (intersection >= .94 * union) return null;
+        }
+        return PromptSegmentation.Place(proposal, area, bounds);
+    }
+
+    private static bool CandidateSize(SKRectI box) => box.Width >= 80 && box.Height >= 32 &&
+        box.Width >= .8 * box.Height && (long)box.Width * box.Height <= 5_000_000;
+
+    private static SKBitmap? FromBox(SKBitmap image, SKRectI box, CancellationToken cancel, out bool clipped)
     {
         int w = box.Width, h = box.Height;
-        if (w < 80 || h < 32 || w < .8 * h || (long)w * h > 5_000_000) return null;
+        clipped = false;
+        if (!CandidateSize(box)) return null;
         var pixels = new PixelBuffer(image);
         if (!TryPalette(pixels, box, cancel, out var paper, out var ink)) return null;
         var caps = FindCaps(pixels, box, ink, paper, cancel);
@@ -29,6 +69,7 @@ internal static class DisplayLettering
         bool tall = caps.Runs.Count >= 4;
         if (!tall && w < 1.8 * h) return null;
         int floor = tall ? ClippedBaseline(pixels, box, caps.Top, caps.Runs, paper, cancel) : -1;
+        clipped = floor >= 0;
         var alpha = new byte[w * h];
         for (int y = 0; y < h; y++)
         {
