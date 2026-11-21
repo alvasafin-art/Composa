@@ -36,9 +36,9 @@ public sealed class CanvasPerformanceBench
         var scenario = Environment.GetEnvironmentVariable("COMPOSA_PERF_CASE");
         if (scenario == null) return;
         var folder = Environment.GetEnvironmentVariable("COMPOSA_PERF_FIXTURES")!;
-        if (scenario == "fixtures")
+        if (scenario is "fixtures" or "fixture-photo")
         {
-            MakeFixtures(folder, Environment.GetEnvironmentVariable("COMPOSA_PERF_PHOTO")!);
+            MakeFixtures(folder, Environment.GetEnvironmentVariable("COMPOSA_PERF_PHOTO")!, scenario == "fixture-photo");
             return;
         }
         using var sampler = new ProcessMemory();
@@ -125,11 +125,14 @@ public sealed class CanvasPerformanceBench
             session.Brush = new BrushSettings { Size = 52, Opacity = .27 };
             Pump();
             StartPhase();
+            var revision = session.Revision;
             var events = new List<InputFrame>();
             for (int i = 0; i < 30; i++)
-                ReplayStroke(Path(new(440 + i % 6 * 975, 470 + i / 6 * 725), 46, 21, 3), events);
+                ReplayStroke(Path(new(1440 + i % 6 * 570, 740 + i / 6 * 560), 46, 21, 3), events);
             EndPhase("30 strokes fit", events);
-            Assert.Equal(30, session.History.Count);
+            Assert.Equal(30, session.Revision - revision);
+            Assert.True(session.History.Count >= 10);
+            checks["retainedUndo"] = session.History.Count;
             var painted = Hash(retouch.Pixels!);
             for (int i = 0; i < 10; i++) session.Undo();
             Pump();
@@ -137,6 +140,7 @@ public sealed class CanvasPerformanceBench
             for (int i = 0; i < 10; i++) session.Redo();
             Pump();
             Assert.Equal(painted, Hash(NamedLayer(session, "Retouch").Pixels!));
+            Assert.False(session.History.CanRedo);
             checks["redo"] = painted;
             var copy = PathCombine(folder, $"reopen-{Environment.ProcessId}.cmps");
             try
@@ -266,7 +270,7 @@ public sealed class CanvasPerformanceBench
     private static string Hash(SKBitmap bitmap) => Convert.ToHexString(SHA256.HashData(bitmap.GetPixelSpan()));
     private static string PathCombine(string root, string name) => System.IO.Path.Combine(root, name);
 
-    private static void MakeFixtures(string folder, string source)
+    private static void MakeFixtures(string folder, string source, bool photoOnly)
     {
         Directory.CreateDirectory(folder);
         using var photo = SKBitmap.Decode(source) ?? throw new IOException("Provide the repository's studio-workspace.png.");
@@ -278,6 +282,11 @@ public sealed class CanvasPerformanceBench
             using var image = SKImage.FromBitmap(photo);
             canvas.DrawImage(image, crop, SKRect.Create(w, h), new SKSamplingOptions(SKFilterMode.Linear));
             return result;
+        }
+        if (photoOnly)
+        {
+            SavePhoto();
+            return;
         }
         var card = EditorSession.NewCanvas(1080, 1350);
         card.Document.ActiveLayer!.Pixels = Photo(1080, 1350, ColorDepth.Eight, RgbProfile.Srgb);
@@ -309,11 +318,23 @@ public sealed class CanvasPerformanceBench
         banner.Document.SetActive(feature.Id);
         ProjectFile.Save(banner.Document, PathCombine(folder, "banner.cmps"));
 
-        var high = EditorSession.NewCanvas(6000, 4000, depth: ColorDepth.Sixteen, background: null);
-        high.Document.Profile = RgbProfile.Rgb1998;
-        high.Document.ActiveLayer!.Pixels = Photo(6000, 4000, ColorDepth.Sixteen, RgbProfile.Rgb1998);
-        high.AddBlankLayer().Name = "Retouch";
-        ProjectFile.Save(high.Document, PathCombine(folder, "photo.cmps"));
+        SavePhoto();
+
+        void SavePhoto()
+        {
+            var high = EditorSession.NewCanvas(6000, 4000, depth: ColorDepth.Sixteen, background: null);
+            var profile = RgbProfile.Rgb1998;
+            high.Document.Profile = profile;
+            high.Document.ActiveLayer!.Pixels = Photo(6000, 4000, ColorDepth.Sixteen, profile);
+            var retouch = Pixels.NewWorkingColor(3600, 3000, ColorDepth.Sixteen, profile);
+            using (var canvas = new SKCanvas(retouch)) canvas.DrawBitmap(high.Document.ActiveLayer.Pixels, -1200, -500);
+            var layer = Layer.Raster("Retouch", retouch, 1200, 500);
+            // Keep history within the stock 3 GiB budget without changing its policy.
+            layer.Locks = LayerLocks.Transparency;
+            high.Document.Layers.Add(layer);
+            high.Document.SetActive(layer.Id);
+            ProjectFile.Save(high.Document, PathCombine(folder, "photo.cmps"));
+        }
     }
 
     private sealed record InputFrame(string Input, double? CompleteMs);
