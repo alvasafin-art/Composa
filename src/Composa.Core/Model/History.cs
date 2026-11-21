@@ -143,6 +143,12 @@ public sealed class History
         redo.Clear();
     }
 
+    internal void CollectBitmaps(HashSet<SKBitmap> into)
+    {
+        foreach (var entry in undo) entry.State.CollectBitmaps(into);
+        foreach (var entry in redo) entry.State.CollectBitmaps(into);
+    }
+
     private void Trim()
     {
         var dropped = false;

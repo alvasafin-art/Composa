@@ -11,17 +11,17 @@ public static class CanvasPerformanceTrace
     private static readonly object Sync = new();
     private static readonly Dictionary<EffectKey, int> Running = [];
     private static readonly Dictionary<string, (long Count, long Bytes, long Largest)> Allocations = [];
-    private static int hits, calculations, overlapping;
-    private static long cacheBytes, frameAt;
+    private static int hits, calculations, overlapping, patches;
+    private static long frameAt;
 
     private readonly record struct EffectKey(SKBitmap Pixels, SKBitmap? Mask, LayerEffects Effects, double FillOpacity);
     public sealed record Surface(string Owner, long Count, long Bytes, long Largest);
-    public sealed record Sample(int Hits, int Calculations, int MaxSameKey, long CachedBytes, Surface[] Surfaces);
+    public sealed record Sample(int Hits, int Calculations, int MaxSameKey, int Patches, long CachedBytes, Surface[] Surfaces);
 
     public static long FrameAt => Interlocked.Read(ref frameAt);
     public static void FrameCompleted() => Interlocked.Exchange(ref frameAt, Stopwatch.GetTimestamp());
     internal static void EffectHit() { lock (Sync) hits++; }
-    internal static void EffectCacheSize(long bytes) { lock (Sync) cacheBytes = bytes; }
+    internal static void EffectPatch() { lock (Sync) patches++; }
 
     internal static void SurfaceAllocated(string owner, SKBitmap bitmap)
     {
@@ -57,7 +57,8 @@ public static class CanvasPerformanceTrace
 
     public static Sample Snapshot()
     {
-        lock (Sync) return new(hits, calculations, overlapping, cacheBytes,
+        var cacheBytes = LayerEffectsRenderer.MeasureCacheBytes();
+        lock (Sync) return new(hits, calculations, overlapping, patches, cacheBytes,
             Allocations.Select(pair => new Surface(pair.Key, pair.Value.Count, pair.Value.Bytes, pair.Value.Largest)).ToArray());
     }
 
@@ -65,7 +66,7 @@ public static class CanvasPerformanceTrace
     {
         lock (Sync)
         {
-            hits = calculations = overlapping = 0;
+            hits = calculations = overlapping = patches = 0;
             Allocations.Clear();
         }
     }

@@ -11,6 +11,7 @@ public sealed partial class EditorSession
     private Layer? strokeLayer;
     private SKBitmap? strokeOriginal;
     private SKBitmap? strokeHealingSample;
+    private Guid? finishingStrokeEffect;
     private SKMatrix strokeToLayer;
     private BrushMode strokeMode;
     private SKPoint? cloneSource;
@@ -240,10 +241,35 @@ public sealed partial class EditorSession
         if (changed.IsEmpty) return;
         if (IsEditingComponent) Pixels.ConstrainChannels(stroke.Working, strokeOriginal!, EditingRgbChannels, changed);
         var area = Geometry.RoundOut(stroke.ToDocument.MapRect(SKRect.Create(changed.Left, changed.Top, changed.Width, changed.Height)));
+        if (ViewZoom >= 1 && document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(strokeLayer!) is { } effects)
+        {
+            var halo = LayerEffectsRenderer.PatchHalo(effects);
+            area.Inflate(halo, halo);
+        }
         area.Inflate(1, 1);
-        // A clipping base or a folder/adjustment mask changes more than its own rectangle's worth of layers, but never
-        // outside the rectangle itself, so the dab's area is all that needs re-rendering.
+        // A clipping base or a folder/adjustment mask can affect other layers within this area.
         Invalidate(area);
+    }
+
+    private LayerEffects? StrokeCanUsePatch(Layer layer) =>
+        strokeMode is BrushMode.Paint or BrushMode.Erase ? LayerEffectsRenderer.PatchEffects(layer) : null;
+
+    private LayerEffectsRenderer.Patch? StrokeEffectPatch(SKRectI targetArea, RenderView view)
+    {
+        var finishing = finishingStrokeEffect;
+        finishingStrokeEffect = null;
+        var layer = strokeLayer ?? (finishing is { } id ? document.Find(id) : null);
+        if (document.WorkingDepth != ColorDepth.Eight || ViewZoom < 1 || view.Scale != 1 || layer == null
+            || StrokeCanUsePatch(layer) is not { } effects)
+            return null;
+        var matrix = layer.Matrix;
+        var x = view.Origin.X - matrix.TransX;
+        var y = view.Origin.Y - matrix.TransY;
+        if (x != MathF.Round(x) || y != MathF.Round(y)) return null;
+        var halo = (int)Math.Ceiling(DocumentRenderer.SamplingMargin(document));
+        targetArea.Inflate(halo, halo);
+        targetArea.Offset((int)x, (int)y);
+        return LayerEffectsRenderer.RenderPatch(layer, targetArea, effects);
     }
 
     public void EndStroke()
@@ -324,6 +350,8 @@ public sealed partial class EditorSession
             SetTarget(layer, healed);
             Invalidate(AffectedArea(layer));
         }
+        if (ViewZoom >= 1 && document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null)
+            finishingStrokeEffect = layer.Id;
         CloseStroke();
         Commit();
         LayersChanged?.Invoke();
@@ -332,6 +360,7 @@ public sealed partial class EditorSession
     public void CancelStroke()
     {
         if (stroke == null) return;
+        finishingStrokeEffect = null;
         CloseStroke();
         Cancel();
     }

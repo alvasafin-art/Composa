@@ -1,5 +1,6 @@
 using Composa.Model;
 using SkiaSharp;
+using System.Runtime.CompilerServices;
 
 namespace Composa.Rendering;
 
@@ -13,9 +14,33 @@ public static class LayerEffectsRenderer
 {
     public const long MaxPixels = 100_000_000;
 
-    private sealed record Entry(SKBitmap Pixels, SKBitmap? Mask, LayerEffects Effects, double FillOpacity, SKBitmap Result, int Inset);
+    private readonly record struct Key(SKBitmap Pixels, SKBitmap? Mask, LayerEffects Effects, double FillOpacity)
+    {
+        public bool Includes(SKBitmap bitmap) => ReferenceEquals(Pixels, bitmap) || ReferenceEquals(Mask, bitmap);
+        public bool Equals(Key other) => ReferenceEquals(Pixels, other.Pixels) && ReferenceEquals(Mask, other.Mask)
+            && Effects == other.Effects && FillOpacity.Equals(other.FillOpacity);
+        public override int GetHashCode() => HashCode.Combine(RuntimeHelpers.GetHashCode(Pixels),
+            Mask == null ? 0 : RuntimeHelpers.GetHashCode(Mask), Effects, FillOpacity);
+    }
 
-    private static readonly List<Entry> Cache = [];
+    private sealed class Entry(Key key, SKBitmap image, int inset)
+    {
+        public Key Key { get; } = key;
+        public (SKBitmap Image, int Inset) Result { get; } = (image, inset);
+        public LinkedListNode<WeakReference<Entry>>? Order { get; set; }
+    }
+
+    private sealed class Pending
+    {
+        public Lazy<(SKBitmap Image, int Inset)?> Result { get; }
+        public Pending(Key key) => Result = new(() => Complete(key, this));
+    }
+
+    // The cache cannot keep a layer's pixels (and thus its native surface) alive after
+    // its last project, snapshot or render releases them. The LRU only indexes the owners.
+    private static readonly ConditionalWeakTable<SKBitmap, List<Entry>> Cache = new();
+    private static readonly LinkedList<WeakReference<Entry>> Lru = new();
+    private static readonly Dictionary<Key, Pending> InFlight = [];
     private const int MaxEntries = 12;
     private const long Budget = 384L * 1024 * 1024;
 
@@ -23,14 +48,26 @@ public static class LayerEffectsRenderer
     {
         // A stroke in progress keeps its effects from the moment it started; the final pixels are rendered once it ends.
         if (Pixels.IsLive(bitmap)) return;
-        lock (Cache)
-        {
-            Cache.RemoveAll(e => ReferenceEquals(e.Pixels, bitmap) || ReferenceEquals(e.Mask, bitmap));
-#if CANVAS_PERFORMANCE
-            CanvasPerformanceTrace.EffectCacheSize(Cache.Sum(e => (long)e.Result.ByteCount));
-#endif
-        }
+        Forget(key => key.Includes(bitmap));
     };
+
+    internal static void Forget(IReadOnlySet<SKBitmap> owned) =>
+        Forget(key => owned.Contains(key.Pixels) || (key.Mask != null && owned.Contains(key.Mask)));
+
+    private static void Forget(Func<Key, bool> matches)
+    {
+        lock (Lru)
+        {
+            for (var node = Lru.First; node != null;)
+            {
+                var next = node.Next;
+                if (!node.Value.TryGetTarget(out var entry)) Lru.Remove(node);
+                else if (matches(entry.Key)) Remove(entry);
+                node = next;
+            }
+            foreach (var key in InFlight.Keys.Where(matches).ToArray()) InFlight.Remove(key);
+        }
+    }
 
     /// <summary>
     /// The layer's pixels, through its mask, with its visible effects around them; null when there is nothing to
@@ -41,53 +78,150 @@ public static class LayerEffectsRenderer
         if (effects == null) return null;
         var visible = effects.Visible();
         if (visible.IsEmpty) return null;
-        lock (Cache)
+        var key = new Key(pixels, mask, visible, fillOpacity);
+        Pending pending;
+        lock (Lru)
         {
-            var index = Cache.FindIndex(e => ReferenceEquals(e.Pixels, pixels) && ReferenceEquals(e.Mask, mask) && e.Effects == visible && e.FillOpacity == fillOpacity);
-            if (index >= 0)
+            if (Cache.TryGetValue(pixels, out var entries) && entries.Find(e => e.Key == key) is { } hit)
             {
-                var hit = Cache[index];
-                if (index != Cache.Count - 1) { Cache.RemoveAt(index); Cache.Add(hit); }
+                if (hit.Order is { } node && node != Lru.Last) { Lru.Remove(node); Lru.AddLast(node); }
 #if CANVAS_PERFORMANCE
                 CanvasPerformanceTrace.EffectHit();
 #endif
-                return (hit.Result, hit.Inset);
+                return hit.Result;
             }
+            if (!InFlight.TryGetValue(key, out pending!))
+                InFlight.Add(key, pending = new Pending(key));
         }
-        (SKBitmap Image, int Inset)? made;
-#if CANVAS_PERFORMANCE
-        CanvasPerformanceTrace.EffectStarted(pixels, mask, visible, fillOpacity);
-        try { made = Render(pixels, mask, visible, fillOpacity); }
-        finally { CanvasPerformanceTrace.EffectCompleted(pixels, mask, visible, fillOpacity); }
-#else
-        made = Render(pixels, mask, visible, fillOpacity);
-#endif
-        if (made == null) return null;
-        lock (Cache)
-        {
-            // Two render bands may have built the same image at once; the first one in wins.
-            var other = Cache.Find(e => ReferenceEquals(e.Pixels, pixels) && ReferenceEquals(e.Mask, mask) && e.Effects == visible && e.FillOpacity == fillOpacity);
-            if (other != null) { made.Value.Image.Dispose(); return (other.Result, other.Inset); }
-            Cache.Add(new Entry(pixels, mask, visible, fillOpacity, made.Value.Image, made.Value.Inset));
-            // Evicted results are left to the garbage collector: a render on another thread may still be drawing them.
-            while (Cache.Count > MaxEntries || (Cache.Count > 1 && Cache.Sum(e => (long)e.Result.ByteCount) > Budget)) Cache.RemoveAt(0);
-#if CANVAS_PERFORMANCE
-            CanvasPerformanceTrace.EffectCacheSize(Cache.Sum(e => (long)e.Result.ByteCount));
-#endif
-        }
-        return made;
+        // Only threads asking for this key share the calculation. There is no cache
+        // lock held while Skia builds the effect or another band draws its own layer.
+        return pending.Result.Value;
     }
+
+    private static (SKBitmap Image, int Inset)? Complete(Key key, Pending request)
+    {
+        try
+        {
+            (SKBitmap Image, int Inset)? made;
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.EffectStarted(key.Pixels, key.Mask, key.Effects, key.FillOpacity);
+            try { made = Render(key.Pixels, key.Mask, key.Effects, key.FillOpacity); }
+            finally { CanvasPerformanceTrace.EffectCompleted(key.Pixels, key.Mask, key.Effects, key.FillOpacity); }
+#else
+            made = Render(key.Pixels, key.Mask, key.Effects, key.FillOpacity);
+#endif
+            lock (Lru)
+            {
+                // Invalidation or clearing the cache can detach an in-flight request.
+                // Its original callers can finish; the old image must not reenter the cache.
+                if (made is { } result && InFlight.GetValueOrDefault(key) == request)
+                {
+                    var entry = new Entry(key, result.Image, result.Inset);
+                    Cache.GetOrCreateValue(key.Pixels).Add(entry);
+                    entry.Order = Lru.AddLast(new WeakReference<Entry>(entry));
+                    Trim();
+                }
+            }
+            return made;
+        }
+        finally
+        {
+            lock (Lru)
+                if (InFlight.GetValueOrDefault(key) == request) InFlight.Remove(key);
+        }
+    }
+
+    private static void Trim()
+    {
+        var bytes = BytesInLru();
+        while (Lru.First is { } first && (Lru.Count > MaxEntries || (Lru.Count > 1 && bytes > Budget)))
+        {
+            if (first.Value.TryGetTarget(out var entry))
+            {
+                bytes -= entry.Result.Image.ByteCount;
+                Remove(entry);
+            }
+            else Lru.Remove(first);
+        }
+    }
+
+    private static long BytesInLru()
+    {
+        long bytes = 0;
+        for (var node = Lru.First; node != null;)
+        {
+            var next = node.Next;
+            if (node.Value.TryGetTarget(out var entry)) bytes += entry.Result.Image.ByteCount;
+            else Lru.Remove(node);
+            node = next;
+        }
+        return bytes;
+    }
+
+    private static void Remove(Entry entry)
+    {
+        if (Cache.TryGetValue(entry.Key.Pixels, out var entries)) entries.Remove(entry);
+        if (entry.Order is { } node) Lru.Remove(node);
+        entry.Order = null;
+        // An in-progress render or an SKImage wrapper can still use this result.
+    }
+
+#if CANVAS_PERFORMANCE
+    internal static long MeasureCacheBytes() { lock (Lru) return BytesInLru(); }
+#endif
 
     /// <summary>Drops every cached result, for tests and when memory is short.</summary>
     public static void ClearCache()
     {
-        lock (Cache)
+        lock (Lru)
         {
             Cache.Clear();
-#if CANVAS_PERFORMANCE
-            CanvasPerformanceTrace.EffectCacheSize(0);
-#endif
+            Lru.Clear();
+            InFlight.Clear();
         }
+    }
+
+    internal sealed record Patch(Guid LayerId, SKBitmap Image, SKPointI Offset) : IDisposable
+    {
+        public void Dispose() => Image.Dispose();
+    }
+
+    // Four sigmas cover the CPU Gaussian sampling footprint with room for filtering
+    // a subpixel shadow offset. Stroke morphology has its own, integral radius.
+    internal static int PatchHalo(LayerEffects effects) => (int)Math.Ceiling(Math.Max(
+        Math.Max(effects.Stroke?.Size ?? 0, (effects.OuterGlow?.Size ?? 0) * 2),
+        (effects.Shadow?.Distance ?? 0) + (effects.Shadow?.Blur ?? 0) * 2)) + 4;
+
+    /// <summary>Only unscaled raster content with spatially local effects takes the native-view patch path.</summary>
+    internal static LayerEffects? PatchEffects(Layer layer)
+    {
+        if (layer.Pixels == null || layer.IsSmartObject || layer.FilterSource != null || layer.HasWarp
+            || layer.VectorMask != null || layer.MaskTransform != null || layer.MaskFeather > 0) return null;
+        var m = layer.Matrix;
+        if (m.ScaleX != 1 || m.ScaleY != 1 || m.SkewX != 0 || m.SkewY != 0 || m.Persp0 != 0 || m.Persp1 != 0 || m.Persp2 != 1
+            || m.TransX != MathF.Round(m.TransX) || m.TransY != MathF.Round(m.TransY)) return null;
+        var effects = layer.Effects?.Visible();
+        return effects is { IsEmpty: false, GradientOverlay: null, ColorOverlay: null, InnerShadow: null, InnerGlow: null }
+            ? effects : null;
+    }
+
+    internal static Patch? RenderPatch(Layer layer, SKRectI localTarget, LayerEffects effects)
+    {
+        var pixels = layer.Pixels!;
+        var inset = Math.Max(2, effects.Margin());
+        var full = new SKRectI(-inset, -inset, pixels.Width + inset, pixels.Height + inset);
+        if ((long)full.Width * full.Height > MaxPixels) return null;
+        // The output tile sees exactly the same source neighbourhood as the full renderer.
+        // Add space for dilation/erosion and Skia's filter sampling on a fractional shadow offset.
+        var halo = PatchHalo(effects);
+        localTarget.Inflate(halo, halo);
+        var region = SKRectI.Intersect(localTarget, full);
+        if (region.IsEmpty) return null;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.EffectPatch();
+#endif
+        return new(layer.Id, RenderArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region),
+            new SKPointI(region.Left, region.Top));
     }
 
     /// <summary>Renders the effects without the cache. <paramref name="visible"/> should come from <see cref="LayerEffects.Visible"/>.</summary>
@@ -97,22 +231,32 @@ public static class LayerEffectsRenderer
         if (inset == 0) inset = 2;
         long width = pixels.Width + inset * 2L, height = pixels.Height + inset * 2L;
         if (width * height > MaxPixels || width > Document.MaxSide * 2 || height > Document.MaxSide * 2) return null;
-        var result = Pixels.NewLike(pixels, (int)width, (int)height);
+        return (RenderArea(pixels, mask, visible, fillOpacity, new SKRectI(-inset, -inset,
+            pixels.Width + inset, pixels.Height + inset)), inset);
+    }
+
+    private static SKBitmap RenderArea(SKBitmap pixels, SKBitmap? mask, LayerEffects visible, double fillOpacity, SKRectI area)
+    {
+        var width = area.Width;
+        var height = area.Height;
+        var x = -area.Left;
+        var y = -area.Top;
+        var result = Pixels.NewLike(pixels, width, height);
         using var canvas = new SKCanvas(result);
 
         // The layer as it is shown: its pixels through its mask, with room around them for the effects.
-        using var shown = Pixels.NewLike(pixels, (int)width, (int)height);
+        using var shown = Pixels.NewLike(pixels, width, height);
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.SurfaceAllocated("effect result", result);
         CanvasPerformanceTrace.SurfaceAllocated("effect masked source", shown);
 #endif
         using (var shownCanvas = new SKCanvas(shown))
         {
-            shownCanvas.DrawBitmap(pixels, inset, inset);
+            shownCanvas.DrawBitmap(pixels, x, y);
             if (mask != null)
             {
                 using var keep = new SKPaint { BlendMode = SKBlendMode.DstIn };
-                shownCanvas.DrawBitmap(mask, SKRect.Create(inset, inset, pixels.Width, pixels.Height), keep);
+                shownCanvas.DrawBitmap(mask, SKRect.Create(x, y, pixels.Width, pixels.Height), keep);
             }
         }
         // Its coverage: white where the layer is.
@@ -150,7 +294,7 @@ public static class LayerEffectsRenderer
         {
             var radians = gradient.Angle * Math.PI / 180;
             var dx = (float)Math.Cos(radians); var dy = (float)-Math.Sin(radians);
-            var center = new SKPoint(inset + pixels.Width / 2f, inset + pixels.Height / 2f);
+            var center = new SKPoint(x + pixels.Width / 2f, y + pixels.Height / 2f);
             var reach = (Math.Abs(dx) * pixels.Width + Math.Abs(dy) * pixels.Height) / 2f * (float)(gradient.Scale / 100);
             var colors = (gradient.Ramp ?? GradientRamp.Between(gradient.StartColor, gradient.EndColor)).ShaderColors(gradient.Reverse);
             using var shader = gradient.Radial
@@ -200,7 +344,7 @@ public static class LayerEffectsRenderer
             Tint(canvas, ring, stroke.Color, stroke.Opacity, pixels.ColorSpace);
         }
         canvas.Flush();
-        return (result, inset);
+        return result;
     }
 
     private static unsafe void MixColorOverlay(SKBitmap image, ColorOverlayEffect overlay, double fillOpacity)

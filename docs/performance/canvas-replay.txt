@@ -1,0 +1,73 @@
+Замеры холста Composa Studio
+
+Исходный коммит продукта
+1748ec6c1289d214409c491225529b096b40fc77
+
+Контрольная сборка со стендом и без оптимизаций
+79ac113405d55747417ee36f39b5bc29286a6b6b
+
+Подготовка
+
+Нужны .NET 10, PowerShell 7, пакеты проекта и модели из штатной сборки.
+Создание worktree не копирует игнорируемые файлы из src/Composa.Core/Models.
+Возьмите vitmatte_small.onnx, efficient_sam_vits_encoder.onnx и
+efficient_sam_vits_decoder.onnx из существующей рабочей копии или
+получите штатным скриптом проекта. Выделите одну
+папку для результатов. В её подпапке fixtures будут три одинаковых для
+обеих сборок проекта CMPS. Хеши проектов записываются в fixtures.json.
+
+Из контрольного worktree выполните
+
+  pwsh -File scripts/performance/Run-CanvasPerformance.ps1 -DataDirectory C:/bench/composa -Label baseline -GenerateFixtures
+
+Из worktree ветки codex/canvas-performance выполните
+
+  pwsh -File scripts/performance/Run-CanvasPerformance.ps1 -DataDirectory C:/bench/composa -Label candidate
+
+Сравнение, включая проверку хешей результата
+
+  pwsh -File scripts/performance/Compare-CanvasPerformance.ps1 -DataDirectory C:/bench/composa
+
+Параметр -Scenario позволяет прогнать отдельный сценарий. По умолчанию
+каждый из трёх сценариев повторяется пять раз в отдельных процессах.
+Сценарий tabs состоит из пяти циклов внутри одного процесса. Прогон
+возобновляется с отсутствующего JSON в выбранной папке -Label. При смене
+сборки используйте новую метку или отдельную папку результатов.
+
+Методика
+
+• Release без отладчика. Стенд использует окно 1440 × 900 в Avalonia
+  Headless с настоящим растровым Skia. Последовательность событий
+  указателя задана в CanvasPerformanceBench.cs. Для Ctrl+T последний
+  MouseMove намеренно пропускается, а MouseUp приходит на конечную точку.
+• Время отсчитывается от отправки события до завершения draw callback
+  холста. Показатель включает обработку ввода, подготовку кадра
+  и рисование. Физический показ, задержка устройства ввода и FPS
+  монитора в этом режиме не измеряются. Холодная фаза включает открытие
+  CMPS и первый рендер, тёплые фазы приводятся отдельно.
+• Private bytes и working set измеряются у процесса стенда. Пики
+  опрашиваются номинально раз в 10 мс и на границах фаз. Контрольные
+  точки отдельно содержат управляемую кучу и известные объёмы растров
+  и кэша. Логический размер mapped-растра отличается от рабочего набора.
+• Фотография для проектов взята из области холста в штатном
+  docs/images/studio-workspace.png. В RGB16 Adobe RGB (1998) используется
+  отдельный слой ретуши 3600 × 3000 внутри холста 6000 × 4000. Так
+  десять реальных Undo и Redo помещаются в штатный бюджет истории.
+• Счётчики существуют только при CanvasPerformance=true.
+  Обычная сборка исключает диагностику и стенд на этапе компиляции.
+  Стенд не вызывает принудительный сбор мусора.
+
+Контроль Object Selection
+
+Возьмите одинаковую фотографию с объектом в центре и фоном по краям.
+После сборки стенда в каждой рабочей копии задайте путь к этой фотографии
+и отдельный каталог для результатов. Проверка использует штатные модели.
+
+  $env:COMPOSA_PRECISE_SELECTION_PHOTO = 'C:/bench/composa/control-bear.png'
+  $env:COMPOSA_PRECISE_SELECTION_OUTPUT = 'C:/bench/composa/object-selection-baseline'
+  dotnet tests/Composa.App.Tests/bin/Release/net10.0/Composa.App.Tests.dll -method '*Photograph_compares_fast_and_precise_local_selection_and_saves_the_real_cutouts' -nocolor
+
+Повторите команду в рабочей копии ветки с другим каталогом результатов.
+Сопоставьте SHA-256 каждого PNG в обеих папках. Файлы fast-cutout.png и
+precise-cutout.png содержат альфу выделения. Для прогона из отчёта исходник
+получен обрезкой docs/images/studio-workspace.png от (465, 580) до (849, 900).

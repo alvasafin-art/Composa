@@ -549,6 +549,7 @@ public sealed partial class MainWindow : Window
         if (lastToolSource == item) lastToolSource = null;
         if (item == session) SetSession(sessions.Count == 0 ? null : sessions[Math.Clamp(index, 0, sessions.Count - 1)]);
         else RebuildTabs();
+        item.ReleaseEffectCache(sessions);
         GC.Collect();
         return true;
     }

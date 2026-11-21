@@ -64,6 +64,7 @@ public sealed class RenderOptions
 {
     /// <summary>Layers replaced while rendering (hidden for solo, or swapped for previews).</summary>
     public Dictionary<Guid, Layer>? Overrides { get; init; }
+    internal LayerEffectsRenderer.Patch? EffectPatch { get; init; }
 }
 
 /// <summary>Flattens the layer tree: blend modes, opacity, masks, clipping masks, folders and adjustment layers.</summary>
@@ -195,7 +196,7 @@ public static partial class DocumentRenderer
             return;
         }
         // Effects are drawn from an image that already has the mask applied, so the mask is not applied again.
-        var effects = EffectsOf(layer);
+        var effects = EffectsOf(layer, options);
         var hasMask = layer.RenderMask() != null && effects == null;
         if (layer.IsGroup && !hasMask && layer.Opacity >= 1 && layer.BlendIf.IsIdentity && layer.Blend == BlendMode.PassThrough && clipped.Count == 0)
         {
@@ -239,7 +240,7 @@ public static partial class DocumentRenderer
             {
                 if (top.IsAdjustment) { ApplyAdjustment(top, content); continue; }
                 using var over = tile.Sibling();
-                var topEffects = EffectsOf(top);
+                var topEffects = EffectsOf(top, options);
                 if (top.IsGroup) RenderNodes(top.Children, over, options);
                 else DrawPixels(top, over.Canvas, 1, BlendMode.Normal, topEffects, over.Depth == ColorDepth.Sixteen);
                 if (top.RenderMask() != null && topEffects == null) MultiplyByMask(top, over);
@@ -384,10 +385,18 @@ public static partial class DocumentRenderer
     }
 
     /// <summary>The layer's pixels with its effects drawn around them, or null when it has none (or they cannot be drawn).</summary>
-    private static (SKBitmap Image, int Inset)? EffectsOf(Layer layer) =>
-        layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1 ? null : LayerEffectsRenderer.Cached(layer.RenderFilterPixels()!, layer.RenderMask(), layer.Effects, layer.FillOpacity);
+    private readonly record struct EffectImage(SKBitmap Image, SKPointI Offset, bool Patch = false);
 
-    private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, (SKBitmap Image, int Inset)? effects, bool highPrecision)
+    private static EffectImage? EffectsOf(Layer layer, RenderOptions? options)
+    {
+        if (options?.EffectPatch is { } patch && patch.LayerId == layer.Id)
+            return new EffectImage(patch.Image, patch.Offset, Patch: true);
+        if (layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1) return null;
+        return LayerEffectsRenderer.Cached(layer.RenderFilterPixels()!, layer.RenderMask(), layer.Effects, layer.FillOpacity) is { } full
+            ? new EffectImage(full.Image, new SKPointI(-full.Inset, -full.Inset)) : null;
+    }
+
+    private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, EffectImage? effects, bool highPrecision)
     {
         if (layer.Pixels == null) return;
         if (effects == null) opacity *= layer.FillOpacity;
@@ -399,11 +408,17 @@ public static partial class DocumentRenderer
             {
                 // The effects image is the layer's pixels grown by the inset on every side, so it lands in the same place.
                 target.Save();
-                target.Translate(-built.Inset, -built.Inset);
-                DrawBitmap(target, built.Image, paint);
+                target.Translate(built.Offset.X, built.Offset.Y);
+                if (built.Patch)
+                {
+                    using var pixmap = built.Image.PeekPixels();
+                    using var image = SKImage.FromPixels(pixmap);
+                    target.DrawImage(image, 0, 0, SamplingFor(target.TotalMatrix), paint);
+                }
+                else DrawBitmap(target, built.Image, paint);
                 target.Restore();
                 // While a stroke is in progress the effects are those of the pixels at its start; the wet paint goes over them.
-                if (Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
+                if (!built.Patch && Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
             }
             else if (!layer.DrawSmartFilterPixels(target, paint)) DrawBitmap(target, layer.Pixels, paint);
         }

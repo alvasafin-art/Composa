@@ -394,6 +394,22 @@ public sealed partial class EditorSession
 
     public void NotifyLayersChanged() => LayersChanged?.Invoke();
 
+    /// <summary>Drops effect cache ownership when a tab closes. Existing readers keep their own references.</summary>
+    public void ReleaseEffectCache(IEnumerable<EditorSession> remaining)
+    {
+        var closed = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        var inUse = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
+        document.CollectBitmaps(closed);
+        History.CollectBitmaps(closed);
+        foreach (var other in remaining)
+        {
+            other.document.CollectBitmaps(inUse);
+            other.History.CollectBitmaps(inUse);
+        }
+        closed.ExceptWith(inUse);
+        LayerEffectsRenderer.Forget(closed);
+    }
+
     /// <summary>The flattened document, brought up to date. Call from the UI thread.</summary>
     public SKBitmap Composite()
     {
@@ -454,7 +470,8 @@ public sealed partial class EditorSession
                 overrides[id] = hidden;
                 options = new RenderOptions { Overrides = overrides };
             }
-            DocumentRenderer.Render(document, target, area, view, options);
+            using var patch = options == null ? StrokeEffectPatch(area, view) : null;
+            DocumentRenderer.Render(document, target, area, view, patch == null ? options : new RenderOptions { EffectPatch = patch });
         }
     }
 
