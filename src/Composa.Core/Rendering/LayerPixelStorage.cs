@@ -49,6 +49,9 @@ internal static class LayerPixelStorage
             View = section.File.CreateViewAccessor(0, 0, changed == null ? MemoryMappedFileAccess.ReadWrite : MemoryMappedFileAccess.CopyOnWrite);
             Address = View.SafeMemoryMappedViewHandle.DangerousGetHandle();
             section.Retain();
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.ViewMapped((long)info.RowBytes * info.Height);
+#endif
         }
 
         private int released;
@@ -57,6 +60,9 @@ internal static class LayerPixelStorage
             if (Interlocked.Exchange(ref released, 1) != 0) return;
             View.Dispose();
             Section.Release();
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.ViewReleased((long)format.RowBytes * format.Height);
+#endif
         }
 
         internal bool Owns(SKBitmap bitmap, SKImageInfo info) => Volatile.Read(ref released) == 0

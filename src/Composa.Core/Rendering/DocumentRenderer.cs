@@ -134,7 +134,7 @@ public static partial class DocumentRenderer
         return margin;
     }
 
-    private static unsafe void CopyRows(SKBitmap from, SKPointI fromOrigin, SKBitmap to, SKRectI area)
+    internal static unsafe void CopyRows(SKBitmap from, SKPointI fromOrigin, SKBitmap to, SKRectI area)
     {
         var source = (byte*)from.GetPixels();
         var destination = (byte*)to.GetPixels();
@@ -385,15 +385,15 @@ public static partial class DocumentRenderer
     }
 
     /// <summary>The layer's pixels with its effects drawn around them, or null when it has none (or they cannot be drawn).</summary>
-    private readonly record struct EffectImage(SKBitmap Image, SKPointI Offset, bool Patch = false);
+    private readonly record struct EffectImage(SKBitmap Image, int Inset, LayerEffectsRenderer.Patch? Patch = null);
 
     private static EffectImage? EffectsOf(Layer layer, RenderOptions? options)
     {
         if (options?.EffectPatch is { } patch && patch.LayerId == layer.Id)
-            return new EffectImage(patch.Image, patch.Offset, Patch: true);
+            return new EffectImage(patch.Image, patch.Inset, patch);
         if (layer.Pixels == null || layer.Effects == null && layer.FillOpacity >= 1) return null;
         return LayerEffectsRenderer.Cached(layer.RenderFilterPixels()!, layer.RenderMask(), layer.Effects, layer.FillOpacity) is { } full
-            ? new EffectImage(full.Image, new SKPointI(-full.Inset, -full.Inset)) : null;
+            ? new EffectImage(full.Image, full.Inset) : null;
     }
 
     private static void DrawPixels(Layer layer, SKCanvas canvas, double opacity, BlendMode blend, EffectImage? effects, bool highPrecision)
@@ -408,17 +408,20 @@ public static partial class DocumentRenderer
             {
                 // The effects image is the layer's pixels grown by the inset on every side, so it lands in the same place.
                 target.Save();
-                target.Translate(built.Offset.X, built.Offset.Y);
-                if (built.Patch)
+                target.Translate(-built.Inset, -built.Inset);
+                if (built.Patch is { } patch)
                 {
+                    var reduced = patch.Scale.Width != 1 || patch.Scale.Height != 1;
+                    var sampling = reduced ? new SKSamplingOptions(SKFilterMode.Linear) : SamplingFor(target.TotalMatrix);
+                    if (reduced) target.Scale(patch.Scale.Width, patch.Scale.Height);
                     using var pixmap = built.Image.PeekPixels();
                     using var image = SKImage.FromPixels(pixmap);
-                    target.DrawImage(image, 0, 0, SamplingFor(target.TotalMatrix), paint);
+                    target.DrawImage(image, patch.Offset.X, patch.Offset.Y, sampling, paint);
                 }
                 else DrawBitmap(target, built.Image, paint);
                 target.Restore();
                 // While a stroke is in progress the effects are those of the pixels at its start; the wet paint goes over them.
-                if (!built.Patch && Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
+                if (built.Patch == null && Pixels.IsLive(layer.Pixels) && layer.RenderMask() == null) DrawBitmap(target, layer.Pixels, paint);
             }
             else if (!layer.DrawSmartFilterPixels(target, paint)) DrawBitmap(target, layer.Pixels, paint);
         }

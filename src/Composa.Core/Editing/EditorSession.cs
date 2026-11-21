@@ -394,8 +394,8 @@ public sealed partial class EditorSession
 
     public void NotifyLayersChanged() => LayersChanged?.Invoke();
 
-    /// <summary>Drops effect cache ownership when a tab closes. Existing readers keep their own references.</summary>
-    public void ReleaseEffectCache(IEnumerable<EditorSession> remaining)
+    /// <summary>Releases the closed tab's document, history and caches. Captured snapshots keep their own bitmaps.</summary>
+    public void ReleaseClosedResources(IEnumerable<EditorSession> remaining)
     {
         var closed = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
         var inUse = new HashSet<SKBitmap>(ReferenceEqualityComparer.Instance);
@@ -408,6 +408,17 @@ public sealed partial class EditorSession
         }
         closed.ExceptWith(inUse);
         LayerEffectsRenderer.Forget(closed);
+        History.Clear();
+        composite = null;
+        pendingBefore = null;
+        // Asynchronous UI work can still hold the session after the tab is gone.
+        // Drop its ownership without changing a document or pixels a reader already captured.
+        document = new Document(document.Width, document.Height)
+        {
+            Depth = document.Depth,
+            Profile = document.Profile,
+            Resolution = document.Resolution
+        };
     }
 
     /// <summary>The flattened document, brought up to date. Call from the UI thread.</summary>

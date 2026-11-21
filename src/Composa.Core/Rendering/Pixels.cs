@@ -287,7 +287,7 @@ public static partial class Pixels
     }
 
     /// <summary>A half-size copy averaging each 2×2 block. Premultiplied pixels average correctly as they are.</summary>
-    private static unsafe SKBitmap Halve(SKBitmap source)
+    internal static unsafe SKBitmap Halve(SKBitmap source)
     {
         int width = Math.Max(1, source.Width / 2), height = Math.Max(1, source.Height / 2), bpp = source.BytesPerPixel;
         var half = new SKBitmap(source.Info.WithSize(width, height));

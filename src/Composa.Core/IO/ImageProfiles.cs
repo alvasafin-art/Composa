@@ -111,15 +111,16 @@ internal static class ImageProfiles
         finally { input.Position = start; }
     }
 
-    private static void WritePng(Stream output, byte[] encoded, byte[] profile, double resolution)
+    internal static void WritePng(Stream output, ReadOnlySpan<byte> encoded, byte[] profile, double resolution)
     {
-        output.Write(encoded.AsSpan(0, 8));
+        output.Write(encoded[..8]);
         for (var offset = 8; offset + 12 <= encoded.Length;)
         {
-            var length = checked((int)BinaryPrimitives.ReadUInt32BigEndian(encoded.AsSpan(offset, 4)));
-            var kind = Encoding.ASCII.GetString(encoded, offset + 4, 4);
-            if (kind is not ("iCCP" or "sRGB" or "pHYs")) output.Write(encoded.AsSpan(offset, length + 12));
-            if (kind == "IHDR")
+            var length = checked((int)BinaryPrimitives.ReadUInt32BigEndian(encoded.Slice(offset, 4)));
+            var kind = encoded.Slice(offset + 4, 4);
+            if (!kind.SequenceEqual("iCCP"u8) && !kind.SequenceEqual("sRGB"u8) && !kind.SequenceEqual("pHYs"u8))
+                output.Write(encoded.Slice(offset, length + 12));
+            if (kind.SequenceEqual("IHDR"u8))
             {
                 var density = new byte[9];
                 uint ppm = (uint)Math.Round(resolution / 0.0254);

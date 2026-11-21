@@ -105,8 +105,13 @@ public static class LayerEffectsRenderer
             (SKBitmap Image, int Inset)? made;
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.EffectStarted(key.Pixels, key.Mask, key.Effects, key.FillOpacity);
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try { made = Render(key.Pixels, key.Mask, key.Effects, key.FillOpacity); }
-            finally { CanvasPerformanceTrace.EffectCompleted(key.Pixels, key.Mask, key.Effects, key.FillOpacity); }
+            finally
+            {
+                CanvasPerformanceTrace.StageCompleted("full effect", started);
+                CanvasPerformanceTrace.EffectCompleted(key.Pixels, key.Mask, key.Effects, key.FillOpacity);
+            }
 #else
             made = Render(key.Pixels, key.Mask, key.Effects, key.FillOpacity);
 #endif
@@ -181,7 +186,7 @@ public static class LayerEffectsRenderer
         }
     }
 
-    internal sealed record Patch(Guid LayerId, SKBitmap Image, SKPointI Offset) : IDisposable
+    internal sealed record Patch(Guid LayerId, SKBitmap Image, int Inset, SKPointI Offset, SKSize Scale) : IDisposable
     {
         public void Dispose() => Image.Dispose();
     }
@@ -192,7 +197,7 @@ public static class LayerEffectsRenderer
         Math.Max(effects.Stroke?.Size ?? 0, (effects.OuterGlow?.Size ?? 0) * 2),
         (effects.Shadow?.Distance ?? 0) + (effects.Shadow?.Blur ?? 0) * 2)) + 4;
 
-    /// <summary>Only unscaled raster content with spatially local effects takes the native-view patch path.</summary>
+    /// <summary>Only translated raster content with spatially local effects takes the patch path.</summary>
     internal static LayerEffects? PatchEffects(Layer layer)
     {
         if (layer.Pixels == null || layer.IsSmartObject || layer.FilterSource != null || layer.HasWarp
@@ -205,23 +210,66 @@ public static class LayerEffectsRenderer
             ? effects : null;
     }
 
-    internal static Patch? RenderPatch(Layer layer, SKRectI localTarget, LayerEffects effects)
+    internal static Patch? RenderPatch(Layer layer, SKRectI localTarget, LayerEffects effects, float scale, bool nativeGrid)
     {
         var pixels = layer.Pixels!;
         var inset = Math.Max(2, effects.Margin());
         var full = new SKRectI(-inset, -inset, pixels.Width + inset, pixels.Height + inset);
-        if ((long)full.Width * full.Height > MaxPixels) return null;
+        if ((long)full.Width * full.Height > MaxPixels || full.Width > Document.MaxSide * 2 || full.Height > Document.MaxSide * 2)
+            return null;
+        var mipWidth = full.Width;
+        var mipHeight = full.Height;
+        var stride = 1;
+        while (scale < .5f && scale * stride <= .5f && mipWidth > 64 && mipHeight > 64)
+        {
+            stride *= 2;
+            mipWidth /= 2;
+            mipHeight /= 2;
+        }
         // The output tile sees exactly the same source neighbourhood as the full renderer.
-        // Add space for dilation/erosion and Skia's filter sampling on a fractional shadow offset.
-        var halo = PatchHalo(effects);
+        // Include the extra source pixels needed for reduction and linear sampling of the mip.
+        var halo = PatchHalo(effects) + (nativeGrid ? 0 : 2 * stride);
         localTarget.Inflate(halo, halo);
         var region = SKRectI.Intersect(localTarget, full);
         if (region.IsEmpty) return null;
+        // Reduction averages the same 2×2 blocks as the full image, starting at its top-left.
+        region.Left = full.Left + (region.Left - full.Left) / stride * stride;
+        region.Top = full.Top + (region.Top - full.Top) / stride * stride;
+        region.Right = Math.Min(full.Right, full.Left + (region.Right - full.Left + stride - 1) / stride * stride);
+        region.Bottom = Math.Min(full.Bottom, full.Top + (region.Bottom - full.Top + stride - 1) / stride * stride);
+        if (region.Width < stride || region.Height < stride) return null;
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.EffectPatch();
 #endif
-        return new(layer.Id, RenderArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region),
-            new SKPointI(region.Left, region.Top));
+        var image = RenderArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region);
+        try
+        {
+            for (var step = stride; step > 1; step /= 2)
+            {
+                var half = Pixels.Halve(image);
+                image.Dispose();
+                image = half;
+            }
+            var offset = new SKPointI((region.Left - full.Left) / stride, (region.Top - full.Top) / stride);
+            if (nativeGrid) return new(layer.Id, image, inset, offset, new SKSize(1, 1));
+
+            // The scaled draw must have the same origin and dimensions as a full effect draw.
+            // Translating a cropped image changes Skia's fractional sampling rounding.
+            // Only the part this view can sample has been rendered into this bitmap.
+            var positioned = Pixels.NewLike(image, mipWidth, mipHeight);
+            try
+            {
+                DocumentRenderer.CopyRows(image, SKPointI.Empty, positioned,
+                    SKRectI.Create(offset.X, offset.Y, image.Width, image.Height));
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.SurfaceAllocated("effect view sampling grid", positioned);
+#endif
+            }
+            catch { positioned.Dispose(); throw; }
+            image.Dispose();
+            return new(layer.Id, positioned, inset, SKPointI.Empty, new SKSize((float)full.Width / mipWidth, (float)full.Height / mipHeight));
+        }
+        catch { image.Dispose(); throw; }
     }
 
     /// <summary>Renders the effects without the cache. <paramref name="visible"/> should come from <see cref="LayerEffects.Visible"/>.</summary>
@@ -376,6 +424,9 @@ public static class LayerEffectsRenderer
     /// <summary>The coverage moved by an offset and softened by a Gaussian of <paramref name="sigma"/>.</summary>
     private static SKBitmap Shifted(SKBitmap coverage, float dx, float dy, float sigma)
     {
+#if CANVAS_PERFORMANCE
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var moved = Pixels.NewMask(coverage.Width, coverage.Height);
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.SurfaceAllocated("effect shifted coverage", moved);
@@ -384,6 +435,9 @@ public static class LayerEffectsRenderer
         using var paint = new SKPaint();
         if (sigma > 0.01f) paint.ImageFilter = SKImageFilter.CreateBlur(sigma, sigma);
         canvas.DrawBitmap(coverage, dx, dy, paint);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted(dx == 0 && dy == 0 ? "stationary blur" : "offset blur", started);
+#endif
         return moved;
     }
 

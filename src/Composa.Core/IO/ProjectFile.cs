@@ -161,8 +161,14 @@ public static class ProjectFile
             if (written.TryGetValue(bitmap, out var existing)) return existing;
             var entry = zip.CreateEntry("images/" + name, CompressionLevel.NoCompression);
             using var output = entry.Open();
-            var bytes = bitmap.ColorType == SKColorType.Alpha8 ? EncodeMask(bitmap) : ImageFiles.Encode(bitmap, ExportFormat.Png);
-            output.Write(bytes);
+            if (bitmap.ColorType == SKColorType.Alpha8) output.Write(EncodeMask(bitmap));
+            else
+            {
+                // The encoder already owns the compressed PNG. Stream its chunks and profile
+                // to the archive without building further copies on the large object heap.
+                using var encoded = bitmap.Encode(SKEncodedImageFormat.Png, 90) ?? throw new IOException("The image could not be encoded.");
+                ImageProfiles.WritePng(output, encoded.AsSpan(), Pixels.ProfileOf(bitmap).IccBytes(), 72);
+            }
             return written[bitmap] = name;
         }
 

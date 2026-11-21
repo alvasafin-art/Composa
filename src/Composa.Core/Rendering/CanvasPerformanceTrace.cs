@@ -11,12 +11,29 @@ public static class CanvasPerformanceTrace
     private static readonly object Sync = new();
     private static readonly Dictionary<EffectKey, int> Running = [];
     private static readonly Dictionary<string, (long Count, long Bytes, long Largest)> Allocations = [];
+    private static readonly Dictionary<string, (int Calls, long Ticks)> Timings = [];
     private static int hits, calculations, overlapping, patches;
     private static long frameAt;
+    private static long mappedBytes;
+    private static int mappedViews;
 
     private readonly record struct EffectKey(SKBitmap Pixels, SKBitmap? Mask, LayerEffects Effects, double FillOpacity);
     public sealed record Surface(string Owner, long Count, long Bytes, long Largest);
-    public sealed record Sample(int Hits, int Calculations, int MaxSameKey, int Patches, long CachedBytes, Surface[] Surfaces);
+    public sealed record Stage(string Name, int Calls, double Milliseconds);
+    public sealed record Sample(int Hits, int Calculations, int MaxSameKey, int Patches, long CachedBytes, Surface[] Surfaces, Stage[] Stages);
+    public static (int Views, long Bytes) Mapped => (Volatile.Read(ref mappedViews), Interlocked.Read(ref mappedBytes));
+
+    internal static void ViewMapped(long bytes) { Interlocked.Increment(ref mappedViews); Interlocked.Add(ref mappedBytes, bytes); }
+    internal static void ViewReleased(long bytes) { Interlocked.Decrement(ref mappedViews); Interlocked.Add(ref mappedBytes, -bytes); }
+
+    internal static void StageCompleted(string stage, long started)
+    {
+        lock (Sync)
+        {
+            var previous = Timings.GetValueOrDefault(stage);
+            Timings[stage] = (previous.Calls + 1, previous.Ticks + Stopwatch.GetTimestamp() - started);
+        }
+    }
 
     public static long FrameAt => Interlocked.Read(ref frameAt);
     public static void FrameCompleted() => Interlocked.Exchange(ref frameAt, Stopwatch.GetTimestamp());
@@ -59,7 +76,8 @@ public static class CanvasPerformanceTrace
     {
         var cacheBytes = LayerEffectsRenderer.MeasureCacheBytes();
         lock (Sync) return new(hits, calculations, overlapping, patches, cacheBytes,
-            Allocations.Select(pair => new Surface(pair.Key, pair.Value.Count, pair.Value.Bytes, pair.Value.Largest)).ToArray());
+            Allocations.Select(pair => new Surface(pair.Key, pair.Value.Count, pair.Value.Bytes, pair.Value.Largest)).ToArray(),
+            Timings.Select(pair => new Stage(pair.Key, pair.Value.Calls, Stopwatch.GetElapsedTime(0, pair.Value.Ticks).TotalMilliseconds)).ToArray());
     }
 
     public static void Reset()
@@ -68,6 +86,7 @@ public static class CanvasPerformanceTrace
         {
             hits = calculations = overlapping = patches = 0;
             Allocations.Clear();
+            Timings.Clear();
         }
     }
 }

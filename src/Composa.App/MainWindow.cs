@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Composa.App.AI;
 using Composa.App.Assistant;
 using Composa.App.Automation;
@@ -516,6 +517,8 @@ public sealed partial class MainWindow : Window
             ShowProblem("Couldn't open the folder " + (folder ?? path) + ".");
     }
 
+    private IDisposable? closeCollection;
+
     private async Task<bool> CloseSession(EditorSession item)
     {
         if (!sessions.Contains(item)) return true;
@@ -549,8 +552,13 @@ public sealed partial class MainWindow : Window
         if (lastToolSource == item) lastToolSource = null;
         if (item == session) SetSession(sessions.Count == 0 ? null : sessions[Math.Clamp(index, 0, sessions.Count - 1)]);
         else RebuildTabs();
-        item.ReleaseEffectCache(sessions);
-        GC.Collect();
+        item.ReleaseClosedResources(sessions);
+        // Let the close call and the detached controls release their last references before
+        // collecting native raster wrappers. Closing several tabs only schedules one collection.
+        closeCollection?.Dispose();
+        closeCollection = DispatcherTimer.RunOnce(
+            static () => GC.Collect(2, GCCollectionMode.Forced, blocking: false),
+            TimeSpan.FromMilliseconds(250), DispatcherPriority.Background);
         return true;
     }
 

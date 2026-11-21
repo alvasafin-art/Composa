@@ -241,9 +241,10 @@ public sealed partial class EditorSession
         if (changed.IsEmpty) return;
         if (IsEditingComponent) Pixels.ConstrainChannels(stroke.Working, strokeOriginal!, EditingRgbChannels, changed);
         var area = Geometry.RoundOut(stroke.ToDocument.MapRect(SKRect.Create(changed.Left, changed.Top, changed.Width, changed.Height)));
-        if (ViewZoom >= 1 && document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(strokeLayer!) is { } effects)
+        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(strokeLayer!) is { } effects)
         {
-            var halo = LayerEffectsRenderer.PatchHalo(effects);
+            // A reduced view can sample over the changed source pixels from an adjacent pixel.
+            var halo = LayerEffectsRenderer.PatchHalo(effects) + (int)Math.Ceiling(2 / Math.Clamp(ViewZoom, .001, 1));
             area.Inflate(halo, halo);
         }
         area.Inflate(1, 1);
@@ -259,17 +260,19 @@ public sealed partial class EditorSession
         var finishing = finishingStrokeEffect;
         finishingStrokeEffect = null;
         var layer = strokeLayer ?? (finishing is { } id ? document.Find(id) : null);
-        if (document.WorkingDepth != ColorDepth.Eight || ViewZoom < 1 || view.Scale != 1 || layer == null
+        if (document.WorkingDepth != ColorDepth.Eight || layer == null
             || StrokeCanUsePatch(layer) is not { } effects)
             return null;
         var matrix = layer.Matrix;
         var x = view.Origin.X - matrix.TransX;
         var y = view.Origin.Y - matrix.TransY;
-        if (x != MathF.Round(x) || y != MathF.Round(y)) return null;
-        var halo = (int)Math.Ceiling(DocumentRenderer.SamplingMargin(document));
+        var halo = (int)Math.Ceiling(DocumentRenderer.SamplingMargin(document) * view.Scale);
         targetArea.Inflate(halo, halo);
-        targetArea.Offset((int)x, (int)y);
-        return LayerEffectsRenderer.RenderPatch(layer, targetArea, effects);
+        var localArea = Geometry.RoundOut(new SKRect(
+            x + targetArea.Left / view.Scale, y + targetArea.Top / view.Scale,
+            x + targetArea.Right / view.Scale, y + targetArea.Bottom / view.Scale));
+        var nativeGrid = view.Scale == 1 && x == MathF.Round(x) && y == MathF.Round(y);
+        return LayerEffectsRenderer.RenderPatch(layer, localArea, effects, view.Scale, nativeGrid);
     }
 
     public void EndStroke()
@@ -350,7 +353,7 @@ public sealed partial class EditorSession
             SetTarget(layer, healed);
             Invalidate(AffectedArea(layer));
         }
-        if (ViewZoom >= 1 && document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null)
+        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null)
             finishingStrokeEffect = layer.Id;
         CloseStroke();
         Commit();

@@ -26,6 +26,7 @@ public sealed class CanvasPerformanceBench
     private readonly List<Phase> phases = [];
     private readonly List<Snapshot> checkpoints = [];
     private readonly Dictionary<string, object> checks = [];
+    private readonly List<WeakReference<EditorSession>> closedTabs = [];
     private MainWindow window = null!;
     private ProcessMemory memory = null!;
     private long phaseStart;
@@ -54,6 +55,15 @@ public sealed class CanvasPerformanceBench
             Checkpoint("closed");
             await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Checkpoint("closed +30s");
+            if (Environment.GetEnvironmentVariable("COMPOSA_PERF_DIAG_GC") == "1")
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Checkpoint("diagnostic GC 1");
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Checkpoint("diagnostic GC 2");
+            }
             var output = Environment.GetEnvironmentVariable("COMPOSA_PERF_OUTPUT")!;
             File.WriteAllText(output, JsonSerializer.Serialize(new
             {
@@ -206,6 +216,7 @@ public sealed class CanvasPerformanceBench
             await Task.Delay(10, TestContext.Current.CancellationToken);
         }
         Assert.DoesNotContain(session, window.Sessions);
+        closedTabs.Add(new(session));
         Pump();
     }
 
@@ -259,7 +270,8 @@ public sealed class CanvasPerformanceBench
 
     private void Checkpoint(string name, EditorSession? session = null) =>
         checkpoints.Add(new(name, memory.Read(), GC.GetTotalMemory(false), session?.Document.RasterPixels() * 4 ?? 0,
-            CanvasPerformanceTrace.Snapshot().CachedBytes));
+            CanvasPerformanceTrace.Snapshot().CachedBytes, CanvasPerformanceTrace.Mapped.Views, CanvasPerformanceTrace.Mapped.Bytes,
+            closedTabs.Count(tab => tab.TryGetTarget(out _)), GC.CollectionCount(2), GC.GetGCMemoryInfo().TotalCommittedBytes));
 
     private static SKPoint[] Path(SKPoint start, float dx, float dy, int moves = 13) =>
         Enumerable.Range(0, moves + 1).Select(i => new SKPoint(start.X + dx * i / moves, start.Y + dy * i / moves)).ToArray();
@@ -339,7 +351,8 @@ public sealed class CanvasPerformanceBench
 
     private sealed record InputFrame(string Input, double? CompleteMs);
     private sealed record Phase(string Name, double ElapsedMs, List<InputFrame> Events, Mem Peak, CanvasPerformanceTrace.Sample Diagnostics);
-    private sealed record Snapshot(string Name, Mem Memory, long Managed, long DocumentRaster, long EffectCache);
+    private sealed record Snapshot(string Name, Mem Memory, long Managed, long DocumentRaster, long EffectCache,
+        int MappedViews, long MappedBytes, int ClosedTabsAlive, int Gen2Collections, long ManagedCommitted);
     private sealed record Mem(long Private, long WorkingSet);
 
     private sealed class ProcessMemory : IDisposable
