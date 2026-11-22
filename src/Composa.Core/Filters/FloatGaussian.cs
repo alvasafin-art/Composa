@@ -23,7 +23,7 @@ internal static class FloatGaussian
         {
             Span<int> radii = stackalloc int[3];
             BoxRadii(sigma, radii);
-            if (GpuRasterFilters.TryBlur(bitmap, temporary, radii, clamp))
+            if (GpuAcceleration.TryBlur(bitmap, temporary, radii, clamp))
                 temporary.GetPixelSpan().CopyTo(bitmap.GetPixelSpan());
             else
                 ApplyBoxes(bitmap, temporary, radii, clamp);

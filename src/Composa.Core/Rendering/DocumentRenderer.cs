@@ -90,6 +90,12 @@ public static partial class DocumentRenderer
     {
         area = Geometry.Intersect(area, new SKRectI(0, 0, target.Width, target.Height));
         if (area.IsEmpty) return;
+        if (TryRenderGpu(document, target, area, view, options))
+        {
+            Pixels.ClampColor(target, area);
+            Pixels.Invalidate(target);
+            return;
+        }
         // Skia's raster backend draws on one thread, so large areas are split into bands rendered side by side.
         // Every layer operation is per-pixel, which makes the bands independent of each other, except the blur
         // adjustments: their bands are rendered with a halo of the picture around them that is then left out.

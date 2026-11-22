@@ -562,7 +562,10 @@ public static partial class AiDialogs
             IsChecked = settings.UseSelectionGpu, IsEnabled = OperatingSystem.IsWindows() };
         const string rasterGpuLabel = "Use GPU for large RGB16 blur filters";
         var rasterGpu = new CheckBox { Name = "UseRasterFilterGpu", Content = Locale.T(rasterGpuLabel),
-            IsChecked = settings.UseRasterFilterGpu, IsEnabled = Composa.Filters.GpuRasterFilters.CanEnable };
+            IsChecked = settings.UseRasterFilterGpu, IsEnabled = Composa.Rendering.GpuAcceleration.CanEnable };
+        const string editorGpuLabel = "Use GPU acceleration for editing";
+        var editorGpu = new CheckBox { Name = "UseEditorGpu", Content = Locale.T(editorGpuLabel),
+            IsChecked = settings.UseEditorGpu, IsEnabled = Composa.Rendering.GpuAcceleration.CanEnable };
         var devices = new Composa.Vision.OnnxModel[] { Composa.Vision.PromptModels.EfficientSamS.Encoder,
             Composa.Vision.PromptModels.EfficientSamS.Decoder, Composa.Vision.RefinementModels.VitMatte };
         var usedDevices = devices.Select(m => (m.Name, Device: Composa.Vision.ModelRunner.DeviceFor(m)))
@@ -580,7 +583,7 @@ public static partial class AiDialogs
                 Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
                     serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
-                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, selectionGpu, rasterGpu, linkedSources, updates))
+                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -654,6 +657,7 @@ public static partial class AiDialogs
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
             (gpuLabel, "GPU CPU SAM ViTMatte DirectML видеокарта выделение", 3, selectionGpu, null, null),
             (rasterGpuLabel, "GPU CPU OpenCL Gaussian RGB16 видеокарта ускорение фильтры", 3, rasterGpu, null, null),
+            (editorGpuLabel, "GPU CPU OpenCL rendering brush effects видеокарта ускорение холст кисть эффекты", 3, editorGpu, null, null),
             ("Group side panels in tabs", "панели вкладки", 3, groupedPanels, null, null),
             ("Automatically refresh linked files", "обновление связь", 3, linkedSources, null, null),
             ("Check for updates", "обновления", 3, updates, null, null)
@@ -808,7 +812,9 @@ public static partial class AiDialogs
         settings.UseSelectionGpu = selectionGpu.IsChecked == true;
         Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;
         settings.UseRasterFilterGpu = rasterGpu.IsChecked == true;
-        Composa.Filters.GpuRasterFilters.SetEnabled(settings.UseRasterFilterGpu);
+        if (settings.UseEditorGpu && editorGpu.IsChecked != true) Composa.Rendering.GpuAcceleration.ReleaseCanvasCache();
+        settings.UseEditorGpu = editorGpu.IsChecked == true;
+        Composa.Rendering.GpuAcceleration.Configure(settings.UseRasterFilterGpu, settings.UseEditorGpu);
         settings.TabbedPanels = groupedPanels.IsChecked == true;
         settings.AutoUpdateLinkedSources = linkedSources.IsChecked == true;
         settings.CheckForUpdates = updates.IsChecked == true;

@@ -51,6 +51,8 @@ public sealed class CanvasPerformanceBench
         }
         using var sampler = new ProcessMemory();
         memory = sampler;
+        var editorGpu = Environment.GetEnvironmentVariable("COMPOSA_PERF_EDITOR_GPU") == "1";
+        GpuAcceleration.Configure(filters: false, editor: editorGpu);
         window = new MainWindow { Width = WindowWidth, Height = WindowHeight };
         window.Show();
         Pump();
@@ -100,7 +102,11 @@ public sealed class CanvasPerformanceBench
                 await Task.Delay(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
             }
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+            GpuAcceleration.Configure(filters: false, editor: false);
+        }
     }
 
     private async Task Exercise(string folder, string scenario)

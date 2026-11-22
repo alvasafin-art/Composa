@@ -41,7 +41,7 @@ public sealed class App : Application
         var settings = Settings.Load();
         Locale.Language = settings.Language;
         Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;
-        Composa.Filters.GpuRasterFilters.SetEnabled(settings.UseRasterFilterGpu);
+        Composa.Rendering.GpuAcceleration.Configure(settings.UseRasterFilterGpu, settings.UseEditorGpu);
         Palette.Use(EditorTheme.Classic);
         RequestedThemeVariant = ThemeVariant.Dark;
         // Native controls otherwise inherit Windows' accent, which can turn the blue interface purple.

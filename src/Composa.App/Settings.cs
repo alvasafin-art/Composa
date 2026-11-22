@@ -57,6 +57,7 @@ public sealed class Settings
     public bool AiLorasEnabled { get; set; }
     public bool UseSelectionGpu { get; set; } = true;
     public bool UseRasterFilterGpu { get; set; }
+    public bool UseEditorGpu { get; set; }
     public bool AiShowContextBounds { get; set; } = true;
     public bool AiFloatingCollapsed { get; set; }
     public int AiDefaultsRevision { get; set; } = 1;

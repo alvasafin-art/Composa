@@ -14,6 +14,7 @@ using Composa.App.Controls;
 using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
+using Composa.Rendering;
 using Composa.Vision;
 using SkiaSharp;
 
@@ -554,6 +555,7 @@ public sealed partial class MainWindow : Window
         if (item == session) SetSession(sessions.Count == 0 ? null : sessions[Math.Clamp(index, 0, sessions.Count - 1)]);
         else RebuildTabs();
         item.ReleaseClosedResources(sessions);
+        GpuAcceleration.ReleaseCanvasCache();
         // Let the close call and the detached controls release their last references before
         // collecting native raster wrappers. Closing several tabs only schedules one collection.
         closeCollection?.Dispose();

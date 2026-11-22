@@ -564,14 +564,21 @@ public static class LayerEffectsRenderer
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.SurfaceAllocated("effect shifted coverage", moved);
 #endif
-        using var canvas = new SKCanvas(moved);
-        using var paint = new SKPaint();
-        if (sigma > 0.01f) paint.ImageFilter = SKImageFilter.CreateBlur(sigma, sigma);
-        canvas.DrawBitmap(coverage, dx, dy, paint);
+        if (!GpuAcceleration.TryLayerEffectBlur(coverage, moved, dx, dy, sigma))
+            DrawShifted(coverage, moved, dx, dy, sigma);
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.StageCompleted(dx == 0 && dy == 0 ? "stationary blur" : "offset blur", started);
 #endif
         return moved;
+    }
+
+    internal static void DrawShifted(SKBitmap coverage, SKBitmap target, float dx, float dy, float sigma)
+    {
+        using var canvas = new SKCanvas(target);
+        using var paint = new SKPaint();
+        using var filter = sigma > 0.01f ? SKImageFilter.CreateBlur(sigma, sigma) : null;
+        paint.ImageFilter = filter;
+        canvas.DrawBitmap(coverage, dx, dy, paint);
     }
 
     /// <summary>

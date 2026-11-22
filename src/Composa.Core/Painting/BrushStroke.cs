@@ -228,6 +228,13 @@ public sealed unsafe partial class BrushStroke : IDisposable
 
         var changed = false;
         var flow = (float)Math.Clamp(settings.Flow, 0, 1) * (settings.PressureFlow ? dabPressure : 1);
+        if (GpuAcceleration.EditorEnabled && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing)
+            && GpuAcceleration.TryCoverage(coverage, rect, center, radius, hardness, falloff, flow, out changed))
+        {
+            if (!changed) return SKRectI.Empty;
+            if (!deferColor) Recompute(rect);
+            return rect;
+        }
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             for (var x = rect.Left; x < rect.Right; x++)
@@ -272,6 +279,10 @@ public sealed unsafe partial class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private void Recompute(SKRectI rect)
     {
+        if (GpuAcceleration.EditorEnabled && mode is (BrushMode.Paint or BrushMode.Erase)
+            && selectionPixels == null && !LockTransparency && Working.ColorType == SKColorType.Rgba8888
+            && GpuAcceleration.TryBrush(original, Working, rect, coverage, GpuPaintColor, (float)Math.Clamp(settings.Opacity, 0, 1)))
+            return;
         if (Working.ColorType == SKColorType.RgbaF32) { RecomputeHighPrecision(rect); return; }
         if (mode == BrushMode.Blur && blurred == null) blurred = MakeBlurred();
         var src = (byte*)original.GetPixels();
@@ -371,6 +382,41 @@ public sealed unsafe partial class BrushStroke : IDisposable
         using var paint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp), BlendMode = SKBlendMode.Src };
         canvas.DrawBitmap(original, 0, 0, paint);
         return result;
+    }
+
+    private SKColorF GpuPaintColor => mode == BrushMode.Erase ? default
+        : new(premulColor[0], premulColor[1], premulColor[2], premulColor[3]);
+
+    internal static bool MatchesGpu(OpenClDevice backend, SKBitmap source, BrushSettings settings, BrushMode mode)
+    {
+        using var stroke = new BrushStroke(source, settings, mode, new SKColor(219, 31, 139, 193));
+        using var expected = stroke.Working;
+        stroke.AddPoint(new(51.23f, 47.49f), .88f);
+        stroke.AddPoint(new(99.1f, 66.6f), .72f);
+        using var actual = Pixels.Clone(source);
+        return backend.TryPaint(source, actual, stroke.Touched, stroke.coverage, stroke.GpuPaintColor, (float)settings.Opacity)
+            && expected.GetPixelSpan().SequenceEqual(actual.GetPixelSpan());
+    }
+
+    internal static bool CoverageMatchesGpu(OpenClDevice backend)
+    {
+        using var source = Pixels.NewMask(181, 137);
+        var settings = new BrushSettings { Size = 116, Flow = .71, Hardness = .54 };
+        using var stroke = new BrushStroke(source, settings, BrushMode.Paint, SKColors.White);
+        using var pixels = stroke.Working;
+        var accelerated = new StrokeCoverage(source.Width, source.Height);
+        var bounds = source.Info.Rect;
+        foreach (var point in new SKPoint[] { new(51.23f, 47.49f), new(99.1f, 66.6f), new(133.31f, 111.44f) })
+        {
+            var area = stroke.Dab(point, deferColor: true);
+            if (!backend.TryBrushCoverage(accelerated, area, point, stroke.radius, stroke.hardness, stroke.falloff,
+                (float)settings.Flow, out _)) return false;
+        }
+        var expected = new ushort[source.Width * source.Height];
+        var actual = new ushort[expected.Length];
+        stroke.coverage.CopyTo(bounds, expected);
+        accelerated.CopyTo(bounds, actual);
+        return expected.AsSpan().SequenceEqual(actual);
     }
 
     // Smudge drags a buffer of paint along: each dab lays the carried pixels down, then picks up what was beneath.
