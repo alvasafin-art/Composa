@@ -102,7 +102,7 @@ public sealed partial class EditorSession
         var units = (long)document.Width * document.Height * (document.WorkingDepth == ColorDepth.Sixteen ? 4 : 1);
         if (document.RasterPixels() + units > DocumentLimits.DocumentPixelBudget) throw new InvalidOperationException("The new layer exceeds the document raster memory budget.");
         var layer = Layer.Raster(document.UniqueName("Layer"), Pixels.NewLayerColor(document.Width, document.Height, document.WorkingDepth, document.Profile));
-        Apply("New Layer", () => document.InsertAboveActive(layer));
+        Apply("New Layer", () => InsertAndReflow(layer));
         LayersChanged?.Invoke();
         return layer;
     }
@@ -127,7 +127,7 @@ public sealed partial class EditorSession
         double w = pixels.Width * scale, h = pixels.Height * scale;
         var c = center ?? new SKPoint(document.Width / 2f, document.Height / 2f);
         layer.Transform = new LayerTransform { Width = w, Height = h, X = Math.Round(c.X - w / 2), Y = Math.Round(c.Y - h / 2) };
-        Apply("Add Image", () => document.InsertAboveActive(layer));
+        Apply("Add Image", () => InsertAndReflow(layer));
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
         return layer;
@@ -182,12 +182,14 @@ public sealed partial class EditorSession
             Guid? next = null;
             foreach (var layer in roots)
             {
+                var parent = document.ParentOf(layer.Id);
                 var siblings = document.SiblingsOf(layer.Id)!;
                 var index = siblings.IndexOf(layer);
                 siblings.RemoveAt(index);
                 // Layers clipped to a deleted base are released.
                 if (!layer.Clipped) for (var i = index; i < siblings.Count && siblings[i].Clipped; i++) siblings[i].Clipped = false;
-                next = siblings.Count > 0 ? siblings[Math.Clamp(index - 1, 0, siblings.Count - 1)].Id : document.ParentOf(layer.Id)?.Id;
+                next = siblings.Count > 0 ? siblings[Math.Clamp(index - 1, 0, siblings.Count - 1)].Id : parent?.Id;
+                ReflowLayoutParents(parent);
             }
             document.SetActive(next ?? document.Layers.LastOrDefault()?.Id);
         });
@@ -240,6 +242,7 @@ public sealed partial class EditorSession
             .OfType<Layer>().Concat(copies.Select(c => c.Copy)).Distinct().Select(c => c.Id).ToList();
         document.SetActive(active.Id);
         foreach (var (_, copy) in copies) document.SelectedLayerIds.Add(copy.Id);
+        ReflowLayoutAncestors(active);
         document.SelectionOrder.Clear(); document.SelectionOrder.AddRange(orderedCopies);
         document.SelectionAnchorId = orderedCopies[0];
     }
@@ -314,6 +317,7 @@ public sealed partial class EditorSession
             foreach (var list in document.AllLayers().Select(l => l.Children).Append(document.Layers))
                 if (list.Count > 0 && list[0].Clipped) list[0].Clipped = false;
             document.SetActive(group.Id);
+            ReflowLayoutAncestors(group);
         });
         InvalidateAll();
         LayersChanged?.Invoke();
@@ -324,11 +328,15 @@ public sealed partial class EditorSession
         if (!group.IsGroup) return;
         Apply("Ungroup Layers", () =>
         {
+            var parent = document.ParentOf(group.Id);
             var siblings = document.SiblingsOf(group.Id)!;
             var index = siblings.IndexOf(group);
             siblings.RemoveAt(index);
             siblings.InsertRange(index, group.Children);
+            if (group.AutoLayout != null)
+                foreach (var child in group.Children) child.AutoLayoutItem = null;
             document.SetActive(group.Children.LastOrDefault()?.Id ?? siblings.LastOrDefault()?.Id);
+            ReflowLayoutParents(parent);
         });
         InvalidateAll();
         LayersChanged?.Invoke();
@@ -346,6 +354,28 @@ public sealed partial class EditorSession
     {
         layers = layers.Where(l => !IsLocked(l) && (target == null || (l.Id != target.Id && !Document.Flatten(l.Children).Any(c => c.Id == target.Id)))).ToList();
         if (layers.Count == 0) return;
+        var oldParents = layers.ToDictionary(layer => layer, layer => document.ParentOf(layer.Id));
+        var newParent = target == null ? null : drop == LayerDrop.Into && target.IsGroup ? target : document.ParentOf(target.Id);
+        if (newParent?.AutoLayout != null || oldParents.Values.Any(parent => parent?.AutoLayout != null))
+        {
+            var selected = layers.ToHashSet();
+            foreach (var layer in layers)
+            {
+                var units = LayoutUnits(document.SiblingsOf(layer.Id)!);
+                if (units.Any(unit => (unit.Layer == layer || unit.Companions.Contains(layer)) &&
+                    (!selected.Contains(unit.Layer) || unit.Companions.Any(companion => !selected.Contains(companion)))))
+                {
+                    Problem?.Invoke("Select each clipping base together with all layers clipped to it.");
+                    return;
+                }
+            }
+            if (target != null && newParent?.AutoLayout != null && target != newParent)
+            {
+                var unit = LayoutUnits(newParent.Children).First(candidate => candidate.Layer == target || candidate.Companions.Contains(target));
+                if (selected.Contains(unit.Layer) || unit.Companions.Any(selected.Contains)) return;
+                target = drop == LayerDrop.Above ? unit.Companions.LastOrDefault() ?? unit.Layer : unit.Layer;
+            }
+        }
         Apply("Reorder Layers", () =>
         {
             foreach (var layer in layers) document.SiblingsOf(layer.Id)!.Remove(layer);
@@ -360,6 +390,9 @@ public sealed partial class EditorSession
             // A clipped layer needs a base beneath it.
             foreach (var list in document.AllLayers().Select(l => l.Children).Append(document.Layers))
                 if (list.Count > 0 && list[0].Clipped) list[0].Clipped = false;
+            foreach (var (layer, parent) in oldParents)
+                if (parent?.AutoLayout != null && parent != newParent) layer.AutoLayoutItem = null;
+            foreach (var parent in oldParents.Values.Append(newParent).Distinct()) ReflowLayoutParents(parent);
         });
         InvalidateAll();
         LayersChanged?.Invoke();
@@ -369,6 +402,13 @@ public sealed partial class EditorSession
     public void MoveActiveLayer(int direction)
     {
         if (ActiveLayer is not { } layer || IsLocked(layer)) return;
+        if (AutoLayoutParent(layer) is { } group)
+        {
+            var units = LayoutElements(group).ToList();
+            var indexInLayout = units.FindIndex(unit => unit.Layer == layer || unit.Companions.Contains(layer));
+            if (indexInLayout >= 0) ReorderAutoLayout(group, units[indexInLayout].Layer.Id, indexInLayout - direction);
+            return;
+        }
         var siblings = document.SiblingsOf(layer.Id)!;
         var index = siblings.IndexOf(layer);
         var target = index + direction;

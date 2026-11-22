@@ -146,6 +146,7 @@ public sealed partial class Layer
     /// <summary>Coverage for picking the actual visible material, excluding styles such as its cast shadow.</summary>
     public float HitCoverage(SKPoint documentPoint, float viewScale = 1)
     {
+        if (LayoutFrame is { } frame && !frame.Bounds.Contains(documentPoint)) return 0;
         var appearance = WarpAppearanceForView(viewScale);
         if (appearance.Pixels == null || !appearance.Matrix.TryInvert(out var inverse)) return 0;
         var point = inverse.MapPoint(documentPoint); var x = (int)Math.Floor(point.X); var y = (int)Math.Floor(point.Y);

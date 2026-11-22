@@ -26,7 +26,8 @@ public static partial class PsdExport
         if (!new[] { m.ScaleX, m.ScaleY, m.SkewX, m.SkewY, m.TransX, m.TransY }.All(float.IsFinite)
             || Math.Abs(m.ScaleX * m.ScaleY - m.SkewX * m.SkewY) < 1e-8) return "The live layer has a degenerate transform.";
         if (m.Persp0 != 0 || m.Persp1 != 0 || m.Persp2 != 1) return "Perspective distortion cannot be represented by the native text or shape transform.";
-        if (layer.Text is { IsBox: true } boxed && (boxed.BoxWidth <= TextLayout.Padding * 2 || boxed.BoxHeight <= TextLayout.Padding * 2))
+        if (layer.Text is { IsBox: true } boxed && (boxed.BoxWidth <= TextLayout.Padding * 2
+            || (boxed.AutoBoxHeight ? layer.Pixels.Height : boxed.BoxHeight) <= TextLayout.Padding * 2))
             return "The paragraph frame is too small for a portable Photoshop text box.";
         if (layer.Text is { } text && Segments(text).Count > MaxNativeStyleRuns) return "The text has too many separate style runs for a portable Photoshop text block.";
         if (layer.Text is { } styled && (NeedsTypeAppearance(styled.Type) || styled.FormatRuns?.Any(r => NeedsTypeAppearance(r.Format.Type)) == true))
@@ -114,7 +115,7 @@ public static partial class PsdExport
             : new SKPoint(first.X + first.VisibleWidth * (style.FormatAt(0).Alignment == TextAlignment.Right ? 1 : style.FormatAt(0).Alignment == TextAlignment.Center ? .5f : 0), first.Baseline);
         var m = layer.Matrix;
         var position = m.MapPoint(anchor);
-        var frame = style.IsBox ? new SKRect(0, 0, (float)style.BoxWidth!.Value - TextLayout.Padding * 2, (float)style.BoxHeight!.Value - TextLayout.Padding * 2)
+        var frame = style.IsBox ? new SKRect(0, 0, layout.Width - TextLayout.Padding * 2, layout.Height - TextLayout.Padding * 2)
             : new SKRect(-anchor.X, -anchor.Y, layout.Width - anchor.X, layout.Height - anchor.Y);
         var glyphs = new SKRect(TextLayout.Padding - anchor.X, TextLayout.Padding - anchor.Y,
             layout.Width - TextLayout.Padding - anchor.X, layout.Height - TextLayout.Padding - anchor.Y);

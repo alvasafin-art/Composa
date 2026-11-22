@@ -1684,3 +1684,39 @@ Column width	Ширина колонки
 Row height	Высота ряда
 Outer margins	Внешние поля
 Square size	Размер ячейки
+Auto Layout	Автокомпоновка
+Disable Auto Layout	Отключить автокомпоновку
+Auto Layout Preview	Предпросмотр автокомпоновки
+Review the proposed positions on the canvas.	Проверьте расположение элементов на холсте.
+The original positions will be preserved.	Исходное расположение сохранится.
+Select layers in the same folder.	Выберите слои в одной группе.
+Select each clipping base together with all layers clipped to it.	Выберите каждый базовый слой вместе со всеми обтравленными слоями над ним.
+Select at least two elements with measurable bounds.	Выберите минимум два элемента с видимыми границами.
+Unlock the positions of the selected layers first.	Сначала снимите блокировку позиции с выделенных слоёв.
+Selected Layers	Выбранные слои
+Direction	Направление
+Row	Ряд
+Column	Колонка
+Center	По центру
+Align Start	К началу
+Align End	К концу
+Between elements	Между элементами
+Inside group	Внутри группы
+Separate padding	Раздельные внутренние поля
+Layout Size	Размер в группе
+Width mode	Режим ширины
+Height mode	Режим высоты
+Fixed size	Фиксировано
+Fill available space	Заполнить
+Size to content	По содержимому
+Crop to frame	Кадрировать
+Fit in frame	Вписать
+Frame fit	Заполнение рамки
+Replace Image…	Заменить изображение…
+Change Auto Layout	Настройка автокомпоновки
+Change Layout Gap	Изменение интервала
+Change Layout Size	Изменение размера элемента
+Reorder Layout	Перестановка элементов
+Replace Layout Image	Замена изображения
+PSD preserves the placed layers. The auto layout rules stay in the Composa project.	В PSD сохраняются позиции слоёв. Правила автокомпоновки остаются в проекте Composa.
+The image is exported within its frame. The whole source image stays in the Composa project.	Изображение экспортируется в пределах рамки. Оригинал целиком остаётся в проекте Composa.

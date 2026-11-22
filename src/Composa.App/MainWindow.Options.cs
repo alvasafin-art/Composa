@@ -46,15 +46,23 @@ public sealed partial class MainWindow
         optionsHaveWarp = session?.WarpEdit != null;
         optionsEditingText = session?.IsEditingText == true;
         optionsEditingMask = session?.IsEditingMask == true;
+        ClearStaleLayoutProposal();
+        optionsLayoutInspector = LayoutInspectorFor(session);
         var nextLayer = session?.ActiveLayerIdOrNull();
-        if (nextLayer == null && optionsLayer != null) propertiesView.Offset = default;
+        if (nextLayer != optionsLayer) propertiesView.Offset = default;
         optionsLayer = nextLayer;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
         generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         propertiesView.Content = null;
         var propertiesPanel = dock.Section("Properties");
-        dock.SetExtraHeight(propertiesPanel, session is { ActiveLayer: null, IsEditingAlphaChannel: false }
-            ? Math.Max(0, 455 - propertiesPanel.State.Height) : 0);
+        var inspectorHeight = optionsLayoutInspector switch
+        {
+            LayoutInspector.Group => 264,
+            LayoutInspector.Child when session?.ActiveLayer?.SupportsLayoutImageFrame == true => 304,
+            _ when session is { ActiveLayer: null, IsEditingAlphaChannel: false } => 455,
+            _ => 0
+        };
+        dock.SetExtraHeight(propertiesPanel, Math.Max(0, inspectorHeight - propertiesPanel.State.Height));
         if (session == null) { toolOptionsHost.Child = null; return; }
         var s = session;
         StackPanel? inspector = null;

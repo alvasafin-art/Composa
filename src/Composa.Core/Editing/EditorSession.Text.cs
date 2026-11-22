@@ -32,7 +32,7 @@ public sealed partial class EditorSession
         var layer = Layer.Raster(style.LayerName(), pixels, Math.Round(at.X) - TextLayout.Padding, Math.Round(at.Y) - TextLayout.Padding);
         layer.Text = style;
         Begin("Text");
-        document.InsertAboveActive(layer);
+        InsertAndReflow(layer);
         if (commit) Commit();
         EditingMask = false;
         Invalidate(AffectedArea(layer));
@@ -47,10 +47,20 @@ public sealed partial class EditorSession
     public void SetText(Layer layer, TextStyle style)
     {
         if (layer.Pixels == null || PixelsLocked(layer)) return;
+        var bounds = layer.ControlBounds;
+        SetTextCore(layer, style);
+        if (layer.ControlBounds != bounds) ReflowLayoutAncestors(layer);
+    }
+
+    private void SetTextCore(Layer layer, TextStyle style)
+    {
+        if (layer.Pixels == null || PixelsLocked(layer)) return;
         style = style.Clamped();
         var before = AffectedArea(layer);
         var old = layer.Pixels;
-        ReplaceTextAppearance(layer, style, RenderWorkingText(style));
+        if (style.AutoBoxHeight && TextEdit is { } editor && textLayer == layer && editor.Style == style)
+            ReplaceTextAppearance(layer, style, editor.Layout.Render(document.WorkingDepth, document.Profile));
+        else ReplaceTextAppearance(layer, style, RenderWorkingText(style));
         if (pendingBefore != null && !ReferenceEquals(old, pendingBefore.Find(layer.Id)?.Pixels)) { Pixels.Invalidate(old); old.Dispose(); }
         Invalidate(Geometry.Union(before, AffectedArea(layer)));
     }

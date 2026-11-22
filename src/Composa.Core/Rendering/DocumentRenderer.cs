@@ -444,6 +444,7 @@ public static partial class DocumentRenderer
                 using var triangle = new SKPath();
                 triangle.AddPoly([corners[i], corners[j], corners[k]], close: true);
                 canvas.Save();
+                if (layer.LayoutFrame is { } cropped) canvas.ClipRect(cropped.Bounds);
                 canvas.ClipPath(triangle, SKClipOperation.Intersect, antialias: false);
                 canvas.Concat(in affine);
                 Draw(canvas);
@@ -453,6 +454,7 @@ public static partial class DocumentRenderer
         }
         var matrix = layer.Matrix;
         canvas.Save();
+        if (layer.LayoutFrame is { } frame) canvas.ClipRect(frame.Bounds);
         canvas.Concat(in matrix);
         Draw(canvas);
         canvas.Restore();

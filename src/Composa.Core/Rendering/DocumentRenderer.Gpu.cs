@@ -51,7 +51,7 @@ public static partial class DocumentRenderer
                 var layer = Resolve(original, options);
                 if (layer.Clipped) return false;
                 if (!layer.Visible || layer.Opacity <= 0) continue;
-                if (layer.Opacity != 1 || !layer.BlendIf.IsIdentity || layer.Warp != null) return false;
+                if (layer.Opacity != 1 || !layer.BlendIf.IsIdentity || layer.Warp != null || layer.LayoutFrame != null) return false;
                 if (layer.IsGroup && layer.Blend == BlendMode.PassThrough && layer.Mask == null && layer.VectorMask == null)
                 {
                     if (!Collect(layer.Children)) return false;

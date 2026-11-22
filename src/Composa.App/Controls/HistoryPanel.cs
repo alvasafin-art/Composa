@@ -144,7 +144,12 @@ public sealed class HistoryPanel : UserControl
         Dispatcher.UIThread.Post(() =>
         {
             scrollPosted = false;
-            scrollTarget?.BringIntoView();
+            if (scrollTarget?.TranslatePoint(default, rows) is not { } point) return;
+            // Scroll only the history list. A new history entry must not move the enclosing dock.
+            var offset = scroll.Offset.Y;
+            if (point.Y < offset) scroll.Offset = new Vector(0, point.Y);
+            else if (point.Y + RowHeight > offset + scroll.Viewport.Height)
+                scroll.Offset = new Vector(0, point.Y + RowHeight - scroll.Viewport.Height);
         }, DispatcherPriority.Loaded);
     }
 
@@ -192,6 +197,8 @@ public sealed class HistoryPanel : UserControl
     /// </summary>
     public static Icons.Icon IconFor(string name) => name switch
     {
+        "Auto Layout" or "Change Auto Layout" or "Change Layout Gap" or "Change Layout Size" or "Reorder Layout" or "Disable Auto Layout" => Icons.LayoutRows,
+        "Replace Layout Image" => Icons.Image,
         "Brush" or "Brush Strokes" => Icons.Brush,
         "Paint Bucket" => Icons.Bucket,
         "Shape Color" or "Shape Properties" => Icons.Shape,

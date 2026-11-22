@@ -83,6 +83,11 @@ public sealed partial class MainWindow
         var body = new StackPanel { Margin = new Thickness(12, 6, 12, 12), Spacing = 8 };
         propertiesView.Content = body;
         var layer = s.ActiveLayer;
+        if (optionsLayoutInspector is LayoutInspector.Offer or LayoutInspector.Preview)
+        {
+            AddLayoutOffer(body, s);
+            return;
+        }
         if (layer == null)
         {
             if (s.IsEditingAlphaChannel)
@@ -175,9 +180,12 @@ public sealed partial class MainWindow
             return;
         }
         var updating = false;
+        if (optionsLayoutInspector == LayoutInspector.Group)
+            AddGroupLayoutProperties(body, s, CurrentLayer);
         if (layer.Text != null)
         {
             BuildTextFields(body, properties: true);
+            if (optionsLayoutInspector == LayoutInspector.Child) AddChildLayoutProperties(body, s, CurrentLayer);
             BuildTypography(body, s);
             return;
         }
@@ -185,6 +193,7 @@ public sealed partial class MainWindow
         {
             BuildShapeFields(body);
         }
+        if (optionsLayoutInspector == LayoutInspector.Child) AddChildLayoutProperties(body, s, CurrentLayer);
         var opacity = Ui.Number(layer.Opacity * 100, 0, 100, v =>
         {
             if (!updating && CurrentLayer() is { } live && !s.IsLocked(live) && live.Opacity != v / 100)

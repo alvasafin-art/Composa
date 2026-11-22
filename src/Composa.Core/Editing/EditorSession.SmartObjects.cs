@@ -131,7 +131,10 @@ public sealed partial class EditorSession
                 layer.MaskTransform = target.MaskTransform;
                 layer.SmartFilterMask = target.SmartFilterMask; layer.SmartFilterMaskX = target.SmartFilterMaskX; layer.SmartFilterMaskY = target.SmartFilterMaskY;
                 layer.FilterSource = target.FilterSource; layer.FilterPaddingX = target.FilterPaddingX; layer.FilterPaddingY = target.FilterPaddingY; layer.Transform = target.Transform;
+                if (AutoLayoutParent(layer) != null && layer.LayoutFrame == null && layer.SupportsLayoutImageFrame)
+                    layer.Transform = layer.Transform with { Height = layer.Transform.Width / PhotoAspect(layer) };
             }
+            foreach (var layer in instances) ReflowLayoutAncestors(layer);
         });
         InvalidateAll(); LayersChanged?.Invoke();
     }

@@ -24,6 +24,7 @@ public sealed partial class CanvasView
             return canvas => { foreach (var step in steps) step(canvas); };
         }
         CapturePenOverlay(steps, view, hair);
+        CaptureAutoLayoutOverlay(steps, view, hair);
 
         if (aiContextBounds is { } aiBounds && session.Selection != null && !session.IsPaintingSelection && drag == Drag.None)
         {

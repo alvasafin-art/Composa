@@ -467,7 +467,8 @@ public sealed partial class MainWindow
         RefreshAiUi();
         UpdateColors();
         if (session == null) return;
-        if (session.ActiveLayerIdOrNull() != optionsLayer || InspectorShapeKind(session.ActiveLayer?.Shape) != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText || session.IsEditingMask != optionsEditingMask) RebuildOptions();
+        ClearStaleLayoutProposal();
+        if (session.ActiveLayerIdOrNull() != optionsLayer || InspectorShapeKind(session.ActiveLayer?.Shape) != optionsShapeKind || (session.WarpEdit != null) != optionsHaveWarp || session.IsEditingText != optionsEditingText || session.IsEditingMask != optionsEditingMask || LayoutInspectorFor(session) != optionsLayoutInspector) RebuildOptions();
         else refreshOptions?.Invoke();
         optionsLayer = session.ActiveLayerIdOrNull();
     }
@@ -500,6 +501,12 @@ public sealed partial class MainWindow
         {
             // Text fields keep their own editing keys; Enter or Escape hands the keyboard back to the canvas.
             if (e.Key is Key.Enter or Key.Escape && session != null) Avalonia.Threading.Dispatcher.UIThread.Post(() => canvas.Focus());
+            return;
+        }
+        if (e.Key == Key.Escape && layoutProposal != null)
+        {
+            FinishLayoutProposal(false);
+            e.Handled = true;
             return;
         }
         if (focused is Control control && control.FindAncestorOfType<MenuItem>() != null) return;

@@ -698,7 +698,7 @@ public sealed partial class EditorSession
         var layer = Layer.Raster(document.UniqueName(stem), RenderWorkingShape(style, (int)rect.Width, (int)rect.Height), rect.Left, rect.Top);
         layer.Shape = style;
         layer.Opacity = Math.Clamp(opacity, 0, 1);
-        Apply(stem, () => document.InsertAboveActive(layer));
+        Apply(stem, () => InsertAndReflow(layer));
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
         return layer;
@@ -762,6 +762,7 @@ public sealed partial class EditorSession
             }
             layer.Pixels = RenderWorkingShape(style, width, height); layer.Shape = style;
             if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);
+            if (pad > 0) ReflowLayoutAncestors(layer);
         }
         if (preview)
         {
@@ -912,7 +913,7 @@ public sealed partial class EditorSession
         var layer = Layer.Raster(document.UniqueName(name), pixels,
             fits ? placed.Left : Math.Round((document.Width - pixels.Width) / 2.0),
             fits ? placed.Top : Math.Round((document.Height - pixels.Height) / 2.0));
-        Apply("Paste", () => document.InsertAboveActive(layer));
+        Apply("Paste", () => InsertAndReflow(layer));
         EditingMask = false;
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();

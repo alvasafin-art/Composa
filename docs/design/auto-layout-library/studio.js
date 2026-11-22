@@ -115,7 +115,7 @@ function renderCanvas() {
 function renderTabs() {
   byId('tabs').innerHTML = [['a', 'Каталог кофе.cmps'], ['b', 'Новая подборка.cmps']].map(([doc, title]) =>
     command('doc-' + doc, title + '<small>(RGB/8)</small>', 'tab', `aria-selected="${state.doc === doc}"`)).join('');
-  byId('theme').innerHTML = state.theme === 'dark' ? '☼ <span>Светлая тема</span>' : '◐ <span>Тёмная тема</span>';
+  byId('theme').textContent = state.theme === 'dark' ? '☼' : '◐';
 }
 function eye() {
   return '<svg class="eye" width="14" height="14" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M1 8c4-6 10-6 14 0-4 6-10 6-14 0Z"/><circle cx="8" cy="8" r="2.1"/></svg>';

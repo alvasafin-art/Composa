@@ -28,6 +28,8 @@ public static partial class PsdExport
         if (NeedsAppearance(document)) notes.Add(new("Document", "Adjustments are applied to a merged appearance layer. Source layers are kept in a hidden folder; adjustment settings stay in the Composa project."));
         foreach (var layer in document.AllLayers())
         {
+            if (layer.AutoLayout != null) notes.Add(new(layer.Name, "PSD preserves the placed layers. The auto layout rules stay in the Composa project."));
+            if (layer.LayoutFrame != null) notes.Add(new(layer.Name, "The image is exported within its frame. The whole source image stays in the Composa project."));
             if (layer.HasWarp) notes.Add(new(layer.Name, "Warp and its enabled masks are exported as the rendered appearance. The retained source, mesh and disabled mask settings stay in the Composa project."));
             if (layer.Mask != null && (layer.MaskDensity < 1 || layer.MaskFeather > 0)
                 && (layer.Effects?.Visible() is { IsEmpty: false } || !new Record(layer, SKRectI.Empty).NativeMaskProperties))
@@ -292,7 +294,7 @@ public static partial class PsdExport
             }
             if (record.Section != 0) { result.Mask ??= record.HasMask ? layer.Mask : null; return result; }
             if (layer.Pixels == null) return result;
-            var direct = !record.HasEffects && layer.FillOpacity >= 1 && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height);
+            var direct = layer.LayoutFrame == null && !record.HasEffects && layer.FillOpacity >= 1 && layer.Transform.IsPureTranslation(layer.Pixels.Width, layer.Pixels.Height);
             if (direct) result.Image = layer.RenderFilterPixels();
             else
             {

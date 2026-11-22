@@ -145,10 +145,14 @@ public sealed class TextLayout
             ? Math.Max(0, lineMetrics.Select((m, i) => m.Ascent - lineMetrics[0].Ascent - i * LineHeight).Max()) : 0;
         float Gap(int start) => (float)style.FormatAt(start - 1).Type.ParagraphSpacing;
         var gaps = ranges.Where(r => r.Start > 0 && Text[r.Start - 1] == '\n').Sum(r => Gap(r.Start));
+        var contentHeight = fixedLeading
+            ? Math.Max(ranges.Count * LineHeight + explicitShift, lineMetrics.Select((m, i) => lineMetrics[0].Ascent + explicitShift + i * LineHeight + m.Descent).Max())
+            : Math.Max(lineMetrics.Sum(m => m.Height), lineMetrics.Take(lineMetrics.Count - 1).Sum(m => m.Height) + lineMetrics[^1].Ascent + lineMetrics[^1].Descent);
+        var naturalHeight = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + gaps + Padding * 2));
         if (style.IsBox)
         {
             Width = (int)Math.Round(style.BoxWidth!.Value);
-            Height = (int)Math.Round(style.BoxHeight!.Value);
+            Height = style.AutoBoxHeight ? naturalHeight : (int)Math.Round(style.BoxHeight!.Value);
             contentWidth = available;
         }
         else
@@ -156,10 +160,7 @@ public sealed class TextLayout
             // A caret's worth of width so an empty line still has somewhere to type.
             var largestSize = Math.Max(style.Size, style.SizeRuns?.Max(r => r.Size) ?? style.Size);
             Width = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentWidth + Padding * 2 + largestSize * 0.1));
-            var contentHeight = fixedLeading
-                ? Math.Max(ranges.Count * LineHeight + explicitShift, lineMetrics.Select((m, i) => lineMetrics[0].Ascent + explicitShift + i * LineHeight + m.Descent).Max())
-                : Math.Max(lineMetrics.Sum(m => m.Height), lineMetrics.Take(lineMetrics.Count - 1).Sum(m => m.Height) + lineMetrics[^1].Ascent + lineMetrics[^1].Descent);
-            Height = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + gaps + Padding * 2));
+            Height = naturalHeight;
         }
         Width = Math.Min(Width, Document.MaxSide);
         Height = Math.Min(Height, Document.MaxSide);

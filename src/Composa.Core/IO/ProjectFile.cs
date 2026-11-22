@@ -26,8 +26,9 @@ public static class ProjectFile
     /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
     /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
     /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data, custom hue ranges and embedded LUTs. Version 14 adds typography and justified paragraphs. Version 15 stores formatting ranges within a text layer. Version 16 adds parametric polygons, stars and independent corner radii.
+    /// Version 17 retains auto layout groups, item sizing and image frames.
     /// </summary>
-    public const int Version = 16;
+    public const int Version = 17;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -106,6 +107,9 @@ public static class ProjectFile
         public ShapeStyle? Shape { get; set; }
         public TextStyle? Text { get; set; }
         public LayerEffects? Effects { get; set; }
+        public AutoLayout? AutoLayout { get; set; }
+        public AutoLayoutItem? AutoLayoutItem { get; set; }
+        public LayoutImageFrame? LayoutFrame { get; set; }
         public List<LayerRecord>? Children { get; set; }
         public string? SmartObject { get; set; }
     }
@@ -199,6 +203,7 @@ public static class ProjectFile
             Adjustment = layer.Adjustment is ColorLookupAdjustment lookup ? lookup with { Table = null } : layer.Adjustment,
             LookupFile = layer.Adjustment is ColorLookupAdjustment { Table: { } table } ? StoreLookup(table) : null,
             Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
+            AutoLayout = layer.AutoLayout, AutoLayoutItem = layer.AutoLayoutItem, LayoutFrame = layer.LayoutFrame,
             Children = layer.IsGroup ? layer.Children.Select(Record).ToList() : null,
             SmartObject = layer.SmartObject is { } source ? StoreSource(source) : null
         };
@@ -319,6 +324,9 @@ public static class ProjectFile
                 MaskDensity = double.IsFinite(record.MaskDensity) ? Math.Clamp(record.MaskDensity, 0, 1) : 1,
                 MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0,
                 Adjustment = adjustment, Shape = record.Shape?.Clamped(), Text = record.Text?.Clamped(),
+                AutoLayout = record.Kind == LayerKind.Group ? record.AutoLayout?.Normalized() : null,
+                AutoLayoutItem = record.Kind == LayerKind.Raster ? record.AutoLayoutItem?.Normalized() : null,
+                LayoutFrame = record.Kind == LayerKind.Raster && record.LayoutFrame is { IsValid: true } frame ? frame : null,
                 VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true, VectorMaskFollowsWarp = record.VectorMaskFollowsWarp
             };
             if (record.Tags != null)

@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
@@ -122,9 +122,11 @@ public sealed partial class CanvasView
 
     public void CancelInteraction()
     {
+        CloseLayoutGapEditor();
         if (session == null) { drag = Drag.None; return; }
         switch (drag)
         {
+            case Drag.LayoutGap or Drag.LayoutReorder: EndLayoutGesture(keep: false); break;
             case Drag.ShapeParameter: session.Cancel(); adjustingShape = null; break;
             case Drag.WarpNode: EndWarpPoint(keep: false); break;
             case Drag.Stroke: session.CancelStroke(); break;
@@ -237,6 +239,7 @@ public sealed partial class CanvasView
                 if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
                 if (e.ClickCount >= 2 && BeginLiveTextEdit(shift)) break;
+                if (!control && !shift && !alt && BeginLayoutGesture(point.Position)) break;
                 var moveHandle = ShowTransformControls && CurrentFrame() is { } moveFrame
                     ? HitFrame(moveFrame, pressScreen, allowRotate: true) : TransformHandle.None;
                 if ((transformSelection == null || moveHandle == TransformHandle.None) && session.CanMovePixels && InsideSelection(pressDocument) && session.BeginMovePixels(duplicate: alt)) drag = Drag.MovePixels;
@@ -367,6 +370,7 @@ public sealed partial class CanvasView
 
         switch (drag)
         {
+            case Drag.LayoutGap or Drag.LayoutReorder: UpdateLayoutGesture(position); break;
             case Drag.ShapeParameter: UpdateShapeParameter(); break;
             case Drag.Pan: PanBy(delta); break;
             case Drag.Patch: session.PreviewPatch(currentDocument - pressDocument); break;
@@ -407,6 +411,7 @@ public sealed partial class CanvasView
             case Drag.Guide: DragGuide(); break;
             case Drag.None when session.Tool == Tool.Move:
                 UpdateMoveCursor(position);
+                UpdateLayoutHover(position);
                 break;
             case Drag.None when session.Tool == Tool.Text:
                 UpdateTextCursor(position);
@@ -458,6 +463,7 @@ public sealed partial class CanvasView
                 else DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control));
             }
         }
+        if (drag is Drag.LayoutGap or Drag.LayoutReorder) UpdateLayoutGesture(e.GetPosition(this));
         var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
         if (!(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) drag = Drag.None;
@@ -467,6 +473,7 @@ public sealed partial class CanvasView
 
         switch (finished)
         {
+            case Drag.LayoutGap or Drag.LayoutReorder: EndLayoutGesture(keep: true); break;
             case Drag.ShapeParameter:
                 if (adjustingShape?.Shape != originalShape) session.Commit(); else session.Cancel();
                 adjustingShape = null; break;
@@ -772,6 +779,7 @@ public sealed partial class CanvasView
     {
         if (session == null) return null;
         if (session.Transform is { } edit) return edit.Corners();
+        if (SelectedLayoutGroup() != null) return null;
         if (session.IsEditingChannel && session.Selection is { } channelSelection) return Corners(SelectionMask.Bounds(channelSelection));
         if (session.IndependentMaskTarget is { Mask: { } mask } maskLayer)
             return MaskCorners(maskLayer, mask);

@@ -420,6 +420,8 @@ public sealed partial class EditorSession
                 if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, w, h));
             }
         }
+        if (changed && !IsEditingMask && !IsEditingChannel)
+            ReflowAfterTransform(Transform.Layers, pendingBefore);
         Transform = null;
         if (changed) Commit(); else Cancel();
         InvalidateAll();
@@ -502,6 +504,7 @@ public sealed partial class EditorSession
                 if (width != pixels.Width || height != pixels.Height) pixels = RenderWorkingShape(layer.Shape, width, height);
                 ReplaceLivePixels(layer, pixels);
             }
+            ReflowLayoutAncestors(layer);
         });
         // Exactly one revision on: the commit above, with no other edit (or undo) between the two changes.
         if (inspectorEdit is { } last && last.LayerId == layer.Id && last.Revision == Revision - 1) FoldLastStep(InspectorEditName);

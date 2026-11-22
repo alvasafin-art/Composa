@@ -130,6 +130,8 @@ public sealed partial record TextStyle
     /// <summary>Fixed paragraph bounds in layer pixels; text wraps inside them. Null is point text, which is as big as what is typed.</summary>
     public double? BoxWidth { get; init; }
     public double? BoxHeight { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AutoBoxHeight { get; init; }
     /// <summary>
     /// Letters in a color other than <see cref="Color"/>, as character indices into <see cref="Text"/>, sorted and not
     /// overlapping. Null when the whole text is one color, which is what every style starts as.
@@ -191,6 +193,7 @@ public sealed partial record TextStyle
             Leading = double.IsFinite(Leading) ? Math.Clamp(Leading, 0, 5000) : 0,
             BoxWidth = box ? Math.Clamp(Math.Round(BoxWidth!.Value), MinBox, MaxBox) : null,
             BoxHeight = box ? Math.Clamp(Math.Round(BoxHeight!.Value), MinBox, MaxBox) : null,
+            AutoBoxHeight = box && AutoBoxHeight,
             Color = Color | 0xFF000000,
             FontStyle = FontStyle is { IsValid: true } ? FontStyle : null,
             ColorRuns = ValidRuns(ColorRuns, text.Length),
@@ -374,7 +377,7 @@ public sealed partial record TextStyle
     }
 
     /// <summary>The style the next text takes: the same look, without this text's wording, box and per-letter colors and faces.</summary>
-    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, ColorRuns = null, FontRuns = null, SizeRuns = null, FormatRuns = null };
+    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, AutoBoxHeight = false, ColorRuns = null, FontRuns = null, SizeRuns = null, FormatRuns = null };
 
     private List<TextFace> UnitFaces()
     {
@@ -421,14 +424,14 @@ public sealed partial record TextStyle
     public bool Equals(TextStyle? other) =>
         other is not null && Text == other.Text && FontFamily == other.FontFamily && Size == other.Size && Color == other.Color
         && Bold == other.Bold && Italic == other.Italic && FontStyle == other.FontStyle && Alignment == other.Alignment && Tracking == other.Tracking && Leading == other.Leading
-        && Type == other.Type && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight
+        && Type == other.Type && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight && AutoBoxHeight == other.AutoBoxHeight
         && (ColorRuns == null ? other.ColorRuns == null : other.ColorRuns != null && ColorRuns.SequenceEqual(other.ColorRuns))
         && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns))
         && (FormatRuns == null ? other.FormatRuns == null : other.FormatRuns != null && FormatRuns.SequenceEqual(other.FormatRuns))
         && (SizeRuns == null ? other.SizeRuns == null : other.SizeRuns != null && SizeRuns.SequenceEqual(other.SizeRuns));
 
     public override int GetHashCode() =>
-        HashCode.Combine(HashCode.Combine(Text, Type), FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
+        HashCode.Combine(HashCode.Combine(Text, Type, AutoBoxHeight), FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
 
     /// <summary>The same text drawn <paramref name="factor"/> times as large: size, spacing and box together.</summary>
     public TextStyle Scaled(double factor) => Scaled(factor, factor);
@@ -598,6 +601,7 @@ public sealed partial class Layer
         {
             if (Pixels == null) return SKRect.Empty;
             var margin = EffectMargin;
+            if (LayoutFrame is { } frame) return frame.Bounds;
             if (margin == 0) return Bounds;
             var source = WarpBounds; source.Inflate(margin, margin);
             return Matrix.MapRect(source);
@@ -612,6 +616,7 @@ public sealed partial class Layer
             Id = newIds ? Guid.NewGuid() : Id, Name = Name, Kind = Kind, Visible = Visible, Opacity = Opacity, FillOpacity = FillOpacity, Blend = Blend,
             Pixels = Pixels, Transform = Transform, Warp = Warp, warpCache = warpCache, warpGeometry = warpGeometry, Mask = Mask, MaskLinked = MaskLinked, MaskFollowsWarp = MaskFollowsWarp, MaskTransform = MaskTransform, MaskDefault = MaskDefault, MaskEnabled = MaskEnabled, MaskDensity = MaskDensity, MaskFeather = MaskFeather, Clipped = Clipped, BlendIf = BlendIf,
             Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed, Locks = Locks,
+            AutoLayout = AutoLayout, AutoLayoutItem = AutoLayoutItem, LayoutFrame = LayoutFrame,
             FilterSource = FilterSource, SmartFilters = SmartFilters, FilterPaddingX = FilterPaddingX, FilterPaddingY = FilterPaddingY,
             filterMaskCache = filterMaskCache, SmartFilterMaskPlacement = SmartFilterMaskPlacement,
             SmartFilterMask = SmartFilterMask, SmartFilterMaskEnabled = SmartFilterMaskEnabled, SmartFilterMaskDefault = SmartFilterMaskDefault,

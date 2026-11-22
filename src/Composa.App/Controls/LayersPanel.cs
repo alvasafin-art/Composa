@@ -57,6 +57,7 @@ public sealed partial class LayersPanel : UserControl
     public event Action<Layer>? EditShapeRequested;
     public event Action<Layer>? EditSmartObjectRequested;
     public event Action<Layer, bool>? ReplaceSmartObjectRequested;
+    public event Action? AutoLayoutRequested;
     public event Action<Layer>? UpdateLinkedSmartObjectRequested;
     public event Action<Layer>? LinkedSourceInfoRequested;
     public Func<Layer, Composa.IO.LinkedSourceStatus?>? LinkedSourceStatus { get; set; }
@@ -687,6 +688,10 @@ public sealed partial class LayersPanel : UserControl
 
         Add(layer.Clipped ? "Release Clipping Mask" : "Create Clipping Mask", () => current.ToggleClippingMask(layer), current.CanClip(layer));
         Add("Group Selected Layers", current.GroupSelectedLayers);
+        if (several || layer is { IsGroup: true, AutoLayout: null, Children.Count: > 1 })
+            Add("Auto Layout", () => AutoLayoutRequested?.Invoke());
+        if (layer.AutoLayout != null)
+            Add("Disable Auto Layout", () => current.DisableAutoLayout(layer), current.CanEditAutoLayout(layer));
         if (layer.IsGroup) Add("Ungroup", () => current.Ungroup(layer));
         Add("Move Out of Folder", () => current.MoveOutOfFolder(layer), current.Document.ParentOf(layer.Id) != null);
         Add(current.MergeTitle, current.MergeLayers, current.CanMerge);

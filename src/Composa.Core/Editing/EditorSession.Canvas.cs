@@ -20,6 +20,7 @@ public sealed partial class EditorSession
             var shift = SKMatrix.CreateTranslation(-rect.Left, -rect.Top);
             foreach (var layer in document.AllLayers())
             {
+                layer.TranslateLayout(-rect.Left, -rect.Top);
                 var maskMatrix = layer.MaskMatrix;
                 if (layer.Pixels != null) layer.Transform = layer.Transform.Translated(-rect.Left, -rect.Top);
                 else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, rect.Width, rect.Height, shift, 255);

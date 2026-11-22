@@ -35,6 +35,7 @@ public sealed partial class Layer
     /// <summary>Moves imported/copied content as a whole, including masks that are independent within it.</summary>
     public void TranslateContent(double dx, double dy)
     {
+        TranslateLayout(dx, dy);
         var maskMatrix = MaskMatrix;
         if (Pixels != null) Transform = Transform.Translated(dx, dy);
         if (Mask != null && (!MaskLinked || Pixels == null))
