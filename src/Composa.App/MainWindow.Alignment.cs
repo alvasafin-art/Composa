@@ -74,6 +74,8 @@ public sealed partial class MainWindow
         })
         {
             var button = Ui.IconButton(new Icons.Icon(path), tip, () => s.RotateLayers(angle));
+            button.Classes.Add("flat");
+            button.Classes.Add("alignment");
             button.Name = name;
             button.Width = 28;
             button.MinWidth = 0;

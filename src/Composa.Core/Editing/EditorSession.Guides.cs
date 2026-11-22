@@ -154,20 +154,48 @@ public sealed partial class EditorSession
     public (SKPoint Point, float? SnapX, float? SnapY) SnapPoint(SKPoint point, float tolerance)
     {
         var (xs, ys) = SnapTargets(null, includeCenters: false);
-        float? x = Nearest(point.X, xs), y = Nearest(point.Y, ys);
+        var x = NearestSnapTarget(point.X, xs, tolerance);
+        var y = NearestSnapTarget(point.Y, ys, tolerance);
         return (new SKPoint(x ?? point.X, y ?? point.Y), x, y);
+    }
 
-        float? Nearest(float value, List<float> targets)
+    /// <summary>Pulls an editing handle onto the document layout. A constrained handle moves along its allowed axis.</summary>
+    public (SKPoint Point, float? SnapX, float? SnapY) SnapLayoutPoint(SKPoint point, float tolerance, SKPoint? direction = null)
+    {
+        if (tolerance <= 0 || !View.Snap || !View.SnapToCanvasLayout || !document.Layout.HasGuides)
+            return (point, null, null);
+        float? X(float distance) => document.Layout.NearestSnapTarget(true, document.Width, point.X, distance);
+        float? Y(float distance) => document.Layout.NearestSnapTarget(false, document.Height, point.Y, distance);
+        if (direction is not { } along)
         {
-            float? best = null;
-            var bestDistance = tolerance;
-            foreach (var target in targets)
-            {
-                var distance = Math.Abs(target - value);
-                if (distance <= bestDistance) { bestDistance = distance; best = target; }
-            }
-            return best;
+            var x = X(tolerance);
+            var y = Y(tolerance);
+            return (new SKPoint(x ?? point.X, y ?? point.Y), x, y);
         }
+        var length = SKPoint.Distance(along, SKPoint.Empty);
+        if (length < 1e-6f) return (point, null, null);
+        var unit = new SKPoint(along.X / length, along.Y / length);
+        var snapX = X(tolerance * MathF.Abs(unit.X));
+        var snapY = Y(tolerance * MathF.Abs(unit.Y));
+        var dx = snapX.HasValue && MathF.Abs(unit.X) > 1e-6f ? (snapX.Value - point.X) / unit.X : float.PositiveInfinity;
+        var dy = snapY.HasValue && MathF.Abs(unit.Y) > 1e-6f ? (snapY.Value - point.Y) / unit.Y : float.PositiveInfinity;
+        if (MathF.Abs(dx) <= tolerance && MathF.Abs(dx) <= MathF.Abs(dy))
+            return (new SKPoint(snapX!.Value, point.Y + dx * unit.Y), snapX, null);
+        if (MathF.Abs(dy) <= tolerance)
+            return (new SKPoint(point.X + dy * unit.X, snapY!.Value), null, snapY);
+        return (point, null, null);
+
+    }
+
+    private static float? NearestSnapTarget(float value, List<float> targets, float distance)
+    {
+        float? result = null;
+        foreach (var target in targets)
+        {
+            var delta = MathF.Abs(target - value);
+            if (delta <= distance) { result = target; distance = delta; }
+        }
+        return result;
     }
 
     /// <summary>

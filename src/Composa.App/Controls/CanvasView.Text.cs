@@ -15,6 +15,7 @@ public sealed partial class CanvasView
     private TransformHandle textHandle;
     private (double Width, double Height) textBoxStart;
     private LayerTransform? textResizeStart;
+    private SKPoint textResizeOffset;
 
     /// <summary>Raised when text editing starts or ends, so the options bar can swap its buttons.</summary>
     public event Action? TextEditingChanged;
@@ -42,12 +43,22 @@ public sealed partial class CanvasView
         if (session == null) return;
         if (session.TextEdit is { } editor && session.TextEditLayer is { Pixels: { } pixels } editing)
         {
-            textHandle = TextBoxCorners() is { } corners ? HitFrame(corners, pressScreen, allowRotate: false) : TransformHandle.None;
-            if (textHandle is not (TransformHandle.None or TransformHandle.Move))
+            var corners = TextBoxCorners();
+            textHandle = corners != null ? HitFrame(corners, pressScreen, allowRotate: false) : TransformHandle.None;
+            if (corners != null && textHandle is not (TransformHandle.None or TransformHandle.Move))
             {
                 var layout = editor.Layout;
                 textBoxStart = (editor.Style.BoxWidth ?? layout.Width, editor.Style.BoxHeight ?? layout.Height);
                 textResizeStart = editing.Transform;
+                SKPoint Mid(int i, int j) => new((corners[i].X + corners[j].X) / 2, (corners[i].Y + corners[j].Y) / 2);
+                var grab = textHandle switch
+                {
+                    TransformHandle.TopLeft => corners[0], TransformHandle.TopRight => corners[1],
+                    TransformHandle.BottomRight => corners[2], TransformHandle.BottomLeft => corners[3],
+                    TransformHandle.Top => Mid(0, 1), TransformHandle.Right => Mid(1, 2),
+                    TransformHandle.Bottom => Mid(2, 3), _ => Mid(3, 0)
+                };
+                textResizeOffset = grab - pressDocument;
                 drag = Drag.TextResize;
                 return;
             }
@@ -90,13 +101,27 @@ public sealed partial class CanvasView
     }
 
     /// <summary>Drags one edge or corner of the box; the opposite edge stays where it is.</summary>
-    private void DragTextBox()
+    private void DragTextBox(bool control)
     {
         if (session?.TextEdit == null || session.TextEditLayer is not { Pixels: { } pixels } layer || textResizeStart is not { } start) return;
         // Work in the box's own unrotated space, in layout pixels.
         var unrotate = SKMatrix.CreateRotationDegrees((float)-start.Rotation, start.Center.X, start.Center.Y);
         var from = unrotate.MapPoint(pressDocument);
-        var to = unrotate.MapPoint(currentDocument);
+        guides.Clear();
+        SKPoint? direction = textHandle switch
+        {
+            TransformHandle.Left or TransformHandle.Right => new SKPoint(1, 0),
+            TransformHandle.Top or TransformHandle.Bottom => new SKPoint(0, 1),
+            _ => null
+        };
+        if (direction is { } axis) direction = SKMatrix.CreateRotationDegrees((float)start.Rotation).MapPoint(axis);
+        var target = currentDocument;
+        if (!control)
+        {
+            var grab = target + textResizeOffset;
+            target += SnapLayoutHandle(grab, direction) - grab;
+        }
+        var to = unrotate.MapPoint(target);
         double scaleX = start.Width / textBoxStart.Width, scaleY = start.Height / textBoxStart.Height;
         double dx = (to.X - from.X) / Math.Max(1e-6, scaleX), dy = (to.Y - from.Y) / Math.Max(1e-6, scaleY);
         if (start.FlipHorizontal) dx = -dx;

@@ -598,6 +598,35 @@ public class EditingTests
         Assert.Equal(50, session.Document.Find(layer.Id)!.Transform.Width);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rotated_resize_snaps_its_handle_without_moving_its_anchor(bool fromCenter)
+    {
+        var session = EditorSession.NewCanvas(400, 400);
+        session.SetCanvasLayout(new CanvasLayout { SquareSize = 16 });
+        var layer = session.AddImageLayer("box", Solid(80, 40, SKColors.Red), new SKPoint(160, 160));
+        layer.Transform = layer.Transform with { Rotation = 30 };
+        var edit = session.BeginTransform()!;
+        var frame = edit.StartFrame;
+        var anchor = edit.Corners()[0];
+        var rotate = SKMatrix.CreateRotationDegrees(30, frame.MidX, frame.MidY);
+        var point = rotate.MapPoint(frame.Right + 13, frame.Bottom + 6.5f);
+        var (x, y) = edit.Resize(TransformHandle.BottomRight, point, free: false, fromCenter, snapTolerance: 12);
+        Assert.True(x.HasValue || y.HasValue);
+        var corner = edit.Corners()[2];
+        if (x.HasValue) Assert.Equal(x.Value, corner.X, 3);
+        if (y.HasValue) Assert.Equal(y.Value, corner.Y, 3);
+        Assert.Equal(2, edit.Frame.Width / edit.Frame.Height, 3);
+        if (fromCenter)
+        {
+            Assert.Equal(frame.MidX, edit.Frame.MidX, 3);
+            Assert.Equal(frame.MidY, edit.Frame.MidY, 3);
+        }
+        else Assert.InRange(SKPoint.Distance(anchor, edit.Corners()[0]), 0, .001f);
+        session.CommitTransform();
+    }
+
     [Fact]
     public void Project_round_trips()
     {

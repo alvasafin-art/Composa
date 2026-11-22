@@ -19,13 +19,13 @@ internal static class CanvasLayoutDrawing
         var inside = safe.IsEmpty ? sheet : view.MapRect(safe);
         canvas.Save();
         canvas.ClipRect(sheet);
-        if (layout.SquareSize is > 0 and var size)
+        if (layout.SquareSize is > 0 and var size && layout.SquareOpacity > 0)
         {
             var step = size * view.ScaleX;
             if (step > 0)
             {
                 var visibleStep = step * Math.Max(1, MathF.Ceiling(5 * hair / step));
-                using var line = new SKPaint { Color = Squares.WithAlpha(130), StrokeWidth = hair };
+                using var line = new SKPaint { Color = Squares.WithAlpha(Alpha(130, layout.SquareOpacity)), StrokeWidth = hair };
                 var visible = canvas.LocalClipBounds;
                 for (var x = sheet.Left + Math.Max(1, MathF.Floor((visible.Left - sheet.Left) / visibleStep)) * visibleStep;
                     x < Math.Min(sheet.Right, visible.Right); x += visibleStep)
@@ -35,8 +35,8 @@ internal static class CanvasLayoutDrawing
                     canvas.DrawLine(sheet.Left, y, sheet.Right, y, line);
             }
         }
-        DrawTracks(layout.Columns?.Geometry(width), true, Columns);
-        DrawTracks(layout.Rows?.Geometry(height), false, Rows);
+        DrawTracks(layout.Columns, width, true, Columns);
+        DrawTracks(layout.Rows, height, false, Rows);
         if (!safe.IsEmpty && layout.SafeArea != default) Dashed(inside, Safe);
         canvas.Restore();
         if (layout.BleedMm > 0)
@@ -52,11 +52,11 @@ internal static class CanvasLayoutDrawing
             canvas.DrawRect(rect, paint);
         }
 
-        void DrawTracks(TrackGeometry? geometry, bool vertical, SKColor color)
+        void DrawTracks(CanvasTracks? grid, int extent, bool vertical, SKColor color)
         {
-            if (geometry is not { } tracks) return;
-            using var fill = new SKPaint { Color = color.WithAlpha(49) };
-            using var edge = new SKPaint { Color = color.WithAlpha(164), StrokeWidth = hair, Style = SKPaintStyle.Stroke };
+            if (grid is not { Opacity: > 0 } || grid.Geometry(extent) is not { } tracks) return;
+            using var fill = new SKPaint { Color = color.WithAlpha(Alpha(49, grid.Opacity)) };
+            using var edge = new SKPaint { Color = color.WithAlpha(Alpha(164, grid.Opacity)), StrokeWidth = hair, Style = SKPaintStyle.Stroke };
             var scale = vertical ? view.ScaleX : view.ScaleY;
             var stride = Math.Max(1, (int)Math.Ceiling(2 * hair / ((tracks.Size + tracks.Gap) * scale)));
             for (var i = 0; i < tracks.Count; i += stride)
@@ -77,4 +77,6 @@ internal static class CanvasLayoutDrawing
             }
         }
     }
+
+    private static byte Alpha(int colorAlpha, int opacity) => (byte)((colorAlpha * opacity + 50) / 100);
 }

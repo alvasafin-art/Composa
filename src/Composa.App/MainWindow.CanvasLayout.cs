@@ -23,7 +23,7 @@ public sealed partial class MainWindow
 
     private ToggleButton LayoutToggle(string label, Icons.Icon icon, Func<ViewOptions, bool, ViewOptions> apply)
     {
-        var button = new ToggleButton { Content = Icons.Create(icon, 15), Padding = new Thickness(5) };
+        var button = new ToggleButton { Classes = { "layout-toggle" }, Content = Icons.Create(icon, 15), Padding = new Thickness(5) };
         AutomationProperties.SetName(button, Locale.T(label));
         Locale.Tip(button, label);
         button.Click += (_, _) =>

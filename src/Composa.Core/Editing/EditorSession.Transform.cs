@@ -87,8 +87,8 @@ public sealed class TransformEdit
 
     public void MoveBy(float dx, float dy) => Set(SKRect.Create(StartFrame.Left + dx, StartFrame.Top + dy, StartFrame.Width, StartFrame.Height), Rotation);
 
-    /// <summary>Drags a resize handle to a document point. Shift keeps proportions unless <paramref name="free"/>; Alt scales about the center.</summary>
-    public void Resize(TransformHandle handle, SKPoint point, bool free, bool fromCenter)
+    /// <summary>Drags a resize handle, optionally snapping its actual position to the document layout.</summary>
+    public (float? SnapX, float? SnapY) Resize(TransformHandle handle, SKPoint point, bool free, bool fromCenter, float snapTolerance = 0)
     {
         // Work in the frame's own unrotated space.
         var unrotate = SKMatrix.CreateRotationDegrees((float)-StartRotation, StartFrame.MidX, StartFrame.MidY);
@@ -138,9 +138,48 @@ public sealed class TransformEdit
 
         // Resizing moves the center; keep the opposite edge fixed on screen by rotating the new center back.
         var rotate = SKMatrix.CreateRotationDegrees((float)StartRotation, StartFrame.MidX, StartFrame.MidY);
+        (float? SnapX, float? SnapY) guides = default;
+        var horizontal = movesLeft || movesRight;
+        var vertical = movesTop || movesBottom;
+        if (snapTolerance > 0 && (horizontal || vertical) && session.View.Snap && session.View.SnapToCanvasLayout && session.Document.Layout.HasGuides)
+        {
+            var midX = (left + right) / 2;
+            var midY = (top + bottom) / 2;
+            var grab = new SKPoint(movesLeft ? left : movesRight ? right : midX, movesTop ? top : movesBottom ? bottom : midY);
+            var anchor = fromCenter ? new SKPoint(midX, midY)
+                : new SKPoint(movesLeft ? right : movesRight ? left : midX, movesTop ? bottom : movesBottom ? top : midY);
+            var freeCorner = free && horizontal && vertical;
+            var ray = rotate.MapPoint(grab) - rotate.MapPoint(anchor);
+            var (snapped, x, y) = session.SnapLayoutPoint(rotate.MapPoint(grab), snapTolerance, freeCorner ? null : ray);
+            if (x.HasValue || y.HasValue)
+            {
+                var target = unrotate.MapPoint(snapped);
+                var next = new SKRect(left, top, right, bottom);
+                if (freeCorner)
+                {
+                    var delta = target - grab;
+                    if (movesLeft) { next.Left += delta.X; if (fromCenter) next.Right -= delta.X; }
+                    else { next.Right += delta.X; if (fromCenter) next.Left -= delta.X; }
+                    if (movesTop) { next.Top += delta.Y; if (fromCenter) next.Bottom -= delta.Y; }
+                    else { next.Bottom += delta.Y; if (fromCenter) next.Top -= delta.Y; }
+                }
+                else
+                {
+                    var factor = horizontal ? (target.X - anchor.X) / (grab.X - anchor.X) : (target.Y - anchor.Y) / (grab.Y - anchor.Y);
+                    if (!free || horizontal) { next.Left = anchor.X + (left - anchor.X) * factor; next.Right = anchor.X + (right - anchor.X) * factor; }
+                    if (!free || vertical) { next.Top = anchor.Y + (top - anchor.Y) * factor; next.Bottom = anchor.Y + (bottom - anchor.Y) * factor; }
+                }
+                if (Math.Abs(next.Width) >= 1 && Math.Abs(next.Height) >= 1 && next.Width * (right - left) > 0 && next.Height * (bottom - top) > 0)
+                {
+                    (left, top, right, bottom) = (next.Left, next.Top, next.Right, next.Bottom);
+                    guides = (x, y);
+                }
+            }
+        }
         var center = rotate.MapPoint((left + right) / 2, (top + bottom) / 2);
         float width = right - left, height = bottom - top;
         Set(new SKRect(center.X - width / 2, center.Y - height / 2, center.X + width / 2, center.Y + height / 2), StartRotation);
+        return guides;
     }
 
     public void RotateTo(SKPoint start, SKPoint point, bool snap)

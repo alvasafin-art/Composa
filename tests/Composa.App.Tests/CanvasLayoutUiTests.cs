@@ -20,6 +20,45 @@ namespace Composa.App.Tests;
 public sealed class CanvasLayoutUiTests
 {
     [AvaloniaFact]
+    public void Resize_handle_snaps_to_a_hidden_layout_and_respects_the_snap_toggle()
+    {
+        var window = new MainWindow { Width = 1280, Height = 850 };
+        window.Show();
+        var session = EditorSession.NewCanvas(600, 400, SKColors.White);
+        window.AddSession(session);
+        var shape = session.AddShape(new SKRect(100, 100, 200, 200))!;
+        window.SelectTool(Tool.Move);
+        window.Canvas.ZoomTo(1);
+        try
+        {
+            session.SetCanvasLayout(new CanvasLayout { Columns = new CanvasTracks() });
+            session.View = session.View with { ShowCanvasLayout = false };
+            Dispatcher.UIThread.RunJobs();
+            DragRightHandle();
+            Assert.Equal(312, shape.ControlBounds.Right, 3);
+            Assert.Equal(100, shape.ControlBounds.Left, 3);
+            Assert.Equal(shape.ControlBounds.Width, shape.ControlBounds.Height, 3);
+            session.Undo();
+            session.View = session.View with { SnapToCanvasLayout = false };
+            Dispatcher.UIThread.RunJobs();
+            DragRightHandle();
+            Assert.Equal(308, session.Document.Find(shape.Id)!.ControlBounds.Right, 3);
+        }
+        finally { session.MarkSaved("document.cmps", session.History.CurrentId); window.Close(); }
+
+        void DragRightHandle()
+        {
+            var from = At(200, 150);
+            var to = At(308, 150);
+            window.MouseDown(from, MouseButton.Left);
+            window.MouseMove(to, RawInputModifiers.LeftMouseButton);
+            window.MouseUp(to, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+        }
+        Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+    }
+
+    [AvaloniaFact]
     public async Task Compact_new_canvas_leaves_room_for_the_settings_scrollbar()
     {
         var window = new MainWindow();
@@ -156,6 +195,11 @@ public sealed class CanvasLayoutUiTests
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal((1080, 1350), (design.Options.Width, design.Options.Height));
             Assert.Equal(CanvasLayout.Empty, design.Options.Layout);
+            var backgrounds = Assert.IsType<MenuFlyout>(Find<Button>(dialog, "NewCanvasBackground").Flyout).Items.OfType<MenuItem>().ToArray();
+            Assert.Equal(new[] { "White", "Black", "Transparent", "Choose color" }, backgrounds.Select(item => item.Header?.ToString()));
+            backgrounds[1].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Assert.Equal(SKColors.Black, design.Options.Background);
+            backgrounds[0].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.True(Screenshots.Save(dialog, "new-canvas-layout"));
             var safeTop = Find<NumericUpDown>(dialog, "Topinset");
             Assert.Null(safeTop.Value);
@@ -205,6 +249,10 @@ public sealed class CanvasLayoutUiTests
             Assert.Equal(64m, margin.Value);
             margin.Value = 80;
             Assert.Equal(80, session.Document.Layout.Columns!.Margin);
+            var opacity = Find<NumericUpDown>(editor, "LayoutOpacity");
+            Assert.Equal(100m, opacity.Value);
+            opacity.Value = 35;
+            Assert.Equal(35, session.Document.Layout.Columns.Opacity);
             Find<NumericUpDown>(editor, "Topinset").Value = 72;
             Assert.Equal(new CanvasMargins(72), session.Document.Layout.SafeArea);
             var link = Find<ToggleButton>(editor, "LinkSafeArea");
@@ -212,6 +260,7 @@ public sealed class CanvasLayoutUiTests
             link.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Find<NumericUpDown>(editor, "Rightinset").Value = 82;
             Click(editor, "LayoutRows");
+            Assert.Equal(100m, opacity.Value);
             Find<NumericUpDown>(editor, "LayoutCount").Value = 4;
             Find<ComboBox>(editor, "LayoutSizing").SelectedIndex = (int)GridSizing.Fixed;
             Find<NumericUpDown>(editor, "LayoutTrackSize").Value = 1;

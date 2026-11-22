@@ -84,7 +84,8 @@ public sealed partial class CanvasView
         if (editPoints || alt) return;
         penSelectedLayer = null; penSelectedNode = penSelectedSegment = -1;
         draftSelection = -1;
-        penDraft.Add(BezierNode.Corner(pressDocument.X, pressDocument.Y)); penDraftDrag = true; drag = Drag.PenNode;
+        var point = SnapLayoutHandle(pressDocument);
+        penDraft.Add(BezierNode.Corner(point.X, point.Y)); penDraftDrag = true; drag = Drag.PenNode;
     }
     private bool TryEditSelectedPath(bool alt, bool insert, int clicks)
     {
@@ -153,15 +154,20 @@ public sealed partial class CanvasView
     private void PenMove(bool alt)
     {
         if (penConverted) alt = endpointCorner;
+        guides.Clear();
         if (penDraftDrag)
         {
             if (penDraftEditing && penOriginal != null)
-            { penDraft[penNode] = MovedNode(penOriginal.Nodes[penNode], currentDocument.X, currentDocument.Y, penHandle, alt); return; }
+            {
+                var point = penHandle == 0 ? SnapLayoutHandle(currentDocument) : currentDocument;
+                penDraft[penNode] = MovedNode(penOriginal.Nodes[penNode], point.X, point.Y, penHandle, alt);
+                return;
+            }
             if (penDraft.Count == 0) return; var n = penDraft[^1];
             penDraft[^1] = n with { OutX = currentDocument.X, OutY = currentDocument.Y, InX = 2 * n.X - currentDocument.X, InY = 2 * n.Y - currentDocument.Y }; return;
         }
         if (penLayer?.Pixels == null || penOriginal == null || !penLayer.Matrix.TryInvert(out var inverse)) return;
-        var p = inverse.MapPoint(currentDocument);
+        var p = inverse.MapPoint(penHandle == 0 ? SnapLayoutHandle(currentDocument) : currentDocument);
         if (penHandle == 3)
         {
             var start = inverse.MapPoint(pressDocument);

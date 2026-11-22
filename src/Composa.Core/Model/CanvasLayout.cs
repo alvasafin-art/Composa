@@ -21,10 +21,13 @@ public readonly record struct CanvasMargins(int Top, int Right, int Bottom, int 
 public sealed record CanvasTracks(int Count = 4, int Gap = 24, int Margin = 64, GridSizing Sizing = GridSizing.Stretch,
     int Size = 96, GridAlignment Alignment = GridAlignment.Start)
 {
+    public int Opacity { get; init; } = 100;
+
     public CanvasTracks Normalized() => new(
         Math.Clamp(Count, 0, DocumentLimits.MaxLayoutTracks), Math.Clamp(Gap, 0, DocumentLimits.MaxSide),
         Math.Clamp(Margin, 0, DocumentLimits.MaxSide), Enum.IsDefined(Sizing) ? Sizing : GridSizing.Stretch,
-        Math.Clamp(Size, 1, DocumentLimits.MaxSide), Enum.IsDefined(Alignment) ? Alignment : GridAlignment.Start);
+        Math.Clamp(Size, 1, DocumentLimits.MaxSide), Enum.IsDefined(Alignment) ? Alignment : GridAlignment.Start)
+        { Opacity = Math.Clamp(Opacity, 0, 100) };
 
     public TrackGeometry? Geometry(int extent)
     {
@@ -58,6 +61,7 @@ public sealed record CanvasLayout
     public CanvasTracks? Columns { get; init; }
     public CanvasTracks? Rows { get; init; }
     public int? SquareSize { get; init; }
+    public int SquareOpacity { get; init; } = 100;
     public double BleedMm { get; init; }
 
     [JsonIgnore]
@@ -68,6 +72,7 @@ public sealed record CanvasLayout
         SafeArea = SafeArea.Normalized(),
         Columns = Columns?.Normalized(), Rows = Rows?.Normalized(),
         SquareSize = SquareSize is { } size ? size == 0 ? 0 : Math.Clamp(size, LayoutGrid.MinSpacing, DocumentLimits.MaxSide) : null,
+        SquareOpacity = Math.Clamp(SquareOpacity, 0, 100),
         BleedMm = double.IsFinite(BleedMm) ? Math.Clamp(BleedMm, 0, MaxBleedMm) : 0
     };
 
@@ -82,6 +87,29 @@ public sealed record CanvasLayout
         {
             for (var x = 0; x <= width; x += step) xs.Add(x);
             for (var y = 0; y <= height; y += step) ys.Add(y);
+        }
+    }
+
+    internal float? NearestSnapTarget(bool horizontal, int extent, float position, float tolerance)
+    {
+        float? nearest = null;
+        if ((horizontal ? Columns : Rows)?.Geometry(extent) is { } tracks)
+        {
+            for (var i = 0; i < tracks.Count; i++)
+            {
+                var start = tracks.Position(i);
+                Consider((float)start);
+                Consider((float)(start + tracks.Size));
+            }
+        }
+        if (SquareSize is > 0 and var step)
+            Consider(Math.Clamp(MathF.Floor(position / step + .5f), 0, extent / step) * step);
+        return nearest;
+
+        void Consider(float target)
+        {
+            var distance = MathF.Abs(target - position);
+            if (distance <= tolerance) { nearest = target; tolerance = distance; }
         }
     }
 

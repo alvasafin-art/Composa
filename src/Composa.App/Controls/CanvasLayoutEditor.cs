@@ -16,12 +16,13 @@ internal sealed class CanvasLayoutEditor : StackPanel
     private readonly ToggleButton safeLink;
     private readonly TextBlock safeStatus;
     private readonly Dictionary<CanvasGridKind, (Button Button, Rectangle Outline, Icons.Icon Icon)> kinds = [];
-    private readonly StackPanel trackDetails, squareDetails;
-    private readonly NumericUpDown count, gap, margin, trackSize, squareSize, bleed;
+    private readonly StackPanel trackDetails;
+    private readonly Control squareDetails;
+    private readonly NumericUpDown count, gap, margin, trackSize, trackOpacity, squareSize, squareOpacity, bleed;
     private readonly ComboBox sizing, alignment;
     private readonly TextBlock trackSizeLabel, computedSize, gridStatus;
     private readonly Control measuredSize, editableSize;
-    private readonly Control alignmentField;
+    private readonly Control alignmentRow;
     private readonly Button remove;
     private readonly Action<CanvasLayout> changed;
     private CanvasLayout layout = CanvasLayout.Empty;
@@ -35,7 +36,7 @@ internal sealed class CanvasLayoutEditor : StackPanel
         Name = "CanvasLayoutEditor";
         Spacing = 13;
 
-        safeLink = new ToggleButton { Name = "LinkSafeArea", Content = Icons.Create(Icons.Link, 15) };
+        safeLink = new ToggleButton { Name = "LinkSafeArea", Classes = { "layout-toggle" }, Content = Icons.Create(Icons.Link, 15) };
         SizeIconButton(safeLink);
         Locale.Tip(safeLink, "Link safe area sides");
         AutomationProperties.SetName(safeLink, Locale.T("Link safe area sides"));
@@ -86,7 +87,7 @@ internal sealed class CanvasLayoutEditor : StackPanel
                 HorizontalContentAlignment = HorizontalAlignment.Center, Height = 30, MinHeight = 0,
                 Padding = new Thickness(5), BorderThickness = default };
             var outline = new Rectangle { Stroke = Palette.Edge, StrokeThickness = 1, RadiusX = 5, RadiusY = 5,
-                IsHitTestVisible = false };
+                StrokeDashArray = [3, 2], Opacity = .6, IsHitTestVisible = false };
             AutomationProperties.SetName(button, Locale.T(kind.ToString()));
             Locale.Tip(button, kind.ToString());
             button.Click += (_, _) => Activate(kind);
@@ -97,6 +98,7 @@ internal sealed class CanvasLayoutEditor : StackPanel
         count = Number("LayoutCount", 0, 0, DocumentLimits.MaxLayoutTracks, v => SetTrack(track => track with { Count = (int)v }), blankIsZero: true);
         gap = Number("LayoutGap", 24, 0, DocumentLimits.MaxSide, v => SetTrack(track => track with { Gap = (int)v }));
         margin = Number("LayoutMargin", 64, 0, DocumentLimits.MaxSide, v => SetTrack(track => track with { Margin = (int)v }));
+        trackOpacity = Number("LayoutOpacity", 100, 0, 100, v => SetTrack(track => track with { Opacity = (int)v }));
         trackSize = Number("LayoutTrackSize", 96, 1, DocumentLimits.MaxSide, v => SetTrack(track => track with { Size = (int)v }));
         trackSize.FormatString = "0.##";
         sizing = Ui.Combo(Enum.GetValues<GridSizing>(), GridSizing.Stretch, v => v.ToString(),
@@ -109,16 +111,21 @@ internal sealed class CanvasLayoutEditor : StackPanel
         editableSize = UnitSurface(trackSize, "px");
         var sizeField = Field("Column width", new Panel { Children = { measuredSize, editableSize } });
         trackSizeLabel = (TextBlock)sizeField.Children[0];
-        alignmentField = Field("Alignment", alignment);
+        alignmentRow = Pair(new Border(), Field("Alignment", alignment));
         trackDetails = Ui.Column(10,
             Pair(Field("Count", count), Field("Gap", gap, "px")),
             Pair(Field("Outer margins", margin, "px"), Field("Sizing", sizing)),
-            Pair(sizeField, alignmentField));
+            Pair(sizeField, Field("Opacity", trackOpacity, "%")),
+            alignmentRow);
         squareSize = Number("LayoutSquareSize", 0, 0, DocumentLimits.MaxSide, v =>
         {
             if (!syncing) Change(layout with { SquareSize = v > 0 ? Math.Max(LayoutGrid.MinSpacing, (int)v) : 0 });
         }, blankIsZero: true);
-        squareDetails = Ui.Column(10, Pair(Field("Square size", squareSize, "px"), new Border()));
+        squareOpacity = Number("LayoutSquareOpacity", 100, 0, 100, v =>
+        {
+            if (!syncing) Change(layout with { SquareOpacity = (int)v });
+        });
+        squareDetails = Pair(Field("Square size", squareSize, "px"), Field("Opacity", squareOpacity, "%"));
         gridStatus = Ui.Label("", Palette.Secondary, 11);
         gridStatus.TextWrapping = TextWrapping.Wrap;
         remove = Ui.TextButton("Remove", Remove);
@@ -181,7 +188,7 @@ internal sealed class CanvasLayoutEditor : StackPanel
         {
             CanvasGridKind.Columns => layout with { Columns = null },
             CanvasGridKind.Rows => layout with { Rows = null },
-            CanvasGridKind.Squares => layout with { SquareSize = null },
+            CanvasGridKind.Squares => layout with { SquareSize = null, SquareOpacity = 100 },
             _ => layout
         });
         if (kind is { } focus) kinds[focus].Button.Focus();
@@ -212,7 +219,7 @@ internal sealed class CanvasLayoutEditor : StackPanel
 
         foreach (var (kind, tile) in kinds)
         {
-            var brush = Enabled(kind) ? Palette.Accent : Palette.Secondary;
+            var brush = active == kind ? Palette.Foreground : Enabled(kind) ? Palette.Accent : Palette.Secondary;
             if (tile.Button.Content is not Control existing || existing.Tag is not IBrush previous || previous != brush)
             {
                 var glyph = Icons.Create(tile.Icon, 16, brush);
@@ -220,15 +227,14 @@ internal sealed class CanvasLayoutEditor : StackPanel
                 tile.Button.Content = glyph;
             }
             tile.Button.Background = active == kind ? Palette.Selected : Palette.Window;
-            tile.Outline.Stroke = active == kind ? Palette.Accent : Palette.Edge;
-            tile.Outline.Opacity = active == kind ? 1 : .6;
-            tile.Outline.StrokeDashArray = active == kind ? null : [3, 2];
+            tile.Outline.IsVisible = active != kind;
         }
         remove.IsVisible = active != null;
         var track = active == CanvasGridKind.Columns ? layout.Columns : active == CanvasGridKind.Rows ? layout.Rows : null;
         trackDetails.IsVisible = track != null;
         squareDetails.IsVisible = active == CanvasGridKind.Squares;
         squareSize.Value = layout.SquareSize > 0 ? layout.SquareSize : null;
+        squareOpacity.Value = layout.SquareOpacity;
         gridStatus.Text = "";
         if (track != null)
         {
@@ -238,9 +244,10 @@ internal sealed class CanvasLayoutEditor : StackPanel
             count.Value = track.Count > 0 ? track.Count : null;
             gap.Value = track.Gap;
             margin.Value = track.Margin;
+            trackOpacity.Value = track.Opacity;
             sizing.SelectedIndex = (int)track.Sizing;
             alignment.SelectedIndex = (int)track.Alignment;
-            alignmentField.IsVisible = editableSize.IsVisible = fixedSize;
+            alignmentRow.IsVisible = editableSize.IsVisible = fixedSize;
             measuredSize.IsVisible = !fixedSize;
             trackSizeLabel.Text = Locale.T(columns ? "Column width" : "Row height");
             trackSize.Value = track.Size;

@@ -403,7 +403,7 @@ public sealed partial class CanvasView
                 if (Math.Abs(position.X - pressScreen.X) > 4) ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen);
                 break;
             case Drag.TextSelect: DragTextSelection(); break;
-            case Drag.TextResize: DragTextBox(); break;
+            case Drag.TextResize: DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Guide: DragGuide(); break;
             case Drag.None when session.Tool == Tool.Move:
                 UpdateMoveCursor(position);
@@ -447,6 +447,17 @@ public sealed partial class CanvasView
             currentDocument = ToDocument(cursorScreen);
             DragTransform(shift, alt, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
+        if (drag is Drag.PenNode or Drag.WarpNode or Drag.TextResize && e.GetPosition(this) != cursorScreen)
+        {
+            cursorScreen = e.GetPosition(this);
+            currentDocument = ToDocument(cursorScreen);
+            if (Distance(pressScreen, cursorScreen) > 2)
+            {
+                if (drag == Drag.PenNode) PenMove(alt);
+                else if (drag == Drag.WarpNode) DragWarpPoint(shift);
+                else DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control));
+            }
+        }
         var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
         if (!(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) drag = Drag.None;
@@ -459,10 +470,11 @@ public sealed partial class CanvasView
             case Drag.ShapeParameter:
                 if (adjustingShape?.Shape != originalShape) session.Commit(); else session.Cancel();
                 adjustingShape = null; break;
-            case Drag.WarpNode: EndWarpPoint(keep: true); break;
+            case Drag.WarpNode: guides.Clear(); EndWarpPoint(keep: true); break;
             case Drag.Pan: UpdateCursor(); break;
             case Drag.Stroke: session.EndStroke(); break;
             case Drag.PenNode:
+                guides.Clear();
                 if (!penDraftDrag && penLayer != null) { if (moved || penConverted) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
                 penLayer = null; penOriginal = null; break;
             case Drag.Patch:
@@ -530,6 +542,7 @@ public sealed partial class CanvasView
                 if (!moved) ZoomTo(alt ? zoom / 1.5 : zoom * 1.5, pressScreen);
                 break;
             case Drag.TextBox: FinishTextBoxDrag(moved); break;
+            case Drag.TextResize: guides.Clear(); break;
             case Drag.Guide: FinishGuideDrag(e.GetPosition(this)); break;
         }
         if (wasTemporaryMove) { controlHover = e.KeyModifiers.HasFlag(KeyModifiers.Control); UpdateCursor(); }
@@ -613,9 +626,23 @@ public sealed partial class CanvasView
         guides.Clear();
         if (session == null || !session.View.Snap || control) return point;
         var (snapped, snapX, snapY) = session.SnapPoint(point, (float)(6 / UnitsPerPixel));
+        DrawSnapLines(snapX, snapY);
+        return snapped;
+    }
+
+    private SKPoint SnapLayoutHandle(SKPoint point, SKPoint? direction = null)
+    {
+        guides.Clear();
+        if (session == null) return point;
+        var (snapped, x, y) = session.SnapLayoutPoint(point, (float)(6 / UnitsPerPixel), direction);
+        DrawSnapLines(x, y);
+        return snapped;
+    }
+
+    private void DrawSnapLines(float? snapX, float? snapY)
+    {
         if (snapX is { } x) guides.Add((new SKPoint(x, -100000), new SKPoint(x, 100000)));
         if (snapY is { } y) guides.Add((new SKPoint(-100000, y), new SKPoint(100000, y)));
-        return snapped;
     }
 
     /// <summary>
@@ -979,8 +1006,13 @@ public sealed partial class CanvasView
                 edit.RotateTo(pressDocument, currentDocument, shift);
                 break;
             default:
-                if (distortCorner >= 0) edit.DistortCorner(distortCorner, currentDocument);
-                else edit.Resize(handle, currentDocument, free: shift, fromCenter: alt);
+                if (distortCorner >= 0) edit.DistortCorner(distortCorner, SnapLayoutHandle(currentDocument));
+                else
+                {
+                    var (x, y) = edit.Resize(handle, currentDocument, free: shift, fromCenter: alt,
+                        snapTolerance: control ? 0 : (float)(6 / UnitsPerPixel));
+                    DrawSnapLines(x, y);
+                }
                 break;
         }
         TransformPreviewChanged?.Invoke();
@@ -995,8 +1027,7 @@ public sealed partial class CanvasView
         var box = rotate.MapRect(edit.StartFrame);
         var (snappedX, snappedY, snapX, snapY) = session.SnapMove(box, edit.MovingLayerIds, dx, dy, threshold);
         dx = snappedX; dy = snappedY;
-        if (snapX is { } x) guides.Add((new SKPoint(x, -100000), new SKPoint(x, 100000)));
-        if (snapY is { } y) guides.Add((new SKPoint(-100000, y), new SKPoint(100000, y)));
+        DrawSnapLines(snapX, snapY);
     }
 
     // ---- Keyboard -----------------------------------------------------------------------------------------------

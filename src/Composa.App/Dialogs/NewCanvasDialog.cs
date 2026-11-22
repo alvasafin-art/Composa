@@ -201,10 +201,10 @@ internal sealed class NewCanvasView : Grid
         };
         AutomationProperties.SetName(editBackground, Locale.T("Choose background color"));
         Locale.Tip(editBackground, "Choose background color");
-        BackgroundOption("Transparent", () => Edit(Options with { Fill = null }));
         BackgroundOption("White", () => Edit(Options with { Fill = (uint)SKColors.White }));
-        BackgroundOption("Background color", () => Edit(Options with { Fill = (uint)backgroundColor }));
-        BackgroundOption("Choose color…", async () =>
+        BackgroundOption("Black", () => Edit(Options with { Fill = (uint)SKColors.Black }));
+        BackgroundOption("Transparent", () => Edit(Options with { Fill = null }));
+        BackgroundOption("Choose color", async () =>
         {
             if (TopLevel.GetTopLevel(this) is not Window owner) return;
             var before = Options.Fill;
@@ -355,8 +355,7 @@ internal sealed class NewCanvasView : Grid
         foreach (var (tile, _) in tiles)
         {
             tile.Background = tile == active.Button ? Palette.Selected : Brushes.Transparent;
-            tile.BorderBrush = tile == active.Button ? Palette.SelectedOutline : Brushes.Transparent;
-            tile.BorderThickness = new Thickness(1);
+            tile.BorderThickness = default;
         }
         legend["Safe area"].IsVisible = Options.Layout.SafeArea != default;
         legend["Columns"].IsVisible = Options.Layout.Columns?.Count > 0;

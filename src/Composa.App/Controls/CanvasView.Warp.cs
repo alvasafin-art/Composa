@@ -88,11 +88,14 @@ public sealed partial class CanvasView
     {
         if (session?.WarpEdit is not { } edit || warpNode < 0) return;
         var point = currentDocument;
+        SKPoint? direction = null;
         if (shift)
         {
-            if (Math.Abs(point.X - warpNodeStart.X) > Math.Abs(point.Y - warpNodeStart.Y)) point.Y = warpNodeStart.Y;
-            else point.X = warpNodeStart.X;
+            if (Math.Abs(point.X - warpNodeStart.X) > Math.Abs(point.Y - warpNodeStart.Y))
+            { point.Y = warpNodeStart.Y; direction = new SKPoint(1, 0); }
+            else { point.X = warpNodeStart.X; direction = new SKPoint(0, 1); }
         }
+        point = SnapLayoutHandle(point, direction);
         try { edit.MovePoint(warpNode, point); }
         catch (ArgumentException error) { Problem?.Invoke(error.Message); }
         catch (InvalidOperationException error) { Problem?.Invoke(error.Message); }

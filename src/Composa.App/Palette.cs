@@ -28,7 +28,6 @@ public static class Palette
     public static readonly SolidColorBrush Secondary = Brush("#AFB3B9", "#575757");
     public static readonly SolidColorBrush Accent = Brush("#3D9BFF", "#535353", "#B8B8B8");
     public static readonly SolidColorBrush Selected = Brush("#384B63", "#CCCCCC", "#18191B");
-    internal static readonly SolidColorBrush SelectedOutline = Brush("#577DA9", "#8C8C8C", "#57585B");
     internal static readonly SolidColorBrush RaisedIconWell = Brush("#373A3E", "#E6E6E6", "#303235");
     public static readonly SolidColorBrush Hover = Brush("#464A50", "#D9D9D9");
     public static readonly SolidColorBrush Field = Brush("#373A3E", "#E6E6E6");
@@ -141,6 +140,18 @@ public static class Palette
         styles.Add(new Style(x => x.OfType<Button>().Class("alignment").Class(":disabled").Descendant().OfType<Viewbox>())
         {
             Setters = { new Setter(Visual.OpacityProperty, 0.48) }
+        });
+        styles.Add(new Style(x => x.OfType<Button>().Class("alignment").Class(":disabled").Descendant().OfType<TextBlock>())
+        {
+            Setters = { new Setter(Visual.OpacityProperty, 0.48) }
+        });
+        styles.Add(new Style(x => x.OfType<ToggleButton>().Class("layout-toggle").Class(":checked").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
+        {
+            Setters =
+            {
+                new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, Selected),
+                new Setter(Avalonia.Controls.Presenters.ContentPresenter.BorderThicknessProperty, new Thickness(0))
+            }
         });
         styles.Add(new Style(x => x.OfType<ToggleButton>().Class("tool").Class(":disabled").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
         {

@@ -126,7 +126,11 @@ public sealed partial class MainWindow
                 { geometry.Children.Remove(toggle); row.Children.Add(toggle); }
                 if (geometry.Children.Count > 0) inspector = geometry;
                 if (appearance?.Children.Count == 0) appearance = null;
-                var warpButton = Flat("Warp", StartWarp); warpButton.Name = "StartWarp"; warpButton.IsEnabled = s.CanWarp; Add(warpButton);
+                var warpButton = Flat("Warp", StartWarp);
+                warpButton.Name = "StartWarp";
+                warpButton.Classes.Add("alignment");
+                warpButton.IsEnabled = s.CanWarp;
+                Add(warpButton);
                 BuildAlignmentFields(row);
                 break;
             case Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:

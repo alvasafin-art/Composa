@@ -1,8 +1,10 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using Composa.App.Dialogs;
 using SkiaSharp;
+using System.Globalization;
 
 namespace Composa.App.Controls;
 
@@ -30,15 +32,10 @@ internal sealed class CanvasLayoutPreview : Control
         var y = (float)(bounds.Height - h) / 2 + 5;
         var view = new SKMatrix(scale, 0, x, 0, scale, y, 0, 0, 1);
         var margin = Math.Max(1, (float)bleed * scale);
-        var stage = Palette.Pasteboard.Color.ToSkia();
-        var foreground = Palette.Secondary.Color.ToSkia();
+        context.FillRectangle(Palette.Pasteboard, bounds);
         context.Custom(new CanvasView.DrawOperation(bounds, canvas =>
         {
-            using var dots = new SKPaint { Color = foreground.WithAlpha(57), IsAntialias = true };
-            using var paint = new SKPaint { Color = stage };
-            canvas.DrawRect(0, 0, (float)bounds.Width, (float)bounds.Height, paint);
-            for (var dy = 7; dy < bounds.Height; dy += 14)
-                for (var dx = 7; dx < bounds.Width; dx += 14) canvas.DrawCircle(dx, dy, .8f, dots);
+            using var paint = new SKPaint();
             var sheet = new SKRect(x, y, x + w, y + h);
             paint.Color = SKColors.Black.WithAlpha(55);
             var shadow = sheet; shadow.Offset(3, 5); canvas.DrawRect(shadow, paint);
@@ -62,28 +59,29 @@ internal sealed class CanvasLayoutPreview : Control
             CanvasLayoutDrawing.Draw(canvas, value.Layout, value.Width, value.Height, value.Resolution, view, 1);
             using var edge = new SKPaint { Color = CanvasLayoutDrawing.Edge, Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
             canvas.DrawRect(sheet, edge);
-            using var font = new SKFont(SKTypeface.Default, 11);
-            using var text = new SKPaint { Color = foreground, IsAntialias = true };
-            Dimension(value.Width, x + w / 2, y - margin - 12, w);
-            canvas.Save();
-            canvas.Translate(x - margin - 12, y + h / 2);
-            canvas.RotateDegrees(-90);
-            Dimension(value.Height, 0, 0, h);
-            canvas.Restore();
-
-            void Dimension(int extent, float cx, float cy, float length)
-            {
-                var label = $"{extent} px";
-                var halfLabel = font.MeasureText(label) / 2 + 6;
-                if (length / 2 > halfLabel)
-                {
-                    canvas.DrawLine(cx - length / 2, cy, cx - halfLabel, cy, edge);
-                    canvas.DrawLine(cx + halfLabel, cy, cx + length / 2, cy, edge);
-                    canvas.DrawLine(cx - length / 2, cy - 3, cx - length / 2, cy + 3, edge);
-                    canvas.DrawLine(cx + length / 2, cy - 3, cx + length / 2, cy + 3, edge);
-                }
-                canvas.DrawText(label, cx, cy + 4, SKTextAlign.Center, font, text);
-            }
         }));
+
+        var typeface = new Typeface(TextElement.GetFontFamily(this));
+        var dimensionPen = new Pen(new SolidColorBrush(CanvasLayoutDrawing.Edge.ToAvalonia()));
+        Dimension(value.Width, x + w / 2, y - margin - 12, w);
+        using (context.PushTransform(Matrix.CreateRotation(-Math.PI / 2) * Matrix.CreateTranslation(x - margin - 12, y + h / 2)))
+            Dimension(value.Height, 0, 0, h);
+
+        void Dimension(int extent, double cx, double cy, double length)
+        {
+            var label = new FormattedText($"{extent} px", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, 11, Palette.Secondary);
+            var halfLabel = label.Width / 2 + 6;
+            if (length / 2 > halfLabel)
+            {
+                var start = cx - length / 2;
+                var end = cx + length / 2;
+                context.DrawLine(dimensionPen, new Point(start, cy), new Point(cx - halfLabel, cy));
+                context.DrawLine(dimensionPen, new Point(cx + halfLabel, cy), new Point(end, cy));
+                context.DrawLine(dimensionPen, new Point(start, cy - 3), new Point(start, cy + 3));
+                context.DrawLine(dimensionPen, new Point(end, cy - 3), new Point(end, cy + 3));
+            }
+            context.DrawText(label, new Point(cx - label.Width / 2, cy - label.Height / 2));
+        }
     }
 }
