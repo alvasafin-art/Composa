@@ -59,7 +59,7 @@ public sealed class ResourceLibraryUiTests
             Assert.True(source.CreateAutoLayout(source.ProposeAutoLayout(out _)!));
             var card = source.ActiveLayer!;
             source.SetAutoLayout(card, card.AutoLayout! with { Gap = 12 });
-            source.SetAutoLayoutItem(photo, new(LayoutSizeMode.Fixed, LayoutSizeMode.Fixed, 170, 102));
+            source.SetAutoLayoutItem(photo, new(LayoutSizeMode.Fixed, LayoutSizeMode.Fixed, 170, 102, LayoutImageFit.Crop));
             source.CreateLayerStyle(heading, LayerStyleKind.Text, "Заголовок");
             source.SelectLayer(card.Id);
             window.SelectTool(Tool.Move);
@@ -114,11 +114,11 @@ public sealed class ResourceLibraryUiTests
             var imageLayer = first.Children.Single(layer => layer.LayoutFrame != null);
             var newImage = Pixels.NewColor(88, 120);
             newImage.Erase(new SKColor(124, 141, 112));
-            if (File.Exists(photoPath))
+            var replacementPath = Environment.GetEnvironmentVariable("COMPOSA_LIBRARY_REPLACEMENT_PHOTO");
+            if (File.Exists(replacementPath))
             {
-                using var file = ImageFiles.Load(photoPath!);
+                using var file = ImageFiles.Load(replacementPath!);
                 using var draw = new SKCanvas(newImage);
-                draw.RotateDegrees(180, 44, 60);
                 draw.DrawBitmap(file, new SKRect(0, 0, 88, 120));
             }
             Assert.True(target.ReplaceLayoutImage(imageLayer, newImage));
