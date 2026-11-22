@@ -21,23 +21,38 @@ internal static class FloatGaussian
         }
         else
         {
-            // Three odd-width box convolutions approximate a Gaussian with the requested variance, in O(pixels).
-            // The sum of their radii stays inside the renderer's three-sigma halo.
-            var ideal = Math.Sqrt(4 * sigma * sigma + 1);
-            var lower = (int)Math.Floor(ideal);
-            if ((lower & 1) == 0) lower--;
-            var upper = lower + 2;
-            var lowerVariance = (lower * (double)lower - 1) / 12;
-            var upperVariance = (upper * (double)upper - 1) / 12;
-            var lowerCount = Math.Clamp((int)Math.Round((3 * upperVariance - sigma * sigma) / (upperVariance - lowerVariance)), 0, 3);
-            for (var i = 0; i < 3; i++)
-            {
-                var radius = ((i < lowerCount ? lower : upper) - 1) / 2;
-                Box(bitmap, temporary, radius, horizontal: true, clamp);
-                Box(temporary, bitmap, radius, horizontal: false, clamp);
-            }
+            Span<int> radii = stackalloc int[3];
+            BoxRadii(sigma, radii);
+            if (GpuRasterFilters.TryBlur(bitmap, temporary, radii, clamp))
+                temporary.GetPixelSpan().CopyTo(bitmap.GetPixelSpan());
+            else
+                ApplyBoxes(bitmap, temporary, radii, clamp);
         }
         Pixels.Invalidate(bitmap);
+    }
+
+    private static void BoxRadii(double sigma, Span<int> radii)
+    {
+        // Three odd-width box convolutions approximate a Gaussian with the requested variance, in O(pixels).
+        // The sum of their radii stays inside the renderer's three-sigma halo.
+        var ideal = Math.Sqrt(4 * sigma * sigma + 1);
+        var lower = (int)Math.Floor(ideal);
+        if ((lower & 1) == 0) lower--;
+        var upper = lower + 2;
+        var lowerVariance = (lower * (double)lower - 1) / 12;
+        var upperVariance = (upper * (double)upper - 1) / 12;
+        var lowerCount = Math.Clamp((int)Math.Round((3 * upperVariance - sigma * sigma) / (upperVariance - lowerVariance)), 0, 3);
+        for (var i = 0; i < radii.Length; i++)
+            radii[i] = ((i < lowerCount ? lower : upper) - 1) / 2;
+    }
+
+    internal static void ApplyBoxes(SKBitmap bitmap, SKBitmap temporary, ReadOnlySpan<int> radii, bool clamp)
+    {
+        foreach (var radius in radii)
+        {
+            Box(bitmap, temporary, radius, horizontal: true, clamp);
+            Box(temporary, bitmap, radius, horizontal: false, clamp);
+        }
     }
 
     private static PixelValue Sample(PixelBuffer source, int x, int y, bool clamp)

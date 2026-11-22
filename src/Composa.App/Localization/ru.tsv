@@ -1623,6 +1623,7 @@ tolerance must be finite and nonnegative.	tolerance должен быть кон
 {0} × {1} pixels	{0} × {1} пикс.
 ↑ ↓ to choose · Enter to run · Esc to close	↑ ↓ — выбор · Enter — выполнить · Esc — закрыть
 Use GPU for local object selection and matting when available	Использовать видеокарту для локального выделения и уточнения краёв, если доступна
+Use GPU for large RGB16 blur filters	Использовать видеокарту для размытия больших слоёв RGB16
 Alignment	Выравнивание
 Ad landscape	Горизонтальная реклама
 Bits per channel	Бит на канал
