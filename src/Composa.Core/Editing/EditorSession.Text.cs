@@ -48,24 +48,33 @@ public sealed partial class EditorSession
     {
         if (layer.Pixels == null || PixelsLocked(layer)) return;
         var bounds = layer.ControlBounds;
-        SetTextCore(layer, style);
+        bool preservePlacement = layer.SharedTextStyle != null && layer.Text is { } current && current.Text == style.Text
+            && TextStyleDefinition.From(current).Differences(style) != StyleFields.None;
+        SetTextCore(layer, style, preservePlacement);
         if (layer.ControlBounds != bounds) ReflowLayoutAncestors(layer);
     }
 
-    private void SetTextCore(Layer layer, TextStyle style)
+    private void SetTextCore(Layer layer, TextStyle style, bool preservePlacement = false)
     {
         if (layer.Pixels == null || PixelsLocked(layer)) return;
         style = style.Clamped();
         var before = AffectedArea(layer);
         var old = layer.Pixels;
+        var transform = layer.Transform;
+        var mask = preservePlacement && layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
         if (style.AutoBoxHeight && TextEdit is { } editor && textLayer == layer && editor.Style == style)
-            ReplaceTextAppearance(layer, style, editor.Layout.Render(document.WorkingDepth, document.Profile));
-        else ReplaceTextAppearance(layer, style, RenderWorkingText(style));
+            ReplaceTextAppearance(layer, style, editor.Layout.Render(document.WorkingDepth, document.Profile), resizeLegacyMask: !preservePlacement);
+        else ReplaceTextAppearance(layer, style, RenderWorkingText(style), resizeLegacyMask: !preservePlacement);
+        if (preservePlacement)
+        {
+            layer.Transform = layer.Transform with { X = transform.X, Y = transform.Y, Distort = transform.Distort };
+            if (mask is { } placement && layer.MaskMatrix != placement) layer.PlaceMask(placement);
+        }
         if (pendingBefore != null && !ReferenceEquals(old, pendingBefore.Find(layer.Id)?.Pixels)) { Pixels.Invalidate(old); old.Dispose(); }
         Invalidate(Geometry.Union(before, AffectedArea(layer)));
     }
 
-    private static void ReplaceTextAppearance(Layer layer, TextStyle style, SKBitmap pixels)
+    private static void ReplaceTextAppearance(Layer layer, TextStyle style, SKBitmap pixels, bool resizeLegacyMask = true)
     {
         var t = layer.Transform;
         var old = layer.Pixels!;
@@ -83,8 +92,9 @@ public sealed partial class EditorSession
         if (moved.Rotation == 0 && Math.Abs(moved.Width - pixels.Width) < 0.01 && Math.Abs(moved.Height - pixels.Height) < 0.01)
             moved = moved with { X = Math.Round(moved.X), Y = Math.Round(moved.Y), Width = pixels.Width, Height = pixels.Height };
         layer.Transform = moved;
-        if (layer.MaskTransform == null && layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height)) layer.Mask = Resample(mask, pixels.Width, pixels.Height);
-        }
+        if (resizeLegacyMask && layer.MaskTransform == null && layer.Mask is { } mask && (mask.Width != pixels.Width || mask.Height != pixels.Height))
+            layer.Mask = Resample(mask, pixels.Width, pixels.Height);
+    }
 
     // Only RenderView consults this replacement. Save, export, undo and the active draft keep their original state.
     private Layer? fontSample;

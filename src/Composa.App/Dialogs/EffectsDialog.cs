@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Composa.ColorManagement;
 using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
@@ -14,11 +15,14 @@ public static class EffectsDialog
     /// Edits one effect of a layer. Every change is written to the layer at once so the canvas follows; the caller
     /// wraps the call in Begin/Commit (or Cancel), so the whole dialog undoes as one step.
     /// </summary>
-    public static async Task<bool> Edit(Window owner, EditorSession session, Layer layer, LayerEffectKind kind)
+    public static async Task<bool> Edit(Window owner, EditorSession session, Layer layer, LayerEffectKind kind) =>
+        await EditSettings(owner, session.Document.Profile, layer.Effects ?? LayerEffects.Empty, kind, next => session.SetEffects(layer, next)) != null;
+
+    internal static async Task<LayerEffects?> EditSettings(Window owner, RgbProfile profile, LayerEffects effects, LayerEffectKind kind,
+        Action<LayerEffects>? preview = null)
     {
-        var effects = layer.Effects ?? LayerEffects.Empty;
-        if (!effects.Contains(kind)) return false;
-        void Set(LayerEffects next) { effects = next; session.SetEffects(layer, next); }
+        if (!effects.Contains(kind)) return null;
+        void Set(LayerEffects next) { effects = next; preview?.Invoke(next); }
         var rows = new StackPanel { Spacing = 10 };
         const double fieldWidth = 330;
         Control Slider(string label, double value, double min, double max, Action<double> changed, double step = 1, string format = "0") =>
@@ -30,12 +34,12 @@ public static class EffectsDialog
             get ??= () => effects.ColorOf(kind) ?? 0xFF000000;
             set ??= color => Set(effects.WithColor(kind, color));
             var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
-            void Paint() => swatch.Background = new SolidColorBrush(new SKColor(get()).ToDisplay(session.Document.Profile, Ui.DisplayProfile(owner)));
+            void Paint() => swatch.Background = new SolidColorBrush(new SKColor(get()).ToDisplay(profile, Ui.DisplayProfile(owner)));
             Paint();
             Locale.Tip(swatch, LayerEffects.DisplayName(kind) + " " + label.ToLowerInvariant());
             swatch.PointerPressed += async (_, _) =>
             {
-                if (TopLevel.GetTopLevel(swatch) is not Window window || await Prompts.Color(window, LayerEffects.DisplayName(kind) + " " + label, new SKColor(get())) is not { } picked) return;
+                if (TopLevel.GetTopLevel(swatch) is not Window window || await Prompts.Color(window, LayerEffects.DisplayName(kind) + " " + label, new SKColor(get()), profile: profile) is not { } picked) return;
                 set((uint)picked | 0xFF000000);
                 Paint();
             };
@@ -93,7 +97,7 @@ public static class EffectsDialog
                 break;
         }
         var dialog = new DialogWindow(LayerEffects.DisplayName(kind), rows);
-        return await dialog.Ask(owner);
+        return await dialog.Ask(owner) ? effects : null;
     }
 
     private static Control Width(TextBlock label, double width)

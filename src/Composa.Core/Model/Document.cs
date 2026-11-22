@@ -16,6 +16,7 @@ public sealed class Document
     public RgbProfile Profile { get; set; } = RgbProfile.Srgb;
     public CanvasColorMode ColorMode { get; set; }
     public CanvasLayout Layout { get; set; } = CanvasLayout.Empty;
+    public Dictionary<Guid, LayerStyleDefinition> Styles { get; init; } = [];
     /// <summary>Root layers, bottom to top.</summary>
     public List<Layer> Layers { get; init; } = [];
     public Guid? ActiveLayerId { get; set; }
@@ -58,6 +59,7 @@ public sealed class Document
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.SelectionOrder.AddRange(SelectionOrder);
         copy.Guides.AddRange(Guides);
+        foreach (var pair in Styles) copy.Styles.Add(pair.Key, pair.Value);
         foreach (var pair in AlphaChannels) copy.AlphaChannels.Add(pair.Key, pair.Value);
         return copy;
     }

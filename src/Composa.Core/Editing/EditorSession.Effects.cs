@@ -20,17 +20,7 @@ public sealed partial class EditorSession
         if (IsLocked(layer) || !CanHaveEffects(layer)) return false;
         var effects = layer.Effects ?? LayerEffects.Empty;
         if (effects.Contains(kind)) { SelectedEffect = (layer.Id, kind); return true; }
-        var background = (uint)Background | 0xFF000000;
-        effects = kind switch
-        {
-            LayerEffectKind.Stroke => effects with { Stroke = new StrokeEffect { Color = background } },
-            LayerEffectKind.DropShadow => effects with { Shadow = new ShadowEffect() },
-            LayerEffectKind.GradientOverlay => effects with { GradientOverlay = new GradientOverlayEffect { StartColor = (uint)Foreground, EndColor = (uint)Background } },
-            LayerEffectKind.ColorOverlay => effects with { ColorOverlay = new ColorOverlayEffect { Color = background } },
-            LayerEffectKind.OuterGlow => effects with { OuterGlow = new OuterGlowEffect() },
-            LayerEffectKind.InnerGlow => effects with { InnerGlow = new InnerGlowEffect() },
-            _ => effects with { InnerShadow = new ShadowEffect { Distance = 10, Blur = 10 } }
-        };
+        effects = AddDefaultStyleEffect(effects, kind, (uint)Foreground, (uint)Background | 0xFF000000);
         Begin("Add " + LayerEffects.DisplayName(kind));
         SetEffects(layer, effects);
         if (commit) Commit();
@@ -38,6 +28,18 @@ public sealed partial class EditorSession
         LayersChanged?.Invoke();
         return true;
     }
+
+    public static LayerEffects AddDefaultStyleEffect(LayerEffects effects, LayerEffectKind kind, uint foreground, uint background) =>
+        kind switch
+        {
+            LayerEffectKind.Stroke => effects with { Stroke = new StrokeEffect { Color = background } },
+            LayerEffectKind.DropShadow => effects with { Shadow = new ShadowEffect() },
+            LayerEffectKind.GradientOverlay => effects with { GradientOverlay = new GradientOverlayEffect { StartColor = foreground, EndColor = background } },
+            LayerEffectKind.ColorOverlay => effects with { ColorOverlay = new ColorOverlayEffect { Color = background } },
+            LayerEffectKind.OuterGlow => effects with { OuterGlow = new OuterGlowEffect() },
+            LayerEffectKind.InnerGlow => effects with { InnerGlow = new InnerGlowEffect() },
+            _ => effects with { InnerShadow = new ShadowEffect { Distance = 10, Blur = 10 } }
+        };
 
     /// <summary>Changes a layer's effects live; wrap a dialog's slider drags in Begin/Commit so they undo as one step.</summary>
     public void SetEffects(Layer layer, LayerEffects? effects)

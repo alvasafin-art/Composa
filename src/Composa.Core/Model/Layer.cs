@@ -617,6 +617,7 @@ public sealed partial class Layer
             Pixels = Pixels, Transform = Transform, Warp = Warp, warpCache = warpCache, warpGeometry = warpGeometry, Mask = Mask, MaskLinked = MaskLinked, MaskFollowsWarp = MaskFollowsWarp, MaskTransform = MaskTransform, MaskDefault = MaskDefault, MaskEnabled = MaskEnabled, MaskDensity = MaskDensity, MaskFeather = MaskFeather, Clipped = Clipped, BlendIf = BlendIf,
             Adjustment = Adjustment, Shape = Shape, Text = Text, SmartObject = SmartObject, Effects = Effects, Collapsed = Collapsed, Locks = Locks,
             AutoLayout = AutoLayout, AutoLayoutItem = AutoLayoutItem, LayoutFrame = LayoutFrame,
+            SharedTextStyle = SharedTextStyle, SharedAppearanceStyle = SharedAppearanceStyle,
             FilterSource = FilterSource, SmartFilters = SmartFilters, FilterPaddingX = FilterPaddingX, FilterPaddingY = FilterPaddingY,
             filterMaskCache = filterMaskCache, SmartFilterMaskPlacement = SmartFilterMaskPlacement,
             SmartFilterMask = SmartFilterMask, SmartFilterMaskEnabled = SmartFilterMaskEnabled, SmartFilterMaskDefault = SmartFilterMaskDefault,

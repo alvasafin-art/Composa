@@ -1720,3 +1720,33 @@ Reorder Layout	Перестановка элементов
 Replace Layout Image	Замена изображения
 PSD preserves the placed layers. The auto layout rules stay in the Composa project.	В PSD сохраняются позиции слоёв. Правила автокомпоновки остаются в проекте Composa.
 The image is exported within its frame. The whole source image stays in the Composa project.	Изображение экспортируется в пределах рамки. Оригинал целиком остаётся в проекте Composa.
+Text style	Стиль текста
+Appearance style	Стиль оформления
+No Style	Без стиля
+Save as Style…	Сохранить как стиль…
+Edit Style…	Изменить стиль…
+Unlink Style	Отвязать стиль
+Local Style Overrides	Локальные переопределения
+Revert to Style Value	Вернуть значение стиля
+Revert All Overrides	Вернуть все значения стиля
+Style Name	Имя стиля
+Linked Objects	Связанные объекты
+Typeface	Гарнитура и начертание
+Show fill	Показывать заливку
+Show stroke	Показывать обводку
+Add or Edit…	Добавить / изменить…
+Show or Hide	Показать / скрыть
+Hidden Effect	скрыт
+This document has reached its layer style limit.	В документе достигнут предел количества стилей.
+Unlock the linked layers before editing their style.	Снимите блокировку со связанных слоёв перед изменением общего стиля.
+The project has too many layer styles.	В проекте слишком много стилей.
+Save Layer Style	Сохранение стиля
+Apply Layer Style	Применение стиля
+Edit Shared Style	Изменение общего стиля
+Reset Style Override	Возврат значения стиля
+Unlink Layer Style	Отвязка стиля
+PSD preserves the current appearance. Shared style links stay in the Composa project.	PSD сохраняет текущий вид. Связи со стилями остаются в проекте Composa.
+Edit Only This Object	Изменить только этот объект
+Font Family	Гарнитура
+Paragraph spacing	Интервал абзаца
+Text Color	Цвет текста

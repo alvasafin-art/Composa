@@ -26,8 +26,10 @@ public sealed partial class EditorSession
             inner.Transform = LayerTransform.Identity(pixels.Width, pixels.Height);
             inner.Mask = null; inner.VectorMask = null; inner.Effects = null; inner.Visible = true; inner.Opacity = 1; inner.FillOpacity = 1; inner.Blend = BlendMode.Normal; inner.Clipped = false;
             inner.BlendIf = new();
+            inner.SharedTextStyle = inner.SharedAppearanceStyle = null;
             content.Layers.Add(inner); content.SetActive(inner.Id);
             instance = original.Clone(); instance.Text = null; instance.Shape = null;
+            instance.SharedTextStyle = null;
             instance.FilterSource = null; instance.SmartFilters = []; instance.FilterPaddingX = instance.FilterPaddingY = 0;
             instance.SmartFilterMask = null;
         }
@@ -36,6 +38,10 @@ public sealed partial class EditorSession
             // Preserve document-space adjustment/group masks and the complete layer structure.
             content = new Document(document.Width, document.Height) { Resolution = document.Resolution, Depth = document.WorkingDepth, Profile = document.Profile };
             content.Layers.AddRange(roots.Select(layer => layer.Clone(newIds: true)));
+            foreach (var layer in content.AllLayers())
+                foreach (var binding in new[] { layer.SharedTextStyle, layer.SharedAppearanceStyle })
+                    if (binding != null && document.Styles.TryGetValue(binding.Id, out var style))
+                        content.Styles.TryAdd(binding.Id, style);
             content.SetActive(content.Layers[^1].Id);
             instance = new Layer { Kind = LayerKind.Raster, Name = roots.Count == 1 ? roots[0].Name : "Smart Object",
                 Transform = LayerTransform.Identity(document.Width, document.Height) };

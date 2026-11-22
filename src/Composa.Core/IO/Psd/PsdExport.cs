@@ -24,6 +24,7 @@ public static partial class PsdExport
     public static IReadOnlyList<PsdConversion> Conversions(Document document)
     {
         var notes = new List<PsdConversion>();
+        if (document.Styles.Count > 0) notes.Add(new("Document", "PSD preserves the current appearance. Shared style links stay in the Composa project."));
         if (document.AlphaChannels.Count > 0) notes.Add(new("Saved selections", "Saved alpha channels stay in the Composa project and are not exported to PSD yet."));
         if (NeedsAppearance(document)) notes.Add(new("Document", "Adjustments are applied to a merged appearance layer. Source layers are kept in a hidden folder; adjustment settings stay in the Composa project."));
         foreach (var layer in document.AllLayers())

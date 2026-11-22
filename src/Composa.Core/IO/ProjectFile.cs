@@ -26,9 +26,9 @@ public static class ProjectFile
     /// 9 character size runs and separate fill opacity for imported Photoshop effects, 10 professional editing data,
     /// 11 explicit Normal/Pass Through groups, Blend If ranges and non-destructive raster mask properties,
     /// 12 retained interpolating Warp surfaces; 13 extended color adjustment data, custom hue ranges and embedded LUTs. Version 14 adds typography and justified paragraphs. Version 15 stores formatting ranges within a text layer. Version 16 adds parametric polygons, stars and independent corner radii.
-    /// Version 17 retains auto layout groups, item sizing and image frames.
+    /// Version 17 retains auto layout groups, item sizing and image frames. Version 18 stores shared layer styles.
     /// </summary>
-    public const int Version = 17;
+    public const int Version = 18;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -52,6 +52,7 @@ public static class ProjectFile
         public CanvasLayout? CanvasLayout { get; set; }
         public Guid? ActiveLayerId { get; set; }
         public List<LayerRecord> Layers { get; set; } = [];
+        public List<LayerStyleDefinition>? Styles { get; set; }
         /// <summary>Alignment guides; absent on version 1 files.</summary>
         public List<Guide>? Guides { get; set; }
         public Dictionary<string, string>? AlphaChannels { get; set; }
@@ -110,6 +111,8 @@ public static class ProjectFile
         public AutoLayout? AutoLayout { get; set; }
         public AutoLayoutItem? AutoLayoutItem { get; set; }
         public LayoutImageFrame? LayoutFrame { get; set; }
+        public LayerStyleBinding? SharedTextStyle { get; set; }
+        public LayerStyleBinding? SharedAppearanceStyle { get; set; }
         public List<LayerRecord>? Children { get; set; }
         public string? SmartObject { get; set; }
     }
@@ -204,6 +207,7 @@ public static class ProjectFile
             LookupFile = layer.Adjustment is ColorLookupAdjustment { Table: { } table } ? StoreLookup(table) : null,
             Shape = layer.Shape, Text = layer.Text, Effects = layer.Effects,
             AutoLayout = layer.AutoLayout, AutoLayoutItem = layer.AutoLayoutItem, LayoutFrame = layer.LayoutFrame,
+            SharedTextStyle = layer.SharedTextStyle, SharedAppearanceStyle = layer.SharedAppearanceStyle,
             Children = layer.IsGroup ? layer.Children.Select(Record).ToList() : null,
             SmartObject = layer.SmartObject is { } source ? StoreSource(source) : null
         };
@@ -216,6 +220,7 @@ public static class ProjectFile
             BitDepth = value.WorkingDepth,
             ColorSpace = value.Profile.Name, ColorProfileFile = StoreProfile(value.Profile),
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
+            Styles = value.Styles.Count > 0 ? value.Styles.Values.ToList() : null,
             Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null,
             AlphaChannels = value.AlphaChannels.Count == 0 ? null : value.AlphaChannels.ToDictionary(p => p.Key, p => Store(p.Value, $"{written.Count}.channel.png"))
         };
@@ -327,6 +332,7 @@ public static class ProjectFile
                 AutoLayout = record.Kind == LayerKind.Group ? record.AutoLayout?.Normalized() : null,
                 AutoLayoutItem = record.Kind == LayerKind.Raster ? record.AutoLayoutItem?.Normalized() : null,
                 LayoutFrame = record.Kind == LayerKind.Raster && record.LayoutFrame is { IsValid: true } frame ? frame : null,
+                SharedTextStyle = record.SharedTextStyle, SharedAppearanceStyle = record.SharedAppearanceStyle,
                 VectorMask = record.VectorMask?.Normalized(), VectorMaskEnabled = record.VectorMaskEnabled ?? true, VectorMaskFollowsWarp = record.VectorMaskFollowsWarp
             };
             if (record.Tags != null)
@@ -388,6 +394,23 @@ public static class ProjectFile
                 Depth = value.BitDepth == ColorDepth.Sixteen ? ColorDepth.Sixteen : ColorDepth.Eight,
                 Profile = FetchProfile(value.ColorProfileFile, value.ColorSpace) };
             foreach (var record in value.Layers) result.Layers.Add(Build(record, 0, value.Version));
+            if (value.Styles is { } styles)
+            {
+                if (styles.Count > DocumentLimits.MaxLayerStyles) throw new InvalidDataException("The project has too many layer styles.");
+                var names = new HashSet<(LayerStyleKind, string)>();
+                foreach (var entry in styles)
+                    if (entry?.Normalized() is { } style && !result.Styles.ContainsKey(style.Id) && names.Add((style.Kind, style.Name.ToUpperInvariant())))
+                        result.Styles.Add(style.Id, style);
+            }
+            if (value.Version >= 18)
+                foreach (var layer in result.AllLayers())
+                    foreach (var kind in Enum.GetValues<LayerStyleKind>())
+                    {
+                        if (layer.StyleBinding(kind) is not { } binding) continue;
+                        if (!result.Styles.TryGetValue(binding.Id, out var style) || style.Kind != kind
+                            || !Composa.Editing.EditorSession.SupportsStyle(layer, kind)) layer.SetStyleBinding(kind, null);
+                        else layer.SetStyleBinding(kind, binding with { Overrides = binding.Overrides & style.Fields });
+                    }
             if (value.AlphaChannels != null)
                 foreach (var pair in value.AlphaChannels.Take(64))
                     if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Key.Length <= 200) result.AlphaChannels[pair.Key] = Fetch(pair.Value, mask: true);

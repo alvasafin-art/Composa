@@ -929,6 +929,13 @@ public sealed partial class EditorSession
     {
         if (copied.Layers.Count == 0) return null;
         var pasted = copied.Layers.Select(l => l.Clone(newIds: true)).ToList();
+        if (copied.Source != this)
+            foreach (var layer in Document.Flatten(pasted))
+            {
+                // Bindings are document-local. The clipboard already carries the effective appearance.
+                layer.SharedTextStyle = null;
+                layer.SharedAppearanceStyle = null;
+            }
         if (!copied.Profile.Equals(document.Profile))
         {
             // The source session can change its profile after Copy. Interpret live colors using the

@@ -47,6 +47,17 @@ public sealed partial class EditorSession
             else
             {
                 using var swatches = new RgbColorConverter(document.Profile, profile);
+                if (!assign)
+                    foreach (var (id, style) in document.Styles)
+                        next.Styles[id] = style with
+                        {
+                            Text = style.Text is { } text ? text with { Color = swatches.Convert(text.Color) } : null,
+                            Appearance = style.Appearance is { } appearance ? appearance with
+                            {
+                                Paint = appearance.Paint != null ? ConvertPaint(appearance.Paint, swatches) : null,
+                                Effects = appearance.Effects != null ? ConvertEffects(appearance.Effects, swatches) : null
+                            } : null
+                        };
                 foreach (var layer in next.AllLayers())
                 {
                     // A smart object's embedded original remains color-managed independently of its parent.
@@ -81,14 +92,28 @@ public sealed partial class EditorSession
     private static void ConvertStyleColors(Layer layer, RgbColorConverter converter)
     {
         uint Color(uint value) => converter.Convert(value);
-        GradientRamp? Ramp(GradientRamp? ramp) => ramp == null ? null : ramp with { Colors = ramp.Colors.Select(s => s with { Color = Color(s.Color) }).ToArray() };
         if (layer.Text is { } text) layer.Text = text with { Color = Color(text.Color), ColorRuns = text.ColorRuns?.Select(r => r with { Color = Color(r.Color) }).ToArray() };
-        if (layer.Shape is { } shape) layer.Shape = shape with { FillGradient = shape.FillGradient is {} fg ? fg with { Ramp = Ramp(fg.Ramp)! } : null,
-            StrokeGradient = shape.StrokeGradient is {} sg ? sg with { Ramp = Ramp(sg.Ramp)! } : null,
-            Fill = Color(shape.Fill), Stroke = shape.Stroke is { } stroke ? Color(stroke) : null };
+        if (layer.Shape is { } shape) layer.Shape = ConvertPaint(ShapePaintDefinition.From(shape), converter).Apply(shape, StyleFields.Shape);
         if (layer.Adjustment is GradientMapAdjustment map) layer.Adjustment = map with { Shadows = Color(map.Shadows), Highlights = Color(map.Highlights) };
         layer.SmartFilters = layer.SmartFilters.Select(f => f with { Settings = f.Settings with { VignetteColor = Color(f.Settings.VignetteColor) } }).ToArray();
-        if (layer.Effects is { } e) layer.Effects = e with
+        if (layer.Effects is { } e) layer.Effects = ConvertEffects(e, converter);
+    }
+
+    private static GradientRamp ConvertRamp(GradientRamp ramp, RgbColorConverter converter) =>
+        ramp with { Colors = ramp.Colors.Select(stop => stop with { Color = converter.Convert(stop.Color) }).ToArray() };
+
+    private static ShapePaintDefinition ConvertPaint(ShapePaintDefinition paint, RgbColorConverter converter) => paint with
+    {
+        Fill = converter.Convert(paint.Fill),
+        Stroke = paint.Stroke is { } stroke ? converter.Convert(stroke) : null,
+        FillGradient = paint.FillGradient is { } fill ? fill with { Ramp = ConvertRamp(fill.Ramp, converter) } : null,
+        StrokeGradient = paint.StrokeGradient is { } outline ? outline with { Ramp = ConvertRamp(outline.Ramp, converter) } : null
+    };
+
+    private static LayerEffects ConvertEffects(LayerEffects e, RgbColorConverter converter)
+    {
+        uint Color(uint value) => converter.Convert(value);
+        return e with
         {
             Stroke = e.Stroke is { } stroke ? stroke with { Color = Color(stroke.Color) } : null,
             Shadow = e.Shadow is { } shadow ? shadow with { Color = Color(shadow.Color) } : null,
@@ -96,7 +121,8 @@ public sealed partial class EditorSession
             OuterGlow = e.OuterGlow is { } glow ? glow with { Color = Color(glow.Color) } : null,
             InnerGlow = e.InnerGlow is { } innerGlow ? innerGlow with { Color = Color(innerGlow.Color) } : null,
             ColorOverlay = e.ColorOverlay is { } overlay ? overlay with { Color = Color(overlay.Color) } : null,
-            GradientOverlay = e.GradientOverlay is { } gradient ? gradient with { StartColor = Color(gradient.StartColor), EndColor = Color(gradient.EndColor), Ramp = Ramp(gradient.Ramp) } : null
+            GradientOverlay = e.GradientOverlay is { } gradient ? gradient with { StartColor = Color(gradient.StartColor), EndColor = Color(gradient.EndColor),
+                Ramp = gradient.Ramp is { } ramp ? ConvertRamp(ramp, converter) : null } : null
         };
     }
 }

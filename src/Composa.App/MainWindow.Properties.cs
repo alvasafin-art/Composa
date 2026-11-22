@@ -184,11 +184,14 @@ public sealed partial class MainWindow
             AddGroupLayoutProperties(body, s, CurrentLayer);
         if (layer.Text != null)
         {
+            AddStylePicker(body, s, CurrentLayer, LayerStyleKind.Text);
             BuildTextFields(body, properties: true);
             if (optionsLayoutInspector == LayoutInspector.Child) AddChildLayoutProperties(body, s, CurrentLayer);
             BuildTypography(body, s);
             return;
         }
+        if (s.Tool is Tool.Move or Tool.Shape && EditorSession.SupportsStyle(layer, LayerStyleKind.Appearance))
+            AddStylePicker(body, s, CurrentLayer, LayerStyleKind.Appearance);
         if (layer.Shape != null)
         {
             BuildShapeFields(body);
@@ -197,7 +200,10 @@ public sealed partial class MainWindow
         var opacity = Ui.Number(layer.Opacity * 100, 0, 100, v =>
         {
             if (!updating && CurrentLayer() is { } live && !s.IsLocked(live) && live.Opacity != v / 100)
+            {
                 s.Apply("Layer Opacity", () => s.SetOpacity(live, v / 100));
+                refreshOptions?.Invoke();
+            }
         });
         opacity.Name = "LayerPropertyOpacity";
         opacity.Width = double.NaN;
