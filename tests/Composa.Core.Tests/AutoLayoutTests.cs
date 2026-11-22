@@ -121,6 +121,16 @@ public sealed class AutoLayoutTests
             Assert.Equal(SKColors.Blue, result.GetPixel(50, 22));
             Assert.Equal((byte)0, result.GetPixel(50, 18).Alpha);
         }
+        using (var project = new MemoryStream())
+        {
+            ProjectFile.Write(s.Document, project);
+            project.Position = 0;
+            var reopened = new EditorSession(ProjectFile.Read(project));
+            Assert.Equal(frame, reopened.Document.Find(photo.Id)!.LayoutFrame);
+            using var result = reopened.Flatten();
+            Assert.Equal(SKColors.Blue, result.GetPixel(50, 22));
+            Assert.Equal((byte)0, result.GetPixel(50, 18).Alpha);
+        }
         Assert.True(s.SetAutoLayoutItem(photo, s.LayoutItemSettings(photo) with { WidthMode = LayoutSizeMode.Content, HeightMode = LayoutSizeMode.Content }));
         Assert.Null(photo.LayoutFrame);
         Assert.Equal(240, photo.Transform.Height);

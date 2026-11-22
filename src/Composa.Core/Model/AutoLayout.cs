@@ -1,4 +1,5 @@
 using SkiaSharp;
+using System.Text.Json.Serialization;
 
 namespace Composa.Model;
 
@@ -41,6 +42,7 @@ public sealed record AutoLayoutItem(LayoutSizeMode WidthMode, LayoutSizeMode Hei
 /// <summary>A non-destructive image frame in document pixels, separate from the image and its masks.</summary>
 public sealed record LayoutImageFrame(double X, double Y, double Width, double Height)
 {
+    [JsonIgnore]
     public SKRect Bounds => SKRect.Create((float)X, (float)Y, (float)Width, (float)Height);
     internal bool IsValid => double.IsFinite(X) && double.IsFinite(Y) && double.IsFinite(Width) && double.IsFinite(Height)
         && Width is > 0 and <= DocumentLimits.MaxSide && Height is > 0 and <= DocumentLimits.MaxSide
