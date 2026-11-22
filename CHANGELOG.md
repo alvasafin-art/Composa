@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.6] - 2026-11-22
+
+- Preferences → Editor offers optional OpenCL acceleration for eligible raster compositing at 100% zoom, wide brush strokes, shadow and glow blur, and large RGB16 blur filters. Composa uses the CPU for unsupported operations and when the GPU is unavailable.
+- Snap to Layout Grid works when resizing or warping a layer, dragging vector nodes, and resizing a text box. Columns, rows, and square grids each have an opacity setting saved in the CMPS project.
+- New Canvas offers White, Black, Transparent, and Choose Color. The live preview uses the interface font for dimensions and a plain background. Active controls use a fill, and unavailable Warp and rotation controls appear dimmed.
+
 ## [1.3.0-preview.4.studio.17.5] - 2026-11-22
 
 - Ctrl+N opens a redesigned New Canvas dialog with a live preview, built-in, recent and saved presets, and a button to swap width and height. Press Enter to create the canvas.
