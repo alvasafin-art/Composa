@@ -248,7 +248,7 @@ public sealed class SideDock : UserControl
         Content = rightFrame;
         layers = new DockSection("Layers", layerPanel, new DockPanelState(Height: 285));
         sections = [layers, .. panels];
-        dragHeader(layerPanel.PanelTitle, "Layers");
+        dragHeader(layerPanel.PanelDragHandle, "Layers");
         Rebuild();
     }
     public DockSection Section(string title) => sections.First(s => s.Title == title);
@@ -323,7 +323,6 @@ public sealed class SideDock : UserControl
                 bool visible = list.Any(panel => panel.State.Visible);
                 Control top = new Border();
                 bool pinned = list.FirstOrDefault(panel => panel.State.Visible) == layers;
-                if (list.Contains(layers)) ((LayersPanel)layers.Content).PanelTitle.IsVisible = pinned;
                 if (pinned) { top = layers.Content; list.Remove(layers); }
                 var column = new DockColumn(top, list.ToArray(), dragHeader) { IsVisible = visible };
                 columns[(onLeft, group.Key)] = column;

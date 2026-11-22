@@ -1750,3 +1750,34 @@ Edit Only This Object	Изменить только этот объект
 Font Family	Гарнитура
 Paragraph spacing	Интервал абзаца
 Text Color	Цвет текста
+Resources	Ресурсы
+Find resources	Поиск ресурсов
+Clear resource search	Очистить поиск ресурсов
+Open Library Folder	Открыть папку библиотеки
+Loading resources…	Загрузка ресурсов…
+No matching resources.	Ресурсы не найдены.
+No resources saved yet.	В библиотеке пока нет элементов.
+Could not read the library: {0}	Не удалось прочитать библиотеку: {0}
+{0} library entries could not be read.	Не удалось прочитать записи библиотеки ({0}).
+Missing fonts: {0}	Нет шрифтов: {0}
+Fonts missing	Нет шрифтов
+Insert	Вставить
+Rename	Переименовать
+Update	Обновить
+Update from Selection…	Обновить из выделения…
+Rename Library Resource	Переименование ресурса
+Update Library Resource	Обновление ресурса
+Delete Library Resource	Удаление ресурса
+Delete “{0}” from the library?	Удалить «{0}» из библиотеки?
+Insert Library Element	Вставка из библиотеки
+Saved to library: {0}	Сохранено в библиотеку: {0}
+Updated library resource: {0}	Ресурс обновлён: {0}
+Inserted library resource: {0}	Вставлено из библиотеки: {0}
+Library: {0}	Библиотека: {0}
+Linked smart objects will be saved as embedded copies of their cached contents.	Сохранённое содержимое связанных смарт-объектов будет встроено в ресурс.
+Linked smart objects are embedded in this resource.	Связанные смарт-объекты встроены в этот ресурс.
+Select one layer or group. For a clipping mask, select its base layer.	Выберите один слой или группу. Для обтравочной маски выберите её базовый слой.
+The document color profile changed. Insert the resource again.	Профиль документа изменился. Вставьте ресурс ещё раз.
+This library entry changed. Select it again and retry.	Ресурс изменился. Выберите его снова и повторите действие.
+The library element exceeds the document raster memory budget.	Ресурс превышает доступный объём памяти для слоёв этого документа.
+The document has reached its shared style limit.	В документе достигнут предел количества общих стилей.

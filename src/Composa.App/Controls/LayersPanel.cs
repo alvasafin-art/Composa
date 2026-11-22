@@ -58,6 +58,7 @@ public sealed partial class LayersPanel : UserControl
     public event Action<Layer>? EditSmartObjectRequested;
     public event Action<Layer, bool>? ReplaceSmartObjectRequested;
     public event Action? AutoLayoutRequested;
+    internal event Action? SaveLibraryElementRequested;
     public event Action<Layer>? UpdateLinkedSmartObjectRequested;
     public event Action<Layer>? LinkedSourceInfoRequested;
     public Func<Layer, Composa.IO.LinkedSourceStatus?>? LinkedSourceStatus { get; set; }
@@ -84,9 +85,25 @@ public sealed partial class LayersPanel : UserControl
     static LayersPanel() => Composa.Rendering.Pixels.Invalidated += bitmap => Thumbnails.Remove(bitmap);
 
     internal TextBlock PanelTitle { get; } = Ui.Label(Locale.T("Layers"), size: 13, weight: FontWeight.SemiBold);
+    internal Button PanelDragHandle { get; }
+    private readonly Grid panelHeader = new() { Margin = new Thickness(10, 5, 10, 0) };
+    private readonly Grid panelBody = new();
+    private readonly Grid layerBody;
+    private readonly Button libraryTab;
+    private Action? fitLayerSearch;
+    private ResourceLibraryPanel? library;
 
     public LayersPanel()
     {
+        PanelDragHandle = DockTab("Layers", () => ShowLibrary(false));
+        PanelDragHandle.Content = PanelTitle;
+        libraryTab = DockTab("Resources", () => ShowLibrary(true));
+        libraryTab.Name = "ShowLibraryResources";
+        libraryTab.IsVisible = false;
+        var tabs = Ui.Row(3, PanelDragHandle, libraryTab);
+        tabs.HorizontalAlignment = HorizontalAlignment.Left;
+        panelHeader.Children.Add(tabs);
+
         // Grouped as Photoshop groups them (darkening, lightening, contrast, comparative, component) with a line between,
         // so the long list stays readable. The lines are disabled items, which the keyboard and the pointer skip.
         var items = new List<object>();
@@ -127,10 +144,7 @@ public sealed partial class LayersPanel : UserControl
         opacity.KeyUp += (_, _) => EndOpacityDrag();
 
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,1.06*"), ColumnSpacing = 8,
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), Margin = new Thickness(10, 8, 10, 6) };
-        var title = PanelTitle;
-        title.Margin = new Thickness(0, 0, 0, 6);
-        header.Children.Add(title);
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), Margin = new Thickness(10, 4, 10, 6) };
         Grid.SetRow(blend, 1);
         header.Children.Add(blend);
 
@@ -208,11 +222,53 @@ public sealed partial class LayersPanel : UserControl
         var scroll = new ScrollViewer { Content = list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         scroll.PointerPressed += (_, e) => { if (e.Source == scroll || e.Source == list) Focus(); };
 
-        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Background = Palette.Panel };
-        layout.Children.Add(header);
-        Grid.SetRow(scroll, 1); layout.Children.Add(scroll);
-        Grid.SetRow(footer, 2); layout.Children.Add(footer);
-        Content = layout;
+        layerBody = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Children = { header } };
+        Grid.SetRow(scroll, 1); layerBody.Children.Add(scroll);
+        Grid.SetRow(footer, 2); layerBody.Children.Add(footer);
+        panelBody.Children.Add(layerBody);
+        var frame = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), Background = Palette.Panel, Children = { panelHeader } };
+        Grid.SetRow(panelBody, 1); frame.Children.Add(panelBody);
+        Content = frame;
+        RefreshDockTabs();
+    }
+
+    private static Button DockTab(string title, Action select)
+    {
+        var button = Ui.TextButton(title, select);
+        button.Classes.Add("flat");
+        button.Padding = new Thickness(6, 2);
+        button.MinWidth = 0;
+        button.MinHeight = 24;
+        button.FontSize = 13;
+        button.FontWeight = FontWeight.SemiBold;
+        button.BorderThickness = new Thickness(0, 0, 0, 1);
+        button.CornerRadius = new CornerRadius(0);
+        return button;
+    }
+
+    internal void AddLibrary(ResourceLibraryPanel panel)
+    {
+        library = panel;
+        libraryTab.IsVisible = true;
+    }
+
+    private bool LibraryVisible => library != null && panelBody.Children.Contains(library);
+
+    internal void ShowLibrary(bool show)
+    {
+        if (library == null || show == LibraryVisible) return;
+        panelBody.Children.Clear();
+        panelBody.Children.Add(show ? library : layerBody);
+        RefreshDockTabs();
+    }
+
+    private void RefreshDockTabs()
+    {
+        PanelTitle.Foreground = LibraryVisible ? Palette.Secondary : Palette.Foreground;
+        PanelDragHandle.BorderBrush = LibraryVisible ? Brushes.Transparent : Palette.Accent;
+        libraryTab.Foreground = LibraryVisible ? Palette.Foreground : Palette.Secondary;
+        libraryTab.BorderBrush = LibraryVisible ? Palette.Accent : Brushes.Transparent;
+        fitLayerSearch?.Invoke();
     }
 
     public EditorSession? Session
@@ -693,6 +749,8 @@ public sealed partial class LayersPanel : UserControl
         if (layer.AutoLayout != null)
             Add("Disable Auto Layout", () => current.DisableAutoLayout(layer), current.CanEditAutoLayout(layer));
         if (layer.IsGroup) Add("Ungroup", () => current.Ungroup(layer));
+        if (SaveLibraryElementRequested != null)
+            Add("Save to Library…", () => SaveLibraryElementRequested?.Invoke(), current.CanSaveLibraryElement);
         Add("Move Out of Folder", () => current.MoveOutOfFolder(layer), current.Document.ParentOf(layer.Id) != null);
         Add(current.MergeTitle, current.MergeLayers, current.CanMerge);
         menu.Items.Add(new Separator());

@@ -33,6 +33,15 @@ public sealed class SmartObjectSource
 
     public SmartObjectSource WithLink(SmartObjectLink? link) => new(Id, content, Preview, link);
 
+    /// <summary>Copies the document tree while keeping the immutable rendered appearance and source pixels.</summary>
+    internal SmartObjectSource CopyEmbedded(bool newIdentity, Func<SmartObjectSource, SmartObjectSource> copyChild)
+    {
+        var copy = OpenDocument();
+        foreach (var layer in copy.AllLayers())
+            if (layer.SmartObject is { } child) layer.SmartObject = copyChild(child);
+        return new(newIdentity ? Guid.NewGuid() : Id, copy, Preview);
+    }
+
     private static void Validate(Document document, Guid identity, int depth)
     {
         if (depth >= MaxDepth) throw new InvalidOperationException($"Smart objects may be nested at most {MaxDepth} levels.");

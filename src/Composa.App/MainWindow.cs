@@ -13,6 +13,7 @@ using Composa.App.Automation;
 using Composa.App.Controls;
 using Composa.AI;
 using Composa.Editing;
+using Composa.IO;
 using Composa.Model;
 using Composa.Rendering;
 using Composa.Vision;
@@ -65,7 +66,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(string? automationDirectory = null)
         : this(automationDirectory, url => new ComfyClient(url)) { }
 
-    internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory)
+    internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory, string? libraryFolder = null)
     {
         (Application.Current as App)?.ApplyTheme(settings.Theme);
         selectionTool = settings.ToolPalette?.SelectionTool;
@@ -113,6 +114,8 @@ public sealed partial class MainWindow : Window
         aiFloatingLayer.Children.Add(aiFloatingHost);
         commandNotice.Child = hintText;
         var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer, commandNotice } };
+        elementLibrary = new ElementLibrary(libraryFolder ?? AppPaths.Library);
+        libraryPanel = BuildResourceLibrary();
         workspaceGrid.ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto,Auto,Auto");
         var center = workspaceGrid;
         toolSurface.Child = BuildToolRail();
@@ -382,6 +385,7 @@ public sealed partial class MainWindow : Window
         if (session != null) CarryToolState(session, tool);
         canvas.Session = session;
         layers.Session = session;
+        RefreshLibraryActions();
         history.Session = session;
         channels.Session = session;
         navigator.Session = session;

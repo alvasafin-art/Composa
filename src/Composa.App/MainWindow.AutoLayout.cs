@@ -181,6 +181,9 @@ public sealed partial class MainWindow
         var disable = LayoutButton("Disable Auto Layout", () => { if (current() is { } group) target.DisableAutoLayout(group); });
         disable.Name = "DisableAutoLayout";
         controls.Children.Add(disable);
+        var saveElement = LayoutButton("Save to Library…", () => _ = SaveLibrarySelection());
+        saveElement.Name = "SaveLayoutToLibrary";
+        controls.Children.Add(saveElement);
         void Refresh()
         {
             if (current() is not { AutoLayout: { } value } group) return;

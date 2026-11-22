@@ -463,6 +463,7 @@ public sealed partial class MainWindow
 
     private void OnSessionLayersChanged()
     {
+        RefreshLibraryActions();
         RefreshCanvasLayoutView();
         RefreshAiUi();
         UpdateColors();
@@ -480,6 +481,7 @@ public sealed partial class MainWindow
         if (Content is Control { IsEnabled: false })
         { if (e.Key == Key.Escape) automationCancellation?.Cancel(); e.Handled = true; return; }
         var focused = FocusManager?.GetFocusedElement();
+        if (libraryPanel.OwnsLibraryKey(focused, e)) return;
         if (openFontPicker?.IsDropDownOpen == true) return;
         if (SwallowAlt(e)) return;
         if (channelInspectorDragging)
@@ -837,7 +839,11 @@ public sealed partial class MainWindow
         if (ChangedExternally(target, path)) return new IOException("The file on disk changed. Use Save As and choose a different filename.");
         if (copy && target.FilePath != null && FileNames.Equals(Path.GetFullPath(target.FilePath), path))
             return new IOException("Choose a different filename for the PSD copy.");
-        var task = Write(target, path, copy);
+        return await TrackSave(target, path, Write(target, path, copy));
+    }
+
+    private async Task<Exception?> TrackSave(EditorSession target, string path, Task<Exception?> task)
+    {
         saving[target] = (path, task);
         UpdateStatus();
         try { return await task; }

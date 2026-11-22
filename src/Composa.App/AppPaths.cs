@@ -19,6 +19,8 @@ public static class AppPaths
     /// <summary>Preferences: small, and worth carrying to another machine, so Windows keeps them in the roaming profile.</summary>
     public static string Config => current.Config;
 
+    public static string Library => Path.Combine(Config, "Library");
+
     /// <summary>Things that can be lost without harm, which Windows keeps out of the roaming profile.</summary>
     public static string Cache => current.Cache;
 

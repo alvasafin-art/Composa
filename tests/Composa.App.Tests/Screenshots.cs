@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using System.Diagnostics;
 
 namespace Composa.App.Tests;
 
@@ -26,5 +27,12 @@ internal static class Screenshots
         Directory.CreateDirectory(Folder);
         frame.Save(Path.Combine(Folder, name + ".png"), PngBitmapEncoderOptions.Default);
         return true;
+    }
+
+    public static double RenderAndReadback(TopLevel window)
+    {
+        var started = Stopwatch.GetTimestamp();
+        using var frame = window.CaptureRenderedFrame();
+        return Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }
 }

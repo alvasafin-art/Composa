@@ -132,6 +132,11 @@ public static class ProjectFile
     public static void Write(Document document, Stream stream)
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
+        Write(document, zip);
+    }
+
+    internal static void Write(Document document, ZipArchive zip)
+    {
         var written = new Dictionary<SKBitmap, string>(ReferenceEqualityComparer.Instance);
         var sources = new Dictionary<SmartObjectSource, string>(ReferenceEqualityComparer.Instance);
         var objects = new Dictionary<string, SmartRecord>();
@@ -239,6 +244,11 @@ public static class ProjectFile
     public static Document Read(Stream stream)
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+        return Read(zip, stream);
+    }
+
+    internal static Document Read(ZipArchive zip, Stream stream)
+    {
         var entry = zip.GetEntry("manifest.json") ?? throw new InvalidDataException("This is not a Composa project: it has no manifest.");
         if (entry.Length > 4 * 1024 * 1024) throw new InvalidDataException("The project's manifest is too large.");
         Manifest manifest;

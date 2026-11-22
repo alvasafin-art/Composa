@@ -15,7 +15,7 @@ public sealed partial class EditorSession
     /// adjustments in the new space and can change their appearance, as in other layered RGB editors.</summary>
     public void ConvertColorProfile(RgbProfile profile, bool flatten = true) => ChangeColorProfile(profile, assign: false, flatten);
 
-    private void ChangeColorProfile(RgbProfile profile, bool assign, bool flatten)
+    private void ChangeColorProfile(RgbProfile profile, bool assign, bool flatten, bool preserveLivePixels = false)
     {
         ArgumentNullException.ThrowIfNull(profile);
         FinishInteraction();
@@ -66,6 +66,7 @@ public sealed partial class EditorSession
                     if (!assign)
                     {
                         ConvertStyleColors(layer, swatches);
+                        if (preserveLivePixels) continue; // An imported element can keep its source appearance even without its fonts.
                         if (layer.Text is { } text)
                         { var rendered = RenderText(text, next.WorkingDepth, profile); owned.Add(rendered); layer.Pixels = rendered; }
                         else if (layer.Shape is { } shape && layer.Pixels is { } image)
