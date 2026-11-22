@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Composa Studio · Автокомпоновка</title>
+  <link rel="stylesheet" href="studio.css">
+  <script defer src="studio.js"></script>
+</head>
+<body>
+  <main id="viewport">
+    <div id="stage" data-theme="dark" aria-label="Прототип Composa Studio">
+      <div id="tabs" class="tabs" aria-label="Документы"></div>
+      <button id="theme" class="theme" data-action="theme">☼ <span>Светлая тема</span></button>
+      <div id="movebar" class="movebar" aria-label="Параметры перемещения"></div>
+      <div id="brushbar" class="brushbar" hidden></div>
+      <div class="rail"><nav class="tools" aria-label="Инструменты">
+        <button data-action="move" title="Перемещение (V)" aria-label="Перемещение"></button>
+        <button data-action="brush" title="Кисть (B)" aria-label="Кисть"></button>
+      </nav></div>
+      <section class="canvas" aria-label="Холст">
+        <div id="board" class="board"></div>
+      </section>
+      <aside class="dock" aria-label="Панели">
+        <section id="layers" class="layers" aria-label="Слои и ресурсы"></section>
+        <section id="properties" class="properties" aria-label="Свойства"></section>
+        <section id="history" class="history" aria-label="История"></section>
+      </aside>
+      <div id="overlay"></div>
+      <output id="status" class="status" role="status" hidden></output>
+    </div>
+  </main>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>
