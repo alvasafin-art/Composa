@@ -239,7 +239,7 @@ public class ComfyModelSelectionTests
             Dispatcher.UIThread.RunJobs();
             Assert.True(dialog.Bounds.Height <= owner.Bounds.Height);
             var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<TabControl>());
-            Assert.Equal(5, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.Equal(6, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
