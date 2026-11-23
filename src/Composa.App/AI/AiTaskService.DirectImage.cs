@@ -1,6 +1,8 @@
 using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
+using Composa.Rendering;
+using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.App.AI;
@@ -23,6 +25,36 @@ public sealed partial class AiTaskService
         var remaining = new List<SKBitmap>();
         try
         {
+            var edit = request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill;
+            var masked = request.Task == AiTaskKind.GenerativeFill;
+            if (masked && (target.Selection == null || SelectionMask.IsEmpty(target.Selection)))
+                throw new InvalidOperationException("Make a selection first.");
+            using var selection = masked ? Pixels.Clone(target.Selection!) : null;
+            var hasReferences = request.ReferenceImages.Count > 0 || request.ReferenceImage != null;
+            Operation = new() { Status = AiOperationStatus.Queued, Stage = "Preparing inputs" };
+            StateChanged?.Invoke();
+            using var prepared = edit || hasReferences ? await PrepareInputsAsync(target, request, 6, linked.Token) : null;
+            using var editInputs = edit ? await Task.Run(() => new DirectImageEdit(prepared!, request), linked.Token) : null;
+            DirectImageFiles? files = null;
+            var prompt = prepared?.Prompt ?? request.Prompt;
+            if (editInputs != null)
+            {
+                var nativeMask = masked && generator.UsesNativeMask;
+                files = await Task.Run(() => editInputs.Encode(prepared!, selection, nativeMask, linked.Token), linked.Token);
+                prompt = "Edit the first image. Preserve its framing, proportions and unchanged details. "
+                    + (hasReferences ? "Use the following reference images as guidance. " : "")
+                    + (masked ? nativeMask ? "Edit the area indicated by the mask. "
+                        : "The last image is the edit mask. Edit only its white region in the first image. " : "") + prompt;
+            }
+            else if (prepared != null)
+            {
+                files = await Task.Run(() => new DirectImageFiles(prepared.ReferenceImages.Select(image =>
+                {
+                    linked.Token.ThrowIfCancellationRequested();
+                    return DirectImageEdit.EncodePng(image);
+                }).ToArray()), linked.Token);
+                prompt = "Use the attached images as visual references for the new image. " + prompt;
+            }
             var variants = request.Settings.Variants;
             var stage = generator.Route == ImageGenerationRoute.LocalCodex ? "Generating through Codex CLI…" : "Generating through the image API…";
             for (var i = 0; i < variants; i++)
@@ -31,18 +63,22 @@ public sealed partial class AiTaskService
                 if (!targetAvailable()) throw new OperationCanceledException();
                 Operation = new() { Status = AiOperationStatus.Running, Stage = variants == 1 ? stage : $"{i + 1}/{variants} · {stage}" };
                 StateChanged?.Invoke();
-                var image = await generator.GenerateAsync(request.Prompt, request.Settings.Width, request.Settings.Height, linked.Token);
+                var image = await generator.GenerateAsync(prompt, editInputs?.Width ?? request.Settings.Width,
+                    editInputs?.Height ?? request.Settings.Height, linked.Token, files: files);
+                if (editInputs != null) image = await Task.Run(() => editInputs.Finish(image));
                 remaining.Add(image);
                 var total = remaining.Sum(bitmap => (long)bitmap.Width * bitmap.Height) * (target.Document.Depth == ColorDepth.Sixteen ? 4 : 1);
+                if (selection != null) total += (long)selection.Width * selection.Height * remaining.Count;
                 if (target.Document.RasterPixels() + total > DocumentLimits.DocumentPixelBudget)
                     throw new InvalidOperationException("These variants exceed the document's raster budget.");
             }
             linked.Token.ThrowIfCancellationRequested();
             if (!targetAvailable()) throw new OperationCanceledException();
             if (target.History.CurrentId != initialState || target.Document.ActiveLayerId != initialLayer
-                || target.IsStroking || target.IsInTransaction || target.IsEditingText)
+                || target.IsStroking || target.IsPaintingSelection || target.IsInTransaction || target.IsEditingText)
                 throw new InvalidOperationException("The document changed during generation. Results were discarded.");
-            Insert(editor, request.Task, AiOutputMode.NewLayer, remaining, Fit(remaining[0], bounds), variants: variants > 1);
+            Insert(editor, request.Task, masked ? AiOutputMode.NewLayerWithMask : AiOutputMode.NewLayer, remaining,
+                edit ? bounds : Fit(remaining[0], bounds), inputs: prepared, variants: variants > 1, localOutputMask: selection);
             remaining.Clear(); // The document and Undo now own these pixels.
             Operation = new() { Status = AiOperationStatus.Completed, Stage = "Completed" };
             StateChanged?.Invoke();

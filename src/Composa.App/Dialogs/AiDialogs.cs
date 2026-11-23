@@ -1262,7 +1262,7 @@ public static partial class AiDialogs
             if (e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed) dialog?.BeginMoveDrag(e);
         };
         var controls = Ui.Row(2, grip);
-        if (references != null && directEngine == null)
+        if (references != null)
         {
             addReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image", () => _ = references.Pick());
             controls.Children.Add(addReference);
@@ -1358,7 +1358,7 @@ public static partial class AiDialogs
         content.Children.Add(sizeError);
         var body = new ScrollViewer { Content = content, MaxHeight = Math.Clamp(owner.Bounds.Height - 170, 300, 650), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         dialog = new DialogWindow(task.DisplayName(), body, "Run"); dialog.PlaceGenerationActions(actions, variantButtons);
-        if (references != null && directEngine == null)
+        if (references != null)
         {
             references.Owner = dialog;
             if (owner is MainWindow mainWindow) mainWindow.EnableAiReferenceDrop(dialog);

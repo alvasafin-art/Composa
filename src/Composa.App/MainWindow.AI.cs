@@ -112,7 +112,8 @@ public sealed partial class MainWindow
         if (DirectImageFor(task) is { } direct)
         {
             var reason = direct.Availability(task, aiReferences.Count);
-            return new(task, reason == null, reason);
+            return reason == null ? AiTaskAvailability.Resolve(session, direct.PromptProfile(), task, CropExpands)
+                : new(task, false, reason);
         }
         var engine = PanelEngine(task);
         return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
@@ -441,7 +442,7 @@ public sealed partial class MainWindow
 
     private bool ShowSelectionPanel => !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
         && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.Wand && session.WandMode == WandMode.Object && canvas.IsDragging)
-        && aiTasks.ConnectionState == ComfyConnectionState.Connected;
+        && (DirectImageFor(AiTaskKind.GenerativeFill) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected);
 
     private void RefreshAiFloatingUi()
     {
@@ -465,9 +466,11 @@ public sealed partial class MainWindow
         var fillEngine = PanelEngine(task);
         var fillProfile = AiOptions(task, fillEngine);
         if (aiFloatingAlignment != null) aiFloatingAlignment.IsEnabled = task != AiTaskKind.GenerateImage;
-        if (aiHeaderReference != null) aiHeaderReference.IsEnabled = direct == null && aiReferences.Count < 6;
+        if (aiHeaderReference != null) aiHeaderReference.IsEnabled = aiReferences.Count < 6;
         if (aiEngineCombo != null)
         {
+            if (direct != null && (aiEngineCombo.SelectedItem is not ImageModelChoice choice || choice.Name != direct.Label))
+                RefreshEditorModels();
             var index = aiEngineCombo.Items.OfType<ImageModelChoice>().ToList().FindIndex(model => model.Engine.Id == fillEngine?.Id);
             refreshingAiEngine = true;
             try { if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index; }

@@ -92,7 +92,8 @@ internal static class LocalCodex
         }
     }
 
-    internal static async Task<SKBitmap> GenerateAsync(string path, string prompt, int width, int height, CancellationToken token)
+    internal static async Task<SKBitmap> GenerateAsync(string path, string prompt, int width, int height,
+        CancellationToken token, IReadOnlyList<byte[]>? images = null)
     {
         var executable = FindExecutable(path) ?? throw new InvalidOperationException("Codex CLI was not found. Install Codex or select its executable.");
         var workspace = Directory.CreateTempSubdirectory("composa-codex-");
@@ -101,12 +102,23 @@ internal static class LocalCodex
         try
         {
             await VerifyLoginAsync(executable, workspace.FullName, token);
-            var framing = width == height ? "square" : width > height ? "landscape" : "portrait";
-            string[] args = ["exec", "--json", "--ephemeral", "--ignore-user-config", "--disable", "shell_tool",
+            var framing = width == height ? "square (1:1)" : width > height ? "landscape (3:2)" : "portrait (2:3)";
+            var args = new List<string> { "exec", "--json", "--ephemeral", "--ignore-user-config", "--disable", "shell_tool",
                 "--enable", "image_generation", "--skip-git-repo-check", "--sandbox", "read-only",
-                "--model", "gpt-6.2-sol", "-"];
+                "--model", "gpt-6.2-sol" };
+            if (images != null)
+            {
+                for (var i = 0; i < images.Count; i++)
+                {
+                    var attachment = Path.Combine(workspace.FullName, $"image-{i + 1}.png");
+                    await File.WriteAllBytesAsync(attachment, images[i], token);
+                    args.Add("--image");
+                    args.Add(attachment);
+                }
+            }
+            args.Add("-");
             var input = $"Call the built-in image generation tool exactly once. Produce a {framing} raster image. "
-                + "Use no other tools. The following text describes the image to generate.\n\n" + prompt;
+                + "Use no other tools. Apply the following request to the attached images when present.\n\n" + prompt;
             var exitCode = await RunAsync(executable, workspace.FullName, args, input, token, line =>
             {
                 if (threadId != null || !line.Contains("thread.started", StringComparison.Ordinal)) return;

@@ -189,14 +189,15 @@ public static partial class AiDialogs
             model = new TextBox { Text = settings.ImageGenerationApiModel, Name = "ImageGenerationApiModel" };
             key = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
             var forget = Ui.TextButton("Forget saved key", () => { key.Text = ""; forgetKey = true; });
-            var api = CanvasDialogs.Form(("API base URL", url), ("Model ID", model), ("Image API key", key), ("", forget));
+            var api = CanvasDialogs.Form(("API base URL", url), ("Model ID", model), ("Image API key", key), ("", forget),
+                ("", ConnectionNote("Enter the provider's base URL and the exact model ID from its catalog.")));
             var serverLabel = ConnectionNote("");
             var workflow = CanvasDialogs.Form(("ComfyUI server", serverLabel));
             var summary = new ConnectionSummary();
             var operations = Ui.Column(6, Ui.Label(Locale.T("Operations for the selected model"), weight: FontWeight.SemiBold),
                 CanvasDialogs.Form(("Text-to-image", ConnectionNote("Available when configured")),
-                    ("Edit with a reference", ConnectionNote("Currently unavailable")),
-                    ("Edit through a mask", ConnectionNote("Currently unavailable")),
+                    ("Edit with a reference", ConnectionNote("Requires a model that accepts input images")),
+                    ("Edit through a mask", ConnectionNote("Uses the selection and surrounding context")),
                     ("Expand canvas", ConnectionNote("Currently unavailable"))));
             var workflowOperations = ConnectionNote("Available operations depend on the selected workflow.");
             var check = new ConnectionCheck(lifetime, async token =>

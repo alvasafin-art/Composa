@@ -98,8 +98,7 @@ public sealed partial class MainWindow
         }
         if (useDock && !session!.IsStroking && !session.IsPaintingSelection)
         {
-            var automatic = settings.ImageGenerationRoute != ImageGenerationRoute.ComfyWorkflow ? AiTaskKind.GenerateImage :
-                session.Selection != null ? AiTaskKind.GenerativeFill :
+            var automatic = session.Selection != null ? AiTaskKind.GenerativeFill :
                 session.Document.AllLayers().Any(layer => layer.IsLive || layer.Pixels is { } pixels && Pixels.HasVisiblePixel(pixels))
                     ? AiTaskKind.ImageEdit : AiTaskKind.GenerateImage;
             if (automatic != automaticDockTask)
@@ -157,7 +156,6 @@ public sealed partial class MainWindow
             {
                 settings.ImageGenerationRoute = route;
                 settings.Save();
-                manualDockTask = route == ImageGenerationRoute.ComfyWorkflow ? null : AiTaskKind.GenerateImage;
                 RefreshEditorModels();
                 RefreshAiUi();
             };

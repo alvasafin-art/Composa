@@ -1887,3 +1887,15 @@ The text API returned an invalid response.	Текстовый API вернул �
 Text API request failed (HTTP {0}).	Запрос к текстовому API завершился ошибкой HTTP {0}.
 Image API request failed (HTTP {0}).	Запрос к API изображений завершился ошибкой HTTP {0}.
 The model did not respond through Comfy credits. Check the server model, key and credit balance.	Модель не ответила через Comfy credits. Проверьте модель на сервере, ключ и баланс.
+Enter the provider's base URL and the exact model ID from its catalog.	Введите базовый URL провайдера и точный идентификатор модели из его каталога.
+Requires a model that accepts input images	Нужна модель, принимающая изображения
+Uses the selection and surrounding context	Учитывает выделение и окружающий контекст
+This operation is currently unavailable for this connection.	Операция пока недоступна через это подключение.
+Choose at most six reference images.	Выберите до шести референсов.
+The model returned a different aspect ratio. The edit was discarded.	Модель вернула изображение с другим соотношением сторон. Правка не применена.
+The image provider does not offer this endpoint or model at the configured address.	По указанному адресу провайдер не поддерживает этот метод или модель.
+The image API returned no generation identifier.	API изображений не вернул номер задачи.
+The image API returned no generation status.	API изображений не вернул статус задачи.
+The image provider did not complete the request.	Провайдер не завершил генерацию изображения.
+The generated image could not be downloaded.	Не удалось скачать полученное изображение.
+The image API returned no supported image data.	API изображений не вернул изображение в поддерживаемом формате.
