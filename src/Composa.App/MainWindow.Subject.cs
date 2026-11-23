@@ -19,7 +19,8 @@ public sealed partial class MainWindow
         _ => SubjectDetect.Any
     };
 
-    private sealed record ObjectModelChoice(ObjectSelectionSource Source, string Label, string? ServerModel = null, string? SlotKey = null, bool QuickOutline = false);
+    private sealed record ObjectModelChoice(ObjectSelectionSource Source, string Label, string? ServerModel = null, string? SlotKey = null,
+        bool QuickOutline = false, ImageGenerationRoute Route = ImageGenerationRoute.BuiltIn);
     private ComboBox? objectModelsCombo;
     private string? objectModelChoicesStamp;
     private bool refreshingObjectModels;
@@ -33,7 +34,9 @@ public sealed partial class MainWindow
         var choices = new List<ObjectModelChoice>
         {
             new(ObjectSelectionSource.EfficientSamS, "Automatic · Local"),
-            new(ObjectSelectionSource.EfficientSamS, "Quick outline · Local", QuickOutline: true)
+            new(ObjectSelectionSource.EfficientSamS, "Quick outline · Local", QuickOutline: true),
+            new(ObjectSelectionSource.EfficientSamS, "rembg · CLI", Route: ImageGenerationRoute.LocalCodex),
+            new(ObjectSelectionSource.EfficientSamS, "BiRefNet · fal API", Route: ImageGenerationRoute.DirectApi)
         };
         var engine = ObjectSelectionEngine();
         if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
@@ -44,7 +47,7 @@ public sealed partial class MainWindow
                 var graph = aiTasks.Engines.ReadWorkflow(engine, engine.Workflow(binding.Workflow));
                 foreach (var slot in WorkflowModels.Slots(graph, engine.Id).Where(s => s.Kind == EngineAssetKind.BackgroundRemoval))
                     foreach (var model in server.ModelChoices.GetValueOrDefault(slot.LoaderKey, []).Where(name => name.Contains("birefnet", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.OrdinalIgnoreCase))
-                        choices.Add(new(ObjectSelectionSource.ComfyUI, model + " · ComfyUI", model, slot.Key));
+                        choices.Add(new(ObjectSelectionSource.ComfyUI, model + " · ComfyUI", model, slot.Key, Route: ImageGenerationRoute.ComfyWorkflow));
             }
             catch (Exception error) when (error is IOException or FormatException or System.Text.Json.JsonException) { }
         }
@@ -54,16 +57,18 @@ public sealed partial class MainWindow
     private void RefreshObjectModelChoices()
     {
         if (objectModelsCombo == null) return;
-        if (settings.ObjectSelectionModel is not (ObjectSelectionSource.EfficientSamS or ObjectSelectionSource.ComfyUI))
-        { settings.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS; settings.Save(); }
+        var route = settings.ImageRouteFor(AiTaskKind.ObjectSelection);
         var choices = AvailableObjectModels();
-        var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + settings.ObjectSelectionModel + settings.ObjectSelectionComfyModel + settings.ObjectSelectionQuickOutline;
+        var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + route + settings.ObjectSelectionComfyModel + settings.ObjectSelectionQuickOutline;
         if (objectModelChoicesStamp == stamp) return;
         objectModelChoicesStamp = stamp; objectModelChoices = choices;
         refreshingObjectModels = true;
         objectModelsCombo.ItemsSource = choices.Select(c => c.Label).ToArray();
-        objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Source == settings.ObjectSelectionModel && (c.Source == ObjectSelectionSource.ComfyUI ? c.ServerModel == settings.ObjectSelectionComfyModel : c.QuickOutline == settings.ObjectSelectionQuickOutline));
-        objectModelsCombo.PlaceholderText = settings.ObjectSelectionModel == ObjectSelectionSource.ComfyUI
+        objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Route == route && (route == ImageGenerationRoute.ComfyWorkflow
+            ? c.ServerModel == settings.ObjectSelectionComfyModel : route != ImageGenerationRoute.BuiltIn || c.QuickOutline == settings.ObjectSelectionQuickOutline));
+        if (objectModelsCombo.SelectedIndex < 0 && route == ImageGenerationRoute.ComfyWorkflow)
+            objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Route == route);
+        objectModelsCombo.PlaceholderText = route == ImageGenerationRoute.ComfyWorkflow
             ? settings.ObjectSelectionComfyModel ?? "Connect ComfyUI to list models" : "Choose an installed model";
         refreshingObjectModels = false;
     }
@@ -76,11 +81,16 @@ public sealed partial class MainWindow
         {
             if (refreshingObjectModels || combo.SelectedIndex < 0 || combo.SelectedIndex >= objectModelChoices.Count) return;
             var choice = objectModelChoices[combo.SelectedIndex];
-            settings.ObjectSelectionModel = choice.Source;
-            if (choice.Source == ObjectSelectionSource.EfficientSamS) settings.ObjectSelectionQuickOutline = choice.QuickOutline;
-            settings.ObjectSelectionComfyModel = choice.ServerModel;
+            settings.ImageOperationRoutes[AiTaskKind.ObjectSelection] = choice.Route;
+            if (choice.Route == ImageGenerationRoute.BuiltIn)
+            {
+                settings.ObjectSelectionModel = choice.Source;
+                settings.ObjectSelectionQuickOutline = choice.QuickOutline;
+            }
             if (choice.SlotKey != null && choice.ServerModel != null)
             {
+                settings.ObjectSelectionModel = ObjectSelectionSource.ComfyUI;
+                settings.ObjectSelectionComfyModel = choice.ServerModel;
                 var address = aiTasks.ConnectedServerUrl ?? settings.ComfyServerUrl;
                 var selected = new Dictionary<string, string>(settings.ComfyModelsFor(address)) { [choice.SlotKey] = choice.ServerModel };
                 var engine = ObjectSelectionEngine();
@@ -93,6 +103,7 @@ public sealed partial class MainWindow
             }
             if (session != null) session.Detect = LocalDetect;
             settings.Save();
+            RefreshAiUi();
         };
         RefreshObjectModelChoices();
         Locale.Tip(combo, "Click an object or drag a box around it. Automatic refines hair and soft edges locally. Quick outline makes a crisp selection.");
@@ -103,7 +114,15 @@ public sealed partial class MainWindow
     {
         var target = session;
         if (target == null || localSelectionBusy || canvas.IsDragging || target.IsInteracting) return;
-        if (settings.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi or ObjectSelectionSource.EfficientSamS)
+        var route = settings.ImageRouteFor(AiTaskKind.ObjectSelection);
+        if (DirectImageGenerator.IsDirect(route))
+        {
+            if (point is { } clicked && !target.Document.Bounds.Contains(clicked.X, clicked.Y)) return;
+            await RunAi(AiTaskKind.ObjectSelection, useInlinePrompt: true, selectionRegion: region ?? target.Document.Bounds, selectionOperation: mode, selectionPoint: point);
+            return;
+        }
+        if (route == ImageGenerationRoute.BuiltIn && settings.ObjectSelectionModel is
+            ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi or ObjectSelectionSource.EfficientSamS or ObjectSelectionSource.ComfyUI)
         {
             localSelectionBusy = true;
             refreshOptions?.Invoke();
@@ -126,15 +145,16 @@ public sealed partial class MainWindow
             finally { localSelectionBusy = false; refreshOptions?.Invoke(); }
             return;
         }
-        if (settings.ObjectSelectionModel == ObjectSelectionSource.PlainBackdrop && region == null)
+        if (route == ImageGenerationRoute.BuiltIn && settings.ObjectSelectionModel == ObjectSelectionSource.PlainBackdrop && region == null)
         {
             if (point is { } p) target.SelectObject(p.X, p.Y, mode);
             else if (!target.SelectSubject(mode)) ShowNote("No subject stands out from the plain backdrop.");
             return;
         }
-        if (settings.ObjectSelectionModel == ObjectSelectionSource.ComfyUI)
+        if (route == ImageGenerationRoute.ComfyWorkflow)
         {
-            var choice = AvailableObjectModels().FirstOrDefault(c => c.Source == ObjectSelectionSource.ComfyUI && c.ServerModel == settings.ObjectSelectionComfyModel);
+            var available = AvailableObjectModels().Where(c => c.Route == ImageGenerationRoute.ComfyWorkflow).ToArray();
+            var choice = available.FirstOrDefault(c => c.ServerModel == settings.ObjectSelectionComfyModel) ?? available.FirstOrDefault();
             if (choice?.SlotKey == null)
             { ShowProblem("Connect ComfyUI and choose an installed object-selection model in the top bar."); return; }
             var address = aiTasks.ConnectedServerUrl!;

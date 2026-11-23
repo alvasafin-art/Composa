@@ -26,7 +26,7 @@ public sealed partial class MainWindow
     internal bool AiFloatingVisible => aiFloatingHost.IsVisible;
     internal int AiReferenceCount => aiReferences.Count;
     internal Border AiFloatingPanel => aiFloatingHost;
-    internal Task RunAiForTests(AiTaskKind task) => RunAi(task);
+    internal Task RunAiForTests(AiTaskKind task, string? prompt = null) => RunAi(task, prompt ?? "", useInlinePrompt: prompt != null);
     private SKBitmap? floatingBoundsMask;
     private SKRectI floatingBounds;
     private Point? aiFloatingPinnedPosition;
@@ -34,7 +34,10 @@ public sealed partial class MainWindow
     private Point aiFloatingDragPosition;
     private readonly Dictionary<AiTaskKind, string> modelDrafts = [];
     private Button aiEnhance = null!, aiAdvanced = null!;
-    private EngineProfile? PanelEngine(AiTaskKind task) => aiTasks.EngineFor(task, modelDrafts.GetValueOrDefault(task));
+    private DirectImageGenerator? DirectImageFor(AiTaskKind task) =>
+        DirectImageGenerator.IsDirect(settings.ImageRouteFor(task)) ? DirectImageGenerator.For(settings, task) : null;
+    private EngineProfile? PanelEngine(AiTaskKind task) => DirectImageFor(task)?.PromptProfile()
+        ?? aiTasks.EngineFor(task, modelDrafts.GetValueOrDefault(task));
     private AiOperationSettings AiOptions(AiTaskKind task, EngineProfile? engine = null)
     {
         engine ??= PanelEngine(task);
@@ -104,8 +107,14 @@ public sealed partial class MainWindow
 
     private AiTaskAvailability AiAvailability(AiTaskKind task)
     {
-        if (task == AiTaskKind.ObjectSelection && settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI)
+        if (task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && settings.ImageRouteFor(task) == ImageGenerationRoute.BuiltIn)
             return new(task, session != null && !localSelectionBusy, session == null ? "Open a document first." : null);
+        if (DirectImageFor(task) is { } direct)
+        {
+            var reason = task == AiTaskKind.MatchToScene ? null : direct.Availability(task, aiReferences.Count);
+            return reason == null ? AiTaskAvailability.Resolve(session, direct.PromptProfile(), task, CropExpands)
+                : new(task, false, reason);
+        }
         var engine = PanelEngine(task);
         if (settings.Workflows.Assignments.ContainsKey(task))
         {
@@ -272,7 +281,8 @@ public sealed partial class MainWindow
     {
         if (previewContext is { } preview) { canvas.AiContextBounds = preview; return; }
         SKRectI? context = null;
-        if ((!DockEditorVisible || EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand) && settings.AiShowContextBounds && aiTasks.ConnectionState == ComfyConnectionState.Connected
+        if ((!DockEditorVisible || EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand) && settings.AiShowContextBounds
+            && (DirectImageFor(EditorTask) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected)
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
         {
             var bounds = AutomaticAiMask.ContourBounds(selection);
@@ -360,6 +370,7 @@ public sealed partial class MainWindow
         grip.DoubleTapped += (_, e) => { ToggleCollapsed(); e.Handled = true; };
 
         aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
+        ToolTip.SetShowOnDisabled(aiFloatingGenerate, true);
         aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", OpenAiFloatingTaskMenu);
         aiVariantButtons = AiGenerationControls.QuickRuns(count =>
             _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true, runCount: count));
@@ -404,7 +415,9 @@ public sealed partial class MainWindow
         if (aiEngineCombo == null) return;
         var task = EditorTask;
         var engine = PanelEngine(task);
-        var choices = aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
+        ImageModelChoice[] choices = DirectImageFor(task) is { } direct
+            ? [new(direct.Label, direct.Id, engine!)]
+            : aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
         refreshingAiEngine = true;
         try
         {
@@ -430,6 +443,7 @@ public sealed partial class MainWindow
             item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
+        AddGenerationConnectionMenu(flyout);
         if (modelDrafts.ContainsKey(AiTaskKind.GenerativeFill))
         {
             var save = new MenuItem { Header = Locale.T("Use this model by default") };
@@ -448,7 +462,7 @@ public sealed partial class MainWindow
 
     private bool ShowSelectionPanel => !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
         && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.Wand && session.WandMode == WandMode.Object && canvas.IsDragging)
-        && aiTasks.ConnectionState == ComfyConnectionState.Connected;
+        && (DirectImageFor(EditorTask) != null || DirectImageFor(AiTaskKind.GenerativeFill) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected);
 
     private void RefreshAiFloatingUi()
     {
@@ -468,17 +482,20 @@ public sealed partial class MainWindow
         if (!visible && !DockEditorVisible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
         var task = EditorTask;
+        var direct = DirectImageFor(task);
         var fillEngine = PanelEngine(task);
         var fillProfile = AiOptions(task, fillEngine);
         if (aiFloatingAlignment != null) aiFloatingAlignment.IsEnabled = task != AiTaskKind.GenerateImage;
         if (aiHeaderReference != null) aiHeaderReference.IsEnabled = aiReferences.Count < 6;
         if (aiEngineCombo != null)
         {
+            if (direct != null && (aiEngineCombo.SelectedItem is not ImageModelChoice choice || choice.Name != direct.Label))
+                RefreshEditorModels();
             var index = aiEngineCombo.Items.OfType<ImageModelChoice>().ToList().FindIndex(model => model.Engine.Id == fillEngine?.Id);
             refreshingAiEngine = true;
             try { if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index; }
             finally { refreshingAiEngine = false; }
-            aiEngineCombo.IsEnabled = !busy && !settings.Workflows.Assignments.ContainsKey(task);
+            aiEngineCombo.IsEnabled = !busy && direct == null && !settings.Workflows.Assignments.ContainsKey(task);
         }
         if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage || !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text));
         if (aiVariantButtons != null)
@@ -490,11 +507,12 @@ public sealed partial class MainWindow
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
         var workflowId = settings.Workflows.ActiveId(task, fillEngine?.Id);
         var activeWorkflow = workflowId == null ? null : settings.Workflows.Workflows.GetValueOrDefault(workflowId);
-        aiWorkflowLink.IsVisible = activeWorkflow != null;
+        aiWorkflowLink.IsVisible = direct == null && activeWorkflow != null;
         if (aiWorkflowLink.Content is TextBlock workflowName) workflowName.Text = activeWorkflow?.Name;
         Locale.Tip(aiWorkflowLink, "Workflow bindings");
         var operation = aiTasks.Operation;
-        var status = aiLastError ?? (DockEditorVisible && aiTasks.ConnectionState != ComfyConnectionState.Connected ? "ComfyUI · " + aiTasks.ConnectionState.ToString().ToLowerInvariant() : null) ?? (operation?.Status switch
+        var status = aiLastError ?? (busy ? operation?.Stage : AiAvailability(task).Reason)
+            ?? (direct == null && DockEditorVisible && aiTasks.ConnectionState != ComfyConnectionState.Connected ? "ComfyUI · " + aiTasks.ConnectionState.ToString().ToLowerInvariant() : null) ?? (operation?.Status switch
         {
             AiOperationStatus.Queued or AiOperationStatus.Running => operation.Stage ?? "Working…",
             AiOperationStatus.Cancelled => "Cancelled",
@@ -756,6 +774,7 @@ public sealed partial class MainWindow
             modelDrafts.Clear();
             RefreshEditorModels();
             RefreshAiUi();
+            RefreshObjectModelChoices();
         }
         catch (Exception error) { ShowProblem(error.Message); }
     }
@@ -764,6 +783,7 @@ public sealed partial class MainWindow
     {
         var previous = aiTasks.SelectedEngine;
         var task = DockEditorVisible || session?.Selection != null ? EditorTask : AiTaskKind.ImageEdit;
+        if (DirectImageFor(task) != null) { await ShowAiSettings(4); return; }
         aiTasks.SelectedEngine = PanelEngine(task);
         try { await AiDialogs.Advanced(this, settings, aiTasks, task); }
         finally { aiTasks.SelectedEngine = previous; RefreshAiUi(); }
@@ -779,13 +799,15 @@ public sealed partial class MainWindow
     {
         if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
+        var target = session;
+        var direct = DirectImageFor(task);
         var availability = AiAvailability(task);
         if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
         if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) { AiFailed("Another AI operation is already running."); return; }
         if (task == AiTaskKind.Upscale && session is { } upscaleSession)
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
-            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, PanelEngine(task), aiTasks)) return;
+            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, PanelEngine(task), direct == null ? aiTasks : null, direct?.Label)) return;
         }
         var aspect = AiAspect(task);
         var profile = AiOptions(task);
@@ -802,21 +824,24 @@ public sealed partial class MainWindow
             BuildAiReferenceUi(host);
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
-                session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null, modelDrafts.GetValueOrDefault(task)); }
+                session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null,
+                modelDrafts.GetValueOrDefault(task), direct?.PromptProfile()); }
             finally { aiDialogReferences = null; }
         }
         RefreshAiUi();
         if (options == null) return;
+        if (target != null && !sessions.Contains(target)) return;
         if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = options.Prompt; settings.Save(); }
         if (task == AiTaskKind.ImageEdit) { settings.ImageEditPrompt = options.Prompt; settings.Save(); }
-        if (session == null)
+        if (target == null)
         {
             if (task != AiTaskKind.GenerateImage) return;
             AddSession(EditorSession.NewCanvas(options.Width, options.Height));
+            target = session;
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
-        var engine = options.EngineId == null ? PanelEngine(task) : aiTasks.EngineFor(task, options.EngineId);
-        if (options.EngineId != null && engine != null) modelDrafts[task] = engine.Id;
+        var engine = direct?.PromptProfile() ?? (options.EngineId == null ? PanelEngine(task) : aiTasks.EngineFor(task, options.EngineId));
+        if (direct == null && options.EngineId != null && engine != null) modelDrafts[task] = engine.Id;
         profile = AiOptions(task, engine);
         try
         {
@@ -842,7 +867,7 @@ public sealed partial class MainWindow
                 ExpansionMinimumSide = profile.ExpansionMode == AiExpansionMode.WholeImage ? profile.WholeExpansionMinimumSide : profile.ExpansionMinimumSide,
                 ReferenceImages = aiReferences.Select(item => item.Pixels).ToList(),
                 ReferenceMegapixels = profile.ReferenceMegapixels,
-                ExpansionBounds = task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop && canvas.CropRect is { } crop
+                ExpansionBounds = task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, target) && target?.Tool == Tool.Crop && canvas.CropRect is { } crop
                     ? new SKRectI((int)Math.Floor(crop.Left), (int)Math.Floor(crop.Top), (int)Math.Ceiling(crop.Right), (int)Math.Ceiling(crop.Bottom)) : null,
                 Settings = new AiGenerationSettings
                 {
@@ -853,10 +878,15 @@ public sealed partial class MainWindow
                     Values = values
                 }
             };
-            await aiTasks.RunAsync(new EditorCommandService(session!), request);
+            var targetSession = target!;
+            if (direct != null)
+                await aiTasks.RunDirectImageAsync(new EditorCommandService(targetSession), direct, request, () => sessions.Contains(targetSession));
+            else
+                await aiTasks.RunAsync(new EditorCommandService(targetSession), request);
             if (task == AiTaskKind.GenerateImage && engine?.Binding(AiTaskKind.ImageEdit) != null && modelDrafts.ContainsKey(task))
             { modelDrafts[AiTaskKind.ImageEdit] = engine.Id; RefreshEditorModels(); }
-            if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop) canvas.ResetCropToCanvas();
+            if (task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop)
+                canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { AiFailed(error.Message); }

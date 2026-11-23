@@ -408,15 +408,17 @@ public class PartnerImageTests
         public ComfyServerCapabilities Server { get; init; } = Capabilities();
         public List<JsonObject> Graphs { get; } = []; public List<string> Uploads { get; } = [];
         public int FailAt { get; init; }
+        public Func<CancellationToken, Task>? BeforeResult { get; init; }
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
             => Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), Server));
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
         { Uploads.Add(semantic); return Task.FromResult(semantic + ".png"); }
-        public Task<ComfyExecutionResult> ExecuteAsync(JsonObject graph, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
+        public async Task<ComfyExecutionResult> ExecuteAsync(JsonObject graph, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
             Graphs.Add((JsonObject)graph.DeepClone()); if (Graphs.Count == FailAt) throw new InvalidOperationException("API unavailable");
+            if (BeforeResult != null) await BeforeResult(cancellationToken);
             var count = graph["gpt"]!["inputs"]!["n"]?.GetValue<int>() ?? 1;
-            return Task.FromResult(new ComfyExecutionResult("job", JsonDocument.Parse("{}"), Enumerable.Range(0, count).Select(i => new ComfyImageReference(i + ".png", "", "output", "save")).ToArray()) { CreditsUsed = count * 2 });
+            return new ComfyExecutionResult("job", JsonDocument.Parse("{}"), Enumerable.Range(0, count).Select(i => new ComfyImageReference(i + ".png", "", "output", "save")).ToArray()) { CreditsUsed = count * 2 };
         }
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
         {

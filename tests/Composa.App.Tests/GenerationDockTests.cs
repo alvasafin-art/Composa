@@ -3,6 +3,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -115,6 +116,7 @@ public class GenerationDockTests
         var session = EditorSession.NewCanvas(160, 120, SKColors.White);
         window.AddSession(session);
         session.SelectRect(new(30, 30, 90, 65));
+        var before = session.History.CurrentId;
         try
         {
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
@@ -141,6 +143,10 @@ public class GenerationDockTests
             Assert.Empty(window.OwnedWindows);
             Assert.True(window.AiTasks.Operation?.Status == AiOperationStatus.Completed, window.AiTasks.Operation?.Error);
             Assert.Single(server.Graphs);
+            Assert.Equal(new[] { "apiSource" }, server.Uploads);
+            Assert.NotEqual(before, session.History.CurrentId);
+            session.Undo();
+            Assert.Equal(before, session.History.CurrentId);
         }
         finally { session.MarkSaved("direct.cmps", session.History.CurrentId); window.Close(); }
     }
@@ -186,6 +192,103 @@ public class GenerationDockTests
             session.Undo(); Assert.Equal(before, session.History.CurrentId);
         }
         finally { session.MarkSaved("run.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Expansion_runs_for_the_original_tab_and_can_be_cancelled_from_the_panel(bool cancel)
+    {
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new PartnerImageTests.Connection
+        {
+            BeforeResult = async token =>
+            {
+                requested.SetResult();
+                await release.Task.WaitAsync(token);
+            }
+        };
+        var window = new MainWindow(null, _ => server) { Width = 1200, Height = 840 };
+        window.Settings.ComfyServerUrl = server.Address.ToString();
+        window.AiTasks.ApiKey = () => "test-only";
+        window.Settings.AiTaskEngineIds[nameof(AiTaskKind.GenerativeExpand)] = "chatgpt-image-2.5";
+        window.Settings.SetOperation("chatgpt-image-2.5", AiTaskKind.GenerativeExpand, new() { Seed = 2042 });
+        var source = EditorSession.NewCanvas(159, 121, SKColors.Orange);
+        var other = EditorSession.NewCanvas(131, 107, SKColors.Purple);
+        var sourceState = source.History.CurrentId;
+        var otherState = other.History.CurrentId;
+        source.MarkSaved("expand-source.cmps", sourceState);
+        other.MarkSaved("expand-other.cmps", otherState);
+        window.Show();
+        window.AddSession(other);
+        window.AddSession(source);
+        try
+        {
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            window.SelectTool(Tool.Crop);
+            ExpandCrop(source, 23, 17);
+            var chooser = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation");
+            var menu = Assert.IsType<MenuFlyout>(chooser.Flyout);
+            menu.ShowAt(chooser); Pump();
+            menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Gen Expand"))
+                .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            menu.Hide(); Pump();
+            var token = TestContext.Current.CancellationToken;
+            await requested.Task.WaitAsync(TimeSpan.FromSeconds(15), token);
+
+            var tab = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "expand-other");
+            var at = tab.TranslatePoint(new Point(tab.Bounds.Width / 2, tab.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(at, MouseButton.Left);
+            window.MouseUp(at, MouseButton.Left);
+            Pump();
+            Assert.Same(other, window.Canvas.Session);
+            window.Canvas.ResetCropToCanvas();
+            ExpandCrop(other, 15, 11);
+            var pendingCrop = window.Canvas.CropRect;
+
+            if (cancel)
+                window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, Locale.T("Cancel"))
+                    && b.Parent is StackPanel panel && panel.Children.OfType<ProgressBar>().Any())
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            else release.SetResult();
+
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < deadline)
+            { await Task.Delay(10, token); Pump(); }
+            Assert.Equal(cancel ? AiOperationStatus.Cancelled : AiOperationStatus.Completed, window.AiTasks.Operation?.Status);
+            Assert.Equal(otherState, other.History.CurrentId);
+            Assert.Equal(pendingCrop, window.Canvas.CropRect);
+            if (!cancel)
+            {
+                Assert.Equal((182, 138), (source.Document.Width, source.Document.Height));
+                Assert.NotEqual(sourceState, source.History.CurrentId);
+                source.Undo();
+            }
+            Assert.Equal(sourceState, source.History.CurrentId);
+            Assert.Equal((159, 121), (source.Document.Width, source.Document.Height));
+        }
+        finally
+        {
+            release.TrySetResult();
+            source.MarkSaved("expand-source.cmps", source.History.CurrentId);
+            other.MarkSaved("expand-other.cmps", other.History.CurrentId);
+            window.Close();
+        }
+
+        void ExpandCrop(EditorSession session, int dx, int dy)
+        {
+            window.Canvas.Fit(); Pump();
+            var frame = Assert.IsType<SKRect>(window.Canvas.CropRect);
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+            window.MouseDown(At(frame.Right, frame.Bottom), MouseButton.Left);
+            window.MouseMove(At(frame.Right + dx, frame.Bottom + dy), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(At(frame.Right + dx, frame.Bottom + dy), MouseButton.Left);
+            Pump();
+            Assert.Equal(new SKRect(0, 0, session.Document.Width + dx, session.Document.Height + dy), window.Canvas.CropRect);
+        }
     }
 
     private static void Pump()

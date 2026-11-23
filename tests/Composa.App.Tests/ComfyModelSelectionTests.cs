@@ -96,17 +96,20 @@ public class ComfyModelSelectionTests
         Assert.Equal("shared/upscaler.pth", settings.ComfyModelsFor(Lan)[slot.Key]);
     }
 
-    [Fact]
-    public async Task Subfolder_models_satisfy_the_pack_without_any_client_files()
+    [Theory]
+    [InlineData("shared/flux-2-klein-9b_int8_convrot.safetensors")]
+    [InlineData("shared/flux-2-klein-9b-int8-convrot.safetensors")]
+    public async Task Subfolder_models_satisfy_the_pack_without_any_client_files(string model)
     {
         using var handler = new Server();
+        handler.Objects["UNETLoader"]!["input"]!["required"]!["unet_name"] = new JsonArray(new JsonArray(model), new JsonObject());
         using var http = new HttpClient(handler);
         var service = Service(http);
         var compatibility = await service.TestConnectionAsync(TestContext.Current.CancellationToken);
         Assert.True(compatibility!.IsCompatible, string.Join(", ", compatibility.Missing));
         Assert.Equal(Lan, service.ConnectedServerUrl);
         Assert.All(handler.Requests, request => Assert.Equal("192.168.1.50", request.Host));
-        Assert.Contains("shared/flux-2-klein-9b_int8_convrot.safetensors", service.ServerCapabilities!.ModelChoices["UNETLoader.unet_name"]);
+        Assert.Contains(model, service.ServerCapabilities!.ModelChoices["UNETLoader.unet_name"]);
     }
 
     [Fact]
@@ -366,7 +369,11 @@ public class ComfyModelSelectionTests
         Assert.Contains("birefnet.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("shared/birefnet-hr.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("birefnet-matting.safetensors · ComfyUI", Menu().Items.Cast<string>());
-        Assert.Equal(5, Menu().Items.Count);
+        Assert.Equal("Automatic · Local", Menu().SelectedItem);
+        Assert.Contains("Quick outline · Local", Menu().Items.Cast<string>());
+        Assert.Contains("rembg · CLI", Menu().Items.Cast<string>());
+        Assert.Contains("BiRefNet · fal API", Menu().Items.Cast<string>());
+        Assert.Equal(7, Menu().Items.Count);
         Assert.DoesNotContain(Menu().Items.Cast<string>(), name => name.Contains("isnet", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("ComfyUI", Menu().Items.Cast<string>());
         Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
@@ -375,6 +382,10 @@ public class ComfyModelSelectionTests
         var graph = window.AiTasks.Engines.ReadWorkflow(engine, engine.Workflow(engine.Binding(AiTaskKind.ObjectSelection)!.Workflow));
         WorkflowModels.ApplyChoices(graph, engine.Id, window.Settings.ComfyModelsFor(Lan));
         Assert.Equal("shared/birefnet-hr.safetensors", graph["model"]!["inputs"]!["bg_removal_name"]!.GetValue<string>());
+        Menu().SelectedItem = "rembg · CLI";
+        Assert.Equal(ImageGenerationRoute.LocalCodex, window.Settings.ImageRouteFor(AiTaskKind.SelectSubject));
+        Assert.Equal("shared/birefnet-hr.safetensors", window.Settings.ObjectSelectionComfyModel);
+        Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
         Screenshots.Save(window, "object-model-variants");
         window.Settings.ComfyServerUrl = "http://192.168.1.51:8188";
         window.SelectTool(Tool.Wand); window.SelectTool(Tool.ObjectSelectionAi);

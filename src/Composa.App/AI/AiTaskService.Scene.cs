@@ -7,6 +7,85 @@ namespace Composa.App.AI;
 
 public sealed partial class AiTaskService
 {
+    private async Task RunDirectSceneAsync(IEditorCommandService editor, DirectImageGenerator generator, AiTaskRequest request,
+        Action ensureUnchanged, CancellationToken token)
+    {
+        request = request with { Scene = request.Scene.Normalized(),
+            AdditionalPrompt = AdditionalPromptForPack?.Invoke(generator.Id) ?? AdditionalPrompt() };
+        if (request.AdditionalPrompt == AiPromptDefaults.PreserveAppearance) request = request with { AdditionalPrompt = "" };
+        Operation = new() { Status = AiOperationStatus.Queued, Stage = "Preparing subject and shadow area" };
+        StateChanged?.Invoke();
+        var references = new List<SKBitmap>();
+        var results = new List<SceneEditResult>();
+        var applied = false;
+        try
+        {
+            var requested = request.ReferenceImages.Count == 0 && request.ReferenceImage is { } legacy ? [legacy] : request.ReferenceImages;
+            foreach (var bitmap in requested)
+            {
+                var retained = new SKBitmap();
+                references.Add(retained);
+                if (!bitmap.ExtractSubset(retained, bitmap.Info.Rect)) throw new InvalidOperationException("Unable to retain the reference image.");
+            }
+            request = request with { ReferenceImages = references, ReferenceImage = null };
+            var snapshot = editor.Session.Document.Clone();
+            using var scene = await Task.Run(() => SceneEditInput.Prepare(snapshot, request, token), token);
+            if (request.Task == AiTaskKind.ChangeBackground && requireSceneSubjectModels)
+                await Task.Run(() => SceneBackgroundSubject.EnsureAvailable(token), token);
+            using var inputs = await Task.Run(() => SceneApiInputs(scene, request), token);
+            var edit = request with { Task = AiTaskKind.ImageEdit };
+            for (var index = 0; index < request.Settings.Variants; index++)
+            {
+                var background = request.Task == AiTaskKind.ChangeBackground;
+                using var generated = await Generate(inputs, null, index, background ? "Object-aware scene layout · pass 1/2" : "Lighting and contact");
+                if (background)
+                {
+                    using var subject = await Task.Run(() => sceneSubjectFinder(scene, generated, token), token);
+                    using var plate = await Task.Run(() => new SceneBackgroundPlate(scene, generated, 16, token, subject), token);
+                    using var cleanup = new AiTaskInputs { SourceImage = Pixels.DisplayCopy(plate.Image), ContextImage = Pixels.DisplayCopy(plate.Image),
+                        CanvasWidth = scene.Before.Width, CanvasHeight = scene.Before.Height, TargetBounds = scene.Before.Info.Rect,
+                        Prompt = SceneEditingWorkflow.CleanupPrompt(request) };
+                    using var clean = await Generate(cleanup, plate.Mask, index, "Clean background plate · pass 2/2");
+                    using var finished = await Task.Run(() => plate.Finish(clean, generated, null), token);
+                    results.Add(await Task.Run(() => SceneEditResult.Extract(scene, finished, request, token), token));
+                }
+                else
+                {
+                    if (request.AlignMaskedEdits)
+                        await Task.Run(() => AiSeamlessFinisher.AlignEdit(generated, inputs.ContextImage), token);
+                    results.Add(await Task.Run(() => SceneEditResult.Extract(scene, generated, request, token), token));
+                }
+            }
+            ensureUnchanged();
+            editor.Session.InsertSceneEdit(request.Task, scene.SourceLayerId, results, scene.IsCutout, scene.WholeImage, scene.PreviousResultIds, scene.SourceFrame);
+            applied = true;
+            var noShadow = request.Task != AiTaskKind.ChangeBackground && !scene.WholeImage && request.Scene.AddShadows
+                && request.Scene.MatchMode == SceneMatchMode.LightAndShadows && results.All(result => result.ShadowPixels == 0);
+            Operation = new() { Status = AiOperationStatus.Completed, Stage = noShadow ? "Completed · no reliable cast shadow detected" : "Completed" };
+            StateChanged?.Invoke();
+
+            async Task<SKBitmap> Generate(AiTaskInputs source, SKBitmap? mask, int index, string stage)
+            {
+                ensureUnchanged();
+                Operation = new() { Status = AiOperationStatus.Running, Stage = $"Variant {index + 1}/{request.Settings.Variants} · {stage}" };
+                StateChanged?.Invoke();
+                using var frame = await Task.Run(() => new DirectImageEdit(source, edit), token);
+                var native = mask != null && generator.UsesNativeMask;
+                var files = await Task.Run(() => frame.Encode(source, mask, native, token), token);
+                var prompt = mask == null || native ? source.Prompt : "The final image is the mask. Edit only its white area. " + source.Prompt;
+                ensureUnchanged();
+                var image = await generator.GenerateAsync(prompt, frame.Width, frame.Height, token, files: files);
+                return await Task.Run(() => frame.Finish(image));
+            }
+        }
+        finally
+        {
+            foreach (var reference in references) reference.Dispose();
+            if (!applied)
+                foreach (var output in results.SelectMany(result => result.Layers)) { output.Pixels.Dispose(); output.Mask?.Dispose(); }
+        }
+    }
+
     private async Task RunSceneAsync(IEditorCommandService editor,AiTaskRequest request,CancellationToken token)
     {
         var engine=EngineFor(request.Task,request.EngineId);

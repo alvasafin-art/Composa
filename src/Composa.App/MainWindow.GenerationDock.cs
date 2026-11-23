@@ -121,6 +121,7 @@ public sealed partial class MainWindow
         foreach (var task in Enum.GetValues<AiTaskKind>().Where(t => t != AiTaskKind.SelectSubject))
         {
             var item = new MenuItem { Header = DockTaskName(task), ToggleType = MenuItemToggleType.Radio };
+            ToolTip.SetShowOnDisabled(item, true);
             // Avalonia's presenter snapshots the items before Opening. Only update their state here.
             menu.Opening += (_, _) =>
             {
@@ -133,6 +134,7 @@ public sealed partial class MainWindow
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
+        AddGenerationConnectionMenu(menu);
         var settingsItem = new MenuItem { Header = Locale.T("AI Settings…") };
         settingsItem.Click += (_, _) => _ = ShowAiSettings();
         menu.Items.Add(settingsItem);
@@ -140,5 +142,29 @@ public sealed partial class MainWindow
         collapse.Click += (_, _) => dock.SetCollapsed(generationSection, true);
         menu.Opening += (_, _) => collapse.IsVisible = !dock.Tabbed;
         menu.Items.Add(collapse);
+    }
+
+    private void AddGenerationConnectionMenu(MenuFlyout menu)
+    {
+        var connection = new MenuItem { Header = Locale.T("Image generation connection") };
+        foreach (var route in DirectImageGenerator.Connections)
+        {
+            var item = new MenuItem { Header = Locale.T(DirectImageGenerator.RouteLabel(route)), ToggleType = MenuItemToggleType.Radio,
+                IsChecked = settings.ImageRouteFor(EditorTask) == route };
+            menu.Opening += (_, _) => { item.IsChecked = settings.ImageRouteFor(EditorTask) == route; };
+            item.Click += (_, _) =>
+            {
+                settings.ImageOperationRoutes[EditorTask] = route;
+                settings.Save();
+                RefreshEditorModels();
+                RefreshAiUi();
+            };
+            connection.Items.Add(item);
+        }
+        connection.Items.Add(new Separator());
+        var configure = new MenuItem { Header = Locale.T("Connection settings…") };
+        configure.Click += (_, _) => _ = ShowAiSettings(4);
+        connection.Items.Add(configure);
+        menu.Items.Add(connection);
     }
 }
