@@ -146,6 +146,21 @@ jobs:
           foreach ($model in @('efficient_sam_vits_encoder.onnx', 'efficient_sam_vits_decoder.onnx', 'vitmatte_small.onnx')) {
             if (-not (Test-Path -LiteralPath (Join-Path $folder ('models/' + $model)))) { throw "Missing bundled model: $model" }
           }
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class ComposaSmokeWindow
+          {
+              [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+              [DllImport("user32.dll")] private static extern bool PostMessageW(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+              public static bool CloseEnabledPopup(IntPtr owner)
+              {
+                  if (owner == IntPtr.Zero) return false;
+                  var popup = GetWindow(owner, 6); // GW_ENABLEDPOPUP
+                  return popup != IntPtr.Zero && popup != owner && PostMessageW(popup, 0x0010, IntPtr.Zero, IntPtr.Zero); // WM_CLOSE
+              }
+          }
+          '@
           $app = Start-Process -FilePath $exe.FullName -WorkingDirectory $folder -WindowStyle Hidden -PassThru
           try {
             if (-not $app.WaitForInputIdle(30000)) { throw 'The portable editor did not reach its UI event loop.' }
@@ -159,7 +174,20 @@ jobs:
             if ($app.HasExited) { throw "The portable editor exited on startup: $($app.ExitCode)" }
             if ($app.MainWindowHandle -eq [IntPtr]::Zero) { throw 'The portable editor did not open its main window.' }
             Write-Host "Portable editor $version started from the final archive."
-            if (-not $app.CloseMainWindow() -or -not $app.WaitForExit(10000)) { throw 'The portable editor did not close cleanly.' }
+            # CloseMainWindow refuses a disabled owner while the first-launch dialog is open.
+            $closing = [Diagnostics.Stopwatch]::StartNew()
+            $closeSent = $false
+            do {
+              $app.Refresh()
+              if ($app.HasExited) { break }
+              $closeSent = $app.CloseMainWindow()
+              if ($closeSent) { break }
+              if ([ComposaSmokeWindow]::CloseEnabledPopup($app.MainWindowHandle)) {
+                Write-Host 'Dismissed an owned startup dialog.'
+              }
+              Start-Sleep -Milliseconds 250
+            } while ($closing.Elapsed.TotalSeconds -lt 5)
+            if (-not $closeSent -or -not $app.WaitForExit(10000)) { throw 'The portable editor did not close cleanly.' }
             if ($app.ExitCode -ne 0) { throw "The portable editor exited with code $($app.ExitCode)" }
           } finally {
             $app.Refresh()
