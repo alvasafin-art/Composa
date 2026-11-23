@@ -33,6 +33,8 @@ public sealed partial class MainWindow
         scroll.Background = null;
         scroll.VerticalScrollBarVisibility = bottom ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Hidden;
         scroll.HorizontalScrollBarVisibility = bottom ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        // Fluent auto-hide overlays the scroll bar over the buttons when the rail is narrow.
+        scroll.AllowAutoHide = !bottom;
         toolSurface.CornerRadius = new CornerRadius(bottom ? 14 : 0);
         toolSurface.ClipToBounds = true;
         toolSurface.Padding = bottom ? new Thickness(12, 8) : new Thickness(0, 6, 0, 0);
@@ -60,7 +62,7 @@ public sealed partial class MainWindow
             button.GroupPlacement = bottom ? PlacementMode.Top : right ? PlacementMode.LeftEdgeAlignedTop : PlacementMode.RightEdgeAlignedTop;
             if (bottom) button.Height = 32;
         }
-        Locale.Tip(toolSurface, "Drag the top edge to dock tools on the left, right or bottom");
+        ToolButton.SetPassiveTip(toolSurface, "Drag the top edge to dock tools on the left, right or bottom");
         toolChrome.ZIndex = 3;
         Grid.SetColumn(toolChrome, bottom ? 3 : right ? (inner ? 4 : 6) : (inner ? 2 : 0));
     }
