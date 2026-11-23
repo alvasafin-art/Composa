@@ -36,7 +36,7 @@ public class GenerationDockTests
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
             var prompt = window.AiFloatingPanel.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
-            prompt.Text = "Keep the existing draft.";
+            prompt.Text = "A prompt for the previous operation.";
             if (entry != "hidden") dock.SetVisible(section, true);
             if (entry == "collapsed") dock.SetCollapsed(section, true);
             Pump();
@@ -59,7 +59,7 @@ public class GenerationDockTests
             Assert.True(dock.Presents(section));
             Assert.Equal("Choose AI operation · " + label, Operation(section.Content));
             Assert.Same(prompt, section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn));
-            Assert.Equal("Keep the existing draft.", prompt.Text);
+            Assert.Equal("", prompt.Text);
             var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible);
             var selected = Assert.IsType<ImageModelChoice>(picker.SelectedItem);
             Assert.Equal("chatgpt-image-2.5", selected.Engine.Id);
@@ -70,6 +70,15 @@ public class GenerationDockTests
                 Assert.Equal(new PartnerPriceEstimate(singlePass.MinimumUsd * 2, singlePass.MaximumUsd * 2).RoundedCredits(1),
                     cost.Children.OfType<TextBlock>().Single().Text);
             }
+
+            prompt.Text = "A prompt for this operation.";
+            ClickOperation(AiMenuItems(window), label);
+            Assert.Equal("A prompt for this operation.", prompt.Text);
+            ClickOperation(AiMenuItems(window), "Image Edit");
+            Assert.Equal("", prompt.Text);
+            ClickOperation(AiMenuItems(window), label);
+            Assert.Equal("", prompt.Text);
+            Assert.Empty(window.OwnedWindows);
         }
         finally { window.Close(); }
     }

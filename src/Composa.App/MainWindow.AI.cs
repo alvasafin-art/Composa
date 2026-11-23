@@ -112,6 +112,7 @@ public sealed partial class MainWindow
     private void ChooseAiOperation(AiTaskKind task)
     {
         if (!CanRunAi(task)) return;
+        var previousTask = EditorTask;
         bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
         bool sceneInDock = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
         if (sceneInDock && !DockEditorVisible)
@@ -123,6 +124,7 @@ public sealed partial class MainWindow
         if (DockEditorVisible && (sceneInDock || immediate || task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
         {
             manualDockTask = task;
+            if (task != previousTask) aiFloatingPrompt.Text = "";
             RefreshAiUi();
             if (!immediate) { aiFloatingPrompt.Focus(); return; }
         }
