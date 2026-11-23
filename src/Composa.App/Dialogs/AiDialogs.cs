@@ -821,7 +821,7 @@ public static partial class AiDialogs
             else if (focusField == "server") url.Focus();
             else if (page == 1) engine.Focus();
             else if (page == 2) provider.Focus();
-            else if (page == 4) imageConnection.OperationPicker.Focus();
+            else if (page == 5) imageConnection.OperationPicker.Focus();
         };
         settingsDialog.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
@@ -857,7 +857,7 @@ public static partial class AiDialogs
                     if (forgetDirect || !string.IsNullOrWhiteSpace(directKey.Text))
                         changes[UserApiKeys.Target("Direct", directEndpoint!)] = string.IsNullOrWhiteSpace(directKey.Text) ? null : directKey.Text.Trim();
                 }
-                tab = 4; field = imageConnection.ApiUrl;
+                tab = 5; field = imageConnection.ApiUrl;
                 imageConnection.Validate(out field, changes);
                 if (Settings.Persist)
                 {
