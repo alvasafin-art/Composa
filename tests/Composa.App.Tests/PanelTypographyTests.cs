@@ -279,7 +279,7 @@ public class PanelTypographyTests
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             Assert.True(dock.Section("Properties").State.Visible);
             var layers = dock.GetVisualDescendants().OfType<LayersPanel>().Single();
-            var header = layers.PanelTitle;
+            var header = window.GetVisualDescendants().OfType<Button>().Single(button => button.Tag == dock.Section("Layers"));
             void Drag(Point start, Point end)
             {
                 window.MouseMove(start); window.MouseDown(start, MouseButton.Left);

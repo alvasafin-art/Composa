@@ -38,21 +38,24 @@ public sealed partial class LayersPanel
         var openSearch = Ui.IconButton(Icons.Zoom, "Find and filter layers", () => { });
         openSearch.HorizontalAlignment = HorizontalAlignment.Right;
         openSearch.Height = 22; openSearch.MinHeight = 0; openSearch.Padding = new Thickness(3);
-        panelHeader.Children.Add(openSearch);
+        header.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        Grid.SetColumn(openSearch, 2);
+        Grid.SetRow(openSearch, 1);
+        header.Children.Add(openSearch);
         bool expanded = false;
         void FitSearch()
         {
             var compact = Bounds.Height > 0 && Bounds.Height < 305;
             queryRow.IsVisible = !compact || expanded || IsFiltering;
             searchKind.IsVisible = queryRow.IsVisible;
-            openSearch.IsVisible = !LibraryVisible && !queryRow.IsVisible;
+            openSearch.IsVisible = !queryRow.IsVisible;
+            header.ColumnDefinitions[2].Width = openSearch.IsVisible ? GridLength.Auto : new GridLength(0);
             clear.IsVisible = IsFiltering;
             search.Padding = new Thickness(8, 0, clear.IsVisible ? 25 : 8, 0);
         }
         openSearch.Click += (_, _) => { expanded = true; FitSearch(); search.Focus(); };
         SizeChanged += (_, _) => FitSearch();
         clear.Click += (_, _) => { expanded = false; FitSearch(); };
-        fitLayerSearch = FitSearch;
         FitSearch();
         search.TextChanged += (_, _) => { FitSearch(); Rebuild(); };
         searchKind.SelectionChanged += (_, _) => { FitSearch(); Rebuild(); };

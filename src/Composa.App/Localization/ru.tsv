@@ -1762,6 +1762,11 @@ Font Family	Гарнитура
 Paragraph spacing	Интервал абзаца
 Text Color	Цвет текста
 Resources	Ресурсы
+Panel Menu	Меню панели
+Move Panel to New Column	Вынести панель в соседнюю колонку
+Expand Panel	Развернуть панель
+Collapse Panel	Свернуть панель
+Close Panel	Закрыть панель
 Find resources	Поиск ресурсов
 Clear resource search	Очистить поиск ресурсов
 Open Library Folder	Открыть папку библиотеки

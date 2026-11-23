@@ -269,11 +269,9 @@ public class GenerationDockTests
             Assert.Equal("Keep the green reference.", prompt.Text); Assert.Equal(remaining, Thumbnails(window.AiFloatingPanel));
             dock.SetCollapsed(section, false); Pump();
             dock.SetTabbed(true); Pump();
-            var tabs = dock.GetVisualDescendants().OfType<TabControl>().Single();
-            var entries = tabs.Items.OfType<TabItem>().ToList();
-            tabs.SelectedIndex = entries.FindIndex(t => Equals(t.Header, "History")); Pump();
+            dock.Activate(dock.Section("History")); Pump();
             Assert.True(window.AiFloatingVisible);
-            tabs.SelectedIndex = entries.FindIndex(t => Equals(t.Header, "AI Generation")); Pump();
+            dock.Activate(section); Pump();
             Assert.False(window.AiFloatingVisible); Assert.Same(prompt, Prompt(section.Content)); Assert.Equal(remaining, Thumbnails(section.Content));
             for (int i = 0; i < 5; i++) Add(SKColors.Blue);
             Pump(); CheckReferenceSpacing(section.Content, window);

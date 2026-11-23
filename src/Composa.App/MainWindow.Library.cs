@@ -22,7 +22,6 @@ public sealed partial class MainWindow
     private ResourceLibraryPanel BuildResourceLibrary()
     {
         var panel = new ResourceLibraryPanel(elementLibrary);
-        layers.AddLibrary(panel);
         layers.SaveLibraryElementRequested += () => _ = SaveLibrarySelection();
         panel.SaveRequested += () => _ = SaveLibrarySelection();
         panel.ReplaceRequested += entry => _ = SaveLibrarySelection(entry);
@@ -80,7 +79,6 @@ public sealed partial class MainWindow
             }));
             if (error != null) throw error;
             await libraryPanel.Refresh(saved!.Id);
-            layers.ShowLibrary(true);
             problem = null;
             ShowNote(replace == null ? $"Saved to library: {name}" : $"Updated library resource: {name}");
         }

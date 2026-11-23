@@ -42,8 +42,7 @@ public class GenerationMenuPointerTests
             Pump();
             if (tabbed)
             {
-                var tabs = dock.GetVisualDescendants().OfType<TabControl>().Single();
-                tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(t => Equals(t.Header, "AI Generation"));
+                dock.Activate(section);
                 Pump();
             }
             var chooser = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation");

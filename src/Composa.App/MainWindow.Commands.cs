@@ -312,7 +312,7 @@ public sealed partial class MainWindow
             settings.TabbedPanels = dock.Tabbed; settings.Save();
         }, needsDocument: false, viewOnly: true);
         tabbedPanelItem.ToggleType = MenuItemToggleType.CheckBox;
-        Top("_Window", PanelToggle("Properties"), PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
+        Top("_Window", PanelToggle("Layers"), PanelToggle("Resources"), PanelToggle("Properties"), PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
             Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
@@ -480,7 +480,12 @@ public sealed partial class MainWindow
     {
         if (Content is Control { IsEnabled: false })
         { if (e.Key == Key.Escape) automationCancellation?.Cancel(); e.Handled = true; return; }
+        if (e.Key == Key.Escape && cancelDockDrag is { } cancel)
+        { cancel(); e.Handled = true; return; }
         var focused = FocusManager?.GetFocusedElement();
+        if (focused is Button { Tag: Controls.DockSection } && e.KeyModifiers == KeyModifiers.None
+            && e.Key is Key.Left or Key.Right or Key.Home or Key.End or Key.Enter or Key.Space)
+            return;
         if (libraryPanel.OwnsLibraryKey(focused, e)) return;
         if (openFontPicker?.IsDropDownOpen == true) return;
         if (SwallowAlt(e)) return;

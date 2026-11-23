@@ -124,22 +124,18 @@ public sealed partial class MainWindow : Window
         var leftDivider = Ui.Separator(); leftDivider.Margin = new Thickness(0); AddAt(center, Chrome(leftDivider), 2);
         AddAt(center, canvasHost, 3);
         var rightDivider = Ui.Separator(); rightDivider.Margin = new Thickness(0); AddAt(center, Chrome(rightDivider), 4);
-        var historySection = new DockSection("History", history, settings.Dock.GetValueOrDefault("History") ?? new DockPanelState());
-        historySection.Changed += () => { settings.Dock["History"] = historySection.State; settings.Save(); };
-        var channelsSection = new DockSection("Channels", channels, settings.Dock.GetValueOrDefault("Channels") ?? new DockPanelState { Visible = false, Height = 250 });
-        channelsSection.Changed += () => { settings.Dock["Channels"] = channelsSection.State; settings.Save(); };
+        var historySection = new DockSection("History", history, new());
+        var channelsSection = new DockSection("Channels", channels, new(Visible: false, Height: 250));
         // The column has the Layers panel's width, so a long step name is cut off rather than widening it.
         navigator = new NavigatorPanel(canvas);
-        var navigatorSection = new DockSection("Navigator", navigator, settings.Dock.GetValueOrDefault("Navigator") ?? new DockPanelState { Visible = false, Height = 220 });
-        navigatorSection.Changed += () => { settings.Dock["Navigator"] = navigatorSection.State; settings.Save(); };
-        generationSection = new DockSection("AI Generation", BuildGenerationDock(), settings.Dock.GetValueOrDefault("AI Generation") ?? new DockPanelState { Visible = false, Height = 164 }) { HasOwnHeader = true };
-        generationSection.Changed += () => { settings.Dock[generationSection.Title] = generationSection.State; settings.Save(); };
-        var properties = new DockSection("Properties", propertiesView, settings.Dock.GetValueOrDefault("Properties") ?? new DockPanelState(Height: 232));
-        properties.Changed += () => { settings.Dock["Properties"] = properties.State; settings.Save(); };
-        dock = new SideDock(layers, (header, title) => AttachPanelDrag(header, title), properties, navigatorSection, channelsSection, generationSection, historySection);
-        var layersSection = dock.Section("Layers");
-        layersSection.Changed += () => { settings.Dock["Layers"] = layersSection.State; settings.Save(); };
+        var navigatorSection = new DockSection("Navigator", navigator, new(Visible: false, Height: 220));
+        generationSection = new DockSection("AI Generation", BuildGenerationDock(), new(Visible: false, Height: 164));
+        var properties = new DockSection("Properties", propertiesView, new(Height: 232));
+        dock = new SideDock((header, title) => AttachPanelDrag(header, title), new DockSection("Layers", layers, new(Height: 285)),
+            properties, navigatorSection, channelsSection, generationSection, historySection,
+            new DockSection("Resources", libraryPanel, DefaultResourcePlacement));
         dock.RestoreLayout(settings.Dock, persist: false);
+        dock.LayoutChanged += () => { settings.Dock = dock.CaptureLayout(); settings.Save(); };
         AddAt(center, Chrome(dock.LeftHost), 1);
         AttachPanelDrag(toolSurface, "Tools", topOnly: true);
         PlaceTools(settings.ToolsPosition);

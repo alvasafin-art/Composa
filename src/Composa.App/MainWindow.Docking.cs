@@ -15,6 +15,7 @@ public sealed partial class MainWindow
     private readonly Border toolSurface = new() { Background = Palette.Panel };
     private Control toolChrome = null!;
     private readonly ScrollViewer propertiesView = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private Action? cancelDockDrag;
     private void PlaceTools(string position)
     {
         settings.ToolsPosition = position is "Bottom" or "Right" or "RightInner" or "LeftInner" ? position : "Left";
@@ -68,6 +69,7 @@ public sealed partial class MainWindow
     {
         Point? start = null;
         bool moving = false;
+        IPointer? captured = null;
         var preview = new Canvas { IsHitTestVisible = false, ZIndex = 10 };
         var target = new Border
         {
@@ -79,14 +81,15 @@ public sealed partial class MainWindow
         {
             Name = "DraggedPanel", Background = Palette.PanelRaised, BorderBrush = Palette.Edge,
             BorderThickness = new Thickness(1), Padding = new Thickness(12, 7), Opacity = .9,
-            CornerRadius = new CornerRadius(5), Child = Ui.Label(title)
+            CornerRadius = new CornerRadius(5), Child = Ui.Label(Locale.T(title))
         };
         preview.Children.Add(target); preview.Children.Add(ghost);
         Grid.SetColumnSpan(preview, 7);
-        bool left = false, insert = false, swapRail = false;
+        bool left = false, insert = false, swapRail = false, validDrop = false;
         string toolPosition = "Left";
         int column = 0;
         DockSection? before = null;
+        DockGroup? targetTabs = null;
         Rect BoundsOf(Control control) => new(control.TranslatePoint(default, workspaceGrid) ?? default, control.Bounds.Size);
         void Highlight(Rect rect)
         {
@@ -96,6 +99,8 @@ public sealed partial class MainWindow
         void Locate(Point p)
         {
             var area = workspaceGrid.Bounds.Size;
+            target.IsVisible = validDrop = new Rect(area).Contains(p);
+            if (!validDrop) return;
             left = p.X < area.Width / 2;
             var side = left ? "Left" : "Right";
             var railBounds = BoundsOf(toolChrome);
@@ -116,8 +121,10 @@ public sealed partial class MainWindow
                 return;
             }
             before = null;
+            targetTabs = null;
             column = index;
-            insert = view != null && (x < .22 || x > .78);
+            double edge = Math.Min(30, rect.Width * .20);
+            insert = view != null && (p.X <= rect.Left + edge || p.X >= rect.Right - edge);
             if (railOnSide && railBounds.Contains(p))
             {
                 swapRail = true;
@@ -129,6 +136,11 @@ public sealed partial class MainWindow
             if (insert || view == null)
             {
                 if (insert && x > .5) column++;
+                if (view != null && !swapRail)
+                {
+                    Highlight(new Rect(x > .5 ? rect.Right - edge : rect.Left, rect.Top, edge, rect.Height));
+                    return;
+                }
                 var remaining = dock.Ordered(left).Where(panel => panel.State.Visible && panel.Title != title)
                     .GroupBy(panel => panel.State.Column).OrderBy(group => group.Key).ToArray();
                 int otherCount = dock.Ordered(!left).Where(panel => panel.State.Visible && panel.Title != title)
@@ -142,27 +154,50 @@ public sealed partial class MainWindow
                 Highlight(new Rect(leftEdge + preceding.Sum(Weight) * unit + preceding.Length * 5, 0, unit, rect.Height));
                 return;
             }
-            var candidates = dock.Ordered(left).Where(panel => panel.State.Column == index && panel.Title != title && panel.State.Visible);
-            double top = rect.Y, bottomEdge = rect.Bottom;
-            foreach (var panel in candidates)
+            if (workspaceGrid.InputHitTest(p) is Visual hit)
             {
-                var bounds = panel.Frame != null ? BoundsOf(panel.Frame) : BoundsOf(panel.Content);
-                if (p.Y < bounds.Center.Y) { before = panel; bottomEdge = bounds.Center.Y; break; }
+                var ancestors = hit.GetSelfAndVisualAncestors().ToHashSet();
+                targetTabs = view.Groups.FirstOrDefault(group => ancestors.Contains(group.Header) &&
+                    (group.Members.Count > 1 || group.Active.Title != title));
+                if (targetTabs != null)
+                {
+                    foreach (var (section, tab) in targetTabs.Tabs)
+                        if (section.Title != title && p.X < BoundsOf(tab).Center.X) { before = section; break; }
+                    Highlight(BoundsOf(targetTabs.Header));
+                    return;
+                }
+            }
+            double top = rect.Y, bottomEdge = rect.Bottom;
+            foreach (var group in view.Groups)
+            {
+                var anchor = group.Members.FirstOrDefault(panel => panel.Title != title);
+                if (anchor == null) continue;
+                var bounds = BoundsOf(group);
+                if (p.Y < bounds.Center.Y) { before = anchor; bottomEdge = bounds.Center.Y; break; }
                 top = bounds.Center.Y;
             }
             Highlight(new Rect(rect.X, top, rect.Width, Math.Max(16, bottomEdge - top)));
         }
         void Clear()
         {
+            if (moving) cancelDockDrag = null;
             start = null; moving = false;
+            captured = null;
             workspaceGrid.Children.Remove(preview);
-            ghost.Child = Ui.Label(title);
+            ghost.Child = Ui.Label(Locale.T(title));
+        }
+        void Cancel()
+        {
+            var pointer = captured;
+            Clear();
+            if (pointer?.Captured == header) pointer.Capture(null);
         }
         header.AddHandler(PointerPressedEvent, (_, e) =>
         {
             if (e.GetCurrentPoint(header).Properties.IsLeftButtonPressed && (!topOnly || e.GetPosition(header).Y <= 11))
             {
                 start = e.GetPosition(workspaceGrid);
+                captured = e.Pointer;
                 e.Pointer.Capture(header);
             }
         }, RoutingStrategies.Tunnel, true);
@@ -175,6 +210,7 @@ public sealed partial class MainWindow
             if (!moving)
             {
                 moving = true; e.Pointer.Capture(header);
+                cancelDockDrag = Cancel;
                 var source = title == "Tools" ? toolSurface : dock.Section(title).Content;
                 if (source.IsEffectivelyVisible && source.Bounds.Width > 0 && source.Bounds.Height > 0)
                 {
@@ -187,7 +223,7 @@ public sealed partial class MainWindow
                             AlignmentY = Avalonia.Media.AlignmentY.Top
                         }
                     };
-                    ghost.Child = Ui.Column(5, Ui.Label(title), thumbnail);
+                    ghost.Child = Ui.Column(5, Ui.Label(Locale.T(title)), thumbnail);
                 }
                 workspaceGrid.Children.Add(preview);
             }
@@ -201,11 +237,13 @@ public sealed partial class MainWindow
             if (!moving) { Clear(); if (header is not Button && e.Pointer.Captured == header) e.Pointer.Capture(null); return; }
             Locate(e.GetPosition(workspaceGrid));
             e.Handled = true; Clear(); e.Pointer.Capture(null);
+            if (!validDrop) return;
             if (title == "Tools") { PlaceTools(toolPosition); settings.Save(); }
             else
             {
                 if (swapRail) PlaceTools(toolPosition);
-                dock.Move(title, left, before, column, insert);
+                if (targetTabs != null) dock.JoinTabs(title, targetTabs, before);
+                else dock.Move(title, left, before, column, insert);
             }
         }, RoutingStrategies.Tunnel, true);
         header.PointerCaptureLost += (_, e) => { if (e.Source == header) Clear(); };

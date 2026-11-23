@@ -7,6 +7,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -71,6 +72,7 @@ public sealed class ResourceLibraryUiTests
             Find<TextBox>(dialog, "LibraryResourceName").Text = "Кофе · карточка";
             Assert.True(Screenshots.Save(dialog, "library-save-card"));
             Click(Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), button => button.IsDefault));
+            ToggleResources(window);
             await Wait(window, () => Tiles(window).Any(tile => tile.GetVisualDescendants().OfType<Image>().Any(image => image.Source is Bitmap)));
             Assert.True(Screenshots.Save(window, "library-resources-1280"));
             window.Width = 1920;
@@ -79,6 +81,15 @@ public sealed class ResourceLibraryUiTests
             Assert.True(Screenshots.Save(window, "library-resources-1920"));
             window.Width = 1280;
             window.Height = 720;
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var separate = window.CaptureWorkspace();
+            var layers = dock.Section("Layers");
+            dock.JoinTabs("Resources", Assert.IsType<DockGroup>(layers.Frame), null);
+            dock.JoinTabs("Properties", Assert.IsType<DockGroup>(layers.Frame), null);
+            dock.Activate(dock.Section("Resources"));
+            await Wait(window, () => Tiles(window).Any(HasPreview));
+            Assert.True(Screenshots.Save(window, "native-dock-resources-tabs-1280"));
+            window.ApplyWorkspace(separate);
 
             var projectA = Path.Combine(folder, "A.cmps");
             Assert.Null(await window.SaveTo(source, projectA));
@@ -209,7 +220,7 @@ public sealed class ResourceLibraryUiTests
                     Assert.Empty(Tiles(window));
                     Assert.DoesNotContain(window.GetVisualDescendants(), view => view is ResourceLibraryPanel);
                     start = Stopwatch.GetTimestamp();
-                    Click(Find<Button>(window, "ShowLibraryResources"));
+                    ToggleResources(window);
                     await Wait(window, () => Tiles(window).Any(HasPreview));
                     Frame();
                     var firstShelfMs = Elapsed(start);
@@ -240,7 +251,7 @@ public sealed class ResourceLibraryUiTests
                     Frame();
                     var insertMs = Elapsed(start);
                     var insertPrivate = PrivateMiB();
-                    Click(window.GetVisualDescendants().OfType<LayersPanel>().Single().PanelDragHandle);
+                    ToggleResources(window);
                     await Wait(window, () => !Tiles(window).Any());
                     target.MarkSaved(project);
                     await CloseProject(window);
@@ -263,6 +274,9 @@ public sealed class ResourceLibraryUiTests
     private static bool HasPreview(Button tile) => tile.GetVisualDescendants().OfType<Image>().Any(image => image.Source is Bitmap);
 
     private static IEnumerable<Button> Tiles(Window window) => window.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "LibraryResource");
+
+    private static void ToggleResources(Window window) =>
+        Click(Assert.Single(window.GetLogicalDescendants().OfType<MenuItem>(), item => Equals(item.Header, Locale.T("Resources"))));
 
     private static T Find<T>(Window window, string name) where T : Control =>
         Assert.Single(window.GetVisualDescendants().OfType<T>(), control => control.Name == name);
