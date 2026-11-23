@@ -53,6 +53,7 @@ public sealed class EditorWelcomeTests
             Assert.Equal(EditorLayoutPreset.Modern, Selected(dialog));
             Press(dialog, "WelcomeNext");
             Assert.Equal(AiPanelPlacement.UnderSelection, Selected(dialog));
+            AssertOptionsFit(dialog, 2);
             Assert.True(Screenshots.Save(dialog, "editor-welcome-ai"));
             Press(dialog, "WelcomeNext");
             await show.WaitAsync(TimeSpan.FromSeconds(5));
@@ -121,13 +122,23 @@ public sealed class EditorWelcomeTests
     {
         Assert.Equal(count, Options(dialog).Length);
         var next = dialog.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "WelcomeNext");
+        var back = dialog.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "WelcomeBack");
         var nextTop = next.TranslatePoint(default, dialog)!.Value.Y;
+        Assert.Equal(nextTop, back.TranslatePoint(default, dialog)!.Value.Y);
+        Assert.Equal(next.Bounds.Height, back.Bounds.Height);
         foreach (var radio in Options(dialog))
         {
-            var card = Assert.IsType<Border>(Assert.IsType<StackPanel>(radio.Parent).Parent);
+            var body = Assert.IsType<StackPanel>(radio.Parent);
+            var card = Assert.IsType<Border>(body.Parent);
+            var image = Assert.Single(body.Children.OfType<Image>());
+            var imageBottom = image.TranslatePoint(new Point(0, image.Bounds.Height), card)!.Value.Y;
+            var caption = radio.TranslatePoint(default, card)!.Value;
+            Assert.Same(Palette.Window, card.Background);
+            Assert.True(caption.X >= 20);
+            Assert.True(caption.Y - imageBottom >= 13);
             var bottom = radio.TranslatePoint(new Point(0, radio.Bounds.Height), card);
             Assert.InRange(bottom!.Value.Y, radio.Bounds.Height, card.Bounds.Height);
-            Assert.True(card.TranslatePoint(new Point(0, card.Bounds.Height), dialog)!.Value.Y < nextTop);
+            Assert.True(nextTop - card.TranslatePoint(new Point(0, card.Bounds.Height), dialog)!.Value.Y >= 19);
         }
     }
     private static object? Selected(Window dialog) => Assert.Single(Options(dialog), radio => radio.IsChecked == true).Tag;

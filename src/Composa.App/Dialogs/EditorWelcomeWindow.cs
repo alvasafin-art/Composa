@@ -12,7 +12,8 @@ namespace Composa.App.Dialogs;
 internal sealed class EditorWelcomeWindow : Window
 {
     private const double PreviewAspect = 16.0 / 9;
-    private const double Inset = 22, Gap = 12, CardInset = 5, OptionsChromeHeight = 170;
+    private const double Inset = 22, Gap = 14, CardInset = 8, CaptionInset = 12, CaptionGap = 13;
+    private const double OptionsChromeHeight = 202;
     private readonly Window owner;
     private readonly Dictionary<string, Bitmap> previews = [];
     private EditorSetup selection;
@@ -80,18 +81,20 @@ internal sealed class EditorWelcomeWindow : Window
         var next = Ui.TextButton(step == 3 ? "Done" : "Next", Advance, accent: true);
         next.Name = "WelcomeNext";
         next.MinWidth = 90;
+        next.Height = 31;
         next.IsDefault = true;
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         if (step > 0)
         {
             var back = Ui.TextButton("Back", () => { step--; RenderPage(); });
             back.Name = "WelcomeBack";
-            back.MinWidth = 80;
+            back.MinWidth = 84;
+            back.Height = next.Height;
             footer.Children.Add(back);
         }
         footer.Children.Add(next);
         var page = new Grid { Margin = new Thickness(Inset),
-            RowDefinitions = new RowDefinitions(step == 0 ? "Auto,6,*,12,Auto" : "Auto,12,*,12,Auto") };
+            RowDefinitions = new RowDefinitions(step == 0 ? "Auto,6,*,12,Auto" : "Auto,15,*,20,Auto") };
         page.Children.Add(title);
         Grid.SetRow(body, 2);
         page.Children.Add(body);
@@ -111,14 +114,15 @@ internal sealed class EditorWelcomeWindow : Window
             var image = new Image { Source = GetPreview(withChoice(value)), Height = previewHeight, Stretch = Stretch.Uniform };
             RenderOptions.SetBitmapInterpolationMode(image, BitmapInterpolationMode.HighQuality);
             var radio = new RadioButton { Content = Locale.T(label(value)), GroupName = "WelcomeOptions",
-                IsChecked = value.Equals(current), Tag = value, MinHeight = 28 };
+                IsChecked = value.Equals(current), Tag = value, MinHeight = 30,
+                Margin = new Thickness(CaptionInset, 0, CaptionInset, 4) };
             var card = new Border
             {
                 Background = Palette.Window, BorderBrush = value.Equals(current) ? Palette.Accent : Palette.Edge,
                 BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(CardInset - 1), Margin = new Thickness(Gap / 2, 0),
                 VerticalAlignment = VerticalAlignment.Top,
-                Child = new StackPanel { Spacing = 4, Children = { image, radio } }
+                Child = new StackPanel { Spacing = CaptionGap, Children = { image, radio } }
             };
             radio.IsCheckedChanged += (_, _) =>
             {
