@@ -71,6 +71,24 @@ public class ToolInputTests
     }
 
     [AvaloniaFact]
+    public void Fast_brush_release_extends_the_existing_stroke()
+    {
+        window.SelectTool(Tool.Brush);
+        session.Foreground = SKColors.Black;
+        session.Brush = session.Brush with { Size = 24 };
+        var revision = session.Revision;
+        window.MouseDown(At(100, 150), MouseButton.Left);
+        window.MouseMove(At(120, 150), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(At(450, 150), MouseButton.Left);
+        Assert.False(session.IsStroking);
+        Assert.Equal(revision + 1, session.Revision);
+        Assert.Equal(SKColors.Black, session.ActiveLayer!.Pixels!.GetPixel(449, 150));
+        Assert.Equal(SKColors.White, session.ActiveLayer.Pixels.GetPixel(470, 150));
+        session.Undo();
+        Assert.Equal(SKColors.White, session.ActiveLayer!.Pixels!.GetPixel(449, 150));
+    }
+
+    [AvaloniaFact]
     public void Marquee_selects_adds_subtracts_and_moves()
     {
         window.SelectTool(Tool.Marquee);

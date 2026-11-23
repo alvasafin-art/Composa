@@ -41,6 +41,10 @@ efficient_sam_vits_decoder.onnx из существующей рабочей к�
 
   & ./scripts/performance/Run-CanvasPerformance.ps1 -DataDirectory C:/bench/composa -Label brush-draft -Scenario brush8,brush16
 
+COMPOSA_PERF_FAST_BRUSH=1 переключает эти сценарии на быстрые махи
+с резкими поворотами и большим расстоянием между событиями указателя.
+Используйте отдельную метку для таких прогонов.
+
 Методика
 
 • Release без отладчика. Стенд использует окно 1440 × 900 в Avalonia

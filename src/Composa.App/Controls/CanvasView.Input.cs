@@ -421,7 +421,9 @@ public sealed partial class CanvasView
         if (drag == Drag.None) SetControlHover(e.KeyModifiers.HasFlag(KeyModifiers.Control));
         if (drag == Drag.Marquee && !shift) shiftReleased = true;
         dragModifiers = e.KeyModifiers;
-        if (drag == Drag.None && IsBrushTool) Child!.InvalidateVisual();
+        // Pixel damage from ContinueStroke already invalidates the canvas. When a
+        // sample only moves the cursor, keep the document frame that is on screen.
+        if (IsBrushTool && drag is Drag.None or Drag.Stroke) Child!.InvalidateVisual();
         else InvalidateCanvas();
     }
 
@@ -462,6 +464,15 @@ public sealed partial class CanvasView
                 else if (drag == Drag.WarpNode) DragWarpPoint(shift);
                 else DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control));
             }
+        }
+        if (drag == Drag.Stroke && session.CurrentBrushMode is BrushMode.Paint or BrushMode.Erase
+            && e.GetPosition(this) is var release && release != cursorScreen)
+        {
+            cursorScreen = release;
+            currentDocument = ToDocument(release);
+            // Button-up can carry a new position and zero pen pressure. Extend it
+            // using the latest pressure received while the tip was still down.
+            session.ContinueStroke(currentDocument, session.BrushPressure);
         }
         if (drag is Drag.LayoutGap or Drag.LayoutReorder) UpdateLayoutGesture(e.GetPosition(this));
         var moved = Distance(pressScreen, cursorScreen) > 2;

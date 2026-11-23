@@ -61,6 +61,33 @@ public class BrushSnapshotTests
         EqualPixels(branch, Current());
     }
 
+    [Theory]
+    [InlineData(ColorDepth.Eight, BrushMode.Paint, false)]
+    [InlineData(ColorDepth.Sixteen, BrushMode.Paint, false)]
+    [InlineData(ColorDepth.Eight, BrushMode.Erase, true)]
+    public void Fast_segment_matches_the_same_dabs_delivered_one_at_a_time(ColorDepth depth, BrushMode mode, bool mask)
+    {
+        using var original = mask ? Pixels.NewMask(800, 800, 208) : Pixels.NewColor(800, 800, depth);
+        if (!mask) original.Erase(SKColors.DarkSlateGray);
+        using var selection = Pixels.NewMask(800, 800, 179);
+        var settings = new BrushSettings { Size = 80, Spacing = .0625, PressureSize = false, PressureFlow = true, Flow = .67, Opacity = .83, Hardness = .27 };
+        using var batched = new BrushStroke(original, settings, mode, SKColors.OrangeRed) { Selection = selection };
+        using var individual = new BrushStroke(original, settings, mode, SKColors.OrangeRed) { Selection = selection };
+        using var actual = batched.Working;
+        using var expected = individual.Working;
+        var start = new SKPoint(167.5f, 108.5f);
+        batched.AddPoint(start, .25f);
+        individual.AddPoint(start, .25f);
+
+        // Each (3, 4) step is exactly one 5 px spacing. The full path exceeds one batch.
+        batched.AddPoint(start + new SKPoint(384, 512), .75f);
+        for (var i = 1; i <= 128; i++)
+            individual.AddPoint(start + new SKPoint(3 * i, 4 * i), .25f + i / 256f);
+
+        EqualPixels(expected, actual);
+        Assert.False(original.GetPixelSpan().SequenceEqual(actual.GetPixelSpan()));
+    }
+
     [Fact]
     public void MaskForksSurviveReleasedAncestorsAndUntrackedEdits()
     {

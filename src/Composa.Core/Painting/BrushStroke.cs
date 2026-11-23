@@ -154,18 +154,32 @@ public sealed unsafe partial class BrushStroke : IDisposable
             float dx = point.X - from.X, dy = point.Y - from.Y;
             var length = MathF.Sqrt(dx * dx + dy * dy);
             if (length <= 0) return dirty;
-            // These modes recompute from accumulated coverage and immutable inputs.
-            // Nearby dabs can share one color pass. Long diagonal jumps keep their narrow footprints.
+            // Nearby dabs can share one color pass. For long moves, keep the work on the
+            // tiles along the stroke so each pixel gets one color pass even on a diagonal.
             var deferColor = (mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Heal or BrushMode.Healing) && length <= diameter;
             var travelled = spacing - residual;
+            var batch = mode is (BrushMode.Paint or BrushMode.Erase) && !deferColor && length - travelled >= 3 * spacing
+                ? new List<Stamp>() : null;
             while (travelled <= length)
             {
                 var t = travelled / length;
                 dabPressure = lastPressure + (pressure - lastPressure) * t;
                 radius = RadiusFor(dabPressure);
-                dirty = Geometry.Union(dirty, Dab(new SKPoint(from.X + dx * t, from.Y + dy * t), deferColor));
+                var center = new SKPoint(from.X + dx * t, from.Y + dy * t);
+                if (batch == null) dirty = Geometry.Union(dirty, Dab(center, deferColor));
+                else
+                {
+                    var bounds = StampBounds(center);
+                    if (!bounds.IsEmpty) batch.Add(new(center, radius, DabFlow(), bounds));
+                    if (batch.Count == StampsPerBatch)
+                    {
+                        dirty = Geometry.Union(dirty, RenderBatch(batch));
+                        batch.Clear();
+                    }
+                }
                 travelled += spacing;
             }
+            if (batch is { Count: > 0 }) dirty = Geometry.Union(dirty, RenderBatch(batch));
             if (deferColor && !dirty.IsEmpty) Recompute(dirty);
             residual = length - (travelled - spacing);
             last = point;
@@ -184,7 +198,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
     /// <summary>A straight segment from the last point, for Shift-click lines.</summary>
     public SKRectI LineTo(SKPoint point) => AddPoint(point);
 
-    private float Falloff(float distance)
+    private float Falloff(float distance) => Falloff(distance, radius);
+
+    private float Falloff(float distance, float radius)
     {
         var edge = Math.Clamp(radius - distance + 0.5f, 0, 1);
         if (hardness >= 0.995f) return edge;
@@ -194,7 +210,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
         return 0.5f * (1 + MathF.Cos(MathF.PI * t)) * edge;
     }
 
-    private float CoverageAt(float dx, float dy)
+    private float CoverageAt(float dx, float dy, float radius)
     {
         var squared = dx * dx + dy * dy;
         var outer = radius + 0.5f;
@@ -202,10 +218,10 @@ public sealed unsafe partial class BrushStroke : IDisposable
         // Subpixel integration only for small stamps or a nearly hard rim. Broad soft
         // brushes keep a single cheap lookup per pixel and allocate no extra images.
         if (radius <= 2 || (radius * (1 - hardness) < 1 && squared > (radius - 1) * (radius - 1)))
-            return (Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy - 0.25f) * (dy - 0.25f)))
-                + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy - 0.25f) * (dy - 0.25f)))
-                + Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy + 0.25f) * (dy + 0.25f)))
-                + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy + 0.25f) * (dy + 0.25f)))) * 0.25f;
+            return (Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy - 0.25f) * (dy - 0.25f)), radius)
+                + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy - 0.25f) * (dy - 0.25f)), radius)
+                + Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy + 0.25f) * (dy + 0.25f)), radius)
+                + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy + 0.25f) * (dy + 0.25f)), radius)) * 0.25f;
         if (hardness >= 0.995f) return Math.Clamp(radius - MathF.Sqrt(squared) + 0.5f, 0, 1);
         var position = Math.Min(FalloffSteps, squared / (radius * radius) * FalloffSteps);
         var index = Math.Min(FalloffSteps - 1, (int)position);
@@ -214,12 +230,21 @@ public sealed unsafe partial class BrushStroke : IDisposable
         return value;
     }
 
+    private SKRectI StampBounds(SKPoint center) => Geometry.Intersect(new SKRectI(
+        (int)MathF.Floor(center.X - radius - 1), (int)MathF.Floor(center.Y - radius - 1),
+        (int)MathF.Ceiling(center.X + radius + 1), (int)MathF.Ceiling(center.Y + radius + 1)), new SKRectI(0, 0, width, height));
+
+    private float DabFlow() => (float)Math.Clamp(settings.Flow, 0, 1) * (settings.PressureFlow ? dabPressure : 1);
+
+    // At these sizes the vectorized local work takes less time than moving brush
+    // coverage and pixels between the editor and a separate OpenCL buffer.
+    private bool PreferCpuCoverage(SKRectI area) =>
+        (long)area.Width * area.Height < 640_000 && CanVectorizeCoverage(buildsUp: true, radius);
+
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private SKRectI Dab(SKPoint center, bool deferColor = false)
     {
-        var rect = Geometry.Intersect(new SKRectI(
-            (int)MathF.Floor(center.X - radius - 1), (int)MathF.Floor(center.Y - radius - 1),
-            (int)MathF.Ceiling(center.X + radius + 1), (int)MathF.Ceiling(center.Y + radius + 1)), new SKRectI(0, 0, width, height));
+        var rect = StampBounds(center);
         if (rect.IsEmpty) return rect;
         // Track the individual footprint even when one input event crosses a long diagonal.
         LayerPixelStorage.Changed(Working, rect);
@@ -227,8 +252,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
         if (mode == BrushMode.Liquify) return Push(center, rect);
 
         var changed = false;
-        var flow = (float)Math.Clamp(settings.Flow, 0, 1) * (settings.PressureFlow ? dabPressure : 1);
-        if (GpuAcceleration.EditorEnabled && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing)
+        var flow = DabFlow();
+        if (GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect)
+            && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing)
             && GpuAcceleration.TryCoverage(coverage, rect, center, radius, hardness, falloff, flow, out changed))
         {
             if (!changed) return SKRectI.Empty;
@@ -245,23 +271,24 @@ public sealed unsafe partial class BrushStroke : IDisposable
     {
         var buildsUp = mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing;
         var bands = BrushBands(rect);
-        if (bands == 1) return AccumulateBand(rect, center, flow, buildsUp);
+        if (bands == 1) return AccumulateBand(rect, center, radius, flow, buildsUp);
 
         // Each worker owns complete rows of coverage tiles, including their lazy allocation.
         var changed = 0;
         Parallel.For(0, bands, band =>
         {
-            if (AccumulateBand(Band(rect, band, bands), center, flow, buildsUp))
+            if (AccumulateBand(Band(rect, band, bands), center, radius, flow, buildsUp))
                 Interlocked.Exchange(ref changed, 1);
         });
         return changed != 0;
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
-    private bool AccumulateBand(SKRectI rect, SKPoint center, float flow, bool buildsUp)
+    private bool AccumulateBand(SKRectI rect, SKPoint center, float radius, float flow, bool buildsUp)
     {
         var changed = false;
         var outer = radius + .5f;
+        var vectorize = CanVectorizeCoverage(buildsUp, radius);
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             var dy = y + .5f - center.Y;
@@ -275,11 +302,16 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 if (closest * closest + dy * dy >= outer * outer) continue;
 
                 var row = coverage.WritableRowSegment(left, y, end - left);
-                for (var offset = 0; offset < row.Length; offset++)
+                var offset = 0;
+                if (vectorize && row.Length >= 16)
+                    changed |= AccumulateVectors(row, left, center.X, dy, radius, flow, out offset);
+
+                for (; offset < row.Length; offset++)
                 {
-                    var amount = CoverageAt(left + offset + .5f - center.X, dy);
-                    if (amount <= 0) continue;
                     var old = row[offset];
+                    if (old == ushort.MaxValue) continue;
+                    var amount = CoverageAt(left + offset + .5f - center.X, dy, radius);
+                    if (amount <= 0) continue;
                     var accumulated = buildsUp
                         ? old + (ushort.MaxValue - old) * amount * flow
                         : Math.Max(old, amount * ushort.MaxValue);
@@ -291,6 +323,62 @@ public sealed unsafe partial class BrushStroke : IDisposable
             }
         }
         return changed;
+    }
+
+    private const int StampsPerBatch = 64;
+    private readonly record struct Stamp(SKPoint Center, float Radius, float Flow, SKRectI Bounds);
+    private sealed class StampTile
+    {
+        public List<Stamp> Stamps { get; } = [];
+        public SKRectI Damage { get; set; }
+    }
+
+    private SKRectI RenderBatch(List<Stamp> stamps)
+    {
+        // Tile boundaries are aligned with StrokeCoverage, so workers never share a writable tile.
+        // A worker keeps stamp order within each tile to preserve 16-bit coverage rounding.
+        const int tileSize = StrokeCoverage.TileSize * 2;
+        var tiles = new Dictionary<(int X, int Y), StampTile>();
+        long work = 0;
+        foreach (var stamp in stamps)
+        {
+            var bounds = stamp.Bounds;
+            work += (long)bounds.Width * bounds.Height;
+            for (var y = bounds.Top / tileSize; y <= (bounds.Bottom - 1) / tileSize; y++)
+            for (var x = bounds.Left / tileSize; x <= (bounds.Right - 1) / tileSize; x++)
+            {
+                if (!tiles.TryGetValue((x, y), out var job)) tiles.Add((x, y), job = new StampTile());
+                var part = SKRectI.Intersect(bounds, SKRectI.Create(x * tileSize, y * tileSize, tileSize, tileSize));
+                job.Stamps.Add(stamp with { Bounds = part });
+            }
+        }
+
+        // One dispatch for the entire segment avoids synchronizing CPU bands or waiting for
+        // a GPU readback on every overlapping dab. The color calculation uses the same coverage.
+        if (work < 96_000 || tiles.Count == 1 || Environment.ProcessorCount == 1)
+            foreach (var tile in tiles.Values) RenderTile(tile);
+        else
+            Parallel.ForEach(tiles.Values, new ParallelOptions { MaxDegreeOfParallelism = 8 }, RenderTile);
+
+        var dirty = SKRectI.Empty;
+        foreach (var tile in tiles.Values)
+        {
+            if (tile.Damage.IsEmpty) continue;
+            LayerPixelStorage.Changed(Working, tile.Damage);
+            dirty = Geometry.Union(dirty, tile.Damage);
+        }
+        return dirty;
+    }
+
+    private void RenderTile(StampTile tile)
+    {
+        var dirty = SKRectI.Empty;
+        foreach (var stamp in tile.Stamps)
+            if (AccumulateBand(stamp.Bounds, stamp.Center, stamp.Radius, stamp.Flow, buildsUp: true))
+                dirty = Geometry.Union(dirty, stamp.Bounds);
+        if (dirty.IsEmpty) return;
+        RecomputeBand(dirty);
+        tile.Damage = dirty;
     }
 
     private static int BrushBands(SKRectI rect)
@@ -330,7 +418,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private void Recompute(SKRectI rect)
     {
-        if (GpuAcceleration.EditorEnabled && mode is (BrushMode.Paint or BrushMode.Erase)
+        if (GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect) && mode is (BrushMode.Paint or BrushMode.Erase)
             && selectionPixels == null && !LockTransparency && Working.ColorType == SKColorType.Rgba8888
             && GpuAcceleration.TryBrush(original, Working, rect, coverage, GpuPaintColor, (float)Math.Clamp(settings.Opacity, 0, 1)))
             return;

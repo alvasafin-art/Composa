@@ -119,6 +119,7 @@ public sealed class CanvasPerformanceBench
         window.AddSession(session);
         window.SelectTool(Tool.Brush);
         session.Foreground = new SKColor(56, 97, 161);
+        var fast = Environment.GetEnvironmentVariable("COMPOSA_PERF_FAST_BRUSH") == "1";
         var start = new SKPoint(2660, 1850);
         foreach (var zoom in new[] { "fit", "100%" })
         {
@@ -130,13 +131,27 @@ public sealed class CanvasPerformanceBench
                 StartPhase();
                 var events = new List<InputFrame>();
                 for (int i = 0; i < 5; i++)
-                    ReplayStroke(Path(start + new SKPoint(i * 17, i * 31), 520, 145, 20), events);
+                {
+                    var offset = new SKPoint(i * 17, i * 31);
+                    ReplayStroke(fast ? FastBrushPath(zoom, offset) : Path(start + offset, 520, 145, 20), events);
+                }
                 EndPhase($"brush {size} px {zoom}", events);
             }
         }
         Assert.Equal(20, session.Revision);
         checks["painted"] = Hash(session.ActiveLayer!.Pixels!);
         session.MarkSaved("brush-replay.cmps", session.History.CurrentId);
+    }
+
+    private static SKPoint[] FastBrushPath(string zoom, SKPoint offset)
+    {
+        SKPoint[] positions =
+        [
+            new(-1, -.35f), new(-.55f, -.9f), new(-.17f, .2f), new(.17f, -.35f), new(.6f, .7f), new(1, .1f),
+            new(.3f, .65f), new(-.07f, -.15f), new(-.5f, .8f), new(-.88f, .2f), new(-.27f, -.3f), new(.33f, .25f)
+        ];
+        var spread = zoom == "100%" ? new SKPoint(350, 155) : new SKPoint(1650, 1150);
+        return positions.Select(p => new SKPoint(2950 + p.X * spread.X, 1950 + p.Y * spread.Y) + offset).ToArray();
     }
 
     private async Task Exercise(string folder, string scenario)
