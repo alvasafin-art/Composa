@@ -43,6 +43,7 @@ public sealed class ImageConnectionTests
             window.Settings.EnhancerProvider = "local-codex";
             window.Settings.ImageGenerationRoute = ImageGenerationRoute.DirectApi;
             window.Settings.ImageGenerationApiUrl = endpoint;
+            window.Settings.ImageGenerationApiModel = "gpt-image-2";
             var before = original.History.CurrentId;
             var prompt = CupPrompt;
             if (LiveLocalCodex)
@@ -96,6 +97,7 @@ public sealed class ImageConnectionTests
             window.AddSession(target);
             window.Settings.ImageGenerationRoute = ImageGenerationRoute.DirectApi;
             window.Settings.ImageGenerationApiUrl = endpoint;
+            window.Settings.ImageGenerationApiModel = "gpt-image-2";
             var before = target.History.CurrentId;
             var run = window.RunAiForTests(AiTaskKind.GenerateImage, CupPrompt);
             await contacted.Task.WaitAsync(timeout.Token);

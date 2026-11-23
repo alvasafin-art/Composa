@@ -103,6 +103,7 @@ public sealed class DirectImageEditTests
             window.AddSession(document);
             window.Settings.ImageGenerationRoute = ImageGenerationRoute.DirectApi;
             window.Settings.ImageGenerationApiUrl = endpoint;
+            window.Settings.ImageGenerationApiModel = "gpt-image-2";
             var before = document.History.CurrentId;
             await window.RunAiForTests(AiTaskKind.GenerativeFill, "Recolor the selected area orange.").WaitAsync(deadline.Token);
             await reply;
@@ -134,7 +135,7 @@ public sealed class DirectImageEditTests
         {
             var document = EditorSession.NewCanvas(256, 256, SKColors.CornflowerBlue);
             if (!crop) document.SelectRect(new(104, 104, 152, 152));
-            var settings = new Settings { ImageGenerationApiUrl = address };
+            var settings = new Settings { ImageGenerationApiUrl = address, ImageGenerationApiModel = "gpt-image-2" };
             settings.ImageOperationRoutes[task] = ImageGenerationRoute.DirectApi;
             var service = new AiTaskService(() => "http://127.0.0.1:1", Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
             var state = document.History.CurrentId;
