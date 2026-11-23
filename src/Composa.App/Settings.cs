@@ -19,7 +19,7 @@ public sealed class Settings
     public bool Maximized { get; set; }
     public string Language { get; set; } = "en";
     public EditorTheme Theme { get; set; } = EditorTheme.Classic;
-    public HashSet<string> SeenWelcomeVersions { get; set; } = [];
+    public bool EditorWelcomeSeen { get; set; }
     public bool CanvasOnly { get; set; }
     public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
     public int JpegQuality { get; set; } = 90;
@@ -255,7 +255,7 @@ public sealed class Settings
         value.UserCanvasPresets ??= [];
         value.DisabledScriptPlugins ??= [];
         if (!Enum.IsDefined(value.Theme)) value.Theme = EditorTheme.Classic;
-        value.SeenWelcomeVersions ??= [];
+
         // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
         foreach (var choices in value.ComfyModelSelections.Values)
         foreach (var (node, type, input, oldDefault, newDefault) in new[]
@@ -274,6 +274,11 @@ public sealed class Settings
                 && !model.Contains("birefnet", StringComparison.OrdinalIgnoreCase))
             value.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
         using var document = JsonDocument.Parse(json);
+        // Older releases recorded the build version when the welcome dialog closed.
+        if (document.RootElement.TryGetProperty("SeenWelcomeVersions", out var seenVersions)
+            && seenVersions.ValueKind == JsonValueKind.Array
+            && seenVersions.EnumerateArray().Any(version => version.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(version.GetString())))
+            value.EditorWelcomeSeen = true;
         if (!document.RootElement.TryGetProperty(nameof(PromptSelectionRevision), out _))
         {
             if (value.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi)

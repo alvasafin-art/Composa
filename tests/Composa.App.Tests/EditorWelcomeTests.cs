@@ -15,7 +15,7 @@ namespace Composa.App.Tests;
 public sealed class EditorWelcomeTests
 {
     [AvaloniaFact]
-    public async Task Welcome_back_retains_choices_and_a_completed_version_is_remembered()
+    public async Task Welcome_back_retains_choices_and_setup_is_remembered_for_the_profile()
     {
         var app = Assert.IsType<App>(Application.Current);
         var language = Locale.Language;
@@ -24,7 +24,7 @@ public sealed class EditorWelcomeTests
         window.Show();
         try
         {
-            var show = window.ShowEditorWelcome("9.7.0");
+            var show = window.ShowEditorWelcome();
             Pump();
             var dialog = Assert.Single(window.OwnedWindows.OfType<EditorWelcomeWindow>());
             Assert.Empty(Options(dialog));
@@ -67,15 +67,14 @@ public sealed class EditorWelcomeTests
             Assert.False(dock.Section("Properties").State.Left);
             Assert.False(dock.Section("AI Generation").State.Visible);
             Assert.Equal("Bottom", window.Settings.ToolsPosition);
-            Assert.Contains("9.7.0", Settings.FromJson(JsonSerializer.Serialize(window.Settings)).SeenWelcomeVersions);
+            var saved = Settings.FromJson(JsonSerializer.Serialize(window.Settings));
+            Assert.True(saved.EditorWelcomeSeen);
+            Assert.Equal(EditorTheme.LightNeutral, saved.Theme);
+            Assert.Equal("Bottom", saved.ToolsPosition);
+            Assert.Equal(layers, saved.Dock["Layers"]);
 
-            await window.ShowEditorWelcome("9.7.0").WaitAsync(TimeSpan.FromSeconds(5));
+            await window.ShowEditorWelcome().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Empty(window.OwnedWindows);
-            var update = window.ShowEditorWelcome("9.7.1");
-            Pump();
-            Assert.Single(window.OwnedWindows.OfType<EditorWelcomeWindow>()).Close();
-            await update.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Contains("9.7.1", window.Settings.SeenWelcomeVersions);
             Assert.Equal(EditorLayoutPreset.Modern, window.ReadEditorSetup().Layout);
         }
         finally
@@ -84,6 +83,20 @@ public sealed class EditorWelcomeTests
             app.ApplyTheme(EditorTheme.Classic);
             window.Close();
         }
+    }
+
+    [Theory]
+    [InlineData("""{"SeenWelcomeVersions":["17.7.0-preview.4"]}""", true)]
+    [InlineData("""{"SeenWelcomeVersions":[]}""", false)]
+    [InlineData("""{"SeenWelcomeVersions":null}""", false)]
+    [InlineData("""{"SeenWelcomeVersions":["", " "]}""", false)]
+    [InlineData("""{"EditorWelcomeSeen":true}""", true)]
+    [InlineData("{}", false)]
+    public void Welcome_seen_migrates_from_any_previous_build(string json, bool seen)
+    {
+        var settings = Settings.FromJson(json);
+        Assert.Equal(seen, settings.EditorWelcomeSeen);
+        Assert.Equal(seen, Settings.FromJson(JsonSerializer.Serialize(settings)).EditorWelcomeSeen);
     }
 
     [AvaloniaFact]

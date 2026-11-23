@@ -4,15 +4,15 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
-    internal async Task ShowEditorWelcome(string version)
+    internal async Task ShowEditorWelcome()
     {
-        if (settings.SeenWelcomeVersions.Contains(version)) return;
+        if (settings.EditorWelcomeSeen) return;
 
         var current = ReadEditorSetup();
         bool firstArrangement = settings.Dock.Count == 0;
         var initial = firstArrangement ? current with { AiPanel = AiPanelPlacement.Sidebar } : current;
         var chosen = await new EditorWelcomeWindow(this, initial).ShowDialog<EditorSetup?>(this);
-        settings.SeenWelcomeVersions.Add(version);
+        settings.EditorWelcomeSeen = true;
         if (chosen is { } setup)
         {
             settings.Theme = setup.Theme;
