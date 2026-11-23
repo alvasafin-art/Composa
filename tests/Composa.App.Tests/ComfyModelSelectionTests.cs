@@ -50,6 +50,26 @@ public class ComfyModelSelectionTests
     }
 
     [Fact]
+    public void Klein_filename_alias_uses_the_model_title_and_keeps_the_exact_server_key()
+    {
+        var catalog = new EngineCatalog(Engines);
+        var engine = Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
+        var slot = Assert.Single(catalog.ModelSlots(engine), slot => slot.Kind == EngineAssetKind.DiffusionModel);
+        var choices = new Dictionary<string, string> { [slot.Key] = "shared/flux-2-klein-9b-int8-convrot.safetensors" };
+
+        foreach (var task in new[] { AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill })
+        {
+            var model = catalog.ModelFor(engine, task, choices);
+            Assert.Equal("FLUX 2 Image Klein 9B", model.Name);
+            Assert.Equal(choices[slot.Key], model.Identifier);
+            Assert.Equal("server:" + choices[slot.Key], model.ModelKey);
+        }
+
+        choices[slot.Key] = "shared/flux-2-klein-4b-fp8.safetensors";
+        Assert.Equal("flux-2-klein-4b-fp8", catalog.ModelFor(engine, AiTaskKind.GenerateImage, choices).Name);
+    }
+
+    [Fact]
     public void Settings_round_trip_preserves_subfolders_and_isolates_normalized_servers()
     {
         var settings = new Settings();
