@@ -32,11 +32,11 @@ public sealed class AutomationLibraryWindow : Window
             {
                 var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 8 };
                 row.Children.Add(new TextBlock { Text = command.Title, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-                var editButton = Ui.TextButton(command.PluginId == null ? "Edit" : "View / Copy", () =>
+                var editButton = Ui.TextButton(command.PluginId == null && !command.Bundled ? "Edit" : "View / Copy", () =>
                 { try { edit(command); } catch (Exception error) { status.Text = Locale.Message(error.Message); } });
                 Grid.SetColumn(editButton, 1); row.Children.Add(editButton);
                 var runButton = Ui.TextButton("Run", () => run(command)); Grid.SetColumn(runButton, 2); row.Children.Add(runButton);
-                if (command.PluginId == null)
+                if (command.PluginId == null && !command.Bundled)
                 {
                     var removeButton = Ui.TextButton("Remove", () => _ = RemoveScript(command)); Grid.SetColumn(removeButton, 3); row.Children.Add(removeButton);
                 }

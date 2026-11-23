@@ -305,7 +305,8 @@ public sealed partial class MainWindow
             panelToggles.Add((item, title));
             return item;
         }
-        scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins"); ReloadAutomation();
+        scriptsMenu = Top("_Scripts"); pluginsMenu = Top("_Plugins");
+        if (Settings.Persist) PopulateAutomationMenus(); else ReloadAutomation();
         tabbedPanelItem = Item("Group panels in tabs", () =>
         {
             dock.SetTabbed(!dock.Tabbed);

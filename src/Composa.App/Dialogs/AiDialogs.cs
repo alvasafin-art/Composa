@@ -549,14 +549,20 @@ public static partial class AiDialogs
         string language = settings.Language;
         var languagePicker = Ui.Combo(new[] { "en", "ru" }, language, code => code == "ru" ? "Русский" : "English", value => { language = value; Locale.Apply(value,owner,settingsDialog); }, 190);
         languagePicker.Name = "EditorLanguagePicker";
-        var themePicker = Ui.Combo(Enum.GetValues<EditorTheme>(), chosenTheme, theme => theme switch
-        {
-            EditorTheme.DarkNeutral => "Dark neutral",
-            EditorTheme.LightNeutral => "Light neutral",
-            _ => "Classic blue"
-        }, theme => { chosenTheme = theme; app?.ApplyTheme(theme); }, 190);
+        var themePicker = Ui.Combo(Enum.GetValues<EditorTheme>(), chosenTheme, EditorSetup.ThemeLabel,
+            theme => { chosenTheme = theme; app?.ApplyTheme(theme); }, 190);
         themePicker.Name = "EditorThemePicker";
         Avalonia.Automation.AutomationProperties.SetName(themePicker, "Interface theme");
+        var editor = owner as MainWindow;
+        var initialSetup = editor?.ReadEditorSetup() ?? new(settings.Theme, EditorLayoutPreset.Classic, AiPanelPlacement.UnderSelection);
+        var chosenLayout = initialSetup.Layout;
+        var chosenAiPanel = initialSetup.AiPanel;
+        var layoutPicker = Ui.Combo(Enum.GetValues<EditorLayoutPreset>(), chosenLayout, EditorSetup.LayoutLabel, value => chosenLayout = value, 190);
+        layoutPicker.Name = "EditorLayoutPicker";
+        Avalonia.Automation.AutomationProperties.SetName(layoutPicker, "Workspace layout");
+        var aiPanelPicker = Ui.Combo(Enum.GetValues<AiPanelPlacement>(), chosenAiPanel, EditorSetup.AiPanelLabel, value => chosenAiPanel = value, 190);
+        aiPanelPicker.Name = "EditorAiPanelPicker";
+        Avalonia.Automation.AutomationProperties.SetName(aiPanelPicker, "AI panel placement");
         const string gpuLabel = "Use GPU for local object selection and matting when available";
         var selectionGpu = new CheckBox { Name = "UseSelectionGpu", Content = Locale.T(gpuLabel),
             IsChecked = settings.UseSelectionGpu, IsEnabled = OperatingSystem.IsWindows() };
@@ -583,7 +589,11 @@ public static partial class AiDialogs
                 Nav("Image models", Page("Image models", EnhancerFields(("Model", Ui.Row(8, engine, useDefault)), ("Operation", operationPicker), ("", Ui.Column(5, readiness, fix)), ("", generation)), assignments, files, showContext)),
                 Nav("Prompt enhancer", Page("Prompt enhancer", EnhancerFields(("Provider", provider)), chatFields, apiFields,
                     serverFields, reasoning, budget, EnhancerFields(("Image model", promptPicker)), advancedPrompt)),
-                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker), Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker), groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates))
+                Nav("Editor", Page("Editor", Ui.Column(5, Ui.Label(Locale.T("Language"), Palette.Secondary), languagePicker),
+                    Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker),
+                    Ui.Column(5, Ui.Label(Locale.T("Workspace layout"), Palette.Secondary), layoutPicker),
+                    Ui.Column(5, Ui.Label(Locale.T("AI panel placement"), Palette.Secondary), aiPanelPicker),
+                    groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -655,6 +665,8 @@ public static partial class AiDialogs
             ("System instructions", "системный промт", 2, instructions, advancedPrompt, null),
             ("Language", "language russian english русский английский язык", 3, languagePicker, null, null),
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
+            ("Workspace layout", "classic modern tools panels классическая новая панели раскладка", 3, layoutPicker, null, null),
+            ("AI panel placement", "sidebar selection положение ии выделение", 3, aiPanelPicker, null, null),
             (gpuLabel, "GPU CPU SAM ViTMatte DirectML видеокарта выделение", 3, selectionGpu, null, null),
             (rasterGpuLabel, "GPU CPU OpenCL Gaussian RGB16 видеокарта ускорение фильтры", 3, rasterGpu, null, null),
             (editorGpuLabel, "GPU CPU OpenCL rendering brush effects видеокарта ускорение холст кисть эффекты", 3, editorGpu, null, null),
@@ -829,6 +841,9 @@ public static partial class AiDialogs
         }
         if (changedGeneration.Count > 0) settings.GenerationPresets = generationDraft.GenerationPresets;
         models.Save();
+        if (editor != null && ReferenceEquals(editor.Settings, settings))
+            editor.ApplyEditorArrangement(chosenLayout != initialSetup.Layout ? chosenLayout : null,
+                chosenAiPanel != initialSetup.AiPanel ? chosenAiPanel : null);
         settings.Save();
         return true;
     }

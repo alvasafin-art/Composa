@@ -12,18 +12,36 @@ public sealed partial class MainWindow
     private readonly AutomationCatalog automation;
     private MenuItem? scriptsMenu, pluginsMenu;
     private bool automationRunning;
+    private int automationScanRevision;
     private CancellationTokenSource? automationCancellation;
     internal AutomationCatalog Automation => automation;
 
     internal void ReloadAutomation()
     {
+        automationScanRevision++;
         automation.Reload(settings.DisabledScriptPlugins);
+        PopulateAutomationMenus();
+    }
+
+    internal async Task DiscoverStartupScripts()
+    {
+        int revision = ++automationScanRevision;
+        var disabled = settings.DisabledScriptPlugins.ToArray();
+        var result = await Task.Run(() => automation.Scan(disabled));
+        if (revision != automationScanRevision || !IsVisible) return;
+        automation.Adopt(result);
+        PopulateAutomationMenus();
+        RefreshMenuState();
+    }
+
+    private void PopulateAutomationMenus()
+    {
         commands.RemoveAll(command => command.Id.StartsWith("automation:", StringComparison.Ordinal));
         menuItems.RemoveAll(item => item.Command.Id.StartsWith("automation:", StringComparison.Ordinal));
         if (scriptsMenu == null || pluginsMenu == null) return;
         scriptsMenu.Items.Clear(); pluginsMenu.Items.Clear();
         void ActionItem(MenuItem menu, string title, Action action)
-        { var item = new MenuItem { Header = title }; item.Click += (_, _) => action(); menu.Items.Add(item); }
+        { var item = new MenuItem { Header = Locale.T(title) }; item.Click += (_, _) => action(); menu.Items.Add(item); }
         ActionItem(scriptsMenu, "Script Editor…", () => ShowScriptEditor());
         ActionItem(scriptsMenu, "Run Script File…", () => _ = PickScriptToRun());
         ActionItem(scriptsMenu, "Scripts & Plugins…", ShowAutomationLibrary);
@@ -108,7 +126,7 @@ public sealed partial class MainWindow
     {
         var library = new AutomationLibraryWindow(automation, settings, ReloadAutomation,
             command => _ = RunAutomationCommand(command), command => ShowScriptEditor(AutomationCatalog.ReadScript(command.File), command.Title,
-                command.PluginId == null ? command.File : null), () => ShowScriptEditor());
+                command.PluginId == null && !command.Bundled ? command.File : null), () => ShowScriptEditor());
         library.Show(this);
     }
 }

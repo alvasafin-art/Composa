@@ -240,6 +240,7 @@ Choose the server model in AI Settings → Prompt enhancer.	Выберите м�
 Choose the vignette color	Выбрать цвет виньетки
 Choose ×2 or ×4.	Выберите увеличение ×2 или ×4.
 Classic blue	Классическая синяя
+Classic layout	Классическая
 Clear	Очистить
 Clear Guides	Удалить направляющие
 Clear layer filters	Очистить фильтры слоёв
@@ -1797,3 +1798,12 @@ The document color profile changed. Insert the resource again.	Профиль д
 This library entry changed. Select it again and retry.	Ресурс изменился. Выберите его снова и повторите действие.
 The library element exceeds the document raster memory budget.	Ресурс превышает доступный объём памяти для слоёв этого документа.
 The document has reached its shared style limit.	В документе достигнут предел количества общих стилей.
+Welcome to Composa	Добро пожаловать в Composa
+Let's set up the app.	Давайте настроим программу.
+Next	Далее
+Back	Назад
+Workspace layout	Раскладка панелей
+Modern layout	Новая
+AI panel placement	Положение ИИ-панели
+Side panel	Боковая панель
+Under selection	Под выделением

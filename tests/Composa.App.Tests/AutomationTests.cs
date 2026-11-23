@@ -277,6 +277,44 @@ public class AutomationTests
         editor.Close(); window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task Startup_scan_registers_local_and_bundled_scripts_without_running_them()
+    {
+        using var files = new AutomationFiles();
+        var installation = Path.Combine(files.Root, "application", "scripts");
+        var window = new MainWindow(files.Library, url => new Composa.App.AI.ComfyClient(url), installationScripts: installation);
+        var session = EditorSession.NewCanvas(320, 240);
+        window.AddSession(session);
+        window.Show();
+        try
+        {
+            new AutomationCatalog(files.Library).SaveScript("Local script", "doc.addLayer('Local edit');");
+            var photoshop = Directory.CreateDirectory(Path.Combine(installation, "photoshop")).FullName;
+            File.WriteAllText(Path.Combine(installation, "Bundled.JS"), "doc.addLayer('Bundled edit');");
+            File.WriteAllText(Path.Combine(photoshop, "Send-to-Photoshop.js"), "doc.addLayer('Photoshop edit');");
+            File.WriteAllText(Path.Combine(photoshop, "Send-to-Composa.js"), "#target photoshop");
+            File.WriteAllText(Path.Combine(installation, "note.txt"), "Not a script");
+
+            await window.DiscoverStartupScripts().WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Empty(window.Automation.Errors);
+            Assert.Equal(3, window.Automation.Commands.Count);
+            Assert.Contains(window.Automation.Commands, command => command.Id == "script:Local script.js" && !command.Bundled);
+            Assert.Contains(window.Automation.Commands, command => command.Id == "installed-script:photoshop/Send-to-Photoshop.js" && command.Bundled);
+            Assert.Single(session.Document.Layers);
+            var scripts = window.GetVisualDescendants().OfType<Menu>().Single().Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, Locale.T("_Scripts")));
+            var bundled = scripts.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Bundled"));
+            bundled.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Assert.Equal("Bundled edit", session.ActiveLayer!.Name);
+        }
+        finally
+        {
+            session.MarkSaved("startup-scripts.cmps");
+            window.Close();
+        }
+    }
+
     private sealed class NoAi : Composa.AI.IAiTaskRunner
     {
         public Task RunAsync(Composa.AI.IEditorCommandService editor, Composa.AI.AiTaskRequest request, CancellationToken cancellationToken = default) => Task.CompletedTask;

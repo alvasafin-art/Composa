@@ -4,7 +4,7 @@ using Composa.AI;
 
 namespace Composa.App.Automation;
 
-public sealed record AutomationCommand(string Id, string Title, string File, string? PluginId = null, bool AllowExport = true);
+public sealed record AutomationCommand(string Id, string Title, string File, string? PluginId = null, bool AllowExport = true, bool Bundled = false);
 public sealed record ScriptPluginCommand(string Id, string Title, string Script);
 public sealed record ScriptPluginManifest(string Id, string Name, string Version, int ApiVersion, IReadOnlyList<ScriptPluginCommand> Commands)
 {
@@ -13,7 +13,7 @@ public sealed record ScriptPluginManifest(string Id, string Name, string Version
 public sealed record InstalledScriptPlugin(ScriptPluginManifest Manifest, string Directory);
 
 /// <summary>Explicitly installed JavaScript commands. Packages never execute code while loading.</summary>
-public sealed partial class AutomationCatalog(string? root) : IPluginCommandProvider
+public sealed partial class AutomationCatalog(string? root, string? installationScripts = null) : IPluginCommandProvider
 {
     public string? Root { get; } = root == null ? null : Path.GetFullPath(root);
     public List<AutomationCommand> Commands { get; } = [];
@@ -26,23 +26,20 @@ public sealed partial class AutomationCatalog(string? root) : IPluginCommandProv
     public void Reload(IEnumerable<string>? disabledPlugins = null)
     {
         Commands.Clear(); Plugins.Clear(); Errors.Clear();
+        if (installationScripts != null)
+        {
+            AddScripts(installationScripts, "installed-script:", bundled: true);
+            AddScripts(Path.Combine(installationScripts, "photoshop"), "installed-script:photoshop/", bundled: true, photoshop: true);
+        }
         if (Root == null) return;
         if (Directory.Exists(Root))
             try { RejectLink(Root); }
             catch (Exception error) { Errors.Add(error.Message); return; }
         var disabled = new HashSet<string>(disabledPlugins ?? [], StringComparer.OrdinalIgnoreCase);
-        var scripts = Path.Combine(Root, "scripts");
-        if (Directory.Exists(scripts))
-            foreach (var path in Entries(scripts, folders: false))
-                try
-                {
-                    ReadScript(path);
-                    Commands.Add(new("script:" + Path.GetFileName(path), Path.GetFileNameWithoutExtension(path), path));
-                }
-                catch (Exception error) { Errors.Add(Path.GetFileName(path) + ": " + error.Message); }
+        AddScripts(Path.Combine(Root, "scripts"), "script:");
         var plugins = Path.Combine(Root, "plugins");
         if (!Directory.Exists(plugins)) return;
-        foreach (var directory in Entries(plugins, folders: true))
+        foreach (var directory in PluginFolders(plugins))
             try
             {
                 RejectLink(directory);
@@ -57,13 +54,49 @@ public sealed partial class AutomationCatalog(string? root) : IPluginCommandProv
             catch (Exception error) { Errors.Add(Path.GetFileName(directory) + ": " + error.Message); }
     }
 
-    private IEnumerable<string> Entries(string directory, bool folders)
+    private void AddScripts(string folder, string idPrefix, bool bundled = false, bool photoshop = false)
+    {
+        if (!Directory.Exists(folder)) return;
+        try
+        {
+            RejectLink(folder);
+            var files = new DirectoryInfo(folder).EnumerateFiles("*.js", new EnumerationOptions
+            { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false });
+            foreach (var file in files.OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                // This companion ships alongside Composa scripts and is launched from Photoshop.
+                if (photoshop && file.Name.Equals("Send-to-Composa.js", StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    CheckScriptFile(file);
+                    Commands.Add(new(idPrefix + file.Name, Path.GetFileNameWithoutExtension(file.Name), file.FullName, Bundled: bundled));
+                }
+                catch (Exception error) { Errors.Add(file.Name + ": " + error.Message); }
+            }
+        }
+        catch (Exception error) { Errors.Add(Path.GetFileName(folder) + ": " + error.Message); }
+    }
+
+    internal AutomationCatalog Scan(IEnumerable<string> disabledPlugins)
+    {
+        var result = new AutomationCatalog(Root, installationScripts);
+        result.Reload(disabledPlugins);
+        return result;
+    }
+
+    internal void Adopt(AutomationCatalog result)
+    {
+        Commands.Clear(); Commands.AddRange(result.Commands);
+        Plugins.Clear(); Plugins.AddRange(result.Plugins);
+        Errors.Clear(); Errors.AddRange(result.Errors);
+    }
+
+    private IEnumerable<string> PluginFolders(string directory)
     {
         try
         {
             RejectLink(directory);
-            return (folders ? Directory.EnumerateDirectories(directory) : Directory.EnumerateFiles(directory, "*.js"))
-                .Order(StringComparer.OrdinalIgnoreCase).ToArray();
+            return Directory.EnumerateDirectories(directory).Order(StringComparer.OrdinalIgnoreCase).ToArray();
         }
         catch (Exception error) { Errors.Add(Path.GetFileName(directory) + ": " + error.Message); return []; }
     }
@@ -151,7 +184,8 @@ public sealed partial class AutomationCatalog(string? root) : IPluginCommandProv
         if (existingPath != null)
         {
             target = Path.GetFullPath(existingPath);
-            if (!string.Equals(Path.GetDirectoryName(target), directory, StringComparison.OrdinalIgnoreCase) || Path.GetExtension(target) != ".js")
+            if (!string.Equals(Path.GetDirectoryName(target), directory, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(Path.GetExtension(target), ".js", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Only a managed library script can be replaced.");
             if (File.Exists(target)) RejectLink(target);
         }
@@ -184,7 +218,7 @@ public sealed partial class AutomationCatalog(string? root) : IPluginCommandProv
     public void RemoveScript(string id)
     {
         var directory = ManagedRoot();
-        var script = Commands.Single(command => command.Id == id && command.PluginId == null);
+        var script = Commands.Single(command => command.Id == id && command.PluginId == null && !command.Bundled);
         var target = Path.GetFullPath(script.File);
         var scripts = Path.Combine(directory, "scripts");
         if (!string.Equals(Path.GetDirectoryName(target), scripts, StringComparison.OrdinalIgnoreCase))
@@ -199,14 +233,20 @@ public sealed partial class AutomationCatalog(string? root) : IPluginCommandProv
 
     public static string ReadScript(string path)
     {
-        RejectLink(path);
-        if (!string.Equals(Path.GetExtension(path), ".js", StringComparison.OrdinalIgnoreCase) || new FileInfo(path).Length > MaximumScriptBytes)
-            throw new InvalidDataException("Choose a JavaScript file smaller than 256 KB.");
+        CheckScriptFile(new FileInfo(path));
         var text = File.ReadAllText(path);
         if (text.Contains('\0')) throw new InvalidDataException("The script is not a text file.");
         if (text.TrimStart().StartsWith("#target photoshop", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Run Send-to-Composa.js in Photoshop (File > Scripts > Browse). In Composa use Scripts > Run Script File > Send-to-Photoshop.js.");
         return text;
+    }
+
+    private static void CheckScriptFile(FileInfo file)
+    {
+        if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            throw new InvalidDataException("Linked files/folders are not allowed in automation packages.");
+        if (!string.Equals(file.Extension, ".js", StringComparison.OrdinalIgnoreCase) || file.Length > MaximumScriptBytes)
+            throw new InvalidDataException("Choose a JavaScript file smaller than 256 KB.");
     }
 
     private string ManagedRoot()

@@ -19,6 +19,7 @@ public sealed class Settings
     public bool Maximized { get; set; }
     public string Language { get; set; } = "en";
     public EditorTheme Theme { get; set; } = EditorTheme.Classic;
+    public HashSet<string> SeenWelcomeVersions { get; set; } = [];
     public bool CanvasOnly { get; set; }
     public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
     public int JpegQuality { get; set; } = 90;
@@ -56,8 +57,8 @@ public sealed class Settings
     public string AiApiSize { get; set; } = "auto";
     public bool AiLorasEnabled { get; set; }
     public bool UseSelectionGpu { get; set; } = true;
-    public bool UseRasterFilterGpu { get; set; }
-    public bool UseEditorGpu { get; set; }
+    public bool UseRasterFilterGpu { get; set; } = Composa.Rendering.GpuAcceleration.CanEnable;
+    public bool UseEditorGpu { get; set; } = Composa.Rendering.GpuAcceleration.CanEnable;
     public bool AiShowContextBounds { get; set; } = true;
     public bool AiFloatingCollapsed { get; set; }
     public int AiDefaultsRevision { get; set; } = 1;
@@ -252,7 +253,9 @@ public sealed class Settings
         value.BrushPresets ??= [];
         value.RecentCanvasPresets ??= [];
         value.UserCanvasPresets ??= [];
+        value.DisabledScriptPlugins ??= [];
         if (!Enum.IsDefined(value.Theme)) value.Theme = EditorTheme.Classic;
+        value.SeenWelcomeVersions ??= [];
         // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
         foreach (var choices in value.ComfyModelSelections.Values)
         foreach (var (node, type, input, oldDefault, newDefault) in new[]

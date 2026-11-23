@@ -66,14 +66,16 @@ public sealed partial class MainWindow : Window
     public MainWindow(string? automationDirectory = null)
         : this(automationDirectory, url => new ComfyClient(url)) { }
 
-    internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory, string? libraryFolder = null)
+    internal MainWindow(string? automationDirectory, Func<string, IComfyConnection> comfyClientFactory, string? libraryFolder = null,
+        string? installationScripts = null)
     {
         (Application.Current as App)?.ApplyTheme(settings.Theme);
         selectionTool = settings.ToolPalette?.SelectionTool;
         stampUsesPatch = settings.ToolPalette?.Patch ?? false;
         stampGroupTool = SavedStampTool(settings.ToolPalette);
         gradientShowsBucket = settings.ToolPalette?.Bucket ?? false;
-        automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null));
+        automation = new AutomationCatalog(automationDirectory ?? (Settings.Persist ? Path.Combine(AppPaths.Config, "automation") : null),
+            installationScripts ?? (Settings.Persist ? Path.Combine(AppContext.BaseDirectory, "scripts") : null));
         aiTasks = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), comfyClientFactory)
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
@@ -228,9 +230,14 @@ public sealed partial class MainWindow : Window
             autosave.Tick += async (_, _) => { await recovery.Save(sessions); UpdateStatus(); };
             Closed += (_, _) => autosave.Stop();
             autosave.Start();
-            Opened += (_, _) => _ = OfferRecovery();
         }
-        if (settings.StorageNotice is { } notice) Opened += (_, _) => ShowNote(notice);
+        Opened += async (_, _) =>
+        {
+            if (Settings.Persist) _ = DiscoverStartupScripts();
+            if (settings.StorageNotice is { } notice) ShowNote(notice);
+            if (recovery != null) await OfferRecovery();
+            if (Settings.Persist && IsVisible) await ShowEditorWelcome(AppInfo.Version);
+        };
         InitializeDisplayColor();
         InitializeLinkedSources();
     }
