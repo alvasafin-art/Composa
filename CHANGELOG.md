@@ -4,6 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.7] - 2026-11-23
+
+- Build editable Auto Layout groups with horizontal or vertical flow, padding, spacing and alignment. Move a whole group on the canvas or reorder its children.
+- Save, reuse and delete named text and appearance styles. Find installed fonts by typing their names or scrolling the font list.
+- Save reusable elements to the Resources library and insert them into another project with their styles and Auto Layout settings.
+- Open Resources from the Window menu. Dock panels side by side or combine them into tabs.
+- On the first launch of each version, choose an interface theme, a workspace layout and whether the AI panel sits at the side or under the selection. These choices are also available in Preferences → Editor. Supported GPU acceleration is enabled by default, with CPU fallback.
+- The Scripts menu automatically discovers JavaScript files in the user library and the installation's script folders at startup.
+
 ## [1.3.0-preview.4.studio.17.6] - 2026-11-22
 
 - Preferences → Editor offers optional OpenCL acceleration for eligible raster compositing at 100% zoom, wide brush strokes, shadow and glow blur, and large RGB16 blur filters. Composa uses the CPU for unsupported operations and when the GPU is unavailable.

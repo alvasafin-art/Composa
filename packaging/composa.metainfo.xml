@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.7" date="2026-11-23" type="development">
+      <description><p>Editable Auto Layout, shared styles and a Resources library, plus dockable panel tabs and a first-launch workspace setup.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.6" date="2026-11-22" type="development">
       <description><p>Optional GPU acceleration for canvas rendering, wide brushes, shadows and glow, plus improved layout-grid snapping and per-grid opacity.</p></description>
     </release>
