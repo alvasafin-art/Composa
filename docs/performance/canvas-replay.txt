@@ -34,6 +34,13 @@ efficient_sam_vits_decoder.onnx из существующей рабочей к�
 возобновляется с отсутствующего JSON в выбранной папке -Label. При смене
 сборки используйте новую метку или отдельную папку результатов.
 
+Сценарии brush8 и brush16 создают холст 6000 × 4000 и повторяют
+мазки кистью 84 и 500 пикселей при «Вписать» и 100%. Для них
+не нужны CMPS. В JSON есть времена нажатий, движений и отпусканий,
+а checks.painted содержит SHA-256 итогового растра.
+
+  & ./scripts/performance/Run-CanvasPerformance.ps1 -DataDirectory C:/bench/composa -Label brush-draft -Scenario brush8,brush16
+
 Методика
 
 • Release без отладчика. Стенд использует окно 1440 × 900 в Avalonia

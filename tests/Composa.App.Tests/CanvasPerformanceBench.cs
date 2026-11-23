@@ -60,6 +60,7 @@ public sealed class CanvasPerformanceBench
         try
         {
             if (scenario == "tabs") await TabCycles(folder);
+            else if (scenario is "brush8" or "brush16") ExerciseBrush(scenario == "brush16" ? ColorDepth.Sixteen : ColorDepth.Eight);
             else if (scenario == "photo-open")
             {
                 var opened = await Open(folder, "photo");
@@ -77,8 +78,11 @@ public sealed class CanvasPerformanceBench
             }
             else await Exercise(folder, scenario);
             Checkpoint("closed");
-            await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-            Checkpoint("closed +30s");
+            if (scenario is not ("brush8" or "brush16"))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                Checkpoint("closed +30s");
+            }
             if (Environment.GetEnvironmentVariable("COMPOSA_PERF_DIAG_GC") == "1")
             {
                 GC.Collect();
@@ -107,6 +111,32 @@ public sealed class CanvasPerformanceBench
             window.Close();
             GpuAcceleration.Configure(filters: false, editor: false);
         }
+    }
+
+    private void ExerciseBrush(ColorDepth depth)
+    {
+        var session = EditorSession.NewCanvas(6000, 4000, SKColors.White, depth);
+        window.AddSession(session);
+        window.SelectTool(Tool.Brush);
+        session.Foreground = new SKColor(56, 97, 161);
+        var start = new SKPoint(2660, 1850);
+        foreach (var zoom in new[] { "fit", "100%" })
+        {
+            if (zoom == "100%") window.Canvas.ZoomTo(1); else window.Canvas.Fit();
+            foreach (var size in new[] { 84, 500 })
+            {
+                session.Brush = new BrushSettings { Size = size, Hardness = .28, Flow = .62, Opacity = .85 };
+                Pump();
+                StartPhase();
+                var events = new List<InputFrame>();
+                for (int i = 0; i < 5; i++)
+                    ReplayStroke(Path(start + new SKPoint(i * 17, i * 31), 520, 145, 20), events);
+                EndPhase($"brush {size} px {zoom}", events);
+            }
+        }
+        Assert.Equal(20, session.Revision);
+        checks["painted"] = Hash(session.ActiveLayer!.Pixels!);
+        session.MarkSaved("brush-replay.cmps", session.History.CurrentId);
     }
 
     private async Task Exercise(string folder, string scenario)

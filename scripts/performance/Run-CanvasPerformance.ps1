@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory)][string]$DataDirectory,
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9-]+$')][string]$Label,
-    [ValidateSet('card', 'banner', 'photo', 'tabs')][string[]]$Scenario = @('card', 'banner', 'photo', 'tabs'),
+    [ValidateSet('card', 'banner', 'photo', 'tabs', 'brush8', 'brush16')][string[]]$Scenario = @('card', 'banner', 'photo', 'tabs'),
     [ValidateRange(1, 50)][int]$Repeat = 5,
     [switch]$GenerateFixtures,
     [switch]$NoBuild
@@ -34,13 +34,15 @@ $env:COMPOSA_PERF_PHOTO = Join-Path $repo 'docs/images/studio-workspace.png'
 if ($GenerateFixtures) {
     Invoke-Replay 'fixtures' ''
 }
-foreach ($file in 'card.cmps', 'banner.cmps', 'photo.cmps') {
-    if (-not (Test-Path -LiteralPath (Join-Path $fixtureDir $file))) { throw "Missing fixture $file." }
-}
+if ($Scenario | Where-Object { $_ -notin 'brush8', 'brush16' }) {
+    foreach ($file in 'card.cmps', 'banner.cmps', 'photo.cmps') {
+        if (-not (Test-Path -LiteralPath (Join-Path $fixtureDir $file))) { throw "Missing fixture $file." }
+    }
 
-Get-FileHash -Path (Join-Path $fixtureDir '*.cmps') -Algorithm SHA256 |
-    Select-Object @{Name = 'Fixture'; Expression = { [IO.Path]::GetFileName($_.Path) }}, Hash |
-    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $results 'fixtures.json') -Encoding utf8
+    Get-FileHash -Path (Join-Path $fixtureDir '*.cmps') -Algorithm SHA256 |
+        Select-Object @{Name = 'Fixture'; Expression = { [IO.Path]::GetFileName($_.Path) }}, Hash |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $results 'fixtures.json') -Encoding utf8
+}
 
 foreach ($case in $Scenario) {
     $runs = if ($case -eq 'tabs') { 1 } else { $Repeat }

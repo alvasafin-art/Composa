@@ -9,13 +9,15 @@ namespace Composa.Core.Tests;
 public class BrushSnapshotTests
 {
     [Theory]
-    [InlineData(2051, 2049, ColorDepth.Eight)]
-    [InlineData(1051, 1049, ColorDepth.Sixteen)]
-    public void LargeStrokeMatchesIndependentCopyDuringDrawingAndAcrossHistory(int w, int h, ColorDepth depth)
+    [InlineData(2051, 2049, ColorDepth.Eight, 29)]
+    [InlineData(1051, 1049, ColorDepth.Sixteen, 29)]
+    [InlineData(2051, 2049, ColorDepth.Eight, 480)]
+    [InlineData(1051, 1049, ColorDepth.Sixteen, 480)]
+    public void LargeStrokeMatchesIndependentCopyDuringDrawingAndAcrossHistory(int w, int h, ColorDepth depth, int brushSize)
     {
         var session = EditorSession.NewCanvas(w, h, SKColors.DarkSlateGray, depth);
         session.Tool = Tool.Brush;
-        session.Brush = new() { Size = 29, PressureFlow = true, Flow = .65, Opacity = .73 };
+        session.Brush = new() { Size = brushSize, PressureFlow = true, Flow = .65, Opacity = .73 };
         session.Foreground = SKColors.OrangeRed;
         SKBitmap Current() => session.ActiveLayer!.Pixels!;
         var original = Current();

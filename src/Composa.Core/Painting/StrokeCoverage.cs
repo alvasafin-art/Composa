@@ -3,6 +3,7 @@ namespace Composa.Painting;
 /// <summary>Coverage allocates only touched 64×64 tiles instead of a canvas-sized scratch array.</summary>
 internal sealed class StrokeCoverage
 {
+    internal const int TileSize = 64;
     private readonly ushort[]?[] tiles;
     private readonly int columns;
     public StrokeCoverage(int width, int height)
@@ -14,6 +15,12 @@ internal sealed class StrokeCoverage
     {
         get => tiles[(y >> 6) * columns + (x >> 6)]?[(y & 63) * 64 + (x & 63)] ?? 0;
         set => (tiles[(y >> 6) * columns + (x >> 6)] ??= new ushort[4096])[(y & 63) * 64 + (x & 63)] = value;
+    }
+
+    internal Span<ushort> WritableRowSegment(int x, int y, int length)
+    {
+        var tile = tiles[(y >> 6) * columns + (x >> 6)] ??= new ushort[TileSize * TileSize];
+        return tile.AsSpan((y & 63) * TileSize + (x & 63), length);
     }
 
     internal void CopyTo(SkiaSharp.SKRectI rect, Span<ushort> output)

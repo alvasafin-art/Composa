@@ -235,27 +235,78 @@ public sealed unsafe partial class BrushStroke : IDisposable
             if (!deferColor) Recompute(rect);
             return rect;
         }
-        for (var y = rect.Top; y < rect.Bottom; y++)
-        {
-            for (var x = rect.Left; x < rect.Right; x++)
-            {
-                float dx = x + 0.5f - center.X, dy = y + 0.5f - center.Y;
-                var amount = CoverageAt(dx, dy);
-                if (amount <= 0) continue;
-                var old = coverage[x, y];
-                // Float precision inside the calculation and 16-bit coverage keep very low flow smooth.
-                var accumulated = mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing
-                    ? old + (ushort.MaxValue - old) * amount * flow
-                    : Math.Max(old, amount * ushort.MaxValue);
-                var next = (ushort)Math.Clamp((int)MathF.Round(accumulated), 0, ushort.MaxValue);
-                if (next == old) continue;
-                coverage[x, y] = next;
-                changed = true;
-            }
-        }
+        changed = AccumulateCoverage(rect, center, flow);
         if (!changed) return SKRectI.Empty;
         if (!deferColor) Recompute(rect);
         return rect;
+    }
+
+    private bool AccumulateCoverage(SKRectI rect, SKPoint center, float flow)
+    {
+        var buildsUp = mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing;
+        var bands = BrushBands(rect);
+        if (bands == 1) return AccumulateBand(rect, center, flow, buildsUp);
+
+        // Each worker owns complete rows of coverage tiles, including their lazy allocation.
+        var changed = 0;
+        Parallel.For(0, bands, band =>
+        {
+            if (AccumulateBand(Band(rect, band, bands), center, flow, buildsUp))
+                Interlocked.Exchange(ref changed, 1);
+        });
+        return changed != 0;
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private bool AccumulateBand(SKRectI rect, SKPoint center, float flow, bool buildsUp)
+    {
+        var changed = false;
+        var outer = radius + .5f;
+        for (var y = rect.Top; y < rect.Bottom; y++)
+        {
+            var dy = y + .5f - center.Y;
+            for (var x = rect.Left; x < rect.Right;)
+            {
+                var end = Math.Min(rect.Right, (x | (StrokeCoverage.TileSize - 1)) + 1);
+                var left = x;
+                // Skip segments completely outside the dab, without allocating a coverage tile.
+                var closest = Math.Clamp(center.X, left + .5f, end - .5f) - center.X;
+                x = end;
+                if (closest * closest + dy * dy >= outer * outer) continue;
+
+                var row = coverage.WritableRowSegment(left, y, end - left);
+                for (var offset = 0; offset < row.Length; offset++)
+                {
+                    var amount = CoverageAt(left + offset + .5f - center.X, dy);
+                    if (amount <= 0) continue;
+                    var old = row[offset];
+                    var accumulated = buildsUp
+                        ? old + (ushort.MaxValue - old) * amount * flow
+                        : Math.Max(old, amount * ushort.MaxValue);
+                    var next = (ushort)Math.Clamp((int)MathF.Round(accumulated), 0, ushort.MaxValue);
+                    if (next == old) continue;
+                    row[offset] = next;
+                    changed = true;
+                }
+            }
+        }
+        return changed;
+    }
+
+    private static int BrushBands(SKRectI rect)
+    {
+        if ((long)rect.Width * rect.Height < 96_000) return 1;
+        var tileRows = (rect.Bottom - 1) / StrokeCoverage.TileSize - rect.Top / StrokeCoverage.TileSize + 1;
+        return Math.Min(tileRows, Math.Min(Environment.ProcessorCount, 8));
+    }
+
+    private static SKRectI Band(SKRectI rect, int band, int bands)
+    {
+        const int tile = StrokeCoverage.TileSize;
+        var first = rect.Top / tile;
+        var rows = (rect.Bottom - 1) / tile - first + 1;
+        return new SKRectI(rect.Left, Math.Max(rect.Top, (first + rows * band / bands) * tile),
+            rect.Right, Math.Min(rect.Bottom, (first + rows * (band + 1) / bands) * tile));
     }
 
     private float SelectionAt(int x, int y)
@@ -283,8 +334,16 @@ public sealed unsafe partial class BrushStroke : IDisposable
             && selectionPixels == null && !LockTransparency && Working.ColorType == SKColorType.Rgba8888
             && GpuAcceleration.TryBrush(original, Working, rect, coverage, GpuPaintColor, (float)Math.Clamp(settings.Opacity, 0, 1)))
             return;
-        if (Working.ColorType == SKColorType.RgbaF32) { RecomputeHighPrecision(rect); return; }
         if (mode == BrushMode.Blur && blurred == null) blurred = MakeBlurred();
+        var bands = mode is BrushMode.Paint or BrushMode.Erase ? BrushBands(rect) : 1;
+        if (bands == 1) RecomputeBand(rect);
+        else Parallel.For(0, bands, band => RecomputeBand(Band(rect, band, bands)));
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private void RecomputeBand(SKRectI rect)
+    {
+        if (Working.ColorType == SKColorType.RgbaF32) { RecomputeHighPrecision(rect); return; }
         var src = (byte*)original.GetPixels();
         var dst = (byte*)Working.GetPixels();
         var sourceStride = original.RowBytes;

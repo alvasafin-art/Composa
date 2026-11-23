@@ -390,13 +390,7 @@ public sealed partial class CanvasView : Decorator
         {
             canvas.Clear(backdrop);
             var screenRect = view.MapRect(documentRect);
-            // The opaque checkerboard covers every shadow pixel while all page edges are offscreen.
-            if (!screenRect.Contains(new SKRect(-1, -1, (float)size.Width + 1, (float)size.Height + 1)))
-            {
-                using var blur = SKImageFilter.CreateBlur(8, 8);
-                using var shadow = new SKPaint { Color = new SKColor(0, 0, 0, 90), ImageFilter = blur };
-                canvas.DrawRect(screenRect, shadow);
-            }
+            DrawPageShadow(canvas, screenRect, size);
             DrawCheckerboard(canvas, screenRect);
 
             if (cache != null)
@@ -510,6 +504,43 @@ public sealed partial class CanvasView : Decorator
         }
         tile.SetImmutable();
         return tile;
+    }
+
+    internal static void DrawPageShadow(SKCanvas canvas, SKRect page, Size size)
+    {
+        var viewport = SKRect.Create((float)size.Width, (float)size.Height);
+        // The checkerboard covers the page interior. Rasterize only the four
+        // disjoint strips that can expose the blur, leaving a pixel at the edge.
+        var interior = page;
+        interior.Inflate(-1, -1);
+        if (interior.Contains(viewport)) return;
+        const int sigma = 8;
+        using var blur = SKImageFilter.CreateBlur(sigma, sigma);
+        using var shadow = new SKPaint { Color = new SKColor(0, 0, 0, 90), ImageFilter = blur };
+        if (interior.IsEmpty)
+        {
+            canvas.DrawRect(page, shadow);
+            return;
+        }
+
+        var extent = page;
+        extent.Inflate(4 * sigma, 4 * sigma);
+        extent.Intersect(viewport);
+        if (extent.IsEmpty) return;
+        DrawStrip(new SKRect(extent.Left, extent.Top, interior.Left, extent.Bottom));
+        DrawStrip(new SKRect(interior.Right, extent.Top, extent.Right, extent.Bottom));
+        DrawStrip(new SKRect(interior.Left, extent.Top, interior.Right, interior.Top));
+        DrawStrip(new SKRect(interior.Left, interior.Bottom, interior.Right, extent.Bottom));
+
+        void DrawStrip(SKRect strip)
+        {
+            strip.Intersect(extent);
+            if (strip.IsEmpty) return;
+            canvas.Save();
+            canvas.ClipRect(strip);
+            canvas.DrawRect(page, shadow);
+            canvas.Restore();
+        }
     }
 
     private static void DrawCheckerboard(SKCanvas canvas, SKRect rect)

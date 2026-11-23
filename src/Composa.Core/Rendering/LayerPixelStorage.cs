@@ -9,9 +9,13 @@ internal static class LayerPixelStorage
 {
     private const long MinimumBytes = 16L * 1024 * 1024;
     private const int Tile = 128;
-    // Replaying scattered tiles incurs private page faults on each row. Even on a huge
-    // canvas, copying dozens of disjoint patches can cost more than a sequential rebase.
-    private const int MaxInheritedTiles = 24;
+    // Keep the inherited patches a bounded fraction of the source, even for very large layers.
+    private const int MaxInheritedBytes = 32 * 1024 * 1024;
+    private const int MaxInheritedTiles = 192;
+    // Windows reserves commit for a private view's entire address range, even when only a few pages are written.
+    private static readonly long ExtendedCopyBudget = Math.Clamp(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 8,
+        512L * 1024 * 1024, 4L * 1024 * 1024 * 1024);
+    private static long privateViewBytes;
     private static readonly ConditionalWeakTable<SKBitmap, Storage> surfaces = new();
 
     // One paging-file section per base image. Each native pixel reference owns a view and
@@ -37,7 +41,7 @@ internal static class LayerPixelStorage
         internal readonly HashSet<int>? Changed;
         private readonly SKImageInfo format;
         internal readonly int Columns;
-        internal readonly int TileCount;
+        internal readonly int InheritedLimit;
 
         internal Storage(Section section, SKImageInfo info, HashSet<int>? changed)
         {
@@ -45,10 +49,12 @@ internal static class LayerPixelStorage
             Section = section;
             Changed = changed;
             Columns = (info.Width + Tile - 1) / Tile;
-            TileCount = Columns * ((info.Height + Tile - 1) / Tile);
+            var tileCount = Columns * ((info.Height + Tile - 1) / Tile);
+            InheritedLimit = Math.Min(tileCount / 4, Math.Min(MaxInheritedTiles, MaxInheritedBytes / (Tile * Tile * info.BytesPerPixel)));
             View = section.File.CreateViewAccessor(0, 0, changed == null ? MemoryMappedFileAccess.ReadWrite : MemoryMappedFileAccess.CopyOnWrite);
             Address = View.SafeMemoryMappedViewHandle.DangerousGetHandle();
             section.Retain();
+            if (changed != null) Interlocked.Add(ref privateViewBytes, (long)info.RowBytes * info.Height);
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.ViewMapped((long)info.RowBytes * info.Height);
 #endif
@@ -60,6 +66,7 @@ internal static class LayerPixelStorage
             if (Interlocked.Exchange(ref released, 1) != 0) return;
             View.Dispose();
             Section.Release();
+            if (Changed != null) Interlocked.Add(ref privateViewBytes, -(long)format.RowBytes * format.Height);
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.ViewReleased((long)format.RowBytes * format.Height);
 #endif
@@ -121,7 +128,8 @@ internal static class LayerPixelStorage
         var info = source.Info;
         if (!Eligible(info)) return Pixels.Clone(source);
         if (surfaces.TryGetValue(source, out var storage) && storage.Owns(source, info)
-            && (storage.Changed == null || (storage.Changed.Count <= MaxInheritedTiles && storage.Changed.Count * 4 < storage.TileCount)))
+            && (storage.Changed == null || (storage.Changed.Count <= storage.InheritedLimit
+                && (storage.Changed.Count <= 24 || Interlocked.Read(ref privateViewBytes) + (long)info.RowBytes * info.Height <= ExtendedCopyBudget))))
         {
             try
             {
@@ -147,14 +155,36 @@ internal static class LayerPixelStorage
         var input = (byte*)source.GetPixels();
         var output = (byte*)copy.GetPixels();
         int stride = source.RowBytes, width = source.Width, height = source.Height, bpp = source.BytesPerPixel;
-        foreach (var index in tiles)
+        var rows = tiles.Order().GroupBy(index => index / columns).ToArray();
+        if (tiles.Count < 12 || rows.Length == 1)
+            foreach (var row in rows) CopyTileRow(row);
+        else
+            Parallel.ForEach(rows, CopyTileRow);
+
+        void CopyTileRow(IGrouping<int, int> row)
         {
-            int x = index % columns * Tile, top = index / columns * Tile;
-            int bytes = Math.Min(Tile, width - x) * bpp, bottom = Math.Min(top + Tile, height);
-            for (int y = top; y < bottom; y++)
+            int top = row.Key * Tile, bottom = Math.Min(top + Tile, height);
+            using var indices = row.GetEnumerator();
+            if (!indices.MoveNext()) return;
+            var first = indices.Current % columns;
+            var last = first;
+            while (indices.MoveNext())
             {
-                long offset = (long)y * stride + x * bpp;
-                Buffer.MemoryCopy(input + offset, output + offset, bytes, bytes);
+                var next = indices.Current % columns;
+                if (next != last + 1) { Copy(first, last); first = next; }
+                last = next;
+            }
+            Copy(first, last);
+
+            void Copy(int left, int right)
+            {
+                var x = left * Tile * bpp;
+                var bytes = Math.Min((right + 1) * Tile, width) * bpp - x;
+                for (var y = top; y < bottom; y++)
+                {
+                    long offset = (long)y * stride + x;
+                    Buffer.MemoryCopy(input + offset, output + offset, bytes, bytes);
+                }
             }
         }
     }
@@ -169,14 +199,14 @@ internal static class LayerPixelStorage
             surfaces.Remove(bitmap);
             return;
         }
-        if (tiles.Count > MaxInheritedTiles) return;
+        if (tiles.Count > storage.InheritedLimit) return;
         var rect = SKRectI.Intersect(area.Value, new SKRectI(0, 0, bitmap.Width, bitmap.Height));
         if (rect.IsEmpty) return;
         for (int y = rect.Top / Tile; y <= (rect.Bottom - 1) / Tile; y++)
         for (int x = rect.Left / Tile; x <= (rect.Right - 1) / Tile; x++)
         {
             tiles.Add(y * storage.Columns + x);
-            if (tiles.Count > MaxInheritedTiles) return;
+            if (tiles.Count > storage.InheritedLimit) return;
         }
     }
 }

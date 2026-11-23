@@ -310,11 +310,11 @@ public static class LayerEffectsRenderer
         }
     }
 
-    // Four sigmas cover the CPU Gaussian sampling footprint with room for filtering
-    // a subpixel shadow offset. Stroke morphology has its own, integral radius.
+    // The raster blur's three box passes fit within three sigmas. Allow extra
+    // pixels for rounding the windows and for a fractional shadow offset.
     internal static int PatchHalo(LayerEffects effects) => (int)Math.Ceiling(Math.Max(
-        Math.Max(effects.Stroke?.Size ?? 0, (effects.OuterGlow?.Size ?? 0) * 2),
-        (effects.Shadow?.Distance ?? 0) + (effects.Shadow?.Blur ?? 0) * 2)) + 4;
+        Math.Max(effects.Stroke?.Size ?? 0, (effects.OuterGlow?.Size ?? 0) * 1.5),
+        (effects.Shadow?.Distance ?? 0) + (effects.Shadow?.Blur ?? 0) * 1.5)) + 4;
 
     /// <summary>Only translated raster content with spatially local effects takes the patch path.</summary>
     internal static LayerEffects? PatchEffects(Layer layer)

@@ -10,7 +10,6 @@ public sealed unsafe partial class BrushStroke
 
     private void RecomputeHighPrecision(SKRectI rect)
     {
-        if (mode == BrushMode.Blur && blurred == null) blurred = MakeBlurred();
         var input = new PixelBuffer(original); var output = new PixelBuffer(Working);
         PixelBuffer? donor = CloneSource == null ? null : new PixelBuffer(CloneSource);
         PixelBuffer? soft = blurred == null ? null : new PixelBuffer(blurred);
@@ -19,8 +18,9 @@ public sealed unsafe partial class BrushStroke
         for (var y = rect.Top; y < rect.Bottom; y++)
         for (var x = rect.Left; x < rect.Right; x++)
         {
-            if (coverage[x, y] == 0) continue;
-            var amount = coverage[x, y] / (float)ushort.MaxValue * opacity * SelectionAt(x, y);
+            var covered = coverage[x, y];
+            if (covered == 0) continue;
+            var amount = covered / (float)ushort.MaxValue * opacity * SelectionAt(x, y);
             var before = input.Read(x, y);
             if (LockTransparency && mode == BrushMode.Erase) amount = 0;
             if (amount <= 0) { output.Write(x, y, before); continue; }
