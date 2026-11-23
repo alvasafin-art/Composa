@@ -1,6 +1,6 @@
 # Composa Studio
 
-Composa Studio is a layer-based image editor for Windows and Linux. Combine photographs, editable text, and vector shapes in one project, cut out subjects with fine hair, and retouch the background. Object selection runs on your computer. Connect a ComfyUI server for generative fill, object removal, and canvas expansion.
+Composa Studio is a layer-based image editor for Windows and Linux. Combine photographs, editable text, and vector shapes in one project, cut out subjects with fine hair, and retouch the background. Object selection runs on your computer. Use generative fill, object removal, and canvas expansion with a ComfyUI workflow or a configured direct image connection.
 
 ![Composa Studio showing a brown bear inside a generative fill selection in a mountain landscape, with the layer mask and prompt visible](docs/images/studio-workspace.png)
 
@@ -41,7 +41,11 @@ EfficientSAM finds the subject and ViTMatte refines opacity along its edges. On 
 
 ## Generative tools and the assistant
 
-Connect your ComfyUI server in Settings and choose a model for the operation. To replace part of a photograph, select the area, describe the change in the generation panel, and click **Run**. You can generate several variations and compare them on the canvas. The same panel offers object removal and generative expansion. Available operations depend on the models and nodes installed on the server. Cloud models may require credits. [Image models and connections](https://github.com/alvasafin-art/Composa/blob/main/docs/ai-models.md)
+Choose an executor for each operation in **Settings → Image generation**. ComfyUI uses the model and workflow configured in **Image models** and **Workflows**. A direct image connection can use a locally signed-in Codex CLI with access to image generation, an OpenAI Images-compatible endpoint, OpenRouter, or Polza AI, depending on the model and operation. Enter your own API URL, model ID, and key when using a direct API. Real-ESRGAN and Polza Topaz are available for ×2 or ×4 upscaling. Object Selection and Select Subject can also use rembg or the fal BiRefNet API.
+
+In **Settings → Prompt enhancer**, choose the text connection separately. A local Codex CLI or compatible Chat Completions API can rewrite the prompt while ComfyUI generates the image. Server-based options use Comfy credits or AVS Prompt Helper, depending on the route.
+
+To replace part of a photograph, select the area, describe the change in the generation panel, and click **Run**. For Generative Expand, extend the crop beyond the canvas. Masked expansion keeps the original outside the blend margin. You can compare variants and undo the expansion in one step. ComfyUI workflows require their server nodes and model files. Cloud routes may incur charges. [Image models and connections](https://github.com/alvasafin-art/Composa/blob/main/docs/ai-models.md)
 
 The **Assistant** panel connects separately to a local model through llama.cpp or to an OpenAI-compatible API. The assistant can inspect the current document and run editor commands. Its settings control which folders it can access and whether it receives a canvas preview. [Assistant setup](https://github.com/alvasafin-art/Composa/blob/main/docs/assistant-setup.md)
 

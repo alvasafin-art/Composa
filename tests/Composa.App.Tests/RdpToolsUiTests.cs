@@ -19,20 +19,36 @@ namespace Composa.App.Tests;
 
 public class RdpToolsUiTests
 {
-    [AvaloniaFact]
-    public async Task Generate_image_remembers_the_prompt_even_when_cancelled_and_after_settings_reload()
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Generate_image_respects_session_prompt_preference_and_ignores_old_drafts_on_disk(bool remember)
     {
-        var settings = new Settings { GenerateImagePrompt = "previous landscape" }; var owner = new Window(); owner.Show();
+        var settings = Settings.FromJson("""
+            {"GenerateImagePrompt":"old landscape","ImageEditPrompt":"old edit","AiPromptDrafts":{"GenerateImage":"previous landscape"}}
+            """);
+        settings.RememberAiPrompts = remember;
+        Assert.Empty(settings.AiPromptDrafts);
+        var owner = new Window(); owner.Show();
         var pending = AiDialogs.Prompt(owner, AiTaskKind.GenerateImage, settings, 640, 480);
         var dialog = owner.OwnedWindows.Single(); Dispatcher.UIThread.RunJobs();
         var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn);
-        Assert.Equal("previous landscape", prompt.Text); prompt.Text = "новый пейзаж"; dialog.Close(false); Assert.Null(await pending);
-        var loaded = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!; Assert.Equal("новый пейзаж", loaded.GenerateImagePrompt); owner.Close();
+        Assert.Equal("", prompt.Text);
+        prompt.Text = "новый пейзаж";
+        dialog.Close(false);
+        Assert.Null(await pending);
+        Assert.Equal(remember ? "новый пейзаж" : "", settings.AiPromptFor(AiTaskKind.GenerateImage));
+        var loaded = Settings.FromJson(JsonSerializer.Serialize(settings));
+        Assert.Equal(remember, loaded.RememberAiPrompts);
+        Assert.Empty(loaded.AiPromptDrafts);
+        owner.Close();
     }
     [AvaloniaFact]
-    public async Task Image_edit_and_generate_keep_separate_drafts_across_reopening_and_settings_reload()
+    public async Task Image_edit_and_generate_keep_separate_drafts_across_dialogs_in_the_same_session()
     {
-        var settings=new Settings {ImageEditPrompt="previous edit",GenerateImagePrompt="previous generation"};
+        var settings = new Settings();
+        settings.RememberAiPrompt(AiTaskKind.ImageEdit, "previous edit");
+        settings.RememberAiPrompt(AiTaskKind.GenerateImage, "previous generation");
         var owner=new Window();owner.Show();
         async Task Draft(AiTaskKind task,string expected,string next,string initial="")
         {
@@ -42,11 +58,10 @@ public class RdpToolsUiTests
             Assert.Equal(expected,prompt.Text);prompt.Text=next;dialog.Close(false);Assert.Null(await pending);
         }
         await Draft(AiTaskKind.ImageEdit,"previous edit","новая правка");
-        settings=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
         await Draft(AiTaskKind.ImageEdit,"новая правка","исправить свет");
         await Draft(AiTaskKind.GenerateImage,"previous generation","новая генерация");
         await Draft(AiTaskKind.ImageEdit,"explicit instruction","final edit","explicit instruction");
-        Assert.Equal("новая генерация",settings.GenerateImagePrompt);Assert.Equal("final edit",settings.ImageEditPrompt);owner.Close();
+        Assert.Equal("новая генерация",settings.AiPromptFor(AiTaskKind.GenerateImage));Assert.Equal("final edit",settings.AiPromptFor(AiTaskKind.ImageEdit));owner.Close();
     }
 
     [AvaloniaFact]

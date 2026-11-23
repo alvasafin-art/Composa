@@ -21,7 +21,7 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     {
         AiTaskKind.Upscale => Route == ImageGenerationRoute.LocalCodex ? "Real-ESRGAN · CLI" : "Polza AI · Topaz Upscale",
         AiTaskKind.ObjectSelection => Route == ImageGenerationRoute.LocalCodex ? "rembg · CLI" : "BiRefNet · fal API",
-        _ => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : $"{Model} · API"
+        _ => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : Model.Length > 0 ? $"{Model} · API" : "Direct image API"
     };
 
     internal static DirectImageGenerator From(Settings settings) =>

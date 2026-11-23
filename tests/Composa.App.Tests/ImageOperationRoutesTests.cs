@@ -25,7 +25,7 @@ public sealed class ImageOperationRoutesTests
             Assert.Equal(ImageGenerationRoute.LocalCodex, settings.ImageRouteFor(AiTaskKind.GenerativeFill));
             Assert.Equal(ImageGenerationRoute.ComfyWorkflow, settings.ImageRouteFor(AiTaskKind.GenerativeExpand));
             Assert.Equal(ImageGenerationRoute.BuiltIn, settings.ImageRouteFor(AiTaskKind.SelectSubject));
-            var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 4);
+            var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 5);
             var dialog = Assert.Single(owner.OwnedWindows);
             Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog, "image-operation-connections"));
@@ -36,6 +36,9 @@ public sealed class ImageOperationRoutesTests
             routes["ImageRouteUpscale"].SelectedIndex = 1;
             routes["ImageRouteObjectSelection"].SelectedIndex = 3;
             Assert.Empty(settings.ImageOperationRoutes);
+            Assert.Empty(settings.ImageGenerationApiUrl);
+            Assert.Empty(settings.ImageGenerationApiModel);
+            Assert.Empty(settings.ImageGenerationCodexPath);
             dialog.Close(true);
             Assert.True(await pending);
             Assert.Equal(ImageGenerationRoute.DirectApi, settings.ImageRouteFor(AiTaskKind.GenerativeExpand));

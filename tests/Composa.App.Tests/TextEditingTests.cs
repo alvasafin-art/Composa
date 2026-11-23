@@ -368,8 +368,8 @@ public class TextEditingTests
         Assert.Equal(layer.Id, session.TextEditLayer!.Id);
         Assert.Equal(Tool.Text, session.Tool);
         Assert.Equal(5, session.TextEdit!.Caret);
-        var typeButton = window.GetVisualDescendants().OfType<ToggleButton>().Single(b => (ToolTip.GetTip(b) as string)?.StartsWith("Type", StringComparison.Ordinal) == true);
-        var moveButton = window.GetVisualDescendants().OfType<ToggleButton>().Single(b => (ToolTip.GetTip(b) as string)?.StartsWith("Move", StringComparison.Ordinal) == true);
+        var typeButton = window.RailButton(Tool.Text);
+        var moveButton = window.RailButton(Tool.Move);
         Assert.True(typeButton.IsChecked);
         Assert.False(moveButton.IsChecked);
         window.KeyTextInput("!");

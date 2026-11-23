@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+- Choose a ComfyUI, local CLI, or direct API executor per image operation. Configure prompt enhancement independently. Existing profiles keep their saved connections and workflow assignments. New direct connection fields start empty.
+- Prepare a shared image and mask frame for masked Generative Expand. Remove technical padding before insertion and preserve the original pixels outside the blend margin.
+- Keep adjacent tools clickable while their tooltips are open. Give the bottom tool strip its own scrollbar row and cover canvas position and zoom during menu hover with regression tests.
+- Open Harmonize, Change Background, and Match to Scene in the shared generation panel. Keep individual AI prompt drafts for the current session. Remember the welcome dialog across updates.
+
 ## [1.3.0-preview.4.studio.17.8] - 2026-11-23
 
 - Import, edit, duplicate, and assign ComfyUI API workflows in Settings. Saved workflows retain graph values unless the corresponding inputs are explicitly bound to Composa. Built-in workflow edits can be reset to the factory version.

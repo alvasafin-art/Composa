@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Composa.AI;
 
 namespace Composa.App;
 
@@ -12,15 +13,25 @@ public sealed class Settings
     public List<string> RecentFiles { get; set; } = [];
     public List<Dialogs.CanvasPreset> RecentCanvasPresets { get; set; } = [];
     public List<Dialogs.CanvasPreset> UserCanvasPresets { get; set; } = [];
-    public string GenerateImagePrompt { get; set; } = "";
-    public string ImageEditPrompt { get; set; } = "";
     public AI.WorkflowPreferences Workflows { get; set; } = new();
+    public bool RememberAiPrompts { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal Dictionary<AiTaskKind, string> AiPromptDrafts { get; } = [];
+
+    internal string AiPromptFor(AiTaskKind task) => RememberAiPrompts ? AiPromptDrafts.GetValueOrDefault(task) ?? "" : "";
+
+    internal void RememberAiPrompt(AiTaskKind task, string prompt)
+    {
+        if (!RememberAiPrompts) return;
+        if (prompt.Length == 0) AiPromptDrafts.Remove(task);
+        else AiPromptDrafts[task] = prompt;
+    }
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }
     public string Language { get; set; } = "en";
     public EditorTheme Theme { get; set; } = EditorTheme.Classic;
-    public HashSet<string> SeenWelcomeVersions { get; set; } = [];
+    public bool EditorWelcomeSeen { get; set; }
     public bool CanvasOnly { get; set; }
     public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
     public int JpegQuality { get; set; } = 90;
@@ -114,12 +125,12 @@ public sealed class Settings
     public string? EnhancerProvider { get; set; }
     public string EnhancerRemoteCli { get; set; } = "codex";
     public string EnhancerCodexPath { get; set; } = "";
-    public string EnhancerCodexModel { get; set; } = "gpt-6.2-sol";
+    public string EnhancerCodexModel { get; set; } = "";
     public AI.ImageGenerationRoute ImageGenerationRoute { get; set; }
     public Dictionary<Composa.AI.AiTaskKind, AI.ImageGenerationRoute> ImageOperationRoutes { get; set; } = [];
     public string UpscaleCliPath { get; set; } = "";
     public string SegmentationCliPath { get; set; } = "";
-    public string SegmentationCliModel { get; set; } = "birefnet-general";
+    public string SegmentationCliModel { get; set; } = "";
 
     internal AI.ImageGenerationRoute ImageRouteFor(Composa.AI.AiTaskKind task)
     {
@@ -133,10 +144,10 @@ public sealed class Settings
             ? ImageGenerationRoute : AI.ImageGenerationRoute.ComfyWorkflow;
     }
     public string ImageGenerationCodexPath { get; set; } = "";
-    public string ImageGenerationApiUrl { get; set; } = "https://api.openai.com/v1";
-    public string ImageGenerationApiModel { get; set; } = "gpt-image-2";
+    public string ImageGenerationApiUrl { get; set; } = "";
+    public string ImageGenerationApiModel { get; set; } = "";
     public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
-    public string EnhancerServerApiUrl { get; set; } = "http://127.0.0.1:1234/v1";
+    public string EnhancerServerApiUrl { get; set; } = "";
     public string EnhancerServerApiMode { get; set; } = "auto";
     public string EffectiveEnhancerProvider() => EnhancerProvider ?? (EnhancerUseCompatibleApi ? "direct" : "comfy");
     public bool EnhancerUseCompatibleApi { get; set; }
@@ -283,7 +294,7 @@ public sealed class Settings
         value.UserCanvasPresets ??= [];
         value.DisabledScriptPlugins ??= [];
         if (!Enum.IsDefined(value.Theme)) value.Theme = EditorTheme.Classic;
-        value.SeenWelcomeVersions ??= [];
+
         // Preserve explicit native SeedVR2 choices when adopting the official template defaults.
         foreach (var choices in value.ComfyModelSelections.Values)
         foreach (var (node, type, input, oldDefault, newDefault) in new[]
@@ -302,6 +313,11 @@ public sealed class Settings
                 && !model.Contains("birefnet", StringComparison.OrdinalIgnoreCase))
             value.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
         using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = PreferencesJson.MaxDepth });
+        // Older releases recorded the build version when the welcome dialog closed.
+        if (document.RootElement.TryGetProperty("SeenWelcomeVersions", out var seenVersions)
+            && seenVersions.ValueKind == JsonValueKind.Array
+            && seenVersions.EnumerateArray().Any(version => version.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(version.GetString())))
+            value.EditorWelcomeSeen = true;
         if (!document.RootElement.TryGetProperty(nameof(PromptSelectionRevision), out _))
         {
             if (value.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi)

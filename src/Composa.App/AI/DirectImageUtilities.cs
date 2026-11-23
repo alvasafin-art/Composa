@@ -64,7 +64,8 @@ internal static class DirectImageUtilities
         var png = DirectImageEdit.EncodePng(source);
         using var result = connection.Route == ImageGenerationRoute.LocalCodex
             ? await RunCliAsync("rembg", connection.UtilityPath, png, (input, output) =>
-                ["i", "-m", connection.UtilityModel, "-om", input, output], token)
+                string.IsNullOrWhiteSpace(connection.UtilityModel) ? ["i", "-om", input, output]
+                    : ["i", "-m", connection.UtilityModel, "-om", input, output], token)
             : await SelectThroughApiAsync(png, ApiKey(upscale: false)!, token);
         if (Math.Abs((double)result.Width / result.Height / ((double)source.Width / source.Height) - 1) > 0.025)
             throw new InvalidDataException("The segmentation model returned a mask with a different aspect ratio.");

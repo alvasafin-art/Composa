@@ -244,7 +244,7 @@ public sealed partial class MainWindow : Window
             if (Settings.Persist) _ = DiscoverStartupScripts();
             if (settings.StorageNotice is { } notice) ShowNote(notice);
             if (recovery != null) await OfferRecovery();
-            if (Settings.Persist && IsVisible) await ShowEditorWelcome(AppInfo.Version);
+            if (Settings.Persist && IsVisible) await ShowEditorWelcome();
         };
         InitializeDisplayColor();
         InitializeLinkedSources();

@@ -287,11 +287,9 @@ public static partial class AiDialogs
             var draft = Draft();
             var hasImageApi = routes.Any(item => item.Value == ImageGenerationRoute.DirectApi &&
                 item.Key is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection));
-            if (hasImageApi || forgetKey || !string.IsNullOrWhiteSpace(key.Text))
+            if (hasImageApi && draft.ApiAddress.Length > 0 || forgetKey || !string.IsNullOrWhiteSpace(key.Text))
             {
                 var endpoint = DirectImageGenerator.Endpoint(draft.ApiAddress);
-                field = model;
-                if (hasImageApi && draft.Model.Length == 0) throw new FormatException("Enter the API model ID.");
                 CollectKey(UserApiKeys.Target("ImageApi", endpoint), key, forgetKey);
             }
             field = polzaKey;
@@ -319,7 +317,7 @@ public static partial class AiDialogs
             settings.ImageGenerationApiModel = draft.ApiModel;
             settings.UpscaleCliPath = upscalePath.Text?.Trim() ?? "";
             settings.SegmentationCliPath = segmentationPath.Text?.Trim() ?? "";
-            settings.SegmentationCliModel = string.IsNullOrWhiteSpace(segmentationModel.Text) ? "birefnet-general" : segmentationModel.Text.Trim();
+            settings.SegmentationCliModel = segmentationModel.Text?.Trim() ?? "";
         }
     }
 }

@@ -50,7 +50,7 @@ public class ToolRailTests
         Assert.Same(lasso,window.RailButton(Tool.SelectionBrush)); Assert.True(lasso.IsChecked);
         Assert.Equal("Selection Brush",lasso.Current!.Name); Assert.Equal(Icons.SelectionBrush,lasso.Current.Icon);
         Assert.NotEqual(Icons.Brush,lasso.Current.Icon); Assert.True(lasso.Current.Icon.Dashed);
-        Assert.StartsWith("Selection Brush (Q)",ToolTip.GetTip(lasso) as string);
+        Assert.StartsWith("Selection Brush (Q)",(ToolTip.GetTip(lasso) as ToolTip)?.Content as string);
         window.MouseDown(Center(lasso),MouseButton.Right); window.MouseUp(Center(lasso),MouseButton.Right); Dispatcher.UIThread.RunJobs();
         Assert.Equal(["Freehand Lasso", "Polygonal Lasso", "Magic Wand", "Object Selection", "Selection Brush"],lasso.GroupItems.Select(item=>item.Header!.ToString()));
         Assert.True(lasso.GroupItems[3].IsEnabled); // Bundled models work without a ComfyUI connection.
@@ -99,7 +99,7 @@ public class ToolRailTests
         Assert.Equal(LassoKind.Polygonal, session.LassoKind);
         Assert.True(lasso.IsChecked);
         Assert.Equal("Polygonal Lasso", lasso.Current!.Name);
-        Assert.StartsWith("Polygonal Lasso (L)", ToolTip.GetTip(lasso) as string);
+        Assert.StartsWith("Polygonal Lasso (L)", (ToolTip.GetTip(lasso) as ToolTip)?.Content as string);
         // The bar names the lasso in use and has no box to switch it.
         Assert.Contains("Polygonal Lasso", BarTexts());
         Assert.Empty(window.GetVisualDescendants().OfType<WrapPanel>().Single(p => p.Classes.Contains("options")).GetVisualDescendants().OfType<ComboBox>());

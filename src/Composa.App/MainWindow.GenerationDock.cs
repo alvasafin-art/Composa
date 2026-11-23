@@ -72,6 +72,10 @@ public sealed partial class MainWindow
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         EnableAiReferenceDrop(view);
+        aiFloatingPrompt.TextChanging += (_, _) =>
+        {
+            if (presentedTask is { } task) settings.RememberAiPrompt(task, aiFloatingPrompt.Text ?? "");
+        };
         aiFloatingPrompt.TextChanged += (_, _) =>
         {
             if (editorInDock && EditorTask == AiTaskKind.GenerateImage) RefreshAiFloatingUi();
@@ -110,9 +114,15 @@ public sealed partial class MainWindow
         var task = EditorTask;
         if (presentedTask == task) return;
         presentedTask = task;
+        aiFloatingPrompt.Text = settings.AiPromptFor(task);
         dockOperationName.Text = DockTaskName(task);
         AutomationProperties.SetName(dockOperation, "Choose AI operation · " + dockOperationName.Text);
-        aiFloatingPrompt.PlaceholderText = task == AiTaskKind.GenerateImage ? "Describe the image you want to create…" : "Describe the edit…";
+        aiFloatingPrompt.PlaceholderText = Locale.T(task switch
+        {
+            AiTaskKind.GenerateImage => "Describe the image you want to create…",
+            AiTaskKind.ChangeBackground => "Describe the background, surface and lighting",
+            _ => "Describe the edit…"
+        });
         RefreshEditorModels();
     }
 
@@ -163,7 +173,7 @@ public sealed partial class MainWindow
         }
         connection.Items.Add(new Separator());
         var configure = new MenuItem { Header = Locale.T("Connection settings…") };
-        configure.Click += (_, _) => _ = ShowAiSettings(4);
+        configure.Click += (_, _) => _ = ShowAiSettings(5);
         connection.Items.Add(configure);
         menu.Items.Add(connection);
     }
