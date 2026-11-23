@@ -30,7 +30,8 @@ public class LayersPanelInputTests
     }
 
     /// <summary>Rows top to bottom, as shown.</summary>
-    private List<Border> Rows() => panel.GetVisualDescendants().OfType<Border>().Where(b => b.Tag is Layer).ToList();
+    private List<Border> Rows() => panel.GetVisualDescendants().OfType<Border>().Where(row => row.Tag is Layer)
+        .OrderBy(row => row.TranslatePoint(default, panel)!.Value.Y).ToList();
 
     private Point Center(Border row, double x) => row.TranslatePoint(new Point(x, row.Bounds.Height / 2), window)!.Value;
 
