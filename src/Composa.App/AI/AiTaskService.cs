@@ -168,7 +168,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
         return new(missing.Count == 0, missing.Order().ToArray());
     }
 
-    public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
+    public Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default) =>
+        RunAsync(editor, request, null, cancellationToken);
+
+    internal async Task RunAsync(IEditorCommandService editor, AiTaskRequest request,
+        Func<bool>? targetAvailable, CancellationToken cancellationToken = default)
     {
         var requestedTask = request.Task;
         request = PrepareRequest(editor.Session, request);
@@ -199,7 +203,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
         var saved = ActiveWorkflow(requestedTask, engine);
         if (saved != null)
         {
-            EditableWorkflows.Validate(saved, request.Task);
+            EditableWorkflows.Validate(saved, requestedTask);
             request = request with { Settings = request.Settings with { VariantMode = AiVariantMode.List } };
         }
         engine ??= saved != null ? new EngineProfile { Id = "custom-workflow", DisplayName = saved.Name }
@@ -287,8 +291,15 @@ public sealed partial class AiTaskService : IAiTaskRunner
             }
             // Validate before sending source/reference pictures or submitting a generation.
             var imagesToUpload = qwenInputs?.Images ?? apiInputs?.Images ?? inputs.Images().Where(item => binding.Inputs.ContainsKey(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+            if (saved != null && requestedTask == AiTaskKind.GenerativeExpand)
+            {
+                var frame = inputs.PreprocessedImage ?? inputs.SourceImage;
+                foreach (var semantic in new[] { "sourceImage", "contextImage" })
+                    if (binding.Inputs.ContainsKey(semantic)) imagesToUpload[semantic] = frame;
+                imagesToUpload["selectionMask"] = inputs.PreprocessedMask ?? inputs.SelectionMask!;
+            }
             if (editable?.ConditioningImage is { } conditioning) imagesToUpload["conditioningImage"] = conditioning;
-            if (request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null && qwenInputs == null) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
+            if (saved == null && request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null && qwenInputs == null) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
             _ = Bind(imagesToUpload
                 .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -364,6 +375,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                     }
                 }
                 linked.Token.ThrowIfCancellationRequested();
+                if (targetAvailable?.Invoke() == false) throw new OperationCanceledException();
                 if (editor.Session.History.CurrentId != initialState || editor.Session.Document.ActiveLayerId != initialLayer)
                     throw new InvalidOperationException("The document changed during generation. Results were not applied to a different document state; retry after finishing edits.");
                 if (!binding.OutputIsComposited && request.Task == AiTaskKind.RemoveObject && inputs.SelectionMask != null)

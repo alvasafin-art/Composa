@@ -59,6 +59,8 @@ public sealed partial class AiTaskService
             Operation = new() { Status = AiOperationStatus.Queued, Stage = "Preparing inputs" };
             StateChanged?.Invoke();
             using var prepared = edit || utility || hasReferences ? await PrepareInputsAsync(target, request, 6, linked.Token) : null;
+            if (expand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(prepared!.PreprocessedMask!))
+                throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var modelMask = expand && request.ExpansionMode == AiExpansionMode.MaskedRegion ? prepared!.PreprocessedMask
                 : remove ? prepared!.PreprocessedMask : selection;
             using var editInputs = edit ? await Task.Run(() => new DirectImageEdit(prepared!, request), linked.Token) : null;

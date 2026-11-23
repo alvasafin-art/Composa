@@ -46,7 +46,7 @@ internal sealed class WorkflowSettingsPage
         this.capabilities = capabilities;
         current = selectedId;
         foreach (var engine in catalog.Profiles)
-            foreach (var task in WorkflowPreferences.Operations.Where(task => engine.Binding(task) != null))
+            foreach (var task in WorkflowPreferences.Operations.Where(task => task != AiTaskKind.GenerativeExpand && engine.Binding(task) != null))
                 factories[WorkflowPreferences.FactoryId(engine.Id, task)] = (engine, task);
 
         message.TextWrapping = TextWrapping.Wrap;

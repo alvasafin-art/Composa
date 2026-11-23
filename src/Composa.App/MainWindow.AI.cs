@@ -896,7 +896,7 @@ public sealed partial class MainWindow
             if (direct != null)
                 await aiTasks.RunDirectImageAsync(new EditorCommandService(targetSession), direct, request, () => sessions.Contains(targetSession));
             else
-                await aiTasks.RunAsync(new EditorCommandService(targetSession), request);
+                await aiTasks.RunAsync(new EditorCommandService(targetSession), request, () => sessions.Contains(targetSession));
             if (task == AiTaskKind.GenerateImage && engine?.Binding(AiTaskKind.ImageEdit) != null && modelDrafts.ContainsKey(task))
             { modelDrafts[AiTaskKind.ImageEdit] = engine.Id; RefreshEditorModels(); }
             if (task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop)

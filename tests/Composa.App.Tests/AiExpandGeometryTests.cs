@@ -141,6 +141,63 @@ public sealed class AiExpandGeometryTests
         Assert.Equal(expected.GetPixelSpan().ToArray(), result.GetPixelSpan().ToArray());
     }
 
+    [Theory]
+    [InlineData(0, 0, 17, 11)]
+    [InlineData(17, 11, 0, 0)]
+    public async Task Assigned_expansion_workflow_uses_the_expanded_frame_and_mask_after_reloading(int left, int top, int right, int bottom)
+    {
+        const AiTaskKind task = AiTaskKind.GenerativeExpand;
+        const string workflowId = "imported-outpaint";
+        var settings = new Settings { ComfyServerUrl = "http://localhost:8188", EnhancerUseCompatibleApi = true,
+            EnhancerApiUrl = "http://localhost:1234/v1", EnhancerApiModel = "existing-text-model" };
+        settings.EnhancerInstructions["flux2-klein-intel-xpu/edit"] = "Keep the composition.";
+        settings.SetComfyModels(settings.ComfyServerUrl, new Dictionary<string, string> { ["weight-slot"] = "saved-klein-weight" });
+        settings.Workflows.Assignments[task] = workflowId;
+        var graph = EditableWorkflows.Parse("""
+            {"input":{"class_type":"LoadImage","inputs":{"image":"placeholder.png"}},
+             "mask":{"class_type":"LoadImageMask","inputs":{"image":"placeholder.png","channel":"red"}},
+             "prompt":{"class_type":"CLIPTextEncode","inputs":{"text":"placeholder"}}}
+            """);
+        settings.Workflows.Workflows[workflowId] = new("Imported expansion", graph, new()
+        {
+            ["contextImage"] = new() { NodeId = "input", Input = "image" },
+            ["selectionMask"] = new() { NodeId = "mask", Input = "image" },
+            ["prompt"] = new() { NodeId = "prompt", Input = "text" }
+        });
+        var loaded = settings.CopyPreferences();
+        Assert.Equal(settings.ComfyServerUrl, loaded.ComfyServerUrl);
+        Assert.Equal("direct", loaded.EffectiveEnhancerProvider());
+        Assert.Equal(settings.EnhancerApiUrl, loaded.EnhancerApiUrl);
+        Assert.Equal(settings.EnhancerApiModel, loaded.EnhancerApiModel);
+        Assert.Equal("Keep the composition.", loaded.EnhancerInstructions["flux2-klein-intel-xpu/edit"]);
+        Assert.Equal("saved-klein-weight", loaded.ComfyModelsFor(loaded.ComfyServerUrl)["weight-slot"]);
+        Assert.Empty(loaded.ImageGenerationApiModel);
+        var connection = new AiVariantsTests.Connection();
+        var service = new AiTaskService(() => loaded.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"), _ => connection)
+        { WorkflowSettings = () => loaded.Workflows };
+        var session = Pattern(79, 61);
+        var before = session.History.CurrentId;
+        using var original = session.Flatten();
+        var request = new AiTaskRequest { Task = task, ExpansionBounds = new(-left, -top, 79 + right, 61 + bottom),
+            ExpansionMode = AiExpansionMode.MaskedRegion, Prompt = "Continue the photographed surface." };
+        await service.RunAsync(new EditorCommandService(session), request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+        Assert.Equal(new[] { "contextImage", "selectionMask" }, connection.Uploads.Order());
+        var posted = Assert.Single(connection.Graphs);
+        Assert.Equal("contextImage.png", posted["input"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal("selectionMask.png", posted["mask"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal("red", posted["mask"]!["inputs"]!["channel"]!.GetValue<string>());
+        using var expanded = session.Flatten();
+        Assert.Equal((96, 72), (expanded.Width, expanded.Height));
+        Assert.Equal(original.GetPixel(40, 30), expanded.GetPixel(40 + left, 30 + top));
+        Assert.Equal(SKColors.CornflowerBlue, expanded.GetPixel(left == 0 ? 95 : 0, top == 0 ? 71 : 0));
+        session.Undo();
+        Assert.Equal(before, session.History.CurrentId);
+        using var restored = session.Flatten();
+        Assert.Equal(original.GetPixelSpan().ToArray(), restored.GetPixelSpan().ToArray());
+    }
+
     private static EditorSession Pattern(int width, int height)
     {
         var source = Pixels.NewColor(width, height);

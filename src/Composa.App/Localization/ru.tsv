@@ -1943,3 +1943,5 @@ The image API returned no generation status.	API изображений не в�
 The image provider did not complete the request.	Провайдер не завершил генерацию изображения.
 The generated image could not be downloaded.	Не удалось скачать полученное изображение.
 The image API returned no supported image data.	API изображений не вернул изображение в поддерживаемом формате.
+Bind Source image or Context image to the expanded canvas input.	Привяжите исходное изображение или контекст ко входу расширенного холста.
+Bind Selection mask to the expansion mask input.	Привяжите маску выделения ко входу маски расширения.

@@ -12,7 +12,7 @@ public sealed class WorkflowPreferences
     public Dictionary<string, SavedWorkflow> Workflows { get; init; } = [];
     public Dictionary<AiTaskKind, string> Assignments { get; init; } = [];
 
-    internal static readonly AiTaskKind[] Operations = [AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill];
+    internal static readonly AiTaskKind[] Operations = [AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill, AiTaskKind.GenerativeExpand];
 
     internal WorkflowPreferences Copy() => new() { Workflows = new(Workflows), Assignments = new(Assignments) };
 
@@ -92,6 +92,10 @@ internal static class EditableWorkflows
         if (task is AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill
             && !workflow.Bindings.Keys.Any(source => source is "sourceImage" or "contextImage" or "activeLayerImage"))
             throw new InvalidDataException("Bind Source image, Context image or Active layer image to an image input for this operation.");
+        if (task == AiTaskKind.GenerativeExpand && !workflow.Bindings.Keys.Any(source => source is "sourceImage" or "contextImage"))
+            throw new InvalidDataException("Bind Source image or Context image to the expanded canvas input.");
+        if (task == AiTaskKind.GenerativeExpand && !workflow.Bindings.ContainsKey("selectionMask"))
+            throw new InvalidDataException("Bind Selection mask to the expansion mask input.");
         if (task == AiTaskKind.GenerativeFill && !workflow.Bindings.ContainsKey("selectionMask"))
             throw new InvalidDataException("Bind Selection mask to an input that loads a grayscale mask for Generative Fill.");
     }
