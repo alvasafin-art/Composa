@@ -57,7 +57,15 @@ internal sealed class DirectImageApi
         };
     }
 
-    private static string DataUrl(byte[] image) => PngPrefix + Convert.ToBase64String(image);
+    internal static string DataUrl(byte[] image) => PngPrefix + Convert.ToBase64String(image);
+
+    internal static HttpContent CreateUpscaleBody(byte[] png, int factor) => JsonContent.Create(new
+    {
+        model = "topaz/image-upscale",
+        @async = true,
+        input = new { prompt = "", upscale_factor = factor.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            images = new[] { new { type = "base64", data = DataUrl(png) } } }
+    });
 
     internal HttpContent CreateBody(string model, string prompt, int width, int height, DirectImageFiles? files)
     {
@@ -101,7 +109,16 @@ internal sealed class DirectImageApi
     internal async Task<SKBitmap> GenerateAsync(string key, string model, string prompt, int width, int height, DirectImageFiles? files, CancellationToken token)
     {
         var edit = files is { Images.Count: > 0 };
+        return await GenerateAsync(key, edit, CreateBody(model, prompt, width, height, files), token);
+    }
+
+    internal Task<SKBitmap> UpscaleAsync(string key, byte[] png, int factor, CancellationToken token) =>
+        GenerateAsync(key, true, CreateUpscaleBody(png, factor), token);
+
+    private async Task<SKBitmap> GenerateAsync(string key, bool edit, HttpContent body, CancellationToken token)
+    {
         var endpoint = Endpoint(edit);
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = body };
         using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseProxy = ComfyServerAddress.UseProxy(endpoint) })
         {
             MaxResponseContentBufferSize = MaximumResponseBytes,
@@ -109,7 +126,6 @@ internal sealed class DirectImageApi
         };
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = CreateBody(model, prompt, width, height, files) };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Trim());
             using var json = await SendAsync(client, request, token);
             if (format == Format.Polza && edit)

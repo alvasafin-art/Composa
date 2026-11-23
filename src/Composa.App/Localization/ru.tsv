@@ -1852,6 +1852,18 @@ The text model did not respond before the test timed out.	Модель не от
 The text model did not respond on the ComfyUI server. Check the model and server-side authorization.	Модель не ответила на сервере ComfyUI. Проверьте модель и авторизацию на сервере.
 API directly	API напрямую
 Image generation connection	Подключение для генерации изображений
+Connection by operation	Подключение по операциям
+Object Selection / Select Subject	Выделение объекта / субъекта
+Connection to configure	Настраиваемое подключение
+Built-in	Встроенный
+Real-ESRGAN executable	Файл запуска Real-ESRGAN
+rembg executable	Файл запуска rembg
+Polza AI key · Topaz Upscale	Ключ Polza AI · Topaz Upscale
+fal API key · BiRefNet	Ключ API fal · BiRefNet
+Uses the expanded canvas and surrounding context	Использует расширенный холст и окружающий контекст
+Enter the shared Polza AI key in just one field.	Введите общий ключ Polza AI в одно поле.
+Check the Remove Object connection in AI Settings and wait for the current operation to finish.	Проверьте подключение для удаления объекта в настройках ИИ и дождитесь завершения текущей операции.
+Wait for selection to finish or check the Object Selection connection in AI Settings.	Дождитесь завершения выделения или проверьте его подключение в настройках ИИ.
 Image generation	Генерация изображений
 Connection settings…	Настройки подключения…
 Image API key	Ключ API изображений

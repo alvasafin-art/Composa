@@ -166,7 +166,7 @@ internal static class LocalCodex
             throw new InvalidOperationException("Codex CLI is not signed in. Run codex login on this computer.");
     }
 
-    private static async Task<int> RunAsync(string executable, string workingDirectory, IEnumerable<string> args, string? input,
+    internal static async Task<int> RunAsync(string executable, string workingDirectory, IEnumerable<string> args, string? input,
         CancellationToken token, Action<string>? output = null)
     {
         token.ThrowIfCancellationRequested();
@@ -185,7 +185,7 @@ internal static class LocalCodex
         try { process.Start(); }
         catch (Win32Exception)
         {
-            throw new InvalidOperationException("Composa could not start Codex CLI. Check the selected executable.");
+            throw new InvalidOperationException("Composa could not start the selected CLI executable.");
         }
 
         var stdout = output == null ? process.StandardOutput.BaseStream.CopyToAsync(Stream.Null)

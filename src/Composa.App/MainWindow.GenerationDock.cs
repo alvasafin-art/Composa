@@ -147,14 +147,14 @@ public sealed partial class MainWindow
     private void AddGenerationConnectionMenu(MenuFlyout menu)
     {
         var connection = new MenuItem { Header = Locale.T("Image generation connection") };
-        foreach (var route in Enum.GetValues<ImageGenerationRoute>())
+        foreach (var route in DirectImageGenerator.Connections)
         {
             var item = new MenuItem { Header = Locale.T(DirectImageGenerator.RouteLabel(route)), ToggleType = MenuItemToggleType.Radio,
-                IsChecked = settings.ImageGenerationRoute == route };
-            menu.Opening += (_, _) => { item.IsChecked = settings.ImageGenerationRoute == route; };
+                IsChecked = settings.ImageRouteFor(EditorTask) == route };
+            menu.Opening += (_, _) => { item.IsChecked = settings.ImageRouteFor(EditorTask) == route; };
             item.Click += (_, _) =>
             {
-                settings.ImageGenerationRoute = route;
+                settings.ImageOperationRoutes[EditorTask] = route;
                 settings.Save();
                 RefreshEditorModels();
                 RefreshAiUi();

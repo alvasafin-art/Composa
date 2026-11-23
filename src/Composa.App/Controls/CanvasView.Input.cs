@@ -190,10 +190,10 @@ public sealed partial class CanvasView
         Focus();
         if (session == null || drag != Drag.None && !(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) return;
         if (session.Tool == Tool.RemoveObject && AiToolsAvailable?.Invoke() != true)
-        { Problem?.Invoke("Connect to ComfyUI and wait for the current AI operation to finish."); return; }
+        { Problem?.Invoke(Locale.T("Check the Remove Object connection in AI Settings and wait for the current operation to finish.")); return; }
         if (session.Tool == Tool.Wand && session.WandMode == WandMode.Object
             && ObjectSelectionAvailable?.Invoke() == false)
-        { Problem?.Invoke("Wait for selection to finish, or choose a local model in the options bar instead of ComfyUI."); return; }
+        { Problem?.Invoke(Locale.T("Wait for selection to finish or check the Object Selection connection in AI Settings.")); return; }
         var point = e.GetCurrentPoint(this);
         pressScreen = cursorScreen = point.Position;
         pressDocument = currentDocument = ToDocument(point.Position);

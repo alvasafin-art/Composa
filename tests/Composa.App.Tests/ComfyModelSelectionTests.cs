@@ -219,7 +219,7 @@ public class ComfyModelSelectionTests
             Dispatcher.UIThread.RunJobs();
             Assert.True(dialog.Bounds.Height <= owner.Bounds.Height);
             var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<TabControl>());
-            Assert.Equal(4, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.Equal(5, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
@@ -281,7 +281,11 @@ public class ComfyModelSelectionTests
         Assert.Contains("birefnet.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("shared/birefnet-hr.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Contains("birefnet-matting.safetensors · ComfyUI", Menu().Items.Cast<string>());
-        Assert.Equal(5, Menu().Items.Count);
+        Assert.Equal("Automatic · Local", Menu().SelectedItem);
+        Assert.Contains("Quick outline · Local", Menu().Items.Cast<string>());
+        Assert.Contains("rembg · CLI", Menu().Items.Cast<string>());
+        Assert.Contains("BiRefNet · fal API", Menu().Items.Cast<string>());
+        Assert.Equal(7, Menu().Items.Count);
         Assert.DoesNotContain(Menu().Items.Cast<string>(), name => name.Contains("isnet", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("ComfyUI", Menu().Items.Cast<string>());
         Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
@@ -290,6 +294,10 @@ public class ComfyModelSelectionTests
         var graph = window.AiTasks.Engines.ReadWorkflow(engine, engine.Workflow(engine.Binding(AiTaskKind.ObjectSelection)!.Workflow));
         WorkflowModels.ApplyChoices(graph, engine.Id, window.Settings.ComfyModelsFor(Lan));
         Assert.Equal("shared/birefnet-hr.safetensors", graph["model"]!["inputs"]!["bg_removal_name"]!.GetValue<string>());
+        Menu().SelectedItem = "rembg · CLI";
+        Assert.Equal(ImageGenerationRoute.LocalCodex, window.Settings.ImageRouteFor(AiTaskKind.SelectSubject));
+        Assert.Equal("shared/birefnet-hr.safetensors", window.Settings.ObjectSelectionComfyModel);
+        Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
         Screenshots.Save(window, "object-model-variants");
         window.Settings.ComfyServerUrl = "http://192.168.1.51:8188";
         window.SelectTool(Tool.Wand); window.SelectTool(Tool.ObjectSelectionAi);

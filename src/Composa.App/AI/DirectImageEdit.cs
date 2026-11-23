@@ -16,6 +16,8 @@ internal sealed class DirectImageEdit : IDisposable
     internal int Width => frame.Width;
     internal int Height => frame.Height;
 
+    internal SKBitmap? OutputMask() => inputs.OutputMask();
+
     internal DirectImageEdit(AiTaskInputs prepared, AiTaskRequest request)
     {
         var settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = false } };

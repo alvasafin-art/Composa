@@ -148,14 +148,14 @@ public static partial class AiDialogs
         var clear = Ui.TextButton("Forget saved key", () => { sessionKey.Text = ""; clearKey = true; });
         var keyNote = Ui.Label(Locale.T("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN."), Palette.Secondary);
         keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var directGenerator = DirectImageGenerator.From(settings);
+        var directGenerator = DirectImageGenerator.For(settings, AiTaskKind.GenerateImage);
         var promptProfiles = service.Engines.Profiles.Concat(new[]
         {
             (directGenerator with { Route = ImageGenerationRoute.LocalCodex }).PromptProfile(),
             (directGenerator with { Route = ImageGenerationRoute.DirectApi }).PromptProfile()
         }).ToArray();
         EngineProfile? PromptPack(string id) => promptProfiles.FirstOrDefault(pack => pack.Id == id);
-        var promptPack = settings.ImageGenerationRoute == ImageGenerationRoute.ComfyWorkflow
+        var promptPack = directGenerator.Route == ImageGenerationRoute.ComfyWorkflow
             ? service.SelectedEngine?.Id ?? promptProfiles[0].Id : directGenerator.Id;
         var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
         var instructionTask = AiTaskKind.ImageEdit;
@@ -811,7 +811,7 @@ public static partial class AiDialogs
             else if (focusField == "server") url.Focus();
             else if (page == 1) engine.Focus();
             else if (page == 2) provider.Focus();
-            else if (page == 4) imageConnection.Picker.Focus();
+            else if (page == 4) imageConnection.OperationPicker.Focus();
         };
         settingsDialog.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
@@ -1116,7 +1116,7 @@ public static partial class AiDialogs
         return value;
     }
 
-    public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection, EngineProfile? engine = null, AiTaskService? service = null)
+    public static async Task<bool> Upscale(Window owner, Settings settings, int width, int height, bool selection, EngineProfile? engine = null, AiTaskService? service = null, string? directModel = null)
     {
         var profile = settings.OperationFor(engine?.Id, AiTaskKind.Upscale, engine?.PaidApi == true);
         var factor = profile.UpscaleFactor == 4 ? 4 : 2;
@@ -1134,19 +1134,19 @@ public static partial class AiDialogs
         var selected = models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == savedModels.GetValueOrDefault(choice.Slot.Key))
             ?? models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == choice.Slot.Default) ?? models.FirstOrDefault();
         if (selected != null) { engine = selected.Engine; EngineNote(); }
-        Control picker = selected == null ? Ui.Label(Locale.T("Refresh Models on ComfyUI to read available upscale models.")) : Ui.Combo(models.ToArray(), selected,
+        Control picker = directModel != null ? Ui.Label(directModel) : selected == null ? Ui.Label(Locale.T("Refresh Models on ComfyUI to read available upscale models.")) : Ui.Combo(models.ToArray(), selected,
             choice => choice.ToString(), choice => { selected = choice; engine = choice.Engine; EngineNote(); }, 430);
         if (picker is ComboBox upscaleModels) AiGenerationControls.StyleModelField(upscaleModels, "Upscale model");
-        Locale.Tip(picker, note);
+        if (directModel == null) Locale.Tip(picker, note);
         note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var upscaleDialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", picker), ("Scale", scale)), dimensions), "Upscale") { CanAccept = selected != null };
+        var upscaleDialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", picker), ("Scale", scale)), dimensions), "Upscale") { CanAccept = selected != null || directModel != null };
         if (!await upscaleDialog.Ask(owner)) return false;
         if (selected != null)
         {
             var choices = new Dictionary<string, string>(savedModels, StringComparer.Ordinal) { [selected.Slot.Key] = selected.Model };
             settings.SetComfyModels(settings.ComfyServerUrl, choices);
         }
-        if (engine != null)
+        if (engine != null && directModel == null)
         {
             settings.AiTaskEngineIds[nameof(AiTaskKind.Upscale)] = engine.Id;
             if (service != null) settings.AiTaskModelKeys[nameof(AiTaskKind.Upscale)] =

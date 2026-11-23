@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Composa.AI;
 using Composa.App.AI;
 
 namespace Composa.App.Dialogs;
@@ -175,20 +176,62 @@ public static partial class AiDialogs
     {
         private ImageGenerationRoute route;
         private readonly TextBox path, url, model, key;
+        private readonly TextBox upscalePath, segmentationPath, segmentationModel, polzaKey, falKey;
+        private readonly Dictionary<AiTaskKind, ImageGenerationRoute> routes;
         private bool forgetKey;
+        private bool forgetPolza, forgetFal;
         internal StackPanel View { get; }
         internal Control Picker { get; }
+        internal Control OperationPicker { get; }
         internal Control ApiUrl => url;
 
         internal ImageConnectionFields(Settings settings, AiTaskService service, Func<string> server, CancellationToken lifetime)
         {
-            route = settings.ImageGenerationRoute;
+            routes = DirectImageGenerator.Operations.ToDictionary(task => task, settings.ImageRouteFor);
+            route = routes[AiTaskKind.GenerateImage];
             var codex = new CodexConnectionFields(settings.ImageGenerationCodexPath, "gpt-image-2", showModel: false);
             path = codex.Path;
             url = new TextBox { Text = settings.ImageGenerationApiUrl, Name = "ImageGenerationApiUrl" };
             model = new TextBox { Text = settings.ImageGenerationApiModel, Name = "ImageGenerationApiModel" };
             key = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
             var forget = Ui.TextButton("Forget saved key", () => { key.Text = ""; forgetKey = true; });
+            upscalePath = new TextBox { Text = settings.UpscaleCliPath, PlaceholderText = "realesrgan-ncnn-vulkan" };
+            segmentationPath = new TextBox { Text = settings.SegmentationCliPath, PlaceholderText = "rembg" };
+            segmentationModel = new TextBox { Text = settings.SegmentationCliModel, PlaceholderText = "birefnet-general" };
+            polzaKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
+            falKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
+            var upscaleCli = CanvasDialogs.Form(("Real-ESRGAN executable", upscalePath));
+            var segmentationCli = CanvasDialogs.Form(("rembg executable", segmentationPath), ("Model ID", segmentationModel));
+            var upscaleApi = CanvasDialogs.Form(("Polza AI key · Topaz Upscale", polzaKey),
+                ("", Ui.TextButton("Forget saved key", () => { polzaKey.Text = ""; forgetPolza = true; })));
+            var segmentationApi = CanvasDialogs.Form(("fal API key · BiRefNet", falKey),
+                ("", Ui.TextButton("Forget saved key", () => { falKey.Text = ""; forgetFal = true; })));
+            void RefreshUtilities()
+            {
+                upscaleCli.IsVisible = routes[AiTaskKind.Upscale] == ImageGenerationRoute.LocalCodex;
+                upscaleApi.IsVisible = routes[AiTaskKind.Upscale] == ImageGenerationRoute.DirectApi;
+                segmentationCli.IsVisible = routes[AiTaskKind.ObjectSelection] == ImageGenerationRoute.LocalCodex;
+                segmentationApi.IsVisible = routes[AiTaskKind.ObjectSelection] == ImageGenerationRoute.DirectApi;
+            }
+            var operationRows = DirectImageGenerator.Operations.Select(task =>
+            {
+                var label = task == AiTaskKind.ObjectSelection ? "Object Selection / Select Subject" : task.DisplayName();
+                var choices = task == AiTaskKind.ObjectSelection
+                    ? new[] { ImageGenerationRoute.BuiltIn }.Concat(DirectImageGenerator.Connections).ToArray() : DirectImageGenerator.Connections;
+                var picker = Ui.Combo(choices, routes[task], DirectImageGenerator.RouteLabel,
+                    value =>
+                    {
+                        routes[task] = value;
+                        RefreshUtilities();
+                        if (task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection) && DirectImageGenerator.IsDirect(value)
+                            && Picker is ComboBox connectionPicker)
+                            connectionPicker.SelectedIndex = Array.IndexOf(DirectImageGenerator.Connections, value);
+                    }, 188);
+                picker.Name = "ImageRoute" + task;
+                Avalonia.Automation.AutomationProperties.SetName(picker, Locale.T(label));
+                return (label, (Control)picker);
+            }).ToArray();
+            OperationPicker = operationRows[0].Item2;
             var api = CanvasDialogs.Form(("API base URL", url), ("Model ID", model), ("Image API key", key), ("", forget),
                 ("", ConnectionNote("Enter the provider's base URL and the exact model ID from its catalog.")));
             var serverLabel = ConnectionNote("");
@@ -198,7 +241,7 @@ public static partial class AiDialogs
                 CanvasDialogs.Form(("Text-to-image", ConnectionNote("Available when configured")),
                     ("Edit with a reference", ConnectionNote("Requires a model that accepts input images")),
                     ("Edit through a mask", ConnectionNote("Uses the selection and surrounding context")),
-                    ("Expand canvas", ConnectionNote("Currently unavailable"))));
+                    ("Expand canvas", ConnectionNote("Uses the expanded canvas and surrounding context"))));
             var workflowOperations = ConnectionNote("Available operations depend on the selected workflow.");
             var check = new ConnectionCheck(lifetime, async token =>
             {
@@ -225,12 +268,15 @@ public static partial class AiDialogs
                     workflow.IsVisible ? Locale.T("Selected workflow") : Draft().Model,
                     workflow.IsVisible ? "ComfyUI connection settings" : api.IsVisible ? "Image API key" : "Local Codex sign-in");
             }
-            Picker = Ui.Combo(Enum.GetValues<ImageGenerationRoute>(), route, DirectImageGenerator.RouteLabel, value => { route = value; Refresh(); }, double.NaN);
-            View = Ui.Column(10, Ui.Column(5, ConnectionNote("Connection method"), Picker),
+            Picker = Ui.Combo(DirectImageGenerator.Connections, route, DirectImageGenerator.RouteLabel, value => { route = value; Refresh(); }, double.NaN);
+            View = Ui.Column(10, Ui.Label(Locale.T("Connection by operation"), weight: FontWeight.SemiBold),
+                CanvasDialogs.Form(operationRows), upscaleCli, upscaleApi, segmentationCli, segmentationApi,
+                Ui.Separator(), Ui.Column(5, ConnectionNote("Connection to configure"), Picker),
                 summary.View, workflow, codex.View, api, check.View, operations, workflowOperations);
             model.TextChanged += (_, _) => Refresh();
             View.AttachedToVisualTree += (_, _) => Refresh();
             Refresh();
+            RefreshUtilities();
         }
 
         private DirectImageGenerator Draft() => new(route, path.Text?.Trim() ?? "", url.Text?.Trim() ?? "", model.Text?.Trim() ?? "");
@@ -238,22 +284,42 @@ public static partial class AiDialogs
         internal void Validate(out Control field, Dictionary<string, string?> changes)
         {
             field = url;
-            if (route != ImageGenerationRoute.DirectApi && !forgetKey && string.IsNullOrWhiteSpace(key.Text)) return;
             var draft = Draft();
-            var endpoint = DirectImageGenerator.Endpoint(draft.ApiAddress);
-            if (route == ImageGenerationRoute.DirectApi && draft.Model.Length == 0)
-                throw new FormatException("Choose the image model in AI Settings → Image generation.");
-            if (forgetKey || !string.IsNullOrWhiteSpace(key.Text))
-                changes[UserApiKeys.Target("ImageApi", endpoint)] = string.IsNullOrWhiteSpace(key.Text) ? null : key.Text.Trim();
+            var hasImageApi = routes.Any(item => item.Value == ImageGenerationRoute.DirectApi &&
+                item.Key is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection));
+            if (hasImageApi || forgetKey || !string.IsNullOrWhiteSpace(key.Text))
+            {
+                var endpoint = DirectImageGenerator.Endpoint(draft.ApiAddress);
+                field = model;
+                if (hasImageApi && draft.Model.Length == 0) throw new FormatException("Enter the API model ID.");
+                CollectKey(UserApiKeys.Target("ImageApi", endpoint), key, forgetKey);
+            }
+            field = polzaKey;
+            CollectKey(DirectImageUtilities.PolzaKeyTarget, polzaKey, forgetPolza);
+            field = falKey;
+            CollectKey(DirectImageUtilities.FalKeyTarget, falKey, forgetFal);
+
+            void CollectKey(string target, TextBox entry, bool forget)
+            {
+                var value = entry.Text?.Trim();
+                if (!forget && string.IsNullOrEmpty(value)) return;
+                value = string.IsNullOrEmpty(value) ? null : value;
+                if (changes.TryGetValue(target, out var previous) && previous != value)
+                    throw new FormatException("Enter the shared Polza AI key in just one field.");
+                changes[target] = value;
+            }
         }
 
         internal void Save(Settings settings)
         {
             var draft = Draft();
-            settings.ImageGenerationRoute = route;
+            settings.ImageOperationRoutes = new(routes);
             settings.ImageGenerationCodexPath = draft.CodexPath;
             settings.ImageGenerationApiUrl = draft.ApiAddress;
             settings.ImageGenerationApiModel = draft.ApiModel;
+            settings.UpscaleCliPath = upscalePath.Text?.Trim() ?? "";
+            settings.SegmentationCliPath = segmentationPath.Text?.Trim() ?? "";
+            settings.SegmentationCliModel = string.IsNullOrWhiteSpace(segmentationModel.Text) ? "birefnet-general" : segmentationModel.Text.Trim();
         }
     }
 }

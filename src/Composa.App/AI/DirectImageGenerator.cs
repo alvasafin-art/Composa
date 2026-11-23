@@ -5,32 +5,51 @@ using SkiaSharp;
 
 namespace Composa.App.AI;
 
-public enum ImageGenerationRoute { ComfyWorkflow, LocalCodex, DirectApi }
+public enum ImageGenerationRoute { ComfyWorkflow, LocalCodex, DirectApi, BuiltIn }
 
 internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string CodexPath, string ApiAddress, string ApiModel)
 {
+    internal static readonly AiTaskKind[] Operations = Enum.GetValues<AiTaskKind>().Where(task => task != AiTaskKind.SelectSubject).ToArray();
+    internal static readonly ImageGenerationRoute[] Connections = [ImageGenerationRoute.ComfyWorkflow, ImageGenerationRoute.LocalCodex, ImageGenerationRoute.DirectApi];
+    internal AiTaskKind Task { get; init; }
+    internal string UtilityPath { get; init; } = "";
+    internal string UtilityModel { get; init; } = "";
+
     internal string Model => Route == ImageGenerationRoute.LocalCodex ? "gpt-image-2" : ApiModel.Trim();
     internal string Id => Route == ImageGenerationRoute.LocalCodex ? "direct-codex-image" : "direct-api-image";
-    internal string Label => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : $"{Model} · API";
+    internal string Label => Task switch
+    {
+        AiTaskKind.Upscale => Route == ImageGenerationRoute.LocalCodex ? "Real-ESRGAN · CLI" : "Polza AI · Topaz Upscale",
+        AiTaskKind.ObjectSelection => Route == ImageGenerationRoute.LocalCodex ? "rembg · CLI" : "BiRefNet · fal API",
+        _ => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : $"{Model} · API"
+    };
 
     internal static DirectImageGenerator From(Settings settings) =>
         new(settings.ImageGenerationRoute, settings.ImageGenerationCodexPath, settings.ImageGenerationApiUrl, settings.ImageGenerationApiModel);
 
+    internal static DirectImageGenerator For(Settings settings, AiTaskKind task) => From(settings) with
+    {
+        Task = task,
+        Route = settings.ImageRouteFor(task),
+        UtilityPath = task == AiTaskKind.Upscale ? settings.UpscaleCliPath : settings.SegmentationCliPath,
+        UtilityModel = settings.SegmentationCliModel
+    };
+
     internal EngineProfile PromptProfile() => new()
     {
         Id = Id, DisplayName = Label, ModelName = Model, ApiModel = Model,
-        Tasks = [new() { Task = AiTaskKind.GenerateImage }, new() { Task = AiTaskKind.ImageEdit },
-            new() { Task = AiTaskKind.GenerativeFill }]
+        Tasks = Operations.Select(task => new EngineTaskBinding { Task = task }).ToList()
     };
 
     internal static string RouteLabel(ImageGenerationRoute route) => route switch
     {
         ImageGenerationRoute.LocalCodex => "CLI on this computer",
         ImageGenerationRoute.DirectApi => "API directly",
+        ImageGenerationRoute.BuiltIn => "Built-in",
         _ => "ComfyUI workflow"
     };
 
-    internal static bool Controls(AiTaskKind task) => task is not (AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.Upscale);
+    internal static bool IsDirect(ImageGenerationRoute route) => route is ImageGenerationRoute.LocalCodex or ImageGenerationRoute.DirectApi;
 
     internal static Uri Endpoint(string value) => DirectImageApi.Parse(value).CredentialEndpoint;
     internal bool UsesNativeMask => Route == ImageGenerationRoute.DirectApi && DirectImageApi.Parse(ApiAddress).UsesNativeMask;
@@ -44,8 +63,8 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
 
     internal string? Availability(AiTaskKind task, int references = 0)
     {
-        if (task is not (AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
-            return "This operation is currently unavailable for this connection.";
+        if (task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
+            return DirectImageUtilities.Availability(this);
         if (references > 6) return "Choose at most six reference images.";
         if (Route == ImageGenerationRoute.LocalCodex)
             return LocalCodex.FindExecutable(CodexPath) != null ? null : "Codex CLI was not found. Select its executable in AI Settings → Image generation.";

@@ -116,6 +116,47 @@ public sealed class DirectImageEditTests
         }
     }
 
+    [AvaloniaTheory]
+    [InlineData(AiTaskKind.GenerativeExpand, true)]
+    [InlineData(AiTaskKind.GenerativeExpand, false)]
+    [InlineData(AiTaskKind.RemoveObject, false)]
+    public async Task Direct_edits_use_the_editor_mask_and_undo_in_one_step(AiTaskKind task, bool crop)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+        using var server = new TcpListener(IPAddress.Loopback, 0);
+        server.Start();
+        var address = $"http://127.0.0.1:{((IPEndPoint)server.LocalEndpoint).Port}/v1";
+        var reply = ServeMaskedEditAsync(server, deadline.Token, assertCentered: !crop);
+        var previous = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
+        Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", "test-image-key");
+        try
+        {
+            var document = EditorSession.NewCanvas(256, 256, SKColors.CornflowerBlue);
+            if (!crop) document.SelectRect(new(104, 104, 152, 152));
+            var settings = new Settings { ImageGenerationApiUrl = address };
+            settings.ImageOperationRoutes[task] = ImageGenerationRoute.DirectApi;
+            var service = new AiTaskService(() => "http://127.0.0.1:1", Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+            var state = document.History.CurrentId;
+            await service.RunDirectImageAsync(new EditorCommandService(document), DirectImageGenerator.For(settings, task),
+                new AiTaskRequest { Task = task, ExpansionBounds = crop ? new(-64, -32, 256, 256) : null },
+                () => true, deadline.Token);
+            await reply;
+            Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+            Assert.Equal(crop ? (320, 288) : (256, 256), (document.Document.Width, document.Document.Height));
+            var output = Assert.Single(document.Document.AllLayers().Where(layer => layer.Tags.Contains("ai-generated")));
+            Assert.NotNull(output.Mask);
+            Assert.Equal((byte)255, output.Mask.GetPixel(crop ? 16 : 128, 128).Alpha);
+            Assert.Equal((byte)0, output.Mask.GetPixel(220, 220).Alpha);
+            Assert.Equal(SKColors.CornflowerBlue, document.Composite().GetPixel(220, 220));
+            document.Undo();
+            Assert.Equal(state, document.History.CurrentId);
+            Assert.Equal((256, 256), (document.Document.Width, document.Document.Height));
+            Assert.DoesNotContain(document.Document.AllLayers(), layer => layer.Tags.Contains("ai-generated"));
+        }
+        finally { Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", previous); }
+    }
+
     [AvaloniaFact(Skip = "Requires signed-in Codex CLI and sends only synthetic color shapes.", SkipUnless = nameof(LiveCodexEdit))]
     public async Task Codex_edits_a_synthetic_selection_with_a_color_reference()
     {
@@ -166,7 +207,7 @@ public sealed class DirectImageEditTests
         Assert.Equal(background, document.Composite().GetPixel(128, 128));
     }
 
-    private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token)
+    private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true)
     {
         using var client = await server.AcceptTcpClientAsync(token);
         await using var stream = client.GetStream();
@@ -191,10 +232,18 @@ public sealed class DirectImageEditTests
         var maskEnd = multipart.IndexOf("\r\n--", maskStart, StringComparison.Ordinal);
         using var mask = SKBitmap.Decode(Encoding.Latin1.GetBytes(multipart[maskStart..maskEnd]));
         Assert.NotNull(mask);
-        Assert.Equal((byte)0, mask.GetPixel(mask.Width / 2, mask.Height / 2).Alpha);
-        Assert.Equal((byte)255, mask.GetPixel(0, 0).Alpha);
+        if (assertCentered)
+        {
+            Assert.Equal((byte)0, mask.GetPixel(mask.Width / 2, mask.Height / 2).Alpha);
+            Assert.Equal((byte)255, mask.GetPixel(0, 0).Alpha);
+        }
+        else
+        {
+            Assert.Equal((byte)0, mask.GetPixel(mask.Width / 10, mask.Height / 2).Alpha);
+            Assert.Equal((byte)255, mask.GetPixel(mask.Width * 4 / 5, mask.Height * 4 / 5).Alpha);
+        }
 
-        using var generated = new SKBitmap(1024, 1024);
+        using var generated = new SKBitmap(mask.Width, mask.Height);
         generated.Erase(SKColors.OrangeRed);
         var png = DirectImageEdit.EncodePng(generated);
         var data = JsonSerializer.SerializeToUtf8Bytes(new { data = new[] { new { b64_json = Convert.ToBase64String(png) } } });

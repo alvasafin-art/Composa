@@ -169,11 +169,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
     public async Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default)
     {
         var requestedTask = request.Task;
-        request = AutomaticAiMask.IgnoreLegacyControls(request);
-        // An explicit selection is an edit, not a transparent-canvas expansion. Crop bounds take precedence.
-        if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionBounds == null && editor.Session.Selection != null)
-            request = request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
-                Settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = request.ExpansionMinimumSide == 0 } } };
+        request = PrepareRequest(editor.Session, request);
         if (request.Task == AiTaskKind.MatchToScene && request.Scene.MatchMode == SceneMatchMode.ToneAndColor)
         {
             Operation = new AiOperationState { Status = AiOperationStatus.Running, Stage = "Matching layer to scene" };
@@ -409,6 +405,15 @@ public sealed partial class AiTaskService : IAiTaskRunner
             return await Task.Run(() => AiTaskInputPreparer.Prepare(snapshot, captured, maxReferences), token);
         }
         finally { foreach (var handle in handles) handle.Dispose(); }
+    }
+
+    private static AiTaskRequest PrepareRequest(EditorSession session, AiTaskRequest request)
+    {
+        request = AutomaticAiMask.IgnoreLegacyControls(request);
+        // Crop bounds take precedence over a selection on the old canvas.
+        if (request.Task != AiTaskKind.GenerativeExpand || request.ExpansionBounds != null || session.Selection == null) return request;
+        return request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,
+            Settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = request.ExpansionMinimumSide == 0 } } };
     }
 
     private JsonObject BuildExecutionGraph(JsonObject graph, EngineProfile engine, EngineTaskBinding binding, AiTaskInputs inputs,
@@ -693,6 +698,13 @@ public sealed partial class AiTaskService : IAiTaskRunner
 
     private static SKBitmap ToMask(SKBitmap image, int width, int height)
     {
+        if (image.ColorType == SKColorType.Alpha8)
+        {
+            var coverage = Pixels.NewMask(width, height);
+            using var canvas = new SKCanvas(coverage);
+            canvas.DrawImage(Pixels.ImageOf(image), SKRect.Create(width, height), new SKSamplingOptions(SKFilterMode.Linear));
+            return coverage;
+        }
         using var resized = image.Width == width && image.Height == height ? null : Resize(image, width, height);
         var source = resized ?? image;
         var mask = Pixels.NewMask(width, height);
