@@ -15,20 +15,25 @@ public sealed partial class AiTaskService
         ["kimi"] = "Kimi CLI · ComfyUI server",
         ["compatible"] = "Compatible API · ComfyUI server",
         ["openai"] = "OpenAI API · ComfyUI server",
-        ["direct"] = "Compatible API · this computer"
+        ["direct"] = "Compatible API · this computer",
+        ["local-codex"] = "Codex CLI · this computer"
     };
+
+    internal static bool IsRemoteCli(string provider) => provider is "codex" or "claude" or "kimi";
 
     internal sealed record ServerTextModel(string Id, string[]? Efforts);
 
-    internal static async Task<ServerTextModel[]> DiscoverServerModels(string url, string adapter, string baseUrl)
+    internal static async Task<ServerTextModel[]> DiscoverServerModels(string url, string adapter, string baseUrl, CancellationToken token = default)
     {
         var endpoint = ComfyServerAddress.Parse(url).Api("avs-prompt/test");
         using var client = new HttpClient(new HttpClientHandler { UseProxy = ComfyServerAddress.UseProxy(endpoint), AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(45) };
-        using var result = await client.PostAsJsonAsync(endpoint, new { adapter, base_url = baseUrl });
+        using var result = await client.PostAsJsonAsync(endpoint, new { adapter, base_url = baseUrl }, token);
         if (result.StatusCode == System.Net.HttpStatusCode.NotFound)
             throw new InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
-        var data = await result.Content.ReadFromJsonAsync<JsonObject>();
-        if (!result.IsSuccessStatusCode) throw new InvalidOperationException((string?)data?["error"] ?? $"Server discovery failed ({(int)result.StatusCode}).");
+        if (!result.IsSuccessStatusCode)
+            throw new InvalidOperationException(IsRemoteCli(adapter) ? "The CLI was not found or is not signed in on the ComfyUI server."
+                : "The text provider could not discover models on the ComfyUI server.");
+        var data = await result.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: token);
         return (data?["models"] as JsonArray ?? []).OfType<JsonObject>().Where(row => (string?)row["id"] is { Length: > 0 })
             .Select(row => new ServerTextModel((string)row["id"]!, (row["reasoning"] as JsonArray)?.Select(e => (string)e!).ToArray()))
             .DistinctBy(row => row.Id).ToArray();
@@ -93,21 +98,68 @@ public sealed partial class AiTaskService
             ["messages"] = new[] { new { role = "system", content = instructions }, new { role = "user", content = message } } };
         if (settings.EnhancerEffort != "default") payload["reasoning_effort"] = settings.EnhancerEffort;
         request.Content = JsonContent.Create(payload);
-        using var response = await client.SendAsync(request, token);
-        response.EnsureSuccessStatusCode();
-        var json = await response.Content.ReadFromJsonAsync<JsonObject>();
-        if (json?["choices"] is JsonArray { Count: > 0 } choices && choices[0]?["message"]?["content"]?.GetValue<string>()?.Trim() is { Length: > 0 } text)
-            return text;
+        try
+        {
+            using var response = await client.SendAsync(request, token);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Text API request failed (HTTP {(int)response.StatusCode}).");
+            var json = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: token);
+            if (json?["choices"] is JsonArray { Count: > 0 } choices && choices[0]?["message"]?["content"]?.GetValue<string>()?.Trim() is { Length: > 0 } text)
+                return text;
+        }
+        catch (HttpRequestException) { throw new InvalidOperationException("Could not reach the text API."); }
+        catch (JsonException) { throw new InvalidDataException("The text API returned an invalid response."); }
         throw new InvalidDataException("The chat API returned an empty prompt.");
     }
 
-    internal async Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default, string? directKey = null)
+    internal async Task TestEnhancerAsync(Settings settings, CancellationToken token, string? directKey)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(60));
+        var provider = settings.EffectiveEnhancerProvider();
+        try
+        {
+            if (provider is not ("direct" or "local-codex"))
+            {
+                try { await TestConnectionAsync(deadline.Token); }
+                catch (Exception error) when (!token.IsCancellationRequested &&
+                    error is InvalidOperationException or HttpRequestException or JsonException or OperationCanceledException)
+                {
+                    throw new InvalidOperationException("The ComfyUI server is unavailable.");
+                }
+
+                if (IsRemoteCli(provider))
+                {
+                    if (ServerCapabilities?.NodeTypes.Contains("AVSPromptHelper") != true)
+                        throw new InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
+                    _ = await DiscoverServerModels(serverUrl(), provider, "", deadline.Token);
+                }
+            }
+
+            await SendEnhancerAsync(settings, "Improve the image prompt in one short sentence. Return only the improved prompt.",
+                "a cobalt-blue ceramic cup on a pale gray background", deadline.Token, directKey, promptForComfyKey: false);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("The text model did not respond before the test timed out.");
+        }
+    }
+
+    internal Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default, string? directKey = null)
     {
         var instructions = InstructionsFor(settings.EnhancerInstructions, engine, task);
         var message = $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}\nUser request: {draft}";
+        return SendEnhancerAsync(settings, instructions, message, token, directKey, promptForComfyKey: true);
+    }
+
+    private async Task<string> SendEnhancerAsync(Settings settings, string instructions, string message, CancellationToken token,
+        string? directKey, bool promptForComfyKey)
+    {
         var provider = settings.EffectiveEnhancerProvider();
         if (provider == "direct")
             return await EnhanceCompatibleAsync(settings, instructions, message, token, directKey);
+        if (provider == "local-codex")
+            return await LocalCodex.EnhanceAsync(settings.EnhancerCodexPath, settings.EnhancerCodexModel, instructions, message, token);
         using var client = Client();
         if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null)
             await TestConnectionAsync(token, overrideUrl: client.Address.ToString());
@@ -122,11 +174,17 @@ public sealed partial class AiTaskService
                     api_mode = settings.EnhancerServerApiMode, max_output_tokens = Math.Clamp(settings.EnhancerMaxTokens, 16, 16384), timeout = 300 } };
             var helper = new JsonObject { ["class_type"] = "AVSPromptHelper",
                 ["inputs"] = new JsonObject { ["state"] = JsonSerializer.Serialize(state) } };
-            return await ExecuteEnhancerGraph(client, new JsonObject { ["chat"] = helper }, token);
+            try { return await ExecuteEnhancerGraph(client, new JsonObject { ["chat"] = helper }, token); }
+            catch (Exception error) when (error is HttpRequestException or InvalidDataException or InvalidOperationException or JsonException)
+            {
+                if (ServerCapabilities?.NodeTypes.Contains("AVSPromptHelper") != true)
+                    throw new InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
+                throw new InvalidOperationException("The text model did not respond on the ComfyUI server. Check the model and server-side authorization.");
+            }
         }
         if (!ChatModels.Contains(settings.EnhancerModel))
             throw new InvalidOperationException($"Select a chat model offered by this server in AI Settings → Prompt enhancer. Current choice: {settings.EnhancerModel}.");
-        if (string.IsNullOrWhiteSpace(Credential) && RequestApiKey != null)
+        if (string.IsNullOrWhiteSpace(Credential) && promptForComfyKey && RequestApiKey != null)
         {
             SessionApiKey = (await RequestApiKey(token))?.Trim();
             if (string.IsNullOrWhiteSpace(SessionApiKey)) throw new OperationCanceledException();
@@ -146,7 +204,11 @@ public sealed partial class AiTaskService
                 { ["model"] = settings.EnhancerModel, ["persist_context"] = false, ["advanced_options"] = new JsonArray("config", 0),
                   ["prompt"] = message } },
         };
-        return await ExecuteEnhancerGraph(client, graph, token);
+        try { return await ExecuteEnhancerGraph(client, graph, token); }
+        catch (Exception error) when (error is HttpRequestException or InvalidDataException or InvalidOperationException or JsonException)
+        {
+            throw new InvalidOperationException("The model did not respond through Comfy credits. Check the server model, key and credit balance.");
+        }
     }
 
     private async Task<string> ExecuteEnhancerGraph(IComfyConnection client, JsonObject graph, CancellationToken token)

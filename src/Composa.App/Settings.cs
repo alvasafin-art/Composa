@@ -111,6 +111,13 @@ public sealed class Settings
     public string ComfyAdditionalPrompt { get; set; } = Composa.AI.AiPromptDefaults.PreserveAppearance;
     public bool AiAlignMaskedEdits { get; set; } = true;
     public string? EnhancerProvider { get; set; }
+    public string EnhancerRemoteCli { get; set; } = "codex";
+    public string EnhancerCodexPath { get; set; } = "";
+    public string EnhancerCodexModel { get; set; } = "gpt-6.2-sol";
+    public AI.ImageGenerationRoute ImageGenerationRoute { get; set; }
+    public string ImageGenerationCodexPath { get; set; } = "";
+    public string ImageGenerationApiUrl { get; set; } = "https://api.openai.com/v1";
+    public string ImageGenerationApiModel { get; set; } = "gpt-image-2";
     public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
     public string EnhancerServerApiUrl { get; set; } = "http://127.0.0.1:1234/v1";
     public string EnhancerServerApiMode { get; set; } = "auto";

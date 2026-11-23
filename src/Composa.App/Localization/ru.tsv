@@ -933,7 +933,7 @@ Preview reference: {0}	Предпросмотр образца: {0}
 Preview unavailable	Предпросмотр недоступен
 Profile reading needs a seekable stream.	Для чтения профиля нужен поток с перемоткой.
 Project lookup samples must be stored as an embedded asset.	Таблицу коррекции проекта необходимо хранить как встроенный ресурс.
-Prompt enhancer	Улучшение промптов
+Prompt enhancer	Улучшение текста
 Properties	Свойства
 Proportional figures	Пропорциональные цифры
 Provider	Провайдер
@@ -1807,3 +1807,83 @@ Modern layout	Новая
 AI panel placement	Положение ИИ-панели
 Side panel	Боковая панель
 Under selection	Под выделением
+Connection method	Способ подключения
+Third-party API directly	Сторонний API напрямую
+Via ComfyUI · Comfy credits	Через ComfyUI · Comfy credits
+CLI on the ComfyUI server	CLI на сервере ComfyUI
+CLI on this computer	CLI на этом компьютере
+Compatible API · ComfyUI server	Совместимый API на сервере ComfyUI
+OpenAI API · ComfyUI server	OpenAI API на сервере ComfyUI
+Request sent by	Запрос отправит
+Authentication	Авторизация
+This computer	Этот компьютер
+Choose a model	Выберите модель
+Third-party API key	Ключ стороннего API
+Local Codex sign-in	Вход в Codex на этом компьютере
+CLI sign-in on server	Вход в CLI на сервере
+API key on server	Ключ API на сервере
+Manage Comfy.org key…	Настроить ключ Comfy.org…
+Detect automatically	Автопоиск
+Executable	Исполняемый файл
+Select the Codex executable	Выберите исполняемый файл Codex
+Codex CLI found.	Codex CLI найден.
+Codex CLI was not found. Install Codex or select its executable.	CLI Codex не найден. Установите Codex или выберите его исполняемый файл.
+Codex CLI is not signed in. Run codex login on this computer.	Вход в Codex CLI не выполнен. Запустите codex login на этом компьютере.
+Composa could not start Codex CLI. Check the selected executable.	Не удалось запустить Codex CLI. Проверьте выбранный исполняемый файл.
+Codex CLI could not run the selected model. Check its model ID and local sign-in.	Codex CLI не смог запустить выбранную модель. Проверьте её ID и вход на этом компьютере.
+Codex CLI returned no usable text.	Codex CLI не вернул текст.
+Codex CLI timed out.	Время ожидания ответа Codex CLI истекло.
+Codex CLI could not generate an image. Check its version and local sign-in.	Codex CLI не смог создать изображение. Проверьте версию CLI и вход на этом компьютере.
+Codex CLI did not return exactly one generated PNG.	Codex CLI должен вернуть один PNG.
+How to connect	Как подключить
+Open the node on GitHub	Открыть ноду на GitHub
+1. Install and sign in to the CLI on the ComfyUI computer. For Codex, run codex login as the user who starts ComfyUI.	1. Установите CLI на компьютере с ComfyUI и войдите в учётную запись. Для Codex выполните codex login под пользователем, который запускает ComfyUI.
+2. Download AVS Prompt Helper to ComfyUI/custom_nodes/ComfyUI-AVS-Prompt-Helper.	2. Скачайте AVS Prompt Helper в ComfyUI/custom_nodes/ComfyUI-AVS-Prompt-Helper.
+3. Install requirements.txt with ComfyUI’s Python and restart ComfyUI. On Windows Portable, run python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-AVS-Prompt-Helper\requirements.txt from the portable folder.	3. Установите requirements.txt интерпретатором Python самого ComfyUI и перезапустите сервер. Для Windows Portable выполните из папки portable-сборки python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-AVS-Prompt-Helper\requirements.txt.
+4. In Composa, enter the server’s LAN address and choose the CLI and model.	4. В Composa укажите адрес сервера в локальной сети и выберите CLI и модель.
+5. Choose Test connection to send a short request.	5. Нажмите «Проверить подключение», чтобы отправить короткий запрос.
+Send a short prompt to the selected model.	Тест отправит короткий запрос выбранной модели.
+Testing the selected model…	Проверяем выбранную модель…
+Test cancelled.	Проверка отменена.
+The ComfyUI server is unavailable.	Сервер ComfyUI недоступен.
+The CLI was not found or is not signed in on the ComfyUI server.	CLI не найден или вход в него не выполнен на сервере ComfyUI.
+The model responded successfully.	Модель ответила успешно.
+The text model did not respond before the test timed out.	Модель не ответила до истечения времени проверки.
+The text model did not respond on the ComfyUI server. Check the model and server-side authorization.	Модель не ответила на сервере ComfyUI. Проверьте модель и авторизацию на сервере.
+API directly	API напрямую
+Image generation connection	Подключение для генерации изображений
+Image generation	Генерация изображений
+Connection settings…	Настройки подключения…
+Image API key	Ключ API изображений
+Selected workflow	Выбранный workflow
+ComfyUI connection settings	Настройки подключения ComfyUI
+Operations for the selected model	Операции выбранной модели
+Text-to-image	Создание по тексту
+Available when configured	Доступно после настройки
+Currently unavailable	Пока недоступно
+Edit with a reference	Редактирование с референсом
+Edit through a mask	Изменение по маске
+Expand canvas	Расширение холста
+Available operations depend on the selected workflow.	Доступные операции определяет выбранный workflow.
+The test generates one image using the selected connection.	Проверка создаст одно изображение через выбранное подключение.
+This connection currently supports text-to-image only.	Через это подключение пока доступно только создание по тексту.
+Remove the references to generate by text with this connection.	Уберите референсы, чтобы создать изображение по тексту через это подключение.
+Codex CLI was not found. Select its executable in AI Settings → Image generation.	Codex CLI не найден. Выберите его исполняемый файл в разделе «Настройки ИИ → Генерация изображений».
+Choose the image model in AI Settings → Image generation.	Выберите модель в разделе «Настройки ИИ → Генерация изображений».
+Add the image API key in AI Settings → Image generation.	Добавьте ключ в разделе «Настройки ИИ → Генерация изображений».
+Composa could not read the saved image API key.	Не удалось прочитать сохранённый ключ API изображений.
+The image API refused the credentials or model access.	API изображений отклонил ключ или доступ к выбранной модели.
+Could not reach the image API or read its response.	Не удалось подключиться к API изображений или прочитать его ответ.
+Enter a prompt to generate an image.	Введите промпт для создания изображения.
+The image generator timed out.	Время ожидания генерации истекло.
+Generating through Codex CLI…	Генерация через Codex CLI…
+Generating through the image API…	Генерация через API изображений…
+The document changed during generation. Results were discarded.	Документ изменился во время генерации. Результаты не добавлены.
+The generator returned an unreadable PNG or unsupported dimensions.	Генератор вернул нечитаемый PNG или изображение неподдерживаемого размера.
+Enter an HTTPS image API address, or an HTTP loopback address, without credentials or query parameters.	Введите HTTPS-адрес API изображений или локальный HTTP-адрес. Уберите из адреса учётные данные и параметры запроса.
+Image received ({0} × {1} px).	Получено изображение ({0} × {1} пикс.).
+Could not reach the text API.	Не удалось подключиться к текстовому API.
+The text API returned an invalid response.	Текстовый API вернул неверный ответ.
+Text API request failed (HTTP {0}).	Запрос к текстовому API завершился ошибкой HTTP {0}.
+Image API request failed (HTTP {0}).	Запрос к API изображений завершился ошибкой HTTP {0}.
+The model did not respond through Comfy credits. Check the server model, key and credit balance.	Модель не ответила через Comfy credits. Проверьте модель на сервере, ключ и баланс.
