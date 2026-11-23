@@ -13,7 +13,7 @@ public sealed partial class AiTaskService
         if(engine==null && request.Task==AiTaskKind.MatchToScene) engine=EngineFor(AiTaskKind.Harmonize,request.EngineId);
         if(engine==null) throw new InvalidOperationException("Choose a scene-editing workflow in AI Settings.");
         var qwen=engine.Id==QwenImageWorkflow.EngineId;
-        if(!engine.PaidApi && engine.Id!="flux2-klein-intel-xpu" && !qwen) throw new InvalidOperationException("Scene editing supports FLUX.2 Klein, Qwen Image 2.1 Turbo, GPT and Nano Banana.");
+        if(!engine.PaidApi && engine.Id!="flux2-klein-intel-xpu" && !qwen) throw new InvalidOperationException("Scene editing supports FLUX 2 Image Klein 9B, Qwen Image 2.1 Turbo, GPT and Nano Banana.");
         if(request.ReferenceImages.Count==0 && request.ReferenceImage is { } legacyReference) request=request with {ReferenceImages=[legacyReference]};
         var maximumReferences=NanoBanana.IsModel(engine.ApiModel) ? 13 : 6;
         if(request.ReferenceImages.Count>maximumReferences) throw new InvalidOperationException($"This scene workflow accepts at most {maximumReferences} references in addition to the source.");

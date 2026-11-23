@@ -57,6 +57,7 @@ public sealed partial class MainWindow
     };
     private readonly TextBox aiFloatingPrompt = AiGenerationControls.PromptField("Describe the edit…");
     private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
+    private Button aiWorkflowLink = null!;
     private readonly List<AiReferenceItem> aiReferences = [];
     private AiReferenceEditor? aiDialogReferences;
     private bool refreshingAiEngine;
@@ -106,6 +107,12 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.ObjectSelection && settings.ObjectSelectionModel != ObjectSelectionSource.ComfyUI)
             return new(task, session != null && !localSelectionBusy, session == null ? "Open a document first." : null);
         var engine = PanelEngine(task);
+        if (settings.Workflows.Assignments.ContainsKey(task))
+        {
+            if (session == null && task != AiTaskKind.GenerateImage) return new(task, false, "Open a document first.");
+            if (task.RequiresSelection() && session?.Selection == null) return new(task, false, "Make a selection first.");
+            return new(task, true, null);
+        }
         return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
     }
 
@@ -320,6 +327,19 @@ public sealed partial class MainWindow
         aiEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, () => EditorTask, () => PanelEngine(EditorTask));
         aiAdvanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
         aiAdvanced.MinWidth = 0;
+        var workflowName = Ui.Label("", Palette.Secondary, 11);
+        workflowName.TextTrimming = TextTrimming.CharacterEllipsis;
+        aiWorkflowLink = Ui.TextButton("Workflows", () =>
+        {
+            var task = EditorTask;
+            var id = settings.Workflows.ActiveId(task, PanelEngine(task)?.Id);
+            _ = ShowAiSettings(4, id == null ? null : "workflow:" + id);
+        });
+        aiWorkflowLink.Content = workflowName;
+        aiWorkflowLink.Name = "AiActiveWorkflow";
+        aiWorkflowLink.Classes.Add("flat");
+        aiWorkflowLink.HorizontalAlignment = HorizontalAlignment.Stretch;
+        aiWorkflowLink.IsVisible = false;
         void ToggleCollapsed()
         {
             settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed;
@@ -344,7 +364,7 @@ public sealed partial class MainWindow
         aiVariantButtons = AiGenerationControls.QuickRuns(count =>
             _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true, runCount: count));
         var run = AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons);
-        aiEngineCombo = new ComboBox { Width = 141 };
+        aiEngineCombo = new ComboBox { Width = AiGenerationControls.ModelPickerWidth };
         RefreshEditorModels();
         aiEngineCombo.SelectionChanged += (_, _) =>
         {
@@ -376,7 +396,7 @@ public sealed partial class MainWindow
         aiFloatingActions = run;
         var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
         aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingPrompt, bar, aiReferenceHost, aiFloatingVariants);
+        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingPrompt, bar, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
     }
 
     private void RefreshEditorModels()
@@ -458,7 +478,7 @@ public sealed partial class MainWindow
             refreshingAiEngine = true;
             try { if (index >= 0 && aiEngineCombo.SelectedIndex != index) aiEngineCombo.SelectedIndex = index; }
             finally { refreshingAiEngine = false; }
-            aiEngineCombo.IsEnabled = !busy;
+            aiEngineCombo.IsEnabled = !busy && !settings.Workflows.Assignments.ContainsKey(task);
         }
         if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage || !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text));
         if (aiVariantButtons != null)
@@ -468,6 +488,11 @@ public sealed partial class MainWindow
         }
         if (aiFloatingGenerate != null) AiGenerationControls.ShowBusy(aiFloatingGenerate, busy);
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
+        var workflowId = settings.Workflows.ActiveId(task, fillEngine?.Id);
+        var activeWorkflow = workflowId == null ? null : settings.Workflows.Workflows.GetValueOrDefault(workflowId);
+        aiWorkflowLink.IsVisible = activeWorkflow != null;
+        if (aiWorkflowLink.Content is TextBlock workflowName) workflowName.Text = activeWorkflow?.Name;
+        Locale.Tip(aiWorkflowLink, "Workflow bindings");
         var operation = aiTasks.Operation;
         var status = aiLastError ?? (DockEditorVisible && aiTasks.ConnectionState != ComfyConnectionState.Connected ? "ComfyUI · " + aiTasks.ConnectionState.ToString().ToLowerInvariant() : null) ?? (operation?.Status switch
         {
@@ -477,12 +502,13 @@ public sealed partial class MainWindow
             _ => ""
         });
         if (aiFloatingGenerate != null) Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
-        aiPriceBadge.IsVisible = expanded && fillEngine?.PaidApi == true;
+        aiPriceBadge.IsVisible = expanded && (activeWorkflow == null ? fillEngine?.PaidApi == true : ComfyClient.UsesApiCredits(activeWorkflow.Graph));
         PartnerPriceEstimate? estimate = null;
         if (aiPriceBadge.IsVisible)
         {
             var count = (task == AiTaskKind.GenerateImage ? 0 : 1) + aiReferences.Count; // cropped source and genuine user references only
-            estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, 1);
+            if (activeWorkflow == null)
+                estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, 1);
             aiApiCost.Text = estimate?.RoundedCredits(1) ?? "—";
             var tip = estimate == null ? "Paid API · estimate unavailable" : $"One variant · {estimate.Label} (ComfyUI credits)";
             Locale.Tip(aiPriceBadge, tip);
@@ -794,6 +820,16 @@ public sealed partial class MainWindow
         profile = AiOptions(task, engine);
         try
         {
+            var values = new Dictionary<string, object?>
+            {
+                ["fluxMemory"] = profile.FluxMemory, ["apiQuality"] = profile.ApiQuality,
+                ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize
+            };
+            if (aiTasks.ActiveWorkflow(task, engine) != null)
+            {
+                if (profile.WorkflowSteps is { } steps) values["steps"] = steps;
+                if (profile.WorkflowSampler is { } sampler) values["sampler"] = sampler;
+            }
             var request = new AiTaskRequest
             {
                 Task = task,
@@ -814,8 +850,7 @@ public sealed partial class MainWindow
                     Variants = Math.Clamp(options.Variants, 1, 3), VariantMode = profile.VariantMode,
                     Loras = profile.ActiveLoras(engine),
                     UpscaleFactor = profile.UpscaleFactor == 4 ? 4 : 2,
-                    Values = new Dictionary<string, object?> { ["fluxMemory"] = profile.FluxMemory,
-                        ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }
+                    Values = values
                 }
             };
             await aiTasks.RunAsync(new EditorCommandService(session!), request);

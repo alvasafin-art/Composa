@@ -80,6 +80,7 @@ public sealed partial class MainWindow : Window
         {
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
             ModelSelections = settings.ComfyModelsFor,
+            WorkflowSettings = () => settings.Workflows,
             EngineIdForTask = settings.EngineForTask,
             PreferredModelRoutes = () => settings.AiModelRoutes,
             ModelKeyForTask = task => settings.AiTaskModelKeys.GetValueOrDefault((task == AiTaskKind.SelectSubject ? AiTaskKind.ObjectSelection : task).ToString()),

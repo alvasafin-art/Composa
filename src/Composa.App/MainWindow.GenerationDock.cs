@@ -66,7 +66,7 @@ public sealed partial class MainWindow
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiPriceBadge), 1);
         AddAt(actions, DockSlot(aiFloatingActions!), 3);
-        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiReferenceHost),
+        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiWorkflowLink), DockSlot(aiReferenceHost),
             DockSlot(aiFloatingVariants));
         body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
@@ -92,7 +92,7 @@ public sealed partial class MainWindow
                 source.Child = null;
                 destination.Child = editor;
             }
-            aiEngineCombo!.Width = useDock ? double.NaN : 141;
+            aiEngineCombo!.Width = useDock ? double.NaN : AiGenerationControls.ModelPickerWidth;
             aiEngineCombo.HorizontalAlignment = useDock ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
             aiFloatingGenerate!.MinWidth = useDock ? 56 : 64;
         }
