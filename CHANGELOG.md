@@ -4,6 +4,13 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.8] - 2026-11-23
+
+- Import, edit, duplicate, and assign ComfyUI API workflows in Settings. Saved workflows retain graph values unless the corresponding inputs are explicitly bound to Composa. Built-in workflow edits can be reset to the factory version.
+- Show the FLUX 2 Image Klein 9B model name for both supported spellings of its checkpoint filename.
+- Speed up wide brush strokes, sharp pointer movements, and long strokes on large canvases. Preserve intermediate pointer positions and pressure while updating affected areas together.
+- Offer one installer and one portable archive for each Windows architecture, with incremental updates for both.
+
 ## [1.3.0-preview.4.studio.17.7] - 2026-11-23
 
 - Build editable Auto Layout groups with horizontal or vertical flow, padding, spacing and alignment. Move a whole group on the canvas or reorder its children.

@@ -7,7 +7,7 @@ Cutting a release is drafting it on GitHub. The version is derived from the tag 
 1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new `## [x.y.z]` heading with today's date, and leave a fresh empty `## [Unreleased]` above it. Add a matching `<release>` entry at the top of the `<releases>` block in `packaging/composa.metainfo.xml`, which is the version history Linux software centres show. Commit both on a branch and merge it.
 2. On GitHub, go to Releases and draft a new release. Create a new tag in the form `vX.Y.Z` (for example `v0.2.0`) targeting `main`, and paste in the changelog section for this version. **Save it as a draft; do not publish yet.**
 3. Run the **Release** workflow manually, giving it that tag as `draft_tag`. It builds every artifact and attaches them to the draft.
-4. Check the draft: every expected artifact is present, and `sha256sums.txt` lists them all. That is, for each of x86-64 and arm64, an AppImage, a `.deb`, an `.rpm` and a tarball for Linux, and a `-setup.exe` and a zip for Windows: twelve files plus the checksums. Download one and run it.
+4. Check the draft against `sha256sums.txt`. For x86-64 and arm64, expect an AppImage, a `.deb`, an `.rpm` and a tarball for Linux, plus one Studio installer and one Studio portable ZIP for Windows. Verify the Windows update assets listed below. The build tests startup from the final Windows x64 portable archive.
 5. Publish the draft. GitHub creates the tag at that moment, so nothing is ever pushed from a terminal. A tag containing `-` (for example `v0.3.0-beta.1`) is marked as a pre-release.
 
 Publishing first and letting the workflow fill the release in afterwards also works, and is one step shorter. The reason the draft comes first is the few minutes in between: a published release with no downloads on it is worse than no release, because the update check points people at whatever the latest release is.
@@ -23,6 +23,8 @@ GitHub does not create a git tag until a release is published, so while it is st
 The Windows Studio updater uses Velopack 1.2.161. Build from the staged Windows publish tree with
 `scripts/package/studio-update.ps1 -Tree <tree> -Output <empty-folder> -Version <version> -Rid win-x64 -PreviousPackage <previous-full.nupkg>`.
 The first release for an architecture omits PreviousPackage. Subsequent releases must supply the previous published full package for that channel. Attach the setup, portable zip, full and delta packages, and `releases.<rid>.json` to the same release. Keep published packages immutable. Portable packaging records installed file hashes and package metadata in portable-baseline.json. On the first update the client verifies those files and builds its baseline locally.
+
+Link the Studio `Setup.exe` and `Portable.zip` downloads by architecture in the release notes. The intermediate Windows ZIP is used as the input to Velopack. The feed and packages are read by the updater and the next release build.
 
 Composa follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): breaking is major, a feature is minor, a fix is patch. Pre-release suffixes sort alphabetically, so use `-alpha`, `-beta` and then `-preview` as the last stage before a stable release.
 

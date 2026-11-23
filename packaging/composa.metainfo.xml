@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.8" date="2026-11-23" type="development">
+      <description><p>Editable ComfyUI workflows with explicit input bindings, and faster wide and sustained brush strokes on large canvases.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.7" date="2026-11-23" type="development">
       <description><p>Editable Auto Layout, shared styles and a Resources library, plus dockable panel tabs and a first-launch workspace setup.</p></description>
     </release>

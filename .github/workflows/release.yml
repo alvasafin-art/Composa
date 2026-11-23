@@ -104,10 +104,6 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install Inno Setup
-        shell: pwsh
-        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --yes --no-progress }
-
       # See the Linux job: a draft has no tag yet, so MinVer is told the version it is going to get.
       - name: Take the version from the draft tag
         if: inputs.draft_tag != ''
@@ -115,14 +111,48 @@ jobs:
           DRAFT_TAG: ${{ inputs.draft_tag }}
         run: echo "MinVerVersionOverride=${DRAFT_TAG#v}" >> "$GITHUB_ENV"
 
-      - name: Build the zip and the installer
-        run: scripts/package/windows.sh ${{ matrix.rid }} dist
+      - name: Build the input archive for Windows Studio
+        run: scripts/package/windows.sh ${{ matrix.rid }} staging --no-installer
 
-      - name: Check what was produced
+      - name: Package Windows Studio with incremental updates
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RID: ${{ matrix.rid }}
         run: |
-          ls -lh dist/
-          test -n "$(find dist -name '*-${{ matrix.rid }}.zip')"       || { echo "no zip";       exit 1; }
-          test -n "$(find dist -name '*-${{ matrix.rid }}-setup.exe')" || { echo "no installer"; exit 1; }
+          $ErrorActionPreference = 'Stop'
+          $work = New-Item -Type Directory (Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString()))
+          $archive = Get-Item "staging/*-$env:RID.zip"
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath "$work/tree"
+          $exe = Get-ChildItem "$work/tree" -Recurse -Filter composa.exe -File | Select-Object -First 1
+          $version = (Get-Item (Join-Path $exe.DirectoryName 'composa.dll')).VersionInfo.ProductVersion.Split('+')[0]
+          $all = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE) { throw 'Could not look up the baseline.' }
+          $eligible = foreach ($page in $all) {
+            foreach ($release in $page) {
+              $prior = $release.tag_name.TrimStart('v') -as [semver]
+              if ($prior -and $prior -lt [semver]$version -and !$release.draft) {
+                $asset = $release.assets | Where-Object name -eq "ComposaStudio-$prior-$env:RID-full.nupkg"
+                if ($asset) { [pscustomobject]@{Version=$prior; Tag=$release.tag_name; Asset=$asset} }
+              }
+            }
+          }
+          $previous = $eligible | Sort-Object Version -Descending | Select-Object -First 1
+          $baseline = $null
+          if ($previous) {
+            gh release download $previous.Tag --repo $env:GITHUB_REPOSITORY --pattern $previous.Asset.name --dir $work
+            if ($LASTEXITCODE) { throw 'Could not download the baseline.' }
+            $baseline = Join-Path $work $previous.Asset.name
+            if ("sha256:$((Get-FileHash $baseline).Hash)" -ne $previous.Asset.digest) { throw 'Baseline digest mismatch.' }
+          }
+          dotnet tool install vpk --version 1.2.161 --tool-path "$work/tools"
+          if ($LASTEXITCODE) { throw 'Could not install vpk.' }
+          ./scripts/package/studio-update.ps1 -Tree $exe.DirectoryName -Output "$work/update" -Version $version -Rid $env:RID -Vpk "$work/tools/vpk.exe" -PreviousPackage $baseline
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Get-ChildItem "$work/update" -Include '*.nupkg','releases.*.json','*.zip','*.exe' -Recurse -File | Copy-Item -Destination dist
+          foreach ($name in @("ComposaStudio-$env:RID-Setup.exe", "ComposaStudio-$env:RID-Portable.zip", "releases.$env:RID.json")) {
+            if (-not (Test-Path -LiteralPath (Join-Path dist $name) -PathType Leaf)) { throw "Missing $name" }
+          }
 
       # Exercise the archive that will be attached, on a native x64 runner. Keeping this on CI
       # avoids another large local download/extraction merely to check the release executable.
@@ -132,7 +162,7 @@ jobs:
         env:
           EXPECTED_TAG: ${{ github.event.release.tag_name || inputs.draft_tag }}
         run: |
-          $archives = @(Get-ChildItem dist -Filter '*-win-x64.zip' -File)
+          $archives = @(Get-ChildItem dist -Filter 'ComposaStudio-win-x64-Portable.zip' -File)
           if ($archives.Count -ne 1) { throw 'Expected exactly one Windows x64 archive.' }
           $archive = $archives[0]
           $smokeRoot = Join-Path $env:RUNNER_TEMP ('composa-smoke-' + [guid]::NewGuid().ToString('N'))
@@ -194,42 +224,6 @@ jobs:
             if (-not $app.HasExited) { $app.Kill(); $app.WaitForExit() }
             $app.Dispose()
           }
-
-      - name: Package Windows Studio with incremental updates
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RID: ${{ matrix.rid }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $work = New-Item -Type Directory (Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString()))
-          $archive = Get-Item "dist/*-$env:RID.zip"
-          Expand-Archive -LiteralPath $archive.FullName -DestinationPath "$work/tree"
-          $exe = Get-ChildItem "$work/tree" -Recurse -Filter composa.exe -File | Select-Object -First 1
-          $version = (Get-Item (Join-Path $exe.DirectoryName 'composa.dll')).VersionInfo.ProductVersion.Split('+')[0]
-          $all = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
-          if ($LASTEXITCODE) { throw 'Could not look up the baseline.' }
-          $eligible = foreach ($page in $all) {
-            foreach ($release in $page) {
-              $prior = $release.tag_name.TrimStart('v') -as [semver]
-              if ($prior -and $prior -lt [semver]$version -and !$release.draft) {
-                $asset = $release.assets | Where-Object name -eq "ComposaStudio-$prior-$env:RID-full.nupkg"
-                if ($asset) { [pscustomobject]@{Version=$prior; Tag=$release.tag_name; Asset=$asset} }
-              }
-            }
-          }
-          $previous = $eligible | Sort-Object Version -Descending | Select-Object -First 1
-          $baseline = $null
-          if ($previous) {
-            gh release download $previous.Tag --repo $env:GITHUB_REPOSITORY --pattern $previous.Asset.name --dir $work
-            if ($LASTEXITCODE) { throw 'Could not download the baseline.' }
-            $baseline = Join-Path $work $previous.Asset.name
-            if ("sha256:$((Get-FileHash $baseline).Hash)" -ne $previous.Asset.digest) { throw 'Baseline digest mismatch.' }
-          }
-          dotnet tool install vpk --version 1.2.161 --tool-path "$work/tools"
-          if ($LASTEXITCODE) { throw 'Could not install vpk.' }
-          ./scripts/package/studio-update.ps1 -Tree $exe.DirectoryName -Output "$work/update" -Version $version -Rid $env:RID -Vpk "$work/tools/vpk.exe" -PreviousPackage $baseline
-          Get-ChildItem "$work/update" -Include '*.nupkg','releases.*.json','*.zip','*.exe' -Recurse -File | Copy-Item -Destination dist
 
       - uses: actions/upload-artifact@v4
         with:
