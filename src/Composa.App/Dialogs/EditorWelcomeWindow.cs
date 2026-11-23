@@ -1,158 +1,133 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using static Composa.App.Dialogs.StudioSettingsLayout;
 
 namespace Composa.App.Dialogs;
 
 internal sealed class EditorWelcomeWindow : Window
 {
-    private const double PreviewAspect = 16.0 / 9;
-    private const double Inset = 22, Gap = 14, CardInset = 8, CaptionInset = 12, CaptionGap = 13;
-    private const double OptionsChromeHeight = 202;
-    private readonly Window owner;
-    private readonly Dictionary<string, Bitmap> previews = [];
-    private EditorSetup selection;
-    private int step;
+    internal sealed record Choice(EditorSetup Setup, string Language);
 
-    internal EditorWelcomeWindow(Window owner, EditorSetup initial)
+    private readonly Dictionary<string, Bitmap> previews = [];
+    private readonly Image preview = new() { Stretch = Stretch.Uniform, Name = "WelcomePreview" };
+    private Choice selection;
+
+    internal EditorWelcomeWindow(Window owner, Choice initial)
     {
-        this.owner = owner;
         selection = initial;
-        Title = AppInfo.Name;
+        Title = Locale.T("Initial setup");
         Icon = owner.Icon;
-        Background = Palette.Panel;
-        CanResize = false;
+        Background = Palette.Window;
+        if (OperatingSystem.IsWindows()) FontFamily = new FontFamily("Segoe UI Variable, Segoe UI");
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Closed += (_, _) =>
         {
-            foreach (var preview in previews.Values) preview.Dispose();
-            previews.Clear();
+            preview.Source = null;
+            foreach (var image in previews.Values) image.Dispose();
         };
-        RenderPage();
-    }
-
-    private void RenderPage()
-    {
         var screen = owner.Screens.ScreenFromWindow(owner) ?? owner.Screens.Primary;
-        double scaling = screen?.Scaling ?? 1;
-        double availableWidth = (screen?.WorkingArea.Width ?? 1280) / scaling;
-        double availableHeight = (screen?.WorkingArea.Height ?? 800) / scaling;
-        var columns = step == 1 ? 3 : 2;
-        var horizontalInsets = Inset * 2 + Gap * (columns - 1) + columns * CardInset * 2;
-        Width = step == 0
-            ? Math.Min(480, availableWidth - 40)
-            : Math.Min(Math.Min(1360, availableWidth - 40),
-                (availableHeight - OptionsChromeHeight - 42) * PreviewAspect * columns + horizontalInsets);
-        var previewHeight = (Width - horizontalInsets) / columns / PreviewAspect;
-        Height = step == 0 ? 154 : Math.Ceiling(previewHeight + OptionsChromeHeight);
-        if (IsVisible && screen != null)
-        {
-            var center = owner.PointToScreen(new Point(owner.ClientSize.Width / 2, owner.ClientSize.Height / 2));
-            var area = screen.WorkingArea;
-            var width = (int)Math.Ceiling(Width * scaling);
-            var height = (int)Math.Ceiling((Height + 28) * scaling);
-            Position = new PixelPoint(Math.Clamp(center.X - width / 2, area.X, Math.Max(area.X, area.Right - width)),
-                Math.Clamp(center.Y - height / 2, area.Y, Math.Max(area.Y, area.Bottom - height)));
-        }
+        var scale = screen?.Scaling ?? 1;
+        Width = Math.Min(1050, (screen?.WorkingArea.Width ?? 1280) / scale - 24);
+        Height = Math.Min(720, (screen?.WorkingArea.Height ?? 800) / scale - 54);
+        MinWidth = Math.Min(650, Width);
+        MinHeight = Math.Min(430, Height);
+        RenderOptions.SetBitmapInterpolationMode(preview, BitmapInterpolationMode.HighQuality);
+        preview.MaxHeight = Math.Clamp(Height - 355, 158, 370);
 
-        string heading = step switch
+        var languages = Ui.Combo(new[] { "en", "ru" }, selection.Language, code => code == "ru" ? "Русский" : "English", code =>
         {
-            1 => "Interface theme",
-            2 => "Workspace layout",
-            3 => "AI panel placement",
-            _ => "Welcome to Composa"
-        };
-        Control body = step switch
+            selection = selection with { Language = code };
+            Locale.Apply(code, owner, this);
+            RefreshPreview();
+        }, double.NaN);
+        var themes = Ui.Combo(Enum.GetValues<EditorTheme>(), selection.Setup.Theme, theme => Locale.T(EditorSetup.ThemeLabel(theme)), theme =>
         {
-            1 => Choices(selection.Theme, EditorSetup.ThemeLabel, theme => selection with { Theme = theme }, previewHeight),
-            2 => Choices(selection.Layout, EditorSetup.LayoutLabel, layout => selection with { Layout = layout }, previewHeight),
-            3 => Choices(selection.AiPanel, EditorSetup.AiPanelLabel, placement => selection with { AiPanel = placement }, previewHeight),
-            _ => new TextBlock { Text = Locale.T("Let's set up the app."), Foreground = Palette.Secondary,
-                VerticalAlignment = VerticalAlignment.Top }
-        };
-        var title = Ui.Label(Locale.T(heading), weight: FontWeight.SemiBold);
-        title.FontSize = 21;
-        var next = Ui.TextButton(step == 3 ? "Done" : "Next", Advance, accent: true);
+            selection = selection with { Setup = selection.Setup with { Theme = theme } };
+            (Application.Current as App)?.ApplyTheme(theme);
+            RefreshPreview();
+        }, double.NaN);
+        languages.Name = "WelcomeLanguage";
+        themes.Name = "WelcomeTheme";
+        var content = Ui.Column(13, Heading("Set up your interface", 25),
+            Card(Columns("*,*", Field("Language", languages), Field("Interface theme", themes)), 16),
+            Options("Workspace layout", selection.Setup.Layout, EditorSetup.LayoutLabel,
+                layout => layout == EditorLayoutPreset.Modern ? "Compact tools and panels" : "Classic editor panel arrangement",
+                layout => selection.Setup with { Layout = layout }),
+            Options("AI panel placement", selection.Setup.AiPanel, EditorSetup.AiPanelLabel,
+                placement => placement == AiPanelPlacement.Sidebar ? "Docked beside the workspace" : "Appears beside the selected area",
+                placement => selection.Setup with { AiPanel = placement }),
+            Card(preview, 7));
+        content.Margin = new Thickness(34, 25, 34, 20);
+        var skip = Ui.TextButton("Skip setup", () => Close(null));
+        skip.Name = "WelcomeSkip";
+        var next = Ui.TextButton("Continue", () => Close(selection), accent: true);
         next.Name = "WelcomeNext";
-        next.MinWidth = 90;
-        next.Height = 31;
         next.IsDefault = true;
-        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        if (step > 0)
+        var footer = new Border
         {
-            var back = Ui.TextButton("Back", () => { step--; RenderPage(); });
-            back.Name = "WelcomeBack";
-            back.MinWidth = 84;
-            back.Height = next.Height;
-            footer.Children.Add(back);
-        }
-        footer.Children.Add(next);
-        var page = new Grid { Margin = new Thickness(Inset),
-            RowDefinitions = new RowDefinitions(step == 0 ? "Auto,6,*,12,Auto" : "Auto,15,*,20,Auto") };
-        page.Children.Add(title);
-        Grid.SetRow(body, 2);
-        page.Children.Add(body);
-        Grid.SetRow(footer, 4);
-        page.Children.Add(footer);
-        Content = page;
-        if (IsVisible) next.Focus();
+            Background = Palette.SettingsSidebar, BorderBrush = Palette.SettingsLine, BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(34, 11), MinHeight = 62,
+            Child = Columns("*,Auto", Caption("You can finish setup later in Settings."), Ui.Row(8, skip, next))
+        };
+        var dock = new DockPanel();
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(footer);
+        dock.Children.Add(Scroll(content));
+        Content = dock;
+        RefreshPreview();
     }
 
-    private Control Choices<T>(T current, Func<T, string> label, Func<T, EditorSetup> withChoice, double previewHeight)
-        where T : struct, Enum
+    private Control Options<T>(string group, T current, Func<T, string> label, Func<T, string> description,
+        Func<T, EditorSetup> choose) where T : struct, Enum
     {
-        var values = Enum.GetValues<T>();
-        var row = new UniformGrid { Rows = 1, Columns = values.Length, Margin = new Thickness(-Gap / 2, 0) };
-        foreach (var value in values)
+        var cards = new List<Control>();
+        foreach (var value in Enum.GetValues<T>())
         {
-            var image = new Image { Source = GetPreview(withChoice(value)), Height = previewHeight, Stretch = Stretch.Uniform };
-            RenderOptions.SetBitmapInterpolationMode(image, BitmapInterpolationMode.HighQuality);
-            var radio = new RadioButton { Content = Locale.T(label(value)), GroupName = "WelcomeOptions",
-                IsChecked = value.Equals(current), Tag = value, MinHeight = 30,
-                Margin = new Thickness(CaptionInset, 0, CaptionInset, 4) };
-            var card = new Border
+            var item = new RadioButton { Content = Locale.T(label(value)), Tag = value, GroupName = group, IsChecked = value.Equals(current) };
+            var card = Card(Ui.Column(1, item, Caption(description(value))), 9);
+            card.BorderBrush = item.IsChecked == true ? Palette.Accent : Palette.SettingsLine;
+            card.Background = item.IsChecked == true ? Palette.SettingsSelection : Palette.Panel;
+            card.PointerPressed += (_, args) =>
             {
-                Background = Palette.Window, BorderBrush = value.Equals(current) ? Palette.Accent : Palette.Edge,
-                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5),
-                Padding = new Thickness(CardInset - 1), Margin = new Thickness(Gap / 2, 0),
-                VerticalAlignment = VerticalAlignment.Top,
-                Child = new StackPanel { Spacing = CaptionGap, Children = { image, radio } }
+                if (args.GetCurrentPoint(card).Properties.IsLeftButtonPressed) item.IsChecked = true;
             };
-            radio.IsCheckedChanged += (_, _) =>
+            item.IsCheckedChanged += (_, _) =>
             {
-                if (radio.IsChecked == true) selection = withChoice(value);
-                card.BorderBrush = radio.IsChecked == true ? Palette.Accent : Palette.Edge;
+                card.BorderBrush = item.IsChecked == true ? Palette.Accent : Palette.SettingsLine;
+                card.Background = item.IsChecked == true ? Palette.SettingsSelection : Palette.Panel;
+                if (item.IsChecked != true) return;
+                selection = selection with { Setup = choose(value) };
+                RefreshPreview();
             };
-            card.PointerPressed += (_, e) =>
-            {
-                if (e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) { radio.IsChecked = true; radio.Focus(); }
-            };
-            row.Children.Add(card);
+            cards.Add(card);
         }
-        return row;
+        return Ui.Column(7, Heading(group, 14), Columns("*,*", cards.ToArray()));
     }
 
-    private Bitmap GetPreview(EditorSetup setup)
+    private void RefreshPreview()
     {
+        var setup = selection.Setup;
         string theme = setup.Theme switch { EditorTheme.DarkNeutral => "dark", EditorTheme.LightNeutral => "light", _ => "classic" };
         string layout = setup.Layout == EditorLayoutPreset.Modern ? "modern" : "classic";
         string ai = setup.AiPanel == AiPanelPlacement.Sidebar ? "dock" : "inline";
-        string path = $"{Locale.Language}-{theme}-{layout}-{ai}.webp";
-        if (previews.TryGetValue(path, out var preview)) return preview;
-        using var stream = AssetLoader.Open(new Uri($"avares://composa/Assets/Welcome/{path}"));
-        return previews[path] = new Bitmap(stream);
+        string path = $"{selection.Language}-{theme}-{layout}-{ai}.webp";
+        if (!previews.TryGetValue(path, out var image))
+        {
+            using var stream = AssetLoader.Open(new Uri($"avares://composa/Assets/Welcome/{path}"));
+            previews[path] = image = new Bitmap(stream);
+        }
+        preview.Source = image;
     }
 
-    private void Advance()
+    protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (step == 3) { Close(selection); return; }
-        step++;
-        RenderPage();
+        base.OnKeyDown(e);
+        if (!e.Handled && e.Key == Key.Escape) Close(null);
     }
 }

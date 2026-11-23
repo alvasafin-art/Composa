@@ -124,7 +124,6 @@ public class MaskedEditTests
         {
             var asking = AiDialogs.SettingsDialog(window, settings, service, 2); Dispatcher.UIThread.RunJobs();
             var dialog = Assert.Single(window.OwnedWindows);
-            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "System instructions")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             var box = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerInstructions");
             var mode = dialog.GetVisualDescendants().OfType<ComboBox>().Single(b => Equals(b.SelectedItem, "Edit image"));

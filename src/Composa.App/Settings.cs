@@ -146,6 +146,9 @@ public sealed class Settings
     public string ImageGenerationCodexPath { get; set; } = "";
     public string ImageGenerationApiUrl { get; set; } = "";
     public string ImageGenerationApiModel { get; set; } = "";
+    public string ImageApiDisplayName { get; set; } = "";
+    public Dictionary<Composa.AI.AiTaskKind, string> ImageOperationApiModels { get; set; } = [];
+    public Dictionary<string, Dictionary<string, string>> ImageApiCatalogs { get; set; } = [];
     public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
     public string EnhancerServerApiUrl { get; set; } = "";
     public string EnhancerServerApiMode { get; set; } = "auto";
@@ -153,6 +156,8 @@ public sealed class Settings
     public bool EnhancerUseCompatibleApi { get; set; }
     public string EnhancerApiUrl { get; set; } = "http://127.0.0.1:1234/v1";
     public string EnhancerApiModel { get; set; } = "";
+    public string EnhancerApiDisplayName { get; set; } = "";
+    public Dictionary<string, Dictionary<string, string>> EnhancerApiCatalogs { get; set; } = [];
     public string EnhancerModel { get; set; } = "gpt-6-luna";
     public int EnhancerMaxTokens { get; set; } = 4096;
     public string EnhancerEffort { get; set; } = "default";
@@ -288,6 +293,9 @@ public sealed class Settings
     {
         var value = JsonSerializer.Deserialize<Settings>(json, PreferencesJson) ?? new Settings();
         if (value.Language is not ("en" or "ru")) value.Language = "en";
+        value.ImageOperationApiModels ??= [];
+        value.ImageApiCatalogs ??= [];
+        value.EnhancerApiCatalogs ??= [];
         value.EraserPresets ??= [];
         value.BrushPresets ??= [];
         value.RecentCanvasPresets ??= [];

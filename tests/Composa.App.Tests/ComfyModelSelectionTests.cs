@@ -237,9 +237,9 @@ public class ComfyModelSelectionTests
         try
         {
             Dispatcher.UIThread.RunJobs();
-            Assert.True(dialog.Bounds.Height <= owner.Bounds.Height);
-            var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<TabControl>());
-            Assert.Equal(6, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.True(dialog.Bounds.Height <= 780);
+            var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
+            tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
@@ -316,6 +316,34 @@ public class ComfyModelSelectionTests
 
         void Click(string label) => page.Content.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, label))
             .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+    }
+
+    [AvaloniaFact]
+    public void Editing_a_shared_workflow_from_one_operation_preserves_the_other_operations_graph()
+    {
+        var catalog = new EngineCatalog(Engines);
+        var engine = catalog.Find("flux2-klein-intel-xpu")!;
+        var shared = EditableWorkflows.Factory(catalog, engine, AiTaskKind.ImageEdit);
+        var draft = new WorkflowPreferences
+        {
+            Workflows = new() { ["shared"] = shared },
+            Assignments = new() { [AiTaskKind.ImageEdit] = "shared", [AiTaskKind.GenerateImage] = "shared" }
+        };
+        var page = new WorkflowSettingsPage(draft, catalog, () => new Dictionary<string, string>(), () => null);
+        var window = new Window { Content = page.Content };
+        window.Show();
+        try
+        {
+            page.Open("shared", AiTaskKind.ImageEdit);
+            Dispatcher.UIThread.RunJobs();
+            page.Content.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "WorkflowName").Text = "Image editing only";
+            page.Content.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "SaveWorkflow")
+                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal("shared", draft.Assignments[AiTaskKind.GenerateImage]);
+            Assert.Same(shared, draft.Active(AiTaskKind.GenerateImage, engine.Id));
+            Assert.Equal("Image editing only", draft.Active(AiTaskKind.ImageEdit, engine.Id)?.Name);
+        }
+        finally { window.Close(); }
     }
 
     [AvaloniaFact]

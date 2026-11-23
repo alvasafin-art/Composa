@@ -27,6 +27,8 @@ public static class AppPaths
     /// <summary>The folders for a platform, given how to read its environment. Separate from the running OS so every platform can be tested anywhere.</summary>
     public static Folders For(Platform platform, Func<string, string?> variable, Func<Environment.SpecialFolder, string> folder)
     {
+        if (variable("COMPOSA_PROFILE_DIR") is { Length: > 0 } isolated && Path.IsPathFullyQualified(isolated))
+            return new(Path.Combine(isolated, "config"), Path.Combine(isolated, "cache"));
         var home = folder(Environment.SpecialFolder.UserProfile);
         switch (platform)
         {

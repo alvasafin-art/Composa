@@ -9,17 +9,32 @@ public sealed partial class MainWindow
         if (settings.EditorWelcomeSeen) return;
 
         var current = ReadEditorSetup();
+        var originalLanguage = Locale.Language;
         bool firstArrangement = settings.Dock.Count == 0;
         var initial = firstArrangement ? current with { AiPanel = AiPanelPlacement.Sidebar } : current;
-        var chosen = await new EditorWelcomeWindow(this, initial).ShowDialog<EditorSetup?>(this);
-        settings.EditorWelcomeSeen = true;
-        if (chosen is { } setup)
+        var choice = new EditorWelcomeWindow.Choice(initial, originalLanguage);
+        while (true)
         {
-            settings.Theme = setup.Theme;
-            (Avalonia.Application.Current as App)?.ApplyTheme(setup.Theme);
-            ApplyEditorArrangement(firstArrangement || setup.Layout != current.Layout ? setup.Layout : null,
-                setup.AiPanel, firstArrangement);
+            var chosen = await new EditorWelcomeWindow(this, choice).ShowDialog<EditorWelcomeWindow.Choice?>(this);
+            if (chosen == null)
+            {
+                settings.Language = originalLanguage;
+                settings.Theme = current.Theme;
+                Locale.Apply(originalLanguage, this, null);
+                (Avalonia.Application.Current as App)?.ApplyTheme(current.Theme);
+                break;
+            }
+            choice = chosen;
+            settings.Language = choice.Language;
+            settings.Theme = choice.Setup.Theme;
+            var back = false;
+            await ShowAiSettings(firstRun: true, firstRunBack: () => back = true);
+            if (back) continue;
+            ApplyEditorArrangement(firstArrangement || choice.Setup.Layout != current.Layout ? choice.Setup.Layout : null,
+                choice.Setup.AiPanel, firstArrangement);
+            break;
         }
+        settings.EditorWelcomeSeen = true;
         settings.Save();
     }
 }

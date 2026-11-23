@@ -17,6 +17,8 @@ public static partial class GpuAcceleration
     private static volatile bool filterEnabled, editorEnabled;
 
     public static bool CanEnable => (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) && Environment.Is64BitProcess;
+    public static string? EditorDevice => editorEnabled ? ReadyDevice?.Device : null;
+    public static string? FilterDevice => filterEnabled && ReadyDevice is { FloatBlurAvailable: true } backend ? backend.Device : null;
 
     internal static Task<OpenClDevice?>? Initialization => Volatile.Read(ref initialization);
 

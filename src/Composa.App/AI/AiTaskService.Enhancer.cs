@@ -58,12 +58,26 @@ public sealed partial class AiTaskService
             "Preserve explicit requirements, quoted text and reference order. Describe the intended change, placement and appearance. Return only the final prompt.";
     }
 
-    internal static string InstructionKey(string pack, AiTaskKind task) => pack + (task == AiTaskKind.GenerateImage ? "/generate" : "/edit");
+    internal static string InstructionKey(string pack, AiTaskKind task) => pack + (task switch
+    {
+        AiTaskKind.GenerateImage => "/generate",
+        _ => "/" + task
+    });
+
+    internal static string InstructionScope(EngineProfile? pack)
+    {
+        var id = pack?.Id ?? "";
+        if (id != "direct-api-image" || string.IsNullOrWhiteSpace(pack?.ApiModel)) return id;
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pack.ApiModel));
+        return id + "-" + Convert.ToHexString(hash);
+    }
 
     internal string InstructionsFor(IReadOnlyDictionary<string, string> overrides, EngineProfile? pack, AiTaskKind task)
     {
         var id = pack?.Id ?? "";
-        if (overrides.TryGetValue(InstructionKey(id, task), out var saved)) return saved;
+        var scope = InstructionScope(pack);
+        if (overrides.TryGetValue(InstructionKey(scope, task), out var saved)) return saved;
+        if (scope != id && overrides.TryGetValue(InstructionKey(id, task), out saved)) return saved;
         if (task == AiTaskKind.GenerateImage && pack != null)
         {
             var file = Path.Combine(Engines.DirectoryOf(pack), "enhancer-generate.txt");
@@ -71,7 +85,7 @@ public sealed partial class AiTaskService
         }
         if (task == AiTaskKind.GenerateImage)
             return $"Write a concise prompt to create a new image with {pack?.ModelName ?? pack?.DisplayName}. Describe the requested subject, composition, lighting and style. Preserve quoted text and reference roles. Return only the prompt.";
-        return overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);
+        return overrides.GetValueOrDefault(id + "/edit") ?? overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);
     }
 
     internal static string? EnhancedText(JsonElement root, string id)
@@ -101,6 +115,8 @@ public sealed partial class AiTaskService
         try
         {
             using var response = await client.SendAsync(request, token);
+            if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                throw new InvalidOperationException("The API refused authorization. Check the key.");
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException($"Text API request failed (HTTP {(int)response.StatusCode}).");
             var json = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: token);
@@ -112,7 +128,9 @@ public sealed partial class AiTaskService
         throw new InvalidDataException("The chat API returned an empty prompt.");
     }
 
-    internal async Task TestEnhancerAsync(Settings settings, CancellationToken token, string? directKey)
+    internal async Task<string> TestEnhancerAsync(Settings settings, CancellationToken token, string? directKey,
+        EngineProfile? engine = null, AiTaskKind task = AiTaskKind.GenerateImage, string? input = null,
+        Action? serverResponded = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(60));
@@ -122,28 +140,42 @@ public sealed partial class AiTaskService
             if (provider is not ("direct" or "local-codex"))
             {
                 try { await TestConnectionAsync(deadline.Token); }
+                catch (Exception error) when (IsAuthorizationError(error))
+                {
+                    throw new InvalidOperationException("ComfyUI refused authorization.", error);
+                }
                 catch (Exception error) when (!token.IsCancellationRequested &&
                     error is InvalidOperationException or HttpRequestException or JsonException or OperationCanceledException)
                 {
                     throw new InvalidOperationException("The ComfyUI server is unavailable.");
                 }
+                token.ThrowIfCancellationRequested();
+                serverResponded?.Invoke();
 
-                if (IsRemoteCli(provider))
+                if (provider != "comfy")
                 {
                     if (ServerCapabilities?.NodeTypes.Contains("AVSPromptHelper") != true)
-                        throw new InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
-                    _ = await DiscoverServerModels(serverUrl(), provider, "", deadline.Token);
+                        throw new PromptHelperMissingException();
                 }
             }
 
-            await SendEnhancerAsync(settings, "Improve the image prompt in one short sentence. Return only the improved prompt.",
-                "a cobalt-blue ceramic cup on a pale gray background", deadline.Token, directKey, promptForComfyKey: false);
+            var prompt = string.IsNullOrWhiteSpace(input) ? "a cobalt-blue ceramic cup on a pale gray background" : input.Trim();
+            var instructions = engine == null ? "Improve the image prompt in one short sentence. Return only the improved prompt."
+                : InstructionsFor(settings.EnhancerInstructions, engine, task);
+            var message = engine == null ? prompt : $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}\nUser request: {prompt}";
+            return await SendEnhancerAsync(settings, instructions, message, deadline.Token, directKey, promptForComfyKey: false);
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
             throw new InvalidOperationException("The text model did not respond before the test timed out.");
         }
     }
+
+    internal static bool IsAuthorizationError(Exception error) =>
+        error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden } ||
+        (error.InnerException != null && IsAuthorizationError(error.InnerException));
+
+    internal sealed class PromptHelperMissingException() : InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
 
     internal Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default, string? directKey = null)
     {
@@ -165,6 +197,7 @@ public sealed partial class AiTaskService
             await TestConnectionAsync(token, overrideUrl: client.Address.ToString());
         if (provider != "comfy")
         {
+            if (ServerCapabilities?.NodeTypes.Contains("AVSPromptHelper") != true) throw new PromptHelperMissingException();
             if (!Providers.ContainsKey(provider)) throw new InvalidOperationException("Choose a prompt provider in ComfyUI Settings.");
             var model = settings.EnhancerServerModels.GetValueOrDefault(provider);
             if (string.IsNullOrWhiteSpace(model)) throw new InvalidOperationException("Choose the server model in AI Settings → Prompt enhancer.");
@@ -175,6 +208,10 @@ public sealed partial class AiTaskService
             var helper = new JsonObject { ["class_type"] = "AVSPromptHelper",
                 ["inputs"] = new JsonObject { ["state"] = JsonSerializer.Serialize(state) } };
             try { return await ExecuteEnhancerGraph(client, new JsonObject { ["chat"] = helper }, token); }
+            catch (Exception error) when (IsAuthorizationError(error))
+            {
+                throw new InvalidOperationException("The server refused authorization for the text request.", error);
+            }
             catch (Exception error) when (error is HttpRequestException or InvalidDataException or InvalidOperationException or JsonException)
             {
                 if (ServerCapabilities?.NodeTypes.Contains("AVSPromptHelper") != true)
@@ -205,6 +242,10 @@ public sealed partial class AiTaskService
                   ["prompt"] = message } },
         };
         try { return await ExecuteEnhancerGraph(client, graph, token); }
+        catch (Exception error) when (IsAuthorizationError(error))
+        {
+            throw new InvalidOperationException("Comfy credits refused authorization. Check the Comfy.org key.", error);
+        }
         catch (Exception error) when (error is HttpRequestException or InvalidDataException or InvalidOperationException or JsonException)
         {
             throw new InvalidOperationException("The model did not respond through Comfy credits. Check the server model, key and credit balance.");

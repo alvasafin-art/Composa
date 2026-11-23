@@ -27,35 +27,27 @@ public sealed class EditorWelcomeTests
             var show = window.ShowEditorWelcome();
             Pump();
             var dialog = Assert.Single(window.OwnedWindows.OfType<EditorWelcomeWindow>());
-            Assert.Empty(Options(dialog));
-            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => button.Name == "WelcomeBack");
-            Assert.True(Screenshots.Save(dialog, "editor-welcome-intro"));
+            var preview = dialog.GetVisualDescendants().OfType<Image>().Single(image => image.Name == "WelcomePreview");
+            var originalPreview = preview.Source;
+            Choose(dialog, EditorLayoutPreset.Modern);
+            Assert.NotSame(originalPreview, preview.Source);
+            Choose(dialog, AiPanelPlacement.UnderSelection);
+            var theme = dialog.GetVisualDescendants().OfType<ComboBox>().Single(box => box.Name == "WelcomeTheme");
+            theme.SelectedIndex = (int)EditorTheme.LightNeutral;
+            Assert.True(Screenshots.Save(dialog, "studio-settings-02-welcome-ru"));
 
             Press(dialog, "WelcomeNext");
-            AssertOptionsFit(dialog, 3);
-            Choose(dialog, EditorTheme.DarkNeutral);
-            Press(dialog, "WelcomeBack");
-            Assert.Empty(Options(dialog));
+            Pump();
+            var connections = Assert.Single(window.OwnedWindows.OfType<StudioSettingsWindow>());
+            Assert.True(Screenshots.Save(connections, "studio-settings-03-first-run-ru"));
+            Assert.Single(connections.GetVisualDescendants().OfType<ComboBox>().Where(box => box.Name == "TextEnhancerRoute"));
+            connections.FooterButtons.Children.OfType<Button>().First().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            dialog = Assert.Single(window.OwnedWindows.OfType<EditorWelcomeWindow>());
+            Assert.Contains(Options(dialog), option => Equals(option.Tag, EditorLayoutPreset.Modern) && option.IsChecked == true);
+            Assert.Contains(Options(dialog), option => Equals(option.Tag, AiPanelPlacement.UnderSelection) && option.IsChecked == true);
             Press(dialog, "WelcomeNext");
-            Assert.Equal(EditorTheme.DarkNeutral, Selected(dialog));
-            Press(dialog, "WelcomeNext");
-            AssertOptionsFit(dialog, 2);
-            Choose(dialog, EditorLayoutPreset.Modern);
-            Assert.True(Screenshots.Save(dialog, "editor-welcome-layout"));
-            Press(dialog, "WelcomeNext");
-            Choose(dialog, AiPanelPlacement.UnderSelection);
-            Press(dialog, "WelcomeBack");
-            Assert.Equal(EditorLayoutPreset.Modern, Selected(dialog));
-            Press(dialog, "WelcomeBack");
-            Assert.Equal(EditorTheme.DarkNeutral, Selected(dialog));
-            Choose(dialog, EditorTheme.LightNeutral);
-            Press(dialog, "WelcomeNext");
-            Assert.Equal(EditorLayoutPreset.Modern, Selected(dialog));
-            Press(dialog, "WelcomeNext");
-            Assert.Equal(AiPanelPlacement.UnderSelection, Selected(dialog));
-            AssertOptionsFit(dialog, 2);
-            Assert.True(Screenshots.Save(dialog, "editor-welcome-ai"));
-            Press(dialog, "WelcomeNext");
+            Assert.Single(window.OwnedWindows.OfType<StudioSettingsWindow>()).Close(false);
             await show.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Equal(new EditorSetup(EditorTheme.LightNeutral, EditorLayoutPreset.Modern, AiPanelPlacement.UnderSelection), window.ReadEditorSetup());
@@ -115,6 +107,7 @@ public sealed class EditorWelcomeTests
         {
             var pending = AiDialogs.SettingsDialog(window, window.Settings, window.AiTasks, page: 3);
             Pump();
+            if (pending.IsFaulted) await pending;
             var dialog = Assert.Single(window.OwnedWindows);
             var pickers = dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
             pickers.Single(box => box.Name == "EditorLayoutPicker").SelectedIndex = (int)EditorLayoutPreset.Modern;
@@ -131,30 +124,6 @@ public sealed class EditorWelcomeTests
     }
 
     private static RadioButton[] Options(Window dialog) => dialog.GetVisualDescendants().OfType<RadioButton>().ToArray();
-    private static void AssertOptionsFit(Window dialog, int count)
-    {
-        Assert.Equal(count, Options(dialog).Length);
-        var next = dialog.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "WelcomeNext");
-        var back = dialog.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "WelcomeBack");
-        var nextTop = next.TranslatePoint(default, dialog)!.Value.Y;
-        Assert.Equal(nextTop, back.TranslatePoint(default, dialog)!.Value.Y);
-        Assert.Equal(next.Bounds.Height, back.Bounds.Height);
-        foreach (var radio in Options(dialog))
-        {
-            var body = Assert.IsType<StackPanel>(radio.Parent);
-            var card = Assert.IsType<Border>(body.Parent);
-            var image = Assert.Single(body.Children.OfType<Image>());
-            var imageBottom = image.TranslatePoint(new Point(0, image.Bounds.Height), card)!.Value.Y;
-            var caption = radio.TranslatePoint(default, card)!.Value;
-            Assert.Same(Palette.Window, card.Background);
-            Assert.True(caption.X >= 20);
-            Assert.True(caption.Y - imageBottom >= 13);
-            var bottom = radio.TranslatePoint(new Point(0, radio.Bounds.Height), card);
-            Assert.InRange(bottom!.Value.Y, radio.Bounds.Height, card.Bounds.Height);
-            Assert.True(nextTop - card.TranslatePoint(new Point(0, card.Bounds.Height), dialog)!.Value.Y >= 19);
-        }
-    }
-    private static object? Selected(Window dialog) => Assert.Single(Options(dialog), radio => radio.IsChecked == true).Tag;
     private static void Choose(Window dialog, object choice) => Options(dialog).Single(radio => Equals(radio.Tag, choice)).IsChecked = true;
     private static void Press(Window dialog, string name)
     {

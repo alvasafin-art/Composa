@@ -106,7 +106,7 @@ internal static class Locale
         if(dialog!=null) Refresh(dialog);
     }
 
-    private static void Refresh(Window window)
+    internal static void Refresh(Window window)
     {
         var seen=new HashSet<Control>();
         void Visit(Control c)

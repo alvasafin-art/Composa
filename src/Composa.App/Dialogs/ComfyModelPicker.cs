@@ -52,13 +52,15 @@ public sealed class ComfyModelPicker : StackPanel
         catch (FormatException) { Children.Add(Note("Enter a complete ComfyUI server URL, then refresh models.")); return; }
         var choices = (Dictionary<string, string>)Choices(address);
         var connected = service.ConnectedServerUrl == address && service.ConnectionState == ComfyConnectionState.Connected;
+        var fields = new List<Control>
+        {
+            StudioSettingsLayout.Field("Connection", new TextBox { Text = address, IsReadOnly = true })
+        };
         if (service.SelectedEngine is { PaidApi: true } api)
         {
-            Children.Add(Ui.Label(api.DisplayName, weight: Avalonia.Media.FontWeight.SemiBold));
-            Children.Add(Note($"Comfy credits · {api.ApiModel}"));
+            fields.Add(StudioSettingsLayout.Field("Main model", new TextBox { Text = api.ApiModel, IsReadOnly = true }));
         }
 
-        if (!connected) Children.Add(Note("Refresh models to read this server. Lists from another computer are not used."));
         if (service.SelectedEngine is not { } engine) { Children.Add(Note("Select a workflow pack first.")); return; }
         WorkflowModelSlot[] slots;
         try
@@ -76,20 +78,30 @@ public sealed class ComfyModelPicker : StackPanel
         {
             var available = connected ? service.ServerCapabilities?.ModelChoices.GetValueOrDefault(slot.LoaderKey) : null;
             if (available != null) available = new HashSet<string>(UpscaleModels.Available(slot, available), StringComparer.OrdinalIgnoreCase);
-            var options = new List<Option> { new(null, "Workflow default · " + slot.Default) };
+            var options = new List<Option> { new(null, slot.Default) };
             options.AddRange((available ?? []).Order(StringComparer.OrdinalIgnoreCase).Select(name => new Option(name, name)));
             choices.TryGetValue(slot.Key, out var saved);
             if (saved != null && !options.Any(option => option.Name == saved))
                 options.Add(new(saved, (available != null && WorkflowModels.Resolve(saved, available) != null ? "Saved · " : "Unavailable · ") + saved));
             var backendAvailable = !slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal)
                 || service.Engines.Find(slot.EngineId)!.RequiredNodeTypes.All(type => service.ServerCapabilities?.NodeTypes.Contains(type) == true);
-            var combo = new ComboBox { Width = 410, ItemsSource = options, SelectedItem = options.First(option => option.Name == saved), IsEnabled = connected && available?.Count > 0 && backendAvailable };
+            var combo = new ComboBox { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                ItemsSource = options, SelectedItem = options.First(option => option.Name == saved), IsEnabled = connected && available?.Count > 0 && backendAvailable };
             AiGenerationControls.StyleModelField(combo, slot.Label);
+            combo.Height = double.NaN;
+            combo.MinHeight = 34;
+            combo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<Option>((option, _) =>
+                new TextBlock { Text = option?.Label, TextWrapping = TextWrapping.Wrap });
+            combo.SelectionBoxItemTemplate = combo.ItemTemplate;
             Locale.Tip(combo, slot.NodeType + "." + slot.Input + " · node " + slot.NodeId);
             var hint = Note("");
+            var origin = StudioSettingsLayout.Caption("");
+            var reset = Ui.TextButton("Use workflow value", () => combo.SelectedIndex = 0);
             void Hint()
             {
                 var selected = (combo.SelectedItem as Option)?.Name ?? slot.Default;
+                reset.IsVisible = (combo.SelectedItem as Option)?.Name != null;
+                origin.Text = Locale.T(reset.IsVisible ? "Set in Composa" : "From workflow");
                 var resolved = available == null ? null : WorkflowModels.Resolve(selected, available);
                 hint.Text = Locale.Message(!connected ? "Not connected to this server." : !backendAvailable ? "This SeedVR2 backend is not installed on the server." : available == null
                     ? (service.ServerCapabilities!.NodeTypes.Contains(slot.NodeType) ? "This loader does not report a model list." : "Missing node: " + slot.NodeType)
@@ -108,10 +120,13 @@ public sealed class ComfyModelPicker : StackPanel
                 ChoicesChanged?.Invoke();
             };
             Hint();
-            Children.Add(Ui.Column(4, Ui.Label((slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal) ? service.Engines.Find(slot.EngineId)!.DisplayName + " · " : "")
-                + slot.Label + (slots.Count(other => other.Kind == slot.Kind) > 1 ? " · " + slot.NodeId : "")), combo, hint));
+            var label = slot.Kind == EngineAssetKind.DiffusionModel ? "Main model" : slot.Label;
+            fields.Add(Ui.Column(4, StudioSettingsLayout.Caption((slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal)
+                ? service.Engines.Find(slot.EngineId)!.DisplayName + " · " : "") + label +
+                (slots.Count(other => other.Kind == slot.Kind) > 1 ? " · " + slot.NodeId : "")),
+                StudioSettingsLayout.Columns("*,Auto", combo, reset), origin, hint));
         }
-
+        foreach (var row in fields.Chunk(2)) Children.Add(StudioSettingsLayout.Columns("*,*", row));
     }
 
     private static TextBlock Note(string text) => new() { Text = text, MaxWidth = 430, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary };

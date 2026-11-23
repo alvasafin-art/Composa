@@ -777,11 +777,12 @@ public sealed partial class MainWindow
         e.Handled = true;
     }
 
-    private async Task ShowAiSettings(int page = 0, string? field = null)
+    internal async Task ShowAiSettings(int page = 6, string? field = null, AiTaskKind? operation = null,
+        bool firstRun = false, Action? firstRunBack = null)
     {
         try
         {
-            if (!await AiDialogs.SettingsDialog(this, settings, aiTasks, page, field)) return;
+            if (!await AiDialogs.SettingsDialog(this, settings, aiTasks, page, field, operation, firstRun, firstRunBack)) return;
             dock.SetTabbed(settings.TabbedPanels);
             aiTasks.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;
             aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
@@ -797,7 +798,7 @@ public sealed partial class MainWindow
     {
         var previous = aiTasks.SelectedEngine;
         var task = DockEditorVisible || session?.Selection != null ? EditorTask : AiTaskKind.ImageEdit;
-        if (DirectImageFor(task) != null) { await ShowAiSettings(5); return; }
+        if (DirectImageFor(task) != null) { await ShowAiSettings(8, operation: task); return; }
         aiTasks.SelectedEngine = PanelEngine(task);
         try { await AiDialogs.Advanced(this, settings, aiTasks, task); }
         finally { aiTasks.SelectedEngine = previous; RefreshAiUi(); }

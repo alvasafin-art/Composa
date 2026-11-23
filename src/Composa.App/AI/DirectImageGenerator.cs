@@ -31,6 +31,7 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     {
         Task = task,
         Route = settings.ImageRouteFor(task),
+        ApiModel = settings.ImageOperationApiModels.GetValueOrDefault(task) ?? settings.ImageGenerationApiModel,
         UtilityPath = task == AiTaskKind.Upscale ? settings.UpscaleCliPath : settings.SegmentationCliPath,
         UtilityModel = settings.SegmentationCliModel
     };

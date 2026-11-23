@@ -17,6 +17,7 @@ internal sealed class DirectImageApi
     internal const int MaximumResponseBytes = 64 * 1024 * 1024;
     internal bool UsesNativeMask => format == Format.OpenAiImages;
     internal Uri CredentialEndpoint => Endpoint(edit: false);
+    internal Uri CatalogEndpoint => new(baseAddress.AbsoluteUri.TrimEnd('/') + (format == Format.OpenRouter ? "/models?output_modalities=image" : "/models"));
 
     private DirectImageApi(Uri address, Format format)
     {

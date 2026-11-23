@@ -933,7 +933,7 @@ Preview reference: {0}	Предпросмотр образца: {0}
 Preview unavailable	Предпросмотр недоступен
 Profile reading needs a seekable stream.	Для чтения профиля нужен поток с перемоткой.
 Project lookup samples must be stored as an embedded asset.	Таблицу коррекции проекта необходимо хранить как встроенный ресурс.
-Prompt enhancer	Улучшение текста
+Prompt enhancer	Улучшение промпта
 Properties	Свойства
 Proportional figures	Пропорциональные цифры
 Provider	Провайдер
@@ -1945,3 +1945,122 @@ The generated image could not be downloaded.	Не удалось скачать 
 The image API returned no supported image data.	API изображений не вернул изображение в поддерживаемом формате.
 Bind Source image or Context image to the expanded canvas input.	Привяжите исходное изображение или контекст ко входу расширенного холста.
 Bind Selection mask to the expansion mask input.	Привяжите маску выделения ко входу маски расширения.
+Initial setup	Первичная настройка
+Set up your interface	Настройка интерфейса
+Skip setup	Пропустить
+Save connections	Сохранить подключения
+You can finish setup later in Settings.	Можно пропустить настройку и вернуться к ней позже.
+Overview	Обзор
+Image operations	Работа с изображениями
+Models and workflows	Модели и workflows
+Connections	Подключения
+Text connections	Улучшение промпта
+Image connections	Работа с изображениями
+Performance	Производительность
+Language model	Языковая модель
+Model or workflow	Модель или workflow
+Run parameters	Параметры запуска
+Used in operations	Используется в операциях
+Hardware acceleration	Аппаратное ускорение
+Devices	Устройства
+Not loaded	Ещё не загружено
+Editor rendering	Отрисовка редактора
+Large RGB16 blur filters	Большие фильтры размытия RGB16
+No operations assigned.	Нет назначенных операций.
+‹ Back	‹ Назад
+Add workflow…	Добавить workflow…
+Open connection ›	Открыть подключение ›
+Open model ›	Открыть модель ›
+Open workflow ›	Открыть workflow ›
+Prompt enhancer ›	Улучшение промпта ›
+Prompt instructions for this model and operation	Инструкции для этой модели и операции
+Reset instructions for this model and operation	Сбросить инструкции этой модели и операции
+Reset this operation’s route	Сбросить маршрут этой операции
+Route changes apply to this operation after saving settings.	Изменения маршрута этой операции вступят в силу после сохранения.
+Instructions apply to the selected image model and operation.	Инструкции применяются к выбранной модели изображения и операции.
+Connection fields apply to operations using this connection.	Эти поля применяются к операциям, использующим подключение.
+Save settings to apply workflow changes.	Сохраните настройки, чтобы применить изменения workflow.
+From workflow	Из workflow
+Set in Composa	Задано в Composa
+Use workflow value	Вернуть значение из workflow
+{0} nodes · {1}	Нод: {0} · {1}
+Scheduler	Планировщик
+Prompt test	Проверка промпта
+Original prompt	Исходный запрос
+Enhanced result	Улучшенный результат
+Test prompt	Проверить промпт
+Test request completed.	Тестовый запрос выполнен.
+Server responded.	Сервер отвечает.
+AVS Prompt Helper did not respond	AVS Prompt Helper не отвечает
+ComfyUI is reachable. The node is missing on the server. Image generation and assigned workflows can still run. This affects prompt enhancement through this server.	ComfyUI доступен, но нода не найдена на сервере. Генерация изображений и назначенные workflows продолжат работать. Проблема затрагивает только улучшение текста через этот сервер.
+1. Install the node	1. Установите ноду
+In ComfyUI/custom_nodes/ComfyUI-AVS-Prompt-Helper	В ComfyUI/custom_nodes/ComfyUI-AVS-Prompt-Helper
+2. Restart the server	2. Перезапустите сервер
+Install requirements.txt with ComfyUI’s Python.	Установите requirements.txt средой ComfyUI.
+3. Retry the check	3. Повторите проверку
+Composa will send a short text request.	Composa отправит короткий текстовый запрос.
+Open AVS Prompt Helper on GitHub ›	Открыть AVS Prompt Helper на GitHub ›
+Retry check	Повторить проверку
+Open instructions	Открыть инструкцию
+ComfyUI refused authorization.	ComfyUI отклонил авторизацию.
+The server refused authorization for the text request.	Сервер отклонил авторизацию текстового запроса.
+Comfy credits refused authorization. Check the Comfy.org key.	Comfy credits отклонил авторизацию. Проверьте ключ Comfy.org.
+The API refused authorization. Check the key.	API отклонил авторизацию. Проверьте ключ.
+Get available models	Получить доступные модели
+Add model	Добавить модель
+Reset this connection’s catalog	Восстановить сохранённый каталог этого подключения
+Reading model catalog…	Читаем каталог моделей…
+The API returned an invalid model catalog.	API вернул недействительный каталог моделей.
+The API responded. Models are available below.	API отвечает. Полученные модели показаны ниже.
+Use connection’s default model	Использовать модель подключения по умолчанию
+Use	Выбрать
+Default	По умолчанию
+Display name	Отображаемое имя
+Direct text API	Прямой API для текста
+Direct image API	Прямой API для изображений
+Default model ID	ID модели по умолчанию
+Workflows and Comfy credits	Workflows и Comfy credits
+Workflow needs attention	Нужно проверить workflow
+ComfyUI workflow	Workflow ComfyUI
+Check all	Проверить всё
+Model and execution route	Модель и способ запуска
+Configuration	Конфигурация
+Connection has not been checked	Подключение ещё не проверено
+Run parameters ›	Параметры запуска ›
+Back to editor	К редактору
+Compact tools and panels	Компактные панели и инструменты
+Classic editor panel arrangement	Привычное расположение панелей редактора
+Docked beside the workspace	Закреплена справа от рабочей области
+Appears beside the selected area	Появляется рядом с выбранной областью
+API protocol	Протокол API
+OpenAI chat completions	Завершения чата OpenAI
+Instructions for image generation	Промпт для генерации
+Instructions for image editing	Промпт для редактирования
+Main model	Основная модель
+Variant execution	Выполнение вариантов
+Module	Модуль
+Device	Устройство
+Image filters	Фильтры изображения
+Always use CPU	Всегда использовать CPU
+Use GPU when available	Использовать GPU при доступности
+Local computation	Локальные вычисления
+For supported local operations	Для поддерживаемых локальных операций
+Operation ready	Операция готова
+Not available for this route	Недоступно для этого маршрута
+No workflow	Без workflow
+Edit image	Редактирование изображения
+Generate image	Создание изображения
+ComfyUI Server URL	Адрес сервера ComfyUI
+Workflow	Workflow
+Refresh models	Обновить модели
+Exceptions	Исключения
+Check	Проверить
+Reference resolution	Размер референсов
+Connection details	Параметры подключения
+Check and continue	Проверить и продолжить
+Uses the CLI and its signed-in account on the ComfyUI server.	Используется CLI и его учётная запись на сервере ComfyUI.
+API quality	Качество API
+Original size	Исходный размер
+Steps	Шаги
+default	По умолчанию
+Text encoder	Кодировщик текста

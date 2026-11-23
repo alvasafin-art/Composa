@@ -34,8 +34,27 @@ internal sealed class WorkflowSettingsPage
     private string? current;
     private bool outputIsComposited;
     private bool refreshing;
+    private AiTaskKind? editingOperation;
+    private readonly Grid assignmentTable;
 
     internal Control Content { get; }
+    internal event Action? Changed;
+
+    internal void Open(string? id, AiTaskKind? operation)
+    {
+        editingOperation = operation;
+        foreach (var child in assignmentTable.Children)
+        {
+            var row = Grid.GetRow(child);
+            child.IsVisible = operation == null || WorkflowPreferences.Operations[row] == operation;
+        }
+        if (id == null) return;
+        current = id;
+        Refresh();
+        Load(Key(picker));
+    }
+
+    internal Task AddWorkflow() => ImportAsync();
 
     internal WorkflowSettingsPage(WorkflowPreferences draft, EngineCatalog catalog,
         Func<IReadOnlyDictionary<string, string>> modelChoices, Func<ComfyServerCapabilities?> capabilities, string? selectedId = null)
@@ -46,7 +65,7 @@ internal sealed class WorkflowSettingsPage
         this.capabilities = capabilities;
         current = selectedId;
         foreach (var engine in catalog.Profiles)
-            foreach (var task in WorkflowPreferences.Operations.Where(task => task != AiTaskKind.GenerativeExpand && engine.Binding(task) != null))
+            foreach (var task in WorkflowPreferences.Operations.Where(task => engine.Binding(task) != null))
                 factories[WorkflowPreferences.FactoryId(engine.Id, task)] = (engine, task);
 
         message.TextWrapping = TextWrapping.Wrap;
@@ -69,7 +88,8 @@ internal sealed class WorkflowSettingsPage
         note.TextWrapping = TextWrapping.Wrap;
         var format = Ui.Label(Locale.T(EditableWorkflows.ImportFormats), Palette.Secondary);
         format.TextWrapping = TextWrapping.Wrap;
-        Content = Ui.Column(9, CanvasDialogs.Form(assignmentFields.ToArray()), Wrap(picker, import), format, Wrap(duplicate, restore, save),
+        assignmentTable = CanvasDialogs.Form(assignmentFields.ToArray());
+        Content = Ui.Column(9, assignmentTable, Wrap(picker, import), format, Wrap(duplicate, restore, save),
             CanvasDialogs.Form(("Workflow name", name)), Ui.Label(Locale.T("Graph JSON")), json,
             Ui.Label(Locale.T("Workflow bindings")), note, rows, message);
         picker.SelectionChanged += (_, _) => { if (!refreshing) Load(Key(picker)); };
@@ -198,6 +218,7 @@ internal sealed class WorkflowSettingsPage
                 draft.Assignments[task] = id;
             }
             message.Text = "";
+            Changed?.Invoke();
         }
         catch (InvalidDataException error)
         {
@@ -214,7 +235,16 @@ internal sealed class WorkflowSettingsPage
             var title = name.Text?.Trim() ?? "";
             var workflow = new SavedWorkflow(title, EditableWorkflows.Parse(json.Text ?? ""), new(bindings), outputIsComposited);
             EditableWorkflows.Validate(workflow);
-            if (!copy)
+            if (!copy && editingOperation is { } operation &&
+                (draft.Assignments.Any(pair => pair.Key != operation && pair.Value == current)
+                    || !(factories.TryGetValue(current, out var original) && original.Task == operation)
+                        && draft.Assignments.GetValueOrDefault(operation) != current))
+            {
+                EditableWorkflows.Validate(workflow, operation);
+                current = Guid.NewGuid().ToString("N");
+                draft.Assignments[operation] = current;
+            }
+            else if (!copy)
             {
                 if (factories.TryGetValue(current, out var factory)) EditableWorkflows.Validate(workflow, factory.Task);
                 foreach (var (task, id) in draft.Assignments)
@@ -229,6 +259,7 @@ internal sealed class WorkflowSettingsPage
             Refresh();
             Load(current);
             message.Text = Locale.T("Workflow ready. Save settings to apply your changes.");
+            Changed?.Invoke();
         }
         catch (InvalidDataException error) { message.Text = Locale.Message(error.Message); }
     }
@@ -236,12 +267,22 @@ internal sealed class WorkflowSettingsPage
     private void Restore()
     {
         if (current == null || !factories.ContainsKey(current)) return;
+        if (editingOperation is { } operation && draft.Assignments.GetValueOrDefault(operation) == current)
+        {
+            draft.Assignments.Remove(operation);
+            Refresh();
+            Load(current);
+            message.Text = Locale.T("Factory workflow restored. Save settings to apply your changes.");
+            Changed?.Invoke();
+            return;
+        }
         draft.Workflows.Remove(current);
         foreach (var task in draft.Assignments.Where(pair => pair.Value == current).Select(pair => pair.Key).ToArray())
             draft.Assignments.Remove(task);
         Refresh();
         Load(current);
         message.Text = Locale.T("Factory workflow restored. Save settings to apply your changes.");
+        Changed?.Invoke();
     }
 
     private async Task ImportAsync()
@@ -272,5 +313,6 @@ internal sealed class WorkflowSettingsPage
         Refresh();
         Load(id);
         message.Text = Locale.T("Add the required bindings before assigning this workflow to an operation.");
+        Changed?.Invoke();
     }
 }

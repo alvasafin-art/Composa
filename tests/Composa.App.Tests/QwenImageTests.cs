@@ -1,3 +1,4 @@
+using Avalonia;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
@@ -288,14 +289,13 @@ public class QwenImageTests
             var settings = new Settings {ComfyServerUrl="http://localhost:8188",AiTaskEngineIds=new() {{"Harmonize",QwenImageWorkflow.EngineId}}};
             var pending = AiDialogs.SettingsDialog(window, settings, service); Dispatcher.UIThread.RunJobs();
             var dialog = Assert.Single(window.OwnedWindows);
-            var tabs = dialog.GetVisualDescendants().OfType<TabControl>().Single(tabs => tabs.Name == "AiSettingsTabs"); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
-            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), box => box.SelectedItem is ImageModelChoice { Name: "Qwen Image 2.1 Turbo" });
+            var tabs = dialog.GetVisualDescendants().OfType<StudioSettingsPages>().Single(); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == "Qwen Image 2.1 Turbo");
             Assert.True(Screenshots.Save(dialog, "qwen21-settings"));
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
-            var page=(ScrollViewer)((TabItem)tabs.Items.Cast<TabItem>().ElementAt(1)).Content!;
+            var page = Assert.IsType<ScrollViewer>(tabs.Content);
             page.Offset=new(0,1000);Dispatcher.UIThread.RunJobs();Assert.True(Screenshots.Save(dialog,"qwen21-models"));
             tabs.SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
-            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "System instructions")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text?.Contains("Qwen-Image-2.1") == true);
             Assert.True(Screenshots.Save(dialog, "prompt-enhancer-settings"));
             dialog.Close(false); Assert.False(await pending);
@@ -410,20 +410,111 @@ public class QwenImageTests
         finally { owner.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Settings_navigation_and_helper_retry_keep_the_operation_and_use_live_check_results()
+    {
+        var previousLanguage = Locale.Language;
+        Locale.Language = "ru";
+        var settings = new Settings { EnhancerProvider = "codex", ComfyServerUrl = "http://localhost:8188",
+            EnhancerServerModels = new() { ["codex"] = "test-model" } };
+        var connection = new Connection { MissingHelper = true };
+        var service = new AiTaskService(() => settings.ComfyServerUrl, Engines, _ => connection);
+        var owner = new Window { Width = 1280, Height = 720 };
+        owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service, page: 6);
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            dialog.Width = 1280;
+            dialog.Height = 720;
+            var pages = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
+            Assert.True(Screenshots.Save(dialog, "studio-settings-01-operations-ru"));
+            ClickText("Image Edit");
+            Assert.Equal(8, pages.SelectedIndex);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-04-operation-ru"));
+            Click("Open model ›");
+            Assert.Equal(1, pages.SelectedIndex);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-08-models-ru"));
+            Click("‹ Back");
+            Assert.Equal(8, pages.SelectedIndex);
+            Click("Open connection ›");
+            Assert.Equal(0, pages.SelectedIndex);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-06-connections-ru"));
+            Click("‹ Back");
+            Assert.Equal(8, pages.SelectedIndex);
+            Click("Prompt enhancer ›");
+            Assert.Equal(2, pages.SelectedIndex);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-05-prompt-ru"));
+            Click("Test prompt");
+            var warning = dialog.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "AvsPromptHelperWarning");
+            Assert.True(warning.IsVisible);
+            Assert.Empty(connection.Graphs);
+            var scroll = Assert.IsType<ScrollViewer>(pages.Content);
+            scroll.Offset = new(0, 5000);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-avs-warning-ru"));
+            connection.MissingHelper = false;
+            Click("Retry check");
+            Assert.False(warning.IsVisible);
+            Assert.Single(connection.Graphs);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text == "Rewritten prompt");
+            dialog.GetVisualDescendants().OfType<Expander>().Single(panel => Equals(panel.Header, Locale.T("Connection details"))).IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            var address = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "EnhancerComfyServer");
+            address.Text = "http://localhost:8189";
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text == "Rewritten prompt");
+            connection.Offline = true;
+            Click("Test prompt");
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("The ComfyUI server is unavailable."));
+            Click("‹ Back");
+            Assert.Equal(8, pages.SelectedIndex);
+            pages.SelectedIndex = 7;
+            Assert.True(Screenshots.Save(dialog, "studio-settings-07-performance-ru"));
+            dialog.Width = 1024;
+            dialog.Height = 576;
+            Locale.Apply("en", owner, dialog);
+            pages.SelectedIndex = 6;
+            Assert.True(Screenshots.Save(dialog, "studio-settings-operations-1024x576-en"));
+            Assert.All(((StudioSettingsWindow)dialog).FooterButtons.Children.OfType<Button>(), button =>
+                Assert.True(button.TranslatePoint(new(button.Bounds.Width, button.Bounds.Height), dialog) is { } end &&
+                    end.X <= dialog.Bounds.Width && end.Y <= dialog.Bounds.Height));
+            dialog.Close(false);
+            Assert.False(await pending);
+            Assert.Equal("http://localhost:8188", settings.ComfyServerUrl);
+
+            void Click(string title)
+            {
+                dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, Locale.T(title)))
+                    .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+            }
+            void ClickText(string title)
+            {
+                dialog.GetVisualDescendants().OfType<Button>().Last(button =>
+                    button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == Locale.T(title)))
+                    .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+            }
+        }
+        finally { Locale.Language = previousLanguage; owner.Close(); }
+    }
+
     private sealed class Connection : IComfyConnection
     {
         public ComfyServerAddress Address => ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout { get; set; }
         internal List<string> Uploads { get; } = [];
         internal List<JsonObject> Graphs { get; } = [];
-        internal bool MissingAlignment; internal int FailAt;
+        internal bool MissingAlignment, MissingHelper, Offline; internal int FailAt;
         internal Action? OnExecute;
         private SKBitmap? source;
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken token = default)
         {
+            if (Offline) throw new HttpRequestException("connection refused");
             var catalog = new EngineCatalog(Engines); var engine = catalog.Find(QwenImageWorkflow.EngineId)!;
             var nodes = engine.RequiredNodeTypes.ToHashSet(); if (MissingAlignment) nodes.Remove("PixelDriftFix");
             nodes.UnionWith(["AVSPromptHelper", "OpenAIChatNode", "OpenAIChatConfig", "PreviewAny"]);
+            if (MissingHelper) nodes.Remove("AVSPromptHelper");
             var choices=catalog.ModelSlots(engine).ToDictionary(slot=>slot.LoaderKey,slot=>new HashSet<string> {slot.Default,"shared/qwen-vae.safetensors"});
             return Task.FromResult((new ComfyServerInfo("0.43.0", "test", "test", ["NVIDIA test"]), new ComfyServerCapabilities { NodeTypes = nodes,ModelChoices=choices, NodeDefinitions = new() { ["OpenAIChatNode"] = JsonNode.Parse("""{"input":{"required":{"model":["COMBO",{"options":["gpt-6-luna"]}]}}}""")!.AsObject() } }));
         }

@@ -21,6 +21,14 @@ public static class Palette
     }
 
     public static readonly SolidColorBrush Window = Brush("#222326", "#E9E9E9");
+    internal static readonly SolidColorBrush SettingsSidebar = Brush("#202124", "#EFEFF0");
+    internal static readonly SolidColorBrush SettingsLine = Brush("#393C41", "#C9CCD0");
+    internal static readonly SolidColorBrush SettingsSelection = Brush("#384B63", "#D7E6F5");
+    internal static readonly SolidColorBrush SettingsWarning = Brush("#332E25", "#FFF4DF");
+    internal static readonly SolidColorBrush SettingsWarningLine = Brush("#594B35", "#D9BA80");
+    internal static readonly SolidColorBrush SettingsWarningText = Brush("#E7BB73", "#775116");
+    internal static readonly SolidColorBrush SettingsSuccess = Brush("#263B32", "#D6EDE0");
+    internal static readonly SolidColorBrush SettingsSuccessText = Brush("#83CFA2", "#346C48");
     public static readonly SolidColorBrush Panel = Brush("#292B2F", "#F4F4F4");
     public static readonly SolidColorBrush PanelRaised = Brush("#35383D", "#FAFAFA");
     public static readonly SolidColorBrush Divider = Brush("#1A1A1A", "#C9C9C9");
