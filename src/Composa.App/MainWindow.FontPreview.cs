@@ -1,7 +1,6 @@
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Composa.Model;
@@ -63,6 +62,7 @@ public sealed partial class MainWindow
         int generation = 0, keyboardIndex = -1;
         bool busy = false, navigating = false, synchronizing = false, filtering = false;
         ComboBoxItem? keyboardHighlight = null;
+        Point? hoverAt = null;
         void Synchronize(Action action)
         {
             var previous = synchronizing;
@@ -90,6 +90,7 @@ public sealed partial class MainWindow
             generation++;
             request = pendingQuery = null;
             filtering = false;
+            hoverAt = null;
             Highlight(null);
             if (openFontPicker == combo) { openFontPicker = null; owner.ClearFontSample(); }
         }
@@ -162,6 +163,9 @@ public sealed partial class MainWindow
         {
             if (sender is ComboBoxItem { Content: string family } item)
             {
+                var position = e.GetPosition(combo);
+                if (hoverAt == position) return;
+                hoverAt = position;
                 keyboardIndex = combo.IndexFromContainer(item);
                 Highlight(null);
                 Sample(family);
@@ -169,14 +173,13 @@ public sealed partial class MainWindow
         }
         combo.ContainerPrepared += (_, e) =>
         {
-            e.Container.PointerEntered -= PointAt; e.Container.PointerEntered += PointAt;
             e.Container.PointerMoved -= PointAt; e.Container.PointerMoved += PointAt;
         };
-        void StopWheel(object? sender, PointerWheelEventArgs e)
+        combo.AddHandler(PointerWheelChangedEvent, (_, e) =>
         {
-            if (combo.IsDropDownOpen) e.Handled = true;
-        }
-        combo.AddHandler(PointerWheelChangedEvent, StopWheel, RoutingStrategies.Tunnel, true);
+            // The popup scrolls normally. A row moving under a stationary pointer is not a new preview.
+            if (combo.IsDropDownOpen) hoverAt = e.GetPosition(combo);
+        }, RoutingStrategies.Tunnel, true);
         void EditorChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
         {
             if (e.Property != TextBox.TextProperty || synchronizing || editor is not { IsFocused: true }) return;
@@ -193,8 +196,6 @@ public sealed partial class MainWindow
             if (editor != null) editor.PropertyChanged -= EditorChanged;
             editor = e.NameScope.Find<TextBox>("PART_EditableTextBox");
             if (editor != null) editor.PropertyChanged += EditorChanged;
-            if (e.NameScope.Find<Popup>("PART_Popup")?.Child is Control popup)
-                popup.AddHandler(PointerWheelChangedEvent, StopWheel, RoutingStrategies.Tunnel, true);
         };
         combo.SelectionChanged += (_, e) =>
         {

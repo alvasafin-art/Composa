@@ -200,7 +200,7 @@ public sealed class HistoryPanel : UserControl
         "Auto Layout" or "Change Auto Layout" or "Change Layout Gap" or "Change Layout Size" or "Reorder Layout" or "Disable Auto Layout" => Icons.LayoutRows,
         "Replace Layout Image" => Icons.Image,
         "Insert Library Element" => Icons.Folder,
-        "Save Layer Style" or "Apply Layer Style" or "Edit Shared Style" or "Reset Style Override" or "Unlink Layer Style" => Icons.Effects,
+        "Save Layer Style" or "Apply Layer Style" or "Edit Shared Style" or "Reset Style Override" or "Unlink Layer Style" or "Delete Layer Style" => Icons.Effects,
         "Brush" or "Brush Strokes" => Icons.Brush,
         "Paint Bucket" => Icons.Bucket,
         "Shape Color" or "Shape Properties" => Icons.Shape,

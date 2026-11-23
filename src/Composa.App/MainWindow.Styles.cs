@@ -53,7 +53,8 @@ public sealed partial class MainWindow
             if (current() is not { } layer) return;
             menu.Items.Clear();
             var style = target.LinkedStyle(layer, kind);
-            if (style != null)
+            var canEdit = target.CanEditLayerStyle(layer, kind);
+            if (style != null && canEdit)
             {
                 Add("Edit Only This Object", () => Dispatcher.UIThread.Post(() =>
                 {
@@ -79,7 +80,20 @@ public sealed partial class MainWindow
                 }
                 Add("Unlink Style", () => { if (current() is { } live) target.UnlinkLayerStyle(live, kind); });
             }
-            Add("Save as Style…", () => _ = SaveStyle(target, layer, kind));
+            if (canEdit) Add("Save as Style…", () => _ = SaveStyle(target, layer, kind));
+            if (style != null) Add("Delete Style…", () => _ = DeleteSharedStyle(target, style));
+            var others = target.Document.Styles.Values.Where(value => value.Kind == kind && value.Id != style?.Id)
+                .OrderBy(value => value.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+            if (others.Length > 0)
+            {
+                var saved = Add("Delete Saved Style", null);
+                foreach (var definition in others)
+                {
+                    var item = new MenuItem { Header = definition.Name };
+                    item.Click += (_, _) => _ = DeleteSharedStyle(target, definition);
+                    saved.Items.Add(item);
+                }
+            }
             menu.Open(more);
             MenuItem Add(string label, Action? action)
             {
@@ -122,7 +136,8 @@ public sealed partial class MainWindow
                     picker.ItemsSource = choices;
                 }
                 picker.SelectedIndex = Array.FindIndex(choices, choice => choice.Id == active?.Id);
-                picker.IsEnabled = more.IsEnabled = target.CanEditLayerStyle(layer, kind);
+                picker.IsEnabled = target.CanEditLayerStyle(layer, kind);
+                more.IsEnabled = picker.IsEnabled || target.Document.Styles.Values.Any(style => style.Kind == kind);
                 var overrides = target.StyleOverrides(layer, kind);
                 status.IsVisible = overrides != 0;
                 ToolTip.SetTip(status, overrides == 0 ? null : string.Join(", ", RevertibleStyleFields
@@ -180,6 +195,16 @@ public sealed partial class MainWindow
 
     private static SolidColorBrush SampleBackground(Color ink) =>
         new((ink.R * 299 + ink.G * 587 + ink.B * 114) < 144000 ? Color.FromRgb(245, 244, 240) : Color.FromRgb(37, 39, 43));
+
+    private async Task DeleteSharedStyle(EditorSession target, LayerStyleDefinition style)
+    {
+        if (session != target || IsDragging || target.Document.Styles.GetValueOrDefault(style.Id) != style) return;
+        var message = $"Delete “{style.Name}” from this project?";
+        if (target.StyleLinkCount(style) > 0) message += "\nLinked objects will keep their current appearance.";
+        if (await Prompts.Confirm(this, "Delete Style", message, "Delete") && session == target && !IsDragging
+            && target.Document.Styles.GetValueOrDefault(style.Id) == style)
+            target.DeleteLayerStyle(style.Id);
+    }
 
     private async Task SaveStyle(EditorSession target, Layer layer, LayerStyleKind kind)
     {

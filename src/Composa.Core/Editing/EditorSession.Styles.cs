@@ -81,6 +81,20 @@ public sealed partial class EditorSession
         return true;
     }
 
+    public bool DeleteLayerStyle(Guid id)
+    {
+        FinishInteraction();
+        if (!document.Styles.TryGetValue(id, out var style)) return false;
+        Apply("Delete Layer Style", () =>
+        {
+            foreach (var layer in document.AllLayers())
+                if (layer.StyleBinding(style.Kind)?.Id == id) layer.SetStyleBinding(style.Kind, null);
+            document.Styles.Remove(id);
+        });
+        LayersChanged?.Invoke();
+        return true;
+    }
+
     public bool ResetStyleFields(Layer layer, LayerStyleKind kind, StyleFields fields)
     {
         FinishInteraction();

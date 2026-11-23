@@ -164,4 +164,45 @@ public sealed class SharedStylesTests
         Assert.Equal(revision, s.Revision);
         Assert.Equal(.7, group.Opacity, 3);
     }
+
+    [Fact]
+    public void Deleting_a_shared_style_preserves_appearance_and_undo_restores_the_bindings()
+    {
+        var session = EditorSession.NewCanvas(400, 240);
+        var first = session.AddText(new(15, 20), new TextStyle { Text = "One", Size = 30 });
+        var second = session.AddText(new(15, 90), new TextStyle { Text = "Two", Size = 26 });
+        var style = session.CreateLayerStyle(first, LayerStyleKind.Text, "Heading")!;
+        Assert.True(session.ApplyLayerStyle(second, style.Id));
+        session.SelectLayer(second.Id);
+        session.SetTextColor(0xff225588);
+        session.SetLayerLocks(first, LayerLocks.All);
+        var firstPixels = first.Pixels;
+        var secondPixels = second.Pixels;
+        var secondText = second.Text;
+        var revision = session.Revision;
+
+        Assert.True(session.DeleteLayerStyle(style.Id));
+        Assert.False(session.DeleteLayerStyle(style.Id));
+        Assert.Equal(revision + 1, session.Revision);
+        Assert.Empty(session.Document.Styles);
+        Assert.Null(first.SharedTextStyle);
+        Assert.Null(second.SharedTextStyle);
+        Assert.Same(firstPixels, first.Pixels);
+        Assert.Same(secondPixels, second.Pixels);
+        Assert.Equal(secondText, second.Text);
+        Assert.Equal(LayerLocks.All, first.Locks);
+        session.Undo();
+        Assert.Equal(style, Assert.Single(session.Document.Styles.Values));
+        Assert.Equal(2, session.StyleLinkCount(style));
+        Assert.Equal(StyleFields.Color, session.StyleOverrides(session.Document.Find(second.Id)!, LayerStyleKind.Text));
+        session.Redo();
+
+        using var stream = new MemoryStream();
+        ProjectFile.Write(session.Document, stream);
+        stream.Position = 0;
+        var reopened = ProjectFile.Read(stream);
+        Assert.Empty(reopened.Styles);
+        Assert.Null(reopened.Find(second.Id)!.SharedTextStyle);
+        Assert.Equal(secondText, reopened.Find(second.Id)!.Text);
+    }
 }

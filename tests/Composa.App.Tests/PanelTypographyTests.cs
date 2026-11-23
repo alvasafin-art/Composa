@@ -90,7 +90,7 @@ public class PanelTypographyTests
     }
 
     [AvaloniaFact]
-    public void Font_search_shows_ranked_matches_and_the_open_list_ignores_wheel()
+    public void Font_search_shows_ranked_matches_and_the_wheel_scrolls_without_applying_a_font()
     {
         var window = new MainWindow { Width = 1360, Height = 900 };
         var session = EditorSession.NewCanvas(320, 150, SKColors.White);
@@ -106,6 +106,7 @@ public class PanelTypographyTests
             var combo = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "FontFamilyPicker");
             var editor = combo.GetVisualDescendants().OfType<TextBox>().First();
             Assert.Null(combo.ItemTemplate!.Build(null)); // The editable combo can have an empty selection.
+            combo.MaxDropDownHeight = 46;
             var revision = session.Revision;
             void Type(string text)
             {
@@ -118,11 +119,17 @@ public class PanelTypographyTests
             combo.IsDropDownOpen = true;
             Dispatcher.UIThread.RunJobs();
             var item = Assert.IsType<ComboBoxItem>(combo.ContainerFromIndex(combo.SelectedIndex));
+            var scroll = Assert.IsType<ScrollViewer>(item.FindAncestorOfType<ScrollViewer>());
+            Assert.True(scroll.ScrollBarMaximum.Y > 0);
+            var beforeWheel = scroll.Offset.Y;
             using var pointer = new Pointer(1, PointerType.Mouse, true);
             var wheel = new PointerWheelEventArgs(item, pointer, item, default, 0, new PointerPointProperties(),
                 KeyModifiers.None, new Vector(0, -1));
             item.RaiseEvent(wheel);
-            Assert.True(wheel.Handled);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(scroll.Offset.Y > beforeWheel);
+            Assert.True(combo.IsDropDownOpen);
+            Assert.Equal(original, layer.Text!.FontFamily);
             Assert.Equal(original, combo.SelectedItem);
             Assert.Equal(revision, session.Revision);
 

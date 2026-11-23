@@ -127,6 +127,57 @@ public sealed class SharedStylesUiTests
         }
     }
 
+    [AvaloniaFact]
+    public void Text_style_can_be_deleted_from_the_menu_while_linked_or_unused()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 };
+        var session = EditorSession.NewCanvas(400, 240);
+        try
+        {
+            window.Show();
+            window.AddSession(session);
+            var first = session.AddText(new(30, 30), new TextStyle { Text = "One", Size = 30 });
+            var style = session.CreateLayerStyle(first, LayerStyleKind.Text, "Title")!;
+            var second = session.AddText(new(30, 120), new TextStyle { Text = "Two", Size = 24 });
+            Assert.True(session.ApplyLayerStyle(second, style.Id));
+            session.SetTextColor(0xff275389);
+            var unused = session.CreateLayerStyle(second, LayerStyleKind.Text, "Draft Title")!;
+            Assert.True(session.ApplyLayerStyle(second, style.Id));
+            session.SetTextColor(0xff275389);
+            var color = second.Text!.Color;
+            Pump();
+            Button Actions() => Find<Button>(window, "SharedTextStyleActions");
+
+            Menu(Actions(), "Delete Style…");
+            var dialog = Assert.Single(window.OwnedWindows);
+            Click(Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), button => button.IsCancel));
+            Pump();
+            Assert.Equal(2, session.Document.Styles.Count);
+            Menu(Actions(), "Delete Style…");
+            Accept(Assert.Single(window.OwnedWindows));
+            Assert.Equal(unused, Assert.Single(session.Document.Styles.Values));
+            Assert.Null(first.SharedTextStyle);
+            Assert.Null(second.SharedTextStyle);
+            Assert.Equal(color, second.Text.Color);
+            Assert.Equal(2, Find<ComboBox>(window, "SharedTextStylePicker").Items.Count);
+
+            var menu = Open(Actions());
+            var saved = FindMenuItem(menu.Items, "Delete Saved Style");
+            Click(Assert.Single(saved.Items.OfType<MenuItem>()));
+            menu.Close();
+            Pump();
+            Accept(Assert.Single(window.OwnedWindows));
+            Assert.Empty(session.Document.Styles);
+            Assert.Single(Find<ComboBox>(window, "SharedTextStylePicker").Items);
+        }
+        finally
+        {
+            foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close();
+            session.MarkSaved("delete-text-style.cmps");
+            window.Close();
+        }
+    }
+
     private static ContextMenu Open(Button actions)
     {
         Click(actions);

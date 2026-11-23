@@ -1751,6 +1751,11 @@ Apply Layer Style	Применение стиля
 Edit Shared Style	Изменение общего стиля
 Reset Style Override	Возврат значения стиля
 Unlink Layer Style	Отвязка стиля
+Delete Layer Style	Удаление стиля
+Delete Style…	Удалить стиль…
+Delete Saved Style	Удалить сохранённый стиль
+Delete “{0}” from this project?	Удалить «{0}» из этого проекта?
+Linked objects will keep their current appearance.	Связанные объекты сохранят текущее оформление.
 PSD preserves the current appearance. Shared style links stay in the Composa project.	PSD сохраняет текущий вид. Связи со стилями остаются в проекте Composa.
 Edit Only This Object	Изменить только этот объект
 Font Family	Гарнитура
