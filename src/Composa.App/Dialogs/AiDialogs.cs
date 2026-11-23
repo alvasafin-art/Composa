@@ -510,7 +510,7 @@ public static partial class AiDialogs
         Action? fixAction = null;
         fix.Click += (_, _) => fixAction?.Invoke();
         var generation = Ui.TextButton("Generation settings…", () => { });
-        var generationDraft = Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(settings));
+        var generationDraft = settings.CopyPreferences();
         var changedGeneration = new Dictionary<(string Engine, AiTaskKind Task), AiOperationSettings>();
         generation.Click += async (_, _) =>
         {
@@ -580,6 +580,10 @@ public static partial class AiDialogs
         var groupedPanels = new CheckBox { Content = Locale.T("Group side panels in tabs"), IsChecked = settings.TabbedPanels };
         var linkedSources = new CheckBox { Content = Locale.T("Automatically refresh linked files"), IsChecked = settings.AutoUpdateLinkedSources };
         var updates = new CheckBox { Content = Locale.T("Check for updates on startup"), IsChecked = settings.CheckForUpdates };
+        var workflowDraft = settings.Workflows.Copy();
+        service.WorkflowSettings = () => workflowDraft;
+        var selectedWorkflow = focusField?.StartsWith("workflow:", StringComparison.Ordinal) == true ? focusField[9..] : null;
+        var workflows = new WorkflowSettingsPage(workflowDraft, service.Engines, CurrentFiles, () => service.ServerCapabilities, selectedWorkflow);
         var body = new TabControl
         {
             Width = Math.Clamp(owner.Bounds.Width - 64, 520, 780), Height = Math.Clamp(owner.Bounds.Height - 150, 300, 450),
@@ -593,8 +597,9 @@ public static partial class AiDialogs
                     Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker),
                     Ui.Column(5, Ui.Label(Locale.T("Workspace layout"), Palette.Secondary), layoutPicker),
                     Ui.Column(5, Ui.Label(Locale.T("AI panel placement"), Palette.Secondary), aiPanelPicker),
-                    groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates))
-            }, SelectedIndex = Math.Clamp(page, 0, 3)
+                    groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates)),
+                Nav("Workflows", Page("Workflows", workflows.Content))
+            }, SelectedIndex = Math.Clamp(page, 0, 4)
         };
         bool refreshingOperation = false;
         refreshOperation = () =>
@@ -656,6 +661,7 @@ public static partial class AiDialogs
             ("Connection timeout", "seconds", 0, timeout, null, null),
             ("Comfy credits API key", "ключ токен авторизация", 0, sessionKey, credentials, null),
             ("Defaults by operation", "назначение модель default", 1, assignments, assignments, null),
+            ("Workflows", "graph JSON prompt binding граф привязки импорт", 4, workflows.Content, null, null),
             ("Model components", "checkpoint vae encoder файлы граф", 1, files, files, null),
             ("Show AI context bounds", "output selection выделение контекст", 1, showContext, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
@@ -844,7 +850,7 @@ public static partial class AiDialogs
         if (editor != null && ReferenceEquals(editor.Settings, settings))
             editor.ApplyEditorArrangement(chosenLayout != initialSetup.Layout ? chosenLayout : null,
                 chosenAiPanel != initialSetup.AiPanel ? chosenAiPanel : null);
-        settings.Save();
+        settings.SaveWithWorkflows(workflowDraft);
         return true;
     }
 
@@ -919,6 +925,8 @@ public static partial class AiDialogs
 
     private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, out Func<AiOperationSettings> read)
     {
+        if (service?.ActiveWorkflow(task, service.SelectedEngine) is { } workflow)
+            return BoundGenerationFields(profile, workflow, out read);
         var align = new CheckBox { Content = Locale.T("Align pixels"), IsChecked = profile.AlignPixels ?? true };
         var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
         var reference = profile.ReferenceMegapixels;
@@ -1179,7 +1187,7 @@ public static partial class AiDialogs
             var chosen = service.SelectedEngine;
             var choices = service.Engines.ImageModels(task == AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task,
                 chosen, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
-            var picker = new ComboBox { Width = 145 };
+            var picker = new ComboBox { Width = AiGenerationControls.ModelPickerWidth, IsEnabled = !settings.Workflows.Assignments.ContainsKey(task) };
             AiGenerationControls.PresentImageModels(picker, choices);
             picker.SelectedItem = choices.FirstOrDefault(m => m.Engine.Id == chosen?.Id) ?? choices.FirstOrDefault();
             picker.SelectionChanged += (_, _) =>
@@ -1196,7 +1204,8 @@ public static partial class AiDialogs
         void Refresh()
         {
             var toneOnly=task==AiTaskKind.MatchToScene && scene.MatchMode==SceneMatchMode.ToneAndColor;
-            var paid = service?.SelectedEngine?.PaidApi == true; qualityHost.IsVisible = paid && service?.SelectedEngine?.ApiModel != PartnerNodes.Seedream && !toneOnly;
+            var paid = service?.SelectedEngine?.PaidApi == true && service.ActiveWorkflow(task, service.SelectedEngine) == null;
+            qualityHost.IsVisible = paid && service?.SelectedEngine?.ApiModel != PartnerNodes.Seedream && !toneOnly;
             prompt.IsEnabled=!toneOnly;
             alignment.IsVisible = !toneOnly && task != AiTaskKind.GenerateImage;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);

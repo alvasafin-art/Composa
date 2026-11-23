@@ -11,6 +11,93 @@ namespace Composa.App.Tests;
 
 public class AiVariantsTests
 {
+    [Fact]
+    public async Task Factory_Klein_generation_preserves_steps_but_normalizes_sampler_on_the_wire()
+    {
+        var catalog = Service(new Connection()).Engines;
+        var klein = catalog.Find("flux2-klein-intel-xpu")!;
+        var temporary = Directory.CreateTempSubdirectory("composa-workflow-");
+        try
+        {
+            var engineFolder = Path.Combine(temporary.FullName, klein.Id);
+            foreach (var file in Directory.EnumerateFiles(catalog.DirectoryOf(klein), "*", SearchOption.AllDirectories))
+            {
+                var copy = Path.Combine(engineFolder, Path.GetRelativePath(catalog.DirectoryOf(klein), file));
+                Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+                File.Copy(file, copy);
+            }
+            var workflow = klein.Workflow("generate");
+            var filePath = Path.Combine(engineFolder, workflow.File);
+            var graph = catalog.ReadWorkflow(klein, workflow);
+            graph["sampler"]!["inputs"]!["steps"] = 9;
+            graph["sampler"]!["inputs"]!["sampler_name"] = "heun";
+            File.WriteAllText(filePath, graph.ToJsonString());
+
+            using var transport = new PromptCapture();
+            var connection = new Connection { Transport = transport };
+            var service = new AiTaskService(() => "http://localhost:8188", temporary.FullName, _ => connection);
+            var session = EditorSession.NewCanvas(48, 32);
+            await service.RunAsync(new EditorCommandService(session), new() { Task = AiTaskKind.GenerateImage },
+                TestContext.Current.CancellationToken);
+
+            var sent = Assert.Single(transport.Prompts);
+            Assert.Equal(9, sent["sampler"]!["inputs"]!["steps"]!.GetValue<int>());
+            Assert.Equal("euler", sent["sampler"]!["inputs"]!["sampler_name"]!.GetValue<string>());
+            Assert.False(sent.ContainsKey("sampling"));
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
+
+    internal sealed class PromptCapture : HttpMessageHandler
+    {
+        public List<JsonObject> Prompts { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.EndsWith("/prompt", request.RequestUri!.AbsolutePath);
+            var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellationToken))!;
+            Prompts.Add(body["prompt"]!.AsObject());
+            return new(System.Net.HttpStatusCode.OK) { Content = new StringContent("""{"prompt_id":"job"}""") };
+        }
+    }
+
+    [Fact]
+    public async Task Assigned_fill_checks_required_mask_and_posts_only_bound_inputs()
+    {
+        using var transport = new PromptCapture();
+        var connection = new Connection { Transport = transport };
+        var service = Service(connection);
+        var prefs = new WorkflowPreferences();
+        const AiTaskKind task = AiTaskKind.GenerativeFill;
+        service.WorkflowSettings = () => prefs;
+        prefs.Assignments[task] = "fill";
+        var saved = EditableWorkflows.Factory(service.Engines, service.SelectedEngine!, task);
+        var mask = saved.Bindings["selectionMask"];
+        saved.Bindings.Remove("selectionMask");
+        prefs.Workflows["fill"] = saved;
+        var session = EditorSession.NewCanvas(48, 32, SKColors.White);
+        session.SelectRect(new(10, 10, 25, 25));
+        var editor = new EditorCommandService(session);
+        var request = new AiTaskRequest { Task = task, Prompt = "A red bowl" };
+        var token = TestContext.Current.CancellationToken;
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => service.RunAsync(editor, request, token));
+        Assert.Contains("Bind Selection mask", error.Message);
+        Assert.Empty(connection.Uploads);
+        Assert.Empty(transport.Prompts);
+
+        saved.Bindings["selectionMask"] = mask;
+        await service.RunAsync(editor, request, token);
+        Assert.Equal(new[] { "sourceImage", "selectionMask" }, connection.Uploads);
+        var expected = (JsonObject)saved.Graph.DeepClone();
+        var actual = Assert.Single(transport.Prompts);
+        var prompt = saved.Bindings["prompt"];
+        var source = saved.Bindings["sourceImage"];
+        expected[prompt.NodeId]!["inputs"]![prompt.Input] = actual[prompt.NodeId]!["inputs"]![prompt.Input]!.GetValue<string>();
+        expected[source.NodeId]!["inputs"]![source.Input] = "sourceImage.png";
+        expected[mask.NodeId]!["inputs"]![mask.Input] = "selectionMask.png";
+        Assert.True(JsonNode.DeepEquals(expected, actual));
+    }
     [Theory]
     [InlineData(0)]
     [InlineData(640)]
@@ -173,7 +260,7 @@ public class AiVariantsTests
 
     private static AiTaskService Service(Connection fake) => new(() => "http://localhost:8188", Path.Combine(AppContext.BaseDirectory, "ai", "engines"), _ => fake);
 
-    private sealed class Connection : IComfyConnection
+    internal sealed class Connection : IComfyConnection
     {
         public ComfyServerAddress Address { get; } = ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout { get; set; }
@@ -183,6 +270,7 @@ public class AiVariantsTests
         public bool Cancel { get; init; }
         public bool UseGenerationDimensions { get; init; }
         public Action? DuringExecute { get; init; }
+        public PromptCapture? Transport { get; init; }
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
@@ -191,8 +279,14 @@ public class AiVariantsTests
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
         { Uploads.Add(semantic); return Task.FromResult(semantic + ".png"); }
-        public Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
+        public async Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
+            if (Transport != null)
+            {
+                using var http = new HttpClient(Transport, disposeHandler: false);
+                using var client = new ComfyClient(Address.ToString(), http);
+                await client.SubmitAsync(workflow, Guid.NewGuid(), cancellationToken);
+            }
             Graphs.Add((JsonObject)workflow.DeepClone()); DuringExecute?.Invoke();
             if (Graphs.Count == FailAt)
             {
@@ -200,8 +294,8 @@ public class AiVariantsTests
                 throw new InvalidOperationException("Mock failure");
             }
             var count = workflow["latent"]?["inputs"]?["batch_size"]?.GetValue<int>() ?? workflow["latent"]?["inputs"]?["amount"]?.GetValue<int>() ?? 1;
-            return Task.FromResult(new ComfyExecutionResult("job", JsonDocument.Parse("{}"),
-                Enumerable.Range(0, count).Select(index => new ComfyImageReference(index + ".png", "", "output", "save")).ToArray()));
+            return new ComfyExecutionResult("job", JsonDocument.Parse("{}"),
+                Enumerable.Range(0, count).Select(index => new ComfyImageReference(index + ".png", "", "output", "save")).ToArray());
         }
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
         {

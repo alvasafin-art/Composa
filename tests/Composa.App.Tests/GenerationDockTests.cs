@@ -12,11 +12,91 @@ using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
+using System.Text.Json.Nodes;
 
 namespace Composa.App.Tests;
 
 public class GenerationDockTests
 {
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dock_posts_the_saved_Klein_graph_and_only_explicit_bindings_after_reload(bool imported)
+    {
+        using var capture = new AiVariantsTests.PromptCapture();
+        var server = new AiVariantsTests.Connection { Transport = capture };
+        const AiTaskKind task = AiTaskKind.GenerateImage;
+        const string engineId = "flux2-klein-intel-xpu";
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var engine = catalog.Find(engineId)!;
+        var factory = EditableWorkflows.Factory(catalog, engine, task);
+        factory.Graph["sampler"]!["inputs"]!["steps"] = 9;
+        factory.Graph["sampler"]!["inputs"]!["sampler_name"] = "heun";
+        factory.Graph["sampler"]!["inputs"]!["seed"] = 345;
+        factory.Graph["latent"]!["inputs"]!["width"] = 768;
+        factory.Graph["extra"] = JsonNode.Parse("""
+            {"class_type":"EmptyFlux2LatentImage","inputs":{"width":64,"height":64,"batch_size":1},
+             "_meta":{"optionalInput":"custom","unknown":{"value":3}}}
+            """);
+        var id = imported ? "imported" : WorkflowPreferences.FactoryId(engineId, task);
+        var saved = imported ? factory with
+        {
+            Name = "Imported Klein",
+            Graph = EditableWorkflows.Parse(new JsonObject { ["prompt"] = factory.Graph.DeepClone() }.ToJsonString())
+        } : factory;
+        var preferences = new Settings { AiDefaultsRevision = 1 };
+        preferences.AiTaskEngineIds[task.ToString()] = engineId;
+        preferences.Workflows.Workflows[id] = saved;
+        if (imported) preferences.Workflows.Assignments[task] = id;
+        var folder = Directory.CreateTempSubdirectory("composa-workflows-");
+        try
+        {
+            var settingsPath = Path.Combine(folder.FullName, "settings.json");
+            await Run(preferences);
+            preferences.Workflows.Workflows[id] = saved with { Bindings = new(saved.Bindings) { ["steps"] = new() { NodeId = "sampler", Input = "steps" } } };
+            preferences.SetOperation(engineId, task, new() { WorkflowSteps = 13, WorkflowSampler = "ddim", Seed = 123 });
+            preferences.SaveTo(settingsPath);
+            await Run(Settings.LoadFrom(settingsPath));
+            Assert.Equal(2, capture.Prompts.Count);
+            var expected = (JsonObject)saved.Graph.DeepClone();
+            expected["prompt"]!["inputs"]!["text"] = capture.Prompts[0]["prompt"]!["inputs"]!["text"]!.GetValue<string>();
+            Assert.Contains("A ceramic cube", expected["prompt"]!["inputs"]!["text"]!.GetValue<string>());
+            Assert.True(JsonNode.DeepEquals(expected, capture.Prompts[0]));
+            expected["sampler"]!["inputs"]!["steps"] = 13;
+            Assert.True(JsonNode.DeepEquals(expected, capture.Prompts[1]));
+        }
+        finally { folder.Delete(recursive: true); }
+
+        async Task Run(Settings state)
+        {
+            var window = new MainWindow(null, _ => server) { Width = 1100, Height = 800 };
+            window.Settings.Workflows = state.Workflows;
+            window.Settings.AiTaskEngineIds = state.AiTaskEngineIds;
+            window.Settings.AiTaskModelKeys.Clear();
+            window.Settings.SetOperation(engineId, task, state.OperationFor(engineId, task));
+            window.Show();
+            var session = EditorSession.NewCanvas(160, 120);
+            try
+            {
+                window.AddSession(session);
+                var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+                var section = dock.Section("AI Generation");
+                dock.SetVisible(section, true);
+                Pump();
+                section.Content.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn).Text = "A ceramic cube";
+                Pump();
+                Assert.Contains(section.Content.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiActiveWorkflow" && button.IsEffectivelyVisible);
+                var run = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRun");
+                Assert.True(run.IsEffectivelyEnabled);
+                run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var timeout = DateTime.UtcNow.AddSeconds(15);
+                while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < timeout)
+                { await Task.Delay(10, TestContext.Current.CancellationToken); Pump(); }
+                Assert.True(window.AiTasks.Operation?.Status == AiOperationStatus.Completed, window.AiTasks.Operation?.Error);
+            }
+            finally { session.MarkSaved("workflow-run.cmps", session.History.CurrentId); window.Close(); }
+        }
+    }
     [AvaloniaTheory]
     [InlineData(AiTaskKind.RemoveObject, "Remove Object", "dock")]
     [InlineData(AiTaskKind.GenerativeExpand, "Gen Expand", "dock")]

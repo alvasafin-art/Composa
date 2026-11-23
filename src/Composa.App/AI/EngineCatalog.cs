@@ -63,7 +63,12 @@ public sealed class EngineCatalog
             {
                 asset = choices.GetValueOrDefault(slot.Key) ?? slot.Default;
                 var filename = asset.Replace('\\', '/').Split('/').Last();
-                if (title == null || slot.Kind != EngineAssetKind.DiffusionModel || filename != slot.Default.Replace('\\', '/').Split('/').Last())
+                var defaultFilename = slot.Default.Replace('\\', '/').Split('/').Last();
+                // The Klein checkpoint is distributed with both hyphens and underscores in its filename.
+                // Keep the server's exact identifier for routing and use the model title for either spelling.
+                var defaultModel = filename == defaultFilename || engine.Id == "flux2-klein-intel-xpu"
+                    && filename.Replace('_', '-').Equals(defaultFilename.Replace('_', '-'), StringComparison.OrdinalIgnoreCase);
+                if (title == null || slot.Kind != EngineAssetKind.DiffusionModel || !defaultModel)
                     title = Path.GetFileNameWithoutExtension(filename);
             }
         }

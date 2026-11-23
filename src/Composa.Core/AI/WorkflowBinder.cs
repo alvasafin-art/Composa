@@ -6,10 +6,11 @@ namespace Composa.AI;
 /// <summary>Applies semantic values to explicit node ids. Core code never searches ComfyUI display names.</summary>
 public static class WorkflowBinder
 {
-    public static JsonObject Bind(JsonObject workflow, EngineTaskBinding binding, IReadOnlyDictionary<string, object?> values)
+    public static JsonObject Bind(JsonObject workflow, EngineTaskBinding binding, IReadOnlyDictionary<string, object?> values,
+        bool pruneOptionalInputs = true)
     {
         var result = (JsonObject)workflow.DeepClone();
-        PruneMissingOptionalInputs(result, values);
+        if (pruneOptionalInputs) PruneMissingOptionalInputs(result, values);
         foreach (var (semantic, value) in values)
         {
             if (!binding.Inputs.TryGetValue(semantic, out var target)) continue;

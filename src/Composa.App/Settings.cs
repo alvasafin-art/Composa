@@ -14,6 +14,7 @@ public sealed class Settings
     public List<Dialogs.CanvasPreset> UserCanvasPresets { get; set; } = [];
     public string GenerateImagePrompt { get; set; } = "";
     public string ImageEditPrompt { get; set; } = "";
+    public AI.WorkflowPreferences Workflows { get; set; } = new();
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }
@@ -245,9 +246,13 @@ public sealed class Settings
         catch { return new Settings { StorageNotice = "Preferences could not be read. Using defaults.", recoveredPreferences = true }; }
     }
 
+    private static readonly JsonSerializerOptions PreferencesJson = new() { MaxDepth = 128, WriteIndented = true };
+
+    internal Settings CopyPreferences() => FromJson(JsonSerializer.Serialize(this, PreferencesJson));
+
     internal static Settings FromJson(string json)
     {
-        var value = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+        var value = JsonSerializer.Deserialize<Settings>(json, PreferencesJson) ?? new Settings();
         if (value.Language is not ("en" or "ru")) value.Language = "en";
         value.EraserPresets ??= [];
         value.BrushPresets ??= [];
@@ -273,7 +278,7 @@ public sealed class Settings
             || value.ObjectSelectionModel == ObjectSelectionSource.ComfyUI && value.ObjectSelectionComfyModel is { } model
                 && !model.Contains("birefnet", StringComparison.OrdinalIgnoreCase))
             value.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
-        using var document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = PreferencesJson.MaxDepth });
         if (!document.RootElement.TryGetProperty(nameof(PromptSelectionRevision), out _))
         {
             if (value.ObjectSelectionModel is ObjectSelectionSource.MobileSam or ObjectSelectionSource.EfficientSamTi)
@@ -301,19 +306,32 @@ public sealed class Settings
         if (Persist) SaveTo(FilePath);
     }
 
-    internal void SaveTo(string path)
+    internal void SaveWithWorkflows(AI.WorkflowPreferences workflows)
+    {
+        var previous = Workflows;
+        Workflows = workflows;
+        if (!Persist || SaveTo(FilePath)) return;
+        Workflows = previous;
+        throw new IOException(StorageNotice);
+    }
+
+    internal bool SaveTo(string path)
     {
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(temp, JsonSerializer.Serialize(this, PreferencesJson));
             if (File.Exists(path) && !recoveredPreferences) File.Replace(temp, path, path + ".bak");
             else File.Move(temp, path, true);
             recoveredPreferences = false;
+            return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        { StorageNotice = "Preferences could not be saved: " + error.Message; }
+        {
+            StorageNotice = "Preferences could not be saved: " + error.Message;
+            return false;
+        }
         finally { try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
 
@@ -351,6 +369,8 @@ public sealed record AiOperationSettings
     public string ColorMatch { get; init; } = "off";
     public int GptContextPadding { get; init; }
     public long Seed { get; init; } = -1;
+    public int? WorkflowSteps { get; init; }
+    public string? WorkflowSampler { get; init; }
     public int Variants { get; init; } = 1;
     public Composa.AI.AiVariantMode VariantMode { get; init; } = Composa.AI.AiVariantMode.List;
     internal IReadOnlyList<Composa.AI.AiLora> ActiveLoras(Composa.AI.EngineProfile? engine) =>

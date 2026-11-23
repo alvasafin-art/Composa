@@ -100,10 +100,13 @@ public sealed class ComfyClient : IComfyConnection
         return ImageFiles.Encode(gray, ExportFormat.Png);
     }
 
+    internal static bool UsesApiCredits(JsonObject workflow) =>
+        workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode" or PartnerNodes.SeedreamNode);
+
     public async Task<string> SubmitAsync(JsonObject workflow, Guid clientId, CancellationToken cancellationToken = default)
     {
         var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = clientId.ToString("N") };
-        if (workflow.Any(node => node.Value?["class_type"]?.GetValue<string>() is "OpenAIGPTImageNodeV2" or "GeminiNanoBanana2V2" or "OpenAIChatNode" or PartnerNodes.SeedreamNode))
+        if (UsesApiCredits(workflow))
         {
             var key = apiKey()?.Trim();
             if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone does not authorize external requests.");

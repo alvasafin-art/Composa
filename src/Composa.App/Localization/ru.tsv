@@ -1070,7 +1070,7 @@ Scale %	Масштаб, %
 Scene editing exceeds the document's {0} MP budget. Use a smaller document.	Для правки сцены превышен лимит {0} Мп. Уменьшите документ.
 Scene editing expects one result per pass. No partial edit was applied.	Каждый проход обработки сцены должен вернуть один результат. Частичные правки не применены.
 Scene editing needs a Normal image layer. Keep a copy of the original blend before converting it.	Для редактирования сцены нужен слой с обычным наложением. Перед преобразованием сохраните копию с исходным наложением.
-Scene editing supports FLUX.2 Klein, Qwen Image 2.1 Turbo, GPT and Nano Banana.	Редактирование сцены поддерживает FLUX.2 Klein, Qwen Image 2.1 Turbo, GPT и Nano Banana.
+Scene editing supports FLUX 2 Image Klein 9B, Qwen Image 2.1 Turbo, GPT and Nano Banana.	Редактирование сцены поддерживает FLUX 2 Image Klein 9B, Qwen Image 2.1 Turbo, GPT и Nano Banana.
 Scene input exceeds the {0} MP / {1} px limit.	Вход сцены превышает ограничение {0} Мп / {1} пикс.
 Scene reconstruction dimensions differ from the result.	Размеры восстановленной сцены не совпадают с результатом.
 Scene results exceed the document's {0} MP budget.	Результаты сцены превышают лимит документа {0} Мп.
@@ -1807,3 +1807,33 @@ Modern layout	Новая
 AI panel placement	Положение ИИ-панели
 Side panel	Боковая панель
 Under selection	Под выделением
+Workflows	Рабочие процессы
+Workflow bindings	Привязки рабочего процесса
+Workflow name	Название рабочего процесса
+Graph JSON	JSON графа
+Import JSON…	Импорт JSON…
+Import workflow JSON	Импорт JSON рабочего процесса
+Restore factory	Восстановить заводской
+Save workflow	Сохранить рабочий процесс
+Follow image model	По выбранной модели
+Factory	Заводской
+Node ID	ID узла
+Input key	Ключ входа
+Add binding	Добавить привязку
+Remove binding	Убрать привязку
+Sampler	Сэмплер
+Negative prompt	Негативный запрос
+Source image	Исходное изображение
+Context image	Изображение контекста
+Active layer image	Изображение активного слоя
+Selection mask	Маска выделения
+Change or remove bindings in Settings → Workflows.	Привязки можно изменить или снять в разделе «Настройки → Рабочие процессы».
+ComfyUI API-format JSON or a request containing the prompt object. In ComfyUI, use Export Workflow (API).	Поддерживаются JSON в API-формате ComfyUI и тело запроса с объектом prompt. В ComfyUI выберите Export Workflow (API).
+Active workflows use the saved graph. The bindings below show every input Composa can replace.	При запуске используется сохранённый граф. Ниже перечислены поля, которые может заполнить Composa.
+Workflow ready. Save settings to apply your changes.	Рабочий процесс готов. Сохраните настройки, чтобы применить изменения.
+Factory workflow restored. Save settings to apply your changes.	Заводской рабочий процесс восстановлен. Сохраните настройки, чтобы применить изменения.
+Add the required bindings before assigning this workflow to an operation.	Добавьте обязательные привязки перед назначением рабочего процесса операции.
+This JSON contains the ComfyUI canvas layout. Open it in ComfyUI and use Export Workflow (API).	Это JSON холста ComfyUI. Откройте его в ComfyUI и выберите Export Workflow (API).
+Bind Prompt to a text input before assigning this workflow.	Перед назначением привяжите запрос к текстовому входу.
+Bind Source image, Context image or Active layer image to an image input for this operation.	Для этой операции привяжите исходное изображение, контекст или активный слой ко входу изображения.
+Bind Selection mask to an input that loads a grayscale mask for Generative Fill.	Для генеративной заливки привяжите маску выделения ко входу, который загружает маску в оттенках серого.

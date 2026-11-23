@@ -14,6 +14,7 @@ internal static class AiGenerationControls
     internal static void ShowBusy(Button button, bool busy) => button.Classes.Set("ai-busy", busy);
 
     internal const int EditorSpacing = 8;
+    internal const int ModelPickerWidth = 166;
 
     internal static TextBox PromptField(string placeholder)
     {

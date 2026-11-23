@@ -20,6 +20,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
     internal Func<IReadOnlyDictionary<string,string>?> PreferredModelRoutes { get; set; } = () => null;
     public Func<AiTaskKind, string?> ModelKeyForTask { get; set; } = _ => null;
     public Func<AiTaskKind, string?> EngineIdForTask { get; set; } = _ => null;
+    internal Func<WorkflowPreferences> WorkflowSettings { get; set; } = () => new();
+    internal SavedWorkflow? ActiveWorkflow(AiTaskKind task, EngineProfile? engine) => WorkflowSettings().Active(task, engine?.Id);
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
     {
         if(task==AiTaskKind.MatchToScene && overrideId==null && EngineIdForTask(task)==null) task=AiTaskKind.Harmonize;
@@ -77,7 +79,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
     internal AiTaskService SettingsPreview(Func<string>? address = null) => new(address ?? serverUrl, Engines.Root, clientFactory)
     {
         SelectedEngine = SelectedEngine, ConnectionTimeoutSeconds = ConnectionTimeoutSeconds,
-        ModelSelections = ModelSelections, ServerInfo = ServerInfo, ServerCapabilities = ServerCapabilities,
+        ModelSelections = ModelSelections, WorkflowSettings = WorkflowSettings, ServerInfo = ServerInfo, ServerCapabilities = ServerCapabilities,
         ConnectedServerUrl = ConnectedServerUrl, ConnectionState = ConnectionState
     };
 
@@ -197,18 +199,30 @@ public sealed partial class AiTaskService : IAiTaskRunner
             await RunSceneAsync(editor,request,cancellationToken);
             return;
         }
-        var engine = EngineFor(requestedTask, request.EngineId) ?? throw new InvalidOperationException("The workflow pack assigned to this task is unavailable. Choose one in ComfyUI Settings.");
-        var binding = engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
+        var engine = EngineFor(requestedTask, request.EngineId);
+        var saved = ActiveWorkflow(requestedTask, engine);
+        if (saved != null)
+        {
+            EditableWorkflows.Validate(saved, request.Task);
+            request = request with { Settings = request.Settings with { VariantMode = AiVariantMode.List } };
+        }
+        engine ??= saved != null ? new EngineProfile { Id = "custom-workflow", DisplayName = saved.Name }
+            : throw new InvalidOperationException("The workflow pack assigned to this task is unavailable. Choose one in ComfyUI Settings.");
+        var binding = saved != null
+            ? new EngineTaskBinding { Task = request.Task, Inputs = saved.Bindings, OutputIsComposited = saved.OutputIsComposited,
+                OutputMode = request.Task == AiTaskKind.GenerateImage ? AiOutputMode.NewLayer : AiOutputMode.NewLayerWithMask }
+            : engine.Binding(request.Task) ?? throw new InvalidOperationException($"{engine.DisplayName} does not support {request.Task.DisplayName()}.");
         var fullEdit = request.Task == AiTaskKind.ImageEdit || editor.Session.Selection == null && request.Task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground
             || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage;
-        if (fullEdit) binding = engine.Binding(AiTaskKind.ImageEdit) ?? throw new InvalidOperationException("This pack has no full-image edit workflow.");
-        var workflow = engine.Workflow(binding.Workflow);
-        var graph = Engines.ReadWorkflow(engine, workflow);
-        var qwen = engine.Id == QwenImageWorkflow.EngineId;
-        if (NanoBanana.IsModel(engine.ApiModel) && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > 14)
+        if (saved == null && fullEdit) binding = engine.Binding(AiTaskKind.ImageEdit) ?? throw new InvalidOperationException("This pack has no full-image edit workflow.");
+        var workflow = saved == null ? engine.Workflow(binding.Workflow) : new EngineWorkflow();
+        var graph = saved?.Graph ?? Engines.ReadWorkflow(engine, workflow);
+        var qwen = saved == null && engine.Id == QwenImageWorkflow.EngineId;
+        var paid = saved == null && engine.PaidApi;
+        if (paid && NanoBanana.IsModel(engine.ApiModel) && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > 14)
             throw new InvalidOperationException("Nano Banana accepts up to 14 input images, including the source.");
         int referenceLimit = engine.ApiModel switch { PartnerNodes.Seedream => 10, NanoBanana.Model => 14, _ => 6 };
-        if (engine.ApiModel == PartnerNodes.Seedream && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > referenceLimit)
+        if (paid && engine.ApiModel == PartnerNodes.Seedream && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > referenceLimit)
             throw new InvalidOperationException("Seedream accepts up to ten input images, including the source.");
         if((NanoBanana.IsModel(engine.ApiModel) || engine.ApiModel == PartnerNodes.Seedream || engine.Id == Flux3Workflow.EngineId || qwen) && request.Settings.VariantMode==AiVariantMode.Batch)
             request=request with { Settings=request.Settings with { VariantMode=AiVariantMode.List } };
@@ -230,9 +244,9 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
             using var inputs = await PrepareInputsAsync(editor.Session, preparedRequest, referenceLimit, linked.Token);
-            using var apiInputs = engine.PaidApi ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel), linked.Token) : null;
-            using var qwenInputs = qwen || engine.Id == Flux3Workflow.EngineId ? await Task.Run(() => new QwenImageInputs(inputs, preparedRequest), linked.Token) : null;
-            using var editable = engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
+            using var apiInputs = paid ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel), linked.Token) : null;
+            using var qwenInputs = saved == null && (qwen || engine.Id == Flux3Workflow.EngineId) ? await Task.Run(() => new QwenImageInputs(inputs, preparedRequest), linked.Token) : null;
+            using var editable = saved == null && engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
                 && (inputs.SelectionMask != null || request.Task == AiTaskKind.GenerativeExpand && !fullEdit || inputs.BackgroundMask != null)
                 ? await Task.Run(() => new EditableMaskedWorkflow(inputs, preparedRequest), linked.Token) : null;
             using var localOutputMask = apiInputs?.OutputMask() ?? (qwenInputs?.Mask is { } qwenMask ? Pixels.Clone(qwenMask) : editable == null ? null : Pixels.Clone(editable.Mask));
@@ -244,7 +258,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 await TestConnectionAsync(linked.Token, client.Address.ToString());
             if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities is not { } capabilities)
                 throw new InvalidOperationException("The ComfyUI connection changed during this request. Retry after connecting to the desired server.");
-            if (engine.PaidApi)
+            if (paid || saved != null && ComfyClient.UsesApiCredits(graph))
             {
                 if (string.IsNullOrWhiteSpace(Credential) && RequestApiKey != null)
                 {
@@ -253,23 +267,26 @@ public sealed partial class AiTaskService : IAiTaskRunner
                     SessionApiKey = key.Trim();
                 }
                 if (string.IsNullOrWhiteSpace(Credential)) throw new InvalidOperationException("Add a Comfy.org API key in AI → ComfyUI Settings. Browser login alone is not enough.");
-                if (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel))
+                if (paid && (engine.ApiModel == null || !PartnerPricing.SupportsModel(capabilities, engine.ApiModel)))
                     throw new InvalidOperationException($"The connected ComfyUI does not offer {engine.ApiModel}. Update ComfyUI and refresh its models.");
-                if (!NanoBanana.IsModel(engine.ApiModel) && !PartnerPricing.Choices(capabilities, engine.ApiModel, engine.ApiModel == PartnerNodes.Seedream ? "size_preset" : "size").Contains("Custom"))
+                if (paid && !NanoBanana.IsModel(engine.ApiModel) && !PartnerPricing.Choices(capabilities, engine.ApiModel!, engine.ApiModel == PartnerNodes.Seedream ? "size_preset" : "size").Contains("Custom"))
                     throw new InvalidOperationException("Update ComfyUI: this model needs Custom dimensions to preserve image/mask proportions.");
                 var quality=request.Settings.Values.GetValueOrDefault("apiQuality")?.ToString() ?? "low";
                 if(NanoBanana.IsModel(engine.ApiModel)) quality=NanoBanana.Resolution(quality);
-                if (engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
+                if (paid && engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel!, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
-            WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
+            if (saved == null) WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
-                var boundGraph = BuildExecutionGraph(graph, engine, binding, inputs, request, files, (seed + index) & long.MaxValue,
-                    capabilities, editor.Session.Document.Bounds, editable, qwenInputs, apiInputs, variants);
+                var variantSeed = (seed + index) & long.MaxValue;
+                var boundGraph = saved != null ? EditableWorkflows.Bind(saved, binding, inputs, request, files, variantSeed)
+                    : BuildExecutionGraph(graph, engine, binding, inputs, request, files, variantSeed,
+                        capabilities, editor.Session.Document.Bounds, editable, qwenInputs, apiInputs, variants);
                 var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
-                if (!compatibility.IsCompatible) throw new InvalidOperationException(CompatibilityMessage(engine, compatibility)
-                    + "\nChoose the missing models or refresh the server list in AI → ComfyUI Settings.");
+                if (!compatibility.IsCompatible) throw new InvalidOperationException(saved != null
+                    ? $"Workflow \"{saved.Name}\" needs {string.Join(", ", compatibility.Missing)}. Install these on the server or edit the graph in Settings → Workflows."
+                    : CompatibilityMessage(engine, compatibility) + "\nChoose the missing models or refresh the server list in AI → ComfyUI Settings.");
                 return boundGraph;
             }
             // Validate before sending source/reference pictures or submitting a generation.
@@ -306,7 +323,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                             CreditsUsed = state.CreditsUsed is { } cost ? (reportedCredits ?? 0) + cost : reportedCredits };
                         StateChanged?.Invoke();
                     });
-                    if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
+                    if (saved == null && engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
                     {
                         if (editor.Session.Document.RasterPixels() + (long)inputs.SourceImage.Width * inputs.SourceImage.Height * request.Settings.UpscaleFactor * request.Settings.UpscaleFactor > DocumentLimits.DocumentPixelBudget)
                             throw new InvalidOperationException($"Upscale exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
@@ -472,6 +489,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
     internal EngineCompatibility OperationCompatibility(EngineProfile engine, AiTaskKind operation, IReadOnlyDictionary<string, string> choices, AiOperationSettings profile)
     {
         if (ServerCapabilities is not { } capabilities) return new(false, ["Connect to ComfyUI"]);
+        if (ActiveWorkflow(operation, engine) is { } saved)
+        {
+            EditableWorkflows.Validate(saved, operation);
+            return EngineCompatibility.CheckWorkflow(saved.Graph, capabilities);
+        }
         var binding = engine.Binding(operation);
         if (binding == null) return new(false, ["No workflow for this operation"]);
         var scene = operation is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;

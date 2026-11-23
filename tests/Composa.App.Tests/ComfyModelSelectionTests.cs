@@ -50,6 +50,26 @@ public class ComfyModelSelectionTests
     }
 
     [Fact]
+    public void Klein_filename_alias_uses_the_model_title_and_keeps_the_exact_server_key()
+    {
+        var catalog = new EngineCatalog(Engines);
+        var engine = Assert.Single(catalog.Profiles, profile => profile.Id == "flux2-klein-intel-xpu");
+        var slot = Assert.Single(catalog.ModelSlots(engine), slot => slot.Kind == EngineAssetKind.DiffusionModel);
+        var choices = new Dictionary<string, string> { [slot.Key] = "shared/flux-2-klein-9b-int8-convrot.safetensors" };
+
+        foreach (var task in new[] { AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill })
+        {
+            var model = catalog.ModelFor(engine, task, choices);
+            Assert.Equal("FLUX 2 Image Klein 9B", model.Name);
+            Assert.Equal(choices[slot.Key], model.Identifier);
+            Assert.Equal("server:" + choices[slot.Key], model.ModelKey);
+        }
+
+        choices[slot.Key] = "shared/flux-2-klein-4b-fp8.safetensors";
+        Assert.Equal("flux-2-klein-4b-fp8", catalog.ModelFor(engine, AiTaskKind.GenerateImage, choices).Name);
+    }
+
+    [Fact]
     public void Settings_round_trip_preserves_subfolders_and_isolates_normalized_servers()
     {
         var settings = new Settings();
@@ -216,15 +236,83 @@ public class ComfyModelSelectionTests
             Dispatcher.UIThread.RunJobs();
             Assert.True(dialog.Bounds.Height <= owner.Bounds.Height);
             var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<TabControl>());
-            Assert.Equal(4, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
+            Assert.Equal(5, tabs.Items.Count); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
             Assert.True(Screenshots.Save(dialog, "comfy-complete-settings"));
+            tabs.SelectedIndex = 4;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "WorkflowJson");
+            Assert.True(Screenshots.Save(dialog, "workflow-settings"));
         }
         finally { dialog.Close(false); owner.Close(); }
         Assert.False(await task);
         Assert.Empty(settings.ComfyModelSelections);
+    }
+
+    [AvaloniaFact]
+    public void Workflow_editor_preserves_the_previous_graph_on_error_and_restores_the_factory_route()
+    {
+        var draft = new WorkflowPreferences();
+        var page = new WorkflowSettingsPage(draft, new EngineCatalog(Engines), () => new Dictionary<string, string>(), () => null);
+        var window = new Window { Content = new ScrollViewer { Content = page.Content }, Width = 650, Height = 500 };
+        window.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            var chooser = page.Content.GetVisualDescendants().OfType<ComboBox>().Single(box => box.Name == "WorkflowPicker");
+            var json = page.Content.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "WorkflowJson");
+            var status = page.Content.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "WorkflowStatus");
+            const AiTaskKind task = AiTaskKind.GenerateImage;
+            var id = WorkflowPreferences.FactoryId("flux2-klein-intel-xpu", task);
+            chooser.SelectedItem = chooser.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, id));
+            var factoryJson = json.Text!;
+            var graph = EditableWorkflows.Parse(factoryJson);
+            graph["sampler"]!["inputs"]!["steps"] = 12;
+            json.Text = graph.ToJsonString();
+            Click("Save workflow");
+            var saved = draft.Workflows[id];
+            Assert.Equal(12, saved.Graph["sampler"]!["inputs"]!["steps"]!.GetValue<int>());
+            json.Text = "{ invalid";
+            Click("Save workflow");
+            Assert.Same(saved, draft.Workflows[id]);
+            Assert.Contains("Fix the JSON syntax", status.Text);
+
+            json.Text = graph.ToJsonString();
+            Click("Duplicate");
+            Assert.Equal(2, draft.Workflows.Count);
+            Assert.Contains(draft.Workflows.Values, workflow => workflow.Name.EndsWith("Copy", StringComparison.Ordinal));
+            Assert.Throws<InvalidDataException>(() => page.Import("Layout", """{"nodes": []}"""));
+            Assert.Equal(2, draft.Workflows.Count);
+            page.Import("Imported", factoryJson);
+            Assert.Equal(3, draft.Workflows.Count);
+            var fill = page.Content.GetVisualDescendants().OfType<ComboBox>().Single(box => box.Name == "WorkflowForGenerativeFill");
+            fill.SelectedItem = fill.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Content, "Imported"));
+            Assert.Empty(draft.Assignments);
+            Assert.Contains("Bind Prompt", status.Text);
+            page.Content.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "WorkflowBindingNode").Text = "prompt";
+            page.Content.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "WorkflowBindingInput").Text = "text";
+            Click("Add binding");
+            Click("Save workflow");
+            var generate = page.Content.GetVisualDescendants().OfType<ComboBox>().Single(box => box.Name == "WorkflowForGenerateImage");
+            generate.SelectedItem = generate.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Content, "Imported"));
+            Assert.Equal("Imported", draft.Active(task, "flux2-klein-intel-xpu")!.Name);
+            Click("Remove binding");
+            Click("Save workflow");
+            Assert.Contains("Bind Prompt", status.Text);
+            Assert.Contains("prompt", draft.Active(task, "flux2-klein-intel-xpu")!.Bindings.Keys);
+            generate.SelectedIndex = 0;
+
+            chooser.SelectedItem = chooser.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, id));
+            Click("Restore factory");
+            Assert.Null(draft.Active(task, "flux2-klein-intel-xpu"));
+            Assert.Equal(factoryJson, json.Text);
+        }
+        finally { window.Close(); }
+
+        void Click(string label) => page.Content.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, label))
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
     }
 
     [AvaloniaFact]
