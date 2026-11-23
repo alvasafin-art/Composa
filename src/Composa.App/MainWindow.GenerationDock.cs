@@ -112,7 +112,12 @@ public sealed partial class MainWindow
         presentedTask = task;
         dockOperationName.Text = DockTaskName(task);
         AutomationProperties.SetName(dockOperation, "Choose AI operation · " + dockOperationName.Text);
-        aiFloatingPrompt.PlaceholderText = task == AiTaskKind.GenerateImage ? "Describe the image you want to create…" : "Describe the edit…";
+        aiFloatingPrompt.PlaceholderText = Locale.T(task switch
+        {
+            AiTaskKind.GenerateImage => "Describe the image you want to create…",
+            AiTaskKind.ChangeBackground => "Describe the background, surface and lighting",
+            _ => "Describe the edit…"
+        });
         RefreshEditorModels();
     }
 

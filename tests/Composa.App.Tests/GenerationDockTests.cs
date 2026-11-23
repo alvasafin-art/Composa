@@ -18,6 +18,102 @@ namespace Composa.App.Tests;
 public class GenerationDockTests
 {
     [AvaloniaTheory]
+    [InlineData(AiTaskKind.ChangeBackground, "Change Background", "dock")]
+    [InlineData(AiTaskKind.Harmonize, "Harmonize", "main")]
+    [InlineData(AiTaskKind.MatchToScene, "Match to Scene", "quick")]
+    [InlineData(AiTaskKind.ChangeBackground, "Change Background", "hidden")]
+    [InlineData(AiTaskKind.Harmonize, "Harmonize", "collapsed")]
+    public void Choosing_a_scene_edit_switches_the_shared_editor_without_opening_a_window(AiTaskKind task, string label, string entry)
+    {
+        var window = new MainWindow { Width = 1100, Height = 800 };
+        window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
+        window.Show();
+        try
+        {
+            var session = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(session);
+            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            var prompt = window.AiFloatingPanel.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
+            prompt.Text = "Keep the existing draft.";
+            if (entry != "hidden") dock.SetVisible(section, true);
+            if (entry == "collapsed") dock.SetCollapsed(section, true);
+            Pump();
+
+            if (entry is "dock" or "quick")
+            {
+                var selector = entry == "dock" ? "AiDockOperation" : "AiTaskMenu";
+                var button = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == selector);
+                var menu = Assert.IsType<MenuFlyout>(button.Flyout);
+                menu.ShowAt(button);
+                Pump();
+                ClickOperation(menu.Items.OfType<MenuItem>(), label);
+                menu.Hide();
+            }
+            else ClickOperation(AiMenuItems(window), label);
+
+            Pump();
+            Assert.Empty(window.OwnedWindows);
+            Assert.Null(window.AiTasks.Operation);
+            Assert.True(dock.Presents(section));
+            Assert.Equal("Choose AI operation · " + label, Operation(section.Content));
+            Assert.Same(prompt, section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn));
+            Assert.Equal("Keep the existing draft.", prompt.Text);
+            var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible);
+            var selected = Assert.IsType<ImageModelChoice>(picker.SelectedItem);
+            Assert.Equal("chatgpt-image-2.5", selected.Engine.Id);
+            if (task == AiTaskKind.ChangeBackground)
+            {
+                var cost = section.Content.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Name == "AiCreditEstimate");
+                var singlePass = PartnerPricing.Estimate(PartnerImageTests.Capabilities(), selected.Engine.ApiModel!, "low", "Custom", 1, 1)!;
+                Assert.Equal(new PartnerPriceEstimate(singlePass.MinimumUsd * 2, singlePass.MaximumUsd * 2).RoundedCredits(1),
+                    cost.Children.OfType<TextBlock>().Single().Text);
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(AiTaskKind.Relight, "Relight", "Lighting preset")]
+    [InlineData(AiTaskKind.Upscale, "Upscale", "Scale")]
+    public void Operations_with_extra_controls_keep_their_dialog(AiTaskKind task, string label, string extraControl)
+    {
+        var window = new MainWindow { Width = 1100, Height = 800 };
+        if (task == AiTaskKind.Relight) window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
+        window.Show();
+        try
+        {
+            window.AddSession(EditorSession.NewCanvas(160, 120, SKColors.White));
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            Pump();
+            var operation = Operation(section.Content);
+
+            ClickOperation(AiMenuItems(window), label);
+            Pump();
+            var dialog = Assert.Single(window.OwnedWindows);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == extraControl);
+            Assert.Equal(operation, Operation(section.Content));
+            dialog.Close();
+            Pump();
+            Assert.Null(window.AiTasks.Operation);
+        }
+        finally
+        {
+            foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close();
+            window.Close();
+        }
+    }
+
+    private static IEnumerable<MenuItem> AiMenuItems(MainWindow window) =>
+        window.GetVisualDescendants().OfType<MenuItem>().Single(i => i.Header?.ToString()?.Replace("_", "") == "AI").Items.OfType<MenuItem>();
+
+    private static void ClickOperation(IEnumerable<MenuItem> items, string name) =>
+        items.Single(i => i.Header?.ToString()?.TrimEnd('…') == name).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+    [AvaloniaTheory]
     [InlineData(AiTaskKind.RemoveObject, "Remove Object", "dock")]
     [InlineData(AiTaskKind.GenerativeExpand, "Gen Expand", "dock")]
     [InlineData(AiTaskKind.RemoveObject, "Remove Object", "main")]

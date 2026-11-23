@@ -1240,12 +1240,8 @@ public static partial class AiDialogs
             }
             var sourceCount = task == AiTaskKind.GenerateImage ? 0 : 1;
             var count = sourceCount + (references?.Count ?? referenceCount);
-            var estimate=paid?PartnerPricing.Estimate(service?.ServerCapabilities,service!.SelectedEngine!.ApiModel!,quality,"Custom",count,variants):null;
-            if(task==AiTaskKind.ChangeBackground && estimate!=null)
-            {
-                var cleanupEstimate=PartnerPricing.Estimate(service?.ServerCapabilities,service!.SelectedEngine!.ApiModel!,quality,"Custom",1,variants);
-                estimate=cleanupEstimate==null?null:new(estimate.MinimumUsd+cleanupEstimate.MinimumUsd,estimate.MaximumUsd+cleanupEstimate.MaximumUsd);
-            }
+            var estimate = paid ? PartnerPricing.EstimateForTask(task, service?.ServerCapabilities,
+                service!.SelectedEngine!.ApiModel!, quality, count, variants) : null;
             cost.IsVisible = paid && !toneOnly;
             cost.Text = paid ? estimate?.Label ?? "Paid API · estimate unavailable" : "";
         }

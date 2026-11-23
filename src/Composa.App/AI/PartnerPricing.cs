@@ -17,6 +17,16 @@ internal static class PartnerPricing
     // Official Comfy rate, verified 2026-10-01: https://support.comfy.org/articles/1982697177-partner-nodes-pricing
     public const double CreditsPerDollar = 211;
     public static string Reported(double credits) => $"{credits.ToString("0.##", CultureInfo.InvariantCulture)} cr / ${(credits / CreditsPerDollar).ToString("0.000", CultureInfo.InvariantCulture)}";
+    public static PartnerPriceEstimate? EstimateForTask(AiTaskKind task, ComfyServerCapabilities? capabilities, string model, string quality, int images, int variants)
+    {
+        var estimate = Estimate(capabilities, model, quality, "Custom", images, variants);
+        if (task != AiTaskKind.ChangeBackground || estimate == null) return estimate;
+
+        // The cleanup pass removes the generated stand-in subject using the generated image alone.
+        var cleanup = Estimate(capabilities, model, quality, "Custom", 1, variants);
+        return cleanup == null ? null : new(estimate.MinimumUsd + cleanup.MinimumUsd, estimate.MaximumUsd + cleanup.MaximumUsd);
+    }
+
     public static PartnerPriceEstimate? Estimate(ComfyServerCapabilities? capabilities, string model, string quality, string size, int images, int variants)
     {
         var expression = capabilities?.NodeDefinitions.GetValueOrDefault(PartnerNodes.NodeFor(model))?["price_badge"]?["expr"]?.GetValue<string>();

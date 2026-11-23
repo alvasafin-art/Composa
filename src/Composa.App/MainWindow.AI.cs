@@ -113,7 +113,14 @@ public sealed partial class MainWindow
     {
         if (!CanRunAi(task)) return;
         bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
-        if (DockEditorVisible && (immediate || task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
+        bool sceneInDock = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
+        if (sceneInDock && !DockEditorVisible)
+        {
+            SetCanvasOnly(false);
+            dock.SetVisible(generationSection, true);
+            dock.Activate(generationSection);
+        }
+        if (DockEditorVisible && (sceneInDock || immediate || task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
         {
             manualDockTask = task;
             RefreshAiUi();
@@ -384,7 +391,8 @@ public sealed partial class MainWindow
         if (aiEngineCombo == null) return;
         var task = EditorTask;
         var engine = PanelEngine(task);
-        var choices = aiTasks.Engines.ImageModels(task, engine, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
+        var modelTask = task == AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task;
+        var choices = aiTasks.Engines.ImageModels(modelTask, engine, settings.ComfyModelsFor(settings.ComfyServerUrl), settings.AiModelRoutes);
         refreshingAiEngine = true;
         try
         {
@@ -450,7 +458,13 @@ public sealed partial class MainWindow
         var task = EditorTask;
         var fillEngine = PanelEngine(task);
         var fillProfile = AiOptions(task, fillEngine);
-        if (aiFloatingAlignment != null) aiFloatingAlignment.IsEnabled = task != AiTaskKind.GenerateImage;
+        var toneOnly = task == AiTaskKind.MatchToScene && fillProfile.Scene.MatchMode == SceneMatchMode.ToneAndColor;
+        aiFloatingPrompt.IsEnabled = !toneOnly;
+        if (aiFloatingAlignment != null)
+        {
+            aiFloatingAlignment.IsVisible = !toneOnly;
+            aiFloatingAlignment.IsEnabled = task != AiTaskKind.GenerateImage;
+        }
         if (aiHeaderReference != null) aiHeaderReference.IsEnabled = aiReferences.Count < 6;
         if (aiEngineCombo != null)
         {
@@ -477,12 +491,12 @@ public sealed partial class MainWindow
             _ => ""
         });
         if (aiFloatingGenerate != null) Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
-        aiPriceBadge.IsVisible = expanded && fillEngine?.PaidApi == true;
+        aiPriceBadge.IsVisible = expanded && fillEngine?.PaidApi == true && !toneOnly;
         PartnerPriceEstimate? estimate = null;
         if (aiPriceBadge.IsVisible)
         {
             var count = (task == AiTaskKind.GenerateImage ? 0 : 1) + aiReferences.Count; // cropped source and genuine user references only
-            estimate = PartnerPricing.Estimate(aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, "Custom", count, 1);
+            estimate = PartnerPricing.EstimateForTask(task, aiTasks.ServerCapabilities, fillEngine!.ApiModel!, fillProfile.ApiQuality, count, 1);
             aiApiCost.Text = estimate?.RoundedCredits(1) ?? "—";
             var tip = estimate == null ? "Paid API · estimate unavailable" : $"One variant · {estimate.Label} (ComfyUI credits)";
             Locale.Tip(aiPriceBadge, tip);
