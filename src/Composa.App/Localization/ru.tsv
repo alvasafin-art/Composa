@@ -556,6 +556,12 @@ Flow	Поток
 Folder access requires the app's asynchronous script runner and allowed folders in Assistant Settings.	Для доступа к папкам нужен асинхронный запуск сценариев и разрешение в настройках ассистента.
 Font default	Как в шрифте
 Font family · hover or use the arrow keys to preview	Гарнитура · наведите указатель или используйте стрелки для просмотра
+Type to find a font · use the arrow keys to preview	Введите название шрифта · стрелки показывают образец
+No matching fonts.	Подходящих шрифтов нет.
+Drag the selected layout item to reorder it	Перетащите выбранный элемент, чтобы изменить порядок
+Drag to move the whole layout group	Перетащите, чтобы переместить всю группу
+Ctrl-click picks an item	Ctrl+щелчок выбирает элемент
+Drag the gap label to adjust spacing	Перетащите число рядом с промежутком, чтобы изменить отступ
 Font size	Кегль
 Font size of the selected characters; select text on the canvas to change a fragment	Размер выделенных символов
 Font style	Начертание

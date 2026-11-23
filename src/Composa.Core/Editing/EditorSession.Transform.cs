@@ -18,6 +18,10 @@ public sealed class TransformEdit
     private readonly Layer? maskTarget;
     private readonly bool hasFrameOverride;
     private SKPoint[]? overrideCorners;
+    private sealed record LayoutPlacement(Layer Layer, AutoLayout? Layout, LayoutImageFrame? ImageFrame,
+        LayerTransform? MaskTransform, SKMatrix? IndependentMask);
+    private LayoutPlacement[]? layoutPlacements;
+    public bool IsMovingAutoLayout { get; private set; }
 
     /// <summary>The frame being manipulated: an unrotated rectangle plus a rotation about its center.</summary>
     public SKRect StartFrame { get; }
@@ -73,19 +77,53 @@ public sealed class TransformEdit
         return [rotate.MapPoint(Frame.Left, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Bottom), rotate.MapPoint(Frame.Left, Frame.Bottom)];
     }
 
-    public void Set(SKRect frame, double rotation)
+    public void Set(SKRect frame, double rotation) => Set(frame, rotation, null);
+
+    private void Set(SKRect frame, double rotation, SKPoint? layoutDelta)
     {
         if (session.Transform != this) return; // Already committed or cancelled.
         var before = Area();
         Frame = frame;
         Rotation = rotation;
         overrideCorners = null;
-        Update();
+        if (layoutDelta is { } delta)
+        {
+            MoveMasks();
+            foreach (var (layer, start) in layers) layer.Transform = start.Translated(delta.X, delta.Y);
+            SetLayoutPlacement(delta);
+        }
+        else
+        {
+            if (IsMovingAutoLayout) SetLayoutPlacement(null);
+            Update();
+        }
         SyncMask();
         session.Invalidate(Geometry.Union(before, Area()));
     }
 
-    public void MoveBy(float dx, float dy) => Set(SKRect.Create(StartFrame.Left + dx, StartFrame.Top + dy, StartFrame.Width, StartFrame.Height), Rotation);
+    public void MoveBy(float dx, float dy)
+    {
+        layoutPlacements ??= maskTarget != null || hasFrameOverride || session.IsEditingMask || session.IsEditingChannel
+            ? []
+            : session.LayoutMovePlacementTargets().Select(layer => new LayoutPlacement(layer, layer.AutoLayout, layer.LayoutFrame,
+                layer.MaskTransform, layer.Mask != null && !layer.MaskLinked ? layer.MaskMatrix : null)).ToArray();
+        Set(SKRect.Create(StartFrame.Left + dx, StartFrame.Top + dy, StartFrame.Width, StartFrame.Height),
+            layoutPlacements.Length > 0 ? StartRotation : Rotation, layoutPlacements.Length > 0 ? new SKPoint(dx, dy) : null);
+    }
+
+    private void SetLayoutPlacement(SKPoint? delta)
+    {
+        IsMovingAutoLayout = delta != null;
+        foreach (var (layer, layout, frame, mask, placement) in layoutPlacements!)
+        {
+            layer.AutoLayout = layout;
+            layer.LayoutFrame = frame;
+            if (delta is { } offset) layer.TranslateLayout(offset.X, offset.Y);
+            if (placement is not { } matrix) continue;
+            if (delta is { } shift && shift != SKPoint.Empty) layer.PlaceMask(matrix.PostConcat(SKMatrix.CreateTranslation(shift.X, shift.Y)));
+            else layer.MaskTransform = mask;
+        }
+    }
 
     /// <summary>Drags a resize handle, optionally snapping its actual position to the document layout.</summary>
     public (float? SnapX, float? SnapY) Resize(TransformHandle handle, SKPoint point, bool free, bool fromCenter, float snapTolerance = 0)
@@ -410,18 +448,21 @@ public sealed partial class EditorSession
         if (EndChannelTransform(keep: true)) return;
         if (Transform == null) return;
         var changed = Transform.HasChanges;
-        foreach (var layer in Transform.Layers)
+        if (!Transform.IsMovingAutoLayout)
         {
-            // Live shapes are redrawn at their new size instead of being stretched.
-            if (layer.Text != null && layer.Pixels != null) RescaleText(layer);
-            if (layer.Shape != null && layer.Pixels != null)
+            foreach (var layer in Transform.Layers)
             {
-                int w = Math.Max(1, (int)Math.Round(layer.Transform.Width)), h = Math.Max(1, (int)Math.Round(layer.Transform.Height));
-                if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, w, h));
+                // Live shapes are redrawn at their new size instead of being stretched.
+                if (layer.Text != null && layer.Pixels != null) RescaleText(layer);
+                if (layer.Shape != null && layer.Pixels != null)
+                {
+                    int w = Math.Max(1, (int)Math.Round(layer.Transform.Width)), h = Math.Max(1, (int)Math.Round(layer.Transform.Height));
+                    if (w != layer.Pixels.Width || h != layer.Pixels.Height) ReplaceLivePixels(layer, RenderWorkingShape(layer.Shape, w, h));
+                }
             }
+            if (changed && !IsEditingMask && !IsEditingChannel)
+                ReflowAfterTransform(Transform.Layers, pendingBefore);
         }
-        if (changed && !IsEditingMask && !IsEditingChannel)
-            ReflowAfterTransform(Transform.Layers, pendingBefore);
         Transform = null;
         if (changed) Commit(); else Cancel();
         InvalidateAll();

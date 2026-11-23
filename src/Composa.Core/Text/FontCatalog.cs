@@ -29,7 +29,8 @@ public static class FontCatalog
         return tags;
     }).Contains(tag);
 
-    public static IReadOnlyList<Choice> ForFamily(string family) => families.GetOrAdd(family, static name =>
+    public static IReadOnlyList<Choice> ForFamily(string? family) => families.GetOrAdd(
+        TextStyle.IsFamilyName(family) ? family! : TextStyle.DefaultFontFamily, static name =>
     {
         using var styles = SKFontManager.Default.GetFontStyles(name);
         var result = new List<Choice>();

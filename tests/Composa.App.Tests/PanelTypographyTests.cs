@@ -90,6 +90,73 @@ public class PanelTypographyTests
     }
 
     [AvaloniaFact]
+    public void Font_search_shows_ranked_matches_and_the_open_list_ignores_wheel()
+    {
+        var window = new MainWindow { Width = 1360, Height = 900 };
+        var session = EditorSession.NewCanvas(320, 150, SKColors.White);
+        try
+        {
+            window.Show();
+            window.AddSession(session);
+            var installed = EditorSession.FontFamilies;
+            var original = installed.First();
+            var family = installed.First(f => f.Length > 4 && f != original);
+            var layer = session.AddText(new SKPoint(12, 24), new TextStyle { Text = "Type 123", FontFamily = original, Size = 35 });
+            Dispatcher.UIThread.RunJobs();
+            var combo = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "FontFamilyPicker");
+            var editor = combo.GetVisualDescendants().OfType<TextBox>().First();
+            Assert.Null(combo.ItemTemplate!.Build(null)); // The editable combo can have an empty selection.
+            var revision = session.Revision;
+            void Type(string text)
+            {
+                Assert.True(editor.Focus());
+                editor.SelectAll();
+                window.KeyTextInput(text);
+                Dispatcher.UIThread.RunJobs();
+            }
+
+            combo.IsDropDownOpen = true;
+            Dispatcher.UIThread.RunJobs();
+            var item = Assert.IsType<ComboBoxItem>(combo.ContainerFromIndex(combo.SelectedIndex));
+            using var pointer = new Pointer(1, PointerType.Mouse, true);
+            var wheel = new PointerWheelEventArgs(item, pointer, item, default, 0, new PointerPointProperties(),
+                KeyModifiers.None, new Vector(0, -1));
+            item.RaiseEvent(wheel);
+            Assert.True(wheel.Handled);
+            Assert.Equal(original, combo.SelectedItem);
+            Assert.Equal(revision, session.Revision);
+
+            var query = family[1..^1].ToLowerInvariant();
+            Type(query);
+            Assert.True(combo.IsDropDownOpen);
+            Assert.Equal(query, editor.Text);
+            var matches = combo.Items.OfType<string>().ToArray();
+            Assert.Contains(family, matches);
+            Assert.Equal(installed.Count(f => f.Contains(query, StringComparison.OrdinalIgnoreCase)), matches.Length);
+            Assert.All(matches, match => Assert.Contains(query, match, StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(revision, session.Revision);
+
+            Type("zz00_no_font_candidate_00zz");
+            Assert.Empty(combo.Items.OfType<string>());
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Assert.Equal(revision, session.Revision);
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(combo.IsDropDownOpen);
+            Assert.Equal(original, editor.Text);
+
+            Type(family.ToLowerInvariant());
+            Assert.Equal(family, combo.Items[0]);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(family, layer.Text!.FontFamily);
+            Assert.False(combo.IsDropDownOpen);
+            Assert.Empty(window.OwnedWindows);
+        }
+        finally { session.MarkSaved("font-search.cmps"); window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Spacing_fields_align_units_and_convert_values_in_place()
     {
         var window = new MainWindow { Width = 1440, Height = 900 };

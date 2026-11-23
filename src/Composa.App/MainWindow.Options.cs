@@ -534,10 +534,9 @@ public sealed partial class MainWindow
         // A long font name is cut off rather than widening the bar.
         // While typing, the family and installed style land on the selected letters only, as the color does.
         void ChangeFace(Func<TextFace, TextFace> change) { if (!updating) s.SetTextFace(change); }
-        var font = Ui.Combo(families, family, f => f, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face), 190);
-        font.MaxWidth = 190;
-        Locale.Tip(font, Locale.T("Font family · hover or use the arrow keys to preview"));
-        EnableFontSamples(font, s);
+        var font = new ComboBox { Width = 190, MaxWidth = 190 };
+        Locale.Tip(font, "Type to find a font · use the arrow keys to preview");
+        var refreshFont = EnableFontSamples(font, s, families, f => ChangeFace(face => Composa.Text.FontCatalog.Closest(f, face).Face));
         var size = Ui.Number(s.CurrentTextSize, 1, 2000, v => { if (!updating) s.SetTextSize(v); }, 1, "0.#", 64);
         size.Name = "TextSize";
         Locale.Tip(size, Locale.T("Font size of the selected characters; select text on the canvas to change a fragment"));
@@ -686,9 +685,7 @@ public sealed partial class MainWindow
             var face = s.CurrentTextFace;
             // Selected letters in more than one family: the menu says so instead of naming one.
             var uniform = s.CurrentUniformTextFamily;
-            var index = uniform == null ? -1 : families.ToList().IndexOf(uniform);
-            font.PlaceholderText = uniform ?? Locale.T("(Multiple)");
-            if (font.SelectedIndex != index) font.SelectedIndex = index;
+            refreshFont(uniform);
             if (stylesFamily != face.FontFamily)
             {
                 stylesFamily = face.FontFamily;

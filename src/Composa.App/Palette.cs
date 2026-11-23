@@ -145,6 +145,10 @@ public static class Palette
         {
             Setters = { new Setter(Visual.OpacityProperty, 0.48) }
         });
+        styles.Add(new Style(x => x.OfType<ComboBoxItem>().Class("font-preview").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
+        {
+            Setters = { new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, Selected) }
+        });
         styles.Add(new Style(x => x.OfType<ToggleButton>().Class("layout-toggle").Class(":checked").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
         {
             Setters =

@@ -302,6 +302,20 @@ public sealed partial class EditorSession
         ReflowLayoutAncestors(layer);
     }
 
+    internal Layer[] LayoutMovePlacementTargets()
+    {
+        if (document.SelectedLayerIds.Count == 1 && ActiveLayer?.IsGroup != true) return [];
+        var roots = SelectedRoots();
+        if (!roots.Any(layer => layer.IsGroup)) return [];
+        foreach (var root in roots)
+            for (var parent = document.ParentOf(root.Id); parent != null; parent = document.ParentOf(parent.Id))
+                if (parent.AutoLayout != null) return [];
+        var layers = Document.Flatten(roots).ToArray();
+        if (!layers.Any(layer => layer.AutoLayout != null) || layers.Any(layer => layer.Locks.HasFlag(LayerLocks.Position))
+            || roots.Any(PositionLocked)) return [];
+        return layers.Where(layer => layer.AutoLayout != null || layer.LayoutFrame != null || layer.Mask != null && !layer.MaskLinked).ToArray();
+    }
+
     private void ReflowAfterTransform(IReadOnlyList<Layer> transformed, Document? before)
     {
         if (before == null) return;

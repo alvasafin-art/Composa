@@ -58,7 +58,7 @@ public sealed class AutoLayoutUiTests
             var field = Find<NumericUpDown>("AutoLayoutGap");
             field.Value = 20;
             Assert.Equal(20, group.AutoLayout.Gap);
-            var gap = Gap();
+            var gap = GapLabel();
             window.MouseMove(gap);
             window.MouseDown(gap, MouseButton.Left);
             Assert.True(window.Canvas.IsDragging);
@@ -77,7 +77,7 @@ public sealed class AutoLayoutUiTests
             Assert.True(Screenshots.Save(window, "auto-layout-light-1280"));
 
             var before = s.History.CurrentId;
-            gap = Gap();
+            gap = GapLabel();
             var end = gap + new Vector(0, 14);
             window.MouseDown(gap, MouseButton.Left);
             window.MouseMove(gap + new Vector(0, 7), RawInputModifiers.LeftMouseButton);
@@ -94,6 +94,7 @@ public sealed class AutoLayoutUiTests
             var first = s.LayoutElements(group)[0].Bounds;
             var drag = At(last.MidX, last.MidY);
             var drop = At(first.MidX, first.Top + 5);
+            s.SelectLayer(price.Id);
             window.MouseDown(drag, MouseButton.Left);
             window.MouseMove(drop, RawInputModifiers.LeftMouseButton);
             Assert.True(Screenshots.Save(window, "auto-layout-insertion-line"));
@@ -132,6 +133,14 @@ public sealed class AutoLayoutUiTests
             var elements = s.LayoutElements(s.ActiveLayer!);
             return At(elements[0].Bounds.MidX, (elements[0].Bounds.Bottom + elements[1].Bounds.Top) / 2);
         }
+        Point GapLabel()
+        {
+            window.MouseMove(Gap());
+            var position = window.Canvas.ToScreen(new SKPoint(EditorSession.LayoutBounds(s.ActiveLayer!).Right, 0)).X;
+            var band = Gap();
+            var x = window.Canvas.TranslatePoint(new Point(position + 20, 0), window)!.Value.X;
+            return new Point(x, band.Y);
+        }
         T Find<T>(string name) where T : Control => Assert.Single(window.GetVisualDescendants().OfType<T>(), control => control.Name == name);
         void Click(string name)
         {
@@ -139,5 +148,73 @@ public sealed class AutoLayoutUiTests
             Pump();
         }
         static void Pump() => Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public void Dragging_content_moves_the_whole_card_and_releases_at_the_pointer_without_reflow()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 };
+        var s = EditorSession.NewCanvas(700, 530, SKColors.White);
+        try
+        {
+            window.Show();
+            window.AddSession(s);
+            window.SelectTool(Tool.Move);
+            window.Canvas.AutoSelect = true;
+            window.Canvas.ShowTransformControls = false;
+            s.View = s.View with { Snap = false };
+            using var bitmap = Pixels.NewColor(230, 130);
+            bitmap.Erase(SKColors.Peru);
+            var photo = s.AddImageLayer("Photo", bitmap, new(160, 110), fit: false);
+            var heading = s.AddText(new(40, 200), new TextStyle { Text = "Coffee from the highlands", Size = 25 });
+            var price = s.AddText(new(40, 250), new TextStyle { Text = "690 ₽", Size = 22 });
+            s.SelectLayer(photo.Id);
+            s.SelectLayer(heading.Id, extend: true);
+            s.SelectLayer(price.Id, extend: true);
+            Assert.True(s.CreateAutoLayout(s.ProposeAutoLayout(out _)!));
+            var group = s.ActiveLayer!;
+            s.SetAutoLayout(group, group.AutoLayout! with { Gap = 12, Padding = new(8, 10, 12, 14) });
+            s.SetAutoLayoutItem(photo, new(LayoutSizeMode.Fixed, LayoutSizeMode.Fixed, 190, 88, LayoutImageFit.Crop));
+            s.AddMask(photo);
+            s.SetMaskLinked(photo, false);
+            s.ClearLayerSelection();
+            Dispatcher.UIThread.RunJobs();
+
+            var revision = s.Revision;
+            var groupBounds = EditorSession.LayoutBounds(group);
+            var photoFrame = photo.LayoutFrame!;
+            var headingTransform = heading.Transform;
+            var mask = photo.MaskMatrix;
+            var point = new SKPoint(photoFrame.Bounds.MidX, photoFrame.Bounds.MidY);
+            Point At(float dx, float dy) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new(point.X + dx, point.Y + dy)), window)!.Value;
+            window.MouseMove(At(0, 0));
+            window.MouseDown(At(0, 0), MouseButton.Left);
+            window.MouseMove(At(74, 52), RawInputModifiers.LeftMouseButton);
+            Assert.Equal(group.Id, s.ActiveLayer?.Id);
+            Assert.Equal(photoFrame.X + 74, photo.LayoutFrame!.X, 2);
+            Assert.Equal(headingTransform.Y + 52, heading.Transform.Y, 2);
+            Assert.Equal(groupBounds.Left + 74, EditorSession.LayoutBounds(group).Left, 2);
+            Assert.Equal(revision, s.Revision);
+
+            window.MouseUp(At(92, 63), MouseButton.Left); // The release can land past the last delivered motion.
+            Assert.Equal(revision + 1, s.Revision);
+            Assert.Equal(groupBounds.Left + 92, EditorSession.LayoutBounds(group).Left, 2);
+            Assert.Equal(groupBounds.Top + 63, EditorSession.LayoutBounds(group).Top, 2);
+            Assert.Equal(photoFrame with { X = photoFrame.X + 92, Y = photoFrame.Y + 63 }, photo.LayoutFrame);
+            Assert.Equal(mask.TransX + 92, photo.MaskMatrix.TransX, 2);
+            Assert.Equal(headingTransform.Y + 63, heading.Transform.Y, 2);
+            Assert.Equal(12, group.AutoLayout!.Gap);
+            Assert.Equal(new[] { photo.Id, heading.Id, price.Id }, s.LayoutElements(group).Select(unit => unit.Layer.Id));
+
+            s.Undo();
+            Assert.Equal(groupBounds, EditorSession.LayoutBounds(s.Document.Find(group.Id)!));
+            Assert.Equal(photoFrame, s.Document.Find(photo.Id)!.LayoutFrame);
+            s.Redo();
+            s.SelectLayer(group.Id);
+            window.MouseDown(At(92, 63), MouseButton.Left, RawInputModifiers.Control);
+            window.MouseUp(At(92, 63), MouseButton.Left, RawInputModifiers.Control);
+            Assert.Equal(photo.Id, s.ActiveLayer?.Id);
+        }
+        finally { s.MarkSaved("layout-move.cmps"); window.Close(); }
     }
 }

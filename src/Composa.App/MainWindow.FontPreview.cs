@@ -1,12 +1,14 @@
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Composa.Model;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Composa.Editing;
 using Composa.Text;
 
@@ -16,9 +18,10 @@ public sealed partial class MainWindow
 {
     private ComboBox? openFontPicker;
 
-    private void EnableFontSamples(ComboBox combo, EditorSession owner)
+    private Action<string?> EnableFontSamples(ComboBox combo, EditorSession owner, IReadOnlyList<string> families, Action<string> apply)
     {
         combo.IsEditable = true;
+        combo.IsTextSearchEnabled = false;
         string? sourceText = null;
         int[] characters = [];
         var coverage = new Dictionary<TextFace, bool>();
@@ -40,6 +43,8 @@ public sealed partial class MainWindow
         }
         combo.ItemTemplate = new FuncDataTemplate<string>((family, _) =>
         {
+            // The editable template also asks for a view when its selection is empty.
+            if (string.IsNullOrWhiteSpace(family)) return null;
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
             row.Children.Add(Ui.Label(family));
             if (Missing(family))
@@ -53,14 +58,75 @@ public sealed partial class MainWindow
             }
             return row;
         });
-        string? request = null;
+        string? request = null, selectedFamily = null, pendingQuery = null;
+        TextBox? editor = null;
         int generation = 0, keyboardIndex = -1;
-        bool busy = false, navigating = false;
+        bool busy = false, navigating = false, synchronizing = false, filtering = false;
+        ComboBoxItem? keyboardHighlight = null;
+        void Synchronize(Action action)
+        {
+            var previous = synchronizing;
+            synchronizing = true;
+            try { action(); }
+            finally { synchronizing = previous; }
+        }
+        void Highlight(ComboBoxItem? item)
+        {
+            keyboardHighlight?.Classes.Remove("font-preview");
+            keyboardHighlight = item;
+            keyboardHighlight?.Classes.Add("font-preview");
+        }
+        void ShowCurrentFamily()
+        {
+            Synchronize(() =>
+            {
+                combo.ItemsSource = families;
+                combo.SelectedItem = families.FirstOrDefault(f => string.Equals(f, selectedFamily, StringComparison.OrdinalIgnoreCase));
+                combo.Text = selectedFamily ?? "";
+            });
+        }
         void Close()
         {
             generation++;
-            request = null;
+            request = pendingQuery = null;
+            filtering = false;
+            Highlight(null);
             if (openFontPicker == combo) { openFontPicker = null; owner.ClearFontSample(); }
+        }
+        void Commit(string family)
+        {
+            if (session != owner || !TextStyle.IsFamilyName(family)) return;
+            Synchronize(() =>
+            {
+                combo.IsDropDownOpen = false;
+                apply(family);
+                ShowCurrentFamily();
+            });
+        }
+        void Search(string text)
+        {
+            pendingQuery = null;
+            filtering = true;
+            navigating = false;
+            keyboardIndex = -1;
+            Highlight(null);
+            generation++;
+            request = null;
+            owner.ClearFontSample();
+            var query = text.Trim();
+            var matches = families.Where(f => f.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0
+                    : f.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 1 : 2).ToArray();
+            var caret = editor?.CaretIndex ?? text.Length;
+            Synchronize(() =>
+            {
+                combo.ItemsSource = matches.Length == 0
+                    ? new object[] { new ComboBoxItem { Content = Locale.T("No matching fonts."), IsEnabled = false } } : matches;
+                combo.SelectedIndex = -1;
+                combo.Text = text;
+                combo.IsDropDownOpen = true;
+                if (editor != null) editor.CaretIndex = Math.Min(caret, text.Length);
+            });
         }
         async void Sample(string? family)
         {
@@ -95,60 +161,92 @@ public sealed partial class MainWindow
         void PointAt(object? sender, PointerEventArgs e)
         {
             if (sender is ComboBoxItem { Content: string family } item)
-            { navigating = true; keyboardIndex = combo.IndexFromContainer(item); Sample(family); }
+            {
+                keyboardIndex = combo.IndexFromContainer(item);
+                Highlight(null);
+                Sample(family);
+            }
         }
         combo.ContainerPrepared += (_, e) =>
         {
             e.Container.PointerEntered -= PointAt; e.Container.PointerEntered += PointAt;
             e.Container.PointerMoved -= PointAt; e.Container.PointerMoved += PointAt;
         };
-        combo.AddHandler(PointerWheelChangedEvent, (_, e) =>
+        void StopWheel(object? sender, PointerWheelEventArgs e)
         {
-            if (!combo.IsDropDownOpen) return;
+            if (combo.IsDropDownOpen) e.Handled = true;
+        }
+        combo.AddHandler(PointerWheelChangedEvent, StopWheel, RoutingStrategies.Tunnel, true);
+        void EditorChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+        {
+            if (e.Property != TextBox.TextProperty || synchronizing || editor is not { IsFocused: true }) return;
+            var text = editor.Text ?? "";
+            if (combo.SelectedItem is string selection && text == selection) return;
+            pendingQuery = text;
             Dispatcher.UIThread.Post(() =>
             {
-                if (!combo.IsDropDownOpen) return;
-                foreach (var container in combo.GetRealizedContainers().OfType<ComboBoxItem>())
-                {
-                    if (!new Avalonia.Rect(container.Bounds.Size).Contains(e.GetPosition(container))) continue;
-                    PointAt(container, e);
-                    break;
-                }
-            }, DispatcherPriority.Loaded);
-        }, RoutingStrategies.Bubble, handledEventsToo: true);
-        combo.AddHandler(TextInputEvent, (_, _) => navigating = false, RoutingStrategies.Tunnel, true);
+                if (pendingQuery == text && combo.IsAttachedToVisualTree()) Search(text);
+            }, DispatcherPriority.Input);
+        }
+        combo.TemplateApplied += (_, e) =>
+        {
+            if (editor != null) editor.PropertyChanged -= EditorChanged;
+            editor = e.NameScope.Find<TextBox>("PART_EditableTextBox");
+            if (editor != null) editor.PropertyChanged += EditorChanged;
+            if (e.NameScope.Find<Popup>("PART_Popup")?.Child is Control popup)
+                popup.AddHandler(PointerWheelChangedEvent, StopWheel, RoutingStrategies.Tunnel, true);
+        };
+        combo.SelectionChanged += (_, e) =>
+        {
+            if (!synchronizing && ReferenceEquals(e.Source, combo) && e.AddedItems.OfType<string>().FirstOrDefault() is { } family)
+                Commit(family);
+        };
         void HandleFontKey(object? sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter && !navigating && !string.IsNullOrWhiteSpace(combo.Text))
-            {
-                string query = combo.Text.Trim();
-                var match = combo.Items.OfType<string>().FirstOrDefault(f => f.Equals(query, StringComparison.OrdinalIgnoreCase))
-                    ?? combo.Items.OfType<string>().FirstOrDefault(f => f.StartsWith(query, StringComparison.OrdinalIgnoreCase));
-                if (match != null) { combo.SelectedItem = match; combo.Text = match; }
-                else combo.Text = combo.SelectedItem as string ?? owner.CurrentTextFace.FontFamily;
-                combo.IsDropDownOpen = false;
-                e.Handled = true;
-                return;
-            }
+            if (pendingQuery is { } query && e.Key is Key.Enter or Key.Up or Key.Down) Search(query);
             if (!combo.IsDropDownOpen) return;
             if (e.Key is Key.Up or Key.Down)
             {
+                e.Handled = true;
+                if (combo.Items.Count == 0 || combo.Items[0] is not string) return;
                 navigating = true;
-                keyboardIndex = Math.Clamp(keyboardIndex + (e.Key == Avalonia.Input.Key.Down ? 1 : -1), 0, combo.ItemCount - 1);
+                keyboardIndex = Math.Clamp(keyboardIndex + (e.Key == Key.Down ? 1 : -1), 0, combo.ItemCount - 1);
                 combo.ScrollIntoView(keyboardIndex);
-                combo.ContainerFromIndex(keyboardIndex)?.Focus();
-                Sample(combo.Items[keyboardIndex] as string); e.Handled = true;
+                Highlight(combo.ContainerFromIndex(keyboardIndex) as ComboBoxItem);
+                Sample(combo.Items[keyboardIndex] as string);
             }
-            else if (e.Key is Avalonia.Input.Key.Enter or Avalonia.Input.Key.Escape)
+            else if (e.Key is Key.Enter or Key.Escape)
             {
                 e.Handled = true;
-                if (e.Key == Avalonia.Input.Key.Enter && keyboardIndex >= 0) combo.SelectedIndex = keyboardIndex;
+                if (e.Key == Key.Enter)
+                {
+                    int index = navigating ? keyboardIndex : filtering ? 0 : combo.SelectedIndex;
+                    if (index >= 0 && index < combo.ItemCount && combo.Items[index] is string family) { Commit(family); return; }
+                }
                 combo.IsDropDownOpen = false;
             }
         }
         combo.AddHandler(KeyDownEvent, HandleFontKey, RoutingStrategies.Tunnel);
-        combo.DropDownOpened += (_, _) => { openFontPicker = combo; navigating = false; keyboardIndex = combo.SelectedIndex; };
-        combo.DropDownClosed += (_, _) => Close();
+        combo.DropDownOpened += (_, _) =>
+        {
+            openFontPicker = combo;
+            navigating = false;
+            keyboardIndex = filtering ? -1 : combo.SelectedIndex;
+        };
+        combo.DropDownClosed += (_, _) =>
+        {
+            Close();
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!combo.IsDropDownOpen && pendingQuery == null && combo.IsAttachedToVisualTree()) ShowCurrentFamily();
+            }, DispatcherPriority.Input);
+        };
         combo.DetachedFromVisualTree += (_, _) => Close();
+        return family =>
+        {
+            selectedFamily = family;
+            combo.PlaceholderText = family ?? Locale.T("(Multiple)");
+            if (!combo.IsDropDownOpen && pendingQuery == null) ShowCurrentFamily();
+        };
     }
 }

@@ -11,7 +11,8 @@ public sealed partial class EditorSession
     private TextStyle? textOriginal;
     private bool textIsNew;
 
-    public static IReadOnlyList<string> FontFamilies { get; } = SKFontManager.Default.FontFamilies.Distinct().OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+    public static IReadOnlyList<string> FontFamilies { get; } = SKFontManager.Default.FontFamilies
+        .Where(TextStyle.IsFamilyName).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray();
 
     /// <summary>The text being typed on the canvas, or null when none is open.</summary>
     public TextEditor? TextEdit { get; private set; }

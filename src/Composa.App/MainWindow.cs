@@ -969,6 +969,10 @@ public sealed partial class MainWindow : Window
 
     private static string ToolHint(EditorSession s) => s.Tool switch
     {
+        Tool.Move when s.ActiveLayer is { } item && s.AutoLayoutParent(item) != null =>
+            "Drag the selected layout item to reorder it · Ctrl-click picks a layer",
+        Tool.Move when s.ActiveLayer?.AutoLayout != null =>
+            "Drag to move the whole layout group · Ctrl-click picks an item · Drag the gap label to adjust spacing",
         Tool.Move => "Drag to move · Handles resize (Shift free, Alt from center) · Outside a corner rotates · Ctrl-drag a corner distorts · Ctrl-click picks a layer · 1–0 opacity",
         Tool.Marquee => "Drag to select · Shift add · Alt subtract · Shift+Alt intersect · Drag inside to move · Delete clears · Ctrl+D deselect",
         Tool.Lasso => s.LassoKind == LassoKind.Freehand ? "Drag to select · Shift add · Alt subtract · Drag inside to move" : "Click corners · Click the start, double-click or Enter to close · Backspace removes a corner · Escape cancels",

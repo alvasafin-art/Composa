@@ -110,11 +110,12 @@ public sealed record TextFontRun(int Start, int Length, string FontFamily, bool 
 public sealed partial record TextStyle
 {
     public const int MaxFamilyName = 200;
+    public const string DefaultFontFamily = "Inter";
     public const int MaxLength = 100_000;
     public const double MinBox = 16, MaxBox = DocumentLimits.MaxSide;
 
     public string Text { get; init; } = "";
-    public string FontFamily { get; init; } = "Inter";
+    public string FontFamily { get; init; } = DefaultFontFamily;
     /// <summary>Font size in layer pixels.</summary>
     public double Size { get; init; } = 72;
     public uint Color { get; init; } = 0xFF000000;
@@ -182,6 +183,7 @@ public sealed partial record TextStyle
         return this with
         {
             Text = text,
+            FontFamily = IsFamilyName(FontFamily) ? FontFamily : DefaultFontFamily,
             Type = (Type ?? Typography.Default) with
             {
                 Axes = Type?.Axes is { Length: <= 512 } axes ? axes : "",

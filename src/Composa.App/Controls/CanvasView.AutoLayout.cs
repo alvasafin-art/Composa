@@ -14,7 +14,7 @@ namespace Composa.App.Controls;
 public sealed partial class CanvasView
 {
     private AutoLayoutProposal? layoutProposal;
-    private (Guid Group, Guid Child, double Gap, bool Row)? layoutGesture;
+    private (Guid Group, Guid Child, double Gap, bool Row, float GrabOffset)? layoutGesture;
     private int layoutGapIndex = -1;
     private int layoutDropIndex = -1;
     private (OverlayLayer Overlay, Panel Host)? layoutGapEditor;
@@ -25,13 +25,15 @@ public sealed partial class CanvasView
         InvalidateCanvas();
     }
 
-    private Layer? SelectedLayoutGroup()
+    private Layer? SelectedLayoutItem()
     {
         if (session is not { Tool: Tool.Move, IsEditingMask: false, IsEditingChannel: false } target
-            || target.Document.SelectedLayerIds.Count != 1 || target.ActiveLayer is not { AutoLayout: not null } group)
+            || target.Document.SelectedLayerIds.Count != 1)
             return null;
-        return group;
+        return target.ActiveLayer;
     }
+
+    private Layer? SelectedLayoutGroup() => SelectedLayoutItem() is { AutoLayout: not null } group ? group : null;
 
     private (Rect Band, Rect Label) GapGeometry(Layer group, IReadOnlyList<LayoutElement> elements, int index)
     {
@@ -72,32 +74,36 @@ public sealed partial class CanvasView
         }
         var elements = session.LayoutElements(group);
         layoutGapIndex = LayoutGapAt(group, elements, position);
-        if (layoutGapIndex >= 0)
+        if (layoutGapIndex >= 0 && GapGeometry(group, elements, layoutGapIndex).Label.Contains(position))
             Cursor = new Cursor(group.AutoLayout!.Direction == LayoutDirection.Row ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth);
     }
 
-    private bool BeginLayoutGesture(Point position)
+    private bool BeginLayoutGesture(Point position, bool allowReorder)
     {
-        if (SelectedLayoutGroup() is not { AutoLayout: { } layout } group || session == null || layoutProposal != null
-            || !session.CanEditAutoLayout(group) || session.HasPendingEdit) return false;
-        var row = layout.Direction == LayoutDirection.Row;
-        var elements = session.LayoutElements(group);
-        var gap = LayoutGapAt(group, elements, position);
-        if (gap >= 0)
+        if (SelectedLayoutItem() is not { } selected || session == null || layoutProposal != null || session.HasPendingEdit) return false;
+        if (selected.AutoLayout is { } layout && session.CanEditAutoLayout(selected) && layoutGapIndex >= 0)
         {
-            layoutGapIndex = gap;
-            layoutGesture = (group.Id, Guid.Empty, layout.Gap, row);
-            drag = Drag.LayoutGap;
-            return true;
+            var units = session.LayoutElements(selected);
+            if (layoutGapIndex < units.Count - 1 && GapGeometry(selected, units, layoutGapIndex).Label.Contains(position))
+            {
+                layoutGesture = (selected.Id, Guid.Empty, layout.Gap, layout.Direction == LayoutDirection.Row, 0);
+                drag = Drag.LayoutGap;
+                return true;
+            }
         }
-        var child = elements.FirstOrDefault(unit => unit.Bounds.Contains(pressDocument));
-        if (child == null)
-        {
-            if (!EditorSession.LayoutBounds(group).Contains(pressDocument)) return false;
-            BeginMove(control: false, clicks: 1, TransformHandle.Move);
-            return drag == Drag.Transform;
-        }
-        layoutGesture = (group.Id, child.Layer.Id, 0, row);
+        return allowReorder && BeginLayoutReorder();
+    }
+
+    private bool BeginLayoutReorder()
+    {
+        if (SelectedLayoutItem() is not { } selected || session == null || layoutProposal != null || session.HasPendingEdit
+            || session.AutoLayoutParent(selected) is not { AutoLayout: { } parentLayout } parent || !session.CanEditAutoLayout(parent))
+            return false;
+        var child = session.LayoutElements(parent).FirstOrDefault(unit => unit.Layer == selected || unit.Companions.Contains(selected));
+        if (child == null || !child.Bounds.Contains(pressDocument)) return false;
+        bool row = parentLayout.Direction == LayoutDirection.Row;
+        var offset = row ? child.Bounds.MidX - pressDocument.X : child.Bounds.MidY - pressDocument.Y;
+        layoutGesture = (parent.Id, child.Layer.Id, 0, row, offset);
         layoutDropIndex = -1;
         drag = Drag.LayoutReorder;
         return true;
@@ -116,7 +122,7 @@ public sealed partial class CanvasView
         else
         {
             var docPoint = ToDocument(point);
-            var axis = gesture.Row ? docPoint.X : docPoint.Y;
+            var axis = (gesture.Row ? docPoint.X : docPoint.Y) + gesture.GrabOffset;
             layoutDropIndex = session.LayoutElements(group).Count(unit => unit.Layer.Id != gesture.Child
                 && (gesture.Row ? unit.Bounds.MidX : unit.Bounds.MidY) < axis);
         }
@@ -135,7 +141,6 @@ public sealed partial class CanvasView
             else if (keep && layoutGapIndex >= 0) OpenLayoutGapEditor(group);
         }
         else if (keep && index >= 0) session.ReorderAutoLayout(group, value.Child, index);
-        else if (keep) session.SelectLayer(value.Child);
     }
 
     private void OpenLayoutGapEditor(Layer group)
@@ -192,8 +197,9 @@ public sealed partial class CanvasView
             });
             return;
         }
-        if (SelectedLayoutGroup() is not { AutoLayout: { } layout } group) return;
-        if (drag is not (Drag.None or Drag.LayoutGap or Drag.LayoutReorder)) return;
+        var group = drag == Drag.LayoutReorder && layoutGesture is { } reorder ? session.Document.Find(reorder.Group) : SelectedLayoutGroup();
+        if (group?.AutoLayout is not { } layout) return;
+        if (drag is not (Drag.None or Drag.LayoutGap or Drag.LayoutReorder) && session.Transform?.IsMovingAutoLayout != true) return;
         var elements = session.LayoutElements(group);
         if (elements.Count == 0) return;
         var bounds = view.MapRect(EditorSession.LayoutBounds(group));
@@ -205,9 +211,12 @@ public sealed partial class CanvasView
         if (layoutDropIndex >= 0 && layoutGesture is { } gesture)
         {
             var rest = elements.Where(unit => unit.Layer.Id != gesture.Child).ToArray();
-            var last = layoutDropIndex == rest.Length;
-            var item = view.MapRect(rest[Math.Min(layoutDropIndex, rest.Length - 1)].Bounds);
-            var axis = gesture.Row ? (last ? item.Right : item.Left) : (last ? item.Bottom : item.Top);
+            if (rest.Length == 0) return;
+            var previous = layoutDropIndex > 0 ? view.MapRect(rest[layoutDropIndex - 1].Bounds) : (SKRect?)null;
+            var next = layoutDropIndex < rest.Length ? view.MapRect(rest[layoutDropIndex].Bounds) : (SKRect?)null;
+            var leading = gesture.Row ? next?.Left : next?.Top;
+            var trailing = gesture.Row ? previous?.Right : previous?.Bottom;
+            var axis = leading is { } left && trailing is { } right ? (left + right) / 2 : leading ?? trailing.GetValueOrDefault();
             steps.Add(canvas =>
             {
                 using var paint = new SKPaint { Color = Accent, StrokeWidth = 2 * hair, IsAntialias = true };
@@ -216,7 +225,7 @@ public sealed partial class CanvasView
             });
             return;
         }
-        if (layoutGapIndex < 0 || layoutGapIndex >= elements.Count - 1 || !cursorInside) return;
+        if (drag == Drag.Transform || layoutGapIndex < 0 || layoutGapIndex >= elements.Count - 1 || !cursorInside) return;
         var (band, label) = GapGeometry(group, elements, layoutGapIndex);
         var text = $"{layout.Gap:0.##} px";
         steps.Add(canvas =>

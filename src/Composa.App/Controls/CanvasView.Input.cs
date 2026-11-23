@@ -239,9 +239,9 @@ public sealed partial class CanvasView
                 if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
                 if (e.ClickCount >= 2 && BeginLiveTextEdit(shift)) break;
-                if (!control && !shift && !alt && BeginLayoutGesture(point.Position)) break;
                 var moveHandle = ShowTransformControls && CurrentFrame() is { } moveFrame
                     ? HitFrame(moveFrame, pressScreen, allowRotate: true) : TransformHandle.None;
+                if (!control && !shift && !alt && BeginLayoutGesture(point.Position, moveHandle is TransformHandle.None or TransformHandle.Move)) break;
                 if ((transformSelection == null || moveHandle == TransformHandle.None) && session.CanMovePixels && InsideSelection(pressDocument) && session.BeginMovePixels(duplicate: alt)) drag = Drag.MovePixels;
                 else BeginMove(control, e.ClickCount, moveHandle);
                 break;
@@ -907,6 +907,15 @@ public sealed partial class CanvasView
         return null;
     }
 
+    private Layer? MoveLayerAt(SKPoint point, bool pickChild)
+    {
+        var layer = LayerAt(point);
+        if (pickChild || layer == null || session == null) return layer;
+        for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
+            if (parent.AutoLayout != null) layer = parent;
+        return layer;
+    }
+
     /// <summary>
     /// The window reports every key press and release, so the cursor changes the moment Ctrl goes down or up rather
     /// than waiting for the pointer to move. The Ctrl key's own events carry the modifier state from before the key
@@ -947,7 +956,7 @@ public sealed partial class CanvasView
         handle = TransformHandle.Move;
         distortCorner = -1;
         var frame = CurrentFrame();
-        var hit = LayerAt(pressDocument);
+        var hit = MoveLayerAt(pressDocument, pickChild: false);
         if (hit != null && !session.Document.SelectedLayerIds.Contains(hit.Id) && (frame == null || HitFrame(frame, pressScreen, allowRotate: false) == TransformHandle.None))
             session.SelectLayer(hit.Id, extend: false);
         if (session.BeginTransform("Move", duplicate: dragModifiers.HasFlag(KeyModifiers.Alt)) == null)
@@ -969,8 +978,9 @@ public sealed partial class CanvasView
         var keepFrame = handle == TransformHandle.Move && transformSelection != null && !control && !dragModifiers.HasFlag(KeyModifiers.Shift);
         if (!onHandle && !keepFrame && session.IndependentMaskTarget == null && !session.IsEditingChannel)
         {
-            var hit = LayerAt(pressDocument);
-            var keepGroup = handle == TransformHandle.Move && session.ActiveLayer?.IsGroup == true && !dragModifiers.HasFlag(KeyModifiers.Shift);
+            var keepGroup = !control && !dragModifiers.HasFlag(KeyModifiers.Shift) && session.ActiveLayer is { IsGroup: true } group
+                && (handle == TransformHandle.Move || group.AutoLayout != null && EditorSession.LayoutBounds(group).Contains(pressDocument));
+            var hit = keepGroup ? null : MoveLayerAt(pressDocument, pickChild: control);
             if (!keepGroup && (!session.Document.Bounds.Contains((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y))
                 || hit == null && (AutoSelect || control || clicks >= 2)))
             {
@@ -980,6 +990,7 @@ public sealed partial class CanvasView
             if (!keepGroup && hit != null && (AutoSelect || control || clicks >= 2)
                 && (!session.Document.SelectedLayerIds.Contains(hit.Id) || dragModifiers.HasFlag(KeyModifiers.Shift)))
                 session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
+            if (control && dragModifiers == KeyModifiers.Control && BeginLayoutReorder()) return;
             handle = TransformHandle.Move;
         }
         else if (!onHandle) handle = TransformHandle.Move;
