@@ -72,6 +72,10 @@ public sealed partial class MainWindow
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         EnableAiReferenceDrop(view);
+        aiFloatingPrompt.TextChanging += (_, _) =>
+        {
+            if (presentedTask is { } task) settings.RememberAiPrompt(task, aiFloatingPrompt.Text ?? "");
+        };
         aiFloatingPrompt.TextChanged += (_, _) =>
         {
             if (editorInDock && EditorTask == AiTaskKind.GenerateImage) RefreshAiFloatingUi();
@@ -110,6 +114,7 @@ public sealed partial class MainWindow
         var task = EditorTask;
         if (presentedTask == task) return;
         presentedTask = task;
+        aiFloatingPrompt.Text = settings.AiPromptFor(task);
         dockOperationName.Text = DockTaskName(task);
         AutomationProperties.SetName(dockOperation, "Choose AI operation · " + dockOperationName.Text);
         aiFloatingPrompt.PlaceholderText = Locale.T(task switch

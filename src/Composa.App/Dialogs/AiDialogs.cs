@@ -563,6 +563,9 @@ public static partial class AiDialogs
         var aiPanelPicker = Ui.Combo(Enum.GetValues<AiPanelPlacement>(), chosenAiPanel, EditorSetup.AiPanelLabel, value => chosenAiPanel = value, 190);
         aiPanelPicker.Name = "EditorAiPanelPicker";
         Avalonia.Automation.AutomationProperties.SetName(aiPanelPicker, "AI panel placement");
+        const string rememberPromptsLabel = "Remember prompts for each AI operation";
+        var rememberPrompts = new CheckBox { Name = "RememberAiPrompts", Content = Locale.T(rememberPromptsLabel), IsChecked = settings.RememberAiPrompts };
+        Locale.Tip(rememberPrompts, "Turning this off clears saved AI prompts.");
         const string gpuLabel = "Use GPU for local object selection and matting when available";
         var selectionGpu = new CheckBox { Name = "UseSelectionGpu", Content = Locale.T(gpuLabel),
             IsChecked = settings.UseSelectionGpu, IsEnabled = OperatingSystem.IsWindows() };
@@ -593,7 +596,7 @@ public static partial class AiDialogs
                     Ui.Column(5, Ui.Label(Locale.T("Interface theme"), Palette.Secondary), themePicker),
                     Ui.Column(5, Ui.Label(Locale.T("Workspace layout"), Palette.Secondary), layoutPicker),
                     Ui.Column(5, Ui.Label(Locale.T("AI panel placement"), Palette.Secondary), aiPanelPicker),
-                    groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates))
+                    rememberPrompts, groupedPanels, selectionGpu, rasterGpu, editorGpu, linkedSources, updates))
             }, SelectedIndex = Math.Clamp(page, 0, 3)
         };
         bool refreshingOperation = false;
@@ -667,6 +670,7 @@ public static partial class AiDialogs
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
             ("Workspace layout", "classic modern tools panels классическая новая панели раскладка", 3, layoutPicker, null, null),
             ("AI panel placement", "sidebar selection положение ии выделение", 3, aiPanelPicker, null, null),
+            (rememberPromptsLabel, "remember save drafts prompt промпт промт черновики сохранение", 3, rememberPrompts, null, null),
             (gpuLabel, "GPU CPU SAM ViTMatte DirectML видеокарта выделение", 3, selectionGpu, null, null),
             (rasterGpuLabel, "GPU CPU OpenCL Gaussian RGB16 видеокарта ускорение фильтры", 3, rasterGpu, null, null),
             (editorGpuLabel, "GPU CPU OpenCL rendering brush effects видеокарта ускорение холст кисть эффекты", 3, editorGpu, null, null),
@@ -831,6 +835,8 @@ public static partial class AiDialogs
         settings.AutoUpdateLinkedSources = linkedSources.IsChecked == true;
         settings.CheckForUpdates = updates.IsChecked == true;
         settings.AiShowContextBounds = showContext.IsChecked == true;
+        settings.RememberAiPrompts = rememberPrompts.IsChecked == true;
+        if (!settings.RememberAiPrompts) settings.AiPromptDrafts.Clear();
         SavePromptDraft();
         ReadEnhancer(settings);
 
@@ -1069,9 +1075,9 @@ public static partial class AiDialogs
         var lighting=Ui.Combo(Enum.GetValues<RelightPreset>(),scene.Preset,SceneEditSettings.Name,value=>scene=scene with {Preset=value},300);
         var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject" : "Whole visible image",value=>scene=scene with {Scope=value},300);
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
-        var rememberedPrompt = task switch { AiTaskKind.GenerateImage => settings.GenerateImagePrompt, AiTaskKind.ImageEdit => settings.ImageEditPrompt, _ => "" };
+        var startingPrompt = string.IsNullOrEmpty(initialPrompt) ? settings.AiPromptFor(task) : initialPrompt;
         var prompt = AiGenerationControls.PromptField("Describe the result…");
-        prompt.Text = string.IsNullOrEmpty(initialPrompt) ? rememberedPrompt : initialPrompt;
+        prompt.Text = startingPrompt;
         var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
         var variants = 1; var quality = profile.ApiQuality;
         var expansionMode = hasSelection ? AiExpansionMode.MaskedRegion : profile.ExpansionMode;
@@ -1276,13 +1282,17 @@ public static partial class AiDialogs
             if (references != null) { references.Changed -= Refresh; references.Owner = null; }
             if (service != null) service.SelectedEngine = previousEngine;
         }
-        if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = prompt.Text ?? ""; settings.Save(); }
-        if (task == AiTaskKind.ImageEdit) { settings.ImageEditPrompt = prompt.Text ?? ""; settings.Save(); }
+        var finalPrompt = prompt.Text ?? "";
+        if (settings.RememberAiPrompts && prompt.IsVisible && prompt.IsEnabled && (accepted || finalPrompt != startingPrompt))
+        {
+            settings.RememberAiPrompt(task, finalPrompt);
+            if (!accepted) settings.Save();
+        }
         if (!accepted) return null;
         if (alignment.IsVisible) settings.AiAlignMaskedEdits = alignment.IsChecked == true;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         settings.Save();
-        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : prompt.Text ?? "", width, height, profile.Seed, chosenEngine?.Id, variants);
+        return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : finalPrompt, width, height, profile.Seed, chosenEngine?.Id, variants);
     }
 
     private static double ClosestMegapixels(double value) => AiDimensions.MegapixelOptions.MinBy(option => Math.Abs(option - value));

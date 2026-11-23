@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.App.AI;
 using Composa.App.Controls;
+using Composa.App.Dialogs;
 using Composa.AI;
 using Composa.Editing;
 using Composa.Model;
@@ -77,8 +78,56 @@ public class GenerationDockTests
             ClickOperation(AiMenuItems(window), "Image Edit");
             Assert.Equal("", prompt.Text);
             ClickOperation(AiMenuItems(window), label);
-            Assert.Equal("", prompt.Text);
+            Assert.Equal("A prompt for this operation.", prompt.Text);
             Assert.Empty(window.OwnedWindows);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Prompt_drafts_follow_their_operations_and_can_be_turned_off_in_settings()
+    {
+        var window = new MainWindow { Width = 1100, Height = 800 };
+        window.Show();
+        try
+        {
+            window.AddSession(EditorSession.NewCanvas(160, 120, SKColors.White));
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            Pump();
+            var prompt = section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
+            void Choose(string operation) { ClickOperation(AiMenuItems(window), operation); Pump(); }
+
+            prompt.Text = "Soften the shadows.";
+            Choose("Generate Image");
+            Assert.Equal("", prompt.Text);
+            prompt.Text = "A new landscape.";
+            Choose("Image Edit");
+            Assert.Equal("Soften the shadows.", prompt.Text);
+            var reloaded = Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(window.Settings));
+            Assert.Equal("A new landscape.", reloaded.AiPromptFor(AiTaskKind.GenerateImage));
+            Assert.Equal("Soften the shadows.", reloaded.AiPromptFor(AiTaskKind.ImageEdit));
+
+            var settings = AiDialogs.SettingsDialog(window, window.Settings, window.AiTasks, page: 3);
+            Pump();
+            var dialog = Assert.Single(window.OwnedWindows);
+            var remember = dialog.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Name == "RememberAiPrompts");
+            Assert.True(remember.IsChecked);
+            remember.IsChecked = false;
+            dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, Locale.T("Save settings")))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.True(await settings.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(window.Settings.RememberAiPrompts);
+            Assert.Empty(window.Settings.AiPromptDrafts);
+            Choose("Generate Image");
+            Assert.Equal("", prompt.Text);
+            prompt.Text = "A temporary prompt.";
+            Choose("Image Edit");
+            Assert.Equal("", prompt.Text);
+            Choose("Generate Image");
+            Assert.Equal("", prompt.Text);
+            Assert.Empty(window.Settings.AiPromptDrafts);
         }
         finally { window.Close(); }
     }

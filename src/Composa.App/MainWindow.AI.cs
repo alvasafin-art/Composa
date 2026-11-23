@@ -112,7 +112,6 @@ public sealed partial class MainWindow
     private void ChooseAiOperation(AiTaskKind task)
     {
         if (!CanRunAi(task)) return;
-        var previousTask = EditorTask;
         bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
         bool sceneInDock = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
         if (sceneInDock && !DockEditorVisible)
@@ -124,7 +123,6 @@ public sealed partial class MainWindow
         if (DockEditorVisible && (sceneInDock || immediate || task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
         {
             manualDockTask = task;
-            if (task != previousTask) aiFloatingPrompt.Text = "";
             RefreshAiUi();
             if (!immediate) { aiFloatingPrompt.Focus(); return; }
         }
@@ -794,11 +792,11 @@ public sealed partial class MainWindow
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
                 session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null, modelDrafts.GetValueOrDefault(task)); }
             finally { aiDialogReferences = null; }
+            if (presentedTask == task && settings.RememberAiPrompts && settings.AiPromptFor(task) != (aiFloatingPrompt.Text ?? ""))
+                aiFloatingPrompt.Text = settings.AiPromptFor(task);
         }
         RefreshAiUi();
         if (options == null) return;
-        if (task == AiTaskKind.GenerateImage) { settings.GenerateImagePrompt = options.Prompt; settings.Save(); }
-        if (task == AiTaskKind.ImageEdit) { settings.ImageEditPrompt = options.Prompt; settings.Save(); }
         if (session == null)
         {
             if (task != AiTaskKind.GenerateImage) return;
