@@ -38,7 +38,10 @@ public class HueBandUiTests
             dialog.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None); dialog.MouseUp(At(dialog, editor, beforeDrag.Start - 10), MouseButton.Left); Assert.Equal(beforeDrag, editor.Band); Assert.Contains(dialog, window.OwnedWindows);
             dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "Reset hue range").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Assert.Equal(HueBand.Default(HueRange.Reds), editor.Band);
             var numeric = dialog.GetVisualDescendants().OfType<SliderField>().Single(f => f.Label == "Fade in"); numeric.BeginEdit(); Dispatcher.UIThread.RunJobs();
-            numeric.GetVisualDescendants().OfType<TextBox>().Single().Text = "21.5"; dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None); await Tick();
+            var input = numeric.GetVisualDescendants().OfType<TextBox>().Single();
+            input.Text = "21.5";
+            input.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            await Tick();
             Assert.Equal(21.5, editor.Band.FadeIn); Assert.Equal(21.5, ((HueSaturationAdjustment)layer.Adjustment!).BandFor(HueRange.Reds).FadeIn); Assert.Equal(state, session.History.CurrentId);
             Assert.True(Screenshots.Save(dialog, "hsl-custom-band-rgb16")); Accept(dialog); await Finish(task); Assert.Equal("Edit Adjustment", session.History.UndoName);
             session.Undo(); Assert.True(initial.ContentEquals(session.Document.Find(layer.Id)!.Adjustment!)); Assert.Equal(state, session.History.CurrentId);
