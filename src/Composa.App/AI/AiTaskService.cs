@@ -337,11 +337,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
                                 }
                             }
                             images.Add(image);
-                            if (fullEdit && request.AlignMaskedEdits)
-                            {
-                                using var expandedReference = request.Task == AiTaskKind.GenerativeExpand ? inputs.ExpandedContext() : null;
-                                await Task.Run(() => AiSeamlessFinisher.AlignEdit(image, expandedReference ?? inputs.ContextImage), linked.Token);
-                            }
+                            // An expansion already maps the decoded frame to the target canvas.
+                            // Free translation here would copy edge pixels into uncovered areas.
+                            if (fullEdit && request.AlignMaskedEdits && request.Task != AiTaskKind.GenerativeExpand)
+                                await Task.Run(() => AiSeamlessFinisher.AlignEdit(image, inputs.ContextImage), linked.Token);
                             var pixels = images.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
                             if (binding.OutputMode == AiOutputMode.NewLayerWithMask && inputs.SelectionMask != null) pixels *= 2;
                             if (request.Task == AiTaskKind.ChangeBackground)

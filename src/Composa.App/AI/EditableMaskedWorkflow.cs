@@ -15,6 +15,7 @@ internal sealed class EditableMaskedWorkflow : IDisposable
     private readonly AiTaskInputs inputs;
     private readonly AiTaskRequest request;
     private readonly AiMaskPlan plan;
+    private readonly SKRectI expansionReferenceBounds;
     private bool nativePixels;
     internal (int Width, int Height) ContentSize { get; private set; }
     internal (int Width, int Height) GenerationSize { get; private set; }
@@ -30,7 +31,11 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         Bounds = plan.Bounds;
         if (Bounds.IsEmpty) throw new InvalidOperationException("The edit mask is empty.");
         Mask = AutomaticAiMask.OutputMask(core, context, plan, request.Task == AiTaskKind.GenerativeExpand);
-        if (request.Task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand || request.BlackEditRegion)
+        // Expansion already has an opaque black sampling frame that matches its prompt.
+        // A nearest-pixel continuation would feed stripes across the open margin.
+        if (request.Task == AiTaskKind.GenerativeExpand)
+            expansionReferenceBounds = SKRectI.Intersect(Bounds, Pixels.ContentBounds(context));
+        else if (request.Task == AiTaskKind.RemoveObject || request.BlackEditRegion)
             ConditioningImage = AiConditioningImage.Continue(context, core);
     }
 
@@ -50,8 +55,6 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         JsonObject Node(string type, JsonObject values) => new() { ["class_type"] = type, ["inputs"] = values };
         if (ConditioningImage != null)
         {
-            // The reference already extends the surrounding colors into the hole.
-            // A black-patch instruction describes a different reference image.
             var instruction = request.Task == AiTaskKind.RemoveObject
                 ? "Restore the empty background where the object was removed. Continue visible surfaces, edges and lighting through the masked area."
                 : "Extend the existing scene through the masked area. Continue the adjacent colors, surfaces, perspective and lighting.";
@@ -108,9 +111,31 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         // pipeline. The previous override discarded conditioning and expanded a binary
         // noise halo unrelated to the model-space mask.
         graph["composa_condition"]!["inputs"]!["mask"] = new JsonArray("composa_edit_padded_mask",0);
-        // Both the reference latent and inpaint conditioning see the same clean
-        // context. A black patch must never become an independent FLUX reference.
-        graph["sourceEncode"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
+        var referenceNode = "composa_edit_size";
+        if (!expansionReferenceBounds.IsEmpty)
+        {
+            // Give the reference latent only the photographed part of the crop. The
+            // sampling latent and noise mask keep the geometry of the expanded frame.
+            var reference = expansionReferenceBounds;
+            graph["composa_edit_reference_crop"] = Node("ImageCrop", new()
+            {
+                ["image"] = image.DeepClone(), ["x"] = reference.Left, ["y"] = reference.Top,
+                ["width"] = reference.Width, ["height"] = reference.Height
+            });
+            referenceNode = "composa_edit_reference_crop";
+            var referenceWidth = Math.Max(16, (int)Math.Round(reference.Width * (double)ContentSize.Width / Bounds.Width));
+            var referenceHeight = Math.Max(16, (int)Math.Round(reference.Height * (double)ContentSize.Height / Bounds.Height));
+            if ((referenceWidth, referenceHeight) != (reference.Width, reference.Height))
+            {
+                graph["composa_edit_reference_resize"] = Node("ImageScale", new()
+                {
+                    ["image"] = new JsonArray(referenceNode, 0), ["width"] = referenceWidth, ["height"] = referenceHeight,
+                    ["upscale_method"] = "lanczos", ["crop"] = "disabled"
+                });
+                referenceNode = "composa_edit_reference_resize";
+            }
+        }
+        graph["sourceEncode"]!["inputs"]!["pixels"] = new JsonArray(referenceNode, 0);
         graph["composa_condition"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
         foreach (var id in new[] { "blackPatch", "black", "blackSize", "composa_black_mask" }) graph.Remove(id);
         graph.Remove("composa_sampling_mask");
@@ -151,7 +176,8 @@ internal sealed class EditableMaskedWorkflow : IDisposable
                 return AiSeamlessFinisher.Match(result, context, Mask, Bounds, plan.SeamWidth,
                     request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground),
                     request.Task == AiTaskKind.GenerativeExpand && (string.IsNullOrWhiteSpace(request.Prompt) || request.Prompt == AiPromptDefaults.Expand)
-                    || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand, request.AlignMaskedEdits,
+                    || request.BlackEditRegion && request.Prompt == AiPromptDefaults.Expand,
+                    alignPixels: request.AlignMaskedEdits && request.Task != AiTaskKind.GenerativeExpand,
                     keepGeneratedContext: request.Task == AiTaskKind.GenerativeFill);
         }
     }

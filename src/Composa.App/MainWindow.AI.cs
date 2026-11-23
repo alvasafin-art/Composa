@@ -818,10 +818,12 @@ public sealed partial class MainWindow
                         ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }
                 }
             };
-            await aiTasks.RunAsync(new EditorCommandService(session!), request);
+            var targetSession = session!;
+            await aiTasks.RunAsync(new EditorCommandService(targetSession), request);
             if (task == AiTaskKind.GenerateImage && engine?.Binding(AiTaskKind.ImageEdit) != null && modelDrafts.ContainsKey(task))
             { modelDrafts[AiTaskKind.ImageEdit] = engine.Id; RefreshEditorModels(); }
-            if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop) canvas.ResetCropToCanvas();
+            if (task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop)
+                canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { AiFailed(error.Message); }
