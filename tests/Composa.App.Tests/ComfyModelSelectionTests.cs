@@ -76,17 +76,20 @@ public class ComfyModelSelectionTests
         Assert.Equal("shared/upscaler.pth", settings.ComfyModelsFor(Lan)[slot.Key]);
     }
 
-    [Fact]
-    public async Task Subfolder_models_satisfy_the_pack_without_any_client_files()
+    [Theory]
+    [InlineData("shared/flux-2-klein-9b_int8_convrot.safetensors")]
+    [InlineData("shared/flux-2-klein-9b-int8-convrot.safetensors")]
+    public async Task Subfolder_models_satisfy_the_pack_without_any_client_files(string model)
     {
         using var handler = new Server();
+        handler.Objects["UNETLoader"]!["input"]!["required"]!["unet_name"] = new JsonArray(new JsonArray(model), new JsonObject());
         using var http = new HttpClient(handler);
         var service = Service(http);
         var compatibility = await service.TestConnectionAsync(TestContext.Current.CancellationToken);
         Assert.True(compatibility!.IsCompatible, string.Join(", ", compatibility.Missing));
         Assert.Equal(Lan, service.ConnectedServerUrl);
         Assert.All(handler.Requests, request => Assert.Equal("192.168.1.50", request.Host));
-        Assert.Contains("shared/flux-2-klein-9b_int8_convrot.safetensors", service.ServerCapabilities!.ModelChoices["UNETLoader.unet_name"]);
+        Assert.Contains(model, service.ServerCapabilities!.ModelChoices["UNETLoader.unet_name"]);
     }
 
     [Fact]

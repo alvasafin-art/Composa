@@ -111,14 +111,34 @@ internal sealed class EditableMaskedWorkflow : IDisposable
                         var slot = link[1]!.GetValue<int>();
                         fields[key] = new JsonArray(slot == (pixaroma ? 0 : 1) ? "composa_edit_size" : "composa_edit_padded_mask", 0);
                     }
-        // Preserve the user's ReferenceLatent -> InpaintModelConditioning -> KSampler
-        // pipeline. The previous override discarded conditioning and expanded a binary
-        // noise halo unrelated to the model-space mask.
-        graph["composa_condition"]!["inputs"]!["mask"] = new JsonArray("composa_edit_padded_mask",0);
         // Both latents must show the source in the same frame. A tightly cropped
         // reference can make FLUX reframe the subject and draw it a second time.
         graph["sourceEncode"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
-        graph["composa_condition"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
+        var conditioning = graph["composa_condition"]!["inputs"]!;
+        var sampler = graph["sampler"]!["inputs"]!;
+        if (request.Task == AiTaskKind.GenerativeExpand && sampler["cfg"] is JsonValue cfg
+            && cfg.TryGetValue<double>(out var guidanceScale) && guidanceScale == 1)
+        {
+            // Klein at CFG 1 only uses the positive conditioning. Share the encoded
+            // canvas between the reference and sampling branches and add the noise
+            // mask to the sampling copy.
+            var positive = conditioning["positive"]!.DeepClone();
+            graph["composa_edit_zero_conditioning"] = Node("ConditioningZeroOut", new() { ["conditioning"] = positive.DeepClone() });
+            graph["composa_edit_masked_latent"] = Node("SetLatentNoiseMask", new()
+            {
+                ["samples"] = new JsonArray("sourceEncode", 0),
+                ["mask"] = new JsonArray("composa_edit_padded_mask", 0)
+            });
+            graph["latent"]!["inputs"]!["samples"] = new JsonArray("composa_edit_masked_latent", 0);
+            sampler["positive"] = positive;
+            sampler["negative"] = new JsonArray("composa_edit_zero_conditioning", 0);
+            foreach (var id in new[] { "composa_condition", "baseNeg", "negative" }) graph.Remove(id);
+        }
+        else
+        {
+            conditioning["mask"] = new JsonArray("composa_edit_padded_mask", 0);
+            conditioning["pixels"] = new JsonArray("composa_edit_size", 0);
+        }
         foreach (var id in new[] { "blackPatch", "black", "blackSize", "composa_black_mask" }) graph.Remove(id);
         graph.Remove("composa_sampling_mask");
         graph["save"]!["inputs"]!["images"] = new JsonArray("decode", 0);

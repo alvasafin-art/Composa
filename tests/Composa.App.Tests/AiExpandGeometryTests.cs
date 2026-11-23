@@ -52,10 +52,20 @@ public sealed class AiExpandGeometryTests
         Assert.Equal(plan.Bounds.Left, graph["composa_edit_crop"]!["inputs"]!["x"]!.GetValue<int>());
         Assert.Equal(plan.Bounds.Top, graph["composa_edit_mask_crop"]!["inputs"]!["y"]!.GetValue<int>());
         Assert.Equal("red", graph["mask"]!["inputs"]!["channel"]!.GetValue<string>());
-        var reference = graph["sourceEncode"]!["inputs"]!["pixels"];
-        var samplingFrame = graph["composa_condition"]!["inputs"]!["pixels"];
-        Assert.True(JsonNode.DeepEquals(samplingFrame, reference));
-        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_size", 0), samplingFrame));
+        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_size", 0),
+            graph["sourceEncode"]!["inputs"]!["pixels"]));
+        Assert.True(JsonNode.DeepEquals(graph["basePos"]!["inputs"]!["latent"],
+            graph["composa_edit_masked_latent"]!["inputs"]!["samples"]));
+        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_padded_mask", 0),
+            graph["composa_edit_masked_latent"]!["inputs"]!["mask"]));
+        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_masked_latent", 0),
+            graph["latent"]!["inputs"]!["samples"]));
+        var sampler = graph["sampler"]!["inputs"]!;
+        Assert.Equal("ConditioningZeroOut", graph["composa_edit_zero_conditioning"]!["class_type"]!.GetValue<string>());
+        Assert.True(JsonNode.DeepEquals(sampler["positive"], graph["composa_edit_zero_conditioning"]!["inputs"]!["conditioning"]));
+        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_zero_conditioning", 0), sampler["negative"]));
+        Assert.False(graph.ContainsKey("negative"));
+        Assert.False(graph.ContainsKey("composa_condition"));
         Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_size", 1),
             graph["composa_edit_padded_mask"]!["inputs"]!["destination"]));
         Assert.Equal(147, Math.Max(edit.ContentSize.Width, edit.ContentSize.Height));
