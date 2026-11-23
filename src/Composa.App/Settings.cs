@@ -14,7 +14,8 @@ public sealed class Settings
     public List<Dialogs.CanvasPreset> RecentCanvasPresets { get; set; } = [];
     public List<Dialogs.CanvasPreset> UserCanvasPresets { get; set; } = [];
     public bool RememberAiPrompts { get; set; } = true;
-    public Dictionary<AiTaskKind, string> AiPromptDrafts { get; set; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal Dictionary<AiTaskKind, string> AiPromptDrafts { get; } = [];
 
     internal string AiPromptFor(AiTaskKind task) => RememberAiPrompts ? AiPromptDrafts.GetValueOrDefault(task) ?? "" : "";
 
@@ -284,19 +285,6 @@ public sealed class Settings
                 && !model.Contains("birefnet", StringComparison.OrdinalIgnoreCase))
             value.ObjectSelectionModel = ObjectSelectionSource.EfficientSamS;
         using var document = JsonDocument.Parse(json);
-        value.AiPromptDrafts ??= [];
-        if (!value.RememberAiPrompts) value.AiPromptDrafts.Clear();
-        else
-        {
-            void ImportPrompt(AiTaskKind task, string property)
-            {
-                if (document.RootElement.TryGetProperty(property, out var saved) && saved.ValueKind == JsonValueKind.String
-                    && saved.GetString() is { Length: > 0 } prompt)
-                    value.AiPromptDrafts.TryAdd(task, prompt);
-            }
-            ImportPrompt(AiTaskKind.GenerateImage, "GenerateImagePrompt");
-            ImportPrompt(AiTaskKind.ImageEdit, "ImageEditPrompt");
-        }
         // Older releases recorded the build version when the welcome dialog closed.
         if (document.RootElement.TryGetProperty("SeenWelcomeVersions", out var seenVersions)
             && seenVersions.ValueKind == JsonValueKind.Array

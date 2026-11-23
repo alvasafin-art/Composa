@@ -105,9 +105,16 @@ public class GenerationDockTests
             prompt.Text = "A new landscape.";
             Choose("Image Edit");
             Assert.Equal("Soften the shadows.", prompt.Text);
-            var reloaded = Settings.FromJson(System.Text.Json.JsonSerializer.Serialize(window.Settings));
-            Assert.Equal("A new landscape.", reloaded.AiPromptFor(AiTaskKind.GenerateImage));
-            Assert.Equal("Soften the shadows.", reloaded.AiPromptFor(AiTaskKind.ImageEdit));
+            Choose("Generate Image");
+            Assert.Equal("A new landscape.", prompt.Text);
+            Choose("Image Edit");
+            var serialized = System.Text.Json.JsonSerializer.Serialize(window.Settings);
+            Assert.DoesNotContain("AiPromptDrafts", serialized);
+            Assert.DoesNotContain("A new landscape.", serialized);
+            Assert.DoesNotContain("Soften the shadows.", serialized);
+            var reloaded = Settings.FromJson(serialized);
+            Assert.True(reloaded.RememberAiPrompts);
+            Assert.Empty(reloaded.AiPromptDrafts);
 
             var settings = AiDialogs.SettingsDialog(window, window.Settings, window.AiTasks, page: 3);
             Pump();

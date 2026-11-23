@@ -22,28 +22,33 @@ public class RdpToolsUiTests
     [AvaloniaTheory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Generate_image_respects_the_prompt_preference_on_cancel_and_after_settings_reload(bool remember)
+    public async Task Generate_image_respects_session_prompt_preference_and_ignores_old_drafts_on_disk(bool remember)
     {
-        var settings = Settings.FromJson(remember
-            ? """{"GenerateImagePrompt":"previous landscape"}"""
-            : """{"RememberAiPrompts":false,"GenerateImagePrompt":"previous landscape"}""");
+        var settings = Settings.FromJson("""
+            {"GenerateImagePrompt":"old landscape","ImageEditPrompt":"old edit","AiPromptDrafts":{"GenerateImage":"previous landscape"}}
+            """);
+        settings.RememberAiPrompts = remember;
+        Assert.Empty(settings.AiPromptDrafts);
         var owner = new Window(); owner.Show();
         var pending = AiDialogs.Prompt(owner, AiTaskKind.GenerateImage, settings, 640, 480);
         var dialog = owner.OwnedWindows.Single(); Dispatcher.UIThread.RunJobs();
         var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn);
-        Assert.Equal(remember ? "previous landscape" : "", prompt.Text);
+        Assert.Equal("", prompt.Text);
         prompt.Text = "новый пейзаж";
         dialog.Close(false);
         Assert.Null(await pending);
+        Assert.Equal(remember ? "новый пейзаж" : "", settings.AiPromptFor(AiTaskKind.GenerateImage));
         var loaded = Settings.FromJson(JsonSerializer.Serialize(settings));
         Assert.Equal(remember, loaded.RememberAiPrompts);
-        Assert.Equal(remember ? "новый пейзаж" : "", loaded.AiPromptFor(AiTaskKind.GenerateImage));
+        Assert.Empty(loaded.AiPromptDrafts);
         owner.Close();
     }
     [AvaloniaFact]
-    public async Task Image_edit_and_generate_keep_separate_drafts_across_reopening_and_settings_reload()
+    public async Task Image_edit_and_generate_keep_separate_drafts_across_dialogs_in_the_same_session()
     {
-        var settings=Settings.FromJson("""{"ImageEditPrompt":"previous edit","GenerateImagePrompt":"previous generation"}""");
+        var settings = new Settings();
+        settings.RememberAiPrompt(AiTaskKind.ImageEdit, "previous edit");
+        settings.RememberAiPrompt(AiTaskKind.GenerateImage, "previous generation");
         var owner=new Window();owner.Show();
         async Task Draft(AiTaskKind task,string expected,string next,string initial="")
         {
@@ -53,7 +58,6 @@ public class RdpToolsUiTests
             Assert.Equal(expected,prompt.Text);prompt.Text=next;dialog.Close(false);Assert.Null(await pending);
         }
         await Draft(AiTaskKind.ImageEdit,"previous edit","новая правка");
-        settings=Settings.FromJson(JsonSerializer.Serialize(settings));
         await Draft(AiTaskKind.ImageEdit,"новая правка","исправить свет");
         await Draft(AiTaskKind.GenerateImage,"previous generation","новая генерация");
         await Draft(AiTaskKind.ImageEdit,"explicit instruction","final edit","explicit instruction");

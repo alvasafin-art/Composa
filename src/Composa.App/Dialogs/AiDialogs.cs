@@ -565,7 +565,7 @@ public static partial class AiDialogs
         Avalonia.Automation.AutomationProperties.SetName(aiPanelPicker, "AI panel placement");
         const string rememberPromptsLabel = "Remember prompts for each AI operation";
         var rememberPrompts = new CheckBox { Name = "RememberAiPrompts", Content = Locale.T(rememberPromptsLabel), IsChecked = settings.RememberAiPrompts };
-        Locale.Tip(rememberPrompts, "Turning this off clears saved AI prompts.");
+        Locale.Tip(rememberPrompts, "Prompts stay in memory until the editor closes. Turning this off clears the drafts.");
         const string gpuLabel = "Use GPU for local object selection and matting when available";
         var selectionGpu = new CheckBox { Name = "UseSelectionGpu", Content = Locale.T(gpuLabel),
             IsChecked = settings.UseSelectionGpu, IsEnabled = OperatingSystem.IsWindows() };
@@ -1284,10 +1284,7 @@ public static partial class AiDialogs
         }
         var finalPrompt = prompt.Text ?? "";
         if (settings.RememberAiPrompts && prompt.IsVisible && prompt.IsEnabled && (accepted || finalPrompt != startingPrompt))
-        {
             settings.RememberAiPrompt(task, finalPrompt);
-            if (!accepted) settings.Save();
-        }
         if (!accepted) return null;
         if (alignment.IsVisible) settings.AiAlignMaskedEdits = alignment.IsChecked == true;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
