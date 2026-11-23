@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Composa.AI;
 using Composa.App.AI;
 using Composa.Editing;
@@ -51,14 +52,12 @@ public sealed class AiExpandGeometryTests
         Assert.Equal(plan.Bounds.Left, graph["composa_edit_crop"]!["inputs"]!["x"]!.GetValue<int>());
         Assert.Equal(plan.Bounds.Top, graph["composa_edit_mask_crop"]!["inputs"]!["y"]!.GetValue<int>());
         Assert.Equal("red", graph["mask"]!["inputs"]!["channel"]!.GetValue<string>());
-        var reference = SKRectI.Intersect(plan.Bounds, frame);
-        var referenceCrop = graph["composa_edit_reference_crop"]!["inputs"]!;
-        Assert.Equal(reference.Left, referenceCrop["x"]!.GetValue<int>());
-        Assert.Equal(reference.Top, referenceCrop["y"]!.GetValue<int>());
-        Assert.Equal(reference.Width, referenceCrop["width"]!.GetValue<int>());
-        Assert.Equal(reference.Height, referenceCrop["height"]!.GetValue<int>());
-        Assert.Equal("composa_edit_reference_resize", graph["sourceEncode"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
-        Assert.Equal("composa_edit_size", graph["composa_condition"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
+        var reference = graph["sourceEncode"]!["inputs"]!["pixels"];
+        var samplingFrame = graph["composa_condition"]!["inputs"]!["pixels"];
+        Assert.True(JsonNode.DeepEquals(samplingFrame, reference));
+        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_size", 0), samplingFrame));
+        Assert.True(JsonNode.DeepEquals(new JsonArray("composa_edit_size", 1),
+            graph["composa_edit_padded_mask"]!["inputs"]!["destination"]));
         Assert.Equal(147, Math.Max(edit.ContentSize.Width, edit.ContentSize.Height));
         Assert.Equal(0, edit.GenerationSize.Width % 16);
         Assert.Equal(0, edit.GenerationSize.Height % 16);

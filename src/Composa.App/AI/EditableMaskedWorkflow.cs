@@ -15,7 +15,6 @@ internal sealed class EditableMaskedWorkflow : IDisposable
     private readonly AiTaskInputs inputs;
     private readonly AiTaskRequest request;
     private readonly AiMaskPlan plan;
-    private readonly SKRectI expansionReferenceBounds;
     private bool nativePixels;
     internal (int Width, int Height) ContentSize { get; private set; }
     internal (int Width, int Height) GenerationSize { get; private set; }
@@ -31,11 +30,9 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         Bounds = plan.Bounds;
         if (Bounds.IsEmpty) throw new InvalidOperationException("The edit mask is empty.");
         Mask = AutomaticAiMask.OutputMask(core, context, plan, request.Task == AiTaskKind.GenerativeExpand);
-        // Expansion already has an opaque black sampling frame that matches its prompt.
-        // A nearest-pixel continuation would feed stripes across the open margin.
-        if (request.Task == AiTaskKind.GenerativeExpand)
-            expansionReferenceBounds = SKRectI.Intersect(Bounds, Pixels.ContentBounds(context));
-        else if (request.Task == AiTaskKind.RemoveObject || request.BlackEditRegion)
+        // Expansion already has a black frame that matches its prompt and carries
+        // the known scene in its final position.
+        if (request.Task != AiTaskKind.GenerativeExpand && (request.Task == AiTaskKind.RemoveObject || request.BlackEditRegion))
             ConditioningImage = AiConditioningImage.Continue(context, core);
     }
 
@@ -96,8 +93,15 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             }
         }
         graph["composa_edit_mask"] = Node("ImageToMask", new() { ["image"] = new JsonArray(last,0), ["channel"] = "red" });
-        graph["composa_edit_empty_mask"] = Node("SolidMask", new() { ["value"] = 0.0, ["width"] = width, ["height"] = height });
-        graph["composa_edit_padded_mask"] = Node("MaskComposite", new() { ["destination"] = new JsonArray("composa_edit_empty_mask",0),
+        var paddingMask = new JsonArray("composa_edit_size", 1);
+        if (request.Task != AiTaskKind.GenerativeExpand)
+        {
+            graph["composa_edit_empty_mask"] = Node("SolidMask", new() { ["value"] = 0.0, ["width"] = width, ["height"] = height });
+            paddingMask = new JsonArray("composa_edit_empty_mask", 0);
+        }
+        // For outpainting, denoise the technical padding too. Frozen padding
+        // gives the model an artificial gray border next to the new content.
+        graph["composa_edit_padded_mask"] = Node("MaskComposite", new() { ["destination"] = paddingMask,
             ["source"] = new JsonArray("composa_edit_mask",0), ["x"] = 0, ["y"] = 0, ["operation"] = "add" });
         foreach (var (_, node) in graph)
             if (node?["inputs"] is JsonObject fields)
@@ -111,31 +115,9 @@ internal sealed class EditableMaskedWorkflow : IDisposable
         // pipeline. The previous override discarded conditioning and expanded a binary
         // noise halo unrelated to the model-space mask.
         graph["composa_condition"]!["inputs"]!["mask"] = new JsonArray("composa_edit_padded_mask",0);
-        var referenceNode = "composa_edit_size";
-        if (!expansionReferenceBounds.IsEmpty)
-        {
-            // Give the reference latent only the photographed part of the crop. The
-            // sampling latent and noise mask keep the geometry of the expanded frame.
-            var reference = expansionReferenceBounds;
-            graph["composa_edit_reference_crop"] = Node("ImageCrop", new()
-            {
-                ["image"] = image.DeepClone(), ["x"] = reference.Left, ["y"] = reference.Top,
-                ["width"] = reference.Width, ["height"] = reference.Height
-            });
-            referenceNode = "composa_edit_reference_crop";
-            var referenceWidth = Math.Max(16, (int)Math.Round(reference.Width * (double)ContentSize.Width / Bounds.Width));
-            var referenceHeight = Math.Max(16, (int)Math.Round(reference.Height * (double)ContentSize.Height / Bounds.Height));
-            if ((referenceWidth, referenceHeight) != (reference.Width, reference.Height))
-            {
-                graph["composa_edit_reference_resize"] = Node("ImageScale", new()
-                {
-                    ["image"] = new JsonArray(referenceNode, 0), ["width"] = referenceWidth, ["height"] = referenceHeight,
-                    ["upscale_method"] = "lanczos", ["crop"] = "disabled"
-                });
-                referenceNode = "composa_edit_reference_resize";
-            }
-        }
-        graph["sourceEncode"]!["inputs"]!["pixels"] = new JsonArray(referenceNode, 0);
+        // Both latents must show the source in the same frame. A tightly cropped
+        // reference can make FLUX reframe the subject and draw it a second time.
+        graph["sourceEncode"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
         graph["composa_condition"]!["inputs"]!["pixels"] = new JsonArray("composa_edit_size", 0);
         foreach (var id in new[] { "blackPatch", "black", "blackSize", "composa_black_mask" }) graph.Remove(id);
         graph.Remove("composa_sampling_mask");
