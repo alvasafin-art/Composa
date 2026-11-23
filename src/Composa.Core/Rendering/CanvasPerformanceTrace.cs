@@ -26,7 +26,7 @@ public static class CanvasPerformanceTrace
     internal static void ViewMapped(long bytes) { Interlocked.Increment(ref mappedViews); Interlocked.Add(ref mappedBytes, bytes); }
     internal static void ViewReleased(long bytes) { Interlocked.Decrement(ref mappedViews); Interlocked.Add(ref mappedBytes, -bytes); }
 
-    internal static void StageCompleted(string stage, long started)
+    public static void StageCompleted(string stage, long started)
     {
         lock (Sync)
         {

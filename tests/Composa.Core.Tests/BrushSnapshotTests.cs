@@ -88,6 +88,44 @@ public class BrushSnapshotTests
         Assert.False(original.GetPixelSpan().SequenceEqual(actual.GetPixelSpan()));
     }
 
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void Pointer_samples_preserve_turns_pressure_and_smoothing_when_delivered_together(ColorDepth depth)
+    {
+        var sequential = EditorSession.NewCanvas(800, 700, SKColors.DarkSlateGray, depth);
+        var combined = EditorSession.NewCanvas(800, 700, SKColors.DarkSlateGray, depth);
+        var settings = new BrushSettings { Size = 180, Hardness = .73, Flow = .62, Opacity = .83, PressureFlow = true, Smoothing = 9 };
+        var first = new SKPoint(94, 86);
+        foreach (var session in new[] { sequential, combined })
+        {
+            session.ViewZoom = .33;
+            session.Brush = settings;
+            session.Foreground = SKColors.OrangeRed;
+            Assert.True(session.BeginStroke(first, out var problem, mode: BrushMode.Paint, pressure: .6f), problem);
+        }
+
+        (SKPoint Point, float Pressure)[] samples =
+        [
+            (new(98, 88), .62f), (new(240, 226), .74f), (new(258, 234), .88f), (new(514, 152), 1),
+            (new(594, 346), .75f), (new(178, 574), .65f), (new(110, 315), .47f)
+        ];
+        foreach (var (point, pressure) in samples) sequential.ContinueStroke(point, pressure);
+        combined.ContinueStrokeSamples(samples);
+        Assert.Equal(sequential.BrushPosition, combined.BrushPosition);
+        Assert.Equal(sequential.BrushPressure, combined.BrushPressure);
+        EqualPixels(sequential.ActiveLayer!.Pixels!, combined.ActiveLayer!.Pixels!);
+
+        sequential.EndStroke();
+        combined.EndStroke();
+        EqualPixels(sequential.ActiveLayer!.Pixels!, combined.ActiveLayer!.Pixels!);
+        var end = combined.ActiveLayer.Pixels!;
+        combined.Undo();
+        Assert.NotSame(end, combined.ActiveLayer!.Pixels);
+        combined.Redo();
+        Assert.Same(end, combined.ActiveLayer!.Pixels);
+    }
+
     [Fact]
     public void MaskForksSurviveReleasedAncestorsAndUntrackedEdits()
     {

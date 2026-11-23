@@ -1,3 +1,4 @@
+using System.Runtime.Intrinsics;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
@@ -10,6 +11,13 @@ public sealed unsafe partial class BrushStroke
 
     private void RecomputeHighPrecision(SKRectI rect)
     {
+        if (mode is (BrushMode.Paint or BrushMode.Erase) && selectionPixels == null && !LockTransparency
+            && Vector128.IsHardwareAccelerated)
+        {
+            RecomputeFloatPaint(rect);
+            return;
+        }
+
         var input = new PixelBuffer(original); var output = new PixelBuffer(Working);
         PixelBuffer? donor = CloneSource == null ? null : new PixelBuffer(CloneSource);
         PixelBuffer? soft = blurred == null ? null : new PixelBuffer(blurred);
@@ -51,6 +59,30 @@ public sealed unsafe partial class BrushStroke
             }
             var result = before * (1 - amount) + after * amount;
             output.Write(x, y, LockTransparency ? WithAlpha(result, before.A) : result);
+        }
+    }
+
+    private void RecomputeFloatPaint(SKRectI rect)
+    {
+        var input = (byte*)original.GetPixels();
+        var stride = original.RowBytes;
+        var output = new PixelBuffer(Working);
+        var opacity = (float)Math.Clamp(settings.Opacity, 0, 1);
+        var color = mode == BrushMode.Paint
+            ? Vector128.Create(premulColor[0] / 255, premulColor[1] / 255, premulColor[2] / 255, premulColor[3] / 255)
+            : Vector128<float>.Zero;
+        for (var y = rect.Top; y < rect.Bottom; y++)
+        {
+            var row = (float*)(input + (long)y * stride);
+            for (var x = rect.Left; x < rect.Right; x++)
+            {
+                var covered = coverage[x, y];
+                if (covered == 0) continue;
+                var amount = covered / (float)ushort.MaxValue * opacity;
+                var before = Vector128.Load(row + x * 4);
+                var result = amount <= 0 ? before : before * (1 - amount) + color * amount;
+                output.Write(x, y, new(result.GetElement(0), result.GetElement(1), result.GetElement(2), result.GetElement(3)));
+            }
         }
     }
 

@@ -60,7 +60,12 @@ public sealed class CanvasPerformanceBench
         try
         {
             if (scenario == "tabs") await TabCycles(folder);
-            else if (scenario is "brush8" or "brush16") ExerciseBrush(scenario == "brush16" ? ColorDepth.Sixteen : ColorDepth.Eight);
+            else if (scenario is "brush8" or "brush16")
+            {
+                var depth = scenario == "brush16" ? ColorDepth.Sixteen : ColorDepth.Eight;
+                if (Environment.GetEnvironmentVariable("COMPOSA_PERF_LONG_BRUSH") == "1") ExerciseLongBrush(depth);
+                else ExerciseBrush(depth);
+            }
             else if (scenario == "photo-open")
             {
                 var opened = await Open(folder, "photo");
@@ -141,6 +146,49 @@ public sealed class CanvasPerformanceBench
         Assert.Equal(20, session.Revision);
         checks["painted"] = Hash(session.ActiveLayer!.Pixels!);
         session.MarkSaved("brush-replay.cmps", session.History.CurrentId);
+    }
+
+    private void ExerciseLongBrush(ColorDepth depth)
+    {
+        var session = EditorSession.NewCanvas(6000, 4000, SKColors.White, depth);
+        window.AddSession(session);
+        window.SelectTool(Tool.Brush);
+        window.Canvas.Fit();
+        session.Foreground = new SKColor(56, 97, 161);
+        var burst = Environment.GetEnvironmentVariable("COMPOSA_PERF_BURST_BRUSH") == "1";
+        foreach (var size in new[] { 84, 500 })
+        {
+            session.Brush = new BrushSettings { Size = size, Hardness = .76, Flow = .65, Opacity = .82, Spacing = .045 };
+            Pump();
+            StartPhase();
+            var events = new List<InputFrame>();
+            var path = LongBrushPath();
+            ReplayLong(path);
+            ReplayLong(path.Reverse().Select(p => p + new SKPoint(133, 87)).ToArray());
+            void ReplayLong(SKPoint[] points)
+            {
+                if (burst) ReplayBurst(points, events);
+                else ReplayStroke(points, events);
+            }
+            EndPhase($"long brush {size} px fit", events);
+        }
+        Assert.Equal(4, session.Revision);
+        checks["painted"] = Hash(session.ActiveLayer!.Pixels!);
+        session.MarkSaved("brush-replay.cmps", session.History.CurrentId);
+    }
+
+    private static SKPoint[] LongBrushPath()
+    {
+        var turns = FastBrushPath("fit", SKPoint.Empty);
+        var path = new List<SKPoint> { turns[0] };
+        for (var pass = 0; pass < 4; pass++)
+        for (var i = 0; i < turns.Length; i++)
+        {
+            var start = path[^1];
+            var end = turns[(i + pass * 3 + 1) % turns.Length] + new SKPoint(pass * 28, pass * 47);
+            path.AddRange(Path(start, end.X - start.X, end.Y - start.Y, i % 4 == 3 ? 1 : 9).Skip(1));
+        }
+        return path.ToArray();
     }
 
     private static SKPoint[] FastBrushPath(string zoom, SKPoint offset)
@@ -326,6 +374,28 @@ public sealed class CanvasPerformanceBench
         }
         var last = At(points[^1]);
         Measure("release", () => window.MouseUp(last, MouseButton.Left), times);
+    }
+
+    private void ReplayBurst(SKPoint[] points, List<InputFrame> times)
+    {
+        var session = window.Canvas.Session!;
+        var individual = Environment.GetEnvironmentVariable("COMPOSA_PERF_INDIVIDUAL_SAMPLES") == "1";
+        Point At(SKPoint p) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(p), window)!.Value;
+        Measure("press", () => window.MouseDown(At(points[0]), MouseButton.Left), times);
+        foreach (var batch in points.Skip(1).Chunk(8))
+        {
+            // The same render loop as the pointer replay. Send samples together
+            // to the session because Headless MouseMove sends a single position.
+            var samples = batch.Select(p => (window.Canvas.ToDocument(window.Canvas.ToScreen(p)), 1f)).ToArray();
+            Measure("move", () =>
+            {
+                if (individual)
+                    foreach (var (point, pressure) in samples) session.ContinueStroke(point, pressure);
+                else session.ContinueStrokeSamples(samples);
+                window.MouseMove(At(batch[^1]), RawInputModifiers.LeftMouseButton);
+            }, times);
+        }
+        Measure("release", () => window.MouseUp(At(points[^1]), MouseButton.Left), times);
     }
 
     private static void Measure(string input, Action action, List<InputFrame> times)

@@ -388,10 +388,17 @@ public sealed partial class CanvasView : Decorator
 
         context.Custom(new DrawOperation(new Rect(size), canvas =>
         {
+#if CANVAS_PERFORMANCE
+            var backdropStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             canvas.Clear(backdrop);
             var screenRect = view.MapRect(documentRect);
             DrawPageShadow(canvas, screenRect, size);
             DrawCheckerboard(canvas, screenRect);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("canvas backdrop", backdropStarted);
+            var displaying = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
 
             if (cache != null)
             {
@@ -405,6 +412,9 @@ public sealed partial class CanvasView : Decorator
                 canvas.Restore();
             }
 
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("canvas image draw", displaying);
+#endif
             if (grid) DrawPixelGrid(canvas, view, documentRect, new SKRect(0, 0, (float)size.Width, (float)size.Height));
             if (outline != null) DrawAnts(canvas, outline, view, phase, scaling);
             overlay?.Invoke(canvas);
@@ -487,7 +497,16 @@ public sealed partial class CanvasView : Decorator
         viewKey = key;
         viewStale = false;
         viewDirty = SKRectI.Empty;
-        if (!dirty.IsEmpty) session.RenderView(viewCache, dirty, new RenderView(scale, viewOrigin));
+        if (!dirty.IsEmpty)
+        {
+#if CANVAS_PERFORMANCE
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+            session.RenderView(viewCache, dirty, new RenderView(scale, viewOrigin));
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("canvas composite", started);
+#endif
+        }
         return (viewCache, source, target);
     }
 

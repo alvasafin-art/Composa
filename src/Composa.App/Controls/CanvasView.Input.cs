@@ -379,8 +379,7 @@ public sealed partial class CanvasView
             case Drag.MoveSelection: selectionOffset = SnappedSelectionOffset(shift, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Stroke:
                 session.ViewZoom = UnitsPerPixel;
-                foreach (var p in e.GetIntermediatePoints(this))
-                    session.ContinueStroke(ToDocument(p.Position), e.Pointer.Type == PointerType.Pen ? p.Properties.Pressure : 1);
+                ContinueBrushDrag(e);
                 break;
             case Drag.SelectionBrush:
                 foreach (var p in e.GetIntermediatePoints(this)) session.ContinueSelectionBrush(ToDocument(p.Position));
@@ -425,6 +424,27 @@ public sealed partial class CanvasView
         // sample only moves the cursor, keep the document frame that is on screen.
         if (IsBrushTool && drag is Drag.None or Drag.Stroke) Child!.InvalidateVisual();
         else InvalidateCanvas();
+    }
+
+    private void ContinueBrushDrag(PointerEventArgs e)
+    {
+        var points = e.GetIntermediatePoints(this);
+        var isPen = e.Pointer.Type == PointerType.Pen;
+        if (points.Count == 1)
+        {
+            var point = points[0];
+            session!.ContinueStroke(ToDocument(point.Position), isPen ? point.Properties.Pressure : 1);
+            return;
+        }
+
+        Span<(SKPoint Point, float Pressure)> samples = points.Count <= 64
+            ? stackalloc (SKPoint, float)[points.Count] : new (SKPoint, float)[points.Count];
+        for (var i = 0; i < points.Count; i++)
+        {
+            var point = points[i];
+            samples[i] = (ToDocument(point.Position), isPen ? point.Properties.Pressure : 1);
+        }
+        session!.ContinueStrokeSamples(samples);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
