@@ -60,7 +60,15 @@ public static class WorkflowModels
     public static void ResolvePaths(JsonObject graph, ComfyServerCapabilities server)
     {
         foreach (var slot in Slots(graph, ""))
-            if (server.ModelChoices.TryGetValue(slot.LoaderKey, out var choices) && Resolve(slot.Default, choices) is { } resolved)
-                graph[slot.NodeId]!["inputs"]![slot.Input] = resolved;
+        {
+            if (!server.ModelChoices.TryGetValue(slot.LoaderKey, out var choices)) continue;
+            var resolved = Resolve(slot.Default, choices);
+            // Some servers list the bundled Klein weight with a hyphenated filename.
+            if (resolved == null && slot.LoaderKey == "UNETLoader.unet_name"
+                && slot.Default == "flux-2-klein-9b_int8_convrot.safetensors"
+                && !choices.Any(choice => Path.GetFileName(choice.Replace('\\', '/')).Equals(slot.Default, StringComparison.OrdinalIgnoreCase)))
+                resolved = Resolve("flux-2-klein-9b-int8-convrot.safetensors", choices);
+            if (resolved != null) graph[slot.NodeId]!["inputs"]![slot.Input] = resolved;
+        }
     }
 }

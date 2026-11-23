@@ -844,16 +844,15 @@ public sealed partial class MainWindow
                         ["apiQuality"] = profile.ApiQuality, ["apiSize"] = "Custom", ["imageOriginalSize"] = profile.OriginalSize }
                 }
             };
+            var targetSession = target!;
             if (direct != null)
-            {
-                var destination = target!;
-                await aiTasks.RunDirectImageAsync(new EditorCommandService(destination), direct, request, () => sessions.Contains(destination));
-                return;
-            }
-            await aiTasks.RunAsync(new EditorCommandService(session!), request);
+                await aiTasks.RunDirectImageAsync(new EditorCommandService(targetSession), direct, request, () => sessions.Contains(targetSession));
+            else
+                await aiTasks.RunAsync(new EditorCommandService(targetSession), request);
             if (task == AiTaskKind.GenerateImage && engine?.Binding(AiTaskKind.ImageEdit) != null && modelDrafts.ContainsKey(task))
             { modelDrafts[AiTaskKind.ImageEdit] = engine.Id; RefreshEditorModels(); }
-            if (task == AiTaskKind.GenerativeExpand && session?.Tool == Tool.Crop) canvas.ResetCropToCanvas();
+            if (task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop)
+                canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { AiFailed(error.Message); }
