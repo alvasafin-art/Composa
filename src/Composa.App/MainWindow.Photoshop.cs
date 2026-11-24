@@ -21,24 +21,47 @@ public sealed partial class MainWindow
         var helper = Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Exchange.ps1");
         if (!File.Exists(helper)) throw new FileNotFoundException("The Photoshop exchange helper is missing. Reinstall the complete Composa package.", helper);
         var image = Path.Combine(Path.GetTempPath(), "Composa-to-Photoshop-" + Guid.NewGuid().ToString("N") + (layers ? ".psd" : ".png"));
-        if (layers)
+        var handedOff = false;
+        try
         {
-            var snapshot = target.Document.Clone();
-            var conversions = PsdExport.Conversions(snapshot);
-            await Task.Run(() => PsdExport.Save(snapshot, image), cancellation);
-            if (conversions.Count > 0) ShowNote("PSD appearance conversion: " + string.Join("; ", conversions.Select(c => c.LayerName + ": " + c.Message)));
+            cancellation.ThrowIfCancellationRequested();
+            if (layers)
+            {
+                var snapshot = target.Document.Clone();
+                var conversions = PsdExport.Conversions(snapshot);
+                await Task.Run(() => PsdExport.Save(snapshot, image, cancellation.ThrowIfCancellationRequested), cancellation);
+                if (conversions.Count > 0) ShowNote("PSD appearance conversion: " + string.Join("; ", conversions.Select(c => c.LayerName + ": " + c.Message)));
+            }
+            else
+            {
+                using var flat = target.Flatten();
+                await Task.Run(() => ImageFiles.Save(flat, image, ExportFormat.Png, 100, cancellationToken: cancellation), cancellation);
+            }
+
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+            };
+            foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper, "-Direction", "ToPhotoshop", "-ImagePath", image }) start.ArgumentList.Add(argument);
+            cancellation.ThrowIfCancellationRequested();
+            using var process = Process.Start(start) ?? throw new InvalidOperationException("Couldn't start the Photoshop exchange helper.");
+            var output = process.StandardOutput.ReadToEndAsync();
+            var error = process.StandardError.ReadToEndAsync();
+            // Once started, let the helper report whether it handed off the file. Killing
+            // the process tree can kill Photoshop, and deleting the file can race its open.
+            await process.WaitForExitAsync();
+            handedOff = process.ExitCode == 0;
+            if (!handedOff) throw new InvalidOperationException("Couldn't send the image to Photoshop: " + (await error).Trim());
+            await output;
         }
-        else using (var flat = target.Flatten()) await Task.Run(() => ImageFiles.Save(flat, image, ExportFormat.Png, 100), cancellation);
-        var start = new ProcessStartInfo("powershell.exe")
+        finally
         {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
-        };
-        foreach (var argument in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", helper, "-Direction", "ToPhotoshop", "-ImagePath", image }) start.ArgumentList.Add(argument);
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("Couldn't start the Photoshop exchange helper.");
-        var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-        try { await process.WaitForExitAsync(cancellation); }
-        catch { if (!process.HasExited) process.Kill(entireProcessTree: true); throw; }
-        if (process.ExitCode != 0) throw new InvalidOperationException("Couldn't send the image to Photoshop: " + (await error).Trim());
-        await output;
+            if (!handedOff)
+            {
+                try { File.Delete(image); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
     }
 }
