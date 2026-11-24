@@ -11,6 +11,8 @@ function Fail([string]$message) { throw $message }
 # Direct per-user pipe: no second Composa process, startup handshake race or polling.
 $needsBridge = $Direction -eq 'ToComposa' -or -not $ImagePath
 $pipe = $null; $writer = $null; $reader = $null
+$generatedImage = $null
+$handedOff = $false
 try {
     $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
     $photoshopProcesses = @(Get-Process Photoshop -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId })
@@ -68,7 +70,8 @@ public static class ComposaExchangeWindows {
         if (-not $temporary) {
             $extension = if ($Layers) { '.psd' } else { '.png' }
             $tool = if ($Layers) { 'export_psd' } else { 'export_image' }
-            $temporary = Join-Path ([IO.Path]::GetTempPath()) ('Composa-to-Photoshop-' + [Guid]::NewGuid().ToString('N') + $extension)
+            $generatedImage = Join-Path ([IO.Path]::GetTempPath()) ('Composa-to-Photoshop-' + [Guid]::NewGuid().ToString('N') + $extension)
+            $temporary = $generatedImage
             $null = Request 'tools/call' @{name=$tool; arguments=@{path=$temporary}}
         }
         if (-not (Test-Path -LiteralPath $temporary -PathType Leaf)) { throw 'The image exchange file is missing.' }
@@ -82,6 +85,8 @@ public static class ComposaExchangeWindows {
         $temporary = [IO.Path]::GetFullPath($temporary)
         $handoff = Start-Process -FilePath $photoshopExecutable -ArgumentList ('"' + $temporary + '"') -WindowStyle Hidden -PassThru
         if ($null -eq $handoff) { Fail 'Could not hand the file to Photoshop.' }
+        # Photoshop opens the submitted file asynchronously and may still need its path.
+        $handedOff = $true
         $handoff.Dispose()
         foreach ($process in $photoshopProcesses) {
             if ($process.MainWindowHandle -eq [IntPtr]::Zero) { continue }
@@ -97,5 +102,6 @@ public static class ComposaExchangeWindows {
     if ($ReportPath) { [IO.File]::WriteAllText($ReportPath, ('ERROR: ' + $_.Exception.Message), (New-Object Text.UTF8Encoding($false))) }
     throw
 } finally {
+    if ($generatedImage -and -not $handedOff) { Remove-Item -LiteralPath $generatedImage -Force -ErrorAction SilentlyContinue }
     if ($writer) { $writer.Dispose() }; if ($reader) { $reader.Dispose() }; if ($pipe) { $pipe.Dispose() }
 }
