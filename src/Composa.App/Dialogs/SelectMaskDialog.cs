@@ -47,12 +47,11 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
     internal MaskRefineView View => view;
 
     // source is an owned immutable snapshot, supplied by the caller. The dialog owns its preview copies only.
-    public SelectMaskDialog(SKBitmap source, SKBitmap selection, RgbProfile displayProfile, bool activeLayerSource, Func<SKBitmap>? visibleCanvas = null, bool cleanForeground = false)
+    public SelectMaskDialog(SKBitmap source, SKBitmap selection, RgbProfile displayProfile, bool activeLayerSource, Func<SKBitmap>? visibleCanvas = null)
         : base("Select and Mask", new Border())
     {
         this.source = activeSource = source; original = selection; this.displayProfile = displayProfile;
         this.visibleCanvas = visibleCanvas; this.activeLayerSource = activeLayerSource;
-        if (cleanForeground) { decontamination = 1; Output = "New layer with mask"; }
         scale = Math.Min(1, 1000.0 / Math.Max(source.Width, source.Height));
         smallSource = activeSmall = Resize(source, false); smallMask = Resize(selection, true);
         marks = Pixels.NewMask(source.Width, source.Height);
@@ -64,7 +63,6 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
         methodMenu.Name = "RefineMethod";
         outputMenu = Ui.Combo(new[] { "Selection", "Layer mask", "New layer with mask" }, Output, Locale.T, v => Output = v, 220);
         outputMenu.Name = "RefineOutput";
-        outputMenu.IsEnabled = decontamination == 0;
         var fullResolution = Ui.Check("Full-resolution preview", false, v => { fullPreview = v; RequestPreview(); });
         var allLayers = Ui.Check("Sample all visible layers", !activeLayerSource, v => { requestedAll = v; Track(ChangeSource()); }); allLayers.IsEnabled = activeLayerSource && visibleCanvas != null;
         var controls = Ui.Column(10, allLayers,
@@ -83,7 +81,7 @@ internal sealed class SelectMaskDialog : DialogWindow, IAsyncDisposable
             Ui.Row(8, Ui.TextButton("Undo stroke", UndoStroke), Ui.TextButton("Reset marks", () => { if (finalizing) return; strokes.Clear(); marks.Erase(SKColors.Transparent); Pixels.Invalidate(marks); RequestPreview(); })),
             Ui.Check("Show local marks", true, v => { showMarks = v; RequestPreview(); }),
             Ui.Label(Locale.T("Output"), Palette.Secondary),
-            Ui.SliderField("Decontaminate", decontamination * 100, 0, 100, v => { decontamination = v / 100; if (v > 0) outputMenu.SelectedItem = "New layer with mask"; outputMenu.IsEnabled = v == 0; RequestPreview(); }, width: 220, reset: 0), outputMenu);
+            Ui.SliderField("Decontaminate", 0, 0, 100, v => { decontamination = v / 100; if (v > 0) outputMenu.SelectedItem = "New layer with mask"; outputMenu.IsEnabled = v == 0; RequestPreview(); }, width: 220, reset: 0), outputMenu);
         var grid = new Grid { ColumnDefinitions = new("*,18,250"), RowDefinitions = new("Auto,*,Auto") };
         var sourceHint = activeLayerSource ? "New layer output hides its source when sampling only the active layer" : "Source: visible canvas";
         var help = Ui.Label(sourceHint + " · Wheel: zoom · Middle drag: pan · Alt: background brush", Palette.Secondary); help.TextWrapping = TextWrapping.Wrap;

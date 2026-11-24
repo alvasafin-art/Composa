@@ -328,8 +328,13 @@ public sealed partial class AiTaskService : IAiTaskRunner
             }
             if (editable?.ConditioningImage is { } conditioning) imagesToUpload["conditioningImage"] = conditioning;
             if (saved == null && request.Task == AiTaskKind.GenerativeExpand && fullEdit && apiInputs == null && qwenInputs == null) imagesToUpload["sourceImage"] = inputs.PreprocessedImage!;
-            _ = Bind(imagesToUpload
+            var previewGraph = Bind(imagesToUpload
                 .ToDictionary(item => item.Key, item => "composa-preflight.png", StringComparer.OrdinalIgnoreCase));
+            // The BiRefNet workflow already supplies a complete matte for its input frame.
+            var preserveBiRefNetMatte = binding.OutputMode == AiOutputMode.Selection && previewGraph.Any(entry =>
+                entry.Value?["class_type"]?.GetValue<string>() == "LoadBackgroundRemovalModel" &&
+                entry.Value["inputs"]?["bg_removal_name"] is JsonValue model &&
+                model.TryGetValue<string>(out var file) && file.Contains("birefnet", StringComparison.OrdinalIgnoreCase));
             var uploaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (imagesToUpload.Count > 0)
             {
@@ -414,7 +419,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                         images[index] = matched;
                     }
                 Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited,
-                    variants: variants > 1, localOutputMask: localOutputMask);
+                    variants: variants > 1, localOutputMask: localOutputMask, preserveBiRefNetMatte: preserveBiRefNetMatte);
                 applied = true;
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed", CreditsUsed = reportedCredits };
                 StateChanged?.Invoke();
@@ -624,7 +629,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false, SKBitmap? localOutputMask = null)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false, SKBitmap? localOutputMask = null, bool preserveBiRefNetMatte = false)
     {
         var session = editor.Session;
         if (task == AiTaskKind.GenerativeExpand && inputs?.PreprocessedImage is { } expanded)
@@ -655,16 +660,17 @@ public sealed partial class AiTaskService : IAiTaskRunner
             }
             else mask = ToMask(images[0], session.Document.Width, session.Document.Height);
             foreach (var image in images) image.Dispose();
-            if (task == AiTaskKind.ObjectSelection && inputs?.SelectionPoint is { } point)
+            if (!preserveBiRefNetMatte && task == AiTaskKind.ObjectSelection && inputs?.SelectionPoint is { } point)
             {
-                // BiRefNet returns the foreground of the entire search image. Keep the
-                // clicked instance and its translucent fringe when several objects stand out.
+                // Other server matte routes can keep just the clicked instance. Keep its
+                // translucent fringe when several objects stand out.
                 SKBitmap? instance;
                 using (mask) instance = ObjectSelection.FromMatte(mask, point.X, point.Y, 0, connectivityThreshold: 8);
                 if (instance == null) return;
                 mask = instance;
             }
-            session.ApplyAiSelection(task, mask, inputs?.SelectionOperation ?? SelectionMode.Replace);
+            session.ApplyAiSelection(task, mask, inputs?.SelectionOperation ?? SelectionMode.Replace,
+                recoverForeground: !preserveBiRefNetMatte);
             return;
         }
         if (task == AiTaskKind.Upscale)

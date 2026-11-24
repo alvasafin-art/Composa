@@ -132,6 +132,55 @@ public class MaskRefinementUiTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Foreground_selection_cleans_edge_colors_only_after_the_user_enables_decontamination()
+    {
+        var window = new MainWindow { Width = 1280, Height = 900 }; window.Show();
+        try
+        {
+            var session = EditorSession.NewCanvas(80, 40);
+            var photo = Pixels.NewColor(80, 40);
+            var mask = Pixels.NewMask(80, 40);
+            for (var y = 0; y < 40; y++) for (var x = 0; x < 80; x++)
+            {
+                var coverage = x is >= 14 and < 44 ? 255 : x is >= 44 and < 48 ? 102 : 0;
+                photo.SetPixel(x, y, coverage == 255 ? new(227, 214, 181) : coverage == 102 ? new(112, 197, 107) : new(36, 186, 59));
+                mask.SetPixel(x, y, new(0, 0, 0, (byte)coverage));
+            }
+            var layer = session.AddImageLayer("Original", photo, new(40, 20), fit: false);
+            var original = layer.Pixels!;
+            var bytes = original.GetPixelSpan().ToArray();
+            session.ApplyAiSelection(Composa.AI.AiTaskKind.ObjectSelection, mask);
+            window.AddSession(session);
+
+            var task = Invoke(window);
+            var dialog = window.OwnedWindows.OfType<SelectMaskDialog>().Single();
+            Dispatcher.UIThread.RunJobs();
+            var output = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "RefineOutput");
+            var decontaminate = dialog.GetVisualDescendants().OfType<Composa.App.Controls.SliderField>()
+                .Single(c => c.Label == "Decontaminate");
+            Assert.Equal(0, decontaminate.Value);
+            Assert.True(output.IsEnabled);
+            Assert.Equal("Selection", output.SelectedItem);
+            dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "RefineMethod").SelectedItem = "Keep edge";
+            decontaminate.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.End });
+            Assert.Equal(100, decontaminate.Value);
+            Assert.Equal("New layer with mask", output.SelectedItem);
+            Accept(dialog);
+            await Finish(task);
+
+            var cutout = session.ActiveLayer!;
+            Assert.NotEqual(layer.Id, cutout.Id);
+            Assert.Equal(102, cutout.Mask!.GetPixel(45, 20).Alpha);
+            Assert.True(cutout.Pixels!.GetPixel(45, 20).Red > original.GetPixel(45, 20).Red + 50);
+            Assert.Equal(bytes, original.GetPixelSpan().ToArray());
+            Assert.Same(original, session.Document.Find(layer.Id)!.Pixels);
+            Assert.False(session.Document.Find(layer.Id)!.Visible);
+        }
+        finally { window.Close(); }
+    }
+
+
     private static Task Invoke(MainWindow window) => (Task)typeof(MainWindow).GetMethod("RefineSelection", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
     private static void Accept(SelectMaskDialog dialog) => dialog.GetVisualDescendants().OfType<Button>().Single(b => b.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     private static async Task Finish(Task task)

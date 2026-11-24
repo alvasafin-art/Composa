@@ -600,27 +600,8 @@ public sealed partial class EditorSession
     {
         if (PixelsLocked(layer) || layer.Mask != null) return;
         var selected = layer.Pixels != null && document.Selection != null ? SelectionInLayerSpace(layer) : null;
-        SKBitmap? recovered = null;
-        if (selected != null && HasForegroundSelection && !layer.IsLive && layer.Pixels is { } original &&
-            document.RasterPixels() + ((long)original.ByteCount + selected.ByteCount + 3) / 4 <= DocumentLimits.DocumentPixelBudget)
-        {
-            var colors = Selections.MaskRefinement.DecontaminateColors(original, selected, 1);
-            if (colors.GetPixelSpan().SequenceEqual(original.GetPixelSpan())) colors.Dispose();
-            else recovered = colors;
-        }
         Apply("Add Layer Mask", () =>
         {
-            if (recovered != null)
-            {
-                // Keep the target's ID, placement, effects and editable mask. The
-                // original RGB remains available even after the project is reopened.
-                var backup = layer.Clone(newIds: true);
-                backup.Name = document.UniqueName(layer.Name + " (original)");
-                backup.Visible = false;
-                var siblings = document.SiblingsOf(layer.Id)!;
-                siblings.Insert(siblings.IndexOf(layer), backup);
-                layer.Pixels = recovered;
-            }
             if (layer.Pixels == null)
                 layer.Mask = document.Selection != null ? Pixels.Clone(document.Selection) : Pixels.NewLayerMask(document.Width, document.Height, hideAll ? (byte)0 : (byte)255);
             else if (selected != null) layer.Mask = selected;
