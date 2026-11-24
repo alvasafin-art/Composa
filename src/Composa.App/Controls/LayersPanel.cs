@@ -292,14 +292,18 @@ public sealed partial class LayersPanel : UserControl
         RefreshRows();
     }
 
-    private Border BuildRow(Entry entry, Appearance state)
+    private static Control EyeIcon(bool visible) =>
+        Icons.Create(Icons.Eye, 15, visible ? null : new SolidColorBrush(Color.Parse("#555555")));
+
+    private Border BuildRow(Entry entry, Appearance state, RowHost host)
     {
         var current = session!;
         var layer = entry.Layer;
         var selected = state.Selected;
         var dim = !layer.Visible || !entry.ParentVisible;
 
-        var eye = new Button { Classes = { "flat" }, Width = 28, Height = 28, Padding = new Thickness(0), Content = Icons.Create(Icons.Eye, 15, layer.Visible ? null : new SolidColorBrush(Color.Parse("#555555"))) };
+        var eye = new Button { Classes = { "flat" }, Width = 28, Height = 28, Padding = new Thickness(0), Content = EyeIcon(layer.Visible) };
+        host.Eye = eye;
         Locale.Tip(eye, "Show or hide (drag down the column to swipe, Alt-click to show only this layer)");
         eye.AddHandler(PointerPressedEvent, (_, e) =>
         {
@@ -310,8 +314,8 @@ public sealed partial class LayersPanel : UserControl
                 e.Handled = true;
                 return;
             }
-            // Swiping down the eye column shows or hides every layer passed over. The pointer is released from the eye
-            // (whose row is about to be rebuilt) and the list itself follows the drag from here.
+            // Swiping down the eye column shows or hides every layer passed over. Release the
+            // pointer from the eye so the list can follow the drag across rows.
             eyeSwipe = !entry.Layer.Visible;
             e.Pointer.Capture(null);
             current.SetVisible(entry.Layer, eyeSwipe.Value);
@@ -319,6 +323,7 @@ public sealed partial class LayersPanel : UserControl
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(entry.Depth * 14, 0, 0, 0), Opacity = dim ? 0.45 : 1 };
+        host.Contents = content;
         if (layer.Clipped) content.Children.Add(Icons.Create(Icons.ClipArrow, 13, Palette.Secondary));
         if (layer.IsGroup)
         {

@@ -19,6 +19,7 @@ internal sealed class Tile : IDisposable
     public SKRectI Area { get; }
     public RenderView View { get; }
     public ColorDepth Depth { get; }
+    public SKRect DocumentBounds { get; }
     private readonly RgbProfile profile;
 
     public Tile(SKRectI area, RenderView view, bool mask = false, ColorDepth depth = ColorDepth.Eight, RgbProfile? profile = null)
@@ -26,6 +27,10 @@ internal sealed class Tile : IDisposable
         Area = area;
         View = view;
         Depth = depth;
+        // Keep a sampling fringe and account for float rounding at band edges.
+        const float fringe = 4;
+        DocumentBounds = new(view.Origin.X + (area.Left - fringe) / view.Scale, view.Origin.Y + (area.Top - fringe) / view.Scale,
+            view.Origin.X + (area.Right + fringe) / view.Scale, view.Origin.Y + (area.Bottom + fringe) / view.Scale);
         this.profile = profile ?? RgbProfile.Srgb;
         Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
 #if CANVAS_PERFORMANCE
@@ -183,6 +188,10 @@ public static partial class DocumentRenderer
             var firstClipped = i + 1;
             while (i + 1 < nodes.Count && nodes[i + 1].Clipped) i++;
             if (layer.Clipped || !layer.Visible || layer.Opacity <= 0) continue;
+            // A raster clipping base bounds the whole unit: its original alpha is restored
+            // after blending its followers. Skip empty bands before resolving masks or effects.
+            if (options?.EffectPatch?.LayerId != layer.Id && TryRasterBounds(layer, out var bounds) &&
+                !tile.DocumentBounds.IntersectsWith(bounds)) continue;
             List<Layer>? clipped = null;
             for (var j = firstClipped; j <= i; j++)
             {
@@ -192,6 +201,16 @@ public static partial class DocumentRenderer
             }
             RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped is null ? [] : clipped, tile, options);
         }
+    }
+
+    private static bool TryRasterBounds(Layer layer, out SKRect bounds)
+    {
+        bounds = default;
+        if (layer.Kind != LayerKind.Raster || layer.Pixels == null || layer.HasWarp || layer.HasSmartFilterMask ||
+            layer.Transform.Distort != null) return false;
+        bounds = layer.VisibleBounds;
+        return float.IsFinite(bounds.Left) && float.IsFinite(bounds.Top) && float.IsFinite(bounds.Right) &&
+            float.IsFinite(bounds.Bottom) && !bounds.IsEmpty;
     }
 
     private static void RenderUnit(Layer layer, IReadOnlyList<Layer> clipped, Tile tile, RenderOptions? options)
@@ -295,11 +314,13 @@ public static partial class DocumentRenderer
     /// <summary>Straightens premultiplied pixels and gives every covered pixel full alpha.</summary>
     private static unsafe void MakeOpaque(SKBitmap bitmap)
     {
-        if (bitmap.ColorType == SKColorType.RgbaF32)
+        // SKBitmap queries its dimensions through Skia. Read them once per band.
+        var info = bitmap.Info;
+        if (info.ColorType == SKColorType.RgbaF32)
         {
             var colors = new PixelBuffer(bitmap);
-            for (var y = 0; y < bitmap.Height; y++)
-            for (var x = 0; x < bitmap.Width; x++)
+            for (var y = 0; y < info.Height; y++)
+            for (var x = 0; x < info.Width; x++)
             {
                 var value = colors.Read(x, y);
                 if (value.A > 0) colors.Write(x, y, value.Straight with { A = 1 });
@@ -307,10 +328,11 @@ public static partial class DocumentRenderer
             return;
         }
         var pixels = (byte*)bitmap.GetPixels();
-        for (var y = 0; y < bitmap.Height; y++)
+        var stride = bitmap.RowBytes;
+        for (var y = 0; y < info.Height; y++)
         {
-            var p = pixels + (long)y * bitmap.RowBytes;
-            for (var x = 0; x < bitmap.Width; x++, p += 4)
+            var p = pixels + (long)y * stride;
+            for (var x = 0; x < info.Width; x++, p += 4)
             {
                 int a = p[3];
                 if (a is 0 or 255) continue;
