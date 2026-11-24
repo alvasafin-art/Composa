@@ -293,16 +293,22 @@ public static partial class AiDialogs
         _ => 0
     };
 
+    private static string ReasoningLabel(string? value) => Locale.T(value switch
+    {
+        null or "default" => "Default", "none" => "No reasoning", "minimal" => "Minimal reasoning", "low" => "Low reasoning",
+        "medium" => "Medium reasoning", "high" => "High reasoning", "xhigh" => "Extra high reasoning", _ => value
+    });
+
     private sealed class ImageConnectionFields
     {
         private ImageGenerationRoute route;
-        private readonly TextBox path, url, key, displayName;
-        private readonly TextBox upscalePath, segmentationPath, segmentationModel, polzaKey, falKey;
+        private readonly TextBox path, url, key, displayName, codexName;
+        private string codexLanguageModel, codexReasoningEffort;
+        private readonly string upscalePath, segmentationPath, segmentationModel;
         private readonly Dictionary<AiTaskKind, ImageGenerationRoute> routes;
         private readonly Dictionary<AiTaskKind, string> modelOverrides;
         private readonly ConnectionModelCatalog catalog;
         private bool forgetKey;
-        private bool forgetPolza, forgetFal;
         internal StackPanel View { get; }
         internal Control ApiUrl => url;
         internal Control CliSettings { get; }
@@ -326,9 +332,10 @@ public static partial class AiDialogs
 
         internal DirectImageGenerator ModelFor(AiTaskKind task) => Draft() with
         {
-            Route = routes[task], Task = task, ApiModel = modelOverrides.GetValueOrDefault(task) ?? catalog.LegacySelection,
-            UtilityPath = (task == AiTaskKind.Upscale ? upscalePath.Text : segmentationPath.Text)?.Trim() ?? "",
-            UtilityModel = segmentationModel.Text?.Trim() ?? ""
+            Route = routes[task], Task = task, ApiModel = modelOverrides.GetValueOrDefault(task) ??
+                (ImageOperationModels.IsUtility(task) ? "" : catalog.LegacySelection),
+            UtilityPath = task == AiTaskKind.Upscale ? upscalePath : segmentationPath,
+            UtilityModel = segmentationModel
         };
         internal ImageModelChoice DefaultModel(AiTaskKind task)
         {
@@ -343,23 +350,21 @@ public static partial class AiDialogs
             bool enabled;
             try
             {
-                enabled = task switch
-                {
-                    AiTaskKind.Upscale => !string.IsNullOrWhiteSpace(polzaKey.Text) || !forgetPolza && direct.Availability(task) == null,
-                    AiTaskKind.ObjectSelection => !string.IsNullOrWhiteSpace(falKey.Text) || !forgetFal && direct.Availability(task) == null,
-                    _ => catalog.CanFetch && (!string.IsNullOrWhiteSpace(key.Text) || !forgetKey &&
-                        !string.IsNullOrWhiteSpace(DirectImageGenerator.ReadKey(DirectImageGenerator.Endpoint(direct.ApiAddress))))
-                };
+                enabled = catalog.CanFetch && (!string.IsNullOrWhiteSpace(key.Text) || !forgetKey &&
+                    !string.IsNullOrWhiteSpace(DirectImageGenerator.ReadKey(DirectImageGenerator.Endpoint(direct.ApiAddress))));
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or System.ComponentModel.Win32Exception)
             { enabled = false; }
-            return ImageOperationModels.DirectChoices(direct, catalog.Models, displayName.Text?.Trim(), enabled, catalog.GenerationOnly);
+            return ImageOperationModels.DirectChoices(direct, catalog.Models, displayName.Text?.Trim(), enabled, catalog.GenerationOnly, catalog.Upscalers);
         }
 
         internal void SetDefault(AiTaskKind task, ImageModelChoice choice)
         {
-            if (choice.Direct is { Route: ImageGenerationRoute.DirectApi } direct && task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection))
-                modelOverrides[task] = direct.Model;
+            if (choice.Direct is { Route: ImageGenerationRoute.DirectApi } direct)
+            {
+                if (direct.Model.Length > 0 && task != AiTaskKind.ObjectSelection) modelOverrides[task] = direct.Model;
+                else modelOverrides.Remove(task);
+            }
             routes[task] = choice.Route;
             RouteChanged?.Invoke();
         }
@@ -384,6 +389,9 @@ public static partial class AiDialogs
             url = new TextBox { Text = settings.ImageGenerationApiUrl, Name = "ImageGenerationApiUrl" };
             var model = new TextBox { Text = settings.ImageGenerationApiModel };
             displayName = new TextBox { Text = settings.ImageApiDisplayName, PlaceholderText = Locale.T("Direct image API") };
+            codexName = new TextBox { Text = settings.ImageCodexDisplayName, PlaceholderText = "GPT Image 2" };
+            codexLanguageModel = settings.ImageCodexLanguageModel?.Trim() ?? "";
+            codexReasoningEffort = settings.ImageCodexReasoningEffort?.Trim() ?? "default";
             key = new TextBox { Name = "ImageApiKey", PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
             catalog = new ConnectionModelCatalog(settings.ImageApiCatalogs, url, key, model, () =>
             {
@@ -391,7 +399,8 @@ public static partial class AiDialogs
                 return (api.CredentialEndpoint, api.CatalogEndpoint);
             }, endpoint => !string.IsNullOrWhiteSpace(key.Text) ? key.Text.Trim()
                 : forgetKey ? Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY") : DirectImageGenerator.ReadKey(endpoint),
-                lifetime, images: true, compactSetup: firstRun, autoProbe: !firstRun, savedGenerationOnly: settings.ImageApiGenerationOnly);
+                lifetime, images: true, compactSetup: firstRun, autoProbe: !firstRun, savedGenerationOnly: settings.ImageApiGenerationOnly,
+                savedUpscalers: settings.ImageApiUpscalers, savedRates: settings.ImageApiRates);
             void ForgetKey()
             {
                 forgetKey = true;
@@ -406,25 +415,10 @@ public static partial class AiDialogs
                 forgetMenu.Click += (_, _) => ForgetKey();
                 key.ContextMenu = new ContextMenu { Items = { forgetMenu } };
             }
-            upscalePath = new TextBox { Text = settings.UpscaleCliPath, PlaceholderText = "realesrgan-ncnn-vulkan" };
-            segmentationPath = new TextBox { Text = settings.SegmentationCliPath, PlaceholderText = "rembg" };
-            segmentationModel = new TextBox { Text = settings.SegmentationCliModel, PlaceholderText = "birefnet-general" };
-            polzaKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
-            falKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
-            var upscaleCli = CanvasDialogs.Form(("Real-ESRGAN executable", upscalePath));
-            var segmentationCli = CanvasDialogs.Form(("rembg executable", segmentationPath), ("Model ID", segmentationModel));
-            var upscaleApi = CanvasDialogs.Form(("Polza AI key · Topaz Upscale", polzaKey),
-                ("", Ui.TextButton("Forget saved key", () => { polzaKey.Text = ""; forgetPolza = true; })));
-            var segmentationApi = CanvasDialogs.Form(("fal API key · BiRefNet", falKey),
-                ("", Ui.TextButton("Forget saved key", () => { falKey.Text = ""; forgetFal = true; })));
-            void RefreshUtilities()
-            {
-                upscaleCli.IsVisible = routes[AiTaskKind.Upscale] == ImageGenerationRoute.LocalCodex;
-                upscaleApi.IsVisible = routes[AiTaskKind.Upscale] == ImageGenerationRoute.DirectApi;
-                segmentationCli.IsVisible = routes[AiTaskKind.ObjectSelection] == ImageGenerationRoute.LocalCodex;
-                segmentationApi.IsVisible = routes[AiTaskKind.ObjectSelection] == ImageGenerationRoute.DirectApi;
-            }
-            RouteChanged += RefreshUtilities;
+            upscalePath = settings.UpscaleCliPath?.Trim() ?? "";
+            segmentationPath = settings.SegmentationCliPath?.Trim() ?? "";
+            segmentationModel = settings.SegmentationCliModel?.Trim() ?? "";
+            codexName.TextChanged += (_, _) => RouteChanged?.Invoke();
             var nameField = firstRun ? StudioSettingsLayout.SetupField("Display name", StudioSettingsLayout.SetupInput(displayName)) : null;
             var protocol = new TextBox { IsReadOnly = true };
             var api = firstRun ? Ui.Column(9, StudioSettingsLayout.SetupColumns(
@@ -444,6 +438,65 @@ public static partial class AiDialogs
                     StudioSettingsLayout.SetupField("ComfyUI server", StudioSettingsLayout.SetupInput(serverAddress)))
                 : StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("ComfyUI server", serverAddress));
             Control? methodField = null;
+            var languageModel = StudioSettingsLayout.SetupInput(new ComboBox
+            {
+                Name = "ImageCodexLanguageModel", IsEnabled = false, PlaceholderText = Locale.T("Connect Codex CLI to load models.")
+            });
+            languageModel.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<LocalCodex.TextModel>((item, _) =>
+                new TextBlock { Text = item == null ? "" : item.Title == item.Id ? item.Id : item.Title + " · " + item.Id,
+                    TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis });
+            languageModel.SelectionBoxItemTemplate = languageModel.ItemTemplate;
+            var reasoning = StudioSettingsLayout.SetupInput(new ComboBox { Name = "ImageCodexReasoningEffort", IsEnabled = false });
+            reasoning.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) =>
+                new TextBlock { Text = ReasoningLabel(item) });
+            reasoning.SelectionBoxItemTemplate = reasoning.ItemTemplate;
+            bool refreshingModels = false;
+
+            void PresentReasoning(LocalCodex.TextModel? model)
+            {
+                var efforts = model?.Efforts ?? [];
+                var choices = efforts.Prepend("default").Distinct(StringComparer.Ordinal).ToArray();
+                reasoning.ItemsSource = choices;
+                reasoning.SelectedItem = choices.Contains(codexReasoningEffort, StringComparer.Ordinal) ? codexReasoningEffort : "default";
+                reasoning.IsEnabled = choices.Length > 1;
+                if (model != null) codexReasoningEffort = (string)reasoning.SelectedItem!;
+            }
+
+            void PresentModels(IReadOnlyList<LocalCodex.TextModel> entries)
+            {
+                refreshingModels = true;
+                var selected = entries.FirstOrDefault(item => item.Id == codexLanguageModel) ??
+                    entries.FirstOrDefault(item => item.IsDefault) ?? entries.FirstOrDefault();
+                languageModel.ItemsSource = entries;
+                languageModel.SelectedItem = selected;
+                languageModel.IsEnabled = entries.Count > 0;
+                if (selected != null) codexLanguageModel = selected.Id;
+                PresentReasoning(selected);
+                refreshingModels = false;
+            }
+
+            languageModel.SelectionChanged += (_, _) =>
+            {
+                if (refreshingModels || languageModel.SelectedItem is not LocalCodex.TextModel selected) return;
+                codexLanguageModel = selected.Id;
+                refreshingModels = true;
+                PresentReasoning(selected);
+                refreshingModels = false;
+            };
+            reasoning.SelectionChanged += (_, _) =>
+            {
+                if (!refreshingModels && reasoning.SelectedItem is string value) codexReasoningEffort = value;
+            };
+            PresentModels([]);
+
+            async Task<string> DiscoverImageModels(CancellationToken token)
+            {
+                var models = await LocalCodex.DiscoverModelsAsync(path.Text ?? "", token, forImageGeneration: true);
+                token.ThrowIfCancellationRequested();
+                PresentModels(models);
+                return models.Count > 0 ? "Codex CLI is signed in. Models loaded." : "The CLI reported no models.";
+            }
+
             var check = new ConnectionCheck(lifetime, async token =>
             {
                 if (route == ImageGenerationRoute.ComfyWorkflow)
@@ -452,18 +505,11 @@ public static partial class AiDialogs
                     return "Connected";
                 }
                 if (route == ImageGenerationRoute.LocalCodex)
-                {
-                    await LocalCodex.DiscoverModelsAsync(path.Text ?? "", token);
-                    return "Codex CLI is signed in.";
-                }
+                    return await DiscoverImageModels(token);
                 var count = await catalog.FetchAsync(token);
                 return count > 0 ? "The API responded. Models are available below." : "The API reported no models.";
             }, "", buttonText: "Check connection");
-            CliCheck = new ConnectionCheck(lifetime, async token =>
-            {
-                await LocalCodex.DiscoverModelsAsync(path.Text ?? "", token);
-                return "Codex CLI is signed in.";
-            }, "", automatic: true);
+            CliCheck = new ConnectionCheck(lifetime, DiscoverImageModels, "", automatic: true);
             void RefreshIndicator() => SetupIndicator.Child = route == ImageGenerationRoute.DirectApi
                 ? catalog.CheckStatus : CheckStatus(check);
             void Refresh()
@@ -489,13 +535,18 @@ public static partial class AiDialogs
                 : StudioSettingsLayout.Field("Connection method", connectionPicker);
             View = firstRun
                 ? Ui.Column(12, StudioSettingsLayout.SetupColumns(methodField, nameField!), workflow, codex.View, check.View, api)
-                : Ui.Column(10, api, upscaleApi, segmentationApi);
+                : Ui.Column(0, api);
             CliSettings = firstRun ? new Border() : Ui.Column(10, codex.View,
-                StudioSettingsLayout.SetupField("Image model", StudioSettingsLayout.SetupInput(new TextBox { Text = "gpt-image-2", IsReadOnly = true })),
-                CliCheck.View, upscaleCli, segmentationCli);
+                StudioSettingsLayout.SetupColumns(
+                    StudioSettingsLayout.SetupField("Model ID", StudioSettingsLayout.SetupInput(new TextBox { Text = "gpt-image-2", IsReadOnly = true })),
+                    StudioSettingsLayout.SetupField("Display name", StudioSettingsLayout.SetupInput(codexName))),
+                StudioSettingsLayout.SetupColumns(StudioSettingsLayout.SetupField("Language model", languageModel),
+                    StudioSettingsLayout.SetupField("Reasoning effort", reasoning)),
+                CliCheck.View);
             path.TextChanged += (_, _) =>
             {
                 CliCheck.Reset();
+                PresentModels([]);
                 CliCheck.Schedule(() => CliSettings.IsEffectivelyVisible && TopLevel.GetTopLevel(CliSettings) != null);
             };
             catalog.Changed += () => RouteChanged?.Invoke();
@@ -510,34 +561,28 @@ public static partial class AiDialogs
             forget.Click += (_, _) => Refresh();
             View.AttachedToVisualTree += (_, _) => Refresh();
             Refresh();
-            RefreshUtilities();
         }
 
-        private DirectImageGenerator Draft() => new(route, path.Text?.Trim() ?? "", url.Text?.Trim() ?? "", catalog.LegacySelection);
+        private DirectImageGenerator Draft() => new(route, path.Text?.Trim() ?? "", url.Text?.Trim() ?? "", catalog.LegacySelection)
+        { CodexDisplayName = codexName.Text?.Trim() ?? "", CodexLanguageModel = codexLanguageModel,
+            CodexReasoningEffort = codexReasoningEffort };
 
         internal void Validate(out Control field, Dictionary<string, string?> changes)
         {
             field = url;
             var draft = Draft();
             var hasImageApi = routes.Any(item => item.Value == ImageGenerationRoute.DirectApi &&
-                item.Key is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection));
+                (!ImageOperationModels.IsUtility(item.Key) || item.Key == AiTaskKind.Upscale && modelOverrides.ContainsKey(item.Key)));
             if (hasImageApi && draft.ApiAddress.Length > 0 || forgetKey || !string.IsNullOrWhiteSpace(key.Text))
             {
                 var endpoint = DirectImageGenerator.Endpoint(draft.ApiAddress);
                 CollectKey(UserApiKeys.Target("ImageApi", endpoint), key, forgetKey);
             }
-            field = polzaKey;
-            CollectKey(DirectImageUtilities.PolzaKeyTarget, polzaKey, forgetPolza);
-            field = falKey;
-            CollectKey(DirectImageUtilities.FalKeyTarget, falKey, forgetFal);
-
             void CollectKey(string target, TextBox entry, bool forget)
             {
                 var value = entry.Text?.Trim();
                 if (!forget && string.IsNullOrEmpty(value)) return;
                 value = string.IsNullOrEmpty(value) ? null : value;
-                if (changes.TryGetValue(target, out var previous) && previous != value)
-                    throw new FormatException("Enter the shared Polza AI key in just one field.");
                 changes[target] = value;
             }
         }
@@ -550,12 +595,14 @@ public static partial class AiDialogs
             settings.ImageGenerationApiUrl = draft.ApiAddress;
             settings.ImageGenerationApiModel = draft.ApiModel;
             settings.ImageApiDisplayName = displayName.Text?.Trim() ?? "";
+            settings.ImageCodexDisplayName = draft.CodexDisplayName;
+            settings.ImageCodexLanguageModel = draft.CodexLanguageModel;
+            settings.ImageCodexReasoningEffort = draft.CodexReasoningEffort;
             settings.ImageOperationApiModels = new(modelOverrides);
             settings.ImageApiCatalogs = catalog.Save();
             settings.ImageApiGenerationOnly = catalog.SaveImageCapabilities();
-            settings.UpscaleCliPath = upscalePath.Text?.Trim() ?? "";
-            settings.SegmentationCliPath = segmentationPath.Text?.Trim() ?? "";
-            settings.SegmentationCliModel = segmentationModel.Text?.Trim() ?? "";
+            settings.ImageApiUpscalers = catalog.SaveUpscalers();
+            settings.ImageApiRates = catalog.SaveRates();
         }
     }
 }

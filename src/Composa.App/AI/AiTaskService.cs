@@ -137,7 +137,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 StateChanged?.Invoke();
             }
             throw new InvalidOperationException($"Cannot reach ComfyUI at {overrideUrl ?? serverUrl()}. Start the server or check its address. " +
-                "For another computer, use its LAN address instead of 127.0.0.1 and allow the port on that server. " + error.Message, error);
+                "For another computer, use its LAN address instead of 127.0.0.1 and allow the port on that server.", error);
         }
         catch
         {
@@ -290,7 +290,14 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 if (paid && engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel!, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
-            WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()), savedGraph: saved != null);
+            var modelFiles = ModelSelections(client.Address.ToString());
+            if (request.ModelFileOverrides is { Count: > 0 } overrides)
+            {
+                var merged = new Dictionary<string, string>(modelFiles);
+                foreach (var (slot, file) in overrides) merged[slot] = file;
+                modelFiles = merged;
+            }
+            WorkflowModels.ApplyChoices(graph, engine.Id, modelFiles, savedGraph: saved != null);
             if (saved != null)
             {
                 WorkflowModels.ResolvePaths(graph, capabilities);
@@ -563,7 +570,9 @@ public sealed partial class AiTaskService : IAiTaskRunner
         var loras = profile.ActiveLoras(engine);
         if (scene && !engine.PaidApi)
         {
-            if (engine.Id == QwenImageWorkflow.EngineId)
+            if (engine.Id == Flux3Workflow.EngineId)
+                Flux3Workflow.BindScene(graph, new Dictionary<string, string> { ["sourceImage"] = "preview.png" }, "", 1, 96, 96);
+            else if (engine.Id == QwenImageWorkflow.EngineId)
             {
                 QwenImageWorkflow.Bind(graph, new Dictionary<string, string> { ["sourceImage"] = "preview.png" }, "", 1);
                 QwenImageWorkflow.Configure(graph, ServerInfo, align: profile.AlignPixels ?? true);

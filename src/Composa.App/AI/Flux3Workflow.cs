@@ -32,4 +32,19 @@ internal static class Flux3Workflow
         sampler["positive"] = new JsonArray("references", 0);
         sampler["negative"] = new JsonArray("references", 1);
     }
+
+    internal static void BindScene(JsonObject graph, IReadOnlyDictionary<string, string> files,
+        string prompt, long seed, int width, int height)
+    {
+        if (!files.ContainsKey("sourceImage")) throw new InvalidDataException("Scene editing requires a source image.");
+        Bind(graph, files, prompt, seed, width, height);
+        // Reconstruct the same source through the VAE so registration and shadow
+        // extraction can distinguish model edits from the VAE's pixel changes.
+        graph["encodeBaseline"] = new JsonObject { ["class_type"] = "VAEEncode",
+            ["inputs"] = new JsonObject { ["pixels"] = new JsonArray("reference0", 0), ["vae"] = new JsonArray("vae", 0) } };
+        graph["decodeBaseline"] = new JsonObject { ["class_type"] = "VAEDecode",
+            ["inputs"] = new JsonObject { ["samples"] = new JsonArray("encodeBaseline", 0), ["vae"] = new JsonArray("vae", 0) } };
+        graph["baseline"] = new JsonObject { ["class_type"] = "SaveImage",
+            ["inputs"] = new JsonObject { ["images"] = new JsonArray("decodeBaseline", 0), ["filename_prefix"] = "Composa/Flux3Klein/baseline" } };
+    }
 }

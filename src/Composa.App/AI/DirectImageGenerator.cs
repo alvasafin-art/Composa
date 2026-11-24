@@ -14,24 +14,31 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     internal AiTaskKind Task { get; init; }
     internal string UtilityPath { get; init; } = "";
     internal string UtilityModel { get; init; } = "";
+    internal string CodexDisplayName { get; init; } = "";
+    internal string CodexLanguageModel { get; init; } = "";
+    internal string CodexReasoningEffort { get; init; } = "default";
 
     internal string Model => Route == ImageGenerationRoute.LocalCodex ? "gpt-image-2" : ApiModel.Trim();
+    internal bool UsesConfiguredUpscaler => Task == AiTaskKind.Upscale && Route == ImageGenerationRoute.DirectApi && Model.Length > 0;
     internal string Id => Route == ImageGenerationRoute.LocalCodex ? "direct-codex-image" : "direct-api-image";
     internal string Label => Task switch
     {
-        AiTaskKind.Upscale => Route == ImageGenerationRoute.LocalCodex ? "Real-ESRGAN · CLI" : "Polza AI · Topaz Upscale",
+        AiTaskKind.Upscale => Route == ImageGenerationRoute.LocalCodex ? "Real-ESRGAN · CLI" : UsesConfiguredUpscaler ? Model : "Polza AI · Topaz Upscale",
         AiTaskKind.ObjectSelection => Route == ImageGenerationRoute.LocalCodex ? "rembg · CLI" : "BiRefNet · fal API",
         _ => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : Model.Length > 0 ? $"{Model} · API" : "Direct image API"
     };
 
     internal static DirectImageGenerator From(Settings settings) =>
-        new(settings.ImageGenerationRoute, settings.ImageGenerationCodexPath, settings.ImageGenerationApiUrl, settings.ImageGenerationApiModel);
+        new(settings.ImageGenerationRoute, settings.ImageGenerationCodexPath, settings.ImageGenerationApiUrl, settings.ImageGenerationApiModel)
+        { CodexDisplayName = settings.ImageCodexDisplayName, CodexLanguageModel = settings.ImageCodexLanguageModel,
+            CodexReasoningEffort = settings.ImageCodexReasoningEffort };
 
     internal static DirectImageGenerator For(Settings settings, AiTaskKind task) => From(settings) with
     {
         Task = task,
         Route = settings.ImageRouteFor(task),
-        ApiModel = settings.ImageOperationApiModels.GetValueOrDefault(task) ?? settings.ImageGenerationApiModel,
+        ApiModel = settings.ImageOperationApiModels.GetValueOrDefault(task) ??
+            (ImageOperationModels.IsUtility(task) ? "" : settings.ImageGenerationApiModel),
         UtilityPath = task == AiTaskKind.Upscale ? settings.UpscaleCliPath : settings.SegmentationCliPath,
         UtilityModel = settings.SegmentationCliModel
     };
@@ -64,7 +71,7 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
 
     internal string? Availability(AiTaskKind task, int references = 0)
     {
-        if (task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
+        if (task == AiTaskKind.Upscale && !UsesConfiguredUpscaler || task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
             return DirectImageUtilities.Availability(this);
         if (references > 6) return "Choose at most six reference images.";
         if (Route == ImageGenerationRoute.LocalCodex)
@@ -81,7 +88,7 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     }
 
     internal async Task<SKBitmap> GenerateAsync(string prompt, int width, int height, CancellationToken token,
-        string? draftKey = null, DirectImageFiles? files = null)
+        string? draftKey = null, DirectImageFiles? files = null, Action<ImageApiRate>? onCharge = null)
     {
         if (string.IsNullOrWhiteSpace(prompt)) throw new InvalidOperationException("Enter a prompt to generate an image.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -90,13 +97,14 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
         {
             var (requestWidth, requestHeight) = RequestSize(width, height);
             if (Route == ImageGenerationRoute.LocalCodex)
-                return await LocalCodex.GenerateAsync(CodexPath, prompt, requestWidth, requestHeight, timeout.Token, files?.Images);
+                return await LocalCodex.GenerateAsync(CodexPath, prompt, requestWidth, requestHeight, timeout.Token,
+                    files?.Images, CodexLanguageModel, CodexReasoningEffort);
             if (Route != ImageGenerationRoute.DirectApi) throw new InvalidOperationException("Choose a direct image connection.");
             var api = DirectImageApi.Parse(ApiAddress);
             if (string.IsNullOrWhiteSpace(Model)) throw new InvalidOperationException("Choose the image model in AI Settings → Image generation.");
             var key = draftKey ?? ReadKey(api.CredentialEndpoint);
             if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Add the image API key in AI Settings → Image generation.");
-            return await api.GenerateAsync(key, Model, prompt, requestWidth, requestHeight, files, timeout.Token);
+            return await api.GenerateAsync(key, Model, prompt, requestWidth, requestHeight, files, timeout.Token, onCharge);
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {

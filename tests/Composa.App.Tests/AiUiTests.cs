@@ -19,24 +19,29 @@ public class AiUiTests
     [AvaloniaFact]
     public void Workflow_picker_and_variant_buttons_follow_the_selected_pack()
     {
-        var window = new MainWindow { Width = 1280, Height = 900 }; window.Settings.CheckForUpdates = false; window.Show(); window.AiTasks.SetConnectedForTests();
+        var window = new MainWindow { Width = 1280, Height = 900 }; window.Settings.CheckForUpdates = false; window.Show();
+        var catalog = window.AiTasks.Engines;
+        var nodeTypes = catalog.Profiles.SelectMany(pack => pack.Workflows.SelectMany(workflow => catalog.ReadWorkflow(pack, workflow)))
+            .Select(pair => pair.Value?["class_type"]?.GetValue<string>()).OfType<string>().ToHashSet();
+        nodeTypes.UnionWith(catalog.Profiles.SelectMany(pack => pack.RequiredNodeTypes));
+        window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities() with { NodeTypes = nodeTypes });
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
-        var alignment = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
+        Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
             button => button.Name == "AiPixelAlignment");
-        alignment.IsChecked = false;
-        Assert.False(window.Settings.AiAlignMaskedEdits);
-        alignment.IsChecked = true;
         Assert.True(window.Settings.AiAlignMaskedEdits);
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
         var panel = window.AiFloatingPanel;
         foreach (var count in new[] { 2, 3 })
             Assert.IsType<Button>(panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == $"AiVariants{count}"));
         var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");
+        var advanced = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiAdvanced");
         Assert.True(enhance.IsEnabled);
         Dispatcher.UIThread.RunJobs();
         Assert.True(enhance.TranslatePoint(new Point(enhance.Bounds.Width, 0), panel)!.Value.X
-            <= alignment.TranslatePoint(new Point(0, 0), panel)!.Value.X);
+            <= advanced.TranslatePoint(new Point(0, 0), panel)!.Value.X);
         var engines = Assert.Single(combos, combo => combo.Items.OfType<ImageModelChoice>().Any());
+        Assert.Contains(engines.Items.OfType<ComboBoxItem>(), item => !item.IsEnabled &&
+            item.Content is TextBlock { Text: "ComfyUI server" });
         var defaultEngine = window.AiTasks.SelectedEngine;
         var defaultFill = window.AiTasks.EngineFor(AiTaskKind.GenerativeFill);
         engines.SelectedItem = engines.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "qwen-image-2.1-turbo"); Assert.Equal("qwen-image-2.1-turbo", Assert.IsType<ImageModelChoice>(engines.SelectedItem).Engine.Id);

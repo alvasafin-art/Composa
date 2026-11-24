@@ -240,11 +240,23 @@ public class AiVariantsTests
     [InlineData(4)]
     public async Task Upscale_requested_factor_preserves_odd_size_and_one_undo(int factor)
     {
-        var session = EditorSession.NewCanvas(57, 43, SKColors.White); var fake = new Connection();
-        await Service(fake).RunAsync(new EditorCommandService(session), new AiTaskRequest
-        { Task = AiTaskKind.Upscale, Settings = new AiGenerationSettings { UpscaleFactor = factor } }, TestContext.Current.CancellationToken);
+        const string temporary = "alternate/upscale.pth";
+        var session = EditorSession.NewCanvas(57, 43, SKColors.White);
+        var fake = new Connection();
+        var service = Service(fake);
+        var slot = Assert.Single(UpscaleModels.Slots(service.Engines, service.SelectedEngine!));
+        fake.ModelChoices[slot.LoaderKey] = [slot.Default, temporary];
+        var saved = new Dictionary<string, string> { [slot.Key] = slot.Default };
+        service.ModelSelections = _ => saved;
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest
+        {
+            Task = AiTaskKind.Upscale, ModelFileOverrides = new Dictionary<string, string> { [slot.Key] = temporary },
+            Settings = new AiGenerationSettings { UpscaleFactor = factor }
+        }, TestContext.Current.CancellationToken);
         Assert.Equal((57 * factor, 43 * factor), (session.Document.Width, session.Document.Height));
         var graph = Assert.Single(fake.Graphs);
+        Assert.Equal(temporary, graph[slot.NodeId]!["inputs"]![slot.Input]!.GetValue<string>());
+        Assert.Equal(slot.Default, saved[slot.Key]);
         Assert.Equal("source", graph["upscale"]!["inputs"]!["image"]![0]!.GetValue<string>()); // no pre-downscale before model
         session.Undo(); Assert.Equal((57, 43), (session.Document.Width, session.Document.Height));
     }

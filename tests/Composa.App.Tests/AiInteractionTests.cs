@@ -120,8 +120,8 @@ public class AiInteractionTests
         foreach (var task in new[]{AiTaskKind.GenerateImage,AiTaskKind.ImageEdit})
         {
             var pending=w.RunAiForTests(task); Dispatcher.UIThread.RunJobs(); var dialog=Assert.Single(w.OwnedWindows);
-            var alignment = dialog.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(button => button.Name == "AiPixelAlignment");
-            Assert.Equal(task == AiTaskKind.ImageEdit, alignment.IsVisible);
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
+                button => button.Name == "AiPixelAlignment");
             var host=dialog.GetVisualDescendants().OfType<StackPanel>().Single(p=>p.Name=="AiDialogReferences");
             Assert.Equal("Reference images (0/6)", Avalonia.Automation.AutomationProperties.GetName(host));
             for(var i=0;i<6;i++){var bitmap=Pixels.NewColor(16,16);bitmap.Erase(SKColors.Blue);w.AddAiReferenceForTests(bitmap);}

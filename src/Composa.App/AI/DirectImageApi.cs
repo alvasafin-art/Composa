@@ -66,9 +66,9 @@ internal sealed class DirectImageApi
 
     internal static string DataUrl(byte[] image) => PngPrefix + Convert.ToBase64String(image);
 
-    internal static HttpContent CreateUpscaleBody(byte[] png, int factor) => JsonContent.Create(new
+    internal static HttpContent CreateUpscaleBody(byte[] png, int factor, string model = "topaz/image-upscale") => JsonContent.Create(new
     {
-        model = "topaz/image-upscale",
+        model,
         @async = true,
         input = new { prompt = "", upscale_factor = factor.ToString(System.Globalization.CultureInfo.InvariantCulture),
             images = new[] { new { type = "base64", data = DataUrl(png) } } }
@@ -113,16 +113,27 @@ internal sealed class DirectImageApi
         }
     }
 
-    internal async Task<SKBitmap> GenerateAsync(string key, string model, string prompt, int width, int height, DirectImageFiles? files, CancellationToken token)
+    internal async Task<SKBitmap> GenerateAsync(string key, string model, string prompt, int width, int height, DirectImageFiles? files,
+        CancellationToken token, Action<ImageApiRate>? onCharge = null)
     {
         var edit = files is { Images.Count: > 0 };
-        return await GenerateAsync(key, edit, CreateBody(model, prompt, width, height, files), token);
+        return await GenerateAsync(key, edit, CreateBody(model, prompt, width, height, files), token, onCharge);
     }
 
     internal Task<SKBitmap> UpscaleAsync(string key, byte[] png, int factor, CancellationToken token) =>
         GenerateAsync(key, true, CreateUpscaleBody(png, factor), token);
 
-    private async Task<SKBitmap> GenerateAsync(string key, bool edit, HttpContent body, CancellationToken token)
+    internal Task<SKBitmap> UpscaleAsync(string key, string model, byte[] png, int factor, int width, int height,
+        CancellationToken token, Action<ImageApiRate>? onCharge)
+    {
+        if (format == Format.Polza)
+            return GenerateAsync(key, true, CreateUpscaleBody(png, factor, model), token, onCharge);
+        return GenerateAsync(key, model, $"Upscale the source image by {factor}x to {width}x{height} pixels. Preserve its content and framing.",
+            width, height, new DirectImageFiles([png]), token, onCharge);
+    }
+
+    private async Task<SKBitmap> GenerateAsync(string key, bool edit, HttpContent body, CancellationToken token,
+        Action<ImageApiRate>? onCharge = null)
     {
         var endpoint = Endpoint(edit);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = body };
@@ -136,12 +147,19 @@ internal sealed class DirectImageApi
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Trim());
             using var json = await SendAsync(client, request, token);
             if (format == Format.Polza && edit)
-                return await ReadPolzaMediaAsync(client, json.RootElement, key, token);
+                return await ReadPolzaMediaAsync(client, json.RootElement, key, token, onCharge);
+            ReportCharge(json.RootElement, onCharge);
             return await ReadImageAsync(client, json.RootElement, token);
         }
         catch (HttpRequestException) { throw new InvalidOperationException("Could not reach the image API or read its response."); }
         catch (JsonException) { throw new InvalidDataException("The image API returned an invalid image response."); }
         catch (FormatException) { throw new InvalidDataException("The image API returned invalid image data."); }
+    }
+
+    private void ReportCharge(JsonElement result, Action<ImageApiRate>? onCharge)
+    {
+        if (onCharge != null && ImageApiRate.FromResponse(result, format == Format.OpenRouter ? "USD" : null) is { } charge)
+            onCharge(charge);
     }
 
     private static async Task<JsonDocument> SendAsync(HttpClient client, HttpRequestMessage request, CancellationToken token)
@@ -157,10 +175,14 @@ internal sealed class DirectImageApi
         return await JsonDocument.ParseAsync(body, cancellationToken: token);
     }
 
-    private async Task<SKBitmap> ReadPolzaMediaAsync(HttpClient client, JsonElement reply, string key, CancellationToken token)
+    private async Task<SKBitmap> ReadPolzaMediaAsync(HttpClient client, JsonElement reply, string key, CancellationToken token,
+        Action<ImageApiRate>? onCharge)
     {
         if (TryProperty(reply, "data", out var ready) && ready.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+        {
+            ReportCharge(reply, onCharge);
             return await ReadImageAsync(client, reply, token);
+        }
         if (!TryProperty(reply, "id", out var idNode) || idNode.ValueKind != JsonValueKind.String || idNode.GetString() is not { Length: > 0 and <= 128 } id
             || id.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')))
             throw new InvalidDataException("The image API returned no generation identifier.");
@@ -175,7 +197,10 @@ internal sealed class DirectImageApi
                 throw new InvalidDataException("The image API returned no generation status.");
             if (state.GetString() is "pending" or "processing" or "queued" or "running") continue;
             if (state.GetString() is "completed" or "succeeded" or "success")
+            {
+                ReportCharge(detail.RootElement, onCharge);
                 return await ReadImageAsync(client, detail.RootElement, token);
+            }
             throw new InvalidOperationException("The image provider did not complete the request.");
         }
     }

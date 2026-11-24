@@ -11,6 +11,24 @@ internal static class ImageOperationModels
     internal static bool Supports(EngineProfile engine, AiTaskKind task) => engine.Binding(task) != null ||
         task == AiTaskKind.MatchToScene && engine.PaidApi && engine.Binding(AiTaskKind.Harmonize) != null;
 
+    internal static bool IsUtility(AiTaskKind task) => task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection;
+
+    internal static IEnumerable<ImageModelChoice> InstalledUtilityModels(EngineCatalog catalog, EngineProfile engine,
+        AiTaskKind task, ComfyServerCapabilities capabilities)
+    {
+        if (!IsUtility(task) || engine.PaidApi || engine.Binding(task) == null) yield break;
+        var primary = catalog.ModelFor(engine, task, new Dictionary<string, string>());
+        if (primary.FileSlot is not { } slot || !capabilities.NodeTypes.Contains(slot.NodeType)) yield break;
+        var files = UpscaleModels.Available(slot, capabilities.ModelChoices.GetValueOrDefault(slot.LoaderKey) ?? []);
+        foreach (var file in files.Order(StringComparer.OrdinalIgnoreCase))
+        {
+            var filename = file.Replace('\\', '/').Split('/').Last();
+            var title = Path.GetFileNameWithoutExtension(filename);
+            if (engine.Id.StartsWith("seedvr2", StringComparison.Ordinal)) title = $"{engine.ModelName ?? engine.DisplayName} · {title}";
+            yield return primary with { Name = title, Identifier = file };
+        }
+    }
+
     internal static ImageModelChoice DirectChoice(DirectImageGenerator direct, string name = "", string? apiName = null)
     {
         var utility = direct.Task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection;
@@ -18,15 +36,15 @@ internal static class ImageOperationModels
         if (string.IsNullOrWhiteSpace(name))
             name = direct.Task switch
             {
-                AiTaskKind.Upscale => local ? "Real-ESRGAN" : "Topaz Upscale",
+                AiTaskKind.Upscale => local ? "Real-ESRGAN" : direct.UsesConfiguredUpscaler ? direct.Model : "Topaz Upscale",
                 AiTaskKind.ObjectSelection => local ? (string.IsNullOrWhiteSpace(direct.UtilityModel) ? "rembg" : direct.UtilityModel) : "BiRefNet",
-                _ => direct.Model
+                _ => local ? string.IsNullOrWhiteSpace(direct.CodexDisplayName) ? "GPT Image 2" : direct.CodexDisplayName : direct.Model
             };
         if (name.Length == 0) name = "Choose a model";
-        var connection = local ? "CLI on this computer" : utility
+        var connection = local ? "CLI on this computer" : utility && !direct.UsesConfiguredUpscaler
             ? (direct.Task == AiTaskKind.Upscale ? "Polza AI · API" : "fal API")
             : string.IsNullOrWhiteSpace(apiName) ? "API directly" : apiName;
-        return new(name, utility ? direct.Label : direct.Model, direct.PromptProfile(), direct, connection);
+        return new(name, utility && !direct.UsesConfiguredUpscaler ? direct.Label : direct.Model, direct.PromptProfile(), direct, connection);
     }
 
     internal static ImageModelChoice LocalSelection(Settings settings)
@@ -48,6 +66,12 @@ internal static class ImageOperationModels
     internal static IReadOnlySet<string>? GenerationOnly(Settings settings) =>
         ApiScope(settings) is { } scope ? settings.ImageApiGenerationOnly.GetValueOrDefault(scope) : null;
 
+    internal static IReadOnlySet<string>? ApiUpscalers(Settings settings) =>
+        ApiScope(settings) is { } scope ? settings.ImageApiUpscalers.GetValueOrDefault(scope) : null;
+
+    internal static ImageApiRate? ApiRate(Settings settings, DirectImageGenerator generator) =>
+        ApiScope(settings) is { } scope ? settings.ImageApiRates.GetValueOrDefault(scope)?.GetValueOrDefault(generator.Model) : null;
+
     private static string? ApiScope(Settings settings)
     {
         try { return DirectImageGenerator.Endpoint(settings.ImageGenerationApiUrl).AbsoluteUri; }
@@ -55,29 +79,38 @@ internal static class ImageOperationModels
     }
 
     internal static IEnumerable<ImageModelChoice> DirectChoices(DirectImageGenerator draft,
-        IEnumerable<(string Id, string Label)> apiModels, string? apiName, bool apiEnabled, IReadOnlySet<string>? generationOnly = null)
+        IEnumerable<(string Id, string Label)> apiModels, string? apiName, bool apiEnabled, IReadOnlySet<string>? generationOnly = null,
+        IReadOnlySet<string>? upscalers = null)
     {
         var local = draft with { Route = ImageGenerationRoute.LocalCodex };
         if (local.Availability(draft.Task) == null) yield return DirectChoice(local);
-        if (!apiEnabled) yield break;
         var api = draft with { Route = ImageGenerationRoute.DirectApi };
-        if (draft.Task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection)
+        if (IsUtility(draft.Task))
         {
-            yield return DirectChoice(api);
+            var legacy = api with { ApiModel = "" };
+            if (legacy.Availability(draft.Task) == null) yield return DirectChoice(legacy);
+            if (apiEnabled && draft.Task == AiTaskKind.Upscale)
+                foreach (var (id, label) in apiModels.Where(item => upscalers?.Contains(item.Id) == true))
+                    yield return DirectChoice(api with { ApiModel = id }, label, apiName);
             yield break;
         }
+        if (!apiEnabled) yield break;
         foreach (var (id, label) in apiModels.Append((Id: api.Model, Label: "")).Where(item => item.Id.Length > 0 &&
+                     upscalers?.Contains(item.Id) != true &&
                      (draft.Task == AiTaskKind.GenerateImage || generationOnly?.Contains(item.Id) != true)).DistinctBy(item => item.Id))
             yield return DirectChoice(api with { ApiModel = id }, label, apiName);
     }
 
     internal static ImageModelChoice? ComfyDefault(EngineCatalog catalog, AiTaskKind task, EngineProfile? engine,
-        IReadOnlyDictionary<string, string> files, WorkflowPreferences workflows)
+        IReadOnlyDictionary<string, string> files, WorkflowPreferences workflows, ComfyServerCapabilities? server = null)
     {
         var id = workflows.ActiveId(task, engine?.Id);
         if (id != null && id == workflows.Assignments.GetValueOrDefault(task) && workflows.Workflows.TryGetValue(id, out var assigned))
             return Assigned(catalog, task, workflows.AssignedEngine(catalog, task, engine) ?? CustomEngine(assigned), files, assigned);
-        return engine != null && Supports(engine, task) ? catalog.ModelFor(engine, task, files) : null;
+        if (engine == null || !Supports(engine, task)) return null;
+        var model = catalog.ModelFor(engine, task, files);
+        return model.FileSlot is { } slot && server?.ModelChoices.GetValueOrDefault(slot.LoaderKey) is { } choices &&
+            WorkflowModels.ResolveSlot(slot, model.Identifier, choices) is { } path ? model with { Identifier = path } : model;
     }
 
     internal static ImageModelChoice[] Choices(AiTaskService service, AiTaskKind task, EngineProfile? preferred,
@@ -92,6 +125,14 @@ internal static class ImageOperationModels
             foreach (var engine in service.Engines.Profiles)
             {
                 if (!Supports(engine, task) || engine.PaidApi && !hasCredits && !serverResponded) continue;
+                if (IsUtility(task) && !engine.PaidApi)
+                {
+                    if (serverResponded && service.ServerCapabilities is { } capabilities)
+                        foreach (var variant in InstalledUtilityModels(service.Engines, engine, task, capabilities))
+                            if (Compatible(engine, false, new Dictionary<string, string>(files) { [variant.FileSlot!.Key] = variant.Identifier }))
+                                result.Add(variant);
+                    continue;
+                }
                 if (Compatible(engine, false)) result.Add(service.Engines.ModelFor(engine, task, files));
             }
             if (workflows.Assignments.TryGetValue(task, out var id) && workflows.Workflows.TryGetValue(id, out var assigned))
@@ -105,10 +146,10 @@ internal static class ImageOperationModels
         var available = result.GroupBy(choice => (choice.Route, choice.ModelKey, choice.ConnectionLabel, choice.AssignedWorkflow))
             .Select(group => group.FirstOrDefault(choice => choice.SelectionKey == current?.SelectionKey)
                 ?? group.FirstOrDefault(choice => choice.Engine.Id == preferred?.Id) ?? group.First()).ToArray();
-        return current != null && !available.Any(choice => choice.SelectionKey == current.SelectionKey)
+        return current is { Direct: null } && !available.Any(choice => choice.SelectionKey == current.SelectionKey)
             ? [current with { Available = false }, .. available] : available;
 
-        bool Compatible(EngineProfile engine, bool useAssigned)
+        bool Compatible(EngineProfile engine, bool useAssigned, IReadOnlyDictionary<string, string>? overrides = null)
         {
             if (!serverResponded) return true;
             if (engine.PaidApi && !useAssigned)
@@ -116,7 +157,7 @@ internal static class ImageOperationModels
                     PartnerPricing.SupportsModel(capabilities, apiModel);
             try
             {
-                return service.OperationCompatibility(engine, task, files, settings.OperationFor(engine.Id, task, engine.PaidApi),
+                return service.OperationCompatibility(engine, task, overrides ?? files, settings.OperationFor(engine.Id, task, engine.PaidApi),
                     useAssigned).IsCompatible;
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException
@@ -137,7 +178,7 @@ internal static class ImageOperationModels
         var model = catalog.ModelFor(engine, task, files);
         var credits = ComfyClient.UsesApiCredits(graph);
         return model with { Name = slot == null ? saved.Name : $"{model.Name} · {saved.Name}", Identifier = slot?.Default ?? model.Identifier,
-            Connection = credits ? "Comfy credits" : "ComfyUI server", AssignedWorkflow = true };
+            Connection = credits ? "Comfy credits" : "ComfyUI server", AssignedWorkflow = true, FileSlot = null };
     }
 
     private static EngineProfile CustomEngine(SavedWorkflow workflow) =>

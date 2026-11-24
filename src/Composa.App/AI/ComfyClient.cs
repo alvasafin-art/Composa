@@ -339,7 +339,9 @@ public sealed class ComfyClient : IComfyConnection
         var key = input.ToLowerInvariant();
         if (input == "model" && node == "SeedVR2LoadDiTModel") kind = EngineAssetKind.DiffusionModel;
         else if (input == "model" && node == "SeedVR2LoadVAEModel") kind = EngineAssetKind.Vae;
-        else if (key.Contains("bg_removal") || key.Contains("background_removal")) kind = EngineAssetKind.BackgroundRemoval;
+        else if (key.Contains("bg_removal") || key.Contains("background_removal") ||
+            node.Contains("BackgroundRemoval", StringComparison.OrdinalIgnoreCase) && key is "model" or "model_name" or "weights")
+            kind = EngineAssetKind.BackgroundRemoval;
         else if (key.Contains("lora")) kind = EngineAssetKind.Lora;
         else if (key.Contains("vae")) kind = EngineAssetKind.Vae;
         else if (key.Contains("clip") || key.Contains("text_encoder")) kind = EngineAssetKind.TextEncoder;

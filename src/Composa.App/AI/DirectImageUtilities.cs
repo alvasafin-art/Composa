@@ -12,7 +12,7 @@ internal static class DirectImageUtilities
 {
     internal const string PolzaAddress = "https://polza.ai/api/v1";
     internal static readonly Uri FalEndpoint = new("https://fal.run/fal-ai/birefnet/v2");
-    internal static readonly string PolzaKeyTarget = UserApiKeys.Target("ImageApi", DirectImageGenerator.Endpoint(PolzaAddress));
+    internal static readonly string PolzaKeyTarget = UserApiKeys.Target("UpscaleApi", DirectImageGenerator.Endpoint(PolzaAddress));
     internal static readonly string FalKeyTarget = UserApiKeys.Target("SegmentationApi", FalEndpoint);
     private const string DataPrefix = "data:image/png;base64,";
 
@@ -42,7 +42,8 @@ internal static class DirectImageUtilities
         }
     }
 
-    internal static async Task<SKBitmap> UpscaleAsync(DirectImageGenerator connection, SKBitmap source, int factor, CancellationToken token)
+    internal static async Task<SKBitmap> UpscaleAsync(DirectImageGenerator connection, SKBitmap source, int factor, CancellationToken token,
+        Action<ImageApiRate>? onCharge = null)
     {
         if (factor is not (2 or 4)) throw new ArgumentException("Choose an upscale factor of ×2 or ×4.");
         var width = checked(source.Width * factor);
@@ -50,10 +51,19 @@ internal static class DirectImageUtilities
         if (!DocumentLimits.FitsSurface(width, height))
             throw new InvalidOperationException("The selected upscale factor exceeds the maximum image size.");
         var png = DirectImageEdit.EncodePng(source);
-        var result = connection.Route == ImageGenerationRoute.LocalCodex
-            ? await RunCliAsync("realesrgan-ncnn-vulkan", connection.UtilityPath, png, (input, output) =>
-                ["-i", input, "-o", output, "-s", factor.ToString(System.Globalization.CultureInfo.InvariantCulture), "-f", "png"], token)
-            : await DirectImageApi.Parse(PolzaAddress).UpscaleAsync(ApiKey(upscale: true)!, png, factor, token);
+        SKBitmap result;
+        if (connection.Route == ImageGenerationRoute.LocalCodex)
+            result = await RunCliAsync("realesrgan-ncnn-vulkan", connection.UtilityPath, png, (input, output) =>
+                ["-i", input, "-o", output, "-s", factor.ToString(System.Globalization.CultureInfo.InvariantCulture), "-f", "png"], token);
+        else if (connection.UsesConfiguredUpscaler)
+        {
+            var api = DirectImageApi.Parse(connection.ApiAddress);
+            var key = DirectImageGenerator.ReadKey(api.CredentialEndpoint)
+                ?? throw new InvalidOperationException("Add the image API key in Connections.");
+            result = await api.UpscaleAsync(key, connection.Model, png, factor, width, height, token, onCharge);
+        }
+        else
+            result = await DirectImageApi.Parse(PolzaAddress).UpscaleAsync(ApiKey(upscale: true)!, png, factor, token);
         if (result.Width == width && result.Height == height) return result;
         result.Dispose();
         throw new InvalidDataException("The upscaler returned dimensions that do not match the requested scale.");

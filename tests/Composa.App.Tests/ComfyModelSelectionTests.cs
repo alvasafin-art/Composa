@@ -20,6 +20,61 @@ public class ComfyModelSelectionTests
     private static string Engines => Path.Combine(AppContext.BaseDirectory, "ai", "engines");
     private static readonly string Lan = "http://192.168.1.50:8188";
 
+    [AvaloniaFact]
+    public async Task Operations_and_model_files_show_every_compatible_weight_from_the_connected_loaders()
+    {
+        const string upscale = "4x_NMKD-Siax_200k.pth";
+        const string mask = "alternate/portrait-mask.safetensors";
+        using var handler = new Server();
+        handler.Objects["LoadBackgroundRemovalModel"]!["input"]!["required"]!["bg_removal_name"] =
+            new JsonArray("COMBO", new JsonObject { ["options"] = new JsonArray("birefnet.safetensors", mask) });
+        using var http = new HttpClient(handler);
+        var service = Service(http);
+        var settings = new Settings { ComfyServerUrl = Lan };
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+        var owner = new Window { Width = 1280, Height = 900 };
+        owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service, page: 6, initialOperation: AiTaskKind.Upscale);
+            var dialog = Assert.Single(owner.OwnedWindows);
+            Dispatcher.UIThread.RunJobs();
+            var upscalePicker = Picker(AiTaskKind.Upscale);
+            Assert.Contains(upscalePicker.Items.OfType<ComboBoxItem>(), header => !header.IsEnabled &&
+                header.Content is TextBlock { Text: "ComfyUI server" });
+            Assert.Contains(upscalePicker.Items.OfType<ImageModelChoice>(), choice => choice is { Identifier: upscale, Available: true });
+            Assert.True(Assert.IsType<ImageModelChoice>(upscalePicker.SelectedItem).Available);
+            Assert.DoesNotContain(upscalePicker.Items.OfType<ImageModelChoice>(), choice => choice.Name == "Topaz Upscale");
+            Assert.True(Screenshots.Save(dialog, "studio-settings-operations-catalog"));
+            var selection = Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), button =>
+                button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == Locale.T("Object Selection")));
+            selection.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            var maskPicker = Picker(AiTaskKind.ObjectSelection);
+            Assert.Contains(maskPicker.Items.OfType<ImageModelChoice>(), choice => choice is { Identifier: mask, Available: true });
+            Assert.DoesNotContain(maskPicker.Items.OfType<ImageModelChoice>(), choice => choice.Route == ImageGenerationRoute.DirectApi);
+
+            Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>()).SelectedIndex = 1;
+            Dispatcher.UIThread.RunJobs();
+            var upscaleFile = Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), button =>
+                button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == Path.GetFileNameWithoutExtension(upscale)));
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == "portrait-mask");
+            upscaleFile.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), field => field.SelectedItem?.ToString() == upscale);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("Compatible operations"));
+            Assert.True(Screenshots.Save(dialog, "studio-settings-model-files-catalog"));
+            Assert.Empty(settings.ComfyModelsFor(Lan));
+            dialog.Close(true);
+            Assert.True(await pending);
+            Assert.Contains(upscale, settings.ComfyModelsFor(Lan).Values);
+
+            ComboBox Picker(AiTaskKind task) =>
+                Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(), combo => combo.Name == "DefaultModel" + task);
+        }
+        finally { owner.Close(); }
+    }
+
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
@@ -487,10 +542,10 @@ public class ComfyModelSelectionTests
         Assert.Contains("birefnet-matting.safetensors · ComfyUI", Menu().Items.Cast<string>());
         Assert.Equal("Automatic · Local", Menu().SelectedItem);
         Assert.Contains("Quick outline · Local", Menu().Items.Cast<string>());
-        Assert.Contains("rembg · CLI", Menu().Items.Cast<string>());
-        Assert.Contains("BiRefNet · fal API", Menu().Items.Cast<string>());
-        Assert.Equal(7, Menu().Items.Count);
-        Assert.DoesNotContain(Menu().Items.Cast<string>(), name => name.Contains("isnet", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("rembg · CLI", Menu().Items.Cast<string>());
+        Assert.DoesNotContain("BiRefNet · fal API", Menu().Items.Cast<string>());
+        Assert.Contains("isnet-general.safetensors · ComfyUI", Menu().Items.Cast<string>());
+        Assert.Equal(6, Menu().Items.Count);
         Assert.DoesNotContain("ComfyUI", Menu().Items.Cast<string>());
         Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
         Assert.Equal(ObjectSelectionSource.ComfyUI, window.Settings.ObjectSelectionModel);
@@ -498,8 +553,8 @@ public class ComfyModelSelectionTests
         var graph = window.AiTasks.Engines.ReadWorkflow(engine, engine.Workflow(engine.Binding(AiTaskKind.ObjectSelection)!.Workflow));
         WorkflowModels.ApplyChoices(graph, engine.Id, window.Settings.ComfyModelsFor(Lan));
         Assert.Equal("shared/birefnet-hr.safetensors", graph["model"]!["inputs"]!["bg_removal_name"]!.GetValue<string>());
-        Menu().SelectedItem = "rembg · CLI";
-        Assert.Equal(ImageGenerationRoute.LocalCodex, window.Settings.ImageRouteFor(AiTaskKind.SelectSubject));
+        Menu().SelectedItem = "Automatic · Local";
+        Assert.Equal(ImageGenerationRoute.BuiltIn, window.Settings.ImageRouteFor(AiTaskKind.SelectSubject));
         Assert.Equal("shared/birefnet-hr.safetensors", window.Settings.ObjectSelectionComfyModel);
         Menu().SelectedItem = "shared/birefnet-hr.safetensors · ComfyUI";
         Screenshots.Save(window, "object-model-variants");

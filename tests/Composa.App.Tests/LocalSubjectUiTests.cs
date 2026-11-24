@@ -42,7 +42,7 @@ public class LocalSubjectUiTests
         ComboBox Menu() => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ObjectSelectionModel");
         Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         Assert.Equal(0, Menu().SelectedIndex); Assert.True(window.Canvas.ObjectSelectionAvailable!());
-        Assert.Equal(new[] { "Automatic · Local", "Quick outline · Local", "rembg · CLI", "BiRefNet · fal API" }, Menu().Items.Cast<string>());
+        Assert.Equal(new[] { "Automatic · Local", "Quick outline · Local" }, Menu().Items.Cast<string>());
         var second = EditorSession.NewCanvas(400, 300); window.AddSession(second);
         Assert.Equal(0, Menu().SelectedIndex); Assert.Equal(ObjectSelectionSource.EfficientSamS, window.Settings.ObjectSelectionModel);
         window.SelectTool(Tool.Wand); second.WandMode = WandMode.Object; window.SelectTool(Tool.Wand);

@@ -16,7 +16,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
     private readonly SceneEditInput scene;
     internal List<SKBitmap> ReferenceImages { get; } = [];
 
-    internal SceneEditingWorkflow(SceneEditInput scene,AiTaskRequest request,SKBitmap? imageOverride=null,SKBitmap? maskOverride=null,bool qwen=false)
+    internal SceneEditingWorkflow(SceneEditInput scene,AiTaskRequest request,SKBitmap? imageOverride=null,SKBitmap? maskOverride=null,bool useImageReferences=false)
     {
         this.scene=scene;
         var initial=imageOverride??scene.InitialImage;
@@ -26,7 +26,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
         var scale=Math.Sqrt(native.Item1*(double)native.Item2/(scene.Before.Width*(double)scene.Before.Height));
         scale=Math.Max(scale,64d/Math.Min(scene.Before.Width,scene.Before.Height));
         ContentSize=((int)Math.Round(scene.Before.Width*scale),(int)Math.Round(scene.Before.Height*scale));
-        var grid=qwen?32:16;
+        var grid=useImageReferences?32:16;
         PaddedSize=((ContentSize.Width+grid-1)/grid*grid,(ContentSize.Height+grid-1)/grid*grid);
         if(!Composa.Model.DocumentLimits.FitsSurface(PaddedSize.Width,PaddedSize.Height))
             throw new InvalidOperationException($"Scene input exceeds the {Composa.Model.DocumentLimits.MaxSurfaceMegapixels} MP / {Composa.Model.DocumentLimits.MaxSide} px limit.");
@@ -50,7 +50,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
         // The final subject uses the original PNG alpha. Freezing a model-space contour ring
         // instead preserves the old studio lighting and leaves a moat beside the new shadow.
         Pixels.Invalidate(Mask);
-        if(!qwen&&maskOverride==null&&request.Task!=AiTaskKind.ChangeBackground&&!scene.WholeImage)
+        if(!useImageReferences&&maskOverride==null&&request.Task!=AiTaskKind.ChangeBackground&&!scene.WholeImage)
         {
             var backgroundScale=Math.Min(.5,512d/Math.Max(ContentSize.Width,ContentSize.Height));
             var bw=Math.Max(16,(int)Math.Round(ContentSize.Width*backgroundScale));var bh=Math.Max(16,(int)Math.Round(ContentSize.Height*backgroundScale));

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 
 namespace Composa.App.Dialogs;
 
@@ -52,7 +53,11 @@ internal static class StudioSettingsLayout
         input.FontSize = 11;
         input.Padding = new Thickness(10, 0);
         if (input is TextBox text) text.VerticalContentAlignment = VerticalAlignment.Center;
-        if (input is ComboBox combo) combo.VerticalContentAlignment = VerticalAlignment.Center;
+        if (input is ComboBox combo)
+        {
+            combo.Classes.Add("model-field");
+            combo.VerticalContentAlignment = VerticalAlignment.Center;
+        }
         if (input is NumericUpDown number) number.VerticalContentAlignment = VerticalAlignment.Center;
         return input;
     }
@@ -98,7 +103,7 @@ internal static class StudioSettingsLayout
 
     internal static Control Disclosure(string label, Control details, out ToggleButton toggle)
     {
-        var arrow = Ui.Label("⌄", Palette.Secondary, 11);
+        var arrow = new ContentControl { Content = Chevron(Icons.ChevronDown), VerticalAlignment = VerticalAlignment.Center };
         toggle = new ToggleButton
         {
             Content = Ui.Row(6, Caption(label), arrow),
@@ -111,9 +116,17 @@ internal static class StudioSettingsLayout
         header.IsCheckedChanged += (_, _) =>
         {
             details.IsVisible = header.IsChecked == true;
-            arrow.Text = details.IsVisible ? "⌃" : "⌄";
+            arrow.Content = Chevron(details.IsVisible ? Icons.ChevronUp : Icons.ChevronDown);
         };
         return Ui.Column(10, header, details);
+    }
+
+    internal static Control Chevron(Icons.Icon icon)
+    {
+        var control = Icons.Create(icon, 13, Palette.Secondary);
+        control.HorizontalAlignment = HorizontalAlignment.Center;
+        control.VerticalAlignment = VerticalAlignment.Center;
+        return control;
     }
 
     internal static Border ConnectionLight(string message, bool? connected)
@@ -246,11 +259,22 @@ internal sealed class StudioSettingsWindow : DialogWindow
         Background = Palette.Window;
         if (OperatingSystem.IsWindows()) FontFamily = new FontFamily("Segoe UI Variable, Segoe UI");
         Buttons.Margin = new Thickness(0);
+        Buttons.VerticalAlignment = VerticalAlignment.Center;
         Buttons.Children.OfType<Button>().Last().IsDefault = false;
-        foreach (var button in Buttons.Children.OfType<Button>()) button.MinHeight = 32;
+        Buttons.Styles.Add(new Style(selector => selector.OfType<Button>())
+        {
+            Setters =
+            {
+                new Setter(MinHeightProperty, 32d), new Setter(TemplatedControl.PaddingProperty, new Thickness(12, 0)),
+                new Setter(HorizontalContentAlignmentProperty, HorizontalAlignment.Center),
+                new Setter(VerticalContentAlignmentProperty, VerticalAlignment.Center)
+            }
+        });
         if (firstRun) SetCancelLabel(Locale.T("Skip setup"));
         var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10 };
-        footer.Children.Add(Ui.Column(3, message, scope));
+        var footerText = Ui.Column(3, message, scope);
+        footerText.VerticalAlignment = VerticalAlignment.Center;
+        footer.Children.Add(footerText);
         Grid.SetColumn(Buttons, 1);
         footer.Children.Add(Buttons);
         var footerFrame = new Border

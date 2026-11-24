@@ -1,7 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Avalonia.Automation;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Composa.AI;
 using Composa.App.AI;
+using Composa.App.Dialogs;
 using Composa.Editing;
 using Composa.Rendering;
 using SkiaSharp;
@@ -10,6 +16,78 @@ namespace Composa.App.Tests;
 
 public class SeedVr2Tests
 {
+    private const string SmallModel = "seedvr2_3b_int8_convrot.safetensors";
+    private const string LargeModel = "seedvr2_7b_int8_convrot.safetensors";
+    public static bool Live => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COMPOSA_SEED_SWITCH_TEST_URL"));
+
+    [Fact(Skip = "Requires a ComfyUI server with SeedVR2 3B and 7B.", SkipUnless = nameof(Live))]
+    public async Task Both_SeedVR2_sizes_complete_an_upscale_on_the_selected_server()
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_SEED_SWITCH_TEST_URL")!;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMinutes(4));
+        var service = new AiTaskService(() => url, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        await service.TestConnectionAsync(deadline.Token);
+        var engine = service.Engines.Find("seedvr2-native")!;
+        var slot = service.Engines.ModelSlots(engine).Single(slot => slot.Kind == EngineAssetKind.DiffusionModel);
+        var settings = new Settings();
+        service.ModelSelections = settings.ComfyModelsFor;
+        foreach (var model in new[] { SmallModel, LargeModel })
+        {
+            settings.SetComfyModels(url, new Dictionary<string, string> { [slot.Key] = model });
+            var check = service.OperationCompatibility(engine, AiTaskKind.Upscale, settings.ComfyModelsFor(url), new());
+            Assert.True(check.IsCompatible, string.Join(", ", check.Missing));
+            var session = EditorSession.NewCanvas(96, 96, SKColors.Bisque);
+            session.AddShape(new(Composa.Model.ShapeKind.Rectangle, (uint)SKColors.Blue, 0), new SKRect(24, 20, 72, 76));
+            await service.RunAsync(new EditorCommandService(session), new() { Task = AiTaskKind.Upscale, EngineId = engine.Id,
+                Settings = new() { UpscaleFactor = 2, Seed = 17 } }, deadline.Token);
+            Assert.Equal(AiOperationStatus.Completed, service.Operation!.Status);
+            Assert.Equal((192, 192), (session.Document.Width, session.Document.Height));
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task One_Model_files_profile_switches_both_SeedVR2_sizes_in_the_submitted_workflow()
+    {
+        using var connection = new Connection { ModelFiles = [SmallModel, LargeModel] };
+        var service = Service(connection);
+        var token = TestContext.Current.CancellationToken;
+        var settings = new Settings { ComfyServerUrl = connection.Address.ToString() };
+        service.ModelSelections = settings.ComfyModelsFor;
+        await service.TestConnectionAsync(token);
+        var owner = new Window { Width = 1200, Height = 850 };
+        owner.Show();
+        try
+        {
+            foreach (var file in new[] { SmallModel, LargeModel })
+            {
+                var pending = AiDialogs.SettingsDialog(owner, settings, service, page: 1);
+                if (pending.IsFaulted) await pending;
+                var dialog = Assert.Single(owner.OwnedWindows);
+                Dispatcher.UIThread.RunJobs();
+                var buttons = dialog.GetVisualDescendants().OfType<Button>().Where(button =>
+                    button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text?.StartsWith("SeedVR2", StringComparison.Ordinal) == true));
+                var profile = Assert.Single(buttons);
+                Assert.Contains(profile.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == "SeedVR2");
+                profile.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                var picker = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),
+                    field => AutomationProperties.GetName(field) == Locale.T("Main model"));
+                Assert.True(picker.IsEnabled);
+                picker.SelectedItem = picker.Items.Last(item => item?.ToString() == file);
+                Assert.True(Screenshots.Save(dialog, "studio-settings-seedvr2-profile"));
+                dialog.Close(true);
+                Assert.True(await pending);
+
+                var session = EditorSession.NewCanvas(96, 96, SKColors.Coral);
+                await service.RunAsync(new EditorCommandService(session), Request("seedvr2-native"), token);
+                Assert.Equal(file, connection.SubmittedModel);
+                Assert.Equal((384, 384), (session.Document.Width, session.Document.Height));
+            }
+        }
+        finally { owner.Close(); }
+    }
+
     [Fact]
     public void Official_defaults_preserve_previously_selected_native_model_files_per_server()
     {
@@ -69,12 +147,21 @@ public class SeedVr2Tests
         public bool Fail, Cancel;
         public int Executions;
         public List<SKSizeI> Uploads = [];
+        internal HashSet<string>? ModelFiles { get; init; }
+        internal string? SubmittedModel { get; private set; }
         private SKBitmap? source;
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-            return Task.FromResult((new ComfyServerInfo("0.37.0", "Windows", "3.12", ["GPU"]) { Memory = [new("GPU", "cuda", 0, 8L << 30, 6L << 30)] },
-                new ComfyServerCapabilities { NodeTypes = catalog.Find("seedvr2-native")!.RequiredNodeTypes.ToHashSet() }));
+            var engine = catalog.Find("seedvr2-native")!;
+            var capabilities = new ComfyServerCapabilities { NodeTypes = engine.RequiredNodeTypes.ToHashSet() };
+            if (ModelFiles != null)
+            {
+                capabilities.ModelChoices["UNETLoader.unet_name"] = ModelFiles;
+                var vae = catalog.ModelSlots(engine).Single(slot => slot.Kind == EngineAssetKind.Vae);
+                capabilities.ModelChoices[vae.LoaderKey] = [vae.Default];
+            }
+            return Task.FromResult((new ComfyServerInfo("0.37.0", "Windows", "3.12", ["GPU"]) { Memory = [new("GPU", "cuda", 0, 8L << 30, 6L << 30)] }, capabilities));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
         {
@@ -84,6 +171,7 @@ public class SeedVr2Tests
         public Task<ComfyExecutionResult> ExecuteAsync(JsonObject graph, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
             Executions++;
+            SubmittedModel = graph["model"]!["inputs"]!["unet_name"]!.GetValue<string>();
             var sampler = graph["sampler"]!["inputs"]!;
             Assert.Equal(1, sampler["steps"]!.GetValue<int>()); Assert.Equal(1, sampler["cfg"]!.GetValue<int>());
             Assert.Equal("euler", sampler["sampler_name"]!.GetValue<string>()); Assert.Equal("simple", sampler["scheduler"]!.GetValue<string>());

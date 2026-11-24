@@ -62,7 +62,7 @@ public sealed partial class MainWindow
         Locale.Tip(dockOperation, "Choose AI operation");
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         header.Children.Add(dockOperation);
-        AddAt(header, Ui.Row(0, DockSlot(aiHeaderReference!), DockSlot(aiEnhance), DockSlot(aiFloatingAlignment!), DockSlot(aiAdvanced)), 1);
+        AddAt(header, Ui.Row(0, DockSlot(aiHeaderReference!), DockSlot(aiEnhance), DockSlot(aiAdvanced)), 1);
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,4,Auto") };
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiPriceBadge), 1);

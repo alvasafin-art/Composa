@@ -4,6 +4,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Composa.App.AI;
 using static Composa.App.Dialogs.StudioSettingsLayout;
 
 namespace Composa.App.Dialogs;
@@ -11,10 +12,11 @@ namespace Composa.App.Dialogs;
 /// <summary>Connection-scoped model names and IDs are staged until the settings window is saved.</summary>
 internal sealed class ConnectionModelCatalog
 {
-    private sealed class Entry(string id, string name)
+    private sealed class Entry(string id, string name, bool upscale = false)
     {
         internal string Id = id;
         internal string Name = name;
+        internal bool Upscale = upscale;
     }
 
     private readonly Dictionary<string, Dictionary<string, string>> saved;
@@ -42,7 +44,11 @@ internal sealed class ConnectionModelCatalog
     private int revision;
     private readonly Dictionary<string, string[]> efforts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> generationOnly;
+    private readonly Dictionary<string, HashSet<string>> savedUpscalers;
+    private readonly Dictionary<string, Dictionary<string, ImageApiRate>> rates;
     internal IReadOnlySet<string>? GenerationOnly => current == null ? null : generationOnly.GetValueOrDefault(current);
+    internal IReadOnlySet<string> Upscalers => current == null ? new HashSet<string>() :
+        Entries().Where(row => row.Upscale && !string.IsNullOrWhiteSpace(row.Id)).Select(row => row.Id.Trim()).ToHashSet(StringComparer.Ordinal);
     internal Dictionary<string, HashSet<string>> SaveImageCapabilities() => new(generationOnly, StringComparer.Ordinal);
     internal Control View { get; }
     internal SettingsStatus? CheckStatus => checkedConnection || failed
@@ -52,10 +58,22 @@ internal sealed class ConnectionModelCatalog
     internal string CheckMessage => string.IsNullOrEmpty(status.Text) ? "Connection has not been checked" : status.Text;
     internal string[]? ReasoningFor(string id) => efforts.GetValueOrDefault(id);
 
+    private static string CheckError(Exception error) => Locale.Message(error switch
+    {
+        HttpRequestException { InnerException: System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.ConnectionRefused } }
+            => "The API server refused the connection.",
+        HttpRequestException or IOException => "Could not connect to the API.",
+        OperationCanceledException => "The API catalog request timed out.",
+        JsonException or InvalidDataException => "The API returned an invalid model catalog.",
+        _ => error.Message
+    });
+
     internal ConnectionModelCatalog(Dictionary<string, Dictionary<string, string>> saved,
         TextBox endpoint, TextBox key, TextBox selectedModel, Func<(Uri Credential, Uri Models)> address,
         Func<Uri, string?> credential, CancellationToken lifetime, bool images = false, bool compactSetup = false, bool autoProbe = false,
-        Dictionary<string, HashSet<string>>? savedGenerationOnly = null)
+        Dictionary<string, HashSet<string>>? savedGenerationOnly = null,
+        Dictionary<string, HashSet<string>>? savedUpscalers = null,
+        Dictionary<string, Dictionary<string, ImageApiRate>>? savedRates = null)
     {
         this.saved = saved;
         this.address = address;
@@ -66,17 +84,20 @@ internal sealed class ConnectionModelCatalog
         this.lifetime = lifetime;
         this.key = key;
         generationOnly = savedGenerationOnly == null ? new(StringComparer.Ordinal) : new(savedGenerationOnly, StringComparer.Ordinal);
+        this.savedUpscalers = savedUpscalers ?? [];
+        rates = savedRates == null ? new(StringComparer.Ordinal) : new(savedRates, StringComparer.Ordinal);
         legacyModel = selectedModel.Text?.Trim() ?? "";
         try { legacyScope = address().Credential.AbsoluteUri; }
         catch (FormatException) { }
         fetch = compactSetup ? SetupLink("Get available models", () => { }) : Ui.TextButton("Get available models", () => { });
         add = Ui.TextButton("Add model", () => { if (current != null) { Entries().Add(new("", "")); Render(); } });
-        reset = SetupLink("Reset this connection’s catalog", () =>
+        reset = SetupLink("Reset catalog", () =>
         {
             if (current == null) return;
             drafts.Remove(current);
             Render();
         });
+        reset.Padding = new Thickness(5, 2);
         fetch.Click += async (_, _) =>
         {
             var requestedRevision = revision;
@@ -84,7 +105,7 @@ internal sealed class ConnectionModelCatalog
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
             catch (Exception error) when (error is InvalidOperationException or FormatException or HttpRequestException or OperationCanceledException or JsonException or IOException)
             {
-                if (requestedRevision == revision) SetCheckStatus(Locale.Message(error.Message), failed: true);
+                if (requestedRevision == revision) SetCheckStatus(CheckError(error), failed: true);
             }
         };
         fetch.Classes.Add("flat");
@@ -167,7 +188,7 @@ internal sealed class ConnectionModelCatalog
             catch (Exception error) when (error is InvalidOperationException or FormatException or HttpRequestException or
                 OperationCanceledException or JsonException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
             {
-                if (expected == revision && !request.IsCancellationRequested) SetCheckStatus(Locale.Message(error.Message), failed: true);
+                if (expected == revision && !request.IsCancellationRequested) SetCheckStatus(CheckError(error), failed: true);
             }
             finally { if (background == request) background = null; }
         }
@@ -200,6 +221,7 @@ internal sealed class ConnectionModelCatalog
             var entries = Entries();
             var known = entries.Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
             var textInputs = new HashSet<string>(GenerationOnly ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            var catalogRates = new Dictionary<string, ImageApiRate>(StringComparer.Ordinal);
             efforts.Clear();
             var found = 0;
             foreach (var model in data.EnumerateArray())
@@ -216,6 +238,7 @@ internal sealed class ConnectionModelCatalog
                     }
                 }
                 found++;
+                if (images && ImageApiRate.FromCatalog(model) is { } rate) catalogRates[id] = rate;
                 if (!images && (model.TryGetProperty("supported_reasoning_efforts", out var levels) ||
                     model.TryGetProperty("supportedReasoningEfforts", out levels)) && levels.ValueKind == JsonValueKind.Array)
                     efforts[id] = levels.EnumerateArray().Select(level => level.ValueKind == JsonValueKind.String ? level.GetString()
@@ -226,6 +249,7 @@ internal sealed class ConnectionModelCatalog
             }
             if (images && textInputs.Count > 0) generationOnly[scope.AbsoluteUri] = textInputs;
             else if (images) generationOnly.Remove(scope.AbsoluteUri);
+            if (images) rates[scope.AbsoluteUri] = catalogRates;
             SetCheckStatus(Locale.T(found > 0 ? "The API responded. Models are available below." : "The API reported no models."),
                 checkedConnection: true, hide: found > 0);
             Render();
@@ -250,6 +274,17 @@ internal sealed class ConnectionModelCatalog
         }
         return result;
     }
+
+    internal Dictionary<string, HashSet<string>> SaveUpscalers()
+    {
+        var result = new Dictionary<string, HashSet<string>>(savedUpscalers, StringComparer.Ordinal);
+        foreach (var (scope, entries) in drafts)
+            result[scope] = entries.Where(entry => entry.Upscale && !string.IsNullOrWhiteSpace(entry.Id))
+                .Select(entry => entry.Id.Trim()).ToHashSet(StringComparer.Ordinal);
+        return result;
+    }
+
+    internal Dictionary<string, Dictionary<string, ImageApiRate>> SaveRates() => new(rates, StringComparer.Ordinal);
 
     private void SelectEndpoint()
     {
@@ -281,7 +316,9 @@ internal sealed class ConnectionModelCatalog
     {
         if (!drafts.TryGetValue(current!, out var entries))
         {
-            drafts[current!] = entries = saved.GetValueOrDefault(current!)?.Select(pair => new Entry(pair.Key, pair.Value)).ToList() ?? [];
+            var upscalers = savedUpscalers.GetValueOrDefault(current!);
+            drafts[current!] = entries = saved.GetValueOrDefault(current!)?
+                .Select(pair => new Entry(pair.Key, pair.Value, upscalers?.Contains(pair.Key) == true)).ToList() ?? [];
             if (current == legacyScope && legacyModel.Length > 0 && !entries.Any(entry => entry.Id == legacyModel))
                 entries.Add(new(legacyModel, ""));
         }
@@ -293,8 +330,11 @@ internal sealed class ConnectionModelCatalog
         rows.Children.Clear();
         if (current == null) return;
         var entries = Entries();
-        Grid CatalogRow(Control id, Control name, Control? remove = null)
+        var allowUpscalers = images && !compactSetup;
+        Grid CatalogRow(Control id, Control name, Control? remove = null, Control? upscale = null)
         {
+            if (allowUpscalers)
+                return Columns("*,*", id, Columns("*,67,30", remove == null ? [name, upscale!] : [name, upscale!, remove]));
             if (!compactSetup)
                 return Columns("*,*", id, remove == null ? name : Columns("*,35", name, remove));
             var grid = Columns("*,*,26", remove == null ? [id, name] : [id, name, remove]);
@@ -302,7 +342,7 @@ internal sealed class ConnectionModelCatalog
             return grid;
         }
         rows.Children.Add(compactSetup ? CatalogRow(SetupLabel("Model ID", translate: false), SetupLabel("Display name"))
-            : CatalogRow(Caption("Model ID"), Caption("Display name")));
+            : CatalogRow(Caption("Model ID"), Caption("Display name"), upscale: allowUpscalers ? Caption("Upscaler") : null));
         foreach (var row in entries)
         {
             var id = new TextBox { Text = row.Id };
@@ -324,7 +364,15 @@ internal sealed class ConnectionModelCatalog
                 remove.VerticalContentAlignment = VerticalAlignment.Center;
                 remove.VerticalAlignment = VerticalAlignment.Center;
             }
-            rows.Children.Add(CatalogRow(id, name, remove));
+            CheckBox? upscale = null;
+            if (allowUpscalers)
+            {
+                upscale = new CheckBox { IsChecked = row.Upscale, HorizontalAlignment = HorizontalAlignment.Center };
+                Avalonia.Automation.AutomationProperties.SetName(upscale, Locale.T("Upscaler"));
+                Locale.Tip(upscale, "Use this model for Upscale.");
+                upscale.IsCheckedChanged += (_, _) => { row.Upscale = upscale.IsChecked == true; Changed?.Invoke(); };
+            }
+            rows.Children.Add(CatalogRow(id, name, remove, upscale));
         }
         Changed?.Invoke();
     }

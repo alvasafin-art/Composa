@@ -36,6 +36,7 @@ public enum AiExpansionMode { MaskedRegion, WholeImage }
 public sealed record AiTaskRequest
 {
     public bool? UseAssignedWorkflow { get; init; }
+    public IReadOnlyDictionary<string, string>? ModelFileOverrides { get; init; }
     public SceneEditSettings Scene { get; init; } = new();
     public AiTaskKind Task { get; init; }
     public string? EngineId { get; init; }

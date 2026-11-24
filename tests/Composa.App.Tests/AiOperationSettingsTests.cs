@@ -58,11 +58,11 @@ public class AiOperationSettingsTests
             owner.AiTasks.SelectedEngine = pack;
             var settings = new Settings();
             var operation = AiTaskKind.GenerativeFill;
-            var pending = AiDialogs.Advanced(owner, settings, owner.AiTasks, operation, new AiOperationSettings { Seed = 41 });
+            var pending = AiDialogs.Advanced(owner, settings, owner.AiTasks, operation, new AiOperationSettings { Seed = 41, AlignPixels = false });
             var dialog = Assert.Single(owner.OwnedWindows);
             dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Presets")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
-            dialog.GetVisualDescendants().OfType<CheckBox>().Single(b => Equals(b.Content, "Align pixels")).IsChecked = false;
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<CheckBox>(), b => Equals(b.Content, "Align pixels"));
             dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.PlaceholderText == "Preset name").Text = "Proof";
             dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Save preset"))
                 .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));

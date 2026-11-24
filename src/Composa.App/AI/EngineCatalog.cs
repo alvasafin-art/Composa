@@ -40,6 +40,7 @@ public sealed class EngineCatalog
     {
         string? asset = engine.ApiModel;
         var title = engine.ModelName;
+        WorkflowModelSlot? fileSlot = null;
         var binding = engine.Binding(task);
         if (asset == null && binding != null)
         {
@@ -61,6 +62,7 @@ public sealed class EngineCatalog
             }
             if (slot != null)
             {
+                if (task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection) fileSlot = slot;
                 asset = choices.GetValueOrDefault(slot.Key) ?? slot.Default;
                 var filename = asset.Replace('\\', '/').Split('/').Last();
                 var defaultFilename = slot.Default.Replace('\\', '/').Split('/').Last();
@@ -71,7 +73,7 @@ public sealed class EngineCatalog
                     title = Path.GetFileNameWithoutExtension(filename);
             }
         }
-        return new ImageModelChoice(title ?? asset ?? engine.DisplayName, asset ?? engine.Id, engine);
+        return new ImageModelChoice(title ?? asset ?? engine.DisplayName, asset ?? engine.Id, engine, FileSlot: fileSlot);
     }
 
     internal ImageModelChoice[] ImageModels(AiTaskKind task, EngineProfile? preferred, IReadOnlyDictionary<string,string> choices, IReadOnlyDictionary<string,string>? routes = null)
@@ -101,12 +103,13 @@ public sealed class EngineCatalog
 }
 
 internal sealed record ImageModelChoice(string Name, string Identifier, EngineProfile Engine, DirectImageGenerator? Direct = null,
-    string? Connection = null, bool AssignedWorkflow = false, bool BuiltIn = false, bool Available = true)
+    string? Connection = null, bool AssignedWorkflow = false, bool BuiltIn = false, bool Available = true, WorkflowModelSlot? FileSlot = null)
 {
     public string ModelKey => (Engine.PaidApi ? "api:" : "server:") + Identifier.Replace('\\', '/');
     internal ImageGenerationRoute Route => Direct?.Route ?? (BuiltIn ? ImageGenerationRoute.BuiltIn : ImageGenerationRoute.ComfyWorkflow);
     internal string ConnectionLabel => Connection ?? (Engine.PaidApi ? "Comfy credits" : "ComfyUI server");
-    internal string SelectionKey => Direct != null ? $"{Route}:{Identifier}" : $"{Engine.Id}:{AssignedWorkflow}";
+    internal string SelectionKey => Direct != null ? $"{Route}:{Identifier}" : FileSlot != null
+        ? $"{FileSlot.Key}:{Identifier.Replace('\\', '/')}" : $"{Engine.Id}:{AssignedWorkflow}";
 }
 
 

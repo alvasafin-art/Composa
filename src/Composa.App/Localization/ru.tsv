@@ -2108,3 +2108,18 @@ Choose an upscaler in Operations.	Выберите апскейлер в раз�
 Choose installed weights in Model files.	Выберите установленные веса в разделе «Файлы моделей».
 Unavailable file: {0} ({1})	Недоступен файл {0} ({1})
 This API model generates images only. Choose an image editing model.	Эта модель API поддерживает только создание изображений. Выберите модель с поддержкой редактирования.
+Reset catalog	Сбросить каталог
+Compatible operations	Совместимые операции
+Upscaler	Апскейлер
+Use this model for Upscale.	Использовать эту модель для увеличения изображения.
+The API server refused the connection.	Сервер API отклонил подключение.
+Could not connect to the API.	Не удалось подключиться к API.
+The API catalog request timed out.	Истекло время ожидания каталога API.
+CLI executable found.	Исполняемый файл CLI найден.
+Connected to ComfyUI.	Подключено к ComfyUI.
+Last API request	Последний запрос к API
+API catalog price per image or request	Цена из каталога API за изображение или запрос
+The image API has not provided a price.	API изображений не передал цену.
+Add the image API key in Connections.	Добавьте ключ API изображений в разделе «Подключения».
+Connect Codex CLI to load models.	Подключите Codex CLI, чтобы загрузить модели.
+The selected model does not support this scene operation.	Выбранная модель не поддерживает эту операцию со сценой.

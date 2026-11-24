@@ -96,14 +96,28 @@ internal static class AiGenerationControls
         Control Row(ImageModelChoice? model, bool details)
         {
             if (model == null) return new TextBlock();
-            var description = $"{Locale.T(model.Name)} · {Locale.T(model.ConnectionLabel)}";
+            var description = details ? Locale.T(model.Name) : $"{Locale.T(model.Name)} · {Locale.T(model.ConnectionLabel)}";
             if (!model.Available) description += " · " + Locale.T("Unavailable");
             var name = Ui.Label(description, size: details ? null : 12);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
-            Locale.Tip(name, name.Text + (model.Name == model.Identifier ? "" : $"\n{model.Identifier}"));
+            Locale.Tip(name, $"{Locale.T(model.ConnectionLabel)}\n{model.Identifier}");
             return name;
         }
-        picker.ItemsSource = models;
+        var items = new List<object>();
+        foreach (var group in models.GroupBy(model => model.ConnectionLabel))
+        {
+            items.Add(new ComboBoxItem
+            {
+                IsEnabled = false, IsHitTestVisible = false, Focusable = false,
+                Content = new TextBlock
+                {
+                    Text = Locale.T(group.Key), FontWeight = FontWeight.SemiBold,
+                    Foreground = Palette.Secondary, FontSize = 10
+                }
+            });
+            items.AddRange(group);
+        }
+        picker.ItemsSource = items;
         picker.ItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, true));
         picker.SelectionBoxItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, false));
         StyleModelField(picker, "Image model");
@@ -131,6 +145,7 @@ internal static class AiGenerationControls
 
     internal static void StyleModelField(ComboBox picker, string label)
     {
+        picker.Classes.Add("model-field");
         picker.Height = 30; picker.MinHeight = 0; picker.CornerRadius = new CornerRadius(6);
         picker.Padding = new Thickness(9, 0, 5, 0);
         picker.VerticalContentAlignment = VerticalAlignment.Center;

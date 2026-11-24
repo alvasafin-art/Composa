@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.App.Controls;
@@ -40,6 +41,21 @@ public sealed class EditorWelcomeTests
             Pump();
             var connections = Assert.Single(window.OwnedWindows.OfType<StudioSettingsWindow>());
             Assert.True(Screenshots.Save(connections, "studio-settings-03-first-run-ru"));
+            var note = Assert.Single(connections.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.Text == Locale.T("You can finish setup later in Settings."));
+            var primary = connections.FooterButtons.Children.OfType<Button>().Last();
+            var noteCenter = note.TranslatePoint(new(0, note.Bounds.Height / 2), connections)!.Value.Y;
+            var buttonCenter = primary.TranslatePoint(new(0, primary.Bounds.Height / 2), connections)!.Value.Y;
+            Assert.Equal(buttonCenter, noteCenter, tolerance: 1);
+            var serverDetails = Assert.Single(connections.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
+                button => Avalonia.Automation.AutomationProperties.GetName(button) == Locale.T("ComfyUI server"));
+            var serverUrl = Assert.Single(connections.GetLogicalDescendants().OfType<TextBox>(),
+                box => Avalonia.Automation.AutomationProperties.GetName(box) == Locale.T("ComfyUI Server URL"));
+            Assert.False(serverUrl.IsEffectivelyVisible);
+            serverDetails.IsChecked = true;
+            Pump();
+            Assert.True(serverUrl.IsEffectivelyVisible);
+            serverDetails.IsChecked = false;
             Assert.Single(connections.GetVisualDescendants().OfType<ComboBox>().Where(box => box.Name == "TextEnhancerRoute"));
             connections.FooterButtons.Children.OfType<Button>().First().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Pump();

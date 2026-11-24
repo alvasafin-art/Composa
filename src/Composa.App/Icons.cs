@@ -57,6 +57,12 @@ public static class Icons
     public static readonly Icon Adjust = new("M12 3 A9 9 0 1 1 12 21 A9 9 0 1 1 12 3 Z", "M12 3 A9 9 0 0 1 12 21 Z");
     public static readonly Icon ChevronRight = new("M9 6 L15 12 L9 18");
     public static readonly Icon ChevronDown = new("M6 9 L12 15 L18 9");
+    public static readonly Icon ChevronUp = new("M6 15 L12 9 L18 15");
+    public static readonly Icon ChevronLeft = new("M15 6 L9 12 L15 18");
+    public static readonly Icon Sliders = new("M4 6h16M4 12h16M4 18h16 M6 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z " +
+        "M14 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z M8 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z");
+    public static readonly Icon Cpu = new("M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2H7a2 2 0 0 1 -2 -2V7a2 2 0 0 1 2 -2Z " +
+        "M9 9h6v6H9Z M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4");
     public static readonly Icon Coin = new("M21 12 A9 9 0 1 1 3 12 A9 9 0 1 1 21 12 Z M15 7 A6 6 0 1 1 7 15");
     public static readonly Icon ClipArrow = new("M7 5 V14 H16 M13 10.5 L16.5 14 L13 17.5");
     public static readonly Icon Effects = new(null, "M12 2 L14.2 8.8 L21 11 L14.2 13.2 L12 20 L9.8 13.2 L3 11 L9.8 8.8 Z M19.5 16 L20.4 18.6 L23 19.5 L20.4 20.4 L19.5 23 L18.6 20.4 L16 19.5 L18.6 18.6 Z");

@@ -52,7 +52,9 @@ public sealed partial class MainWindow
         if (DirectImageFor(task) is { } direct) return ImageOperationModels.DirectChoice(direct,
             ImageOperationModels.ApiCatalog(settings).GetValueOrDefault(direct.Model) ?? "", settings.ImageApiDisplayName);
         return ImageOperationModels.ComfyDefault(aiTasks.Engines, task, aiTasks.EngineFor(task),
-            settings.ComfyModelsFor(settings.ComfyServerUrl), settings.Workflows);
+            settings.ComfyModelsFor(settings.ComfyServerUrl), settings.Workflows,
+            aiTasks.ConnectionState == ComfyConnectionState.Connected &&
+                aiTasks.ConnectedServerUrl == settings.ComfyServerUrl ? aiTasks.ServerCapabilities : null);
     }
     private bool? PanelUsesAssignedWorkflow(AiTaskKind task) =>
         modelDrafts.GetValueOrDefault(ImageOperationModels.ModelTask(task))?.AssignedWorkflow;
@@ -84,7 +86,6 @@ public sealed partial class MainWindow
     private AiReferenceEditor? aiDialogReferences;
     private bool refreshingAiEngine;
     private WrapPanel? aiFloatingTools;
-    private ToggleButton? aiFloatingAlignment;
     private Button? aiFloatingCollapse, aiHeaderReference, aiInlineAddReference;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingMore;
@@ -417,21 +418,13 @@ public sealed partial class MainWindow
         };
         Locale.Tip(aiEngineCombo, "Image model for this operation");
         RefreshAiReferenceUi();
-        aiFloatingAlignment = AiDialogs.AlignmentToggle(settings);
-        aiFloatingAlignment.IsCheckedChanged += (_, _) =>
-        {
-            var enabled = aiFloatingAlignment.IsChecked == true;
-            if (settings.AiAlignMaskedEdits == enabled) return;
-            settings.AiAlignMaskedEdits = enabled;
-            settings.Save();
-        };
         aiFloatingTools = new WrapPanel { Orientation = Orientation.Horizontal };
         aiPriceBadge = Ui.Row(2, Icons.Create(Icons.Coin, 14, CreditColor), aiApiCost);
         aiPriceBadge.Name = "AiCreditEstimate";
         aiPriceBadge.Margin = new Thickness(3, 0);
         aiPriceBadge.VerticalAlignment = VerticalAlignment.Center;
         aiPriceBadge.IsVisible = false;
-        aiFloatingTools.Children.AddRange([aiEngineCombo, aiPriceBadge, aiHeaderReference, aiEnhance, aiFloatingAlignment, aiAdvanced]);
+        aiFloatingTools.Children.AddRange([aiEngineCombo, aiPriceBadge, aiHeaderReference, aiEnhance, aiAdvanced]);
         var leading = new DockPanel();
         DockPanel.SetDock(grip, Dock.Left);
         leading.Children.Add(grip);
@@ -457,16 +450,14 @@ public sealed partial class MainWindow
         { credits = false; }
         try
         {
-            apiEnabled = task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection
-                ? direct.Availability(task) == null
-                : !string.IsNullOrWhiteSpace(DirectImageGenerator.ReadKey(DirectImageGenerator.Endpoint(direct.ApiAddress)));
+            apiEnabled = !string.IsNullOrWhiteSpace(DirectImageGenerator.ReadKey(DirectImageGenerator.Endpoint(direct.ApiAddress)));
         }
         catch (Exception error) when (error is FormatException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         { apiEnabled = false; }
         var choices = ImageOperationModels.Choices(aiTasks, task, aiTasks.EngineFor(task), settings.ComfyModelsFor(settings.ComfyServerUrl),
             settings.Workflows, settings, comfyConfigured, aiTasks.ConnectionState == ComfyConnectionState.Connected, credits,
             ImageOperationModels.DirectChoices(direct, ImageOperationModels.ApiCatalog(settings).Select(pair => (pair.Key, pair.Value)),
-                settings.ImageApiDisplayName, apiEnabled, ImageOperationModels.GenerationOnly(settings)), selected);
+                settings.ImageApiDisplayName, apiEnabled, ImageOperationModels.GenerationOnly(settings), ImageOperationModels.ApiUpscalers(settings)), selected);
         refreshingAiEngine = true;
         try
         {
@@ -512,7 +503,6 @@ public sealed partial class MainWindow
         if (aiFloatingActions != null) aiFloatingActions.IsVisible = expanded;
         if (aiHeaderReference != null) aiHeaderReference.IsVisible = expanded && (DockEditorVisible || aiReferences.Count == 0);
         if (aiFloatingTools != null) aiFloatingTools.IsVisible = !settings.AiFloatingCollapsed;
-        if (aiFloatingAlignment != null) aiFloatingAlignment.IsChecked = settings.AiAlignMaskedEdits;
         if (aiFloatingMore != null) aiFloatingMore.IsVisible = !settings.AiFloatingCollapsed;
         if (aiFloatingCollapse != null) aiFloatingCollapse.IsVisible = settings.AiFloatingCollapsed && !DockEditorVisible;
         if (!visible && !DockEditorVisible) return;
@@ -523,11 +513,6 @@ public sealed partial class MainWindow
         var fillProfile = AiOptions(task, fillEngine);
         var toneOnly = task == AiTaskKind.MatchToScene && fillProfile.Scene.MatchMode == SceneMatchMode.ToneAndColor;
         aiFloatingPrompt.IsEnabled = !toneOnly;
-        if (aiFloatingAlignment != null)
-        {
-            aiFloatingAlignment.IsVisible = !toneOnly;
-            aiFloatingAlignment.IsEnabled = task != AiTaskKind.GenerateImage;
-        }
         if (aiHeaderReference != null) aiHeaderReference.IsEnabled = aiReferences.Count < 6;
         if (aiEngineCombo != null)
         {
@@ -556,9 +541,24 @@ public sealed partial class MainWindow
             _ => ""
         });
         if (aiFloatingGenerate != null) Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
-        aiPriceBadge.IsVisible = expanded && !toneOnly && direct == null && (activeWorkflow == null ? fillEngine?.PaidApi == true : ComfyClient.UsesApiCredits(activeWorkflow.Graph));
+        var directApi = direct is { Route: ImageGenerationRoute.DirectApi };
+        aiPriceBadge.IsVisible = expanded && !toneOnly && (directApi || direct == null &&
+            (activeWorkflow == null ? fillEngine?.PaidApi == true : ComfyClient.UsesApiCredits(activeWorkflow.Graph)));
+        aiPriceBadge.Children[0].IsVisible = !directApi;
         PartnerPriceEstimate? estimate = null;
-        if (aiPriceBadge.IsVisible)
+        if (aiPriceBadge.IsVisible && directApi)
+        {
+            var previous = aiTasks.LastDirectImageCharge;
+            var charge = previous is { } last && last.Generator.Task == direct!.Task &&
+                last.Generator.ApiAddress == direct.ApiAddress && last.Generator.Model == direct.Model ? last.Rate : null;
+            var catalogRate = ImageOperationModels.ApiRate(settings, direct!);
+            aiApiCost.Text = charge?.Label ?? (catalogRate == null ? "—" : "≈" + catalogRate.Label);
+            var tip = charge != null ? "Last API request" : catalogRate != null ? "API catalog price per image or request" :
+                "The image API has not provided a price.";
+            Locale.Tip(aiPriceBadge, tip);
+            Avalonia.Automation.AutomationProperties.SetName(aiPriceBadge, Locale.T(tip));
+        }
+        else if (aiPriceBadge.IsVisible)
         {
             var count = (task == AiTaskKind.GenerateImage ? 0 : 1) + aiReferences.Count; // cropped source and genuine user references only
             if (activeWorkflow == null)
@@ -855,7 +855,8 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.Upscale && session is { } upscaleSession)
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
-            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null, PanelEngine(task), direct == null ? aiTasks : null, direct?.Label)) return;
+            if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null,
+                PanelEngine(task), direct == null ? aiTasks : null, PanelChoice(task)?.Name ?? direct?.Label)) return;
         }
         var aspect = AiAspect(task);
         var profile = AiOptions(task);
@@ -916,6 +917,8 @@ public sealed partial class MainWindow
                 AlignMaskedEdits = settings.AiAlignMaskedEdits,
                 EngineId = engine?.Id,
                 UseAssignedWorkflow = useAssigned,
+                ModelFileOverrides = modelDrafts.GetValueOrDefault(ImageOperationModels.ModelTask(task)) is { FileSlot: { } slot } model
+                    ? new Dictionary<string, string> { [slot.Key] = model.Identifier } : null,
                 SelectionRegion = selectionRegion, SelectionOperation = selectionOperation, SelectionPoint = selectionPoint,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : options.Prompt,
                 ExpansionMode = profile.ExpansionMode,

@@ -45,6 +45,16 @@ public sealed class ComfyModelPicker : StackPanel
         Refresh();
     }
 
+    internal void UseFile(WorkflowModelSlot slot, string file)
+    {
+        var address = ComfyServerAddress.Parse(serverUrl()).ToString();
+        var choices = (Dictionary<string, string>)Choices(address);
+        choices[slot.Key] = file;
+        changed.Add(address);
+        Refresh();
+        ChoicesChanged?.Invoke();
+    }
+
     internal static IEnumerable<WorkflowModelSlot> FileSlots(EngineCatalog catalog, EngineProfile engine, AiTaskKind? tool) =>
         tool == null ? catalog.ModelSlots(engine).Where(slot => slot.Kind is not (EngineAssetKind.Upscaler or EngineAssetKind.BackgroundRemoval))
             : WorkflowModels.Slots(catalog.ReadWorkflow(engine, EngineCatalog.WorkflowFor(engine, tool.Value)), engine.Id);

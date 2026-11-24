@@ -34,20 +34,21 @@ public sealed partial class MainWindow
         var choices = new List<ObjectModelChoice>
         {
             new(ObjectSelectionSource.EfficientSamS, "Automatic · Local"),
-            new(ObjectSelectionSource.EfficientSamS, "Quick outline · Local", QuickOutline: true),
-            new(ObjectSelectionSource.EfficientSamS, "rembg · CLI", Route: ImageGenerationRoute.LocalCodex),
-            new(ObjectSelectionSource.EfficientSamS, "BiRefNet · fal API", Route: ImageGenerationRoute.DirectApi)
+            new(ObjectSelectionSource.EfficientSamS, "Quick outline · Local", QuickOutline: true)
         };
+        const AiTaskKind task = AiTaskKind.ObjectSelection;
+        foreach (var route in new[] { ImageGenerationRoute.LocalCodex, ImageGenerationRoute.DirectApi })
+            if ((DirectImageGenerator.For(settings, task) with { Route = route }).Availability(task) == null)
+                choices.Add(new(ObjectSelectionSource.EfficientSamS, route == ImageGenerationRoute.LocalCodex ? "rembg · CLI" : "BiRefNet · fal API", Route: route));
         var engine = ObjectSelectionEngine();
-        if (engine?.Binding(AiTaskKind.ObjectSelection) is { } binding && aiTasks.ServerCapabilities is { } server)
+        if (engine != null && aiTasks.ServerCapabilities is { } server && aiTasks.ConnectionState == ComfyConnectionState.Connected)
         {
             try
             {
                 if (ComfyServerAddress.Parse(settings.ComfyServerUrl).ToString() != aiTasks.ConnectedServerUrl) return choices;
-                var graph = aiTasks.Engines.ReadWorkflow(engine, engine.Workflow(binding.Workflow));
-                foreach (var slot in WorkflowModels.Slots(graph, engine.Id).Where(s => s.Kind == EngineAssetKind.BackgroundRemoval))
-                    foreach (var model in server.ModelChoices.GetValueOrDefault(slot.LoaderKey, []).Where(name => name.Contains("birefnet", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.OrdinalIgnoreCase))
-                        choices.Add(new(ObjectSelectionSource.ComfyUI, model + " · ComfyUI", model, slot.Key, Route: ImageGenerationRoute.ComfyWorkflow));
+                foreach (var model in ImageOperationModels.InstalledUtilityModels(aiTasks.Engines, engine, task, server))
+                    choices.Add(new(ObjectSelectionSource.ComfyUI, model.Identifier + " · ComfyUI", model.Identifier,
+                        model.FileSlot!.Key, Route: ImageGenerationRoute.ComfyWorkflow));
             }
             catch (Exception error) when (error is IOException or FormatException or System.Text.Json.JsonException) { }
         }
@@ -58,24 +59,25 @@ public sealed partial class MainWindow
     {
         if (objectModelsCombo == null) return;
         var route = PanelRoute(AiTaskKind.ObjectSelection);
+        var selectedWeight = PanelChoice(AiTaskKind.ObjectSelection)?.Identifier ?? settings.ObjectSelectionComfyModel;
         var choices = AvailableObjectModels();
-        var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + route + settings.ObjectSelectionComfyModel + settings.ObjectSelectionQuickOutline;
+        var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + route + selectedWeight + settings.ObjectSelectionQuickOutline;
         if (objectModelChoicesStamp == stamp) return;
         objectModelChoicesStamp = stamp; objectModelChoices = choices;
         refreshingObjectModels = true;
         objectModelsCombo.ItemsSource = choices.Select(c => c.Label).ToArray();
         objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Route == route && (route == ImageGenerationRoute.ComfyWorkflow
-            ? c.ServerModel == settings.ObjectSelectionComfyModel : route != ImageGenerationRoute.BuiltIn || c.QuickOutline == settings.ObjectSelectionQuickOutline));
+            ? c.ServerModel == selectedWeight : route != ImageGenerationRoute.BuiltIn || c.QuickOutline == settings.ObjectSelectionQuickOutline));
         if (objectModelsCombo.SelectedIndex < 0 && route == ImageGenerationRoute.ComfyWorkflow)
             objectModelsCombo.SelectedIndex = choices.FindIndex(c => c.Route == route);
         objectModelsCombo.PlaceholderText = route == ImageGenerationRoute.ComfyWorkflow
-            ? settings.ObjectSelectionComfyModel ?? "Connect ComfyUI to list models" : "Choose an installed model";
+            ? selectedWeight ?? "Connect ComfyUI to list models" : "Choose an installed model";
         refreshingObjectModels = false;
     }
 
     private Control ObjectSelectionModelMenu()
     {
-        var combo = objectModelsCombo = new ComboBox { Width = 200, Name = "ObjectSelectionModel" };
+        var combo = objectModelsCombo = new ComboBox { Width = 200, Name = "ObjectSelectionModel", Classes = { "model-field" } };
         objectModelChoicesStamp = null;
         combo.SelectionChanged += (_, _) =>
         {

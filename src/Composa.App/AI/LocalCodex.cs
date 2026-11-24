@@ -64,16 +64,7 @@ internal static class LocalCodex
             var args = new List<string> { "exec", "--ephemeral", "--ignore-user-config", "--disable", "shell_tool",
                 "--disable", "image_generation", "--skip-git-repo-check", "--sandbox", "read-only",
                 "--output-last-message", answerPath };
-            if (!string.IsNullOrWhiteSpace(model))
-            {
-                args.Add("--model");
-                args.Add(model.Trim());
-            }
-            if (effort != "default" && !string.IsNullOrWhiteSpace(effort))
-            {
-                args.Add("-c");
-                args.Add("model_reasoning_effort=" + JsonSerializer.Serialize(effort));
-            }
+            AddModelOptions(args, model, effort);
             args.Add("-");
             var prompt = "Rewrite the image prompt as plain text. Do not use tools or access files. Return only the result.\n\n"
                 + "Instructions:\n" + instructions + "\n\nImage prompt:\n" + message;
@@ -99,7 +90,8 @@ internal static class LocalCodex
 
     internal sealed record TextModel(string Id, string Title, string[] Efforts, bool IsDefault);
 
-    internal static async Task<IReadOnlyList<TextModel>> DiscoverModelsAsync(string path, CancellationToken cancellationToken)
+    internal static async Task<IReadOnlyList<TextModel>> DiscoverModelsAsync(string path, CancellationToken cancellationToken,
+        bool forImageGeneration = false)
     {
         var executable = FindExecutable(path) ?? throw new InvalidOperationException("Codex CLI was not found. Install Codex or select its executable.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -116,6 +108,12 @@ internal static class LocalCodex
                 StandardInputEncoding = new UTF8Encoding(false)
             };
             foreach (var arg in new[] { "app-server", "--listen", "stdio://" }) start.ArgumentList.Add(arg);
+            if (forImageGeneration)
+            {
+                // Image generation executes with --ignore-user-config and the built-in OpenAI provider.
+                start.ArgumentList.Add("-c");
+                start.ArgumentList.Add("model_provider=\"openai\"");
+            }
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Composa could not start the selected CLI executable.");
             var stderr = process.StandardError.BaseStream.CopyToAsync(Stream.Null, token);
             try
@@ -197,7 +195,7 @@ internal static class LocalCodex
     }
 
     internal static async Task<SKBitmap> GenerateAsync(string path, string prompt, int width, int height,
-        CancellationToken token, IReadOnlyList<byte[]>? images = null)
+        CancellationToken token, IReadOnlyList<byte[]>? images = null, string model = "", string effort = "default")
     {
         var executable = FindExecutable(path) ?? throw new InvalidOperationException("Codex CLI was not found. Install Codex or select its executable.");
         var workspace = Directory.CreateTempSubdirectory("composa-codex-");
@@ -207,9 +205,7 @@ internal static class LocalCodex
         {
             await VerifyLoginAsync(executable, workspace.FullName, token);
             var framing = width == height ? "square (1:1)" : width > height ? "landscape (3:2)" : "portrait (2:3)";
-            var args = new List<string> { "exec", "--json", "--ephemeral", "--ignore-user-config", "--disable", "shell_tool",
-                "--enable", "image_generation", "--skip-git-repo-check", "--sandbox", "read-only",
-                "--model", "gpt-6.2-sol" };
+            var args = ImageArguments(model, effort);
             if (images != null)
             {
                 for (var i = 0; i < images.Count; i++)
@@ -261,6 +257,28 @@ internal static class LocalCodex
             try { workspace.Delete(recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    internal static List<string> ImageArguments(string model, string effort)
+    {
+        var args = new List<string> { "exec", "--json", "--ephemeral", "--ignore-user-config", "--disable", "shell_tool",
+            "--enable", "image_generation", "--skip-git-repo-check", "--sandbox", "read-only" };
+        AddModelOptions(args, model, effort);
+        return args;
+    }
+
+    private static void AddModelOptions(List<string> args, string model, string effort)
+    {
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            args.Add("--model");
+            args.Add(model.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(effort) && effort != "default")
+        {
+            args.Add("-c");
+            args.Add("model_reasoning_effort=" + JsonSerializer.Serialize(effort));
         }
     }
 

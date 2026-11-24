@@ -17,6 +17,88 @@ namespace Composa.App.Tests;
 
 public sealed class ImageConnectionTests
 {
+    [AvaloniaFact]
+    public async Task Configured_API_upscaler_sends_the_model_and_source_and_inserts_the_returned_image()
+    {
+        const string model = "example/custom-upscaler";
+        const string key = "test-upscale-key";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var address = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/v1";
+        var beforeKey = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
+        Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", key);
+        var reply = Reply();
+        try
+        {
+            var scope = DirectImageGenerator.Endpoint(address).AbsoluteUri;
+            var settings = new Settings { ImageGenerationApiUrl = address };
+            settings.ImageOperationRoutes[AiTaskKind.Upscale] = ImageGenerationRoute.DirectApi;
+            settings.ImageOperationApiModels[AiTaskKind.Upscale] = model;
+            settings.ImageApiCatalogs[scope] = new() { [model] = "My upscaler", ["example/image-edit"] = "Image editor" };
+            settings.ImageApiUpscalers[scope] = [model];
+            settings = Settings.FromJson(JsonSerializer.Serialize(settings));
+            var generator = DirectImageGenerator.For(settings, AiTaskKind.Upscale);
+            var choices = ImageOperationModels.DirectChoices(generator, ImageOperationModels.ApiCatalog(settings).Select(pair => (pair.Key, pair.Value)),
+                "Example API", true, upscalers: ImageOperationModels.ApiUpscalers(settings));
+            Assert.Contains(choices, choice => choice.Name == "My upscaler" && choice.Identifier == model);
+            Assert.DoesNotContain(choices, choice => choice.Identifier == "example/image-edit");
+            var service = new AiTaskService(() => "http://127.0.0.1:1", Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+            var session = EditorSession.NewCanvas(48, 32, SKColors.CornflowerBlue);
+            await service.RunDirectImageAsync(new EditorCommandService(session), generator,
+                new AiTaskRequest { Task = AiTaskKind.Upscale, Settings = new() { UpscaleFactor = 2 } }, () => true, timeout.Token);
+            await reply;
+            Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
+            Assert.Equal(96, session.Document.Width);
+            Assert.Equal(64, session.Document.Height);
+            Assert.Equal(new ImageApiRate(0.42m, 0.42m, "EUR"), service.LastDirectImageCharge?.Rate);
+        }
+        finally
+        {
+            timeout.Cancel();
+            Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", beforeKey);
+        }
+
+        async Task Reply()
+        {
+            using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+            await using var stream = client.GetStream();
+            using var reader = new StreamReader(stream, Encoding.Latin1, leaveOpen: true);
+            Assert.Equal("POST /v1/images/edits HTTP/1.1", await reader.ReadLineAsync(timeout.Token));
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            while (await reader.ReadLineAsync(timeout.Token) is { Length: > 0 } line)
+            {
+                var split = line.IndexOf(':');
+                headers.Add(line[..split], line[(split + 1)..].Trim());
+            }
+            Assert.Equal("Bearer " + key, headers["Authorization"]);
+            var body = new char[int.Parse(headers["Content-Length"])];
+            Assert.Equal(body.Length, await reader.ReadBlockAsync(body.AsMemory(), timeout.Token));
+            var multipart = new string(body);
+            Assert.Contains(model, multipart);
+            Assert.Contains("96x64", multipart);
+            Assert.Contains("image[]", multipart);
+            Assert.Contains("\u0089PNG", multipart);
+            using var pixels = new SKBitmap(96, 64);
+            pixels.Erase(SKColors.CornflowerBlue);
+            var payload = JsonSerializer.Serialize(new { data = new[] { new { b64_json = Convert.ToBase64String(DirectImageEdit.EncodePng(pixels)) } },
+                usage = new { cost = 0.42m, currency = "EUR" } });
+            var response = Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {payload.Length}\r\nConnection: close\r\n\r\n{payload}");
+            await stream.WriteAsync(response, timeout.Token);
+        }
+    }
+
+    [Fact]
+    public void Catalog_price_retains_the_currency_and_range_of_reported_image_tiers()
+    {
+        using var catalog = JsonDocument.Parse("""{"top_provider":{"pricing":{"currency":"RUB","tiers":[{"cost_rub":"4.80"},{"cost_rub":"10.80"}]}}}""");
+        Assert.Equal(new ImageApiRate(4.8m, 10.8m, "RUB"), ImageApiRate.FromCatalog(catalog.RootElement));
+        using var response = JsonDocument.Parse("""{"usage":{"cost":0.0123}}""");
+        Assert.Equal(new ImageApiRate(0.0123m, 0.0123m, "USD"), ImageApiRate.FromResponse(response.RootElement, "USD"));
+        Assert.Null(ImageApiRate.FromResponse(response.RootElement, null));
+    }
+
     [Fact(Skip = "Requires the signed-in local Codex CLI.", SkipUnless = nameof(CheckLocalCatalog))]
     public async Task Local_codex_lists_models_and_supported_efforts_without_a_generation_request()
     {
@@ -26,6 +108,64 @@ public sealed class ImageConnectionTests
     }
 
     public static bool CheckLocalCatalog => Environment.GetEnvironmentVariable("COMPOSA_CHECK_CODEX_CATALOG") == "1";
+
+    [Fact]
+    public void The_image_runner_uses_its_own_Codex_model_and_effort_without_overriding_the_CLI_defaults()
+    {
+        var settings = Settings.FromJson(JsonSerializer.Serialize(new Settings
+        {
+            ImageGenerationRoute = ImageGenerationRoute.LocalCodex, ImageCodexLanguageModel = "catalog-image-agent",
+            ImageCodexReasoningEffort = "high", EnhancerCodexModel = "separate-prompt-model", EnhancerEffort = "low"
+        }));
+        var runner = DirectImageGenerator.For(settings, AiTaskKind.ImageEdit);
+        Assert.Equal("gpt-image-2", runner.Model);
+        var args = LocalCodex.ImageArguments(runner.CodexLanguageModel, runner.CodexReasoningEffort);
+        Assert.Equal("catalog-image-agent", args[args.IndexOf("--model") + 1]);
+        Assert.Contains("model_reasoning_effort=\"high\"", args);
+        Assert.DoesNotContain("separate-prompt-model", args);
+        args = LocalCodex.ImageArguments("", "default");
+        Assert.DoesNotContain("--model", args);
+        Assert.DoesNotContain("-c", args);
+    }
+
+    [AvaloniaFact(Skip = "Requires a signed-in local Codex CLI.", SkipUnless = nameof(CheckLocalCatalog))]
+    public async Task CLI_image_settings_load_models_and_only_the_selected_models_efforts_from_Codex()
+    {
+        var settings = new Settings { UpscaleCliPath = "saved-esrgan", SegmentationCliPath = "saved-rembg", SegmentationCliModel = "saved-mask" };
+        var service = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var owner = new Window { Width = 1200, Height = 900 };
+        owner.Show();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(32));
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service, page: 11);
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            var combos = dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
+            var models = Assert.Single(combos, box => box.Name == "ImageCodexLanguageModel");
+            var reasoning = Assert.Single(combos, box => box.Name == "ImageCodexReasoningEffort");
+            while (models.ItemCount == 0)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(30, deadline.Token);
+            }
+            var selected = models.Items.OfType<LocalCodex.TextModel>().First(row => row.Efforts.Length > 0);
+            models.SelectedItem = selected;
+            Assert.Equal(selected.Efforts.Prepend("default").Distinct(StringComparer.Ordinal), reasoning.Items.OfType<string>());
+            var effort = selected.Efforts.Last();
+            reasoning.SelectedItem = effort;
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text is "saved-esrgan" or "saved-rembg" or "saved-mask");
+            Assert.True(Screenshots.Save(dialog, "studio-settings-cli-image-model"));
+            dialog.Close(true);
+            Assert.True(await pending);
+            Assert.Equal(selected.Id, settings.ImageCodexLanguageModel);
+            Assert.Equal(effort, settings.ImageCodexReasoningEffort);
+            Assert.Equal("saved-esrgan", settings.UpscaleCliPath);
+            Assert.Equal("saved-rembg", settings.SegmentationCliPath);
+        }
+        finally { owner.Close(); }
+    }
 
     [AvaloniaFact]
     public async Task Connection_page_updates_both_api_status_lights_with_catalog_gets_only()

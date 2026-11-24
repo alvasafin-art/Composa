@@ -9,6 +9,8 @@ namespace Composa.App.AI;
 
 public sealed partial class AiTaskService
 {
+    internal (DirectImageGenerator Generator, ImageApiRate Rate)? LastDirectImageCharge { get; private set; }
+
     internal async Task RunDirectImageAsync(IEditorCommandService editor, DirectImageGenerator generator, AiTaskRequest request,
         Func<bool> targetAvailable, CancellationToken cancellationToken = default)
     {
@@ -40,12 +42,14 @@ public sealed partial class AiTaskService
         var bounds = target.Document.Bounds;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         running = linked;
+        LastDirectImageCharge = null;
+        void ReportCharge(ImageApiRate charge) => LastDirectImageCharge = (generator, charge);
         var remaining = new List<SKBitmap>();
         try
         {
             if (request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground)
             {
-                await RunDirectSceneAsync(editor, generator, request, EnsureUnchanged, linked.Token);
+                await RunDirectSceneAsync(editor, generator, request, EnsureUnchanged, linked.Token, ReportCharge);
                 return;
             }
             var expand = request.Task == AiTaskKind.GenerativeExpand;
@@ -103,7 +107,7 @@ public sealed partial class AiTaskService
                     try
                     {
                         image = await Task.Run(() => upscale
-                            ? DirectImageUtilities.UpscaleAsync(generator, prepared!.SourceImage, request.Settings.UpscaleFactor, timeout.Token)
+                            ? DirectImageUtilities.UpscaleAsync(generator, prepared!.SourceImage, request.Settings.UpscaleFactor, timeout.Token, ReportCharge)
                             : DirectImageUtilities.SelectAsync(generator, prepared!.SourceImage, timeout.Token), timeout.Token);
                     }
                     catch (OperationCanceledException) when (!linked.IsCancellationRequested)
@@ -112,7 +116,7 @@ public sealed partial class AiTaskService
                 else
                 {
                     image = await generator.GenerateAsync(prompt, editInputs?.Width ?? request.Settings.Width,
-                        editInputs?.Height ?? request.Settings.Height, linked.Token, files: files);
+                        editInputs?.Height ?? request.Settings.Height, linked.Token, files: files, onCharge: ReportCharge);
                     if (editInputs != null) image = await Task.Run(() => editInputs.Finish(image));
                     if (remove && prepared!.SelectionMask is { } removal)
                     {

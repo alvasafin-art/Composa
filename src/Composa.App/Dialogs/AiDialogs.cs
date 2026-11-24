@@ -16,7 +16,7 @@ public sealed record AiPromptResult(string Prompt, int Width, int Height, long S
 
 public static partial class AiDialogs
 {
-    private sealed record ModelFileProfile(EngineProfile Engine, AiTaskKind? Tool, string Name);
+    private sealed record ModelFileProfile(EngineProfile Engine, AiTaskKind? Tool, string Name, ImageModelChoice? File = null);
 
     private static Border Section(string title, params Control[] controls) => new()
     {
@@ -52,16 +52,6 @@ public static partial class AiDialogs
             if (!settings.CustomLayerTags.Contains(tag, StringComparer.OrdinalIgnoreCase)) settings.CustomLayerTags.Add(tag);
         settings.Save();
         return tags;
-    }
-
-    internal static ToggleButton AlignmentToggle(Settings settings)
-    {
-        var toggle = new ToggleButton { Name = "AiPixelAlignment", Content = Icons.Create(Icons.PixelAlignment, 18), IsChecked = settings.AiAlignMaskedEdits,
-            Width = 30, Height = 28, Padding = new Thickness(4), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
-        toggle.Classes.Add("tool");
-        Avalonia.Automation.AutomationProperties.SetName(toggle, "Align pixels");
-        Locale.Tip(toggle, "Align pixels · use unchanged image details to correct small shifts before inserting the result.");
-        return toggle;
     }
 
     internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, AiTaskKind task, Func<EngineProfile?> engine)
@@ -169,9 +159,9 @@ public static partial class AiDialogs
             : directGenerator.PromptProfile();
         promptPack ??= PromptProfiles().FirstOrDefault();
         var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
-        var instructions = new TextBox { Name = "EnhancerInstructions", AcceptsReturn = true, Height = 260, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        var instructions = new TextBox { Name = "EnhancerInstructions", AcceptsReturn = true, Height = 360, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             Text = service.InstructionsFor(instructionDrafts, promptPack, AiTaskKind.GenerateImage) };
-        var otherInstructions = new TextBox { Name = "EnhancerEditInstructions", AcceptsReturn = true, Height = 260, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        var otherInstructions = new TextBox { Name = "EnhancerEditInstructions", AcceptsReturn = true, Height = 360, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             Text = service.InstructionsFor(instructionDrafts, promptPack, AiTaskKind.ImageEdit) };
         Action? refreshInstructions = null;
         var model = new ComboBox { ItemsSource = service.ChatModels.Append(settings.EnhancerModel).Distinct().ToArray(),
@@ -474,11 +464,7 @@ public static partial class AiDialogs
         SetupInput(model);
         SetupInput(effort);
         effort.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((value, _) =>
-            new TextBlock { Text = Locale.T(value switch
-            {
-                null or "default" => "Default", "none" => "No reasoning", "minimal" => "Minimal reasoning", "low" => "Low reasoning",
-                "medium" => "Medium reasoning", "high" => "High reasoning", "xhigh" => "Extra high reasoning", _ => value
-            }) });
+            new TextBlock { Text = ReasoningLabel(value) });
         effort.SelectionBoxItemTemplate = effort.ItemTemplate;
         if (firstRun) Locale.Tip(textConnectionCheck.ActionButton, "Check connection");
         ShowProvider();
@@ -838,17 +824,14 @@ public static partial class AiDialogs
         var modelHeading = Heading("", 15);
         var modelList = Card(modelMaster, 6);
         modelList.VerticalAlignment = VerticalAlignment.Top;
-        var modelPage = Page("Model files", MasterDetail(modelList, Card(Ui.Column(14, modelHeading, models, modelUsage)), 260));
+        var modelDetails = Card(Ui.Column(14, modelHeading, models, modelUsage));
+        modelDetails.VerticalAlignment = VerticalAlignment.Top;
+        var modelPage = Page("Model files", MasterDetail(modelList, modelDetails, 260));
         var promptTable = Ui.Column(0);
         var operationTable = Ui.Column(1);
         AiTaskKind? expandedOperation = initialOperation;
         bool refreshQueued = false;
-        var checkAll = Ui.TextButton("Check all", () =>
-        {
-            comfyCheck.Start();
-            if (selectedProvider != "comfy") textConnectionCheck.Start();
-        });
-        var operationsPage = PageWithAction("Operations", checkAll,
+        var operationsPage = Page("Operations",
             Ui.Column(8, Heading("Prompt enhancer", 13), Card(promptTable, 0)),
             Ui.Column(8, Heading("Image operations", 13), Card(operationTable, 0)));
         var apiTextLight = new Border();
@@ -944,8 +927,7 @@ public static partial class AiDialogs
             RefreshCliModels();
             return modelsOnServer.Length == 0 ? "The server reported no models." : "Server responded. Models loaded.";
         }
-        var setupServer = new Expander { Header = Locale.T("ComfyUI server"), Content = firstRun ? serverPanel : null,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var setupServer = Disclosure("ComfyUI server", firstRun ? serverPanel : new Border(), out var setupServerToggle);
         var setupTextIndicator = new Border();
         Control setupPage = new ContentControl();
         if (firstRun)
@@ -970,7 +952,7 @@ public static partial class AiDialogs
         var body = new StudioSettingsPages(
             [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage, new ContentControl(), setupPage, new ContentControl(), cliConnectionPage],
             firstRun ? 9 : page == 10 ? 5 : page == 11 ? 11 : page == 8 ? 6 : Math.Clamp(page, 0, 7));
-        void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex is 0 or 1 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
+        void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex is 0 or 1 or 6 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
         void ScheduleTextCheck()
         {
             if (firstRun || body.SelectedIndex != 2) return;
@@ -1014,7 +996,7 @@ public static partial class AiDialogs
         if (!firstRun)
         {
             textCatalog.EnableMonitoring(() => body.SelectedIndex == 5 || body.SelectedIndex == 2 && selectedProvider == "direct");
-            imageConnection.EnableApiMonitoring(() => body.SelectedIndex == 5);
+            imageConnection.EnableApiMonitoring(() => body.SelectedIndex is 5 or 6);
             textCatalog.CheckChanged += RefreshApiLights;
             imageConnection.ApiCheckChanged += RefreshApiLights;
             comfyCheck.Changed += () =>
@@ -1052,15 +1034,15 @@ public static partial class AiDialogs
         }
         showComfyKey = () =>
         {
-            if (firstRun) setupServer.IsExpanded = true;
+            if (firstRun) setupServerToggle.IsChecked = true;
             else openRelated?.Invoke(0);
             credentials.IsExpanded = true;
             Avalonia.Threading.Dispatcher.UIThread.Post(() => { sessionKey.BringIntoView(); sessionKey.Focus(); });
         };
         var validation = Ui.Label("", Avalonia.Media.Brushes.Orange);
         validation.IsVisible = false; validation.MaxWidth = 520; validation.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var search = new TextBox { Name = "SettingsSearch", PlaceholderText = Locale.T("Search settings…"), MaxLength = 120,
-            MinHeight = 34, Margin = new Thickness(0, 12, 0, 9) };
+        var search = SetupInput(new TextBox { Name = "SettingsSearch", PlaceholderText = Locale.T("Search settings…"), MaxLength = 120,
+            Margin = new Thickness(0, 12, 0, 9) });
         var matches = new ListBox { Name = "SettingsMatches", IsVisible = false, MaxHeight = 165 };
         var anchors = new List<(string Title, string Keywords, int Page, Control Target, Expander? Section, Action? Select)>
         {
@@ -1130,7 +1112,11 @@ public static partial class AiDialogs
         }, RoutingStrategies.Tunnel);
         var scope = Caption("");
         var back = Ui.TextButton("‹ Back", () => { });
+        back.Content = Ui.Row(5, Chevron(Icons.ChevronLeft), Caption("Back"));
+        Avalonia.Automation.AutomationProperties.SetName(back, Locale.T("Back"));
         back.IsVisible = false;
+        back.HorizontalAlignment = HorizontalAlignment.Left;
+        back.Margin = new Thickness(34, 12, 0, -12);
         void Navigate(int index, bool preserveContext)
         {
             if (firstRun || index == body.SelectedIndex) return;
@@ -1173,7 +1159,7 @@ public static partial class AiDialogs
             {
                 ImageGenerationRoute.BuiltIn => ImageOperationModels.LocalSelection(settings),
                 ImageGenerationRoute.ComfyWorkflow => ImageOperationModels.ComfyDefault(service.Engines, task,
-                    EngineForOperation(task), CurrentFiles(), workflowDraft),
+                    EngineForOperation(task), CurrentFiles(), workflowDraft, ServerMatchesDraft() ? service.ServerCapabilities : null),
                 _ => imageConnection.DefaultModel(task)
             };
         }
@@ -1193,12 +1179,27 @@ public static partial class AiDialogs
         ImageModelChoice[] OperationChoices(AiTaskKind task, ImageModelChoice? current) => ImageOperationModels.Choices(service, task,
             EngineForOperation(task), CurrentFiles(), workflowDraft, settings, ComfyAddress() != null, ServerMatchesDraft(),
             HasCredits(), imageConnection.ModelOptions(task), current);
+        Border OperationConnection(ImageModelChoice? choice)
+        {
+            if (choice == null) return ConnectionLight("Choose a model", null);
+            if (choice.BuiltIn) return ConnectionLight("Built-in", true);
+            if (choice.Direct is { } direct)
+            {
+                if (direct.Route == ImageGenerationRoute.DirectApi && (!ImageOperationModels.IsUtility(direct.Task) || direct.UsesConfiguredUpscaler))
+                    return ConnectionLight(imageConnection.ApiCheckMessage, imageConnection.ApiConnected);
+                var problem = direct.Availability(direct.Task);
+                return ConnectionLight(problem ?? (direct.Route == ImageGenerationRoute.LocalCodex
+                    ? "CLI executable found." : "Connection has not been checked"),
+                    problem != null ? false : direct.Route == ImageGenerationRoute.LocalCodex ? true : null);
+            }
+            return ServerMatchesDraft() ? ConnectionLight("Connected to ComfyUI.", true) : comfyCheck.Light();
+        }
         void RenderOperations()
         {
             if (body.SelectedIndex != 6) return;
             promptTable.Children.Clear();
             operationTable.Children.Clear();
-            const string columns = "1.15*,1.7*,24";
+            const string columns = "1.15*,1.7*,19,13";
             promptTable.Children.Add(InsetRow(Columns(columns, Caption("Model"), Caption("Model and execution route")), Palette.SettingsSidebar));
             operationTable.Children.Add(InsetRow(Columns(columns, Caption("Operation"), Caption("Default model and execution route")), Palette.SettingsSidebar));
             var textMethod = selectedProvider switch
@@ -1207,7 +1208,10 @@ public static partial class AiDialogs
                 "comfy" => "Comfy credits", _ => "CLI on the ComfyUI server"
             };
             promptTable.Children.Add(OperationRow(Columns(columns, Heading("Language model", 12),
-                Caption(operationTextModel.Text + " · " + Locale.T(textMethod)), textConnectionCheck.Light()), () => openPrompt?.Invoke(null, null)));
+                Caption(operationTextModel.Text + " · " + Locale.T(textMethod)),
+                selectedProvider == "direct" ? ConnectionLight(textCatalog.CheckMessage, textCatalog.Connected) : textConnectionCheck.Light(),
+                Chevron(Icons.ChevronRight)),
+                () => openPrompt?.Invoke(null, null)));
             foreach (var task in DirectImageGenerator.Operations)
             {
                 var current = OperationDefault(task);
@@ -1215,7 +1219,7 @@ public static partial class AiDialogs
                 var name = current == null ? Locale.T("Choose a model") :
                     $"{Locale.T(current.Name)} · {Locale.T(current.ConnectionLabel)}";
                 operationTable.Children.Add(OperationRow(Columns(columns, Heading(task.DisplayName(), 12),
-                    Caption(name), Caption(expanded ? "⌄" : "›")), () =>
+                    Caption(name), OperationConnection(current), Chevron(expanded ? Icons.ChevronDown : Icons.ChevronRight)), () =>
                     {
                         expandedOperation = expanded ? null : task;
                         RenderOperations();
@@ -1235,6 +1239,7 @@ public static partial class AiDialogs
                         workflowDraft.AssignedEngines.TryAdd(task, previous.Id);
                     if (chosen.Route == ImageGenerationRoute.ComfyWorkflow)
                     {
+                        if (!chosen.AssignedWorkflow && chosen.FileSlot is { } slot) models.UseFile(slot, chosen.Identifier);
                         taskDrafts[task.ToString()] = chosen.Engine.Id;
                         changedAssignments.Add(task.ToString());
                         routeDrafts[chosen.ModelKey] = chosen.Engine.Id;
@@ -1252,8 +1257,10 @@ public static partial class AiDialogs
             Border OperationRow(Control content, Action open, bool expanded = false)
             {
                 var row = RowButton(content, open);
-                row.Padding = new Thickness(0, 8);
-                return InsetRow(row, expanded ? Palette.PanelRaised : null, vertical: 0);
+                row.Padding = new Thickness(15, 8);
+                row.CornerRadius = new CornerRadius(0);
+                return new Border { Child = row, Background = expanded ? Palette.PanelRaised : null,
+                    BorderBrush = Palette.SettingsLine, BorderThickness = new Thickness(0, 1, 0, 0) };
             }
         }
 
@@ -1261,28 +1268,47 @@ public static partial class AiDialogs
         {
             modelMaster.Children.Clear();
             modelUsage.Children.Clear();
-            if (selectedFileProfile == null)
+            var files = CurrentFiles();
+            var catalog = ServerMatchesDraft() ? service.ServerCapabilities : null;
+            var profiles = fileProfiles.SelectMany(pack =>
             {
-                selectedFileProfile = fileProfiles.FirstOrDefault(profile => profile.Engine.Id == defaultEngineId) ?? fileProfiles.FirstOrDefault();
-                if (selectedFileProfile is { } first) models.ShowFilesFor(first.Engine, first.Tool);
-            }
+                if (pack.Tool is not { } tool || catalog == null || pack.Engine.Id == "seedvr2-native") return [pack];
+                var variants = ImageOperationModels.InstalledUtilityModels(service.Engines, pack.Engine, tool, catalog)
+                    .Select(choice => new ModelFileProfile(pack.Engine, tool, choice.Name, choice)).ToArray();
+                return variants.Length > 0 ? variants : [pack];
+            }).ToArray();
+            var previous = selectedFileProfile;
+            var currentPack = previous ?? profiles.FirstOrDefault(profile => profile.Engine.Id == defaultEngineId) ?? profiles.FirstOrDefault();
+            selectedFileProfile = currentPack == null ? null : profiles.FirstOrDefault(profile => profile.Engine == currentPack.Engine &&
+                profile.Tool == currentPack.Tool && (profile.File is not { FileSlot: { } slot } file ||
+                    WorkflowModels.ResolveSlot(slot, files.GetValueOrDefault(slot.Key) ?? slot.Default,
+                        catalog!.ModelChoices[slot.LoaderKey]) == file.Identifier))
+                ?? profiles.FirstOrDefault(profile => profile.Engine == currentPack.Engine && profile.Tool == currentPack.Tool);
             var selected = selectedFileProfile;
+            if (previous == null && selected is { } first) models.ShowFilesFor(first.Engine, first.Tool);
             modelHeading.Text = selected?.Name ?? Locale.T("No configurable model files");
-            foreach (var pack in fileProfiles)
+            foreach (var pack in profiles)
             {
-                var button = RowButton(Heading(pack.Name, 12), () => SelectFileProfile(pack));
+                var button = RowButton(Heading(pack.Name, 12), () =>
+                {
+                    if (pack.File is { FileSlot: { } slot } file) models.UseFile(slot, file.Identifier);
+                    SelectFileProfile(pack);
+                });
+                if (pack.File is { } file) Locale.Tip(button, file.Identifier);
                 if (pack == selected) button.Background = Palette.SettingsSelection;
                 modelMaster.Children.Add(button);
             }
             if (selected == null) return;
-            var assigned = DirectImageGenerator.Operations.Where(task =>
+            var compatible = DirectImageGenerator.Operations.Where(task =>
+                (selected.Tool is { } tool ? task == tool : !ImageOperationModels.IsUtility(task)) &&
+                ImageOperationModels.Supports(selected.Engine, task)).ToArray();
+            var assigned = compatible.Where(task =>
                 imageConnection.RouteFor(task) == ImageGenerationRoute.ComfyWorkflow && EngineForOperation(task)?.Id == selected.Engine.Id &&
-                (selected.Tool is { } tool ? task == tool : task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection))).ToArray();
-            if (assigned.Length == 0) return;
-            modelUsage.Children.Add(Heading("Used in operations", 13));
-            var usage = Scroll(Ui.Column(3, assigned.Select(task => (Control)Caption(task.DisplayName())).ToArray()));
-            usage.MaxHeight = 125;
-            modelUsage.Children.Add(usage);
+                OperationDefault(task)?.AssignedWorkflow != true).ToHashSet();
+            if (compatible.Length == 0) return;
+            modelUsage.Children.Add(Heading("Compatible operations", 13));
+            modelUsage.Children.Add(Ui.Column(3, compatible.Select(task => (Control)Caption(Locale.T(task.DisplayName()) +
+                (assigned.Contains(task) ? " · " + Locale.T("Default model") : ""))).ToArray()));
         }
         void QueueRefresh()
         {
@@ -1298,22 +1324,26 @@ public static partial class AiDialogs
         }
         imageConnection.RouteChanged += QueueRefresh;
         textConnectionCheck.Changed += QueueRefresh;
+        textCatalog.CheckChanged += QueueRefresh;
+        imageConnection.ApiCheckChanged += QueueRefresh;
+        imageConnection.CliCheck.Changed += QueueRefresh;
+        cliCheck.Changed += QueueRefresh;
         comfyCheck.Changed += QueueRefresh;
         workflows.Changed += QueueRefresh;
         models.ChoicesChanged += QueueRefresh;
 
-        var navigation = Ui.Column(4, Heading("Settings", 21), search, matches, back);
+        var navigation = Ui.Column(4, Heading("Settings", 21), search, matches);
         navigation.Margin = new Thickness(12, 20, 12, 12);
         var destinations = new (int Page, Button Button)[]
         {
             (6, NavButton("Operations", Icons.Layers, 6)),
             (1, NavButton("Model files", Icons.Image, 1)),
             (0, NavButton("Connections", Icons.Link, 0)),
-            (3, NavButton("Editor", Icons.Gear, 3)),
-            (7, NavButton("Performance", Icons.Gear, 7))
+            (3, NavButton("Editor", Icons.Sliders, 3, Palette.Secondary)),
+            (7, NavButton("Performance", Icons.Cpu, 7, Palette.Secondary))
         };
-        Button NavButton(string title, Icons.Icon icon, int target) => RowButton(
-            Columns("18,*", Icons.Create(icon, 16), Caption(title)), () => Navigate(target, false));
+        Button NavButton(string title, Icons.Icon icon, int target, Avalonia.Media.IBrush? brush = null) => RowButton(
+            Columns("18,*", Icons.Create(icon, 16, brush), Caption(title)), () => Navigate(target, false));
         foreach (var (destination, item) in destinations)
         {
             if (destination == 3)
@@ -1335,12 +1365,16 @@ public static partial class AiDialogs
             DockPanel.SetDock(sidebar, Dock.Left);
             settingsBody.Children.Add(sidebar);
         }
-        settingsBody.Children.Add(body);
+        var pageHost = new DockPanel();
+        DockPanel.SetDock(back, Dock.Top);
+        pageHost.Children.Add(back);
+        pageHost.Children.Add(body);
+        settingsBody.Children.Add(pageHost);
         void ShowPage()
         {
-            back.IsVisible = history.Count > 0;
-            validation.IsVisible = false;
             var current = body.SelectedIndex;
+            back.IsVisible = history.Count > 0 && current is not (0 or 5 or 11);
+            validation.IsVisible = false;
             if (!firstRun && current == 5)
             {
                 directPromptHost.Child = null;
@@ -1382,8 +1416,9 @@ public static partial class AiDialogs
             if (current == 2) RefreshPromptProfiles(promptPack);
             if (!firstRun)
             {
-                if (current is 0 or 1 && !comfyCheck.Passed) ScheduleComfyCheck();
+                if (current is 0 or 1 or 6 && !ServerMatchesDraft()) ScheduleComfyCheck();
                 if (current == 2) ScheduleTextCheck();
+                if (current == 6 && imageConnection.ApiConnected != true) imageConnection.ScheduleApiCheck();
                 if (current == 5)
                 {
                     if (textCatalog.Connected != true) textCatalog.ScheduleCheck();
@@ -1620,7 +1655,6 @@ public static partial class AiDialogs
     {
         if (service?.ActiveWorkflow(task, service.SelectedEngine, useAssigned) is { } workflow)
             return BoundGenerationFields(profile, workflow, out read);
-        var align = new CheckBox { Content = Locale.T("Align pixels"), IsChecked = profile.AlignPixels ?? true };
         var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
         var reference = profile.ReferenceMegapixels;
         var fluxMemory = profile.FluxMemory is "reduced" or "standard" ? profile.FluxMemory : "auto";
@@ -1689,10 +1723,8 @@ public static partial class AiDialogs
         else if (task == AiTaskKind.ChangeBackground)
             note.Text = "Two passes create the scene and remove the temporary generated subject. Your original subject stays on a separate layer. Paid models bill both passes.";
         if(qwen) note.Text += " Qwen 2.1 Turbo uses its fixed 8-step schedule at full denoise, automatic KV cache and sequential variants. Technical padding to multiples of 32 is removed on insertion.";
-        if (task != AiTaskKind.GenerateImage) extra.Children.Add(align);
         read = () => profile with
         {
-            AlignPixels = align.IsChecked == true,
             Scene = scene.Normalized(),
             Megapixels = mp, OriginalSize = originalSize, ReferenceMegapixels = reference, FluxMemory = fluxMemory,
             Seed = seed, VariantMode = mode, ApiQuality = quality,
@@ -1765,7 +1797,6 @@ public static partial class AiDialogs
         var cost = Ui.Label("", Palette.Secondary);
         var sizeOptions = new[] { "Original size" }.Concat(AiDimensions.MegapixelOptions.Select(AiDimensions.Label)).ToArray();
         DialogWindow? dialog = null;
-        var alignment = AlignmentToggle(settings);
         var qualityHost = new StackPanel();
         var qualityOptions = new[] { "low", "medium", "high", "xhigh", "max" };
         var qualityCombo = new ComboBox { ItemsSource = qualityOptions, SelectedItem = qualityOptions.Contains(quality) ? quality : "low", Width = 150 };
@@ -1812,7 +1843,7 @@ public static partial class AiDialogs
         variantButtons.IsVisible = AiGenerationControls.SupportsVariants(task);
         AiOperationSettings CaptureProfile() => profile with
         {
-            Scene=scene.Normalized(), AlignPixels = alignment.IsChecked == true,
+            Scene=scene.Normalized(), AlignPixels = settings.AiAlignMaskedEdits,
             OriginalSize = originalSize, Megapixels = mp, ApiQuality = quality,
             ExpansionMode = task == AiTaskKind.GenerativeExpand ? expansionMode : profile.ExpansionMode,
             ExpansionMinimumSide = regionSide, WholeExpansionMinimumSide = wholeSide
@@ -1838,7 +1869,6 @@ public static partial class AiDialogs
             await Advanced(dialog!, settings, service, task, CaptureProfile(), updated =>
             {
                 LoadProfile(updated);
-                if (updated.AlignPixels is { } align) alignment.IsChecked = align;
             });
         };
         var grip = AiGenerationControls.DragHandle();
@@ -1854,7 +1884,6 @@ public static partial class AiDialogs
         }
         if (service != null && task != AiTaskKind.GenerativeExpand)
             controls.Children.Add(EnhanceButton(prompt, settings, service, task, () => service.SelectedEngine));
-        controls.Children.Add(alignment);
         if (directEngine != null) controls.Children.Add(Ui.Label(directEngine.DisplayName, Palette.Secondary));
         else controls.Children.Add(advanced);
         if (directEngine == null && service != null && service.Engines.Profiles.Where(pack => pack.Binding(task==AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task) != null).ToArray() is { Length: > 0 } packs)
@@ -1882,7 +1911,6 @@ public static partial class AiDialogs
             var paid = service?.SelectedEngine?.PaidApi == true && service.ActiveWorkflow(task, service.SelectedEngine) == null;
             qualityHost.IsVisible = paid && service?.SelectedEngine?.ApiModel != PartnerNodes.Seedream && !toneOnly;
             prompt.IsEnabled=!toneOnly;
-            alignment.IsVisible = !toneOnly && task != AiTaskKind.GenerateImage;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
             imageSize.IsVisible = !toneOnly && task != AiTaskKind.GenerativeExpand;
             more.IsVisible = imageSize.IsVisible || qualityHost.IsVisible;
@@ -1964,7 +1992,6 @@ public static partial class AiDialogs
         if (settings.RememberAiPrompts && prompt.IsVisible && prompt.IsEnabled && (accepted || finalPrompt != startingPrompt))
             settings.RememberAiPrompt(task, finalPrompt);
         if (!accepted) return null;
-        if (alignment.IsVisible) settings.AiAlignMaskedEdits = alignment.IsChecked == true;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         settings.Save();
         return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : finalPrompt, width, height, profile.Seed, chosenEngine?.Id, variants);

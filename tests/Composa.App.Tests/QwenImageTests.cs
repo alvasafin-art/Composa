@@ -173,6 +173,67 @@ public class QwenImageTests
         Assert.DoesNotContain("Lighting guidance", graph.ToJsonString());
     }
 
+    [Theory]
+    [InlineData(AiTaskKind.ChangeBackground)]
+    [InlineData(AiTaskKind.Harmonize)]
+    [InlineData(AiTaskKind.MatchToScene)]
+    [InlineData(AiTaskKind.Relight)]
+    public async Task Flux3_scene_operations_bind_source_and_VAE_baseline_before_applying_one_edit(AiTaskKind task)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var connection = new Connection { EngineId = Flux3Workflow.EngineId };
+        var service = Service(connection);
+        var engine = service.Engines.Find(Flux3Workflow.EngineId)!;
+        await service.TestConnectionAsync(token);
+        var readiness = service.OperationCompatibility(engine, task, new Dictionary<string, string>(), new());
+        Assert.True(readiness.IsCompatible, string.Join(", ", readiness.Missing));
+        var session = Scene();
+        var before = session.History.CurrentId;
+        var history = session.History.Count;
+        await service.RunAsync(new EditorCommandService(session), Request(task) with { EngineId = engine.Id }, token);
+        Assert.Equal(AiOperationStatus.Completed, service.Operation!.Status);
+        Assert.Equal(task == AiTaskKind.ChangeBackground ? 2 : 1, connection.Graphs.Count);
+        Assert.All(connection.Uploads, semantic => Assert.Equal("sourceImage", semantic));
+        Assert.All(connection.Graphs, graph =>
+        {
+            Assert.Equal("ReferenceMultiLatent", graph["references"]!["class_type"]!.GetValue<string>());
+            Assert.Equal("reference0", graph["encodeBaseline"]!["inputs"]!["pixels"]![0]!.GetValue<string>());
+            Assert.Equal("decodeBaseline", graph["baseline"]!["inputs"]!["images"]![0]!.GetValue<string>());
+            Assert.Equal(160, graph["latent"]!["inputs"]!["width"]!.GetValue<int>());
+            Assert.Equal(128, graph["latent"]!["inputs"]!["height"]!.GetValue<int>());
+        });
+        Assert.Equal(history + 1, session.History.Count);
+        session.Undo();
+        Assert.Equal(before, session.History.CurrentId);
+    }
+
+    public static bool LiveFlux3Scenes => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COMPOSA_FLUX3_SCENE_TEST_URL"));
+
+    [Fact(Skip = "Requires a ComfyUI server with FLUX 3 Image Klein.", SkipUnless = nameof(LiveFlux3Scenes))]
+    public async Task Flux3_scene_operations_complete_on_the_selected_server()
+    {
+        var url = Environment.GetEnvironmentVariable("COMPOSA_FLUX3_SCENE_TEST_URL")!;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        var service = new AiTaskService(() => url, Engines);
+        await service.TestConnectionAsync(deadline.Token);
+        var engine = service.Engines.Find(Flux3Workflow.EngineId)!;
+        foreach (var task in new[] { AiTaskKind.Harmonize, AiTaskKind.Relight, AiTaskKind.MatchToScene, AiTaskKind.ChangeBackground })
+        {
+            var check = service.OperationCompatibility(engine, task, new Dictionary<string, string>(), new());
+            Assert.True(check.IsCompatible, string.Join(", ", check.Missing));
+            var session = Scene();
+            var before = session.History.CurrentId;
+            var request = Request(task) with { EngineId = engine.Id,
+                Scene = new SceneEditSettings { MatchMode = SceneMatchMode.LightAndShadows },
+                Prompt = task == AiTaskKind.ChangeBackground ? "A light wooden table in a bright workshop." : "Soft lighting from the left." };
+            await service.RunAsync(new EditorCommandService(session), request, deadline.Token);
+            Assert.Equal(AiOperationStatus.Completed, service.Operation!.Status);
+            session.Undo();
+            Assert.Equal(before, session.History.CurrentId);
+        }
+    }
+
     [Fact]
     public async Task References_keep_UI_order_model_overrides_apply_and_saved_batch_becomes_sequential()
     {
@@ -444,6 +505,15 @@ public class QwenImageTests
             ClickText("Model files");
             Assert.Equal(1, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-08-models-ru"));
+            ClickText("FLUX 3 Image Klein");
+            var sceneRows = new[] { AiTaskKind.ChangeBackground, AiTaskKind.Harmonize, AiTaskKind.MatchToScene, AiTaskKind.Relight };
+            foreach (var task in sceneRows)
+            {
+                var operation = Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),
+                    label => label.Text == Locale.T(task.DisplayName()));
+                Assert.Single(operation.GetVisualAncestors().OfType<ScrollViewer>());
+            }
+            Assert.True(Screenshots.Save(dialog, "studio-settings-flux3-operations-ru"));
             ClickText("Connections");
             Assert.Equal(0, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-06-connections-ru"));
@@ -458,7 +528,7 @@ public class QwenImageTests
             var instructionEditors = dialog.GetVisualDescendants().OfType<TextBox>()
                 .Where(box => box.Name is "EnhancerInstructions" or "EnhancerEditInstructions").ToArray();
             Assert.Equal(2, instructionEditors.Length);
-            Assert.All(instructionEditors, box => Assert.Equal(260, box.Bounds.Height, precision: 2));
+            Assert.All(instructionEditors, box => Assert.Equal(360, box.Bounds.Height, precision: 2));
             Assert.Equal(instructionEditors[0].TranslatePoint(default, dialog)!.Value.Y,
                 instructionEditors[1].TranslatePoint(default, dialog)!.Value.Y, precision: 2);
             Click("Refresh models");
@@ -478,7 +548,7 @@ public class QwenImageTests
             Click("Refresh models");
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("The ComfyUI server is unavailable."));
             Assert.Empty(connection.Graphs);
-            Click("‹ Back");
+            ClickText("Back");
             Assert.Equal(6, pages.SelectedIndex);
             pages.SelectedIndex = 7;
             Assert.True(Screenshots.Save(dialog, "studio-settings-07-performance-ru"));
@@ -490,6 +560,11 @@ public class QwenImageTests
             Assert.All(((StudioSettingsWindow)dialog).FooterButtons.Children.OfType<Button>(), button =>
                 Assert.True(button.TranslatePoint(new(button.Bounds.Width, button.Bounds.Height), dialog) is { } end &&
                     end.X <= dialog.Bounds.Width && end.Y <= dialog.Bounds.Height));
+            var save = ((StudioSettingsWindow)dialog).FooterButtons.Children.OfType<Button>().Last();
+            var saveLabel = Assert.Single(save.GetVisualDescendants().OfType<TextBlock>());
+            var labelCenter = saveLabel.TranslatePoint(new(saveLabel.Bounds.Width / 2, saveLabel.Bounds.Height / 2), save)!.Value;
+            Assert.InRange(labelCenter.X, save.Bounds.Width / 2 - 1, save.Bounds.Width / 2 + 1);
+            Assert.InRange(labelCenter.Y, save.Bounds.Height / 2 - 1, save.Bounds.Height / 2 + 1);
             dialog.Close(false);
             Assert.False(await pending);
             Assert.Equal("http://localhost:8188", settings.ComfyServerUrl);
@@ -610,11 +685,12 @@ public class QwenImageTests
         internal List<JsonObject> Graphs { get; } = [];
         internal bool MissingAlignment, MissingHelper, Offline; internal int FailAt;
         internal Action? OnExecute;
+        internal string EngineId { get; init; } = QwenImageWorkflow.EngineId;
         private SKBitmap? source;
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken token = default)
         {
             if (Offline) throw new HttpRequestException("connection refused");
-            var catalog = new EngineCatalog(Engines); var engine = catalog.Find(QwenImageWorkflow.EngineId)!;
+            var catalog = new EngineCatalog(Engines); var engine = catalog.Find(EngineId)!;
             var nodes = engine.RequiredNodeTypes.ToHashSet(); if (MissingAlignment) nodes.Remove("PixelDriftFix");
             nodes.UnionWith(["AVSPromptHelper", "OpenAIChatNode", "OpenAIChatConfig", "PreviewAny"]);
             if (MissingHelper) nodes.Remove("AVSPromptHelper");

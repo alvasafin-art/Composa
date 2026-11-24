@@ -4,7 +4,13 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
-- Choose a ComfyUI, local CLI, or direct API executor per image operation. Configure prompt enhancement independently. Existing profiles keep their saved connections and workflow assignments. New direct connection fields start empty.
+## [1.3.0-preview.4.studio.17.9] - 2026-11-24
+
+- Use Operations to choose a default model and connection for each image operation. The editor groups compatible models by connection and lets you try another model for the current session. Existing connection and workflow assignments carry over.
+- Use Model files to bind supported ComfyUI workflows to the files installed on the selected server. Both built-in and saved workflows use the chosen weights. SeedVR2 has one profile with a choice of compatible weights, including 3B and 7B.
+- Configure the prompt enhancer independently. Connections reads available models and reasoning levels from Codex CLI. Image operations can use their own Codex language model and reasoning level to run GPT Image 2.
+- Choose installed upscaling and background removal weights from the ComfyUI catalog. Mark an image API model as an upscaler to use it in Upscale. The editor shows API prices in the provider's currency when available.
+- Use FLUX 3 Image Klein to replace backgrounds, harmonize, match the scene, and relight.
 - Prepare a shared image and mask frame for masked Generative Expand. Remove technical padding before insertion and preserve the original pixels outside the blend margin.
 - Keep adjacent tools clickable while their tooltips are open. Give the bottom tool strip its own scrollbar row and cover canvas position and zoom during menu hover with regression tests.
 - Open Harmonize, Change Background, and Match to Scene in the shared generation panel. Keep individual AI prompt drafts for the current session. Remember the welcome dialog across updates.

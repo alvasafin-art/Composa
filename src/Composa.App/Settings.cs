@@ -147,9 +147,14 @@ public sealed class Settings
     public string ImageGenerationApiUrl { get; set; } = "";
     public string ImageGenerationApiModel { get; set; } = "";
     public string ImageApiDisplayName { get; set; } = "";
+    public string ImageCodexDisplayName { get; set; } = "";
+    public string ImageCodexLanguageModel { get; set; } = "";
+    public string ImageCodexReasoningEffort { get; set; } = "default";
     public Dictionary<Composa.AI.AiTaskKind, string> ImageOperationApiModels { get; set; } = [];
     public Dictionary<string, Dictionary<string, string>> ImageApiCatalogs { get; set; } = [];
     public Dictionary<string, HashSet<string>> ImageApiGenerationOnly { get; set; } = [];
+    public Dictionary<string, HashSet<string>> ImageApiUpscalers { get; set; } = [];
+    public Dictionary<string, Dictionary<string, AI.ImageApiRate>> ImageApiRates { get; set; } = [];
     public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
     public Dictionary<string, List<string>> EnhancerCliModels { get; set; } = [];
     public string EnhancerServerApiUrl { get; set; } = "";
@@ -298,6 +303,8 @@ public sealed class Settings
         value.ImageOperationApiModels ??= [];
         value.ImageApiCatalogs ??= [];
         value.ImageApiGenerationOnly ??= [];
+        value.ImageApiUpscalers ??= [];
+        value.ImageApiRates ??= [];
         value.EnhancerApiCatalogs ??= [];
         value.EnhancerCliModels ??= [];
         value.EraserPresets ??= [];

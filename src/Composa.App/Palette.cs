@@ -112,6 +112,14 @@ public static class Palette
         pulse.Children.Add(new Avalonia.Animation.KeyFrame { Cue = new Avalonia.Animation.Cue(1), Setters = { new Setter(Visual.OpacityProperty, .42d) } });
         busy.Animations.Add(pulse);
         styles.Add(busy);
+        styles.Add(new Style(x => x.OfType<ComboBox>().Class("model-field").Template().OfType<PathIcon>().Name("DropDownGlyph"))
+        {
+            Setters =
+            {
+                new Setter(Layoutable.WidthProperty, 11d), new Setter(Layoutable.HeightProperty, 11d),
+                new Setter(PathIcon.DataProperty, Geometry.Parse("M0 2 Q0 1 1 1 L5.5 5.4 L10 1 Q11 1 11 2 L6 7 Q5.5 7.5 5 7 Z"))
+            }
+        });
         // The options bar under the tabs: every control takes the slider fields' height, so combos, number boxes, buttons and fields
         // share one centre line instead of each keeping the height its theme gives it.
         var optionsHeight = Controls.SliderField.DefaultHeight;
