@@ -73,7 +73,7 @@ public class AlphaMattingTests
     [Theory]
     [InlineData(ColorDepth.Eight)]
     [InlineData(ColorDepth.Sixteen)]
-    public void Object_extraction_recovers_light_strands_in_copy_and_editable_mask(ColorDepth depth)
+    public void Object_extraction_recovers_light_strands_in_copy_and_explicit_cutout(ColorDepth depth)
     {
         var session = EditorSession.NewCanvas(140, 90, SKColors.White, depth);
         var photo = Pixels.NewWorkingColor(60, 40, depth, RgbProfile.Srgb);
@@ -101,11 +101,14 @@ public class AlphaMattingTests
             Assert.InRange(Math.Abs(composite.B - (hair.B * .4f + bg * .6f)), 0, .015f);
         }
         var before = session.History.CurrentId;
-        session.AddMask(layer);
-        Assert.True(layer.MaskEnabled);
-        Assert.Equal(102, layer.Mask!.GetPixel(31, 20).Alpha);
-        Assert.InRange(Math.Abs(new PixelBuffer(layer.Pixels!).Read(31, 20).R - hair.R), 0, .02f);
-        Assert.Contains(session.Document.Layers, l => !l.Visible && l.Pixels == original);
+        using var source = MaskRefinement.Source(session.Document);
+        var colors = MaskRefinement.DecontaminateColors(source, mask, 1);
+        var cutout = session.AddRefinedCutout(colors, Pixels.Clone(mask), layer.Id);
+        Assert.True(cutout.MaskEnabled);
+        Assert.Equal(102, cutout.Mask!.GetPixel(76, 45).Alpha);
+        Assert.InRange(Math.Abs(new PixelBuffer(cutout.Pixels!).Read(76, 45).R - hair.R), 0, .02f);
+        Assert.False(layer.Visible);
+        Assert.Same(original, layer.Pixels);
         Assert.Equal(bytes, original.Bytes);
         session.Undo(); Assert.Equal(before, session.History.CurrentId);
         Assert.Same(original, session.ActiveLayer!.Pixels); Assert.Null(session.ActiveLayer.Mask);
