@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.10" date="2026-11-24" type="development">
+      <description><p>Editable text on paths, improved PSD import, more responsive multilayer editing, and integrated brush tip presets.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.9" date="2026-11-24" type="development">
       <description><p>Per-operation AI model choices, installed ComfyUI model files, separate Codex options for GPT Image, and FLUX 3 scene editing.</p></description>
     </release>

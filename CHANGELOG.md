@@ -4,6 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.10] - 2026-11-24
+
+- Import Photoshop text on a path as editable text. Create new text from a shape or curve with Text on a Path. CMPS stores the curve and text for further editing. PSD export rasterizes text on a path and reports the conversion.
+- Preserve clipping masks based on groups, supported gradient overlays, and mixed text styles with explicit line spacing in PSD imports. Opening the merged appearance distinguishes image transparency from stored alpha channels.
+- Preserve Photoshop text placement, vector paths, dashed strokes and angular stroke gradients. Improve the Photoshop handoff when sending images and layers to an existing session.
+- Clear the selection after applying it as a layer mask. One Undo restores the prior mask and selection. Snap the edges of scaled layers to the canvas or layout, and edit the brush or eraser tip inside its preset menu.
+- Make repeated visibility changes and tool switches more responsive on multilayer documents. Speed up Move layer picking, defer thumbnail refresh while painting, and redraw dense selection outlines without simplifying their contours.
+- Preserve source colors under generated masks, improve masked image-edit alignment and Harmonize shadows, and keep Generative Fill available from the selection controls.
+
 ## [1.3.0-preview.4.studio.17.9] - 2026-11-24
 
 - Use Operations to choose a default model and connection for each image operation. The editor groups compatible models by connection and lets you try another model for the current session. Existing connection and workflow assignments carry over.
