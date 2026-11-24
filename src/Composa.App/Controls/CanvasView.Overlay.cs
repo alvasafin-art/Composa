@@ -197,19 +197,33 @@ public sealed partial class CanvasView
 
     private sealed class BrushCursorOverlay(CanvasView view) : Avalonia.Controls.Control
     {
+        private static readonly Avalonia.Media.Immutable.ImmutableDashStyle EdgeDash = new([2, 3], 0);
+        private double penWidth;
+        private Avalonia.Media.IPen dark = null!, light = null!, cross = null!, dashedDark = null!, dashedLight = null!;
+
         public override void Render(Avalonia.Media.DrawingContext context)
         {
             if (view.session is not { } session || !view.IsBrushTool || !view.cursorInside) return;
             var hair = 1 / view.Scaling;
-            var dark = new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, hair);
-            var light = new Avalonia.Media.Pen(Avalonia.Media.Brushes.White, hair);
+            if (hair != penWidth)
+            {
+                penWidth = hair;
+                dark = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, hair);
+                light = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.White, hair);
+                cross = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, 3 * hair);
+                dashedDark = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, hair, EdgeDash);
+                dashedLight = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.White, hair, EdgeDash);
+            }
             void Cross(Avalonia.Point p)
             {
-                foreach (var pen in new[] { new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, 3 * hair), light })
-                {
-                    context.DrawLine(pen, p.WithX(p.X - 7), p.WithX(p.X + 7));
-                    context.DrawLine(pen, p.WithY(p.Y - 7), p.WithY(p.Y + 7));
-                }
+                var left = p.WithX(p.X - 7);
+                var right = p.WithX(p.X + 7);
+                var top = p.WithY(p.Y - 7);
+                var bottom = p.WithY(p.Y + 7);
+                context.DrawLine(cross, left, right);
+                context.DrawLine(cross, top, bottom);
+                context.DrawLine(light, left, right);
+                context.DrawLine(light, top, bottom);
             }
             if (session.Tool is Tool.CloneStamp or Tool.HealingBrush && session.CloneSamplePoint(view.currentDocument) is { } sample)
                 Cross(view.ToScreen(sample));
@@ -223,9 +237,8 @@ public sealed partial class CanvasView
             {
                 if (!selection && edge - radius > hair)
                 {
-                    var dash = new Avalonia.Media.DashStyle(new double[] { 2, 3 }, 0);
-                    context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, hair, dash), center, edge + hair, edge * roundness + hair);
-                    context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.White, hair, dash), center, edge, edge * roundness);
+                    context.DrawEllipse(null, dashedDark, center, edge + hair, edge * roundness + hair);
+                    context.DrawEllipse(null, dashedLight, center, edge, edge * roundness);
                 }
                 if (radius < 3) return;
                 context.DrawEllipse(null, dark, center, radius + hair, radius * roundness + hair);

@@ -14,6 +14,31 @@ namespace Composa.App.Tests;
 public class SettingsTests
 {
     [Fact]
+    public async Task Queued_tool_preferences_cannot_overwrite_a_later_synchronous_save()
+    {
+        var directory = Directory.CreateTempSubdirectory("composa-preferences-");
+        var path = Path.Combine(directory.FullName, "settings.json");
+        try
+        {
+            var settings = new Settings { ToolPalette = new() { Active = Tool.Brush } };
+            var brush = settings.SaveInBackgroundTo(path);
+            settings.ToolPalette = new() { Active = Tool.Eraser };
+            var eraser = settings.SaveInBackgroundTo(path);
+            settings.ToolPalette = new() { Active = Tool.Marquee };
+            Assert.True(settings.SaveTo(path));
+            await Task.WhenAll(brush, eraser);
+            Assert.Equal(Tool.Marquee, Settings.FromJson(File.ReadAllText(path)).ToolPalette!.Active);
+
+            settings.ToolPalette = new() { Active = Tool.Brush };
+            var saved = settings.SaveInBackgroundTo(path);
+            settings.ToolPalette = new() { Active = Tool.Move };
+            await saved;
+            Assert.Equal(Tool.Brush, Settings.FromJson(File.ReadAllText(path)).ToolPalette!.Active);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void View_options_and_move_tool_toggles_survive_the_settings_file()
     {
         var settings = new Settings
