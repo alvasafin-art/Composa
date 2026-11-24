@@ -8,10 +8,10 @@ On Windows, EfficientSAM and ViTMatte use the GPU through DirectML by default. I
 
 ## Moving a subject to another background
 
-After automatic object selection, **Layer via Copy** (Ctrl+J), **Copy** and **Copy Merged** recover foreground colour where the photograph mixed the subject with the old backdrop. The new cutout carries the recovered RGB and the selection alpha. Already translucent input pixels keep their existing colour.
+After **Automatic · Local** object selection, **Layer via Copy** (Ctrl+J), **Copy** and **Copy Merged** recover foreground colour where the photograph mixed the subject with the old backdrop. The new cutout carries the recovered RGB and the selection alpha. Already translucent input pixels keep their existing colour.
 
-Adding a mask to an ordinary raster layer from an automatic object selection keeps the mask editable. When RGB correction changes pixels and fits the document budget, a hidden copy of the original raster is kept below the layer. Disabling the mask reveals the corrected raster. The hidden original contains the unmodified photograph. Live layers use their regular mask. **Select and Mask** opens with colour recovery and new-layer output for an automatic object selection. Lower **Decontaminate** to adjust the effect. Manual feathered selections keep their sampled colours during ordinary copy operations.
+**Add Layer Mask** uses the selection as coverage and preserves the layer's original RGB, alpha and profile. To remove colour from the original backdrop in a separate cutout, open **Select and Mask** and raise **Decontaminate**. This selects **New layer with mask** and preserves the original pixels on their own layer. Use **Keep edge** to retain the current selection coverage when cleaning the colours.
 
-BiRefNet variants appear when the connected ComfyUI server offers them. A server selection uses the configured server and keeps its model's coverage. Foreground colour recovery for the cutout runs in Composa.
+BiRefNet variants appear when the connected ComfyUI server offers them. A click selects the entire server matte. A box sends the boxed area and places the returned coverage back into that area. This path preserves the server's soft coverage. It also supports explicit colour recovery in **Select and Mask**.
 
 For examples, settings and a reproducible comparison of clicks and boxes, see the [Studio 16.7 object selection study (Russian)](https://github.com/alvasafin-art/Composa/blob/v1.3.0-preview.4.studio.16.7/docs/object-selection-study.md).

@@ -15,7 +15,7 @@ public sealed partial class MainWindow
         var active = snapshot.ActiveLayer is { Pixels: not null } layer ? layer : null;
         using var source = MaskRefinement.Source(snapshot);
         await using var dialog = new SelectMaskDialog(source, original, DisplayProfile, active != null,
-            active == null ? null : () => DocumentRenderer.Flatten(snapshot), cleanForeground: target.HasForegroundSelection);
+            active == null ? null : () => DocumentRenderer.Flatten(snapshot));
         if (!await dialog.Ask(this) || dialog.ResultMask is not { } result) return;
         if (!sessions.Contains(target) || target.Revision != revision || target.Document.ActiveLayerId != snapshot.ActiveLayerId)
         { ShowProblem("The document or active layer changed while refining; the result was not applied."); return; }

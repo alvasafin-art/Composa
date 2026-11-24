@@ -283,6 +283,7 @@ public class AiVariantsTests
         public bool UseGenerationDimensions { get; init; }
         public Action? DuringExecute { get; init; }
         public PromptCapture? Transport { get; init; }
+        public Func<SKBitmap>? DownloadImage { get; init; }
         public Dictionary<string, HashSet<string>> ModelChoices { get; init; } = [];
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
@@ -313,6 +314,7 @@ public class AiVariantsTests
         }
         public Task<SKBitmap> DownloadAsync(ComfyImageReference image, CancellationToken cancellationToken = default)
         {
+            if (DownloadImage != null) return Task.FromResult(DownloadImage());
             var resize = Graphs[^1]["composa_upscale_size"]?["inputs"];
             var masked = Graphs[^1]["composa_edit_empty_mask"]?["inputs"];
             var generated = UseGenerationDimensions ? Graphs[^1]["latent"]?["inputs"] : null;
