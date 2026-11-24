@@ -38,11 +38,11 @@ public class EditorThemeTests
                 Assert.Equal("Русский", language.Items[1]);
                 language.SelectedIndex = 1;
                 Assert.Equal("ru",Locale.Language);
-                Assert.Equal("Настройки", dialog.Title);
+                Assert.Equal("Composa — Настройки", dialog.Title);
                 Assert.Contains(window.GetVisualDescendants().OfType<MenuItem>(),m=>Equals(m.Header,"_Файл"));
                 Assert.Equal("Ошибка предпросмотра: Настройки сохранены.", Locale.Message("Preview failed: Settings saved."));
                 language.SelectedIndex = 0;
-                Assert.Equal("Settings", dialog.Title);
+                Assert.Equal("Composa — Settings", dialog.Title);
                 Assert.Contains(window.GetVisualDescendants().OfType<MenuItem>(), m => Equals(m.Header, "_File"));
                 language.SelectedIndex = 1;
                 picker.SelectedIndex = (int)theme;

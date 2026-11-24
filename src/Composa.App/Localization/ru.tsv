@@ -2123,3 +2123,5 @@ The image API has not provided a price.	API изображений не пере
 Add the image API key in Connections.	Добавьте ключ API изображений в разделе «Подключения».
 Connect Codex CLI to load models.	Подключите Codex CLI, чтобы загрузить модели.
 The selected model does not support this scene operation.	Выбранная модель не поддерживает эту операцию со сценой.
+Composa — Settings	Composa — Настройки
+Composa — Initial setup	Composa — Первичная настройка

@@ -255,7 +255,7 @@ internal sealed class StudioSettingsWindow : DialogWindow
         SizeToContent = SizeToContent.Manual;
         CanResize = true;
         Icon = owner.Icon;
-        Title = AppInfo.Name + " — " + Title;
+        Title = Locale.T(AppInfo.Name + (firstRun ? " — Initial setup" : " — Settings"));
         Background = Palette.Window;
         if (OperatingSystem.IsWindows()) FontFamily = new FontFamily("Segoe UI Variable, Segoe UI");
         Buttons.Margin = new Thickness(0);
