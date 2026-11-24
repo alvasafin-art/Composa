@@ -130,12 +130,14 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                 var source=baseline.GetPixel(x,y); var background=input.Background.GetPixel(x,y);
                 if(source.Alpha<250 || background.Alpha<250) continue;
                 var l=Luma(background); if(l<.01) continue;
-                var model=generated.GetPixel(x,y); var foreground=input.ModelForeground.GetPixel(x,y); var a=input.ObjectAlpha.GetPixel(x,y).Alpha/255d;
-                // Foreground-dominated alpha makes background unmixing ill-conditioned. Extend neighboring
-                // measured ground through that fringe below, rather than amplify codec errors.
-                if(a>.5)continue;
+                var model=generated.GetPixel(x,y); var a=input.ObjectAlpha.GetPixel(x,y).Alpha/255d;
+                // The model can recolor a dark subject more than the detail-preserving lighting
+                // gains can represent. Measuring that mixed fringe transfers the subject's color
+                // to the shadow. For Harmonize extend nearby measured ground through it instead.
+                if(harmonize ? a>0 || model.Alpha<250 : a>.5)continue;
                 measured.SetPixel(x,y,SKColors.White);
-                var gains=lighting?.At(x,y)??(1d,1d,1d);
+                var foreground=a>0?input.ModelForeground.GetPixel(x,y):default;
+                var gains=a>0?lighting?.At(x,y)??(1d,1d,1d):(1d,1d,1d);
                 byte Background(byte observed,byte rebuilt,byte backdrop,byte original,double gain,int channel)
                 {
                     // Recover the ground change from an encoded-RGB composite; PNG alpha applies exactly once later.
@@ -203,6 +205,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
             }
             for(var p=0;p<coverage.Length;p++)if(candidates[p]!=2)coverage[p]=0;
         }
+        if(harmonize) ExtendShadowFringe(input,measured,colors,coverage,modelToDocument,token);
         // Component significance and contact are evaluated after smoothing, against the actual opaque support.
         var result=Pixels.NewColor(w,h);
         Pixels.Invalidate(measured);
@@ -231,6 +234,53 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
         }
         Pixels.Invalidate(result); return result;
     }
+    private static void ExtendShadowFringe(SceneEditInput input, SKBitmap measured, SKColor[] colors, byte[] coverage,
+        double modelToDocument, CancellationToken token)
+    {
+        var width = measured.Width;
+        var height = measured.Height;
+        var reach = Math.Clamp((int)Math.Ceiling(4 * modelToDocument), 4, 24);
+        var offsets = new (int X, int Y)[] { (0, 1), (-1, 0), (1, 0), (0, -1) };
+        var frontier = new Queue<(int X, int Y, byte Distance)>();
+
+        // Seed only from accepted ground. Extend the full encoded color and coverage before the
+        // blur so faint premultiplied samples don't quantize the hue during edge normalization.
+        for (var y = 0; y < height; y++)
+        {
+            token.ThrowIfCancellationRequested();
+            for (var x = 0; x < width; x++)
+                if (coverage[y * width + x] > 0)
+                    ExtendNeighbors(x, y, 1);
+        }
+        while (frontier.TryDequeue(out var pixel))
+        {
+            token.ThrowIfCancellationRequested();
+            if (pixel.Distance < reach)
+                ExtendNeighbors(pixel.X, pixel.Y, (byte)(pixel.Distance + 1));
+        }
+
+        void ExtendNeighbors(int x, int y, byte distance)
+        {
+            if (distance == 1 && input.ObjectAlpha.GetPixel(x, y).Alpha != 0) return;
+            foreach (var (dx, dy) in offsets)
+            {
+                var nx = x + dx;
+                var ny = y + dy;
+                if ((uint)nx >= (uint)width || (uint)ny >= (uint)height ||
+                    measured.GetPixel(nx, ny).Alpha > 0 ||
+                    input.ObjectAlpha.GetPixel(nx, ny).Alpha == 0 ||
+                    input.ShadowMask.GetPixel(nx, ny).Alpha == 0) continue;
+
+                var source = y * width + x;
+                var destination = ny * width + nx;
+                colors[destination] = colors[source];
+                coverage[destination] = coverage[source];
+                measured.SetPixel(nx, ny, SKColors.White);
+                frontier.Enqueue((nx, ny, distance));
+            }
+        }
+    }
+
     private static double Linear(byte value)
     {var v=value/255d;return v<=.04045 ? v/12.92 : Math.Pow((v+.055)/1.055,2.4);}
     private static double LinearFloat(double value)=>value<=.04045?value/12.92:Math.Pow((value+.055)/1.055,2.4);

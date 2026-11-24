@@ -1,4 +1,5 @@
 using Composa.AI;
+using Composa.ColorManagement;
 using Composa.Editing;
 using Composa.Rendering;
 using SkiaSharp;
@@ -234,6 +235,110 @@ public class HarmonizeShadowTests
         using var textured=SceneEditInput.Prepare(session.Document.Clone(),request);
         Assert.False(textured.LightHint.SoftContactOnly);Assert.False(textured.LightHint.Directional);
     }
+
+    [Theory]
+    // source value, model subject RGB, model ground RGB, preserve source detail
+    [InlineData(85, 64, 64, 64, 120, 120, 120, true)]
+    [InlineData(18, 5, 5, 5, 120, 120, 120, true)]
+    [InlineData(18, 5, 5, 155, 120, 120, 120, true)]
+    [InlineData(18, 5, 5, 155, 120, 120, 120, false)]
+    [InlineData(18, 5, 5, 155, 105, 118, 145, true)]
+    public void Cast_color_comes_from_ground_rather_than_the_lit_subject_fringe(
+        byte sourceValue, byte red, byte green, byte blue, byte groundRed, byte groundGreen, byte groundBlue, bool preserveDetails)
+    {
+        var session = Scene();
+        var source = Pixels.Clone(session.ActiveLayer!.Pixels!);
+        for (var y = 10; y < 100; y++)
+            for (var x = 10; x < 90; x++)
+                source.SetPixel(x, y, new(sourceValue, sourceValue, sourceValue, x switch { 10 => 48, 11 => 112, _ => 255 }));
+        Pixels.Invalidate(source);
+        session.ActiveLayer.Pixels = source;
+
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize, Scene = new() { PreserveDetails = preserveDetails } };
+        using var input = SceneEditInput.Prepare(session.Document.Clone(), request);
+        using var generated = Pixels.Clone(input.Before);
+        var left = input.SubjectBounds.Left;
+        var foot = input.SupportBounds.Bottom;
+        var expectedGround = new SKColor(groundRed, groundGreen, groundBlue);
+        for (var y = input.SubjectBounds.Top; y < foot + 24; y++)
+            for (var x = left - 8; x < left + 80; x++)
+            {
+                var alpha = input.ObjectAlpha.GetPixel(x, y).Alpha / 255d;
+                var ground = y >= foot - 12 ? expectedGround : new SKColor(200, 200, 200);
+                byte Composite(byte subject, byte background) => (byte)Math.Round(subject * alpha + background * (1 - alpha));
+                generated.SetPixel(x, y, new(Composite(red, ground.Red), Composite(green, ground.Green), Composite(blue, ground.Blue)));
+            }
+        Pixels.Invalidate(generated);
+
+        var result = SceneEditResult.Extract(input, generated, request, reconstruction: input.Before);
+        var half = SceneEditResult.Extract(input, generated, request with { Scene = request.Scene with { Strength = .5 } }, reconstruction: input.Before);
+        try
+        {
+            var name = $"color-fringe-{sourceValue}-{red}-{green}-{blue}-{groundRed}-{groundGreen}-{groundBlue}-{preserveDetails}";
+            Evidence(name, input, generated, result);
+            using var ground = CompositeShadow(result);
+            using var halfGround = CompositeShadow(half);
+            var center = ground.GetPixel(left + 25, foot + 10);
+            var fringe = ground.GetPixel(left + 1, foot - 5);
+            var outside = ground.GetPixel(left - 14, foot + 10);
+            Near(expectedGround, center, 3);
+            Near(expectedGround, fringe, 5);
+            Near(new(200, 200, 200), outside, 1);
+            Near(new((byte)((200 + groundRed) / 2), (byte)((200 + groundGreen) / 2), (byte)((200 + groundBlue) / 2)),
+                halfGround.GetPixel(left + 1, foot - 5), 5);
+            var subject = Assert.Single(result.Layers, layer => layer.Tags!.Contains("scene-object")).Pixels;
+            using var subjectAlpha = SceneEditInput.Alpha(subject);
+            Assert.Equal(input.ObjectAlpha.Bytes, subjectAlpha.Bytes);
+        }
+        finally { Dispose(result); Dispose(half); }
+
+        SKBitmap CompositeShadow(SceneEditResult extracted)
+        {
+            var shadow = Assert.Single(extracted.Layers, layer => layer.Tags!.Contains("scene-shadow")).Pixels;
+            var ground = Pixels.Clone(input.Background);
+            using (var canvas = new SKCanvas(ground)) canvas.DrawImage(Pixels.ImageOf(shadow), 0, 0);
+            return ground;
+        }
+
+        static void Near(SKColor expected, SKColor actual, int tolerance)
+        {
+            Assert.True(Math.Abs(expected.Red - actual.Red) <= tolerance &&
+                Math.Abs(expected.Green - actual.Green) <= tolerance &&
+                Math.Abs(expected.Blue - actual.Blue) <= tolerance, $"Expected {expected}, observed {actual}");
+        }
+    }
+
+
+    [Fact]
+    public void Tinted_ground_shading_survives_insertion_in_a_display_p3_document()
+    {
+        var session = Scene();
+        session.AssignColorProfile(RgbProfile.DisplayP3);
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize };
+        using var input = SceneEditInput.Prepare(session.Document.Clone(), request);
+        using var generated = Pixels.Clone(input.Before);
+        var foot = input.SupportBounds.Bottom;
+        var desired = new SKColor(95, 110, 135);
+        for (var y = foot; y < foot + 20; y++)
+            for (var x = 100; x < 140; x++)
+                generated.SetPixel(x, y, desired);
+        Pixels.Invalidate(generated);
+
+        var result = SceneEditResult.Extract(input, generated, request);
+        var shadow = Assert.Single(result.Layers, layer => layer.Tags!.Contains("scene-shadow"));
+        Assert.Equal(RgbProfile.Srgb, Pixels.ProfileOf(shadow.Pixels));
+        session.InsertSceneEdit(request.Task, input.SourceLayerId, [result], input.IsCutout, input.WholeImage);
+        using var working = session.Flatten();
+        Assert.Equal(RgbProfile.DisplayP3, Pixels.ProfileOf(working));
+
+        using var composite = Pixels.DisplayCopy(working);
+        var cast = composite.GetPixel(120, foot + 10);
+        Assert.InRange(cast.Red, 92, 98);
+        Assert.InRange(cast.Green, 107, 113);
+        Assert.InRange(cast.Blue, 132, 138);
+        Assert.Equal(input.Before.GetPixel(20, 20), composite.GetPixel(20, 20));
+    }
+
 
     private static void Evidence(string name,SceneEditInput input,SKBitmap generated,SceneEditResult result)
     {
