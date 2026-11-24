@@ -112,7 +112,7 @@ public sealed partial class Layer
         {
             double X(double value) => (value * Pixels!.Width - (FilterSource == null ? 0 : FilterPaddingX) - appearance.Bounds.Left) / appearance.Bounds.Width;
             double Y(double value) => (value * Pixels!.Height - (FilterSource == null ? 0 : FilterPaddingY) - appearance.Bounds.Top) / appearance.Bounds.Height;
-            proxy.VectorMask = VectorMask with { Nodes = VectorMask.Nodes.Select(n => new BezierNode(X(n.X), Y(n.Y), X(n.InX), Y(n.InY), X(n.OutX), Y(n.OutY)) { StartsContour=n.StartsContour }).ToArray() };
+            proxy.VectorMask = VectorMask with { Nodes = VectorMask.Nodes.Select(n => new BezierNode(X(n.X), Y(n.Y), X(n.InX), Y(n.InY), X(n.OutX), Y(n.OutY)) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
         }
         if (scale != 1 && Effects is { } effects) proxy.Effects = ScaleWarpEffects(effects, (double)appearance.Bitmap.Width / appearance.Bounds.Width);
         if (MaskLinked && MaskFollowsWarp) proxy.Mask = null;

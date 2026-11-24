@@ -16,7 +16,7 @@ public sealed partial class EditorSession
         var width = Math.Max(2, (int)Math.Ceiling(nodes.Max(n => Math.Max(n.X, Math.Max(n.InX, n.OutX))) - left + 2));
         var height = Math.Max(2, (int)Math.Ceiling(nodes.Max(n => Math.Max(n.Y, Math.Max(n.InY, n.OutY))) - top + 2));
         if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The path exceeds the surface size limit.");
-        var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height) { StartsContour = n.StartsContour }).ToArray() };
+        var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
         var style = new ShapeStyle(ShapeKind.Path, (uint)Foreground, 0) { Path = local, FillEnabled = documentPath.Closed, Stroke = (uint)Foreground, StrokeWidth = 2 };
         var layer = Layer.Raster(document.UniqueName("Path"), RenderWorkingShape(style, width, height), left, top); layer.Shape = style;
         Apply("New Path", () => document.InsertAboveActive(layer)); InvalidateAll(); LayersChanged?.Invoke(); return layer;
@@ -110,7 +110,7 @@ public sealed partial class EditorSession
         var w=right-left; var h=bottom-top;
         if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException("The edited path exceeds the surface size limit.");
         VectorPath Remap(VectorPath path) => path with { Nodes = path.Nodes.Select(n => new BezierNode((n.X * old.Width - left) / w, (n.Y * old.Height - top) / h,
-            (n.InX * old.Width - left) / w, (n.InY * old.Height - top) / h, (n.OutX * old.Width - left) / w, (n.OutY * old.Height - top) / h) { StartsContour = n.StartsContour }).ToArray() };
+            (n.InX * old.Width - left) / w, (n.InY * old.Height - top) / h, (n.OutX * old.Width - left) / w, (n.OutY * old.Height - top) / h) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
         var matrix = layer.Matrix;
         var maskPlacement = layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
         if (layer.VectorMask != null) layer.VectorMask = Remap(layer.VectorMask);
@@ -137,7 +137,7 @@ public sealed partial class EditorSession
             var anchor = matrix.MapPoint((float)n.X * source.Pixels.Width, (float)n.Y * source.Pixels.Height);
             var incoming = matrix.MapPoint((float)n.InX * source.Pixels.Width, (float)n.InY * source.Pixels.Height);
             var outgoing = matrix.MapPoint((float)n.OutX * source.Pixels.Width, (float)n.OutY * source.Pixels.Height);
-            return new(anchor.X / target.Pixels.Width, anchor.Y / target.Pixels.Height, incoming.X / target.Pixels.Width, incoming.Y / target.Pixels.Height, outgoing.X / target.Pixels.Width, outgoing.Y / target.Pixels.Height) { StartsContour = n.StartsContour };
+            return new(anchor.X / target.Pixels.Width, anchor.Y / target.Pixels.Height, incoming.X / target.Pixels.Width, incoming.Y / target.Pixels.Height, outgoing.X / target.Pixels.Width, outgoing.Y / target.Pixels.Height) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion };
         }
         Apply("Vector Mask", () => { target.VectorMask = geometry with { Nodes = geometry.Nodes.Select(Convert).ToArray() }; target.VectorMaskFollowsWarp = !target.HasWarp; }); InvalidateAll(); LayersChanged?.Invoke();
     }
