@@ -12,6 +12,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 - Clear the selection after applying it as a layer mask. One Undo restores the prior mask and selection. Snap the edges of scaled layers to the canvas or layout, and edit the brush or eraser tip inside its preset menu.
 - Make repeated visibility changes and tool switches more responsive on multilayer documents. Speed up Move layer picking, defer thumbnail refresh while painting, and redraw dense selection outlines without simplifying their contours.
 - Preserve source colors under generated masks, improve masked image-edit alignment and Harmonize shadows, and keep Generative Fill available from the selection controls.
+- Write Photoshop-compatible blend records for folder sections and the merged appearance layer.
 
 ## [1.3.0-preview.4.studio.17.9] - 2026-11-24
 

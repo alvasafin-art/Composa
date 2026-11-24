@@ -218,8 +218,9 @@ public static partial class PsdExport
         {
             output.U16(unchecked((ushort)id)); record.Channels.Add((id, output.Position)); output.U32(0);
         }
-        var blend = layer.IsGroup && layer.Blend == BlendMode.PassThrough && record.Section is 1 or 2 ? "pass" : PsdImport.BlendKey(layer.Blend);
-        output.Id("8BIM"); output.Id(blend);
+        var blend = PsdImport.BlendKey(layer.Blend);
+        // Photoshop keeps the folder blend in lsct. The merged appearance is a pixel record.
+        output.Id("8BIM"); output.Id(record.Section != 0 || blend == "pass" ? "norm" : blend);
         output.U8((byte)Math.Clamp(Math.Round(layer.Opacity * 255), 0, 255));
         output.U8(layer.Clipped ? (byte)1 : (byte)0); output.U8(layer.Visible ? (byte)0 : (byte)2); output.U8(0);
         output.Block(() =>
@@ -255,7 +256,8 @@ public static partial class PsdExport
             if (record.Section == 0 && !record.Appearance && HasNativeContent(layer, document)) WriteNative(output, layer, document);
             if (record.Section != 0) output.Additional("lsct", () =>
             {
-                output.U32((uint)record.Section); output.Id("8BIM"); output.Id(blend);
+                output.U32((uint)record.Section);
+                if (record.Section is 1 or 2) { output.Id("8BIM"); output.Id(blend); }
             });
         });
     }

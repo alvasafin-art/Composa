@@ -134,8 +134,10 @@ public class PsdExportTests
         Assert.Empty(imported.Conversions);
         Assert.Equal(2, imported.Layers.Count);
         Assert.False(imported.Layers[0].Visible); Assert.True(imported.Layers[0].IsGroup);
+        Assert.Equal(BlendMode.PassThrough, imported.Layers[0].Blend);
         Assert.Equal(["Base", "Top"], imported.Layers[0].Children.Select(l => l.Name));
         Assert.Equal(PsdExport.AppearanceLayer, imported.Layers[1].Name);
+        Assert.Equal(BlendMode.Normal, imported.Layers[1].Blend);
         SamePicture(document, imported.ToDocument()); imported.Discard();
         Assert.Equal(3, document.Layers.Count);
     }
