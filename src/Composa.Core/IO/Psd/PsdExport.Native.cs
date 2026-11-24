@@ -34,6 +34,8 @@ public static partial class PsdExport
             return TypeAppearanceNote;
         if (layer.Shape is { } shape)
         {
+            if (shape.StrokeEnabled && shape.Dash != null)
+                return "This dashed vector stroke is exported with its rendered appearance.";
             if (shape.FillEnabled && shape.FillGradient != null || shape.Kind == ShapeKind.Line && shape.FillGradient != null || shape.Stroke != null && shape.StrokeGradient != null)
                 return "This vector gradient is exported with its rendered appearance.";
             var corners = layer.Transform.Corners(layer.Pixels.Width, layer.Pixels.Height);

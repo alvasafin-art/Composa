@@ -17,7 +17,7 @@ internal static class VectorPaintDialog
         var initial = new SKColor(color);
         uint other = Math.Min(initial.Red, Math.Min(initial.Green, initial.Blue)) > 215 ? 0xff222222 : 0xffffffff;
         var gradient = current ?? new VectorGradient(GradientRamp.Between(color | 0xff000000, other));
-        var mode = current == null ? "Solid" : current.Radial ? "Radial" : "Linear";
+        var mode = current == null ? "Solid" : current.Angular ? "Angular" : current.Radial ? "Radial" : "Linear";
         var rgb = new SKColor(color);
         var opacity = rgb.Alpha;
         void Update() => preview((uint)rgb.WithAlpha(opacity), mode == "Solid" ? null : gradient);
@@ -49,17 +49,18 @@ internal static class VectorPaintDialog
         void ShowMode()
         {
             stops.IsVisible = geometry.IsVisible = mode != "Solid";
-            angle.IsVisible = mode == "Linear";
-            geometryRow.ColumnDefinitions = new ColumnDefinitions(angle.IsVisible ? "*,*,*" : "*,*");
-            Grid.SetColumn(scale, angle.IsVisible ? 1 : 0);
-            Grid.SetColumn(paintOpacity, angle.IsVisible ? 2 : 1);
+            angle.IsVisible = mode is "Linear" or "Angular";
+            scale.IsVisible = mode != "Angular";
+            geometryRow.ColumnDefinitions = new ColumnDefinitions(mode == "Linear" ? "*,*,*" : "*,*");
+            Grid.SetColumn(scale, mode == "Linear" ? 1 : 0);
+            Grid.SetColumn(paintOpacity, mode == "Linear" ? 2 : 1);
             paintOpacity.Value = Math.Round(opacity * 100d / 255);
             hexCaption.Text = mode == "Solid" ? "HEX" : "Selected stop · HEX";
             fields.Show(mode == "Solid" ? rgb.WithAlpha(opacity) : stops.SelectedColor);
         }
-        var type = Ui.Combo(new[] { "Solid", "Linear", "Radial" }, mode, Locale.T, value =>
+        var type = Ui.Combo(new[] { "Solid", "Linear", "Radial", "Angular" }, mode, Locale.T, value =>
         {
-            mode = value; gradient = gradient with { Radial = value == "Radial" }; ShowMode(); Update();
+            mode = value; gradient = gradient with { Radial = value == "Radial", Angular = value == "Angular" }; ShowMode(); Update();
         }, double.NaN);
         type.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
         body.Children.Add(PaintLayout.Columns("*,*", 10,

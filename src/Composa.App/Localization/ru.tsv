@@ -117,6 +117,7 @@ An engine id must be a lowercase, file-safe identifier.	Идентификато
 An image inside the project is missing ({0}).	В проекте отсутствует изображение ({0}).
 Anchor	Привязка
 Angle °	Угол, °
+Angular	Угловой
 Another Composa window already allows AI control; agents reach that one.	Управление через ИИ уже включено в другом окне Composa.
 Anti-alias	Сглаживание
 Apply	Применить

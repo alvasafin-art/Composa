@@ -601,8 +601,14 @@ public sealed partial class EditorSession
         var pixels = Pixels.NewWorkingColor(width, height, depth, profile ?? Composa.ColorManagement.RgbProfile.Srgb);
         using var canvas = new SKCanvas(pixels);
         using var paint = new SKPaint { IsAntialias = true };
-        using var fillShader = style.FillGradient?.Shader(pixels);
-        using var strokeShader = style.StrokeEnabled && style.Stroke != null ? style.StrokeGradient?.Shader(pixels) : null;
+        using var gradientPath = style.FillGradient?.Angular == true || style.StrokeGradient?.Angular == true
+            ? style.Path?.Build(width, height) : null;
+        var gradientBounds = gradientPath?.TightBounds;
+        using var fillShader = style.FillGradient?.Shader(pixels, gradientBounds);
+        using var strokeShader = style.StrokeEnabled && style.Stroke != null ? style.StrokeGradient?.Shader(pixels, gradientBounds) : null;
+        var strokeWidth = style.Kind == ShapeKind.Line ? (float)style.LineWidth
+            : style.Stroke != null ? (float)Math.Min(style.StrokeWidth, Math.Min(width, height)) : 0;
+        using var dash = style.StrokeEnabled && strokeWidth > 0 ? style.Dash?.CreateEffect(strokeWidth) : null;
         paint.SetColor((SKColorF)new SKColor(style.Fill), pixels.ColorSpace);
         paint.Shader = fillShader;
         if (style.Kind == ShapeKind.Line)
@@ -611,6 +617,7 @@ public sealed partial class EditorSession
             paint.Style = SKPaintStyle.Stroke;
             paint.StrokeWidth = thickness;
             paint.StrokeCap = SKStrokeCap.Round;
+            paint.PathEffect = dash;
             var inset = new SKPoint(Math.Min(thickness, width) / 2, Math.Min(thickness, height) / 2);
             var from = style.StartX is { } sx && style.StartY is { } sy ? new SKPoint((float)(sx * width), (float)(sy * height)) : inset;
             var to = style.EndX is { } ex && style.EndY is { } ey ? new SKPoint((float)(ex * width), (float)(ey * height)) : new SKPoint(width - inset.X, height - inset.Y);
@@ -618,15 +625,14 @@ public sealed partial class EditorSession
         }
         else
         {
-            var strokeWidth = style.Stroke != null ? (float)Math.Min(style.StrokeWidth, Math.Min(width, height)) : 0;
             var inset = strokeWidth / 2;
             var rect = new SKRect(inset, inset, width - inset, height - inset);
             void Draw()
             {
                 if ((style.IsRadial() || style.Corners != null ? style.ParametricOutline(width, height, inset) : style.Path) is { } geometry)
                 {
-                    using var path = geometry.Build(width, height);
-                    canvas.DrawPath(path, paint);
+                    using var path = gradientPath == null ? geometry.Build(width, height) : null;
+                    canvas.DrawPath(gradientPath ?? path!, paint);
                 }
                 else if (style.Kind == ShapeKind.Ellipse) canvas.DrawOval(rect, paint);
                 else if (style.Kind == ShapeKind.RoundedRectangle)
@@ -643,6 +649,7 @@ public sealed partial class EditorSession
                 paint.SetColor((SKColorF)new SKColor(stroke), pixels.ColorSpace);
                 paint.Style = SKPaintStyle.Stroke;
                 paint.StrokeWidth = strokeWidth;
+                paint.PathEffect = dash;
                 if (style.RoundCaps) paint.StrokeCap = SKStrokeCap.Round;
                 Draw();
             }

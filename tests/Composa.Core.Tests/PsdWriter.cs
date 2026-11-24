@@ -229,12 +229,15 @@ internal sealed class PsdWriter
     }
 
     /// <summary>Stroke settings: whether the fill and the stroke are on, and the stroke's width and color.</summary>
-    public static byte[] StrokeSettings(bool fill, bool stroke, double width, SKColor color, string unit = "#Pxl", double resolution = 72, double opacity = 100)
+    public static byte[] StrokeSettings(bool fill, bool stroke, double width, SKColor color, string unit = "#Pxl", double resolution = 72, double opacity = 100,
+        double[]? dash = null, string dashUnit = "#Nne", double offset = 0, Descriptor? paint = null)
     {
         var settings = new Descriptor().Add("strokeStyleVersion", Descriptor.Long(2)).Add("fillEnabled", Descriptor.Bool(fill)).Add("strokeEnabled", Descriptor.Bool(stroke))
             .Add("strokeStyleLineWidth", Descriptor.UntF(unit, width)).Add("strokeStyleResolution", Descriptor.Doub(resolution))
             .Add("strokeStyleOpacity", Descriptor.UntF("#Prc", opacity))
-            .Add("strokeStyleContent", Descriptor.Objc(new Descriptor().Add("Clr ", Descriptor.Objc(Rgb(color)))));
+            .Add("strokeStyleContent", Descriptor.Objc(paint ?? new Descriptor().Add("Clr ", Descriptor.Objc(Rgb(color)))));
+        if (dash != null) settings.Add("strokeStyleLineDashSet", Descriptor.List(dash.Select(n => Descriptor.UntF(dashUnit, n)).ToArray()))
+            .Add("strokeStyleLineDashOffset", Descriptor.UntF("#Pnt", offset));
         var buffer = new Buffer();
         buffer.U32(16);
         buffer.Bytes(settings.ToArray());
@@ -242,17 +245,21 @@ internal sealed class PsdWriter
     }
 
     /// <summary>A vector mask holding one closed subpath through the corners, as fractions of the canvas.</summary>
-    public static byte[] VectorMask(int canvasWidth, int canvasHeight, params SKPoint[] anchors)
+    public static byte[] VectorMask(int canvasWidth, int canvasHeight, params SKPoint[] anchors) => WritePath(canvasWidth, canvasHeight, true, anchors);
+
+    public static byte[] OpenVectorPath(int canvasWidth, int canvasHeight, params SKPoint[] anchors) => WritePath(canvasWidth, canvasHeight, false, anchors);
+
+    private static byte[] WritePath(int canvasWidth, int canvasHeight, bool closed, SKPoint[] anchors)
     {
         var buffer = new Buffer();
         buffer.U32(3);
         buffer.U32(0);
         buffer.U16(6); buffer.Zeros(24); // path fill rule
         buffer.U16(8); buffer.Zeros(24); // initial fill rule
-        buffer.U16(0); buffer.U16((ushort)anchors.Length); buffer.Zeros(22);
+        buffer.U16(closed ? (ushort)0 : (ushort)3); buffer.U16((ushort)anchors.Length); buffer.Zeros(22);
         foreach (var anchor in anchors)
         {
-            buffer.U16(1);
+            buffer.U16(closed ? (ushort)1 : (ushort)4);
             for (var i = 0; i < 3; i++) { buffer.I32(Fixed(anchor.Y / canvasHeight)); buffer.I32(Fixed(anchor.X / canvasWidth)); }
         }
         return buffer.ToArray();
