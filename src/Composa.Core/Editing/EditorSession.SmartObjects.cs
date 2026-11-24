@@ -90,7 +90,7 @@ public sealed partial class EditorSession
                     target.Transform = SmartFilterSourceTransform(layer);
                     if (layer.VectorMask is { } vector)
                         target.VectorMask = vector with { Nodes = vector.Nodes.Select(n => new BezierNode((n.X * layer.Pixels!.Width - layer.FilterPaddingX) / oldSource.Width, (n.Y * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height,
-                            (n.InX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.InY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height, (n.OutX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.OutY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height) { StartsContour=n.StartsContour }).ToArray() };
+                            (n.InX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.InY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height, (n.OutX * layer.Pixels.Width - layer.FilterPaddingX) / oldSource.Width, (n.OutY * layer.Pixels.Height - layer.FilterPaddingY) / oldSource.Height) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
                 }
                 if (layer.MaskTransform == null && layer.Mask is { } mask)
                 {

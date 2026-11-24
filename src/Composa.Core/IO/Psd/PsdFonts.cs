@@ -33,7 +33,10 @@ internal static class PsdFonts
         // OpenType PostScript name. The installed name's actual face wins over that requested metadata.
         if (installed.Value.TryGetValue(name, out var actual)) return actual;
         var face = TextLayout.TypefaceFor(guess);
-        if (PostScriptName(face) == name) return FontCatalog.Face(face.FamilyName, face.FontWeight, face.FontWidth, face.FontSlant);
+        var actualName = PostScriptName(face);
+        if (actualName == name || face.FamilyName.Equals(guess.FontFamily, StringComparison.OrdinalIgnoreCase)
+            && (actualName == name + "MT" || actualName == name + "-Regular" && !guess.Bold && !guess.Italic))
+            return FontCatalog.Face(face.FamilyName, face.FontWeight, face.FontWidth, face.FontSlant);
         return null;
     }
 

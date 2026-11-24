@@ -250,7 +250,7 @@ public sealed class PsdImport
         {
             // Horizontal type keeps its wording, font, size, color, alignment, tracking and leading, so it can be retyped.
             var available = remaining + (long)(record.Image?.ByteCount ?? 0) / 4;
-            if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref available) is { } text)
+            if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref available, record) is { } text)
             {
                 remaining = available;
                 record.Image?.Dispose();
@@ -264,12 +264,16 @@ public sealed class PsdImport
         if (kind is PsdLayerKind.Vector or PsdLayerKind.Fill)
         {
             var cached = (long)(record.Image?.ByteCount ?? 0) / 4;
-            if (PsdVector.LiveShape(extra, canvas, remaining + cached) is { } live)
+            if (PsdVector.LiveShape(extra, canvas, remaining + cached, record) is { } live)
             {
-                record.Image?.Dispose();
                 foreach (var note in live.Notes) Note(note);
-                remaining += cached - (long)live.Bounds.Width * live.Bounds.Height;
-                var pixels = EditorSession.RenderShape(live.Style, live.Bounds.Width, live.Bounds.Height);
+                var pixels = record.Image;
+                if (!live.UseCompatibilityPixels || pixels == null)
+                {
+                    pixels?.Dispose();
+                    remaining += cached - (long)live.Bounds.Width * live.Bounds.Height;
+                    pixels = EditorSession.RenderShape(live.Style, live.Bounds.Width, live.Bounds.Height);
+                }
                 var shape = AsShape(Layer.Raster(name, pixels, live.Bounds.Left, live.Bounds.Top), live.Style);
                 if (live.Placement is { } matrix) shape.Transform = PsdGeometry.Place(matrix, pixels.Width, pixels.Height);
                 return shape;
@@ -287,7 +291,9 @@ public sealed class PsdImport
                 remaining -= (long)raster.Bounds.Width * raster.Bounds.Height;
                 return Layer.Raster(name, raster.Image, raster.Bounds.Left, raster.Bounds.Top);
             }
-            if (kind == PsdLayerKind.Vector) Note("Vector shape was rasterized to pixels.");
+            if (kind == PsdLayerKind.Vector) Note(record.Image != null
+                ? "The vector path or its paint is unsupported. Photoshop compatibility pixels were kept."
+                : "The vector path or its paint is unsupported and no Photoshop compatibility pixels are available.");
         }
         if (record.Image is { } image) return Layer.Raster(name, image, record.Left, record.Top);
         // Cropping can remove the whole layer. Keep one transparent pixel at its original location,
