@@ -21,9 +21,12 @@ public sealed partial class MainWindow
         { ShowProblem("The document or active layer changed while refining; the result was not applied."); return; }
         if (dialog.Output == "Layer mask")
         {
-            if (target.ActiveLayer?.Pixels == null || target.PixelsLocked(target.ActiveLayer))
-            { ShowProblem("Select an unlocked pixel layer to create a layer mask."); return; }
-            target.RefinedSelectionToMask(result);
+            try
+            {
+                if (!target.RefinedSelectionToMask(result))
+                    ShowProblem("Select an unlocked pixel layer with an invertible transform to create a layer mask.");
+            }
+            catch (InvalidOperationException error) { ShowProblem(error.Message); }
         }
         else if (dialog.Output == "New layer with mask")
         {

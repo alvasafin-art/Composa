@@ -1,6 +1,9 @@
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Automation;
+using Avalonia.LogicalTree;
+using Composa.App.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -67,6 +70,120 @@ public class MaskRefinementUiTests
         finally { window.Close(); }
     }
 
+    [AvaloniaTheory]
+    [InlineData("menu")]
+    [InlineData("footer")]
+    [InlineData("context")]
+    [InlineData("context selected row")]
+    [InlineData("mcp")]
+    [InlineData("refine dialog")]
+    [InlineData("refine mcp")]
+    public async Task Mask_commands_consume_the_selection_and_undo_with_the_mask(string entry)
+    {
+        var previous = Locale.Language;
+        Locale.Language = "en";
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        var session = EditorSession.NewCanvas(100, 80, SKColors.CornflowerBlue, ColorDepth.Sixteen);
+        try
+        {
+            window.Show();
+            window.AddSession(session);
+            var layer = session.ActiveLayer!;
+            var isRefine = entry.StartsWith("refine");
+            if (isRefine)
+            {
+                session.AddMask(layer, hideAll: true);
+                session.EditingMask = false;
+            }
+            if (entry == "context selected row")
+            {
+                var other = session.AddBlankLayer();
+                session.SelectLayer(layer.Id, extend: true);
+                session.SelectLayer(other.Id, range: true);
+                Assert.Equal(other.Id, session.ActiveLayer!.Id);
+                Assert.Contains(layer.Id, session.Document.SelectedLayerIds);
+            }
+            var activeBefore = session.ActiveLayer!.Id;
+            var oldMask = layer.Mask;
+            var original = layer.Pixels!;
+            var bytes = original.Bytes;
+            var selection = SelectionMask.FromRect(100, 80, new(20, 18, 70, 60));
+            selection.SetPixel(20, 18, new SKColor(0, 0, 0, 109));
+            session.Select(selection, Composa.Selections.SelectionMode.Replace);
+            var before = session.History.CurrentId;
+            var count = session.History.Count;
+            var selectionChanges = 0;
+            session.SelectionChanged += () => selectionChanges++;
+            Dispatcher.UIThread.RunJobs();
+
+            switch (entry)
+            {
+                case "menu":
+                    window.GetLogicalDescendants().OfType<MenuItem>().Single(i => (string?)i.Header == "Add Layer Mask")
+                        .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    break;
+                case "footer":
+                    window.GetVisualDescendants().OfType<Button>()
+                        .Single(b => AutomationProperties.GetName(b) == "Add layer mask (Alt: hide all)")
+                        .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    break;
+                case "context":
+                case "context selected row":
+                    var panel = window.GetVisualDescendants().OfType<LayersPanel>().Single();
+                    var row = panel.GetVisualDescendants().OfType<Border>().Single(b => b.Tag == layer);
+                    var menu = row.ContextMenu!;
+                    menu.Open(row);
+                    menu.Items.OfType<MenuItem>().Single(i => (string?)i.Header == "Add Mask")
+                        .Items.OfType<MenuItem>().Single(i => (string?)i.Header == "Reveal All (White)")
+                        .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    menu.Close();
+                    break;
+                case "mcp":
+                    await new ComposaTools(window).LayerMask(layer.Name, "add");
+                    break;
+                case "refine dialog":
+                    var task = Invoke(window);
+                    var dialog = window.OwnedWindows.OfType<SelectMaskDialog>().Single();
+                    dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "RefineMethod").SelectedItem = "Keep edge";
+                    dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "RefineOutput").SelectedItem = "Layer mask";
+                    Accept(dialog);
+                    await Finish(task);
+                    break;
+                case "refine mcp":
+                    await Finish(new ComposaTools(window).RefineSelection(method: "keep", output: "mask"));
+                    break;
+            }
+
+            var mask = Assert.IsType<SKBitmap>(layer.Mask);
+            Assert.Null(session.Selection);
+            Assert.Equal(1, selectionChanges);
+            Assert.Same(mask, session.EditingMaskBitmap);
+            Assert.Equal(109, mask.GetPixel(20, 18).Alpha);
+            Assert.Equal(255, mask.GetPixel(25, 25).Alpha);
+            Assert.Equal(0, mask.GetPixel(5, 5).Alpha);
+            Assert.Same(original, layer.Pixels);
+            Assert.Equal(bytes, layer.Pixels!.Bytes);
+            Assert.Equal(count + 1, session.History.Count);
+
+            session.Undo();
+            Assert.Equal(before, session.History.CurrentId);
+            Assert.Same(selection, session.Selection);
+            Assert.Equal(activeBefore, session.ActiveLayer!.Id);
+            Assert.Same(oldMask, session.Document.Find(layer.Id)!.Mask);
+            session.Redo();
+            Assert.Null(session.Selection);
+            Assert.Same(mask, session.ActiveLayer!.Mask);
+            Assert.Same(mask, session.EditingMaskBitmap);
+            Assert.Same(original, session.ActiveLayer.Pixels);
+        }
+        finally
+        {
+            Locale.Language = previous;
+            session.MarkSaved("mask.cmps", session.History.CurrentId);
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public async Task Accepting_a_refined_selection_keeps_its_pixels_alive_through_disposal_save_and_undo()
     {
@@ -123,11 +240,16 @@ public class MaskRefinementUiTests
         {
             var session = EditorSession.NewCanvas(320, 240, SKColors.Blue); window.AddSession(session); session.SelectRect(new(50, 40, 250, 200)); var state = session.History.CurrentId;
             var task = Invoke(window); var dialog = window.OwnedWindows.OfType<SelectMaskDialog>().Single();
+            var original = session.Selection;
+            dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "RefineOutput").SelectedItem = "Layer mask";
             var mode = dialog.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "RefineMethod");
             mode.SelectedItem = "Alpha matting"; await Task.Delay(190); Dispatcher.UIThread.RunJobs(); mode.SelectedItem = "Keep edge";
             var all = dialog.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Sample all visible layers"); all.IsChecked = true; all.IsChecked = false;
             dialog.Close(false); await Finish(task); await Task.Delay(210); Dispatcher.UIThread.RunJobs();
-            Assert.Equal(state, session.History.CurrentId); Assert.Equal(255, session.Selection!.GetPixel(100, 100).Alpha); Assert.Empty(window.OwnedWindows);
+            Assert.Equal(state, session.History.CurrentId);
+            Assert.Same(original, session.Selection);
+            Assert.Null(session.ActiveLayer!.Mask);
+            Assert.Empty(window.OwnedWindows);
         }
         finally { window.Close(); }
     }

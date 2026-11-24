@@ -595,24 +595,31 @@ public sealed partial class EditorSession
 
     // ---- Layer masks --------------------------------------------------------------------------------------------
 
-    /// <summary>Adds a mask revealing everything, or only the current selection when there is one.</summary>
-    public void AddMask(Layer layer, bool hideAll = false)
+    /// <summary>Adds a mask revealing everything, or consumes the current selection as mask coverage.</summary>
+    public void AddMask(Layer layer, bool hideAll = false, bool activateLayer = true)
     {
         if (PixelsLocked(layer) || layer.Mask != null) return;
-        var selected = layer.Pixels != null && document.Selection != null ? SelectionInLayerSpace(layer) : null;
+        var usesSelection = document.Selection != null;
+        if (usesSelection && layer.Pixels != null && !layer.Matrix.TryInvert(out _)) return;
         Apply("Add Layer Mask", () =>
         {
             if (layer.Pixels == null)
                 layer.Mask = document.Selection != null ? Pixels.Clone(document.Selection) : Pixels.NewLayerMask(document.Width, document.Height, hideAll ? (byte)0 : (byte)255);
-            else if (selected != null) layer.Mask = selected;
-            else layer.Mask = Pixels.NewLayerMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
+            else
+                layer.Mask = SelectionInLayerSpace(layer) ?? Pixels.NewLayerMask(layer.Pixels.Width, layer.Pixels.Height, hideAll ? (byte)0 : (byte)255);
             layer.MaskEnabled = true;
             layer.MaskDensity = 1; layer.MaskFeather = 0;
             layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0;
+            if (document.Selection != null)
+            {
+                document.Selection = null;
+                if (activateLayer && ActiveLayer != layer) document.SetActive(layer.Id);
+            }
         });
-        EditingMask = true;
+        if (!usesSelection || ActiveLayer == layer) EditingMask = true;
         Invalidate(AffectedArea(layer));
         LayersChanged?.Invoke();
+        if (usesSelection) SelectionChanged?.Invoke();
     }
 
     public void DeleteMask(Layer layer)

@@ -61,7 +61,12 @@ public sealed partial class ComposaTools
                     throw new McpException("The document changed while refining; the computed mask was not applied.");
                 var s = capture.Session;
                 if (output == "layer") { s.AddRefinedCutout(colors!, result, capture.Source); result = colors = null; }
-                else if (output == "mask") s.RefinedSelectionToMask(result);
+                else if (output == "mask")
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!s.RefinedSelectionToMask(result))
+                        throw new McpException("Choose an unlocked raster layer with an invertible transform for mask output.");
+                }
                 else { var empty = SelectionMask.IsEmpty(result); s.Select(result, SelectionMode.Replace, "Select and Mask"); if (!empty) result = null; }
                 return output == "selection" ? Selected(s) : output == "mask" ? "Refined the active layer mask." : "Created an editable refined cutout layer.";
             });
