@@ -21,6 +21,76 @@ namespace Composa.App.Tests;
 public class GenerationDockTests
 {
     [AvaloniaFact]
+    public async Task Floating_selection_selects_fill_and_submits_a_native_mask_until_image_edit_is_chosen()
+    {
+        var capabilities = PartnerImageTests.Capabilities();
+        var server = new PartnerImageTests.Connection
+        {
+            Server = capabilities with { NodeTypes = capabilities.NodeTypes.Append("ImageToMask").ToHashSet() }
+        };
+        var window = new MainWindow(null, _ => server) { Width = 1120, Height = 760 };
+        window.Settings.ComfyServerUrl = server.Address.ToString();
+        window.AiTasks.ApiKey = () => "test-only";
+        foreach (var task in new[] { AiTaskKind.GenerativeFill, AiTaskKind.ImageEdit })
+            window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
+        var session = EditorSession.NewCanvas(160, 120, SKColors.White);
+        window.Show();
+        try
+        {
+            window.AddSession(session);
+            window.AiTasks.SetConnectedForTests(server.Server);
+            Pump();
+            Assert.False(window.AiFloatingVisible);
+            var selection = new SKRect(40, 30, 105, 90);
+            session.SelectRect(selection);
+            Pump();
+            var panel = window.AiFloatingPanel;
+            Assert.True(window.AiFloatingVisible);
+            var operation = Assert.Single(panel.GetVisualDescendants().OfType<TextBlock>(), t => t.Name == "AiFloatingOperation");
+            var prompt = Assert.Single(panel.GetVisualDescendants().OfType<TextBox>(), t => t.AcceptsReturn);
+            var run = Assert.Single(panel.GetVisualDescendants().OfType<Button>(), b => b.Name == "AiRun");
+            async Task Run()
+            {
+                prompt.Text = "Add a blue patch.";
+                Assert.True(run.IsEffectivelyEnabled);
+                run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var cutoff = DateTime.UtcNow.AddSeconds(15);
+                while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < cutoff)
+                { await Task.Delay(10, TestContext.Current.CancellationToken); Pump(); }
+                Assert.True(window.AiTasks.Operation?.Status == AiOperationStatus.Completed, window.AiTasks.Operation?.Error);
+            }
+
+            Assert.Equal(Locale.T("Generative Fill"), operation.Text);
+            await Run();
+            var fill = Assert.Single(server.Graphs);
+            Assert.Equal("composa_api_mask", fill["gpt"]!["inputs"]!["model.mask"]![0]!.GetValue<string>());
+            Assert.Equal(new[] { "apiSource", "apiMask" }, server.Uploads);
+            Assert.Equal("AI Generative Fill", session.History.UndoName);
+            Assert.NotNull(session.ActiveLayer!.Mask);
+
+            var more = Assert.Single(panel.GetVisualDescendants().OfType<Button>(), b => b.Name == "AiMore");
+            var menu = Assert.IsType<MenuFlyout>(more.Flyout);
+            menu.ShowAt(more); Pump();
+            var manual = Assert.Single(menu.Items.OfType<MenuItem>(), i => Equals(i.Header, Locale.T("Image Edit")));
+            Assert.True(manual.IsEnabled);
+            manual.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            menu.Hide(); Pump();
+            Assert.Equal(Locale.T("Image Edit"), operation.Text);
+            await Run();
+            Assert.Equal(2, server.Graphs.Count);
+            Assert.Null(server.Graphs[1]["gpt"]!["inputs"]!["model.mask"]);
+            Assert.Equal("AI Image Edit", session.History.UndoName);
+            Assert.Null(session.ActiveLayer!.Mask);
+
+            session.Deselect(); Pump();
+            Assert.False(window.AiFloatingVisible);
+            session.SelectRect(selection); Pump();
+            Assert.Equal(Locale.T("Generative Fill"), operation.Text);
+        }
+        finally { session.MarkSaved("floating-selection.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Editor_runs_a_different_route_without_changing_the_cli_default_in_operations()
     {
         const AiTaskKind task = AiTaskKind.GenerateImage;

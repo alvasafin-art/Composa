@@ -94,11 +94,11 @@ public sealed partial class EditorSession
         InvalidateAll(); LayersChanged?.Invoke(); return layers;
     }
 
-    public void ApplyAiSelection(AiTaskKind task, SKBitmap mask, SelectionMode mode = SelectionMode.Replace)
+    public void ApplyAiSelection(AiTaskKind task, SKBitmap mask, SelectionMode mode = SelectionMode.Replace, bool recoverForeground = true)
     {
         if (mask.ColorType != SKColorType.Alpha8 || mask.Width != document.Width || mask.Height != document.Height)
             throw new ArgumentException("An AI selection must be a document-sized Alpha8 bitmap.");
-        if (task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
+        if (recoverForeground && task is (AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject))
         {
             SelectForeground(mask, mode, "AI " + task.DisplayName());
             return;

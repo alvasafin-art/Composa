@@ -287,7 +287,7 @@ public class PsdTests
     }
 
     [Fact]
-    public void Other_paths_are_drawn_into_pixels_once()
+    public void Custom_paths_keep_editable_geometry_and_paint()
     {
         var writer = new PsdWriter { Width = 100, Height = 100 };
         writer.Layers.Add(new PsdWriterLayer { Name = "Triangle" }
@@ -297,16 +297,15 @@ public class PsdTests
             .With("vstk", PsdWriter.StrokeSettings(fill: false, stroke: true, 4, SKColors.Blue)));
         var import = Load(writer);
         var triangle = import.Layers[0];
-        Assert.Null(triangle.Shape);
-        Assert.Contains(import.Conversions, c => c.LayerName == "Triangle" && c.Message.Contains("rasterized"));
-        var pixels = triangle.Pixels!;
-        Assert.Equal((10d, 10d), (triangle.Transform.X, triangle.Transform.Y));
-        AssertColor(SKColors.Green, pixels.GetPixel(40, 70));               // Inside the triangle.
-        Assert.Equal(0, pixels.GetPixel(2, 2).Alpha);                       // Its top-left corner is empty.
+        Assert.Equal(ShapeKind.Path, triangle.Shape!.Kind);
+        Assert.Equal(3, triangle.Shape.Path!.Nodes.Length);
+        Assert.DoesNotContain(import.Conversions, c => c.LayerName == "Triangle");
         var outline = import.Layers[1];
         Assert.Equal(ShapeKind.Rectangle, outline.Shape!.Kind);
         Assert.False(outline.Shape.FillEnabled); Assert.Equal(0xFF0000FFu, outline.Shape.Stroke);
         using var flat = DocumentRenderer.Flatten(import.ToDocument());
+        AssertColor(SKColors.Green, flat.GetPixel(50, 80));
+        Assert.Equal(0, flat.GetPixel(85, 20).Alpha);
         AssertColor(SKColors.Blue, flat.GetPixel(10, 35));
         Assert.Equal(0, flat.GetPixel(35, 35).Alpha);
     }

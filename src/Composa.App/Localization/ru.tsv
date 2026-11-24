@@ -117,6 +117,7 @@ An engine id must be a lowercase, file-safe identifier.	Идентификато
 An image inside the project is missing ({0}).	В проекте отсутствует изображение ({0}).
 Anchor	Привязка
 Angle °	Угол, °
+Angular	Угловой
 Another Composa window already allows AI control; agents reach that one.	Управление через ИИ уже включено в другом окне Composa.
 Anti-alias	Сглаживание
 Apply	Применить
@@ -585,6 +586,7 @@ Generation including context exceeds document limits.	Область генер�
 Generation including context exceeds the {0} px / {1} MP limit. Reduce image size.	Область генерации с контекстом превышает ограничение {0} пикс. / {1} Мп. Уменьшите изображение.
 Generation settings…	Параметры генерации…
 Generative Expand	Генеративное расширение
+Generative Fill	Генеративная заливка
 Generative Fill…	Генеративная заливка…
 Generative expand	Генеративное расширение
 Give a finite decontamination amount.	Укажите конечную величину очистки цвета.
@@ -619,7 +621,7 @@ Hanging list indent	Выступ маркеров списка
 Hanging punctuation	Висячая пунктуация
 Hard Light	Жёсткий свет
 Hard Mix	Жёсткое смешение
-Hard round	Жёсткая круглая
+Hard	Твёрдая
 Hardness	Жёсткость
 Harmonize…	Гармонизация…
 Healing Brush	Восстанавливающая кисть
@@ -636,6 +638,7 @@ Hue boundaries must be finite.	Границы цветового тона дол
 Hue boundaries must form one clockwise interval.	Границы цветового тона должны образовывать один интервал по часовой стрелке.
 Hue range and feathering	Диапазон тона и растушёвка
 Hue/Saturation…	Цветовой тон и насыщенность…
+Image Edit	Редактирование изображения
 Image Edit…	Редактировать изображение…
 Image Size	Размер изображения
 Image Size…	Размер изображения…
@@ -1164,8 +1167,14 @@ Smoothing	Сглаживание
 Snap	Привязка
 Snap To	Привязать к
 Soft Light	Мягкий свет
-Soft eraser	Мягкий ластик
-Soft round	Мягкая круглая
+Soft	Мягкая
+Brush tip	Отпечаток
+Built-in presets	Встроенные
+Change the shape of the brush mark	Изменить форму отпечатка
+Roundness	Скругление
+Tip angle	Угол
+100% is a circle. Lower values make an oval.	100% — круг. Меньшие значения делают отпечаток овальным.
+Single dab at full pressure	Один отпечаток при полном нажиме
 Something went wrong	Не удалось выполнить действие
 Source contributions (%)	Доли исходных каналов (%)
 Spacing	Интервал

@@ -300,6 +300,93 @@ public class PsdNativeTests
     }
 
     [Fact]
+    public void Photoshop_document_space_origination_is_not_transformed_twice()
+    {
+        var writer = new PsdWriter { Width = 200, Height = 160 };
+        var box = new SKRect(50, 60, 120, 110);
+        writer.Layers.Add(new PsdWriterLayer { Name = "Rectangle" }
+            .With("SoCo", PsdWriter.SolidColor(SKColors.Blue))
+            .With("vmsk", PsdWriter.VectorMask(200, 160, new(50, 60), new(120, 60), new(120, 110), new(50, 110)))
+            .With("vogk", PsdWriter.Origination(1, box, transform: SKMatrix.CreateScale(1.7f, 2.3f))));
+        var imported = PsdImport.Load(writer.Build());
+        var layer = Assert.Single(imported.Layers);
+        Assert.Empty(imported.Conversions);
+        Assert.Equal(ShapeKind.Rectangle, layer.Shape!.Kind);
+        Assert.Equal(box, layer.Bounds);
+        imported.Discard();
+    }
+
+    [Fact]
+    public void Compound_contours_keep_their_holes_and_nodes_after_project_reopen()
+    {
+        const int canvas = 120;
+        byte[] Contour(float left, float top, float right, float bottom) =>
+            PsdWriter.VectorMask(canvas, canvas, new(left, top), new(right, top), new(right, bottom), new(left, bottom));
+        var outer = Contour(10, 10, 85, 85);
+        var hole = Contour(30, 30, 70, 70);
+        var union = Contour(65, 50, 105, 90);
+        const int header = 8 + 2 * 26;
+        hole[header + 4] = hole[header + 5] = 255;
+        union[header + 5] = 1;
+        var compound = outer.Concat(hole[header..]).Concat(union[header..]).ToArray();
+        var writer = new PsdWriter { Width = canvas, Height = canvas };
+        writer.Layers.Add(new PsdWriterLayer().With("SoCo", PsdWriter.SolidColor(SKColors.Blue)).With("vmsk", compound));
+        var imported = PsdImport.Load(writer.Build());
+        Assert.Empty(imported.Conversions);
+        var doc = imported.ToDocument();
+        var layer = Assert.Single(doc.Layers);
+        var path = layer.Shape!.Path!;
+        Assert.Equal(12, path.Nodes.Length);
+        Assert.Equal(0, path.SegmentEnd(3));
+        Assert.Equal(4, path.SegmentEnd(7));
+        Assert.Equal(8, path.SegmentEnd(11));
+        using (var image = DocumentRenderer.Flatten(doc))
+        {
+            Assert.Equal(SKColors.Blue, image.GetPixel(20, 20));
+            Assert.Equal(0, image.GetPixel(40, 40).Alpha);
+            Assert.Equal(SKColors.Blue, image.GetPixel(67, 58));
+            Assert.Equal(SKColors.Blue, image.GetPixel(95, 70));
+        }
+        var session = new EditorSession(doc);
+        session.ChangeShapeStyle(layer, layer.Shape with { Fill = (uint)SKColors.Green });
+        using var project = new MemoryStream();
+        Composa.IO.ProjectFile.Write(session.Document, project); project.Position = 0;
+        var reopened = Composa.IO.ProjectFile.Read(project);
+        Assert.Equal(path, Assert.Single(reopened.Layers).Shape!.Path);
+        using var edited = DocumentRenderer.Flatten(reopened);
+        Assert.Equal(SKColors.Green, edited.GetPixel(20, 20));
+        Assert.Equal(0, edited.GetPixel(40, 40).Alpha);
+    }
+
+    [Fact]
+    public void Photoshop_glyph_bounds_confirmed_by_the_preview_recover_type_placement()
+    {
+        var writer = new PsdWriter { Width = 200, Height = 140 };
+        using var preview = Pixels.NewColor(48, 23);
+        preview.Erase(SKColors.Black);
+        var type = new PsdWriter.TypeTool { Text = "Pixels", Font = PsdFonts.PostScriptName(TextLayout.TypefaceFor(new TextFace(Family, false, false))),
+            FontSize = 22, Tx = 49, Ty = 70, Bounds = new SKRect(0, 0, 105, 60), GlyphBounds = new SKRect(4, 5, 52, 28) };
+        writer.Layers.Add(new PsdWriterLayer { Name = "Type", Image = preview, Left = 53, Top = 75 }.With("TySh", type.Build()));
+        var imported = PsdImport.Load(writer.Build());
+        var doc = imported.ToDocument();
+        var layer = Assert.Single(doc.Layers);
+        Assert.Equal("Pixels", layer.Text!.Text);
+        Assert.Equal(22, layer.Text.Size);
+        var ink = layer.Matrix.MapRect(Pixels.ContentBounds(layer.Pixels!));
+        Assert.InRange(ink.Left, 52.99, 53.01);
+        Assert.InRange(ink.Top, 74.99, 75.01);
+        Assert.InRange(ink.Right, 100.99, 101.01);
+        Assert.InRange(ink.Bottom, 97.99, 98.01);
+        var session = new EditorSession(doc);
+        session.SelectLayer(layer.Id);
+        session.ChangeTextStyle(style => style with { Text = "Edited" });
+        using var project = new MemoryStream();
+        Composa.IO.ProjectFile.Write(session.Document, project); project.Position = 0;
+        var reopened = Composa.IO.ProjectFile.Read(project);
+        Assert.Equal("Edited", Assert.Single(reopened.Layers).Text!.Text);
+    }
+
+    [Fact]
     public void Native_content_and_compatibility_cache_can_be_inspected_by_independent_readers()
     {
         var document = new Document(640, 480) { Resolution = 144 };

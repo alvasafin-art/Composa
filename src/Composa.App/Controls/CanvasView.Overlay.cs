@@ -218,18 +218,31 @@ public sealed partial class CanvasView
             var selection = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
             var radius = (selection ? session.SelectionBrushSize / 2 : session.Brush.CursorRadius(session.BrushPressure)) * view.UnitsPerPixel;
             var edge = session.Brush.Size * .5 * session.Brush.PressureRadius(session.BrushPressure) * view.UnitsPerPixel;
-            if (!selection && edge - radius > hair)
+            var roundness = session.Tool is Tool.Brush or Tool.Eraser ? session.Brush.TipRoundness : 1;
+            void Outline()
             {
-                var dash = new Avalonia.Media.DashStyle(new double[] { 2, 3 }, 0);
-                context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, hair, dash), center, edge + hair, edge + hair);
-                context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.White, hair, dash), center, edge, edge);
+                if (!selection && edge - radius > hair)
+                {
+                    var dash = new Avalonia.Media.DashStyle(new double[] { 2, 3 }, 0);
+                    context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.Black, hair, dash), center, edge + hair, edge * roundness + hair);
+                    context.DrawEllipse(null, new Avalonia.Media.Pen(Avalonia.Media.Brushes.White, hair, dash), center, edge, edge * roundness);
+                }
+                if (radius < 3) return;
+                context.DrawEllipse(null, dark, center, radius + hair, radius * roundness + hair);
+                context.DrawEllipse(null, light, center, radius, radius * roundness);
+                var inner = selection ? radius - session.SelectionBrushFeather * view.UnitsPerPixel : radius * session.Brush.Hardness;
+                if (inner > 2 && inner < radius - 2)
+                    using (context.PushOpacity(.36)) context.DrawEllipse(null, light, center, inner, inner * roundness);
             }
-            if (radius < 3) { Cross(center); return; }
-            context.DrawEllipse(null, dark, center, radius + hair, radius + hair);
-            context.DrawEllipse(null, light, center, radius, radius);
-            var inner = selection ? radius - session.SelectionBrushFeather * view.UnitsPerPixel : radius * session.Brush.Hardness;
-            if (inner > 2 && inner < radius - 2)
-                using (context.PushOpacity(.36)) context.DrawEllipse(null, light, center, inner, inner);
+            if (roundness == 1) Outline();
+            else
+            {
+                var rotation = Avalonia.Matrix.CreateTranslation(-center.X, -center.Y)
+                    * Avalonia.Matrix.CreateRotation(-session.Brush.TipAngle * Math.PI / 180)
+                    * Avalonia.Matrix.CreateTranslation(center.X, center.Y);
+                using (context.PushTransform(rotation)) Outline();
+            }
+            if (radius < 3) Cross(center);
         }
     }
 

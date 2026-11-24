@@ -16,6 +16,7 @@ public sealed partial record ShapeStyle(ShapeKind Kind, uint Fill, double Corner
     public VectorPath? Path { get; init; }
     public VectorGradient? FillGradient { get; init; }
     public VectorGradient? StrokeGradient { get; init; }
+    public StrokeDash? Dash { get; init; }
     public bool RoundCaps { get; init; }
     public bool FillEnabled { get; init; } = true;
     public uint? Stroke { get; init; }
@@ -24,7 +25,7 @@ public sealed partial record ShapeStyle(ShapeKind Kind, uint Fill, double Corner
 
     public ShapeStyle Clamped() => this with
     {
-        Path = Path?.Normalized(), FillGradient = FillGradient?.Normalized(), StrokeGradient = StrokeGradient?.Normalized(),
+        Path = Path?.Normalized(), FillGradient = FillGradient?.Normalized(), StrokeGradient = StrokeGradient?.Normalized(), Dash = Dash?.Normalized(),
         CornerRadius = double.IsFinite(CornerRadius) ? Math.Clamp(CornerRadius, 0, DocumentLimits.MaxSide) : 0,
         Points = Math.Clamp(Points, 3, 64), InnerRatio = double.IsFinite(InnerRatio) ? Math.Clamp(InnerRatio, .05, .95) : .5,
         Corners = IsRectangle() ? Corners?.Clamped() : null,

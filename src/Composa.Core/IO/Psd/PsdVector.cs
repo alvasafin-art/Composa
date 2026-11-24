@@ -6,13 +6,12 @@ using SkiaSharp;
 namespace Composa.IO.Psd;
 
 /// <summary>
-/// Turns Photoshop vector layers into what this editor has: a fill rectangle or ellipse becomes a live shape, any
-/// other path is drawn once into pixels. Reads the <c>vogk</c>, <c>vmsk</c>/<c>vsms</c>, <c>SoCo</c> and <c>vstk</c>
+/// Rebuilds Photoshop parametric shapes and Bézier contours in the editor’s live shape model. Reads the <c>vogk</c>, <c>vmsk</c>/<c>vsms</c>, <c>SoCo</c> and <c>vstk</c>
 /// blocks described in Adobe's Photoshop File Formats Specification.
 /// </summary>
 internal static class PsdVector
 {
-    public sealed record Live(ShapeStyle Style, SKRectI Bounds, List<string> Notes, SKMatrix? Placement = null);
+    public sealed record Live(ShapeStyle Style, SKRectI Bounds, List<string> Notes, SKMatrix? Placement = null, bool UseCompatibilityPixels = false);
     public sealed record Raster(SKBitmap Image, SKRectI Bounds);
 
     /// <summary>The layer's fill color from its <c>SoCo</c> block, when it is a solid color layer.</summary>
@@ -37,24 +36,110 @@ internal static class PsdVector
         return (fill, stroke, color, width);
     }
 
+    private static StrokeDash? ReadDash(List<object?> entries, Dictionary<string, object?> settings, double width)
+    {
+        if (entries.Count > 64 || !double.IsFinite(width) || width <= 0) return null;
+        var units = entries.OfType<PsdDescriptor.UnitValue>().ToArray();
+        if (units.Length != entries.Count || units.Any(u => u.Unit is not ("#Nne" or "#Pxl" or "#Pnt"))) return null;
+        var resolution = (PsdDescriptor.Number(settings, "strokeStyleResolution") ?? 72) / 72;
+        var relative = units.All(u => u.Unit == "#Nne");
+        double Pixels(double value, string? unit) => unit switch { "#Pnt" => value * resolution, "#Nne" => value * width, _ => value };
+        var lengths = units.Select(u => relative ? u.Value : Pixels(u.Value, u.Unit)).ToList();
+        // Photoshop pads some patterns with unused zero-length pairs. A zero dash paired with a gap is a dot.
+        while (lengths.Count >= 2 && lengths[^1] == 0 && lengths[^2] == 0) lengths.RemoveRange(lengths.Count - 2, 2);
+        var offset = Pixels(PsdDescriptor.Number(settings, "strokeStyleLineDashOffset") ?? 0, PsdDescriptor.Unit(settings, "strokeStyleLineDashOffset"));
+        var dash = new StrokeDash(lengths.ToArray(), offset, relative).Normalized();
+        return dash != null && lengths.Sum() * (relative ? width : 1) >= .25 ? dash : null;
+    }
+
+    private static VectorGradient? ReadAngularGradient(Dictionary<string, object?> paint, Dictionary<string, object?> gradient)
+    {
+        if (PsdDescriptor.Enumeration(paint, "Type") != "Angl" || PsdDescriptor.Flag(paint, "Algn") == false
+            || PsdDescriptor.Enumeration(gradient, "GrdF") != "CstS"
+            || PsdDescriptor.Enumeration(paint, "gradientsInterpolationMethod") is not (null or "Smoo")
+            || PsdDescriptor.Number(paint, "Scl ") is not (null or 100)
+            || PsdDescriptor.Number(paint, "gradientAspectRatio") is not (null or 1)) return null;
+        if (PsdDescriptor.List(gradient, "Clrs") is not { Count: >= 2 and <= 64 } colors
+            || PsdDescriptor.List(gradient, "Trns") is not { Count: <= 64 } opacities) return null;
+
+        var reverse = PsdDescriptor.Flag(paint, "Rvrs") == true;
+        double? Position(Dictionary<string, object?> stop)
+        {
+            if (PsdDescriptor.Number(stop, "Mdpn") is not (null or 50)
+                || PsdDescriptor.Number(stop, "Lctn") is not { } loc || loc is < 0 or > 4096) return null;
+            return reverse ? 1 - loc / 4096 : loc / 4096;
+        }
+        var colorStops = new List<GradientColorStop>();
+        foreach (var item in colors)
+        {
+            if (item is not Dictionary<string, object?> stop || Position(stop) is not { } at
+                || PsdDescriptor.Color(PsdDescriptor.Child(stop, "Clr ")) is not { } color) return null;
+            colorStops.Add(new(at, color));
+        }
+        var opacityStops = new List<GradientOpacityStop>();
+        foreach (var item in opacities)
+        {
+            if (item is not Dictionary<string, object?> stop || Position(stop) is not { } at
+                || PsdDescriptor.Number(stop, "Opct") is not { } opacity || opacity is < 0 or > 100) return null;
+            opacityStops.Add(new(at, opacity / 100));
+        }
+        if (reverse) { colorStops.Reverse(); opacityStops.Reverse(); }
+        var ramp = new GradientRamp { Colors = colorStops.ToArray(), Opacities = opacityStops.ToArray() }.Normalized();
+        var offset = PsdDescriptor.Child(paint, "Ofst");
+        double x = (PsdDescriptor.Number(offset, "Hrzn") ?? 0) / 100, y = (PsdDescriptor.Number(offset, "Vrtc") ?? 0) / 100;
+        if (Math.Abs(x) > 1 || Math.Abs(y) > 1) return null;
+        var angle = Math.IEEERemainder(PsdDescriptor.Number(paint, "Angl") ?? 0, 360);
+        return new VectorGradient(ramp, Angle: angle)
+        {
+            Angular = true, Perceptual = PsdDescriptor.Enumeration(paint, "gradientsInterpolationMethod") == "Smoo",
+            CenterOffsetX = x, CenterOffsetY = y
+        };
+    }
+
     /// <summary>A live rectangle, rounded rectangle or ellipse when the layer is one filled with a solid color.</summary>
-    public static Live? LiveShape(Dictionary<string, byte[]> extra, SKSizeI canvas, long remainingPixels)
+    public static Live? LiveShape(Dictionary<string, byte[]> extra, SKSizeI canvas, long remainingPixels, PsdLayer? record = null)
     {
         var fill = FillColor(extra);
         var (fillEnabled, strokeEnabled, strokeColor, strokeWidth) = StrokeSettings(extra, fill != null);
-        if (extra.TryGetValue("vstk", out var strokeData) && strokeEnabled)
+        var settings = extra.TryGetValue("vstk", out var strokeData) ? PsdDescriptor.ReadVersioned(strokeData) : null;
+        StrokeDash? dash = null;
+        VectorGradient? gradient = null;
+        if (settings != null && strokeEnabled)
         {
-            var strokeSettings = PsdDescriptor.ReadVersioned(strokeData);
-            if (PsdDescriptor.List(strokeSettings, "strokeStyleLineDashSet") is { Count: > 0 }
-                || PsdDescriptor.Enumeration(strokeSettings, "strokeStyleBlendMode") is { } blend && blend != "Nrml"
-                || PsdDescriptor.Enumeration(strokeSettings, "strokeStyleLineJoinType") is { } join && join != "strokeStyleMiterJoin") return null;
+            if (PsdDescriptor.Enumeration(settings, "strokeStyleBlendMode") is { } blend && blend != "Nrml"
+                || PsdDescriptor.Enumeration(settings, "strokeStyleLineJoinType") is { } join && join != "strokeStyleMiterJoin") return null;
+            if (PsdDescriptor.List(settings, "strokeStyleLineDashSet") is { Count: > 0 } entries)
+            {
+                dash = ReadDash(entries, settings, strokeWidth);
+                if (dash == null) return null;
+            }
+            if (PsdDescriptor.Child(settings, "strokeStyleContent") is { } paint && PsdDescriptor.Child(paint, "Grad") is { } stops)
+            {
+                gradient = ReadAngularGradient(paint, stops);
+                if (gradient == null) return null;
+                var opacity = (PsdDescriptor.Number(settings, "strokeStyleOpacity") ?? 100) / 100;
+                strokeColor = 0xFFFFFFu | (uint)Math.Round(Math.Clamp(opacity, 0, 1) * 255) << 24;
+            }
         }
+        if (strokeEnabled && strokeColor == null || fillEnabled && fill == null) return null;
+        if ((extra.TryGetValue("vmsk", out var flags) || extra.TryGetValue("vsms", out flags))
+            && (flags.Length < 8 || (flags[7] & 5) != 0)) return null;
+        if (dash != null || gradient != null)
+            return LivePath(extra, canvas, remainingPixels, fillEnabled ? fill : null, strokeColor, strokeWidth, record, dash, gradient);
         if (OpenLine(extra, canvas, strokeEnabled, strokeColor, strokeWidth, remainingPixels) is { } line) return line;
         if (fill == null && !strokeEnabled) return null;
         var origin = Origination(extra) ?? SharpRectangle(extra, canvas);
-        if (origin == null) return null;
+        if (origin == null) return LivePath(extra, canvas, remainingPixels, fillEnabled ? fill : null, strokeEnabled ? strokeColor : null, strokeWidth, record);
         var (kind, box, radius, notes) = origin.Value;
         var placement = OriginationMatrix(extra);
+        if (placement is { } transform && (extra.TryGetValue("vmsk", out var mask) || extra.TryGetValue("vsms", out mask)))
+        {
+            // Photoshop sometimes stores an already transformed origination box. Check the
+            // document-space outline before applying its editing transform a second time.
+            using var path = Path(mask, canvas);
+            if (path != null && SameBounds(box, path.TightBounds) && !SameBounds(transform.MapRect(box), path.TightBounds))
+                placement = null;
+        }
         if (placement is { } m && strokeEnabled)
         {
             var scale = Math.Sqrt(m.ScaleX * m.ScaleX + m.SkewY * m.SkewY);
@@ -64,10 +149,8 @@ internal static class PsdVector
         }
         if (!double.IsFinite(strokeWidth) || strokeWidth < 0 || strokeWidth > 500) return null;
         var half = strokeEnabled && strokeColor != null ? strokeWidth / 2 : 0;
-        var settings = extra.TryGetValue("vstk", out var settingsData) ? PsdDescriptor.ReadVersioned(settingsData) : null;
         var alignment = PsdDescriptor.Enumeration(settings, "strokeStyleLineAlignment");
-        if (alignment is "strokeStyleAlignInside") half = 0;
-        else if (alignment is "strokeStyleAlignOutside") half = strokeWidth;
+        if (strokeEnabled && alignment is not (null or "strokeStyleAlignCenter")) return null;
         box.Inflate((float)half, (float)half);
         // Path points are 8.24 fixed-point fractions of the canvas, so a corner drawn at 20 may read back as 19.99999.
         int left = (int)Math.Round(box.Left), top = (int)Math.Round(box.Top), right = (int)Math.Round(box.Right), bottom = (int)Math.Round(box.Bottom);
@@ -79,6 +162,101 @@ internal static class PsdVector
         var matrix = placement ?? SKMatrix.Identity;
         var offset = matrix.MapPoint(left, top); matrix.TransX = offset.X; matrix.TransY = offset.Y;
         return new Live(style, bounds, notes, matrix);
+    }
+
+    private static bool SameBounds(SKRect a, SKRect b) =>
+        Math.Abs(a.Left - b.Left) <= .5 && Math.Abs(a.Top - b.Top) <= .5
+        && Math.Abs(a.Right - b.Right) <= .5 && Math.Abs(a.Bottom - b.Bottom) <= .5;
+
+    private static Live? LivePath(Dictionary<string, byte[]> extra, SKSizeI canvas, long remaining, uint? fill, uint? stroke,
+        double width, PsdLayer? record, StrokeDash? dash = null, VectorGradient? gradient = null)
+    {
+        if (fill == null && stroke == null || !double.IsFinite(width) || width < 0 || width > 5000) return null;
+        if (!(extra.TryGetValue("vmsk", out var data) || extra.TryGetValue("vsms", out data))) return null;
+        var settings = extra.TryGetValue("vstk", out var block) ? PsdDescriptor.ReadVersioned(block) : null;
+        if (stroke != null && PsdDescriptor.Enumeration(settings, "strokeStyleLineAlignment") is not (null or "strokeStyleAlignCenter")) return null;
+        var cap = PsdDescriptor.Enumeration(settings, "strokeStyleLineCapType");
+        if (stroke != null && cap is not (null or "strokeStyleButtCap" or "strokeStyleRoundCap")) return null;
+
+        var geometry = EditablePath(data, canvas);
+        if (geometry == null || fill != null && !geometry.Closed || stroke != null && geometry.Nodes.Any(n => n.StartsUnion)) return null;
+        if (dash != null && !geometry.Closed)
+        {
+            // The Photoshop open-path dash starts at the last stored knot. Reverse the traversal
+            // and swap handles so the outline and dash offset both keep their meaning in Skia.
+            geometry = geometry with { Nodes = geometry.Nodes.Reverse().Select(n => new BezierNode(n.X, n.Y, n.OutX, n.OutY, n.InX, n.InY)).ToArray() };
+        }
+        using var path = geometry.Build(1, 1);
+        var box = path.TightBounds;
+        if (stroke != null && width > 0)
+        {
+            using var effect = dash?.CreateEffect((float)width);
+            using var paint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = (float)width,
+                StrokeCap = cap == "strokeStyleRoundCap" ? SKStrokeCap.Round : SKStrokeCap.Butt, PathEffect = effect };
+            using var outline = paint.GetFillPath(path);
+            if (outline is { IsEmpty: false })
+            {
+                if (dash != null && fill == null) box = outline.TightBounds;
+                else box.Union(outline.TightBounds);
+            }
+        }
+        var previewBox = record is { Cropped: false, Image: not null }
+            ? new SKRectI(record.Left, record.Top, record.Right, record.Bottom) : SKRectI.Empty;
+        // The Photoshop channels are already on this path's document grid. Keep their
+        // original coverage and antialiasing until an edit regenerates the live shape.
+        var usePreview = !previewBox.IsEmpty && box.Left >= previewBox.Left - 1 && box.Top >= previewBox.Top - 1
+            && box.Right <= previewBox.Right + 1 && box.Bottom <= previewBox.Bottom + 1;
+        box.Inflate(1, 1);
+        var bounds = usePreview ? previewBox : Geometry.RoundOut(box);
+        if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height) || (long)bounds.Width * bounds.Height > remaining) return null;
+        double X(double x) => (x - bounds.Left) / bounds.Width;
+        double Y(double y) => (y - bounds.Top) / bounds.Height;
+        geometry = geometry with { Nodes = geometry.Nodes.Select(n => new BezierNode(X(n.X), Y(n.Y), X(n.InX), Y(n.InY), X(n.OutX), Y(n.OutY))
+            { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
+        var style = new ShapeStyle(ShapeKind.Path, fill ?? stroke ?? 0, 0)
+        {
+            Path = geometry, FillEnabled = fill != null, Stroke = stroke, StrokeWidth = width,
+            RoundCaps = cap == "strokeStyleRoundCap", Dash = dash, StrokeGradient = gradient
+        };
+        return new Live(style, bounds, [], UseCompatibilityPixels: usePreview);
+    }
+
+    private static VectorPath? EditablePath(byte[] data, SKSizeI canvas)
+    {
+        // The saved shape's path is already in document coordinates. Preserve closed
+        // compound contours that use the same even/odd fill operation.
+        if (data.Length < 8 || (data[7] & 5) != 0) return null;
+        var nodes = new List<BezierNode>();
+        var closed = false;
+        var count = 0;
+        var contours = 0;
+        var nodesAtLastContour = 0;
+        var startsUnion = false;
+        foreach (var (type, body) in Records(data))
+        {
+            if (type == 8 && (body[0] != 0 || body[1] != 0)) return null;
+            if (type is 0 or 3)
+            {
+                if (count != 0 || contours > 0 && (!closed || type != 0)) return null;
+                closed = type == 0;
+                count = body[0] * 256 + body[1];
+                var operation = (short)(body[2] * 256 + body[3]);
+                if (count < 2 || count > 4096 - nodes.Count || operation is not (-1 or 0 or 1)
+                    || contours > 0 && operation == 0) return null;
+                startsUnion = contours > 0 && operation == 1;
+                contours++;
+                nodesAtLastContour = nodes.Count;
+            }
+            else if (type is 1 or 2 or 4 or 5)
+            {
+                if (count == 0 || closed != (type is 1 or 2)) return null;
+                var (incoming, anchor, outgoing) = Knot(body, canvas);
+                nodes.Add(new(anchor.X, anchor.Y, incoming.X, incoming.Y, outgoing.X, outgoing.Y)
+                    { StartsContour = nodes.Count > 0 && nodes.Count == nodesAtLastContour, StartsUnion = startsUnion && nodes.Count == nodesAtLastContour });
+                count--;
+            }
+        }
+        return count == 0 && nodes.Count >= 2 ? new VectorPath { Nodes = nodes.ToArray(), Closed = closed, EvenOdd = closed } : null;
     }
 
     private static SKMatrix? OriginationMatrix(Dictionary<string, byte[]> extra)
@@ -103,7 +281,8 @@ internal static class PsdVector
         var a = Knot(records[1].Body, canvas); var b = Knot(records[2].Body, canvas);
         if (Distance(a.In, a.Anchor) > .01 || Distance(a.Out, a.Anchor) > .01 || Distance(b.In, b.Anchor) > .01 || Distance(b.Out, b.Anchor) > .01) return null;
         var settings = extra.TryGetValue("vstk", out var vstk) ? PsdDescriptor.ReadVersioned(vstk) : null;
-        if (PsdDescriptor.Enumeration(settings, "strokeStyleLineCapType") != "strokeStyleRoundCap") return null;
+        if (PsdDescriptor.Enumeration(settings, "strokeStyleLineCapType") != "strokeStyleRoundCap"
+            || PsdDescriptor.Enumeration(settings, "strokeStyleLineAlignment") is not (null or "strokeStyleAlignCenter")) return null;
         var box = Geometry.RoundOut(new SKRect(Math.Min(a.Anchor.X, b.Anchor.X) - (float)width / 2,
             Math.Min(a.Anchor.Y, b.Anchor.Y) - (float)width / 2, Math.Max(a.Anchor.X, b.Anchor.X) + (float)width / 2, Math.Max(a.Anchor.Y, b.Anchor.Y) + (float)width / 2));
         var size = PixelSize(box, remaining); if (size == null) return null;
@@ -174,6 +353,7 @@ internal static class PsdVector
         // Two version numbers (1 and 16) lead the descriptor.
         var items = PsdDescriptor.TryRead(vogk.AsSpan(8));
         if (PsdDescriptor.List(items, "keyDescriptorList")?.OfType<Dictionary<string, object?>>().FirstOrDefault() is not { } shape) return null;
+        if (PsdDescriptor.Flag(shape, "keyShapeInvalidated") == true) return null;
         var kind = PsdDescriptor.Number(shape, "keyOriginType") switch { 1 => ShapeKind.Rectangle, 2 => ShapeKind.RoundedRectangle, 5 => ShapeKind.Ellipse, _ => (ShapeKind?)null };
         if (kind == null) return null;
         var bbox = PsdDescriptor.Child(shape, "keyOriginShapeBBox");
@@ -200,11 +380,13 @@ internal static class PsdVector
     private static (ShapeKind Kind, SKRect Box, double Radius, List<string> Notes)? SharpRectangle(Dictionary<string, byte[]> extra, SKSizeI canvas)
     {
         if (!(extra.TryGetValue("vmsk", out var mask) || extra.TryGetValue("vsms", out mask))) return null;
+        if (mask.Length < 8 || (mask[7] & 5) != 0) return null;
         var anchors = new List<SKPoint>();
         var subpaths = 0;
         foreach (var (type, body) in Records(mask))
         {
-            if (type is 0 or 3) { if (++subpaths > 1) return null; continue; }
+            if (type == 3 || type == 8 && (body[0] != 0 || body[1] != 0)) return null;
+            if (type == 0) { if (++subpaths > 1) return null; continue; }
             if (type is not (1 or 2 or 4 or 5)) continue;
             var (incoming, anchor, outgoing) = Knot(body, canvas);
             if (Distance(incoming, anchor) > 0.5f || Distance(outgoing, anchor) > 0.5f) return null;
