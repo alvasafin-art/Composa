@@ -62,7 +62,13 @@ internal static class PsdColor
                 var converted = Convert(pixels, source, srgb);
                 layer.Pixels = converted; pixels.Dispose(); // These bitmaps belong to this uncommitted import only.
             }
-            if (layer.Shape is { } shape) layer.Shape = shape with { Fill = Color(shape.Fill), Stroke = shape.Stroke is { } stroke ? Color(stroke) : null };
+            if (layer.Shape is { } shape) layer.Shape = shape with
+            {
+                Fill = Color(shape.Fill), Stroke = shape.Stroke is { } stroke ? Color(stroke) : null,
+                StrokeGradient = shape.StrokeGradient is { } paint
+                    ? paint with { Ramp = paint.Ramp with { Colors = paint.Ramp.Colors.Select(stop => stop with { Color = Color(stop.Color) }).ToArray() } }
+                    : null
+            };
             if (layer.Text is { } text) layer.Text = text with
             {
                 Color = Color(text.Color), ColorRuns = text.ColorRuns?.Select(r => r with { Color = Color(r.Color) }).ToArray()
