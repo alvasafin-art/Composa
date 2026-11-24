@@ -76,7 +76,16 @@ internal static class PsdColor
             if (layer.Effects is { } effects)
             {
                 foreach (var kind in effects.Kinds) if (effects.ColorOf(kind) is { } color) effects = effects.WithColor(kind, Color(color));
-                if (effects.GradientOverlay is { } gradient) effects = effects with { GradientOverlay = gradient with { EndColor = Color(gradient.EndColor) } };
+                if (effects.GradientOverlay is { } gradient) effects = effects with
+                {
+                    GradientOverlay = gradient with
+                    {
+                        EndColor = Color(gradient.EndColor),
+                        Ramp = gradient.Ramp is { } ramp
+                            ? ramp with { Colors = ramp.Colors.Select(stop => stop with { Color = Color(stop.Color) }).ToArray() }
+                            : null
+                    }
+                };
                 layer.Effects = effects;
             }
         }

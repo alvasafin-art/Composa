@@ -1221,6 +1221,8 @@ Temperature	Температура
 Test connection	Проверить подключение
 Test model and tools	Проверить модель и инструменты
 Text	Текст
+Text on Path	Текст по контуру
+Text on Path…	Текст по контуру…
 Text attachments must be smaller than 256 KB.	Текстовые вложения должны быть меньше 256 КБ.
 Text color	Цвет текста
 Text coordinates must be finite.	Координаты текста должны быть конечными числами.

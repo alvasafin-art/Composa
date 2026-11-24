@@ -24,14 +24,24 @@ internal static class PsdEffects
                     {
                         var list = values is Dictionary<string, object?> one ? new List<object?> { one } : values as List<object?>;
                         if (list == null) continue;
-                        var recognized = effectKey is "DrSh" or "dropShadowMulti" or "IrSh" or "innerShadowMulti" or "SoFi" or "solidFillMulti" or "OrGl" or "IrGl" or "FrFX" or "frameFXMulti";
-                        if (!recognized) { if (effectKey is "ebbl" or "ChFX" or "GrFl" or "PtFl") Note($"Photoshop effect {effectKey} is not supported and was skipped."); continue; }
+                        var recognized = effectKey is "DrSh" or "dropShadowMulti" or "IrSh" or "innerShadowMulti" or "SoFi" or "solidFillMulti" or "OrGl" or "IrGl" or "FrFX" or "frameFXMulti" or "GrFl" or "gradientFillMulti";
+                        if (!recognized) { if (effectKey is "ebbl" or "ChFX" or "PtFl") Note($"Photoshop effect {effectKey} is not supported and was skipped."); continue; }
                         var count = 0;
                         foreach (var value in list.OfType<Dictionary<string, object?>>())
                         {
                             if (++count > 1) { Note($"Multiple {effectKey} effects are not supported; the first was kept."); break; }
                             var enabled = master && (PsdDescriptor.Flag(value, "enab") ?? true);
                             var opacity = (PsdDescriptor.Number(value, "Opct") ?? 100) / 100;
+                            if (effectKey is "GrFl" or "gradientFillMulti")
+                            {
+                                if (ReadGradientOverlay(value, enabled, opacity, out var approximated) is { } gradient)
+                                {
+                                    effects = effects with { GradientOverlay = gradient };
+                                    if (enabled && approximated) Note("Photoshop gradient midpoints are approximated with additional stops.");
+                                }
+                                else if (enabled) Note("This Photoshop gradient overlay's paint or placement is unsupported and was skipped.");
+                                continue;
+                            }
                             var color = PsdDescriptor.Color(PsdDescriptor.Child(value, "Clr ")) ?? 0xFF000000;
                             var blend = PsdDescriptor.Enumeration(value, "Md  ");
                             if (enabled && blend is not (null or "Nrml") && !(blend == "Mltp" && color == 0xFF000000)) Note($"The {effectKey} blend mode is approximated using Normal.");
@@ -90,5 +100,30 @@ internal static class PsdEffects
             return effects.IsEmpty ? null : effects;
         }
         catch (PsdException) { Note("The legacy Photoshop effects could not be read."); return null; }
+    }
+
+    private static GradientOverlayEffect? ReadGradientOverlay(Dictionary<string, object?> value, bool enabled, double opacity,
+        out bool approximated)
+    {
+        approximated = false;
+        var offset = PsdDescriptor.Child(value, "Ofst");
+        if (PsdDescriptor.Enumeration(value, "Type") is not (null or "Lnr ")
+            || PsdDescriptor.Enumeration(value, "Md  ") is not (null or "Nrml")
+            || PsdDescriptor.Enumeration(value, "gradientsInterpolationMethod") is not (null or "Clsc")
+            || PsdDescriptor.Flag(value, "Algn") == false
+            || PsdDescriptor.Number(offset, "Hrzn") is not (null or 0)
+            || PsdDescriptor.Number(offset, "Vrtc") is not (null or 0)) return null;
+
+        var (ramp, midpoints) = PsdGradient.ReadRamp(PsdDescriptor.Child(value, "Grad"), approximateMidpoints: true);
+        if (ramp == null) return null;
+        approximated = midpoints;
+
+        return new GradientOverlayEffect
+        {
+            Ramp = ramp, StartColor = (uint)ramp.Sample(0), EndColor = (uint)ramp.Sample(1),
+            Enabled = enabled, Opacity = opacity, Reverse = PsdDescriptor.Flag(value, "Rvrs") == true,
+            Angle = Math.IEEERemainder(PsdDescriptor.Number(value, "Angl") ?? 90, 360),
+            Scale = PsdDescriptor.Number(value, "Scl ") ?? 100
+        }.Clamped();
     }
 }

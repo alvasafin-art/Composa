@@ -12,7 +12,7 @@ namespace Composa.IO.Psd;
 /// Reads a Photoshop 6 type layer (<c>TySh</c>) into this editor's text model, from the Type Tool Object Setting in
 /// Adobe's Photoshop File Formats Specification: a version, a 2×3 transform, a text descriptor and a warp descriptor.
 /// The engine dictionary inside <c>EngineData</c> supplies the font, size, color, tracking, leading and alignment.
-/// Horizontal affine text keeps its placement; vertical or degenerate type stays a raster and is reported.
+/// Horizontal affine text and supported path type stay editable. Vertical or degenerate type stays a raster.
 /// </summary>
 internal static class PsdText
 {
@@ -27,7 +27,7 @@ internal static class PsdText
     public const string JustifyNote = "Full justification was imported as left alignment.";
 
     /// <summary>The type block read into a style, or null when it holds something this text model cannot carry.</summary>
-    public static Source? Parse(Dictionary<string, byte[]> extra)
+    public static Source? Parse(Dictionary<string, byte[]> extra, Dictionary<string, object?>? documentFrames = null)
     {
         if (!(extra.TryGetValue("TySh", out var data) || extra.TryGetValue("tySh", out data)) || data.Length > 8_000_000) return null;
         try
@@ -54,8 +54,14 @@ internal static class PsdText
                 ?? Cleaned(EngineData.String(EngineData.Walk(engine, "EngineDict", "Editor", "Text")));
             if (content == null || content.Length > TextStyle.MaxLength) return null;
 
+            var (hasPath, path) = PsdTextFrames.ReadPath(documentFrames, text, content);
+            if (path == null && (hasPath || text.ContainsKey("TxPT") || text.ContainsKey("TxPR") || text.ContainsKey("TxMP"))) return null;
+            var typeMatrix = new SKMatrix((float)xx, (float)xy, (float)tx, (float)yx, (float)yy, (float)ty, 0, 0, 1);
+            if (path != null) scale = 1; // The outline and font metrics are in the same text-space units.
             var style = new TextStyle { Text = content, Size = Math.Clamp(12 * scale, 1, 2000) };
             if (engine != null) style = ApplyStyle(style, engine, scale, notes);
+            if (path != null)
+                return new Source((style with { Path = path }).Clamped(), notes, SKPoint.Empty, 0, false, false, TypeMatrix: typeMatrix);
 
             var anchor = new SKPoint((float)tx, (float)ty);
             var anchorIsFrame = false;
@@ -76,7 +82,6 @@ internal static class PsdText
                 anchor = new SKPoint((float)(xx * bounds.Left + xy * bounds.Top + tx), (float)(yx * bounds.Left + yy * bounds.Top + ty));
                 anchorIsFrame = true;
             }
-            var typeMatrix = new SKMatrix((float)xx, (float)xy, (float)tx, (float)yx, (float)yy, (float)ty, 0, 0, 1);
             var ink = Rect(text, "boundingBox");
             return new Source(style.Clamped(), notes, anchor, placed?.Rotation ?? 0, placed?.FlipY ?? false, anchorIsFrame,
                 placed == null ? new SKMatrix((float)xx, (float)xy, 0, (float)yx, (float)yy, 0, 0, 0, 1) : null, ink, typeMatrix);
@@ -88,9 +93,17 @@ internal static class PsdText
     public static Layer? Place(Source source, string name, ref long remainingPixels, PsdLayer? record = null)
     {
         var layout = new TextLayout(source.Style);
-        if ((long)layout.Width * layout.Height > Math.Max(0, remainingPixels)) return null;
+        if (!DocumentLimits.FitsSurface(layout.Width, layout.Height)
+            || (long)layout.Width * layout.Height > Math.Max(0, remainingPixels)) return null;
         remainingPixels -= (long)layout.Width * layout.Height;
         var pixels = layout.Render();
+        if (source.Style.Path != null && source.TypeMatrix is { } pathMatrix)
+        {
+            var layerOnPath = Layer.Raster(name, pixels);
+            layerOnPath.Text = source.Style;
+            layerOnPath.Transform = PsdGeometry.Place(SKMatrix.CreateTranslation(layout.PathOrigin.X, layout.PathOrigin.Y).PostConcat(pathMatrix), pixels.Width, pixels.Height);
+            return layerOnPath;
+        }
         // Point text is anchored on its first baseline at the edge its alignment reads from; a paragraph on its frame's corner.
         SKPoint imageAnchor;
         if (source.AnchorIsFrame) imageAnchor = new SKPoint(TextLayout.Padding, TextLayout.Padding);
@@ -181,7 +194,7 @@ internal static class PsdText
         return new SKRect((float)left, (float)top, (float)right, (float)bottom);
     }
 
-    private static string? Cleaned(string? text)
+    internal static string? Cleaned(string? text)
     {
         if (text == null) return null;
         text = text.TrimStart('﻿', '\0').TrimEnd('\0');
@@ -434,6 +447,8 @@ internal static class PsdText
             return cursor.Value() as Dictionary<string, object?>;
         }
 
+        public static Dictionary<string, object?>? ParseDocument(byte[] data) => new Cursor(data, 0).Document();
+
         private static int IndexOf(byte[] data, ReadOnlySpan<byte> token) => data.AsSpan().IndexOf(token);
 
         public static object? Walk(object? value, params string[] keys)
@@ -457,6 +472,12 @@ internal static class PsdText
 
             private int? Peek(int ahead = 0) => index + ahead < bytes.Length ? bytes[index + ahead] : null;
 
+            public Dictionary<string, object?>? Document()
+            {
+                SkipWhitespace();
+                return Dictionary(delimited: Peek() == '<');
+            }
+
             public object? Value()
             {
                 SkipWhitespace();
@@ -472,9 +493,9 @@ internal static class PsdText
                 return null;
             }
 
-            private Dictionary<string, object?>? Dictionary()
+            private Dictionary<string, object?>? Dictionary(bool delimited = true)
             {
-                if (!Take("<<") || ++depth > 64) return null;
+                if ((delimited && !Take("<<")) || ++depth > 64) return null;
                 var items = new Dictionary<string, object?>();
                 while (true)
                 {
@@ -488,7 +509,7 @@ internal static class PsdText
                     items[key] = value;
                 }
                 depth--;
-                return Take(">>") ? items : null;
+                return (delimited ? Take(">>") : Peek() == null) ? items : null;
             }
 
             private List<object?>? Array()

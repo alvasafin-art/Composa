@@ -11,7 +11,7 @@ namespace Composa.Text;
 /// word boundaries inside its box. The same layout draws the pixels and places the caret, so what is edited is
 /// exactly what is rendered.
 /// </summary>
-public sealed class TextLayout
+public sealed partial class TextLayout
 {
     /// <summary>The gap between the text and the edge of its bitmap, in layer pixels.</summary>
     public const float Padding = 12;
@@ -104,6 +104,9 @@ public sealed class TextLayout
         Descent = metrics.Descent;
         LineHeight = (float)style.LineHeight;
         var advances = Advances(fonts, Text);
+        using var curve = style.Path?.Build();
+        using var measure = curve == null ? null : new SKPathMeasure(curve, false, 2);
+        pathLength = measure?.Length ?? 0;
 
         var available = style.IsBox ? (float)Math.Max(1, style.BoxWidth!.Value - 2 * Padding) : float.PositiveInfinity;
         var ranges = new List<(int Start, int End)>();
@@ -125,31 +128,48 @@ public sealed class TextLayout
             visible[i] = Sum(advances, start, last);
             contentWidth = Math.Max(contentWidth, visible[i] + LineInset(start));
         }
-        var lineMetrics = new List<(float Ascent, float Descent, float Height)>();
+        var lineMetrics = new List<(float Ascent, float Descent, float Height, bool HasExplicitLeading)>();
         foreach (var (start, end) in ranges)
         {
             float ascent = 0, descent = 0, height = 0;
+            bool hasExplicitLeading = false;
             for (var k = start; k < Math.Max(start + 1, end); k++)
             {
                 var size = style.SizeAt(k);
                 var format = style.FormatAt(k);
+                hasExplicitLeading |= format.Leading > 0;
                 var m = fonts.For(style.FaceAt(k), size, format.Type.Axes).Metrics;
                 ascent = Math.Max(ascent, format.Type.Trim && m.CapHeight > 0 ? m.CapHeight : -m.Ascent); descent = Math.Max(descent, m.Descent);
                 var leading = format.Leading > 0 ? (format.Type.PercentLeading ? style.Size * format.Leading / 100 : format.Leading) : format.Type.Trim ? ascent + descent : size * 1.2;
                 height = Math.Max(height, (float)leading);
             }
-            lineMetrics.Add((ascent, descent, height));
+            lineMetrics.Add((ascent, descent, height, hasExplicitLeading));
         }
-        var fixedLeading = style.Leading > 0 && !(style.FormatRuns?.Any(r => r.Format.Leading != style.Leading || r.Format.Type.PercentLeading != style.Type.PercentLeading) ?? false);
-        var explicitShift = fixedLeading
-            ? Math.Max(0, lineMetrics.Select((m, i) => m.Ascent - lineMetrics[0].Ascent - i * LineHeight).Max()) : 0;
+        var baselines = new float[lineMetrics.Count];
+        baselines[0] = lineMetrics[0].Ascent;
+        for (var i = 1; i < baselines.Length; i++)
+        {
+            var previous = lineMetrics[i - 1];
+            var current = lineMetrics[i];
+            // Explicit leading measures between baselines, even when the adjacent lines use different faces or sizes.
+            var ascentChange = previous.HasExplicitLeading && current.HasExplicitLeading ? 0 : current.Ascent - previous.Ascent;
+            baselines[i] = baselines[i - 1] + previous.Height + ascentChange;
+        }
+        var explicitShift = Math.Max(0, lineMetrics.Select((m, i) => m.Ascent - baselines[i]).Max());
         float Gap(int start) => (float)style.FormatAt(start - 1).Type.ParagraphSpacing;
         var gaps = ranges.Where(r => r.Start > 0 && Text[r.Start - 1] == '\n').Sum(r => Gap(r.Start));
-        var contentHeight = fixedLeading
-            ? Math.Max(ranges.Count * LineHeight + explicitShift, lineMetrics.Select((m, i) => lineMetrics[0].Ascent + explicitShift + i * LineHeight + m.Descent).Max())
-            : Math.Max(lineMetrics.Sum(m => m.Height), lineMetrics.Take(lineMetrics.Count - 1).Sum(m => m.Height) + lineMetrics[^1].Ascent + lineMetrics[^1].Descent);
-        var naturalHeight = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + gaps + Padding * 2));
-        if (style.IsBox)
+        var blockHeight = lineMetrics.Sum(m => m.Height) + explicitShift + gaps;
+        var contentHeight = Math.Max(blockHeight, lineMetrics.Select((m, i) => baselines[i] + m.Descent + explicitShift + gaps).Max());
+        var naturalHeight = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + Padding * 2));
+        if (curve != null)
+        {
+            var bounds = PathBounds(style, curve);
+            PathOrigin = new(bounds.Left, bounds.Top);
+            Width = bounds.Width;
+            Height = bounds.Height;
+            contentWidth = pathLength;
+        }
+        else if (style.IsBox)
         {
             Width = (int)Math.Round(style.BoxWidth!.Value);
             Height = style.AutoBoxHeight ? naturalHeight : (int)Math.Round(style.BoxHeight!.Value);
@@ -166,7 +186,6 @@ public sealed class TextLayout
         Height = Math.Min(Height, Document.MaxSide);
 
         var lines = new List<Line>(ranges.Count);
-        var blockHeight = lineMetrics.Sum(m => m.Height) + explicitShift + gaps;
         var free = style.IsBox ? Math.Max(0, Height - 2 * Padding - blockHeight) : 0;
         var origin = Padding + (style.Type.Vertical switch { TextVertical.Center => free / 2, TextVertical.Bottom => free, _ => 0 });
         float top = origin, gapBefore = 0;
@@ -201,13 +220,14 @@ public sealed class TextLayout
             });
             if (paragraphFormat.Type.HangingPunctuation && start < end && char.IsPunctuation(Text[start])) x -= advances[start] / 2;
             var lm = lineMetrics[i];
-            var baseline = fixedLeading ? origin + gapBefore + lineMetrics[0].Ascent + explicitShift + i * LineHeight : top + lm.Ascent;
+            var baseline = origin + gapBefore + baselines[i] + explicitShift;
             lines.Add(new Line { Start = start, End = end, X = x, Top = top, Height = lm.Height, Ascent = lm.Ascent, Descent = lm.Descent, Baseline = baseline, Positions = positions, VisibleWidth = visible[i],
                 Marker = !first ? "" : paragraphFormat.Type.List switch { TextList.Bullets => "•", TextList.Numbers => paragraph + ".", _ => "" } });
             top += lm.Height;
         }
         Lines = lines;
-        Overflows = style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f || l.X + l.VisibleWidth > Width - Padding + .5f);
+        Overflows = curve != null ? lines[0].VisibleWidth > pathLength
+            : style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f || l.X + l.VisibleWidth > Width - Padding + .5f);
     }
 
     internal static string DisplayText(TextStyle style, bool photoshop = false)
@@ -335,6 +355,8 @@ public sealed class TextLayout
     {
         using var fonts = new Fonts(this);
         using var paint = new SKPaint { IsAntialias = true };
+        using var curve = Style.Path?.Build();
+        using var measure = curve == null ? null : new SKPathMeasure(curve, false, 2);
         canvas.Save();
         if (Style.IsBox) canvas.ClipRect(new SKRect(0, 0, Width, Height));
         // Letters are drawn a stretch at a time, one stretch per face and color; text in one face and color is one stretch per line.
@@ -344,7 +366,7 @@ public sealed class TextLayout
             if (Style.Type.Ellipsis && Style.IsBox && lineIndex > 0 && line.Baseline + line.Descent > Height - Padding) break;
             var baseFont = fonts.For(Style.FaceAt(line.Start), Style.SizeAt(line.Start));
             paint.SetColor((SKColorF)new SKColor(Style.ColorAt(line.Start)), workingSpace);
-            if (line.Marker.Length > 0)
+            if (line.Marker.Length > 0 && measure == null)
                 canvas.DrawText(line.Marker, line.X - (float)Style.Size * .3f, line.Baseline, SKTextAlign.Right, baseFont, paint);
             int drawLength = line.Length;
             bool ellipsis = Style.Type.Ellipsis && Style.IsBox &&
@@ -399,14 +421,22 @@ public sealed class TextLayout
                 if (glyphs.Length > 0)
                 {
                     using var builder = new SKTextBlobBuilder();
-                    var run = builder.AllocatePositionedRun(font, glyphs.Length);
-                    run.SetGlyphs(glyphs);
-                    run.SetPositions(positions);
+                    if (measure == null)
+                    {
+                        var run = builder.AllocatePositionedRun(font, glyphs.Length);
+                        run.SetGlyphs(glyphs);
+                        run.SetPositions(positions);
+                    }
+                    else AddPathRun(builder, measure, font, line, glyphs, positions);
                     using var blob = builder.Build();
                     paint.SetColor((SKColorF)new SKColor(color), workingSpace);
                     if (blob != null) canvas.DrawText(blob, 0, 0, paint);
                     paint.StrokeWidth = Math.Max(1, (float)size / 18);
-                    void Rule(float y) => canvas.DrawLine(line.X + line.Positions[k], y, line.X + line.Positions[end], y, paint);
+                    void Rule(float y)
+                    {
+                        if (measure == null) canvas.DrawLine(line.X + line.Positions[k], y, line.X + line.Positions[end], y, paint);
+                        else DrawPathRule(canvas, paint, measure, line, k, end, y - line.Baseline);
+                    }
                     if (format.Type.Underline) Rule(line.Baseline + (float)size * .09f);
                     if (format.Type.Strike) Rule(line.Baseline - (float)size * .3f);
                 }
@@ -447,6 +477,7 @@ public sealed class TextLayout
     public int IndexAt(SKPoint point)
     {
         if (Lines.Count == 0) return 0;
+        if (Style.Path != null) return PathIndexAt(point);
         var line = Lines.FirstOrDefault(l => point.Y < l.Top + l.Height) ?? Lines[^1];
         return line.Start + NearestBoundary(line, point.X);
     }

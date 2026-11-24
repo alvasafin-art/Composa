@@ -101,7 +101,7 @@ public sealed record InnerGlowEffect
     };
 }
 
-/// <summary>A two-color gradient clipped to a layer's visible pixels.</summary>
+/// <summary>A gradient clipped to a layer's visible pixels.</summary>
 public sealed record GradientOverlayEffect
 {
     public GradientRamp? Ramp { get; init; }

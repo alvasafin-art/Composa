@@ -49,7 +49,7 @@ public sealed partial class EditorSession
     {
         if (layer.Pixels == null || PixelsLocked(layer)) return;
         var bounds = layer.ControlBounds;
-        bool preservePlacement = layer.SharedTextStyle != null && layer.Text is { } current && current.Text == style.Text
+        bool preservePlacement = style.Path == null && layer.SharedTextStyle != null && layer.Text is { } current && current.Text == style.Text
             && TextStyleDefinition.From(current).Differences(style) != StyleFields.None;
         SetTextCore(layer, style, preservePlacement);
         if (layer.ControlBounds != bounds) ReflowLayoutAncestors(layer);
@@ -63,7 +63,7 @@ public sealed partial class EditorSession
         var old = layer.Pixels;
         var transform = layer.Transform;
         var mask = preservePlacement && layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
-        if (style.AutoBoxHeight && TextEdit is { } editor && textLayer == layer && editor.Style == style)
+        if ((style.AutoBoxHeight || style.Path != null) && TextEdit is { } editor && textLayer == layer && editor.Style == style)
             ReplaceTextAppearance(layer, style, editor.Layout.Render(document.WorkingDepth, document.Profile), resizeLegacyMask: !preservePlacement);
         else ReplaceTextAppearance(layer, style, RenderWorkingText(style), resizeLegacyMask: !preservePlacement);
         if (preservePlacement)
@@ -79,6 +79,19 @@ public sealed partial class EditorSession
     {
         var t = layer.Transform;
         var old = layer.Pixels!;
+        var originalStyle = layer.Text;
+        if (style.Path != null && originalStyle is { Path: not null })
+        {
+            var offset = TextLayout.PathOriginFor(style) - TextLayout.PathOriginFor(originalStyle);
+            var map = SKMatrix.CreateTranslation(offset.X, offset.Y).PostConcat(layer.Matrix);
+            var pathMask = layer.Mask == null ? (SKMatrix?)null : layer.MaskMatrix;
+            layer.Transform = LayerTransform.FromMatrix(map, pixels.Width, pixels.Height);
+            layer.Pixels = pixels;
+            if (layer.Name == originalStyle.LayerName()) layer.Name = style.LayerName();
+            layer.Text = style;
+            if (pathMask is { } maskMatrix && layer.MaskMatrix != maskMatrix) layer.PlaceMask(maskMatrix);
+            return;
+        }
         double scaleX = t.Width / old.Width, scaleY = t.Height / old.Height;
         var unit = style.IsBox ? 0f : style.Alignment switch { TextAlignment.Center => 0.5f, TextAlignment.Right => 1f, _ => 0f };
         var anchorBefore = layer.Matrix.MapPoint(unit * old.Width, 0);
@@ -121,7 +134,7 @@ public sealed partial class EditorSession
     /// <summary>After scaling, text is redrawn at the matching font size instead of being stretched.</summary>
     private void RescaleText(Layer layer)
     {
-        if (layer.Text is not { } style || layer.Pixels is not { } pixels) return;
+        if (layer.Text is not { Path: null } style || layer.Pixels is not { } pixels) return;
         double factorX = layer.Transform.Width / pixels.Width, factorY = layer.Transform.Height / pixels.Height;
         if (Math.Abs(factorY - 1) < 0.01 && (!style.IsBox || Math.Abs(factorX - 1) < 0.01) || layer.Transform.Distort != null) return;
         var resized = style.IsBox ? style.Scaled(factorX, factorY) : style.Scaled(factorY);
@@ -169,6 +182,40 @@ public sealed partial class EditorSession
         }).Clamped();
         var layer = AddText(new SKPoint(box.Left + TextLayout.Padding, box.Top + TextLayout.Padding), style, commit: false);
         return OpenTextEditor(layer, isNew: true);
+    }
+
+    public bool CanCreateTextOnPath(Layer layer) =>
+        layer is { Shape: not null, Pixels: not null, HasWarp: false }
+        && layer.Matrix.Persp0 == 0 && layer.Matrix.Persp1 == 0
+        && (layer.Shape.Path == null || layer.Shape.Path.Nodes.Skip(1).All(n => !n.StartsContour && !n.StartsUnion));
+
+    /// <summary>Starts a text layer on a copy of a shape's outline in document coordinates.</summary>
+    public Layer? BeginTextOnPath(Layer shape)
+    {
+        if (!CanCreateTextOnPath(shape) || document.Find(shape.Id) != shape
+            || EditableShapePath(shape) is not { } outline || shape.Pixels is not { } source) return null;
+        FinishText();
+        var matrix = shape.Matrix;
+        SKPoint Point(double x, double y) => matrix.MapPoint((float)(x * source.Width), (float)(y * source.Height));
+        BezierNode Map(BezierNode n)
+        {
+            var at = Point(n.X, n.Y); var incoming = Point(n.InX, n.InY); var outgoing = Point(n.OutX, n.OutY);
+            return new(at.X, at.Y, incoming.X, incoming.Y, outgoing.X, outgoing.Y);
+        }
+        var path = new TextPath(outline with { Nodes = outline.Nodes.Select(Map).ToArray() });
+        if (!path.IsValid()) return null;
+        var style = TextDefaults.AsDefaults() with { Path = path, Color = (uint)Foreground | 0xFF000000 };
+        var layout = new TextLayout(style);
+        if (!DocumentLimits.FitsSurface(layout.Width, layout.Height, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4))
+            return null;
+        var layer = Layer.Raster(style.LayerName(), layout.Render(document.WorkingDepth, document.Profile), layout.PathOrigin.X, layout.PathOrigin.Y);
+        layer.Text = style;
+        SelectLayer(shape.Id);
+        Begin("Text on Path");
+        InsertAndReflow(layer);
+        Invalidate(AffectedArea(layer));
+        OpenTextEditor(layer, isNew: true);
+        return layer;
     }
 
     /// <summary>Opens an existing text layer for typing. Returns null for anything that is not live text.</summary>
@@ -349,7 +396,7 @@ public sealed partial class EditorSession
     /// </summary>
     public void SetTextBox(double width, double height, double anchorX = 0, double anchorY = 0)
     {
-        if (TextEdit is not { } editor || textLayer is not { Pixels: { } old } layer) return;
+        if (TextEdit is not { Style.Path: null } editor || textLayer is not { Pixels: { } old } layer) return;
         var before = layer.Matrix.MapPoint((float)(anchorX * old.Width), (float)(anchorY * old.Height));
         editor.ChangeStyle(s => s with { BoxWidth = Math.Max(TextStyle.MinBox, Math.Round(width)), BoxHeight = Math.Max(TextStyle.MinBox, Math.Round(height)) });
         if (layer.Pixels is not { } pixels || (anchorX == 0 && anchorY == 0)) return;

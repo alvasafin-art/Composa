@@ -33,7 +33,7 @@ public sealed partial class CanvasView
 
     private SKPoint[]? TextBoxCorners()
     {
-        if (session?.TextEditLayer is not { Pixels: { } pixels } layer) return null;
+        if (session?.TextEditLayer is not { Pixels: { } pixels, Text.Path: null } layer) return null;
         return layer.Transform.Corners(pixels.Width, pixels.Height);
     }
 
@@ -179,6 +179,10 @@ public sealed partial class CanvasView
                 session.FinishText();
                 TextEditingChanged?.Invoke();
                 return true;
+            case Key.Enter or Key.Return when editor.Style.Path != null:
+                session?.FinishText();
+                TextEditingChanged?.Invoke();
+                return true;
             case Key.Enter or Key.Return: editor.Insert(shift ? "\u2028" : "\n"); return true;
             case Key.Tab: editor.Insert("\t"); return true;
             case Key.Back: editor.Backspace(word: control); return true;
@@ -271,18 +275,27 @@ public sealed partial class CanvasView
         var toView = layer.Matrix.PostConcat(view);
         var corners = layer.Transform.Corners(pixels.Width, pixels.Height).Select(p => view.MapPoint(p)).ToArray();
         var layout = editor.Layout;
-        var selection = editor.HasSelection ? layout.SelectionRects(editor.SelectionStart, editor.SelectionEnd) : [];
-        var caret = editor.HasSelection || antsPhase % 8 >= 4 ? null : (ValueTuple<float, float, float>?)layout.CaretAt(editor.Caret);
-        // Text that overflowed a paragraph box is clipped, and so is its caret.
-        if (caret is { Item2: var caretTop } && layout.Style.IsBox && caretTop > layout.Height - TextLayout.Padding) caret = null;
+        var selection = editor.HasSelection ? layout.SelectionPolygons(editor.SelectionStart, editor.SelectionEnd) : [];
+        var caret = editor.HasSelection || antsPhase % 8 >= 4 ? null : layout.CaretSegmentAt(editor.Caret);
         var overflows = layout.Overflows;
         steps.Add(canvas =>
         {
-            using var path = new SKPath();
-            path.AddPoly(corners, close: true);
             using var line = new SKPaint { Color = Accent, StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
-            canvas.DrawPath(path, line);
-            DrawHandles(canvas, corners, hair);
+            if (layout.CreateLocalTextPath() is { } curve)
+            {
+                using (curve)
+                {
+                    curve.Transform(toView);
+                    canvas.DrawPath(curve, line);
+                }
+            }
+            else
+            {
+                using var box = new SKPath();
+                box.AddPoly(corners, close: true);
+                canvas.DrawPath(box, line);
+                DrawHandles(canvas, corners, hair);
+            }
             if (overflows)
             {
                 // Text that doesn't fit is marked by a plus in the bottom-right handle, as in Photoshop.
@@ -294,20 +307,20 @@ public sealed partial class CanvasView
             if (selection.Count > 0)
             {
                 using var fill = new SKPaint { Color = Accent.WithAlpha(90), IsAntialias = true };
-                foreach (var rect in selection)
+                foreach (var polygon in selection)
                 {
                     using var quad = new SKPath();
-                    quad.AddPoly([toView.MapPoint(rect.Left, rect.Top), toView.MapPoint(rect.Right, rect.Top), toView.MapPoint(rect.Right, rect.Bottom), toView.MapPoint(rect.Left, rect.Bottom)], close: true);
+                    quad.AddPoly(polygon.Select(p => toView.MapPoint(p)).ToArray(), close: true);
                     canvas.DrawPath(quad, fill);
                 }
             }
             if (caret is { } c)
             {
-                var (x, top, bottom) = c;
+                var (top, bottom) = c;
                 using var pen = new SKPaint { Color = Accent, StrokeWidth = Math.Max(hair * 1.5f, 1.5f), IsAntialias = true };
                 using var halo = new SKPaint { Color = SKColors.White.WithAlpha(160), StrokeWidth = Math.Max(hair * 3.5f, 3.5f), IsAntialias = true };
-                canvas.DrawLine(toView.MapPoint(x, top), toView.MapPoint(x, bottom), halo);
-                canvas.DrawLine(toView.MapPoint(x, top), toView.MapPoint(x, bottom), pen);
+                canvas.DrawLine(toView.MapPoint(top), toView.MapPoint(bottom), halo);
+                canvas.DrawLine(toView.MapPoint(top), toView.MapPoint(bottom), pen);
             }
         });
     }

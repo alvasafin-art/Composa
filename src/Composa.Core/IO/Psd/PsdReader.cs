@@ -69,7 +69,8 @@ internal static class PsdReader
         // Color mode data: only indexed and duotone files have any.
         cursor.Skip(cursor.U32());
 
-        // Image resources: the resolution is the one block that matters here.
+        // Image resources provide document metadata and identify saved alpha channels.
+        var hasNamedAlphaChannels = false;
         var resourcesLength = cursor.U32();
         var resourcesEnd = cursor.Offset + resourcesLength;
         if (resourcesEnd > cursor.Length) throw PsdException.Truncated();
@@ -90,6 +91,7 @@ internal static class PsdReader
             }
             if (id == 1039) file.ColorProfile = cursor.Bytes(length).ToArray();
             if (id == 1037 && length >= 4) file.GlobalLightAngle = cursor.I32();
+            if (id is 1006 or 1045 && length > 0) hasNamedAlphaChannels = true;
             if (id == 1032 && length >= 16)
             {
                 var guides = new PsdCursor(cursor.Bytes(length));
@@ -112,12 +114,20 @@ internal static class PsdReader
         var sectionLength = Length(ref cursor, largeDocument);
         var sectionEnd = cursor.Offset + sectionLength;
         if (sectionEnd > cursor.Length) throw PsdException.Truncated();
-        if (!mergedOnly && sectionLength >= (largeDocument ? 12 : 8))
+        short layerCount = 0;
+        var mergedTransparencyTag = false;
+        if (sectionLength >= (largeDocument ? 12 : 8))
         {
             var infoLength = Length(ref cursor, largeDocument);
             var infoEnd = cursor.Offset + infoLength;
             if (infoEnd > sectionEnd) throw PsdException.Truncated();
-            if (infoLength > 0) ReadLayers(ref cursor, file, pixelBudget);
+            if (infoLength > 0)
+            {
+                if (infoLength < 2) throw PsdException.Truncated();
+                var countCursor = cursor;
+                layerCount = countCursor.I16();
+                if (!mergedOnly) ReadLayers(ref cursor, file, pixelBudget);
+            }
             if (cursor.Offset > infoEnd) throw PsdException.Truncated();
             cursor.Seek(infoEnd);
             var maskLength = cursor.U32(); cursor.Skip(maskLength);
@@ -130,8 +140,15 @@ internal static class PsdReader
                 var length = Length(ref cursor, signature == "8B64" || (largeDocument && LargeKeys.Contains(key)));
                 var blockEnd = cursor.Offset + length;
                 if (blockEnd > sectionEnd) throw PsdException.Truncated();
-                if (file.Layers.Count == 0 && key == (depth == 16 ? "Lr16" : "Layr")) ReadLayers(ref cursor, file, pixelBudget);
-                else if (key is "lnkD" or "lnk2" or "lnk3") file.Extra[key] = cursor.Bytes(length).ToArray();
+                if (layerCount == 0 && length >= 2 && key == (depth == 16 ? "Lr16" : "Layr"))
+                {
+                    var countCursor = cursor;
+                    layerCount = countCursor.I16();
+                    if (!mergedOnly) ReadLayers(ref cursor, file, pixelBudget);
+                }
+                else if (!mergedOnly && (key is "lnkD" or "lnk2" or "lnk3" || key == "Txt2" && length <= 8_000_000))
+                    file.Extra[key] = cursor.Bytes(length).ToArray();
+                if (key == (depth == 16 ? "Mt16" : "Mtrn")) mergedTransparencyTag = true;
                 if (cursor.Offset > blockEnd) throw PsdException.Truncated();
                 cursor.Seek(blockEnd);
                 if (length % 2 != 0) cursor.Skip(1);
@@ -144,7 +161,10 @@ internal static class PsdReader
         {
             if (cursor.Remaining < 2) throw new PsdException("This Photoshop file has no merged compatibility image to open.");
             if (!FitsBudget(width, height, 0, 0, false, pixelBudget, depth)) throw PsdException.TooLarge();
-            file.Composite = ReadComposite(ref cursor, data, width, height, largeDocument, depth);
+            // A positive layer count leaves extra channels as saved selections. Keep the legacy
+            // four-channel interpretation for layerless files without named channels.
+            var hasTransparency = layerCount < 0 || mergedTransparencyTag || layerCount == 0 && !hasNamedAlphaChannels;
+            file.Composite = ReadComposite(ref cursor, data, width, height, largeDocument, depth, hasTransparency);
         }
         return file;
     }
@@ -367,15 +387,15 @@ internal static class PsdReader
 
     private static byte[]? Plane(Dictionary<short, byte[]> planes, short id) => planes.TryGetValue(id, out var plane) ? plane : null;
 
-    /// <summary>The merged image at the end of the file: one compression method for all channels, planes in R, G, B, A order.</summary>
-    private static SKBitmap ReadComposite(ref PsdCursor cursor, ReadOnlySpan<byte> data, int width, int height, bool largeDocument, int depth)
+    /// <summary>The merged image has RGB planes, optional transparency, then saved channels.</summary>
+    private static SKBitmap ReadComposite(ref PsdCursor cursor, ReadOnlySpan<byte> data, int width, int height, bool largeDocument, int depth, bool hasTransparency)
     {
         var channels = (int)new PsdCursor(data) { Offset = 12 }.U16();
         if (channels < 3) throw new PsdException("Only 8-bit RGB Photoshop files can be imported.");
         var compression = cursor.U16();
         var byteWidth = width * (depth / 8);
         var count = (long)byteWidth * height;
-        var planes = new byte[Math.Min(channels, 4)][];
+        var planes = new byte[Math.Min(channels, hasTransparency ? 4 : 3)][];
         switch (compression)
         {
             case PsdChannels.Raw:

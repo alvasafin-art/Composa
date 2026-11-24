@@ -23,6 +23,7 @@ internal sealed class PsdWriter
     public List<(string Key, byte[] Data)> GlobalExtra = [];
     /// <summary>The merged image; transparent black when absent.</summary>
     public SKBitmap? Composite;
+    public SKBitmap? SavedAlpha;
     public byte[]? ColorProfile;
 
     public byte[] Build()
@@ -49,6 +50,11 @@ internal sealed class PsdWriter
         {
             resources.Ascii("8BIM"); resources.U16(1039); resources.U16(0);
             resources.U32((uint)profile.Length); resources.Bytes(profile); if (profile.Length % 2 != 0) resources.U8(0);
+        }
+        if (SavedAlpha != null)
+        {
+            resources.Ascii("8BIM"); resources.U16(1006); resources.U16(0);
+            resources.U32(6); resources.U8(5); resources.Ascii("Alpha");
         }
         file.Block(resources);
 
@@ -108,8 +114,9 @@ internal sealed class PsdWriter
 
         // The merged image: one compression for all planes, R, G, B (and A with four channels).
         var planes = new List<byte[]>();
-        for (var c = 0; c < Channels; c++) planes.Add(Composite == null ? new byte[Width * Height] : Plane(Composite, c switch { 0 => 0, 1 => 1, 2 => 2, _ => -1 }));
-        if (Channels == 4 && Composite != null)
+        for (var c = 0; c < Channels; c++) planes.Add(c == 3 && SavedAlpha != null ? Plane(SavedAlpha, -1)
+            : Composite == null ? new byte[Width * Height] : Plane(Composite, c switch { 0 => 0, 1 => 1, 2 => 2, _ => -1 }));
+        if (Channels == 4 && Composite != null && SavedAlpha == null)
             for (var c = 0; c < 3; c++)
             for (var i = 0; i < planes[c].Length; i++)
                 planes[c][i] = (byte)((planes[c][i] * planes[3][i] + 127) / 255 + 255 - planes[3][i]);
@@ -346,6 +353,7 @@ internal sealed class PsdWriter
         public bool FauxBold, FauxItalic, Vertical, Warp;
         /// <summary>A second style run that differs from the first, when set.</summary>
         public double? SecondSize;
+        public int? TextIndex;
         /// <summary>The 2×3 transform: xx, xy, yx, yy and the translation.</summary>
         public double Xx = 1, Xy, Yx, Yy = 1, Tx = 40, Ty = 50;
         /// <summary>Paragraph text: the frame and the glyphs' box, in text-space units.</summary>
@@ -360,6 +368,7 @@ internal sealed class PsdWriter
             foreach (var value in new[] { Xx, Yx, Xy, Yy, Tx, Ty }) block.F64(value);
             block.U16(50);
             var text = new Descriptor().Add("Txt ", Descriptor.Text(Text)).Add("Ornt", Descriptor.Enum("Ornt", Vertical ? "Vrtc" : "Hrzn"));
+            if (TextIndex is { } index) text.Add("TextIndex", Descriptor.Long(index));
             if (Bounds is { } bounds) text.Add("bounds", Descriptor.Objc(Rect(bounds)));
             if (GlyphBounds is { } glyphs) text.Add("boundingBox", Descriptor.Objc(Rect(glyphs)));
             if (!NoEngine) text.Add("EngineData", Descriptor.Raw(Encoding.Latin1.GetBytes(Engine())));

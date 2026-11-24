@@ -152,6 +152,7 @@ public sealed class PsdImport
         var pending = new Dictionary<Guid, List<Layer>>();
         var openGroups = new Stack<Guid>();
         var clipping = new HashSet<Guid>();
+        var textFrames = file.Extra.TryGetValue("Txt2", out var textTable) ? PsdText.EngineData.ParseDocument(textTable) : null;
         foreach (var record in file.Layers)
         {
             if (record.IsDivider)
@@ -179,15 +180,15 @@ public sealed class PsdImport
             }
             else
             {
-                layer = BuildLayer(record, name, canvas, ref remaining, conversions);
+                layer = BuildLayer(record, name, canvas, ref remaining, conversions, textFrames);
                 if (SmartObjectKeys.Any(record.Extra.ContainsKey))
                     layer = ImportSmartObject(record, layer, name, embedded, sources, ref remaining, depth, conversions, preserveProfile);
                 if (layer == null) continue;
                 if (!Blends.ContainsKey(record.BlendKey) && record.BlendKey != "pass")
                     conversions.Add(new PsdConversion(name, $"Blend mode \"{record.BlendKey.Trim()}\" isn't supported and will be applied as Normal."));
                 layer.Blend = Blends.GetValueOrDefault(record.BlendKey, BlendMode.Normal);
-                if (record.Clipping) clipping.Add(layer.Id);
             }
+            if (record.Clipping) clipping.Add(layer.Id);
             layer.Visible = !record.Hidden;
             if (layer.Pixels != null) layer.Effects = PsdEffects.Read(record, file.GlobalLightAngle, conversions);
             else if (EffectKeys.Any(record.Extra.ContainsKey)) conversions.Add(new(name, "Effects on folders/adjustments are not supported."));
@@ -224,7 +225,8 @@ public sealed class PsdImport
         return Math.Clamp(hasEffects && record.Fill != 255 ? opacity : opacity * (record.Fill / 255.0), 0, 1);
     }
 
-    private static Layer? BuildLayer(PsdLayer record, string name, SKSizeI canvas, ref long remaining, List<PsdConversion> conversions)
+    private static Layer? BuildLayer(PsdLayer record, string name, SKSizeI canvas, ref long remaining, List<PsdConversion> conversions,
+        Dictionary<string, object?>? textFrames)
     {
         var extra = record.Extra;
         void Note(string message) => conversions.Add(new PsdConversion(name, message));
@@ -250,7 +252,7 @@ public sealed class PsdImport
         {
             // Horizontal type keeps its wording, font, size, color, alignment, tracking and leading, so it can be retyped.
             var available = remaining + (long)(record.Image?.ByteCount ?? 0) / 4;
-            if (PsdText.Parse(extra) is { } source && PsdText.Place(source, name, ref available, record) is { } text)
+            if (PsdText.Parse(extra, textFrames) is { } source && PsdText.Place(source, name, ref available, record) is { } text)
             {
                 remaining = available;
                 record.Image?.Dispose();
@@ -394,7 +396,7 @@ public sealed class PsdImport
         layer.MaskFeather = double.IsFinite(record.MaskFeather) ? Math.Clamp(record.MaskFeather, 0, 1000) : 0;
     }
 
-    /// <summary>A clipped layer follows the sibling below it here, so clipping onto a folder or an adjustment has no base to keep.</summary>
+    /// <summary>A clipping chain uses the coverage of its first unclipped sibling, including a folder's rendered contents.</summary>
     private static void ResolveClipping(List<Layer> siblings, HashSet<Guid> clipping, List<PsdConversion> conversions)
     {
         for (var i = 0; i < siblings.Count; i++)
@@ -405,7 +407,7 @@ public sealed class PsdImport
             Layer? baseLayer = null;
             for (var j = i - 1; j >= 0; j--)
                 if (!clipping.Contains(siblings[j].Id)) { baseLayer = siblings[j]; break; }
-            if (baseLayer is { Pixels: not null }) layer.Clipped = true;
+            if (baseLayer is { Pixels: not null } or { IsGroup: true }) layer.Clipped = true;
             else conversions.Add(new PsdConversion(layer.Name, "This clipping mask's base isn't supported, so clipping was skipped."));
         }
     }

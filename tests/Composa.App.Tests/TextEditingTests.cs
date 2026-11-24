@@ -7,6 +7,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Composa.Editing;
+using Composa.App.Controls;
 using Composa.Model;
 using SkiaSharp;
 
@@ -37,6 +38,34 @@ public class TextEditingTests
         window.MouseDown(At(x, y), MouseButton.Left, modifiers);
         window.MouseUp(At(x, y), MouseButton.Left, modifiers);
         Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public void The_shape_menu_starts_path_text_and_the_canvas_accepts_editing()
+    {
+        var shape = session.AddPath(new VectorPath
+        {
+            Nodes = [BezierNode.Corner(120, 240) with { OutX = 220, OutY = 110 },
+                BezierNode.Corner(550, 240) with { InX = 450, InY = 110 }]
+        });
+        Dispatcher.UIThread.RunJobs();
+        var panel = window.GetVisualDescendants().OfType<LayersPanel>().Single();
+        var row = panel.GetVisualDescendants().OfType<Border>().Single(border => border.Tag == shape);
+        var menu = row.ContextMenu!;
+        menu.Open(row);
+        var item = menu.Items.OfType<MenuItem>().Single(command => (string?)command.Header == "Text on Path…");
+        menu.Close();
+        item.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var label = Assert.IsType<Layer>(session.TextEditLayer);
+        Assert.NotNull(label.Text!.Path);
+        window.KeyTextInput("Curve");
+        Assert.Equal("Curve", label.Text.Text);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session.IsEditingText);
+        Assert.Equal("Text on Path", session.History.UndoName);
+        Assert.NotNull(session.Document.Find(shape.Id));
     }
 
     [AvaloniaFact]

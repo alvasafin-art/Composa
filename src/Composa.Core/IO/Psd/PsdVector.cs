@@ -55,36 +55,10 @@ internal static class PsdVector
     private static VectorGradient? ReadAngularGradient(Dictionary<string, object?> paint, Dictionary<string, object?> gradient)
     {
         if (PsdDescriptor.Enumeration(paint, "Type") != "Angl" || PsdDescriptor.Flag(paint, "Algn") == false
-            || PsdDescriptor.Enumeration(gradient, "GrdF") != "CstS"
             || PsdDescriptor.Enumeration(paint, "gradientsInterpolationMethod") is not (null or "Smoo")
             || PsdDescriptor.Number(paint, "Scl ") is not (null or 100)
             || PsdDescriptor.Number(paint, "gradientAspectRatio") is not (null or 1)) return null;
-        if (PsdDescriptor.List(gradient, "Clrs") is not { Count: >= 2 and <= 64 } colors
-            || PsdDescriptor.List(gradient, "Trns") is not { Count: <= 64 } opacities) return null;
-
-        var reverse = PsdDescriptor.Flag(paint, "Rvrs") == true;
-        double? Position(Dictionary<string, object?> stop)
-        {
-            if (PsdDescriptor.Number(stop, "Mdpn") is not (null or 50)
-                || PsdDescriptor.Number(stop, "Lctn") is not { } loc || loc is < 0 or > 4096) return null;
-            return reverse ? 1 - loc / 4096 : loc / 4096;
-        }
-        var colorStops = new List<GradientColorStop>();
-        foreach (var item in colors)
-        {
-            if (item is not Dictionary<string, object?> stop || Position(stop) is not { } at
-                || PsdDescriptor.Color(PsdDescriptor.Child(stop, "Clr ")) is not { } color) return null;
-            colorStops.Add(new(at, color));
-        }
-        var opacityStops = new List<GradientOpacityStop>();
-        foreach (var item in opacities)
-        {
-            if (item is not Dictionary<string, object?> stop || Position(stop) is not { } at
-                || PsdDescriptor.Number(stop, "Opct") is not { } opacity || opacity is < 0 or > 100) return null;
-            opacityStops.Add(new(at, opacity / 100));
-        }
-        if (reverse) { colorStops.Reverse(); opacityStops.Reverse(); }
-        var ramp = new GradientRamp { Colors = colorStops.ToArray(), Opacities = opacityStops.ToArray() }.Normalized();
+        if (PsdGradient.ReadRamp(gradient, PsdDescriptor.Flag(paint, "Rvrs") == true).Ramp is not { } ramp) return null;
         var offset = PsdDescriptor.Child(paint, "Ofst");
         double x = (PsdDescriptor.Number(offset, "Hrzn") ?? 0) / 100, y = (PsdDescriptor.Number(offset, "Vrtc") ?? 0) / 100;
         if (Math.Abs(x) > 1 || Math.Abs(y) > 1) return null;

@@ -113,25 +113,64 @@ public class PsdTests
     }
 
     [Fact]
-    public void Clipping_follows_the_sibling_below_and_is_skipped_over_unsupported_bases()
+    public void Clipping_follows_the_sibling_below_including_a_nested_folder_base()
     {
         var writer = new PsdWriter { Width = 50, Height = 50 };
         writer.Layers.Add(new PsdWriterLayer { Name = "Base", Image = Solid(20, 20, SKColors.Red) });
         writer.Layers.Add(new PsdWriterLayer { Name = "Clipped", Image = Solid(50, 50, SKColors.Blue), Clipping = true });
         writer.Layers.Add(new PsdWriterLayer { Name = "Also clipped", Image = Solid(50, 50, SKColors.Green), Clipping = true });
         writer.Layers.Add(new PsdWriterLayer { Name = "</Layer group>" }.With("lsct", PsdWriter.Section(3)));
-        writer.Layers.Add(new PsdWriterLayer { Name = "Inside", Image = Solid(10, 10, SKColors.Blue) });
+        writer.Layers.Add(new PsdWriterLayer { Name = "Inside", Image = Solid(10, 10, SKColors.Blue), Left = 25 });
         writer.Layers.Add(new PsdWriterLayer { Name = "Folder" }.With("lsct", PsdWriter.Section(1)));
-        writer.Layers.Add(new PsdWriterLayer { Name = "Over folder", Image = Solid(10, 10, SKColors.Blue), Clipping = true });
+        writer.Layers.Add(new PsdWriterLayer { Name = "</Layer group>" }.With("lsct", PsdWriter.Section(3)));
+        writer.Layers.Add(new PsdWriterLayer { Name = "Over folder", Image = Solid(50, 50, SKColors.Yellow) });
+        writer.Layers.Add(new PsdWriterLayer { Name = "Clipped folder", Clipping = true }.With("lsct", PsdWriter.Section(1)));
+        writer.Layers.Add(new PsdWriterLayer { Name = "Over clipped folder", Image = Solid(50, 50, SKColors.Magenta), Clipping = true });
 
         var import = Load(writer);
         Assert.True(import.Layers[1].Clipped);
         Assert.True(import.Layers[2].Clipped);
-        Assert.False(import.Layers[4].Clipped);
-        Assert.Contains(import.Conversions, c => c.LayerName == "Over folder" && c.Message.Contains("clipping was skipped"));
+        Assert.True(import.Layers[4].Clipped);
+        Assert.True(import.Layers[5].Clipped);
+        Assert.Empty(import.Conversions);
         using var flat = DocumentRenderer.Flatten(import.ToDocument());
         AssertColor(SKColors.Green, flat.GetPixel(10, 10));                 // Clipped to the base.
+        AssertColor(SKColors.Magenta, flat.GetPixel(26, 5));               // Both followers use the folder.
         Assert.Equal(0, flat.GetPixel(40, 40).Alpha);                       // Nothing outside it.
+        using var stream = new MemoryStream();
+        PsdExport.Write(import.ToDocument(), stream);
+        var reopened = PsdImport.Load(stream.ToArray());
+        Assert.True(reopened.Layers[4].Clipped);
+        Assert.True(reopened.Layers[5].Clipped);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    public void The_merged_preview_ignores_a_saved_alpha_channel(int compression, bool layered)
+    {
+        using var red = Solid(8, 8, SKColors.Red);
+        using var selection = Pixels.NewMask(8, 8);
+        var writer = new PsdWriter { Width = 8, Height = 8, Channels = 4, Composite = red, SavedAlpha = selection, Compression = compression };
+        if (layered) writer.Layers.Add(new PsdWriterLayer { Image = red });
+        var appearance = PsdImport.LoadAppearance(writer.Build(), DocumentLimits.DocumentPixelBudget);
+        Assert.Equal(SKColors.Red, appearance.Layers.Single().Pixels!.GetPixel(0, 0));
+    }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void The_merged_preview_uses_the_transparency_of_an_exported_layered_file(ColorDepth depth)
+    {
+        using var bitmap = Solid(8, 8, new SKColor(255, 0, 0, 128));
+        var doc = new Document(8, 8) { Depth = depth };
+        doc.Layers.Add(Layer.Raster("Red", bitmap));
+        using var file = new MemoryStream();
+        PsdExport.Write(doc, file);
+        var appearance = PsdImport.LoadAppearance(file.ToArray(), DocumentLimits.DocumentPixelBudget);
+        var pixel = appearance.Layers.Single().Pixels!.GetPixel(0, 0);
+        Assert.InRange(pixel.Alpha, 127, 129);
+        Assert.InRange(pixel.Red, 252, 255);
     }
 
     [Fact]

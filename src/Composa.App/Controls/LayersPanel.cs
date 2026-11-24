@@ -656,6 +656,10 @@ public sealed partial class LayersPanel : UserControl
         Add("Blending Options…", () => EditBlendingRequested?.Invoke(layer), !several);
         if (layer.IsAdjustment) Add("Edit Adjustment…", () => EditAdjustmentRequested?.Invoke(layer));
         if (layer.Shape != null) Add("Shape Properties…", () => EditShapeRequested?.Invoke(layer));
+        if (current.CanCreateTextOnPath(layer)) Add("Text on Path…", () =>
+        {
+            if (current.BeginTextOnPath(layer) is { } created) EditTextRequested?.Invoke(created);
+        });
         if (layer.Text != null) Add("Edit Text…", () => EditTextRequested?.Invoke(layer));
         if (layer.IsLive) Add("Rasterize Layer", () => current.RasterizeShape(layer));
         if (layer.Shape?.Path is { Closed: true })
