@@ -32,7 +32,12 @@ public sealed partial class AiTaskService : IAiTaskRunner
         {
             var choices = ModelSelections(serverUrl());
             var bindingTask = task == AiTaskKind.SelectSubject ? AiTaskKind.ObjectSelection : task;
-            return Engines.ImageModels(bindingTask, engine, choices, PreferredModelRoutes()).FirstOrDefault(model => model.ModelKey == key)?.Engine;
+            var matched = Engines.ImageModels(bindingTask, engine, choices, PreferredModelRoutes()).FirstOrDefault(model => model.ModelKey == key);
+            if (engine?.Id == "flux2-klein-intel-xpu" && engine.Binding(bindingTask) != null &&
+                key.StartsWith("server:", StringComparison.Ordinal) && WorkflowModels.IsKlein9BVariant(key["server:".Length..]) &&
+                WorkflowModels.IsKlein9BVariant(Engines.ModelFor(engine, bindingTask, choices).Identifier))
+                return engine;
+            return matched?.Engine;
         }
         if (id == null && task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.Upscale && engine?.Binding(task) == null)
             engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
@@ -216,7 +221,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
             || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage;
         if (saved == null && fullEdit) binding = engine.Binding(AiTaskKind.ImageEdit) ?? throw new InvalidOperationException("This pack has no full-image edit workflow.");
         var workflow = saved == null ? engine.Workflow(binding.Workflow) : new EngineWorkflow();
-        var graph = saved?.Graph ?? Engines.ReadWorkflow(engine, workflow);
+        var graph = saved != null ? (JsonObject)saved.Graph.DeepClone() : Engines.ReadWorkflow(engine, workflow);
         var qwen = saved == null && engine.Id == QwenImageWorkflow.EngineId;
         var paid = saved == null && engine.PaidApi;
         if (paid && NanoBanana.IsModel(engine.ApiModel) && request.ReferenceImages.Count + (request.Task == AiTaskKind.GenerateImage ? 0 : 1) > 14)
@@ -276,7 +281,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 if (paid && engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel!, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
-            if (saved == null) WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
+            WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
                 var variantSeed = (seed + index) & long.MaxValue;
@@ -508,7 +513,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
         if (ActiveWorkflow(operation, engine) is { } saved)
         {
             EditableWorkflows.Validate(saved, operation);
-            return EngineCompatibility.CheckWorkflow(saved.Graph, capabilities);
+            var assignedGraph = (JsonObject)saved.Graph.DeepClone();
+            WorkflowModels.ApplyChoices(assignedGraph, engine.Id, choices);
+            WorkflowModels.ResolvePaths(assignedGraph, capabilities);
+            return EngineCompatibility.CheckWorkflow(assignedGraph, capabilities);
         }
         var binding = engine.Binding(operation);
         if (binding == null) return new(false, ["No workflow for this operation"]);

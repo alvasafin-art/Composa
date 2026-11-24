@@ -292,7 +292,6 @@ public class QwenImageTests
             var tabs = dialog.GetVisualDescendants().OfType<StudioSettingsPages>().Single(); tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == "Qwen Image 2.1 Turbo");
             Assert.True(Screenshots.Save(dialog, "qwen21-settings"));
-            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true; Dispatcher.UIThread.RunJobs();
             var page = Assert.IsType<ScrollViewer>(tabs.Content);
             page.Offset=new(0,1000);Dispatcher.UIThread.RunJobs();Assert.True(Screenshots.Save(dialog,"qwen21-models"));
             tabs.SelectedIndex = 2; Dispatcher.UIThread.RunJobs();
@@ -399,6 +398,9 @@ public class QwenImageTests
             search.Focus();
             dialog.KeyPressQwerty(Avalonia.Input.PhysicalKey.Enter, Avalonia.Input.RawInputModifiers.None);
             Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<Button>().Single(button => button.GetVisualDescendants().OfType<TextBlock>()
+                .Any(label => label.Text == "edit.json")).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
             var operation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(b => b.Name == "ModelOperation");
             operation.SelectedItem = AiTaskKind.GenerativeFill; Dispatcher.UIThread.RunJobs();
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), b => b.Text == "Ready");
@@ -429,8 +431,12 @@ public class QwenImageTests
             dialog.Width = 1280;
             dialog.Height = 720;
             var pages = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, Locale.T("Run parameters ›")));
             Assert.True(Screenshots.Save(dialog, "studio-settings-01-operations-ru"));
             ClickText("Image Edit");
+            Assert.Equal(6, pages.SelectedIndex);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-01-operations-expanded-ru"));
+            Click("Run parameters ›");
             Assert.Equal(8, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-04-operation-ru"));
             Click("Open model ›");
@@ -447,7 +453,7 @@ public class QwenImageTests
             Assert.Equal(2, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-05-prompt-ru"));
             Click("Test prompt");
-            var warning = dialog.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "AvsPromptHelperWarning");
+            var warning = dialog.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "AvsPromptHelperWarning" && border.IsVisible);
             Assert.True(warning.IsVisible);
             Assert.Empty(connection.Graphs);
             var scroll = Assert.IsType<ScrollViewer>(pages.Content);
@@ -484,7 +490,7 @@ public class QwenImageTests
 
             void Click(string title)
             {
-                dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, Locale.T(title)))
+                dialog.GetVisualDescendants().OfType<Button>().Single(button => button.IsEffectivelyVisible && Equals(button.Content, Locale.T(title)))
                     .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 Dispatcher.UIThread.RunJobs();
             }
@@ -497,6 +503,42 @@ public class QwenImageTests
             }
         }
         finally { Locale.Language = previousLanguage; owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task First_launch_connection_check_loads_models_without_sending_a_prompt()
+    {
+        var settings = new Settings { EnhancerProvider = "comfy", ComfyServerUrl = "http://localhost:8188" };
+        var connection = new Connection();
+        var service = new AiTaskService(() => settings.ComfyServerUrl, Engines, _ => connection);
+        var owner = new Window { Width = 1280, Height = 720 };
+        owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service, firstRun: true);
+            if (pending.IsFaulted) await pending;
+            var window = Assert.Single(owner.OwnedWindows);
+            Dispatcher.UIThread.RunJobs();
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, Locale.T("Test prompt")));
+            window.GetVisualDescendants().OfType<Button>().First(button => Equals(button.Content, Locale.T("Check connection")))
+                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(), picker => picker.Items.Contains("gpt-6-luna"));
+            Assert.Empty(connection.Graphs);
+            var textAddress = window.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "EnhancerComfyServer");
+            var imageAddress = window.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "ImageComfyServer");
+            Assert.Equal(textAddress.TranslatePoint(default, window)!.Value.X, imageAddress.TranslatePoint(default, window)!.Value.X, precision: 2);
+            foreach (var address in new[] { textAddress, imageAddress })
+            {
+                var label = Assert.IsType<TextBlock>(Assert.IsType<StackPanel>(address.Parent).Children[0]);
+                Assert.True(label.TranslatePoint(default, window)!.Value.Y < address.TranslatePoint(default, window)!.Value.Y);
+            }
+            imageAddress.Text = "http://localhost:8190";
+            Assert.Equal(imageAddress.Text, textAddress.Text);
+            window.Close(false);
+            Assert.False(await pending);
+        }
+        finally { owner.Close(); }
     }
 
     private sealed class Connection : IComfyConnection

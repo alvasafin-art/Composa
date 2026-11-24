@@ -47,7 +47,7 @@ internal static class LocalCodex
     }
 
     internal static async Task<string> EnhanceAsync(string path, string model, string instructions, string message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string effort = "default")
     {
         var executable = FindExecutable(path);
         if (executable == null)
@@ -68,6 +68,11 @@ internal static class LocalCodex
             {
                 args.Add("--model");
                 args.Add(model.Trim());
+            }
+            if (effort != "default" && !string.IsNullOrWhiteSpace(effort))
+            {
+                args.Add("-c");
+                args.Add("model_reasoning_effort=" + JsonSerializer.Serialize(effort));
             }
             args.Add("-");
             var prompt = "Rewrite the image prompt as plain text. Do not use tools or access files. Return only the result.\n\n"
@@ -90,6 +95,105 @@ internal static class LocalCodex
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
+    }
+
+    internal sealed record TextModel(string Id, string Title, string[] Efforts, bool IsDefault);
+
+    internal static async Task<IReadOnlyList<TextModel>> DiscoverModelsAsync(string path, CancellationToken cancellationToken)
+    {
+        var executable = FindExecutable(path) ?? throw new InvalidOperationException("Codex CLI was not found. Install Codex or select its executable.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(25));
+        var token = timeout.Token;
+        var workspace = Directory.CreateTempSubdirectory("composa-codex-models-");
+        try
+        {
+            await VerifyLoginAsync(executable, workspace.FullName, token);
+            var start = new ProcessStartInfo(executable)
+            {
+                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workspace.FullName,
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                StandardInputEncoding = new UTF8Encoding(false)
+            };
+            foreach (var arg in new[] { "app-server", "--listen", "stdio://" }) start.ArgumentList.Add(arg);
+            using var process = Process.Start(start) ?? throw new InvalidOperationException("Composa could not start the selected CLI executable.");
+            var stderr = process.StandardError.BaseStream.CopyToAsync(Stream.Null, token);
+            try
+            {
+                await Send(new { method = "initialize", id = 1, @params = new { clientInfo = new { name = "composa", title = "Composa", version = AppInfo.Version } } });
+                _ = await Receive(1);
+                await Send(new { method = "initialized" });
+                var models = new List<TextModel>();
+                string? cursor = null;
+                for (var id = 2; id < 12; id++)
+                {
+                    await Send(new { method = "model/list", id, @params = new { limit = 100, includeHidden = false, cursor } });
+                    var result = await Receive(id);
+                    models.AddRange(ParseModels(result));
+                    cursor = result.TryGetProperty("nextCursor", out var next) && next.ValueKind == JsonValueKind.String ? next.GetString() : null;
+                    if (string.IsNullOrEmpty(cursor)) break;
+                }
+                return models.DistinctBy(model => model.Id).ToArray();
+            }
+            finally
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+                try { await stderr; }
+                catch (OperationCanceledException) { }
+                catch (IOException) { }
+            }
+
+            async Task Send(object message)
+            {
+                await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(message).AsMemory(), token);
+                await process.StandardInput.FlushAsync(token);
+            }
+
+            async Task<JsonElement> Receive(int id)
+            {
+                while (await process.StandardOutput.ReadLineAsync(token) is { } line)
+                {
+                    using var frame = JsonDocument.Parse(line);
+                    var response = frame.RootElement;
+                    if (!response.TryGetProperty("id", out var identifier) || identifier.ValueKind != JsonValueKind.Number ||
+                        !identifier.TryGetInt32(out var value) || value != id) continue;
+                    if (response.TryGetProperty("result", out var result)) return result.Clone();
+                    break;
+                }
+                throw new InvalidOperationException("Codex CLI did not return a model catalog.");
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        { throw new InvalidOperationException("Codex CLI timed out."); }
+        finally
+        {
+            try { workspace.Delete(recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    internal static IEnumerable<TextModel> ParseModels(JsonElement result)
+    {
+        if (!result.TryGetProperty("data", out var rows) || rows.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Codex CLI did not return a model catalog.");
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object || row.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
+                continue;
+            var id = Text(row, "model") ?? Text(row, "id");
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            var efforts = row.TryGetProperty("supportedReasoningEfforts", out var supported) && supported.ValueKind == JsonValueKind.Array
+                ? supported.EnumerateArray().Where(value => value.ValueKind == JsonValueKind.Object)
+                    .Select(value => Text(value, "reasoningEffort")).OfType<string>().Distinct().ToArray() : [];
+            yield return new(id, Text(row, "displayName") ?? id, efforts,
+                row.TryGetProperty("isDefault", out var preferred) && preferred.ValueKind == JsonValueKind.True);
+        }
+
+        static string? Text(JsonElement value, string name) =>
+            value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String ? property.GetString() : null;
     }
 
     internal static async Task<SKBitmap> GenerateAsync(string path, string prompt, int width, int height,

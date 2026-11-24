@@ -21,7 +21,9 @@ internal sealed class ConnectionModelCatalog
     private readonly Dictionary<string, List<Entry>> drafts = new(StringComparer.Ordinal);
     private readonly Func<(Uri Credential, Uri Models)> address;
     private readonly Func<Uri, string?> credential;
-    private readonly TextBox selectedModel;
+    private readonly bool images;
+    private readonly string legacyModel;
+    private readonly string? legacyScope;
     private readonly StackPanel rows = Ui.Column(6);
     private readonly TextBlock status = Caption("");
     private readonly Button fetch;
@@ -32,13 +34,16 @@ internal sealed class ConnectionModelCatalog
     internal Control View { get; }
 
     internal ConnectionModelCatalog(Dictionary<string, Dictionary<string, string>> saved,
-        TextBox endpoint, TextBox key, TextBox selectedModel, Func<(Uri, Uri)> address,
+        TextBox endpoint, TextBox key, TextBox selectedModel, Func<(Uri Credential, Uri Models)> address,
         Func<Uri, string?> credential, CancellationToken lifetime, bool images = false)
     {
         this.saved = saved;
         this.address = address;
         this.credential = credential;
-        this.selectedModel = selectedModel;
+        this.images = images;
+        legacyModel = selectedModel.Text?.Trim() ?? "";
+        try { legacyScope = address().Credential.AbsoluteUri; }
+        catch (FormatException) { }
         fetch = Ui.TextButton("Get available models", () => { });
         add = Ui.TextButton("Add model", () => { if (current != null) { Entries().Add(new("", "")); Render(); } });
         reset = Ui.TextButton("Reset this connection’s catalog", () =>
@@ -49,49 +54,10 @@ internal sealed class ConnectionModelCatalog
         });
         fetch.Click += async (_, _) =>
         {
-            if (current == null) return;
-            var check = revision;
-            fetch.IsEnabled = false;
-            status.Text = Locale.T("Reading model catalog…");
-            try
-            {
-                var (scope, list) = address();
-                using var client = new HttpClient(new HttpClientHandler { UseProxy = !list.IsLoopback, AllowAutoRedirect = false })
-                {
-                    Timeout = TimeSpan.FromSeconds(15), MaxResponseContentBufferSize = 4 * 1024 * 1024
-                };
-                using var request = new HttpRequestMessage(HttpMethod.Get, list);
-                if (credential(scope) is { Length: > 0 } token) request.Headers.Authorization = new("Bearer", token);
-                using var response = await client.SendAsync(request, lifetime);
-                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                    throw new InvalidOperationException("The API refused authorization. Check the key.");
-                if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Catalog request failed (HTTP {(int)response.StatusCode}).");
-                using var payload = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: lifetime);
-                if (check != revision || lifetime.IsCancellationRequested) return;
-                if (payload == null || !payload.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-                    throw new InvalidDataException("The API returned an invalid model catalog.");
-                var entries = Entries();
-                var known = entries.Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
-                foreach (var model in data.EnumerateArray())
-                {
-                    if (model.ValueKind != JsonValueKind.Object || !model.TryGetProperty("id", out var idValue) ||
-                        idValue.ValueKind != JsonValueKind.String || idValue.GetString() is not { Length: > 0 } id) continue;
-                    if (images && model.TryGetProperty("architecture", out var architecture) && architecture.ValueKind == JsonValueKind.Object &&
-                        architecture.TryGetProperty("output_modalities", out var outputs) && outputs.ValueKind == JsonValueKind.Array &&
-                        !outputs.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.String && value.GetString() == "image"))
-                        continue;
-                    if (known.Add(id) && entries.Count < 500)
-                        entries.Add(new(id, model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? id : id));
-                }
-                status.Text = Locale.T("The API responded. Models are available below.");
-                Render();
-            }
+            try { await FetchAsync(lifetime); }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-            catch (Exception error) when (error is InvalidOperationException or HttpRequestException or OperationCanceledException or JsonException or IOException)
-            {
-                if (check == revision) status.Text = Locale.Message(error.Message);
-            }
-            finally { fetch.IsEnabled = current != null; }
+            catch (Exception error) when (error is InvalidOperationException or FormatException or HttpRequestException or OperationCanceledException or JsonException or IOException)
+            { status.Text = Locale.Message(error.Message); }
         };
         reset.Classes.Add("flat");
         fetch.Classes.Add("flat");
@@ -107,9 +73,53 @@ internal sealed class ConnectionModelCatalog
         Entries().Where(row => !string.IsNullOrWhiteSpace(row.Id)).DistinctBy(row => row.Id.Trim())
             .Select(row => (row.Id.Trim(), string.IsNullOrWhiteSpace(row.Name) ? row.Id.Trim() : row.Name.Trim())).ToArray();
 
-    internal void Refresh()
+    internal event Action? Changed;
+    internal bool CanFetch => current != null;
+    internal string LegacySelection => current != null && current == legacyScope && Models.Any(row => row.Id == legacyModel) ? legacyModel : "";
+
+    internal async Task<int> FetchAsync(CancellationToken token)
     {
-        if (fetch.IsEnabled) fetch.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        if (current == null) throw new FormatException("Enter a complete API base URL.");
+        var version = revision;
+        fetch.IsEnabled = false;
+        status.Text = Locale.T("Reading model catalog…");
+        try
+        {
+            var (scope, list) = address();
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = !list.IsLoopback, AllowAutoRedirect = false })
+            {
+                Timeout = TimeSpan.FromSeconds(15), MaxResponseContentBufferSize = 4 * 1024 * 1024
+            };
+            using var request = new HttpRequestMessage(HttpMethod.Get, list);
+            if (credential(scope) is { Length: > 0 } key) request.Headers.Authorization = new("Bearer", key);
+            using var response = await client.SendAsync(request, token);
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                throw new InvalidOperationException("The API refused authorization. Check the key.");
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Catalog request failed (HTTP {(int)response.StatusCode}).");
+            using var payload = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: token);
+            token.ThrowIfCancellationRequested();
+            if (version != revision) return 0;
+            if (payload == null || !payload.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("The API returned an invalid model catalog.");
+            var entries = Entries();
+            var known = entries.Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+            var found = 0;
+            foreach (var model in data.EnumerateArray())
+            {
+                if (model.ValueKind != JsonValueKind.Object || !model.TryGetProperty("id", out var idValue) ||
+                    idValue.ValueKind != JsonValueKind.String || idValue.GetString() is not { Length: > 0 } id) continue;
+                if (images && model.TryGetProperty("architecture", out var architecture) && architecture.ValueKind == JsonValueKind.Object &&
+                    architecture.TryGetProperty("output_modalities", out var outputs) && outputs.ValueKind == JsonValueKind.Array &&
+                    !outputs.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.String && value.GetString() == "image")) continue;
+                found++;
+                if (known.Add(id) && entries.Count < 500)
+                    entries.Add(new(id, model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? id : id));
+            }
+            status.Text = Locale.T(found > 0 ? "The API responded. Models are available below." : "The API reported no models.");
+            Render();
+            return found;
+        }
+        finally { fetch.IsEnabled = current != null; }
     }
 
     internal Dictionary<string, Dictionary<string, string>> Save()
@@ -138,7 +148,11 @@ internal sealed class ConnectionModelCatalog
     private List<Entry> Entries()
     {
         if (!drafts.TryGetValue(current!, out var entries))
+        {
             drafts[current!] = entries = saved.GetValueOrDefault(current!)?.Select(pair => new Entry(pair.Key, pair.Value)).ToList() ?? [];
+            if (current == legacyScope && legacyModel.Length > 0 && !entries.Any(entry => entry.Id == legacyModel))
+                entries.Add(new(legacyModel, ""));
+        }
         return entries;
     }
 
@@ -147,20 +161,23 @@ internal sealed class ConnectionModelCatalog
         rows.Children.Clear();
         if (current == null) return;
         var entries = Entries();
-        const string widths = "*,*,135";
+        const string widths = "*,*,35";
         rows.Children.Add(Columns(widths, Caption("Model ID"), Caption("Display name"), Caption("")));
         foreach (var row in entries)
         {
             var id = new TextBox { Text = row.Id };
             var name = new TextBox { Text = row.Name };
-            id.TextChanged += (_, _) => row.Id = id.Text ?? "";
-            name.TextChanged += (_, _) => row.Name = name.Text ?? "";
-            var use = Ui.TextButton("Use", () =>
-            {
-                if (!string.IsNullOrWhiteSpace(row.Id)) selectedModel.Text = row.Id.Trim();
-            });
-            var remove = Ui.TextButton("Remove", () => { entries.Remove(row); Render(); });
-            rows.Children.Add(Columns(widths, id, name, Ui.Row(5, use, remove)));
+            Avalonia.Automation.AutomationProperties.SetName(id, Locale.T("Model ID"));
+            Avalonia.Automation.AutomationProperties.SetName(name, Locale.T("Display name"));
+            id.TextChanged += (_, _) => { row.Id = id.Text ?? ""; Changed?.Invoke(); };
+            name.TextChanged += (_, _) => { row.Name = name.Text ?? ""; Changed?.Invoke(); };
+            var remove = Ui.TextButton("", () => { entries.Remove(row); Render(); }, translate: false);
+            remove.Content = Icons.Create(Icons.Trash, 14);
+            remove.MinWidth = 30;
+            Locale.Tip(remove, "Remove model");
+            Avalonia.Automation.AutomationProperties.SetName(remove, Locale.T("Remove model"));
+            rows.Children.Add(Columns(widths, id, name, remove));
         }
+        Changed?.Invoke();
     }
 }

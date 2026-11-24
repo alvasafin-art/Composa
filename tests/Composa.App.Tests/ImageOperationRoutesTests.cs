@@ -15,6 +15,35 @@ namespace Composa.App.Tests;
 public sealed class ImageOperationRoutesTests
 {
     [AvaloniaFact]
+    public async Task The_image_catalog_preserves_the_legacy_model_without_a_duplicate_default_field()
+    {
+        var owner = new MainWindow { Width = 1280, Height = 720 };
+        owner.Show();
+        try
+        {
+            var settings = new Settings
+            {
+                ImageGenerationRoute = ImageGenerationRoute.DirectApi,
+                ImageGenerationApiUrl = "http://localhost:1234/v1",
+                ImageGenerationApiModel = "provider/image-model",
+                ImageApiDisplayName = "Image API"
+            };
+            var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 5);
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(dialog.GetVisualDescendants().OfType<TextBox>(), box => box.IsEffectivelyVisible && box.Text == "provider/image-model");
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("Default model ID"));
+            Assert.True(Screenshots.Save(dialog, "studio-settings-06-image-api-catalog-en"));
+            dialog.Close(true);
+            Assert.True(await pending);
+            Assert.Equal("provider/image-model", settings.ImageGenerationApiModel);
+            Assert.Contains(settings.ImageApiCatalogs.Values, models => models.ContainsKey("provider/image-model"));
+        }
+        finally { owner.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Routes_are_saved_per_operation_and_keep_legacy_workflow_and_selection_defaults()
     {
         var owner = new MainWindow { Width = 1120, Height = 850 };
@@ -29,6 +58,8 @@ public sealed class ImageOperationRoutesTests
             var dialog = Assert.Single(owner.OwnedWindows);
             Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog, "image-operation-connections"));
+            dialog.GetVisualDescendants().OfType<Expander>().Single(panel => Equals(panel.Header, Locale.T("Connection by operation"))).IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
             var routes = dialog.GetVisualDescendants().OfType<ComboBox>().Where(combo => combo.Name?.StartsWith("ImageRoute") == true)
                 .ToDictionary(combo => combo.Name!);
             Assert.Equal(DirectImageGenerator.Operations.Length, routes.Count);

@@ -240,7 +240,6 @@ public class ComfyModelSelectionTests
             Assert.True(dialog.Bounds.Height <= 780);
             var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
             tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
-            dialog.GetVisualDescendants().OfType<Expander>().Single(e => Equals(e.Header, "Model components")).IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             Assert.Single(dialog.GetVisualDescendants().OfType<ComfyModelPicker>());
             Assert.True(Screenshots.Save(dialog, "comfy-complete-settings"));
@@ -252,6 +251,25 @@ public class ComfyModelSelectionTests
         finally { dialog.Close(false); owner.Close(); }
         Assert.False(await task);
         Assert.Empty(settings.ComfyModelSelections);
+    }
+
+    [Fact]
+    public void A_new_checkpoint_does_not_invalidate_the_previously_assigned_workflow()
+    {
+        var service = new AiTaskService(() => Lan, Engines);
+        var pack = service.Engines.Find("flux2-klein-intel-xpu")!;
+        const AiTaskKind task = AiTaskKind.GenerativeFill;
+        var graph = service.Engines.ReadWorkflow(pack, EngineCatalog.WorkflowFor(pack, task));
+        var slot = Assert.Single(WorkflowModels.Slots(graph, pack.Id), item => item.Kind == EngineAssetKind.DiffusionModel);
+        const string alternate = "local/flux-2-klein-9b-fp8.safetensors";
+        Assert.Equal(alternate, WorkflowModels.ResolveSlot(slot, slot.Default, [alternate, "flux-2-klein-4b-fp8.safetensors"]));
+        Assert.Null(WorkflowModels.ResolveSlot(slot, slot.Default, [alternate, "flux-2-klein-9b-fp16.safetensors"]));
+        service.EngineIdForTask = _ => pack.Id;
+        service.ModelKeyForTask = _ => service.Engines.ModelFor(pack, task, new Dictionary<string, string>()).ModelKey;
+        service.ModelSelections = _ => new Dictionary<string, string> { [slot.Key] = alternate };
+        Assert.Same(pack, service.EngineFor(task));
+        WorkflowModels.ApplyChoices(graph, pack.Id, service.ModelSelections(Lan));
+        Assert.Equal(alternate, graph[slot.NodeId]!["inputs"]![slot.Input]!.GetValue<string>());
     }
 
     [AvaloniaFact]
@@ -350,6 +368,9 @@ public class ComfyModelSelectionTests
     public async Task Picker_saves_only_on_accept_and_never_shows_another_servers_model_list()
     {
         using var handler = new Server();
+        handler.Objects["UNETLoader"]!["input"]!["required"]!["unet_name"] = new JsonArray(
+            new JsonArray("shared/flux-2-klein-9b_int8_convrot.safetensors", "shared/my-klein.safetensors", "flux-2-klein-4b-fp8.safetensors"),
+            new JsonObject());
         using var http = new HttpClient(handler);
         var service = Service(http);
         await service.TestConnectionAsync(TestContext.Current.CancellationToken);
@@ -364,17 +385,19 @@ public class ComfyModelSelectionTests
             var combos = picker.GetLogicalDescendants().OfType<ComboBox>().ToArray();
             Assert.Equal(service.Engines.ModelSlots(service.SelectedEngine!).Count, combos.Length);
             Assert.All(combos.Take(5), combo => Assert.True(combo.IsEnabled));
-            var selected = combos[0].Items.Cast<object>().Single(item => item.ToString() == "shared/flux-2-klein-9b_int8_convrot.safetensors");
+            Assert.Equal("shared/flux-2-klein-9b_int8_convrot.safetensors", combos[0].SelectedItem?.ToString());
+            Assert.DoesNotContain(combos[0].Items, item => item?.ToString() == "flux-2-klein-4b-fp8.safetensors");
+            var selected = combos[0].Items.Cast<object>().Single(item => item.ToString() == "shared/my-klein.safetensors");
             combos[0].SelectedItem = selected;
             Assert.Empty(settings.ComfyModelSelections); // Closing without Save is Cancel.
-            Assert.Contains("shared/flux-2-klein-9b_int8_convrot.safetensors", picker.Choices(Lan).Values);
+            Assert.Contains("shared/my-klein.safetensors", picker.Choices(Lan).Values);
             Assert.True(Screenshots.Save(window, "comfy-server-model-picker"));
             address = "http://192.168.1.51:8188";
             picker.Refresh();
             Assert.All(picker.GetLogicalDescendants().OfType<ComboBox>(), combo => Assert.False(combo.IsEnabled));
             Assert.Empty(picker.Choices(address));
             picker.Save();
-            Assert.Contains("shared/flux-2-klein-9b_int8_convrot.safetensors", settings.ComfyModelsFor(Lan).Values);
+            Assert.Contains("shared/my-klein.safetensors", settings.ComfyModelsFor(Lan).Values);
             Assert.Empty(settings.ComfyModelsFor(address));
         }
         finally { window.Close(); }

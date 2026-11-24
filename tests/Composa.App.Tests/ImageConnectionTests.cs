@@ -12,6 +12,16 @@ namespace Composa.App.Tests;
 
 public sealed class ImageConnectionTests
 {
+    [Fact(Skip = "Requires the signed-in local Codex CLI.", SkipUnless = nameof(CheckLocalCatalog))]
+    public async Task Local_codex_lists_models_and_supported_efforts_without_a_generation_request()
+    {
+        var models = await LocalCodex.DiscoverModelsAsync("", TestContext.Current.CancellationToken);
+        Assert.NotEmpty(models);
+        Assert.Contains(models, model => model.Efforts.Length > 0);
+    }
+
+    public static bool CheckLocalCatalog => Environment.GetEnvironmentVariable("COMPOSA_CHECK_CODEX_CATALOG") == "1";
+
     private const string CupPrompt = "Product photograph of a cobalt-blue ceramic cup on a pale gray background.";
     public static bool LiveLocalCodex => Environment.GetEnvironmentVariable("COMPOSA_LIVE_CODEX") == "1";
     public static bool LiveComfyUI => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COMPOSA_LIVE_COMFY"));

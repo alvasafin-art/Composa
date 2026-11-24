@@ -191,7 +191,7 @@ public sealed partial class AiTaskService
         if (provider == "direct")
             return await EnhanceCompatibleAsync(settings, instructions, message, token, directKey);
         if (provider == "local-codex")
-            return await LocalCodex.EnhanceAsync(settings.EnhancerCodexPath, settings.EnhancerCodexModel, instructions, message, token);
+            return await LocalCodex.EnhanceAsync(settings.EnhancerCodexPath, settings.EnhancerCodexModel, instructions, message, token, settings.EnhancerEffort);
         using var client = Client();
         if (ConnectedServerUrl != client.Address.ToString() || ServerCapabilities == null)
             await TestConnectionAsync(token, overrideUrl: client.Address.ToString());

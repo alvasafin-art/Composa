@@ -159,7 +159,10 @@ public class AiInteractionTests
             button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == "Generate Image"))
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
-        var generation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Contains("Use default model"));
+        var connection = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Contains("ComfyUI server"));
+        connection.SelectedItem = "ComfyUI server";
+        Dispatcher.UIThread.RunJobs();
+        var generation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.OfType<ImageModelChoice>().Any());
         Assert.All(generation.Items.OfType<ImageModelChoice>(), model => Assert.NotNull(model.Engine.Binding(AiTaskKind.GenerateImage)));
         generation.SelectedItem = generation.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "flux2-klein-intel-xpu");
         Assert.True(Screenshots.Save(dialog,"ai-workflow-by-task"));
@@ -205,6 +208,11 @@ public class AiInteractionTests
             dialog.GetVisualDescendants().OfType<Button>().Single(button =>
                 button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == qwen.ModelName))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            dialog.GetVisualDescendants().OfType<Button>().Single(button =>
+                button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == "generate.json"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
             dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Make default"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             dialog.Close(true);

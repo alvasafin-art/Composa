@@ -18,6 +18,12 @@ internal sealed class DirectImageApi
     internal bool UsesNativeMask => format == Format.OpenAiImages;
     internal Uri CredentialEndpoint => Endpoint(edit: false);
     internal Uri CatalogEndpoint => new(baseAddress.AbsoluteUri.TrimEnd('/') + (format == Format.OpenRouter ? "/models?output_modalities=image" : "/models"));
+    internal string Protocol => format switch
+    {
+        Format.Polza => "Polza Images",
+        Format.OpenRouter => "OpenRouter Images",
+        _ => "OpenAI Images"
+    };
 
     private DirectImageApi(Uri address, Format format)
     {

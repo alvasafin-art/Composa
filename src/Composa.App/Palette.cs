@@ -23,7 +23,7 @@ public static class Palette
     public static readonly SolidColorBrush Window = Brush("#222326", "#E9E9E9");
     internal static readonly SolidColorBrush SettingsSidebar = Brush("#202124", "#EFEFF0");
     internal static readonly SolidColorBrush SettingsLine = Brush("#393C41", "#C9CCD0");
-    internal static readonly SolidColorBrush SettingsSelection = Brush("#384B63", "#D7E6F5");
+    internal static readonly SolidColorBrush SettingsSelection = Brush("#384B63", "#D7E6F5", "#18191B");
     internal static readonly SolidColorBrush SettingsWarning = Brush("#332E25", "#FFF4DF");
     internal static readonly SolidColorBrush SettingsWarningLine = Brush("#594B35", "#D9BA80");
     internal static readonly SolidColorBrush SettingsWarningText = Brush("#E7BB73", "#775116");

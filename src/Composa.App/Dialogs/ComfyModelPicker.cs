@@ -77,10 +77,13 @@ public sealed class ComfyModelPicker : StackPanel
         foreach (var slot in slots)
         {
             var available = connected ? service.ServerCapabilities?.ModelChoices.GetValueOrDefault(slot.LoaderKey) : null;
-            if (available != null) available = new HashSet<string>(UpscaleModels.Available(slot, available), StringComparer.OrdinalIgnoreCase);
-            var options = new List<Option> { new(null, slot.Default) };
-            options.AddRange((available ?? []).Order(StringComparer.OrdinalIgnoreCase).Select(name => new Option(name, name)));
+            if (available != null) available = new HashSet<string>(UpscaleModels.Available(slot, available)
+                .Where(name => !WorkflowModels.IsKnownIncompatible(slot, name)), StringComparer.Ordinal);
+            var workflowValue = available == null ? null : WorkflowModels.ResolveSlot(slot, slot.Default, available);
             choices.TryGetValue(slot.Key, out var saved);
+            var options = new List<Option> { new(null, workflowValue ?? slot.Default) };
+            options.AddRange((available ?? []).Where(name => name != workflowValue || name == saved)
+                .Order(StringComparer.OrdinalIgnoreCase).Select(name => new Option(name, name)));
             if (saved != null && !options.Any(option => option.Name == saved))
                 options.Add(new(saved, (available != null && WorkflowModels.Resolve(saved, available) != null ? "Saved · " : "Unavailable · ") + saved));
             var backendAvailable = !slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal)
@@ -102,7 +105,7 @@ public sealed class ComfyModelPicker : StackPanel
                 var selected = (combo.SelectedItem as Option)?.Name ?? slot.Default;
                 reset.IsVisible = (combo.SelectedItem as Option)?.Name != null;
                 origin.Text = Locale.T(reset.IsVisible ? "Set in Composa" : "From workflow");
-                var resolved = available == null ? null : WorkflowModels.Resolve(selected, available);
+                var resolved = available == null ? null : WorkflowModels.ResolveSlot(slot, selected, available);
                 hint.Text = Locale.Message(!connected ? "Not connected to this server." : !backendAvailable ? "This SeedVR2 backend is not installed on the server." : available == null
                     ? (service.ServerCapabilities!.NodeTypes.Contains(slot.NodeType) ? "This loader does not report a model list." : "Missing node: " + slot.NodeType)
                     : resolved == null ? "Not found or ambiguous. Choose a model above; files must match this workflow's architecture."

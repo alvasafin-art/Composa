@@ -92,36 +92,6 @@ public static partial class AiDialogs
         };
     }
 
-    private sealed class ConnectionSummary
-    {
-        private readonly TextBlock source = Value();
-        private readonly TextBlock model = Value();
-        private readonly TextBlock auth = Value();
-        internal Border View { get; }
-
-        internal ConnectionSummary()
-        {
-            var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("1.1*,1*,1.2*"), ColumnSpacing = 8 };
-            var fields = new (string Caption, TextBlock Value)[] { ("Request sent by", source), ("Model", model), ("Authentication", auth) };
-            for (var i = 0; i < fields.Length; i++)
-            {
-                var column = Ui.Column(2, Ui.Label(Locale.T(fields[i].Caption), Palette.Secondary, size: 11), fields[i].Value);
-                Grid.SetColumn(column, i);
-                columns.Children.Add(column);
-            }
-            View = new Border { Child = columns, Background = Palette.Panel, Padding = new Thickness(9), CornerRadius = new CornerRadius(5) };
-        }
-
-        internal void Update(string location, string? modelId, string authentication)
-        {
-            source.Text = Locale.T(location);
-            model.Text = string.IsNullOrWhiteSpace(modelId) ? Locale.T("Choose a model") : modelId;
-            auth.Text = Locale.T(authentication);
-        }
-
-        private static TextBlock Value() => new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeight.SemiBold };
-    }
-
     private sealed class CodexConnectionFields
     {
         internal TextBox Path { get; }
@@ -182,11 +152,11 @@ public static partial class AiDialogs
         internal event Action? Changed;
 
         internal ConnectionCheck(CancellationToken lifetime, Func<CancellationToken, Task<string>> check, string hint,
-            bool showHelperWarning = false)
+            bool showHelperWarning = false, string? buttonText = null)
         {
             this.hint = hint;
             status = ConnectionNote(hint);
-            var test = Ui.TextButton(showHelperWarning ? "Test prompt" : "Test connection", () => { });
+            var test = Ui.TextButton(buttonText ?? (showHelperWarning ? "Test prompt" : "Test connection"), () => { });
             var cancel = Ui.TextButton("Cancel", () => current?.Cancel());
             cancel.IsVisible = false;
             View = showHelperWarning
@@ -266,7 +236,7 @@ public static partial class AiDialogs
     private sealed class ImageConnectionFields
     {
         private ImageGenerationRoute route;
-        private readonly TextBox path, url, model, key, displayName;
+        private readonly TextBox path, url, key, displayName;
         private readonly TextBox upscalePath, segmentationPath, segmentationModel, polzaKey, falKey;
         private readonly Dictionary<AiTaskKind, ImageGenerationRoute> routes;
         private readonly Dictionary<AiTaskKind, string> modelOverrides;
@@ -288,7 +258,9 @@ public static partial class AiDialogs
             var choices = task == AiTaskKind.ObjectSelection
                 ? new[] { ImageGenerationRoute.BuiltIn }.Concat(DirectImageGenerator.Connections).ToArray()
                 : DirectImageGenerator.Connections;
-            var field = Ui.Combo(choices, routes[task], DirectImageGenerator.RouteLabel,
+            var available = choices.Where(value => value != ImageGenerationRoute.LocalCodex || value == routes[task] ||
+                task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection || LocalCodex.FindExecutable(path.Text) != null).ToArray();
+            var field = Ui.Combo(available, routes[task], DirectImageGenerator.RouteLabel,
                 value => source.SelectedIndex = Array.IndexOf(choices, value), double.NaN);
             return field;
         }
@@ -303,12 +275,44 @@ public static partial class AiDialogs
 
         internal void SelectConnection(AiTaskKind task)
         {
-            if (Picker is ComboBox combo && routes[task] != ImageGenerationRoute.BuiltIn)
-                combo.SelectedIndex = Array.IndexOf(DirectImageGenerator.Connections, routes[task]);
+            if (routes[task] != ImageGenerationRoute.BuiltIn) Configure(routes[task]);
         }
+
+        internal void Configure(ImageGenerationRoute connection) =>
+            ((ComboBox)Picker).SelectedIndex = Array.IndexOf(DirectImageGenerator.Connections, connection);
 
         internal DirectImageGenerator ModelFor(AiTaskKind task) =>
             Draft() with { Route = routes[task], Task = task, ApiModel = modelOverrides.GetValueOrDefault(task) ?? Draft().ApiModel };
+
+        internal string DisplayName => string.IsNullOrWhiteSpace(displayName.Text) ? Locale.T("Direct image API") : displayName.Text.Trim();
+        internal int CatalogSize => catalog.Models.Count;
+
+        internal string ModelLabel(AiTaskKind task)
+        {
+            var selected = ModelFor(task);
+            if (task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection) return selected.Label;
+            return catalog.Models.FirstOrDefault(item => item.Id == selected.Model).Label
+                ?? (selected.Model.Length > 0 ? selected.Model : Locale.T("Choose a model"));
+        }
+
+        internal Control ConnectionField(AiTaskKind task, bool credits)
+        {
+            var current = RouteFor(task);
+            var label = current switch
+            {
+                ImageGenerationRoute.DirectApi when catalog.CanFetch => DisplayName,
+                ImageGenerationRoute.LocalCodex when task == AiTaskKind.Upscale => "Real-ESRGAN",
+                ImageGenerationRoute.LocalCodex when task == AiTaskKind.ObjectSelection => "rembg",
+                ImageGenerationRoute.LocalCodex when LocalCodex.FindExecutable(path.Text) != null => "Codex CLI",
+                ImageGenerationRoute.ComfyWorkflow when credits => Locale.T("Comfy credits"),
+                ImageGenerationRoute.ComfyWorkflow => Locale.T("ComfyUI server"),
+                ImageGenerationRoute.BuiltIn => Locale.T("Built-in"),
+                _ => ""
+            };
+            return new ComboBox { ItemsSource = label.Length > 0 ? new[] { label } : Array.Empty<string>(),
+                SelectedIndex = label.Length > 0 ? 0 : -1, PlaceholderText = Locale.T("No configured connection"),
+                HorizontalAlignment = HorizontalAlignment.Stretch };
+        }
 
         internal IReadOnlyList<EngineProfile> PromptProfiles()
         {
@@ -316,26 +320,29 @@ public static partial class AiDialogs
             var direct = catalog.Models.Select(item => item.Id).Concat(modelOverrides.Values).Append(configured.ApiModel)
                 .Where(id => id.Length > 0).Distinct(StringComparer.Ordinal)
                 .Select(id => (configured with { Route = ImageGenerationRoute.DirectApi, ApiModel = id }).PromptProfile());
-            return direct.Prepend((configured with { Route = ImageGenerationRoute.LocalCodex }).PromptProfile()).ToArray();
+            return (LocalCodex.FindExecutable(path.Text) != null || routes.ContainsValue(ImageGenerationRoute.LocalCodex)
+                ? direct.Prepend((configured with { Route = ImageGenerationRoute.LocalCodex }).PromptProfile()) : direct).ToArray();
         }
 
         internal Control ApiModelField(AiTaskKind task)
         {
             var ids = catalog.Models;
-            var current = modelOverrides.GetValueOrDefault(task) ?? "";
-            var options = ids.Select(value => value.Id).Append(current).Prepend("").Distinct().ToArray();
-            return Ui.Combo(options, current, id => id.Length == 0 ? Locale.T("Use connection’s default model")
+            var current = ModelFor(task).ApiModel;
+            var options = ids.Select(value => value.Id).Append(current).Distinct().Where(id => id.Length != 0).ToArray();
+            var picker = Ui.Combo(options, current, id => id.Length == 0 ? Locale.T("Choose a model")
                 : ids.FirstOrDefault(item => item.Id == id).Label ?? id, id =>
             {
                 if (id.Length == 0) modelOverrides.Remove(task);
                 else modelOverrides[task] = id;
                 RouteChanged?.Invoke();
             }, double.NaN);
+            picker.PlaceholderText = Locale.T("Choose a model");
+            return picker;
         }
 
         internal void ResetModel(AiTaskKind task) => modelOverrides.Remove(task);
 
-        internal ImageConnectionFields(Settings settings, AiTaskService service, Func<string> server, CancellationToken lifetime, bool firstRun)
+        internal ImageConnectionFields(Settings settings, AiTaskService service, TextBox server, CancellationToken lifetime, bool firstRun)
         {
             routes = DirectImageGenerator.Operations.ToDictionary(task => task, settings.ImageRouteFor);
             modelOverrides = new(settings.ImageOperationApiModels);
@@ -343,7 +350,7 @@ public static partial class AiDialogs
             var codex = new CodexConnectionFields(settings.ImageGenerationCodexPath, "gpt-image-2", showModel: false);
             path = codex.Path;
             url = new TextBox { Text = settings.ImageGenerationApiUrl, Name = "ImageGenerationApiUrl" };
-            model = new TextBox { Text = settings.ImageGenerationApiModel, Name = "ImageGenerationApiModel" };
+            var model = new TextBox { Text = settings.ImageGenerationApiModel };
             displayName = new TextBox { Text = settings.ImageApiDisplayName, PlaceholderText = Locale.T("Direct image API") };
             key = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
             catalog = new ConnectionModelCatalog(settings.ImageApiCatalogs, url, key, model, () =>
@@ -392,43 +399,49 @@ public static partial class AiDialogs
                 return (label, (Control)picker);
             }).ToArray();
             OperationPicker = operationRows[0].Item2;
-            var api = Ui.Column(8, StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("Display name", displayName),
-                StudioSettingsLayout.Field("Default model ID", model)),
-                StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("API base URL", url), StudioSettingsLayout.Field("Image API key", key)),
+            var nameField = StudioSettingsLayout.Field("Display name", displayName);
+            var protocol = new TextBox { IsReadOnly = true };
+            var protocolField = StudioSettingsLayout.Field("API protocol", protocol);
+            var api = Ui.Column(8, firstRun
+                    ? StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("API base URL", url), StudioSettingsLayout.Field("Image API key", key))
+                    : Ui.Column(8, StudioSettingsLayout.Field("API base URL", url), StudioSettingsLayout.Field("Image API key", key)),
                 forget, catalog.View);
-            var serverLabel = ConnectionNote("");
-            var workflow = CanvasDialogs.Form(("ComfyUI server", serverLabel));
-            var summary = new ConnectionSummary();
-            var operations = Ui.Column(6, Ui.Label(Locale.T("Operations for the selected model"), weight: FontWeight.SemiBold),
-                CanvasDialogs.Form(("Text-to-image", ConnectionNote("Available when configured")),
-                    ("Edit with a reference", ConnectionNote("Requires a model that accepts input images")),
-                    ("Edit through a mask", ConnectionNote("Uses the selection and surrounding context")),
-                    ("Expand canvas", ConnectionNote("Uses the expanded canvas and surrounding context"))));
-            var workflowOperations = ConnectionNote("Available operations depend on the selected workflow.");
+            var serverAddress = new TextBox { Text = server.Text, Name = "ImageComfyServer" };
+            serverAddress.PropertyChanged += (_, args) =>
+            {
+                if (args.Property == TextBox.TextProperty && serverAddress.Text != server.Text) server.Text = serverAddress.Text;
+            };
+            server.PropertyChanged += (_, args) =>
+            {
+                if (args.Property == TextBox.TextProperty && serverAddress.Text != server.Text) serverAddress.Text = server.Text;
+            };
+            var workflow = StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("ComfyUI server", serverAddress));
+            Control? methodField = null;
             var check = new ConnectionCheck(lifetime, async token =>
             {
                 if (route == ImageGenerationRoute.ComfyWorkflow)
                 {
-                    await service.TestConnectionAsync(token, server());
+                    await service.TestConnectionAsync(token, server.Text ?? "");
                     return "Connected";
                 }
-                var draftKey = !string.IsNullOrWhiteSpace(key.Text) ? key.Text.Trim()
-                    : forgetKey ? Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY") ?? "" : null;
-                using var image = await Draft().GenerateAsync("Product photograph of a cobalt-blue ceramic cup on a pale gray background.",
-                    1024, 1024, token, draftKey);
-                return $"Image received ({image.Width} × {image.Height} px).";
-            }, "The test generates one image using the selected connection.");
+                if (route == ImageGenerationRoute.LocalCodex)
+                {
+                    await LocalCodex.DiscoverModelsAsync(path.Text ?? "", token);
+                    return "Codex CLI is signed in.";
+                }
+                var count = await catalog.FetchAsync(token);
+                return count > 0 ? "The API responded. Models are available below." : "The API reported no models.";
+            }, "", buttonText: "Check connection");
             void Refresh()
             {
                 check.Reset();
-                workflow.IsVisible = workflowOperations.IsVisible = route == ImageGenerationRoute.ComfyWorkflow;
-                operations.IsVisible = !workflow.IsVisible;
-                api.IsVisible = route == ImageGenerationRoute.DirectApi;
+                workflow.IsVisible = route == ImageGenerationRoute.ComfyWorkflow;
+                api.IsVisible = nameField.IsVisible = route == ImageGenerationRoute.DirectApi;
                 codex.View.IsVisible = route == ImageGenerationRoute.LocalCodex;
-                serverLabel.Text = server();
-                summary.Update(workflow.IsVisible ? "ComfyUI server" : "This computer",
-                    workflow.IsVisible ? Locale.T("Selected workflow") : Draft().Model,
-                    workflow.IsVisible ? "ComfyUI connection settings" : api.IsVisible ? "Image API key" : "Local Codex sign-in");
+                protocolField.IsVisible = route == ImageGenerationRoute.DirectApi;
+                try { protocol.Text = DirectImageApi.Parse(url.Text ?? "").Protocol; }
+                catch (FormatException) { protocol.Text = ""; }
+                if (methodField != null) methodField.IsVisible = firstRun || route != ImageGenerationRoute.DirectApi;
             }
             Picker = Ui.Combo(DirectImageGenerator.Connections, route, DirectImageGenerator.RouteLabel, value =>
             {
@@ -436,22 +449,23 @@ public static partial class AiDialogs
                 if (firstRun) SetRoute(AiTaskKind.GenerateImage, value);
                 Refresh();
             }, double.NaN);
-            View = Ui.Column(10, Ui.Label(Locale.T("Connection by operation"), weight: FontWeight.SemiBold),
-                CanvasDialogs.Form(operationRows), upscaleCli, upscaleApi, segmentationCli, segmentationApi,
-                Ui.Separator(), Ui.Column(5, ConnectionNote("Connection to configure"), Picker),
-                summary.View, workflow, codex.View, api, check.View, operations, workflowOperations);
-            if (firstRun)
-            {
-                for (var index = 0; index < 7; index++) View.Children[index].IsVisible = false;
-            }
+            methodField = StudioSettingsLayout.Field("Connection method", Picker);
+            View = Ui.Column(10, firstRun ? StudioSettingsLayout.Columns("*,*", methodField, nameField)
+                    : Ui.Column(8, methodField, StudioSettingsLayout.Columns("*,*", nameField, protocolField)),
+                workflow, codex.View, check.View, api);
+            if (!firstRun)
+                View.Children.Add(new Expander { Header = Locale.T("Connection by operation"), HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Content = Ui.Column(6, CanvasDialogs.Form(operationRows), upscaleCli, upscaleApi, segmentationCli, segmentationApi) });
+            catalog.Changed += () => RouteChanged?.Invoke();
             foreach (var input in new[] { model, url, key, path }) input.TextChanged += (_, _) => Refresh();
+            server.TextChanged += (_, _) => check.Reset();
             forget.Click += (_, _) => Refresh();
             View.AttachedToVisualTree += (_, _) => Refresh();
             Refresh();
             RefreshUtilities();
         }
 
-        private DirectImageGenerator Draft() => new(route, path.Text?.Trim() ?? "", url.Text?.Trim() ?? "", model.Text?.Trim() ?? "");
+        private DirectImageGenerator Draft() => new(route, path.Text?.Trim() ?? "", url.Text?.Trim() ?? "", catalog.LegacySelection);
 
         internal void Validate(out Control field, Dictionary<string, string?> changes)
         {

@@ -2064,3 +2064,17 @@ Original size	Исходный размер
 Steps	Шаги
 default	По умолчанию
 Text encoder	Кодировщик текста
+Check connection	Проверить подключение
+Codex CLI did not return a model catalog.	Codex CLI не вернул каталог моделей.
+Codex CLI is signed in.	Вход в Codex CLI выполнен.
+Codex CLI is signed in. Models loaded.	Вход в Codex CLI выполнен. Модели загружены.
+Server responded. Models loaded.	Сервер отвечает. Модели загружены.
+The server reported no models.	Сервер не предложил моделей.
+The CLI reported no models.	CLI не предложил моделей.
+The API reported no models.	API не предложил моделей.
+Enter a complete API base URL.	Введите полный базовый URL API.
+No configured connection	Нет настроенного подключения
+Model from API catalog	Модель из каталога API
+Remove model	Удалить модель
+{0} models available in this connection	Доступно моделей в этом подключении: {0}
+Open folder ›	Открыть папку ›

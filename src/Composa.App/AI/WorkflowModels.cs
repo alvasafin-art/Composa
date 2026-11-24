@@ -57,17 +57,41 @@ public static class WorkflowModels
         return matches.Length == 1 ? matches[0] : null;
     }
 
+    internal static string? ResolveSlot(WorkflowModelSlot slot, string name, IEnumerable<string> choices)
+    {
+        var exact = Resolve(name, choices);
+        if (exact != null || slot.Kind != EngineAssetKind.DiffusionModel || name.Contains('/') || name.Contains('\\')) return exact;
+        var norm = NormalizeFile(name);
+        var matches = choices.Where(choice => NormalizeFile(choice) == norm).Take(2).ToArray();
+        if (matches.Length != 0) return matches.Length == 1 ? matches[0] : null;
+        // Only the bundled reference weight gets a quantization fallback, and only when the family is unambiguous.
+        if (norm != "flux-2-klein-9b-int8-convrot.safetensors" || slot.LoaderKey != "UNETLoader.unet_name") return null;
+        var variants = choices.Where(IsKlein9BVariant).Take(2).ToArray();
+        return variants.Length == 1 ? variants[0] : null;
+    }
+
+    internal static bool IsKlein9BVariant(string name)
+    {
+        var file = NormalizeFile(name);
+        return file.StartsWith("flux-2-klein-9b-", StringComparison.Ordinal) && file.EndsWith(".safetensors", StringComparison.Ordinal)
+            && !file.Contains("-base", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeFile(string file) => file.Replace('\\', '/').Split('/').Last().Replace('_', '-').ToLowerInvariant();
+
+    internal static bool IsKnownIncompatible(WorkflowModelSlot slot, string name)
+    {
+        if (slot.Kind != EngineAssetKind.DiffusionModel || slot.EngineId != "flux2-klein-intel-xpu") return false;
+        var file = name.Replace('\\', '/').Split('/').Last().Replace('_', '-').ToLowerInvariant();
+        return file.Contains("klein-4b") || file.Contains("klein-base") || file.StartsWith("flux3");
+    }
+
     public static void ResolvePaths(JsonObject graph, ComfyServerCapabilities server)
     {
         foreach (var slot in Slots(graph, ""))
         {
             if (!server.ModelChoices.TryGetValue(slot.LoaderKey, out var choices)) continue;
-            var resolved = Resolve(slot.Default, choices);
-            // Some servers list the bundled Klein weight with a hyphenated filename.
-            if (resolved == null && slot.LoaderKey == "UNETLoader.unet_name"
-                && slot.Default == "flux-2-klein-9b_int8_convrot.safetensors"
-                && !choices.Any(choice => Path.GetFileName(choice.Replace('\\', '/')).Equals(slot.Default, StringComparison.OrdinalIgnoreCase)))
-                resolved = Resolve("flux-2-klein-9b-int8-convrot.safetensors", choices);
+            var resolved = ResolveSlot(slot, slot.Default, choices);
             if (resolved != null) graph[slot.NodeId]!["inputs"]![slot.Input] = resolved;
         }
     }
