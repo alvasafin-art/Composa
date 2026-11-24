@@ -35,7 +35,13 @@ public sealed class NavigatorPanel : UserControl
         var actual = Ui.TextButton("100%", () => { if (!canvas.IsDragging) canvas.ZoomTo(1); }); actual.Name = "NavigatorActual";
         var buttons = Ui.Row(6, zoom, fit, actual); buttons.Margin = new Thickness(6, 4); buttons.HorizontalAlignment = HorizontalAlignment.Center;
         var body = new DockPanel(); DockPanel.SetDock(buttons, Dock.Bottom); body.Children.Add(buttons); body.Children.Add(preview); Content = body;
-        timer.Tick += (_, _) => { timer.Stop(); RefreshThumbnail(); };
+        timer.Tick += (_, _) =>
+        {
+            // Keep the queued refresh until the stroke releases its live raster.
+            if (IsEffectivelyVisible && session?.IsStroking == true) return;
+            timer.Stop();
+            RefreshThumbnail();
+        };
         AttachedToVisualTree += (_, _) => { attached = true; Subscribe(); canvas.ViewChanged += ViewChanged; ViewChanged(); QueueRefresh(); };
         DetachedFromVisualTree += (_, _) => { attached = false; Unsubscribe(); canvas.ViewChanged -= ViewChanged; timer.Stop(); preview.Clear(); dirty = true; };
     }
