@@ -38,10 +38,14 @@ public static class AiSeamlessFinisher
                 else if (!keepGeneratedContext) result.SetPixel(x, y, reference.GetPixel(x, y));
             Pixels.Invalidate(result); return result;
         }
-        var (dx, dy) = alignPixels ? Registration(generated, reference, coverage, area) : (0, 0);
-        if (dx != 0 || dy != 0)
+        if (alignPixels)
         {
-            Shift(generated, result, area, dx, dy);
+            var offset = Registration(generated, reference, coverage, area, area.Location);
+            if (offset != SKPoint.Empty)
+            {
+                using var crop = Pixels.ImageOf(generated).Subset(area);
+                DrawEdit(crop, result, area, offset);
+            }
         }
         var flat = matchFlatBackground && IsFlatContinuation(result, reference, coverage, area);
         var field = Residual.Build(result, reference, coverage, area, seamWidth, flat, keepGeneratedContext);
@@ -66,34 +70,71 @@ public static class AiSeamlessFinisher
         Pixels.Invalidate(result); return result;
     }
 
-    // The caller owns this freshly decoded RGB8 result. Never translate committed layer pixels.
+    // The caller owns this freshly decoded RGB8 result.
     public static void AlignEdit(SKBitmap generated, SKBitmap reference)
     {
         if (!Pixels.IsSrgb8(generated)) return;
-        using var display = Pixels.IsSrgb8(reference) ? null : Pixels.DisplayCopy(reference);
-        var source = display ?? reference;
-        using var resized = source.Info.Size == generated.Info.Size ? null :
-            source.Resize(generated.Info.Size, new SKSamplingOptions(SKFilterMode.Linear));
-        if (source.Info.Size != generated.Info.Size && resized == null) return;
-        var area = generated.Info.Rect;
-        var (dx, dy) = Registration(generated, resized ?? source, null, area);
-        if (dx == 0 && dy == 0) return;
+        var offset = EstimateOffset(generated, reference, reference.Info.Rect, null);
+        if (offset == SKPoint.Empty) return;
+        var native = new SKPoint(offset.X * generated.Width / reference.Width, offset.Y * generated.Height / reference.Height);
         using var snapshot = Pixels.Clone(generated);
-        Shift(snapshot, generated, area, dx, dy);
-        Pixels.Invalidate(generated);
+        DrawEdit(Pixels.ImageOf(snapshot), generated, generated.Info.Rect, native);
     }
 
-    private static void Shift(SKBitmap generated, SKBitmap result, SKRectI area, int dx, int dy)
+    /// <summary>Fit a decoded rectangle and correct any shift in a single resampling pass.</summary>
+    public static SKBitmap FitEdit(SKBitmap generated, SKBitmap reference, SKRectI area, SKBitmap? coverage, bool align)
     {
-        var source = generated.GetPixelSpan(); var target = result.GetPixelSpan();
-        for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
+        if (!align || !Pixels.IsSrgb8(generated)) return Sample(generated, area.Size, SKPoint.Empty);
+        if (generated.Info.Size == area.Size)
+            return Sample(generated, area.Size, EstimateOffset(generated, reference, area, coverage));
+
+        // Use this analysis frame directly if no correction is needed.
+        var proxy = Sample(generated, area.Size, SKPoint.Empty);
+        try
         {
-            var sx = Math.Clamp(x + dx, area.Left, area.Right - 1); var sy = Math.Clamp(y + dy, area.Top, area.Bottom - 1);
-            source.Slice(sy * generated.RowBytes + sx * 4, 4).CopyTo(target.Slice(y * result.RowBytes + x * 4, 4));
+            var offset = EstimateOffset(proxy, reference, area, coverage);
+            if (offset == SKPoint.Empty) return proxy;
+            var result = Sample(generated, area.Size, offset);
+            proxy.Dispose();
+            return result;
+        }
+        catch
+        {
+            proxy.Dispose();
+            throw;
         }
     }
 
-    private static double Luma(SKColor c) => (54 * c.Red + 183 * c.Green + 19 * c.Blue) / 256.0;
+    private static SKPoint EstimateOffset(SKBitmap generated, SKBitmap reference, SKRectI area, SKBitmap? coverage)
+    {
+        using var display = Pixels.IsSrgb8(reference) ? null : Pixels.DisplayCopy(reference);
+        // Analyze in destination pixels. The final image is sampled from the original decoded grid.
+        using var proxy = generated.Info.Size == area.Size ? null : Sample(generated, area.Size, SKPoint.Empty);
+        return Registration(proxy ?? generated, display ?? reference, coverage, area, SKPointI.Empty);
+    }
+
+    private static SKBitmap Sample(SKBitmap image, SKSizeI size, SKPoint offset)
+    {
+        if (image.Info.Size == size && offset == SKPoint.Empty) return Pixels.Clone(image);
+        var result = Pixels.NewColor(size.Width, size.Height);
+        DrawEdit(Pixels.ImageOf(image), result, result.Info.Rect, offset);
+        return result;
+    }
+
+    private static void DrawEdit(SKImage source, SKBitmap result, SKRectI area, SKPoint offset)
+    {
+        var matrix = SKMatrix.CreateScale((float)area.Width / source.Width, (float)area.Height / source.Height);
+        matrix.TransX = area.Left - offset.X;
+        matrix.TransY = area.Top - offset.Y;
+        var exact = area.Width == source.Width && area.Height == source.Height
+            && offset.X == MathF.Round(offset.X) && offset.Y == MathF.Round(offset.Y);
+        using (var canvas = new SKCanvas(result))
+        using (var shader = source.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp,
+            exact ? new SKSamplingOptions(SKFilterMode.Nearest) : new SKSamplingOptions(SKCubicResampler.CatmullRom), matrix))
+        using (var paint = new SKPaint { Shader = shader, BlendMode = SKBlendMode.Src })
+            canvas.DrawRect(new SKRect(area.Left, area.Top, area.Right, area.Bottom), paint);
+        Pixels.Invalidate(result);
+    }
 
     // A narrow automatic continuation of a verified constant background has no
     // new subject to synthesize. Never apply this to an ordinary prompted fill,
@@ -177,41 +218,109 @@ public static class AiSeamlessFinisher
         return delta.Max() - delta.Min() < 4;
     }
 
-    private static (int X, int Y) Registration(SKBitmap generated, SKBitmap reference, SKBitmap? mask, SKRectI area)
+    private readonly record struct Anchor(int X, int Y, double Gx, double Gy, int Quadrant);
+
+    private static SKPoint Registration(SKBitmap generated, SKBitmap reference, SKBitmap? mask, SKRectI area, SKPointI origin)
     {
-        var radius = Math.Clamp(Math.Min(area.Width, area.Height) / 32, 3, 6);
-        var anchors = new List<(int X, int Y, double Gx, double Gy)>();
+        var radius = Math.Clamp(Math.Min(area.Width, area.Height) / 32, 3, 8);
+        var margin = radius + 2;
         var step = Math.Max(2, Math.Max(area.Width, area.Height) / 64);
-        for (var y = area.Top + radius + 1; y < area.Bottom - radius - 1; y += step)
-        for (var x = area.Left + radius + 1; x < area.Right - radius - 1; x += step)
+        var anchors = new List<Anchor>();
+        var counts = new int[4];
+        for (var y = margin; y < area.Height - margin; y += step)
+        for (var x = margin; x < area.Width - margin; x += step)
         {
-            if ((mask != null && mask.GetPixel(x, y).Alpha != 0) || reference.GetPixel(x, y).Alpha != 255 || generated.GetPixel(x, y).Alpha != 255) continue;
-            var gx = Luma(reference.GetPixel(x + 1, y)) - Luma(reference.GetPixel(x - 1, y));
-            var gy = Luma(reference.GetPixel(x, y + 1)) - Luma(reference.GetPixel(x, y - 1));
-            if (gx * gx + gy * gy >= 36) anchors.Add((x, y, gx, gy));
+            var sx = area.Left + x; var sy = area.Top + y;
+            if (mask != null && (mask.GetPixel(sx, sy).Alpha != 0 ||
+                mask.GetPixel(sx - 1, sy).Alpha != 0 || mask.GetPixel(sx + 1, sy).Alpha != 0 ||
+                mask.GetPixel(sx, sy - 1).Alpha != 0 || mask.GetPixel(sx, sy + 1).Alpha != 0)) continue;
+            var (gx, gy, valid) = Gradient(reference, sx, sy);
+            if (!valid || gx * gx + gy * gy < 100) continue;
+            var quadrant = (x >= area.Width / 2 ? 1 : 0) + (y >= area.Height / 2 ? 2 : 0);
+            anchors.Add(new(origin.X + x, origin.Y + y, gx, gy, quadrant));
+            counts[quadrant]++;
         }
-        if (anchors.Count < 24) return (0, 0);
-        double Error(int dx, int dy)
+        var requiredRegions = mask == null ? 3 : 2;
+        if (anchors.Count < 24 || counts.Count(n => n >= 6) < requiredRegions) return SKPoint.Empty;
+
+        double Error(SKPoint offset, double[]? regions = null)
         {
+            var dx = (int)MathF.Floor(offset.X); var dy = (int)MathF.Floor(offset.Y);
+            var fx = offset.X - dx; var fy = offset.Y - dy;
             double sum = 0;
             foreach (var a in anchors)
             {
-                var gx = Luma(generated.GetPixel(a.X + dx + 1, a.Y + dy)) - Luma(generated.GetPixel(a.X + dx - 1, a.Y + dy));
-                var gy = Luma(generated.GetPixel(a.X + dx, a.Y + dy + 1)) - Luma(generated.GetPixel(a.X + dx, a.Y + dy - 1));
-                sum += Math.Min(4096, (a.Gx - gx) * (a.Gx - gx) + (a.Gy - gy) * (a.Gy - gy));
+                var x = a.X + dx; var y = a.Y + dy;
+                var (gx, gy, valid) = Row(x, y, fx);
+                if (fy != 0)
+                {
+                    var (bx, by, bottomValid) = Row(x, y + 1, fx);
+                    gx += fy * (bx - gx); gy += fy * (by - gy); valid &= bottomValid;
+                }
+                var ex = a.Gx - gx; var ey = a.Gy - gy;
+                var error = valid ? Math.Min(1, (ex * ex + ey * ey) / (a.Gx * a.Gx + a.Gy * a.Gy)) : 1;
+                sum += error;
+                if (regions != null) regions[a.Quadrant] += error;
             }
             return sum / anchors.Count;
         }
-        var baseline = Error(0, 0); var best = baseline; var next = double.MaxValue; var shift = (X: 0, Y: 0);
-        for (var dy = -radius; dy <= radius; dy++) for (var dx = -radius; dx <= radius; dx++)
+
+        (double X, double Y, bool Valid) Row(int x, int y, float fraction)
         {
-            if (dx == 0 && dy == 0) continue;
-            var error = Error(dx, dy);
-            if (error < best) { next = best; best = error; shift = (dx, dy); }
-            else next = Math.Min(next, error);
+            var left = Gradient(generated, x, y);
+            if (fraction == 0) return left;
+            var right = Gradient(generated, x + 1, y);
+            return (left.X + fraction * (right.X - left.X), left.Y + fraction * (right.Y - left.Y), left.Valid && right.Valid);
         }
-        // Ambiguous periodic/flat backgrounds do not justify moving an edit.
-        return best < baseline * .7 && next > best * 1.15 + .5 ? shift : (0, 0);
+
+        var baselineRegions = new double[4]; var bestRegions = new double[4];
+        var baseline = Error(SKPoint.Empty, baselineRegions);
+        if (baseline < .035) return SKPoint.Empty;
+        var best = baseline;
+        var shift = SKPoint.Empty;
+        var integerScores = new List<(SKPoint Shift, double Error)>();
+        for (var dy = -radius; dy <= radius; dy++)
+        for (var dx = -radius; dx <= radius; dx++)
+        {
+            var candidate = new SKPoint(dx, dy);
+            var error = candidate == SKPoint.Empty ? baseline : Error(candidate);
+            integerScores.Add((candidate, error));
+            if (error < best) { shift = candidate; best = error; }
+        }
+
+        // Refine around the integer minimum, including zero. An already good integer match stays exact.
+        if (best > .025)
+        {
+            foreach (var spacing in new[] { .5f, .25f, .125f })
+            {
+                var center = shift;
+                for (var dy = -1; dy <= 1; dy++)
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    var candidate = new SKPoint(center.X + dx * spacing, center.Y + dy * spacing);
+                    if (Math.Abs(candidate.X) > radius || Math.Abs(candidate.Y) > radius || candidate == center) continue;
+                    var error = Error(candidate);
+                    if (error + .002 < best) { shift = candidate; best = error; }
+                }
+            }
+        }
+        if (shift == SKPoint.Empty || best > .43 || best >= baseline * .76 || baseline - best < .025) return SKPoint.Empty;
+        // Reject periodic matches and translations explained by one moved object or one corner.
+        if (integerScores.Any(c => Math.Max(Math.Abs(c.Shift.X - shift.X), Math.Abs(c.Shift.Y - shift.Y)) >= 1.5
+            && c.Error < best + .055)) return SKPoint.Empty;
+        Error(shift, bestRegions);
+        var agreeing = Enumerable.Range(0, 4).Count(i => counts[i] >= 6
+            && baselineRegions[i] - bestRegions[i] > counts[i] * .025 && bestRegions[i] < counts[i] * .57);
+        return agreeing >= requiredRegions ? shift : SKPoint.Empty;
+    }
+
+    private static (double X, double Y, bool Valid) Gradient(SKBitmap image, int x, int y)
+    {
+        var left = image.GetPixel(x - 1, y); var right = image.GetPixel(x + 1, y);
+        var top = image.GetPixel(x, y - 1); var bottom = image.GetPixel(x, y + 1);
+        var valid = left.Alpha >= 250 && right.Alpha >= 250 && top.Alpha >= 250 && bottom.Alpha >= 250;
+        static double Luma(SKColor c) => (54 * c.Red + 183 * c.Green + 19 * c.Blue) / 256.0;
+        return (Luma(right) - Luma(left), Luma(bottom) - Luma(top), valid);
     }
 
     private sealed record Residual(SKRectI Area, int Step, int Width, int Height, double[] Values)

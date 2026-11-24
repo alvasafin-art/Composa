@@ -64,6 +64,72 @@ public class AutomaticAiSeamsTests
         Assert.Equal(reference.GetPixel(36, 45), shifted.GetPixel(36, 45));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Fractional_drift_is_corrected_for_full_edits_and_masked_edits(bool masked)
+    {
+        const int size = 192;
+        using var reference = Pixels.NewColor(size, size);
+        using var shifted = Pixels.NewColor(size, size);
+        static byte Tone(double x, double y) => (byte)Math.Round(128 + 38 * Math.Sin(x * .47 + y * .23)
+            + 27 * Math.Cos(x * .17 - y * .55) + 25 * Math.Sin(x * .39 + y * .61 + x * y * .0008));
+        for (var y = 0; y < size; y++)
+        for (var x = 0; x < size; x++)
+        {
+            var a = Tone(x, y);
+            reference.SetPixel(x, y, new SKColor(a, a, a));
+            var b = Tone(x - .375, y + .5);
+            shifted.SetPixel(x, y, new SKColor(b, b, b));
+        }
+        using var selection = masked ? SelectionMask.FromRect(size, size, new SKRect(48, 48, 144, 144)) : null;
+        using var result = AiSeamlessFinisher.FitEdit(shifted, reference, reference.Info.Rect, selection, align: true);
+        using var off = AiSeamlessFinisher.FitEdit(shifted, reference, reference.Info.Rect, selection, align: false);
+        static int Error(SKBitmap source, SKBitmap candidate)
+        {
+            var error = 0;
+            for (var y = 64; y < 128; y++)
+            for (var x = 64; x < 128; x++)
+                error += Math.Abs(source.GetPixel(x, y).Red - candidate.GetPixel(x, y).Red);
+            return error;
+        }
+        Assert.True(Error(reference, result) < Error(reference, off) * .45,
+            $"Same 64×64 crop: {Error(reference, off)} -> {Error(reference, result)}");
+        Assert.Equal(shifted.GetPixelSpan().ToArray(), off.GetPixelSpan().ToArray());
+        if (selection != null)
+        {
+            using var rendered = AiResultPostprocessor.Constrain(result, reference, selection);
+            Assert.Equal(reference.GetPixel(0, 96), rendered.GetPixel(0, 96));
+            Assert.Equal(reference.GetPixel(191, 96), rendered.GetPixel(191, 96));
+            Assert.Equal(reference.GetPixel(96, 0), rendered.GetPixel(96, 0));
+            Assert.Equal(reference.GetPixel(96, 191), rendered.GetPixel(96, 191));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Registration_skips_flat_context_and_an_intentionally_moved_subject(bool hasSubject)
+    {
+        using var reference = Pixels.NewColor(192, 192);
+        using var generated = Pixels.NewColor(192, 192);
+        reference.Erase(SKColors.White); generated.Erase(SKColors.White);
+        if (hasSubject)
+        {
+            var random = new Random(73);
+            for (var y = 20; y < 76; y++) for (var x = 20; x < 76; x++)
+            {
+                var value = (byte)random.Next(256);
+                var color = new SKColor(value, value, value);
+                reference.SetPixel(x, y, color);
+                generated.SetPixel(x + 4, y - 2, color);
+            }
+        }
+        using var expected = Pixels.Clone(generated);
+        AiSeamlessFinisher.AlignEdit(generated, reference);
+        Assert.Equal(expected.GetPixelSpan().ToArray(), generated.GetPixelSpan().ToArray());
+    }
+
     [Fact]
     public void Flat_background_drift_is_corrected_without_erasing_real_relighting()
     {

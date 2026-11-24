@@ -34,6 +34,8 @@ public sealed partial class MainWindow
     private Point aiFloatingDragPosition;
     private readonly Dictionary<AiTaskKind, ImageModelChoice> modelDrafts = [];
     private Button aiEnhance = null!, aiAdvanced = null!;
+    private ToggleButton aiPixelAlignment = null!;
+    private readonly TextBlock aiFloatingOperation = new() { Name = "AiFloatingOperation", FontWeight = FontWeight.SemiBold };
     private ImageGenerationRoute PanelRoute(AiTaskKind task) =>
         modelDrafts.GetValueOrDefault(ImageOperationModels.ModelTask(task))?.Route ?? settings.ImageRouteFor(task);
     private DirectImageGenerator? DirectImageFor(AiTaskKind task)
@@ -313,7 +315,7 @@ public sealed partial class MainWindow
     {
         if (previewContext is { } preview) { canvas.AiContextBounds = preview; return; }
         SKRectI? context = null;
-        if ((!DockEditorVisible || EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand) && settings.AiShowContextBounds
+        if ((EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand) && settings.AiShowContextBounds
             && (DirectImageFor(EditorTask) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected)
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
         {
@@ -369,6 +371,11 @@ public sealed partial class MainWindow
         aiEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, () => EditorTask, () => PanelEngine(EditorTask));
         aiAdvanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
         aiAdvanced.MinWidth = 0;
+        aiPixelAlignment = AiGenerationControls.AlignmentToggle(settings.AiAlignMaskedEdits, align =>
+        {
+            settings.AiAlignMaskedEdits = align;
+            settings.Save();
+        });
         var workflowName = Ui.Label("", Palette.Secondary, 11);
         workflowName.TextTrimming = TextTrimming.CharacterEllipsis;
         aiWorkflowLink = Ui.TextButton("Workflows", () =>
@@ -403,7 +410,8 @@ public sealed partial class MainWindow
 
         aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
         ToolTip.SetShowOnDisabled(aiFloatingGenerate, true);
-        aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", OpenAiFloatingTaskMenu);
+        aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", () => { });
+        aiFloatingMore.Flyout = BuildAiFloatingTaskMenu();
         aiVariantButtons = AiGenerationControls.QuickRuns(count =>
             _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true, runCount: count));
         var run = AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons);
@@ -424,7 +432,7 @@ public sealed partial class MainWindow
         aiPriceBadge.Margin = new Thickness(3, 0);
         aiPriceBadge.VerticalAlignment = VerticalAlignment.Center;
         aiPriceBadge.IsVisible = false;
-        aiFloatingTools.Children.AddRange([aiEngineCombo, aiPriceBadge, aiHeaderReference, aiEnhance, aiAdvanced]);
+        aiFloatingTools.Children.AddRange([aiEngineCombo, aiPriceBadge, aiHeaderReference, aiEnhance, aiPixelAlignment, aiAdvanced]);
         var leading = new DockPanel();
         DockPanel.SetDock(grip, Dock.Left);
         leading.Children.Add(grip);
@@ -432,7 +440,7 @@ public sealed partial class MainWindow
         aiFloatingActions = run;
         var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
         aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingPrompt, bar, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
+        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingOperation, aiFloatingPrompt, bar, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
     }
 
     private void RefreshEditorModels()
@@ -467,24 +475,36 @@ public sealed partial class MainWindow
         finally { refreshingAiEngine = false; }
     }
 
-    private void OpenAiFloatingTaskMenu()
+    private MenuFlyout BuildAiFloatingTaskMenu()
     {
-        if (aiFloatingMore == null) return;
         var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.GenerativeFill or AiTaskKind.SelectSubject)))
+        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task != AiTaskKind.SelectSubject))
         {
-            var availability = AiAvailability(task);
             var item = new MenuItem
             {
-                Header = task.DisplayName(),
-                IsEnabled = availability.Available && aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running)
+                Header = Locale.T(task.DisplayName()),
+                ToggleType = task is AiTaskKind.GenerativeFill or AiTaskKind.ImageEdit ? MenuItemToggleType.Radio : MenuItemToggleType.None
             };
-            if (availability.Reason != null) Locale.Tip(item, availability.Reason);
-            item.Click += (_, _) => ChooseAiOperation(task);
+            flyout.Opening += (_, _) =>
+            {
+                item.IsChecked = EditorTask == task;
+                item.IsEnabled = CanRunAi(task);
+                Locale.Tip(item, AiAvailability(task).Reason);
+            };
+            item.Click += (_, _) =>
+            {
+                if (task is AiTaskKind.GenerativeFill or AiTaskKind.ImageEdit && ShowSelectionPanel && CanRunAi(task))
+                {
+                    manualFloatingTask = task;
+                    RefreshAiUi();
+                    aiFloatingPrompt.Focus();
+                }
+                else ChooseAiOperation(task);
+            };
             flyout.Items.Add(item);
         }
         AddGenerationConnectionMenu(flyout);
-        flyout.ShowAt(aiFloatingMore);
+        return flyout;
     }
 
     private bool ShowSelectionPanel => !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
@@ -498,7 +518,10 @@ public sealed partial class MainWindow
         var expanded = DockEditorVisible || !settings.AiFloatingCollapsed;
         if (aiInlineAddReference != null) aiInlineAddReference.IsVisible = !DockEditorVisible;
         aiReferenceHost.IsVisible = expanded && aiReferences.Count > 0;
+        aiFloatingOperation.IsVisible = visible && expanded;
         aiFloatingPrompt.IsVisible = expanded && EditorTask != AiTaskKind.GenerativeExpand;
+        aiPixelAlignment.IsChecked = settings.AiAlignMaskedEdits;
+        aiPixelAlignment.IsVisible = expanded && AiGenerationControls.SupportsAlignment(EditorTask);
         if (aiEnhance != null) aiEnhance.IsVisible = EditorTask != AiTaskKind.GenerativeExpand;
         if (aiFloatingActions != null) aiFloatingActions.IsVisible = expanded;
         if (aiHeaderReference != null) aiHeaderReference.IsVisible = expanded && (DockEditorVisible || aiReferences.Count == 0);
@@ -508,6 +531,7 @@ public sealed partial class MainWindow
         if (!visible && !DockEditorVisible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
         var task = EditorTask;
+        aiPixelAlignment.IsEnabled = !busy;
         var direct = DirectImageFor(task);
         var fillEngine = PanelEngine(task);
         var fillProfile = AiOptions(task, fillEngine);

@@ -258,12 +258,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
             using var inputs = await PrepareInputsAsync(editor.Session, preparedRequest, referenceLimit, linked.Token);
-            using var apiInputs = paid ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel), linked.Token) : null;
             using var qwenInputs = saved == null && (qwen || engine.Id == Flux3Workflow.EngineId) ? await Task.Run(() => new QwenImageInputs(inputs, preparedRequest), linked.Token) : null;
             using var editable = saved == null && engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
                 && (inputs.SelectionMask != null || request.Task == AiTaskKind.GenerativeExpand && !fullEdit || inputs.BackgroundMask != null)
                 ? await Task.Run(() => new EditableMaskedWorkflow(inputs, preparedRequest), linked.Token) : null;
-            using var localOutputMask = apiInputs?.OutputMask() ?? (qwenInputs?.Mask is { } qwenMask ? Pixels.Clone(qwenMask) : editable == null ? null : Pixels.Clone(editable.Mask));
             if (request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(inputs.PreprocessedMask!))
                 throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var seed = inputs.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : inputs.Seed;
@@ -290,6 +288,10 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 if (paid && engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel!, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
+            var nativeMask = graph["gpt"]?["class_type"]?.GetValue<string>() == "OpenAIGPTImageNodeV2"
+                && capabilities.NodeTypes.Contains("ImageToMask");
+            using var apiInputs = paid ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel, nativeMask), linked.Token) : null;
+            using var localOutputMask = apiInputs?.OutputMask() ?? (qwenInputs?.Mask is { } qwenMask ? Pixels.Clone(qwenMask) : editable == null ? null : Pixels.Clone(editable.Mask));
             var modelFiles = ModelSelections(client.Address.ToString());
             if (request.ModelFileOverrides is { Count: > 0 } overrides)
             {
@@ -389,7 +391,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                             images.Add(image);
                             // An expansion already maps the decoded frame to the target canvas.
                             // Free translation here would copy edge pixels into uncovered areas.
-                            if (fullEdit && request.AlignMaskedEdits && request.Task != AiTaskKind.GenerativeExpand)
+                            if (fullEdit && request.AlignMaskedEdits && request.Task != AiTaskKind.GenerativeExpand && apiInputs?.AlignsFullEdit != true)
                                 await Task.Run(() => AiSeamlessFinisher.AlignEdit(image, inputs.ContextImage), linked.Token);
                             var pixels = images.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
                             if (binding.OutputMode == AiOutputMode.NewLayerWithMask && inputs.SelectionMask != null) pixels *= 2;

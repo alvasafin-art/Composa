@@ -7,8 +7,70 @@ using SkiaSharp;
 
 namespace Composa.App.Tests;
 
-public class AiPixelAlignmentTests
+public class AiPixelAlignmentTests(ITestOutputHelper output)
 {
+    [Fact]
+    public void Gpt_edit_keeps_full_resolution_upload_and_fits_saved_model_pixels_once()
+    {
+        const int width = 1600, height = 1200;
+        var session = EditorSession.NewCanvas(width, height, SKColors.DarkSlateGray);
+        var source = session.ActiveLayer!.Pixels!;
+        var request = new AiTaskRequest
+        {
+            Task = AiTaskKind.ImageEdit,
+            Settings = new() { Width = 1024, Height = 768, Values = new() { ["apiQuality"] = "low" } }
+        };
+        using var inputs = AiTaskInputPreparer.Prepare(session, request);
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var engine = catalog.Find("chatgpt-image-2.5")!;
+        var workflow = catalog.ReadWorkflow(engine, engine.Workflow(engine.Binding(request.Task)!.Workflow));
+        using var partner = new PartnerImageInputs(inputs, request, engine.ApiModel);
+        using var sent = SKBitmap.Decode(ComfyClient.EncodeUploadPng(partner.Images["apiSource"]));
+        Assert.Equal(new SKSizeI(width, height), sent.Info.Size);
+        using var decodedUpload = Pixels.DisplayCopy(sent);
+        Assert.Equal(source.GetPixelSpan().ToArray(), decodedUpload.GetPixelSpan().ToArray());
+        var node = partner.Bind(workflow, engine, new Dictionary<string, string> { ["apiSource"] = "source.png" }, 17)["gpt"]!["inputs"]!;
+        Assert.Equal("gpt-image-2.5-sunburst", node["model"]!.GetValue<string>());
+        Assert.Equal("low", node["model.quality"]!.GetValue<string>());
+        Assert.Equal(1, node["n"]!.GetValue<int>());
+        Assert.Equal(1024, node["model.custom_width"]!.GetValue<int>());
+        Assert.Equal(768, node["model.custom_height"]!.GetValue<int>());
+
+        // Reuse the same decoded answer and inspect the same crop in document pixels.
+        using var raw = Pixels.NewColor(1024, 768);
+        using (var canvas = new SKCanvas(raw))
+        {
+            canvas.Clear(new SKColor(48, 48, 48));
+            using var paint = new SKPaint { Color = new SKColor(208, 208, 208) };
+            for (var x = 256; x < 768; x += 8) canvas.DrawRect(x, 256, 4, 256, paint);
+        }
+        using var before = Pixels.NewColor(width, height);
+        using (var canvas = new SKCanvas(before))
+            canvas.DrawImage(Pixels.ImageOf(raw), before.Info.Rect, new SKSamplingOptions(SKCubicResampler.Mitchell));
+        var after = partner.FinishUnmasked(Pixels.Clone(raw));
+        static int Detail(SKBitmap image) => Enumerable.Range(440, 240)
+            .Sum(x => Math.Abs(image.GetPixel(x + 1, 600).Red - image.GetPixel(x, 600).Red));
+        var beforeDetail = Detail(before);
+        var afterDetail = Detail(after);
+        output.WriteLine($"Luma variation over the same 240 px at 1:1: {beforeDetail} -> {afterDetail}");
+        Assert.True(afterDetail > beforeDetail);
+        AiTaskService.Insert(new EditorCommandService(session), request.Task, AiOutputMode.NewLayer, [after], inputs.TargetBounds);
+        Assert.Same(after, session.ActiveLayer!.Pixels);
+        Assert.Equal(new SKSizeI(width, height), after.Info.Size);
+        Assert.Equal(SKRect.Create(width, height), session.ActiveLayer.VisibleBounds);
+        Assert.Equal(SKColors.DarkSlateGray, source.GetPixel(0, 0));
+    }
+
+    [Fact]
+    public void Small_original_size_gpt_edit_does_not_interpolate_source_before_upload()
+    {
+        var session = EditorSession.NewCanvas(800, 600, SKColors.CornflowerBlue);
+        var request = new AiTaskRequest { Task = AiTaskKind.ImageEdit, Settings = new() { Values = new() { ["imageOriginalSize"] = true } } };
+        using var inputs = AiTaskInputPreparer.Prepare(session, request);
+        using var partner = new PartnerImageInputs(inputs, request, "gpt-image-2.5-sunburst");
+        Assert.Equal(new SKSizeI(800, 600), partner.Images["apiSource"].Info.Size);
+    }
+
     [Theory]
     [InlineData(false,false,true)]
     [InlineData(false,true,true)]

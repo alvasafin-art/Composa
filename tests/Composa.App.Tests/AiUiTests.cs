@@ -26,8 +26,9 @@ public class AiUiTests
         nodeTypes.UnionWith(catalog.Profiles.SelectMany(pack => pack.RequiredNodeTypes));
         window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities() with { NodeTypes = nodeTypes });
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
-        Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
+        var align = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
             button => button.Name == "AiPixelAlignment");
+        Assert.True(align.IsChecked);
         Assert.True(window.Settings.AiAlignMaskedEdits);
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
         var panel = window.AiFloatingPanel;
