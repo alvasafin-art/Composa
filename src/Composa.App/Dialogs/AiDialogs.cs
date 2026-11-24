@@ -150,13 +150,15 @@ public static partial class AiDialogs
         var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
         var url = new TextBox { Text = settings.ComfyServerUrl };
         var imageConnection = new ImageConnectionFields(settings, service, url, lifetime.Token, firstRun);
-        var timeout = Ui.Number(settings.ComfyConnectionTimeoutSeconds, 1, 120, _ => { }, 1, "0", 80);
+        var timeout = Ui.Number(settings.ComfyConnectionTimeoutSeconds, 1, 120, _ => { }, 1, "0", double.NaN);
+        timeout.HorizontalAlignment = HorizontalAlignment.Stretch;
         var keyEnvironment = new TextBox { Text = settings.ComfyApiKeyEnvironment };
         var sessionKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };
         var clearKey = false;
         var clear = Ui.TextButton("Forget saved key", () => { sessionKey.Text = ""; clearKey = true; });
         var keyNote = Ui.Label(Locale.T("Partner Nodes use a Comfy.org API key, not an OpenAI key. Create one at platform.comfy.org. Keys are saved in your user profile for this server. On Windows, Composa uses Credential Manager. The environment variable is also supported. Use HTTPS for servers outside a trusted LAN."), Palette.Secondary);
-        keyNote.MaxWidth = 430; keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        keyNote.HorizontalAlignment = HorizontalAlignment.Left;
+        keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var directGenerator = DirectImageGenerator.For(settings, initialOperation ?? AiTaskKind.GenerateImage);
         EngineProfile[] PromptProfiles() => service.Engines.Profiles.Concat(imageConnection.PromptProfiles()).ToArray();
         var operationEngine = initialOperation is { } openingTask ? settings.EngineForTask(openingTask) : null;
@@ -165,19 +167,23 @@ public static partial class AiDialogs
             : directGenerator.PromptProfile();
         promptPack ??= PromptProfiles().FirstOrDefault();
         var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
-        var instructionTask = initialOperation ?? AiTaskKind.ImageEdit;
-        AiTaskKind OtherInstructionTask() => instructionTask == AiTaskKind.GenerateImage ? AiTaskKind.ImageEdit : AiTaskKind.GenerateImage;
-        var instructions = new TextBox { Name = "EnhancerInstructions", AcceptsReturn = true, Height = 104, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Text = service.InstructionsFor(instructionDrafts, promptPack, instructionTask) };
-        var otherInstructions = new TextBox { AcceptsReturn = true, Height = 104, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Text = service.InstructionsFor(instructionDrafts, promptPack, OtherInstructionTask()) };
+        var instructions = new TextBox { Name = "EnhancerInstructions", AcceptsReturn = true, Height = 260, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Text = service.InstructionsFor(instructionDrafts, promptPack, AiTaskKind.GenerateImage) };
+        var otherInstructions = new TextBox { Name = "EnhancerEditInstructions", AcceptsReturn = true, Height = 260, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Text = service.InstructionsFor(instructionDrafts, promptPack, AiTaskKind.ImageEdit) };
         Action? refreshInstructions = null;
         var model = new ComboBox { ItemsSource = service.ChatModels.Append(settings.EnhancerModel).Distinct().ToArray(),
             SelectedItem = settings.EnhancerModel, MinWidth = 180 };
         AiGenerationControls.StyleModelField(model, "Prompt enhancer model");
-        var tokens = Ui.Number(settings.EnhancerMaxTokens, 16, 16384, _ => { }, 1, "0", 100);
+        var tokens = Ui.Number(settings.EnhancerMaxTokens, 16, 16384, _ => { }, 1, "0", double.NaN);
         var effort = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        tokens.HorizontalAlignment = HorizontalAlignment.Left;
+        var preferredEffort = settings.EnhancerEffort;
+        bool updatingEffort = false;
+        effort.SelectionChanged += (_, _) =>
+        {
+            if (!updatingEffort && effort.SelectedItem is string selected) preferredEffort = selected;
+        };
+        tokens.HorizontalAlignment = HorizontalAlignment.Stretch;
         var apiUrl = new TextBox { Text = settings.EnhancerApiUrl };
         var apiModel = new TextBox { Text = settings.EnhancerApiModel, PlaceholderText = Locale.T("Model ID") };
         var apiName = new TextBox { Text = settings.EnhancerApiDisplayName, PlaceholderText = Locale.T("Direct text API") };
@@ -194,6 +200,8 @@ public static partial class AiDialogs
         var textModelField = new Border();
         var savedLocalModel = SetupInput(new ComboBox { PlaceholderText = Locale.T("Choose a model") });
         AiTaskService.ServerTextModel[] catalogue = [];
+        var comfyEfforts = service.ChatReasoningEfforts;
+        string[]? directEfforts = null;
         var detected = new ComboBox { IsVisible = false, MinWidth = 160 };
         AiGenerationControls.StyleModelField(detected, "Detected server model");
         var listedNames = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -213,15 +221,24 @@ public static partial class AiDialogs
         };
         void UpdateEfforts()
         {
-            var current = effort.SelectedItem as string ?? settings.EnhancerEffort;
-            var id = selectedProvider == "local-codex" ? localCodex.Model.Text : serverModel.Text;
-            var supported = catalogue.FirstOrDefault(m => m.Id == id)?.Efforts;
+            var current = preferredEffort;
+            var id = selectedProvider switch
+            {
+                "local-codex" => localCodex.Model.Text, "direct" => apiModel.Text,
+                "comfy" => model.SelectedItem as string, _ => serverModel.Text
+            };
+            var supported = selectedProvider switch
+            {
+                "comfy" => comfyEfforts, "direct" => directEfforts, _ => catalogue.FirstOrDefault(m => m.Id == id)?.Efforts
+            };
             var options = new[] { "default" }.Concat(supported ?? []).Distinct().ToArray();
             if (supported == null && current != "default" && catalogue.Length == 0)
                 options = [.. options, current];
+            updatingEffort = true;
             effort.ItemsSource = options;
             effort.SelectedItem = options.Contains(current) ? current : "default";
             effort.IsEnabled = options.Length > 1;
+            updatingEffort = false;
         }
         serverModel.TextChanged += (_, _) => UpdateEfforts();
         void PresentTextCatalog(AiTaskService.ServerTextModel[] models, string? current, string? preferred)
@@ -255,7 +272,7 @@ public static partial class AiDialogs
         };
         var serverAddress = firstRun ? SetupColumns(SetupField("ComfyUI server", SetupInput(enhancerServer)))
             : Columns("*,*", Field("ComfyUI server", enhancerServer));
-        var directKey = new TextBox { PasswordChar = '●', PlaceholderText = Locale.T("Enter a key to save or replace it") };
+        var directKey = new TextBox { Name = "TextApiKey", PasswordChar = '●', PlaceholderText = Locale.T("Enter a key to save or replace it") };
         var forgetDirect = false;
         var clearDirect = Ui.TextButton("Forget saved key", () => { directKey.Text = ""; forgetDirect = true; });
         var textCatalog = new ConnectionModelCatalog(settings.EnhancerApiCatalogs, apiUrl, directKey, apiModel, () =>
@@ -264,17 +281,25 @@ public static partial class AiDialogs
             return (endpoint, new Uri(endpoint.AbsoluteUri[..^"/chat/completions".Length] + "/models"));
         }, endpoint => !string.IsNullOrWhiteSpace(directKey.Text) ? directKey.Text.Trim()
             : ((!forgetDirect && Settings.Persist ? UserApiKeys.Read(UserApiKeys.Target("Direct", endpoint)) : null)
-                ?? Environment.GetEnvironmentVariable("AVS_COMPATIBLE_API_KEY")), lifetime.Token);
+                ?? Environment.GetEnvironmentVariable("AVS_COMPATIBLE_API_KEY")), lifetime.Token, autoProbe: !firstRun);
+        clearDirect.Click += (_, _) => { textCatalog.InvalidateCheck(); textCatalog.ScheduleCheck(); };
+        void UpdateDirectEfforts()
+        {
+            directEfforts = textCatalog.ReasoningFor(apiModel.Text ?? "");
+            UpdateEfforts();
+        }
+        apiModel.TextChanged += (_, _) => UpdateDirectEfforts();
+        textCatalog.CheckChanged += UpdateDirectEfforts;
         var apiFields = firstRun ? Ui.Column(12, SetupColumns(
             SetupField("API base URL", SetupInput(apiUrl)), SetupField("API key", SetupInput(directKey))), clearDirect)
-            : Ui.Column(8, Columns("*,*", Field("Display name", apiName),
-            Field("API protocol", new TextBox { Text = Locale.T("OpenAI chat completions"), IsReadOnly = true })),
-            Field("API base URL", apiUrl), Field("Saved API key", directKey), clearDirect, textCatalog.View);
+            : Ui.Column(10, Columns("*,*", SetupField("Display name", apiName),
+            SetupField("API protocol", SetupInput(new TextBox { Text = Locale.T("OpenAI chat completions"), IsReadOnly = true }))),
+            SetupField("API base URL", SetupInput(apiUrl)), SetupField("Saved API key", SetupInput(directKey)), clearDirect, textCatalog.View);
         Locale.Tip(apiUrl, "Optional bearer key: AVS_COMPATIBLE_API_KEY");
         var serverApiFields = EnhancerFields(("Server API base URL", serverUrl), ("API mode", apiMode));
         var serverFields = Ui.Column(6, serverApiFields, serverHelp);
-        var reasoning = firstRun ? null : Field("Reasoning effort", effort);
-        var budget = Field("Token limit", tokens);
+        var reasoning = firstRun ? null : SetupField("Reasoning effort", SetupInput(effort));
+        var budget = SetupField("Token limit", SetupInput(tokens));
         string[] remoteAdapters = ["codex", "claude", "kimi"];
         var remotePicker = Ui.Combo(remoteAdapters, remoteCli, CliLabel, _ => { }, double.NaN);
         Control remoteFields = firstRun ? new Border() : Field("CLI", remotePicker);
@@ -283,37 +308,24 @@ public static partial class AiDialogs
         var localCliPicker = SetupInput(Ui.Combo(new[] { "Codex CLI" }, "Codex CLI", value => value, _ => { }, double.NaN));
         var remoteHelp = RemoteEnhancerHelp();
         var operationTextModel = Caption("");
-        var testPrompt = new TextBox { AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinHeight = 68 };
-        var testResult = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinHeight = 68 };
-        var textReachability = Caption("");
-        textReachability.IsVisible = false;
-        var textCheck = new ConnectionCheck(lifetime.Token, async token =>
-        {
-            var draft = new Settings();
-            ReadEnhancer(draft);
-            SavePromptDraft();
-            draft.EnhancerInstructions = new(instructionDrafts);
-            var probe = live.SettingsPreview(() => url.Text ?? "");
-            probe.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
-            if (draft.EffectiveEnhancerProvider() == "comfy")
-            {
-                var key = DraftCredential(ComfyServerAddress.Parse(url.Text ?? ""));
-                probe.ApiKey = () => key;
-            }
-            var direct = !string.IsNullOrWhiteSpace(directKey.Text) ? directKey.Text.Trim()
-                : forgetDirect ? Environment.GetEnvironmentVariable("AVS_COMPATIBLE_API_KEY") ?? "" : null;
-            textReachability.IsVisible = false;
-            var result = await probe.TestEnhancerAsync(draft, token, direct, promptPack, instructionTask, testPrompt.Text, () =>
-            {
-                textReachability.Text = Locale.T("Server responded.");
-                textReachability.IsVisible = true;
-            });
-            token.ThrowIfCancellationRequested();
-            testResult.Text = result;
-            return "Test request completed.";
-        }, "Send a short prompt to the selected model.", showHelperWarning: true);
         var textConnectionCheck = new ConnectionCheck(lifetime.Token, CheckTextConnection, "", showHelperWarning: true,
-            buttonText: firstRun ? "Get available models" : "Check connection", inlineAction: firstRun);
+            buttonText: firstRun ? "Get available models" : "Check connection", inlineAction: firstRun, automatic: !firstRun);
+        void PresentDirectCatalog()
+        {
+            if (selectedProvider != "direct") return;
+            var items = textCatalog.Models;
+            listedNames.Clear();
+            foreach (var item in items) listedNames[item.Id] = item.Label;
+            var actual = (apiModel.Text ?? "").Trim();
+            PresentTextCatalog(items.Select(item => new AiTaskService.ServerTextModel(item.Id, textCatalog.ReasoningFor(item.Id)))
+                .Append(new(actual, textCatalog.ReasoningFor(actual))).Where(item => item.Id.Length > 0).DistinctBy(item => item.Id).ToArray(),
+                actual, null);
+        }
+        if (!firstRun)
+        {
+            textCatalog.CheckChanged += () => { if (textCatalog.Connected == true) PresentDirectCatalog(); };
+            textCatalog.Changed += () => { if (textCatalog.CanFetch && textCatalog.Models.Count > 0) PresentDirectCatalog(); };
+        }
         async Task<string> CheckTextConnection(CancellationToken token)
         {
             listedNames.Clear();
@@ -330,10 +342,8 @@ public static partial class AiDialogs
             {
                 await textCatalog.FetchAsync(token);
                 token.ThrowIfCancellationRequested();
-                var items = textCatalog.Models;
-                foreach (var item in items) listedNames[item.Id] = item.Label;
-                PresentTextCatalog(items.Select(item => new AiTaskService.ServerTextModel(item.Id, null)).ToArray(), apiModel.Text, null);
-                return items.Count == 0 ? "The API reported no models." : "The API responded. Models are available below.";
+                PresentDirectCatalog();
+                return textCatalog.Models.Count == 0 ? "The API reported no models." : "The API responded. Models are available below.";
             }
             var adapter = selectedProvider;
             var address = url.Text ?? "";
@@ -347,6 +357,7 @@ public static partial class AiDialogs
             token.ThrowIfCancellationRequested();
             if (adapter == "comfy")
             {
+                comfyEfforts = probe.ChatReasoningEfforts;
                 var current = model.SelectedItem as string;
                 model.ItemsSource = probe.ChatModels;
                 model.SelectedItem = probe.ChatModels.Contains(current) ? current : null;
@@ -360,23 +371,10 @@ public static partial class AiDialogs
             PresentTextCatalog(remote, serverModel.Text, null);
             return remote.Length == 0 ? "The server reported no models." : "Server responded. Models loaded.";
         }
-        void ResetTextCheck()
-        {
-            textCheck.Reset();
-            testResult.Text = "";
-            textReachability.IsVisible = false;
-        }
-        foreach (var input in new[] { url, enhancerServer, sessionKey, keyEnvironment, directKey, apiUrl, apiModel, serverUrl, serverModel,
-            localCodex.Path, localCodex.Model, instructions, otherInstructions, testPrompt })
-            input.PropertyChanged += (_, args) => { if (args.Property == TextBox.TextProperty) ResetTextCheck(); };
         foreach (var input in new[] { url, directKey, apiUrl, serverUrl, localCodex.Path, sessionKey, keyEnvironment })
             input.TextChanged += (_, _) => textConnectionCheck.Reset();
-        model.SelectionChanged += (_, _) => ResetTextCheck();
-        effort.SelectionChanged += (_, _) => ResetTextCheck();
-        tokens.ValueChanged += (_, _) => ResetTextCheck();
-        apiMode.SelectionChanged += (_, _) => ResetTextCheck();
-        clear.Click += (_, _) => ResetTextCheck();
-        clearDirect.Click += (_, _) => ResetTextCheck();
+        model.SelectionChanged += (_, _) => UpdateEfforts();
+        localCodex.Model.TextChanged += (_, _) => UpdateEfforts();
         void UpdateSummary()
         {
             var text = selectedProvider switch
@@ -390,17 +388,21 @@ public static partial class AiDialogs
         localCodex.Model.TextChanged += (_, _) => UpdateSummary();
         serverModel.TextChanged += (_, _) => UpdateSummary();
         model.SelectionChanged += (_, _) => UpdateSummary();
-        remotePicker.SelectionChanged += (_, _) =>
+        void SelectRemoteAdapter(string adapter)
         {
-            if (remotePicker.SelectedIndex < 0) return;
+            remoteCli = adapter;
+            if (!AiTaskService.IsRemoteCli(selectedProvider) || selectedProvider == adapter) return;
             serverModels[selectedProvider] = serverModel.Text?.Trim() ?? "";
-            selectedProvider = remoteCli = remoteAdapters[remotePicker.SelectedIndex];
+            selectedProvider = adapter;
             serverModel.Text = serverModels.GetValueOrDefault(selectedProvider);
             ShowProvider();
+        }
+        remotePicker.SelectionChanged += (_, _) =>
+        {
+            if (remotePicker.SelectedIndex >= 0) SelectRemoteAdapter(remoteAdapters[remotePicker.SelectedIndex]);
         };
         void ShowProvider()
         {
-            ResetTextCheck();
             textConnectionCheck.Reset();
             apiFields.IsVisible = selectedProvider == "direct";
             chatFields.IsVisible = selectedProvider == "comfy";
@@ -461,33 +463,30 @@ public static partial class AiDialogs
                 ShowProvider();
             }, double.NaN);
         provider.Name = "TextEnhancerRoute";
-        if (firstRun)
-        {
-            SetupInput(provider);
-            SetupInput(remotePicker);
-            SetupInput(detected);
-            SetupInput(localCodex.Model);
-            SetupInput(serverModel);
-            SetupInput(apiModel);
-            SetupInput(apiName);
-            SetupInput(model);
-            SetupInput(effort);
-            effort.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((value, _) =>
-                new TextBlock { Text = Locale.T(value switch
-                {
-                    "default" => "Default", "none" => "No reasoning", "minimal" => "Minimal reasoning", "low" => "Low reasoning",
-                    "medium" => "Medium reasoning", "high" => "High reasoning", "xhigh" => "Extra high reasoning", _ => value
-                }) });
-            effort.SelectionBoxItemTemplate = effort.ItemTemplate;
-            Locale.Tip(textConnectionCheck.ActionButton, "Check connection");
-        }
+        SetupInput(provider);
+        SetupInput(remotePicker);
+        SetupInput(detected);
+        SetupInput(localCodex.Model);
+        SetupInput(serverModel);
+        SetupInput(apiModel);
+        SetupInput(apiName);
+        SetupInput(model);
+        SetupInput(effort);
+        effort.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((value, _) =>
+            new TextBlock { Text = Locale.T(value switch
+            {
+                null or "default" => "Default", "none" => "No reasoning", "minimal" => "Minimal reasoning", "low" => "Low reasoning",
+                "medium" => "Medium reasoning", "high" => "High reasoning", "xhigh" => "Extra high reasoning", _ => value
+            }) });
+        effort.SelectionBoxItemTemplate = effort.ItemTemplate;
+        if (firstRun) Locale.Tip(textConnectionCheck.ActionButton, "Check connection");
         ShowProvider();
 
         void SavePromptDraft()
         {
             if (promptPack == null) return;
-            Save(instructionTask, instructions.Text ?? "");
-            Save(OtherInstructionTask(), otherInstructions.Text ?? "");
+            Save(AiTaskKind.GenerateImage, instructions.Text ?? "");
+            Save(AiTaskKind.ImageEdit, otherInstructions.Text ?? "");
             void Save(AiTaskKind task, string text)
             {
                 var key = AiTaskService.InstructionKey(AiTaskService.InstructionScope(promptPack), task);
@@ -500,19 +499,12 @@ public static partial class AiDialogs
         void LoadPromptDraft(EngineProfile? pack)
         {
             promptPack = pack;
-            instructions.Text = service.InstructionsFor(instructionDrafts, pack, instructionTask);
-            otherInstructions.Text = service.InstructionsFor(instructionDrafts, pack, OtherInstructionTask());
+            instructions.Text = service.InstructionsFor(instructionDrafts, pack, AiTaskKind.GenerateImage);
+            otherInstructions.Text = service.InstructionsFor(instructionDrafts, pack, AiTaskKind.ImageEdit);
             refreshInstructions?.Invoke();
         }
-        var instructionMode = Ui.Combo(DirectImageGenerator.Operations, instructionTask,
-            task => task switch { AiTaskKind.GenerateImage => "Generate image", AiTaskKind.ImageEdit => "Edit image", _ => task.DisplayName() }, task =>
-            {
-                SavePromptDraft();
-                instructionTask = task;
-                LoadPromptDraft(promptPack);
-            }, 235);
         var status = Ui.Label(ConnectionLabel(service.ConnectionState), Palette.Secondary);
-        status.MaxWidth = 430;
+        status.HorizontalAlignment = HorizontalAlignment.Left;
         status.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var models = new ComfyModelPicker(settings, service, () => url.Text ?? "");
         Action? refreshOperation = null;
@@ -536,34 +528,31 @@ public static partial class AiDialogs
         }
         models.ChoicesChanged += RefreshStatus;
         url.TextChanged += (_, _) => { models.Refresh(); RefreshStatus(); };
-        var test = Ui.TextButton("Test connection", () => { });
-        test.Click += async (_, _) =>
+        var comfyCheck = new ConnectionCheck(lifetime.Token, async token =>
         {
-            test.IsEnabled = false;
-            status.Text = Locale.Message("Connecting…");
-            var checkedAddress = url.Text;
-            try
+            var address = ComfyServerAddress.Parse(url.Text ?? "").ToString();
+            var probe = service.SettingsPreview(() => address);
+            probe.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
+            try { await probe.TestConnectionAsync(token); }
+            catch (Exception error) when (error is not OutOfMemoryException && !token.IsCancellationRequested)
             {
-                service.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
-                await service.TestConnectionAsync(lifetime.Token, overrideUrl: checkedAddress);
-                if (checkedAddress != url.Text || lifetime.IsCancellationRequested) return;
-                var selectedChat = model.SelectedItem as string ?? settings.EnhancerModel;
-                model.ItemsSource = service.ChatModels.Append(selectedChat).Distinct().ToArray();
-                model.SelectedItem = selectedChat;
+                service.AcceptSettingsPreview(probe, address);
                 models.Refresh();
                 RefreshStatus();
+                throw;
             }
-            catch (Exception error)
-            {
-                if (checkedAddress != url.Text || lifetime.IsCancellationRequested) return;
-                status.Text = Locale.Message(AiTaskService.IsAuthorizationError(error)
-                    ? "ComfyUI refused authorization." : "Error: " + error.Message);
-                status.Foreground = Avalonia.Media.Brushes.Orange;
-                models.Refresh();
-            }
-            finally { test.IsEnabled = true; }
-        };
-
+            token.ThrowIfCancellationRequested();
+            service.AcceptSettingsPreview(probe, address);
+            var selectedChat = model.SelectedItem as string ?? settings.EnhancerModel;
+            model.ItemsSource = service.ChatModels.Append(selectedChat).Distinct().ToArray();
+            model.SelectedItem = selectedChat;
+            comfyEfforts = service.ChatReasoningEfforts;
+            UpdateEfforts();
+            models.Refresh();
+            RefreshStatus();
+            return "Connected";
+        }, "", buttonText: "Test connection", automatic: !firstRun);
+        url.TextChanged += (_, _) => comfyCheck.Reset();
         IReadOnlyDictionary<string,string> CurrentFiles()
         {
             try { return models.Choices(url.Text ?? ""); }
@@ -688,8 +677,8 @@ public static partial class AiDialogs
         }
         engine.IsEnabled = service.Engines.Profiles.Count > 0;
         var connection = Ui.Column(8,
-            Columns("*,120", Field("ComfyUI Server URL", url), Field("Connection timeout", timeout)),
-            Ui.Row(8, test), status);
+            Columns("*,146", SetupField("ComfyUI Server URL", SetupInput(url)), SetupField("Connection timeout", SetupInput(timeout))),
+            comfyCheck.View, status);
         foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.SelectSubject or AiTaskKind.MatchToScene or AiTaskKind.ObjectSelection)))
         {
             var key = task.ToString();
@@ -734,31 +723,21 @@ public static partial class AiDialogs
             assignmentPickers[task] = assignmentPicker;
         }
         var files = Ui.Column(8, routePicker, models);
-        var auth = Ui.Column(8, Columns("*,*", Field("Saved API key", sessionKey), Field("Environment variable", keyEnvironment)), clear);
+        var auth = Ui.Column(8, Columns("*,*", SetupField("Saved API key", SetupInput(sessionKey)),
+            SetupField("Environment variable", SetupInput(keyEnvironment))), clear);
         var credentials = new Expander { Header = Locale.T("Comfy credits"), Content = Ui.Column(8, auth, keyNote), IsExpanded = focusField == "key" };
-        var instructionLabel = Caption("");
-        var otherInstructionLabel = Caption("");
-        var instructionField = Ui.Column(4, instructionLabel, instructions);
-        var otherInstructionField = Ui.Column(4, otherInstructionLabel, otherInstructions);
-        var instructionFields = Columns("*,*", instructionField, otherInstructionField);
-        refreshInstructions = () =>
-        {
-            promptModelTitle.Text = promptPack == null ? Locale.T("Choose a model") : ModelTitle(promptPack, instructionTask);
-            instructionLabel.Text = Locale.T(InstructionLabel(instructionTask));
-            otherInstructionLabel.Text = Locale.T(InstructionLabel(OtherInstructionTask()));
-            int column = instructionTask == AiTaskKind.GenerateImage ? 0 : 1;
-            Grid.SetColumn(instructionField, column);
-            Grid.SetColumn(otherInstructionField, 1 - column);
-        };
-        string InstructionLabel(AiTaskKind task) => task switch
-        {
-            AiTaskKind.GenerateImage => "Instructions for image generation",
-            AiTaskKind.ImageEdit => "Instructions for image editing",
-            _ => task.DisplayName()
-        };
+        var instructionFields = SetupColumns(SetupField("Instructions for image generation", instructions),
+            SetupField("Instructions for image editing", otherInstructions));
+        refreshInstructions = () => promptModelTitle.Text = promptPack == null
+            ? Locale.T("Choose a model") : ModelTitle(promptPack, AiTaskKind.GenerateImage);
         refreshInstructions();
-        var restoreInstructions = Ui.TextButton("Reset instructions for this model and operation", () =>
-            instructions.Text = service.InstructionsFor(new Dictionary<string, string>(), promptPack, instructionTask));
+        var restoreInstructions = Ui.TextButton("Reset instructions for this model", () =>
+        {
+            var defaults = new Dictionary<string, string>();
+            instructions.Text = service.InstructionsFor(defaults, promptPack, AiTaskKind.GenerateImage);
+            otherInstructions.Text = service.InstructionsFor(defaults, promptPack, AiTaskKind.ImageEdit);
+        });
+        restoreInstructions.HorizontalAlignment = HorizontalAlignment.Left;
         void ReadEnhancer(Settings target)
         {
             target.EnhancerInstructions = new(instructionDrafts);
@@ -873,65 +852,66 @@ public static partial class AiDialogs
         var directPromptHost = new Border { Child = firstRun ? null : apiFields };
         var textConnectionHost = new Border();
         var cliPromptHost = new Border { Child = firstRun ? null : localCodex.View };
-        var cliConnectionHost = new Border();
+        directPromptHost.IsVisible = apiFields.IsVisible;
+        cliPromptHost.IsVisible = localCodex.View.IsVisible;
+        apiFields.PropertyChanged += (_, args) =>
+        {
+            if (args.Property == Visual.IsVisibleProperty) directPromptHost.IsVisible = apiFields.IsVisible;
+        };
+        localCodex.View.PropertyChanged += (_, args) =>
+        {
+            if (args.Property == Visual.IsVisibleProperty) cliPromptHost.IsVisible = localCodex.View.IsVisible;
+        };
         var promptConfiguration = Ui.Column(firstRun ? 12 : 10,
             firstRun ? SetupColumns(SetupField("Method", provider), SetupField("CLI", setupKind, caption: setupKindLabel))
-                : Columns("1.2*,1.3*,1*,.75*", Field("Connection method", provider), Field("Language model", textModelField), reasoning!, budget));
-        var promptDetails = Ui.Column(firstRun ? 12 : 5, serverAddress, chatFields, firstRun ? apiFields : directPromptHost,
+                : Columns("1.2*,1.3*,1*,.75*", SetupField("Connection method", provider), SetupField("Language model", textModelField), reasoning!, budget));
+        var promptDetails = Ui.Column(firstRun ? 12 : 10, serverAddress, chatFields, firstRun ? apiFields : directPromptHost,
             remoteFields, serverFields, firstRun ? localCodex.View : cliPromptHost, remoteHelp);
-        var promptConnectionDetails = new Expander
-        {
-            Header = Locale.T("Connection details"), Content = firstRun ? null : promptDetails, HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
-        };
         if (firstRun) promptConfiguration.Children.Insert(1, SetupColumns(
             SetupField("Model", textModelField, textConnectionCheck.ActionButton), SetupField("Reasoning level", effort)));
-        promptConfiguration.Children.Add(firstRun ? promptDetails : promptConnectionDetails);
-        var promptTest = Ui.Column(8, Heading("Prompt test", 13),
-            Columns("*,*", Field("Original prompt", testPrompt), Field("Enhanced result", testResult)));
-        if (!firstRun) promptTest.Children.Add(textCheck.View);
-        var promptInstructions = Ui.Column(12,
-            Columns("*,Auto", promptModelTitle, instructionMode), instructionFields, restoreInstructions,
-            InsetRow(promptTest, vertical: 10));
-        var promptList = Card(promptModelList, 6);
+        var disclosure = Disclosure("Connection details", firstRun ? new Border() : promptDetails, out var promptConnectionDetails);
+        promptConfiguration.Children.Add(firstRun ? promptDetails : disclosure);
+        var promptInstructions = Ui.Column(12, promptModelTitle, instructionFields, restoreInstructions);
+        var promptList = Card(promptModelList, 14);
         promptList.VerticalAlignment = VerticalAlignment.Top;
         var refreshTextModels = Ui.TextButton("Refresh models", textConnectionCheck.Start);
+        var promptLight = new Border();
+        void RefreshPromptLight() => promptLight.Child = selectedProvider == "direct"
+            ? ConnectionLight(textCatalog.CheckMessage, textCatalog.Connected) : textConnectionCheck.Light();
+        textCatalog.CheckChanged += RefreshPromptLight;
+        textConnectionCheck.Changed += RefreshPromptLight;
+        RefreshPromptLight();
         var promptPage = firstRun ? new ContentControl() : PageWithAction("Prompt enhancer", refreshTextModels,
-            Card(Ui.Column(11, Heading("Language model", 15), promptConfiguration, textConnectionCheck.View, textReachability)),
-            MasterDetail(promptList, Card(promptInstructions, 15), 250));
+            Card(Ui.Column(12, Columns("*,19", Heading("Language model", 15), promptLight), promptConfiguration, textConnectionCheck.View)),
+            MasterDetail(promptList, Card(promptInstructions), 250));
         var serverPanel = Card(Ui.Column(9, Heading("ComfyUI server"), connection, credentials));
+        var connectionLights = new Dictionary<int, List<Border>>();
         Control ConnectionPage(int index, Control details)
         {
             var list = Ui.Column(3);
             foreach (var (target, label, type) in new[]
             {
-                (11, "Codex CLI", "This computer · Prompt enhancer"),
-                (5, string.IsNullOrWhiteSpace(settings.ImageApiDisplayName) ? "Image connections" : settings.ImageApiDisplayName, "Image operations"),
-                (10, string.IsNullOrWhiteSpace(settings.EnhancerApiDisplayName) ? "Direct text API" : settings.EnhancerApiDisplayName, "Language model"),
+                (5, "API", "Language model and image operations"),
+                (11, "CLI", "This computer or ComfyUI server"),
                 (0, "ComfyUI", "Workflows and Comfy credits")
             })
             {
-                var row = RowButton(Columns("*,19", Ui.Column(2, Heading(label, 11), Caption(type)),
-                    Status("Connection has not been checked")), () =>
-                {
-                    if (target == 5) imageConnection.Configure(ImageGenerationRoute.DirectApi);
-                    openRelated?.Invoke(target);
-                });
+                var light = new Border();
+                if (!connectionLights.TryGetValue(target, out var slots)) connectionLights[target] = slots = [];
+                slots.Add(light);
+                var row = RowButton(Columns("*,19", Ui.Column(2, Heading(label, 11), Caption(type)), light),
+                    () => openRelated?.Invoke(target));
                 if (index == target) row.Background = Palette.SettingsSelection;
                 list.Children.Add(row);
             }
             var master = Card(list, 6);
             master.VerticalAlignment = VerticalAlignment.Top;
-            var add = Ui.TextButton("Add", () => { });
-            add.Flyout = new Flyout { Content = Ui.Column(6,
-                Ui.TextButton("Direct text API", () => { add.Flyout?.Hide(); openRelated?.Invoke(10); }),
-                Ui.TextButton("Direct image API", () =>
-                {
-                    add.Flyout?.Hide();
-                    imageConnection.Configure(ImageGenerationRoute.DirectApi);
-                    openRelated?.Invoke(5);
-                })) };
-            return PageWithAction("Connections", add, MasterDetail(master, details, 250));
+            return Page("Connections", MasterDetail(master, details, 250));
+        }
+        void RefreshConnectionLights(int index, Func<Border> light)
+        {
+            if (connectionLights.TryGetValue(index, out var slots))
+                foreach (var slot in slots) slot.Child = light();
         }
         var serverConnectionPage = firstRun ? new ContentControl() : ConnectionPage(0, serverPanel);
         var editorPage = Page("Editor",
@@ -963,9 +943,8 @@ public static partial class AiDialogs
         gpuOptions.IsVisible = false;
         var changeGpu = Ui.TextButton("Change", () => gpuOptions.IsVisible = !gpuOptions.IsVisible);
         var performancePage = Page("Performance",
-            Card(Ui.Column(12, Columns("*,Auto", Ui.Column(3, Heading("Hardware acceleration", 14),
-                Caption("For supported local operations")), accelerated),
-                InsetRow(Columns("*,Auto", Heading(actualGpu ?? "Local computation", 12), Caption(actualGpu == null ? "CPU" : "GPU")))), 16),
+            Card(Ui.Column(12, Columns("*,Auto", Heading("Hardware acceleration", 14), accelerated),
+                Columns("*,Auto", Heading(actualGpu ?? "Local computation", 12), Caption(actualGpu == null ? "CPU" : "GPU"))), 16),
             Ui.Column(8, Heading("Devices", 13), Card(deviceRows, 0)),
             Ui.Column(8, Heading("Exceptions", 13), Card(Ui.Column(8,
                 Columns("*,Auto", Ui.Column(2, Heading("Large RGB16 blur filters", 12),
@@ -999,8 +978,8 @@ public static partial class AiDialogs
         bool refreshQueued = false;
         var checkAll = Ui.TextButton("Check all", () =>
         {
-            if (test.IsEnabled) test.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            textConnectionCheck.Start();
+            comfyCheck.Start();
+            if (selectedProvider != "comfy") textConnectionCheck.Start();
         });
         var operationsPage = PageWithAction("Operations", checkAll,
             Ui.Column(8, Heading("Prompt enhancer", 13), Card(promptTable, 0)),
@@ -1011,16 +990,116 @@ public static partial class AiDialogs
         closeToEditor.Classes.Add("flat");
         var operationPage = Page("", Ui.Column(4, detailBreadcrumb,
             Columns("*,Auto", detailHeader, Ui.Row(8, closeToEditor, restoreOperation))), operationDetail);
-        var imagePage = firstRun ? new ContentControl() : ConnectionPage(5, Card(Ui.Column(8, Heading("Image connections"), imageConnection.View)));
-        var textConnectionPage = firstRun ? new ContentControl() : ConnectionPage(10, Card(Ui.Column(8, Heading("Direct text API"), textConnectionHost)));
-        var cliCheck = new ConnectionCheck(lifetime.Token, async token =>
+        var apiTextLight = new Border();
+        var apiImageLight = new Border();
+        Control ConnectionCard(string title, Control content, Border light) =>
+            Card(Ui.Column(12, Columns("*,19", Heading(title, 14), light), content));
+        var apiModels = SetupInput(new ComboBox { PlaceholderText = Locale.T("Choose a model") });
+        bool refreshingApiModels = false;
+        void RefreshApiSelection()
         {
-            var matches = await LocalCodex.DiscoverModelsAsync(localCodex.Path.Text ?? "", token);
-            return matches.Count == 0 ? "The CLI reported no models." : "Codex CLI is signed in. Models loaded.";
-        }, "", buttonText: "Check connection");
-        localCodex.Path.TextChanged += (_, _) => cliCheck.Reset();
-        var cliConnectionPage = firstRun ? new ContentControl() : ConnectionPage(11, Card(Ui.Column(8,
-            Heading("Codex CLI"), Caption("This computer · Prompt enhancer"), cliConnectionHost, cliCheck.View)));
+            refreshingApiModels = true;
+            var value = apiModel.Text ?? "";
+            apiModels.ItemsSource = textCatalog.Models.Select(item => item.Id).Append(value).Where(id => id.Length > 0).Distinct().ToArray();
+            apiModels.SelectedItem = value;
+            refreshingApiModels = false;
+        }
+        apiModels.SelectionChanged += (_, _) =>
+        {
+            if (!refreshingApiModels && apiModels.SelectedItem is string id) apiModel.Text = id;
+        };
+        apiModel.TextChanged += (_, _) => RefreshApiSelection();
+        textCatalog.Changed += RefreshApiSelection;
+        RefreshApiSelection();
+        var imagePage = firstRun ? new ContentControl() : ConnectionPage(5, Ui.Column(16,
+            ConnectionCard("Language model", Ui.Column(12, textConnectionHost, SetupField("Selected model", apiModels)), apiTextLight),
+            ConnectionCard("Image operations", imageConnection.View, apiImageLight)));
+        var cliLocation = SetupInput(Ui.Combo(new[] { "local", "remote" }, remoteHelp.IsVisible ? "remote" : "local",
+            value => Locale.T(value == "local" ? "This computer" : "ComfyUI server"), _ => { }, double.NaN));
+        var cliTextLight = new Border();
+        var cliImageLight = new Border();
+        var cliLocalText = new Border();
+        var cliRemoteText = Ui.Column(10);
+        var cliLocalImage = Ui.Column(10, imageConnection.CliSettings);
+        var cliRemoteImage = Caption("The installed AVS Prompt Helper supports language models only.");
+        var cliAdapter = SetupInput(Ui.Combo(remoteAdapters, remoteCli, CliLabel, _ => { }, double.NaN));
+        var cliModels = settings.EnhancerCliModels.ToDictionary(pair => pair.Key, pair => pair.Value.ToList());
+        var discoveredCliModels = new Dictionary<string, string[]>();
+        string CliProvider() => CliIsRemote() ? remoteAdapters[Math.Max(0, cliAdapter.SelectedIndex)] : "local-codex";
+        var cliModel = SetupInput(new ComboBox { PlaceholderText = Locale.T("Choose a model") });
+        var cliModelId = SetupInput(new TextBox { PlaceholderText = Locale.T("Model ID") });
+        bool fillingCliModels = false;
+        void RefreshCliModels()
+        {
+            var adapter = CliProvider();
+            var current = adapter == "local-codex" ? localCodex.Model.Text :
+                adapter == selectedProvider ? serverModel.Text : serverModels.GetValueOrDefault(adapter);
+            fillingCliModels = true;
+            cliModel.ItemsSource = (discoveredCliModels.GetValueOrDefault(adapter) ?? []).Concat(cliModels.GetValueOrDefault(adapter) ?? [])
+                .Append(current ?? "").Where(id => id.Length > 0).Distinct().ToArray();
+            cliModel.SelectedItem = current;
+            fillingCliModels = false;
+        }
+        cliModel.SelectionChanged += (_, _) =>
+        {
+            if (fillingCliModels || cliModel.SelectedItem is not string id) return;
+            var adapter = CliProvider();
+            if (adapter == "local-codex") localCodex.Model.Text = id;
+            else if (adapter == selectedProvider) serverModel.Text = id;
+            else serverModels[adapter] = id;
+        };
+        var addCliModel = Ui.TextButton("Add model", () =>
+        {
+            var id = cliModelId.Text?.Trim();
+            if (string.IsNullOrEmpty(id)) return;
+            var adapter = CliProvider();
+            if (!cliModels.TryGetValue(adapter, out var ids)) cliModels[adapter] = ids = [];
+            if (!ids.Contains(id)) ids.Add(id);
+            RefreshCliModels();
+            cliModel.SelectedItem = id;
+            cliModelId.Text = "";
+        });
+        cliRemoteText.Children.Add(Columns("*,*", SetupField("CLI", cliAdapter),
+            SetupField("ComfyUI server", SetupInput(new TextBox { IsReadOnly = true, [!TextBox.TextProperty] = url[!TextBox.TextProperty] }))));
+        var cliCheck = new ConnectionCheck(lifetime.Token, CheckCliConnection, "", showHelperWarning: true, automatic: true);
+        var cliConnectionPage = firstRun ? new ContentControl() : ConnectionPage(11, Ui.Column(16,
+            Card(Columns("*,*", SetupField("Run CLI on", cliLocation))),
+            ConnectionCard("Language model", Ui.Column(12, cliLocalText, cliRemoteText, SetupField("Selected model", cliModel),
+                Columns("*,Auto", cliModelId, addCliModel), cliCheck.View), cliTextLight),
+            ConnectionCard("Image operations", Ui.Column(12, cliLocalImage, cliRemoteImage), cliImageLight)));
+        bool CliIsRemote() => cliLocation.SelectedIndex == 1;
+        async Task<string> CheckCliConnection(CancellationToken token)
+        {
+            if (!CliIsRemote())
+            {
+                var matches = await LocalCodex.DiscoverModelsAsync(localCodex.Path.Text ?? "", token);
+                token.ThrowIfCancellationRequested();
+                discoveredCliModels["local-codex"] = matches.Select(item => item.Id).ToArray();
+                if (selectedProvider == "local-codex")
+                {
+                    listedNames.Clear();
+                    foreach (var item in matches) listedNames[item.Id] = item.Title;
+                    PresentTextCatalog(matches.Select(item => new AiTaskService.ServerTextModel(item.Id, item.Efforts)).ToArray(),
+                        localCodex.Model.Text, matches.FirstOrDefault(item => item.IsDefault)?.Id);
+                }
+                RefreshCliModels();
+                return matches.Count == 0 ? "The CLI reported no models." : "Codex CLI is signed in. Models loaded.";
+            }
+            var adapter = CliProvider();
+            var address = url.Text ?? "";
+            var preview = live.SettingsPreview(() => address);
+            preview.ConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
+            await preview.TestConnectionAsync(token);
+            token.ThrowIfCancellationRequested();
+            if (preview.ServerCapabilities?.NodeTypes.Contains("AVSPromptHelper") != true)
+                throw new AiTaskService.PromptHelperMissingException();
+            var modelsOnServer = await AiTaskService.DiscoverServerModels(address, adapter, "", token);
+            token.ThrowIfCancellationRequested();
+            discoveredCliModels[adapter] = modelsOnServer.Select(item => item.Id).ToArray();
+            if (selectedProvider == adapter) PresentTextCatalog(modelsOnServer, serverModel.Text, null);
+            RefreshCliModels();
+            return modelsOnServer.Length == 0 ? "The server reported no models." : "Server responded. Models loaded.";
+        }
         var setupServer = new Expander { Header = Locale.T("ComfyUI server"), Content = firstRun ? serverPanel : null,
             HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var setupTextIndicator = new Border();
@@ -1045,8 +1124,88 @@ public static partial class AiDialogs
         }
         var workflowPage = Page("Workflows", Card(workflows.Content));
         var body = new StudioSettingsPages(
-            [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage, operationPage, setupPage, textConnectionPage, cliConnectionPage],
-            firstRun ? 9 : page is 10 or 11 ? page : Math.Clamp(page, 0, 8));
+            [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage, operationPage, setupPage, new ContentControl(), cliConnectionPage],
+            firstRun ? 9 : page == 10 ? 5 : page == 11 ? 11 : Math.Clamp(page, 0, 8));
+        void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex == 0 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
+        void ScheduleTextCheck()
+        {
+            if (firstRun || body.SelectedIndex != 2) return;
+            if (selectedProvider == "direct")
+            {
+                if (textCatalog.Connected == true) PresentDirectCatalog();
+                else textCatalog.ScheduleCheck();
+            }
+            else textConnectionCheck.Schedule(() => body.SelectedIndex == 2 && (!url.IsFocused || selectedProvider == "local-codex"));
+        }
+        void RefreshCliLocation()
+        {
+            var remote = CliIsRemote();
+            cliLocalText.IsVisible = cliLocalImage.IsVisible = !remote;
+            cliRemoteText.IsVisible = cliRemoteImage.IsVisible = remote;
+            if (remote) imageConnection.CliCheck.Reset();
+            if (body.SelectedIndex == 11)
+            {
+                cliCheck.Schedule(() => body.SelectedIndex == 11 && (!remote || !url.IsFocused));
+                if (!remote) imageConnection.CliCheck.Schedule(() => body.SelectedIndex == 11 && !CliIsRemote());
+            }
+            RefreshCliModels();
+            RefreshCliLights();
+        }
+        void RefreshCliLights()
+        {
+            cliTextLight.Child = cliCheck.Light();
+            cliImageLight.Child = CliIsRemote()
+                ? ConnectionLight("The installed AVS Prompt Helper supports language models only.", null)
+                : imageConnection.CliCheck.Light();
+            RefreshConnectionLights(11, cliCheck.Light);
+        }
+        void RefreshApiLights()
+        {
+            apiTextLight.Child = ConnectionLight(textCatalog.CheckMessage, textCatalog.Connected);
+            apiImageLight.Child = ConnectionLight(imageConnection.ApiCheckMessage, imageConnection.ApiConnected);
+            bool? combined = textCatalog.Connected == false || imageConnection.ApiConnected == false ? false :
+                textCatalog.Connected == true || imageConnection.ApiConnected == true ? true : null;
+            RefreshConnectionLights(5, () => ConnectionLight("API", combined));
+        }
+        if (!firstRun)
+        {
+            textCatalog.EnableMonitoring(() => body.SelectedIndex == 5 || body.SelectedIndex == 2 && selectedProvider == "direct");
+            imageConnection.EnableApiMonitoring(() => body.SelectedIndex == 5);
+            textCatalog.CheckChanged += RefreshApiLights;
+            imageConnection.ApiCheckChanged += RefreshApiLights;
+            comfyCheck.Changed += () =>
+            {
+                status.IsVisible = !comfyCheck.Failed;
+                RefreshConnectionLights(0, comfyCheck.Light);
+            };
+            cliCheck.Changed += RefreshCliLights;
+            imageConnection.CliCheck.Changed += RefreshCliLights;
+            cliLocation.SelectionChanged += (_, _) => { cliCheck.Reset(); RefreshCliLocation(); };
+            cliAdapter.SelectionChanged += (_, _) =>
+            {
+                if (cliAdapter.SelectedIndex < 0) return;
+                remotePicker.SelectedIndex = cliAdapter.SelectedIndex;
+                SelectRemoteAdapter(remoteAdapters[cliAdapter.SelectedIndex]);
+                cliCheck.Reset();
+                RefreshCliLocation();
+            };
+            remotePicker.SelectionChanged += (_, _) => { if (remotePicker.SelectedIndex >= 0) cliAdapter.SelectedIndex = remotePicker.SelectedIndex; };
+            provider.SelectionChanged += (_, _) => ScheduleTextCheck();
+            remotePicker.SelectionChanged += (_, _) => ScheduleTextCheck();
+            foreach (var input in new[] { url, sessionKey, keyEnvironment, serverUrl, localCodex.Path })
+                input.TextChanged += (_, _) => ScheduleTextCheck();
+            localCodex.Path.TextChanged += (_, _) => { cliCheck.Reset(); if (body.SelectedIndex == 11) RefreshCliLocation(); };
+            url.TextChanged += (_, _) =>
+            {
+                if (!url.IsFocused) ScheduleComfyCheck();
+                if (CliIsRemote()) cliCheck.Reset();
+            };
+            url.LostFocus += (_, _) => { ScheduleComfyCheck(); ScheduleTextCheck(); };
+            timeout.ValueChanged += (_, _) => { comfyCheck.Reset(); ScheduleComfyCheck(); };
+            RefreshApiLights();
+            RefreshCliLights();
+            RefreshConnectionLights(0, comfyCheck.Light);
+        }
         showComfyKey = () =>
         {
             if (firstRun) setupServer.IsExpanded = true;
@@ -1120,11 +1279,11 @@ public static partial class AiDialogs
             ("Show AI context bounds", "output selection выделение контекст", 1, showContext, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
             ("Text model", "chatgpt luna comfy credits", 2, provider, null, null),
-            ("Direct text API", "connection endpoint key catalog URL каталог прямое подключение", 10, apiUrl, null, null),
+            ("Direct text API", "connection endpoint key catalog URL каталог прямое подключение", 5, apiUrl, null, null),
             ("Reasoning effort", "reasoning рассуждение", 2, effort, null, null),
             ("Response options", "token limit токены", 2, tokens, null, null),
             ("System instructions", "системный промт", 2, instructions, null, null),
-            ("Image generation", "api cli подключение генерация изображений", 5, imageConnection.Picker, null, null),
+            ("Image generation", "api cli подключение генерация изображений", 5, imageConnection.ApiUrl, null, null),
             ("Language", "language russian english русский английский язык", 3, languagePicker, null, null),
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
             ("Workspace layout", "classic modern tools panels классическая новая панели раскладка", 3, layoutPicker, null, null),
@@ -1202,8 +1361,8 @@ public static partial class AiDialogs
         openPrompt = (pack, task) =>
         {
             RefreshPromptProfiles(pack ?? promptPack);
-            if (task != null) instructionMode.SelectedIndex = Array.IndexOf(DirectImageGenerator.Operations, task.Value);
             Navigate(2, true);
+            if (task is { } operation) (operation == AiTaskKind.GenerateImage ? instructions : otherInstructions).Focus();
         };
 
         EngineProfile? EngineForOperation(AiTaskKind task)
@@ -1387,8 +1546,7 @@ public static partial class AiDialogs
             if (route != ImageGenerationRoute.BuiltIn)
                 connectionColumn.Children.Add(Ui.TextButton("Open connection ›", () =>
                 {
-                    imageConnection.SelectConnection(task);
-                    Navigate(route == ImageGenerationRoute.ComfyWorkflow ? 0 : 5, true);
+                    Navigate(ConnectionPageFor(route), true);
                 }));
             var modelName = pack != null && route == ImageGenerationRoute.ComfyWorkflow ? ModelTitle(pack, task)
                 : route == ImageGenerationRoute.BuiltIn ? "Built-in" : imageConnection.ModelFor(task).Model;
@@ -1512,8 +1670,7 @@ public static partial class AiDialogs
             {
                 if (route != ImageGenerationRoute.ComfyWorkflow)
                 {
-                    imageConnection.SelectConnection(task);
-                    Navigate(5, true);
+                    Navigate(ConnectionPageFor(route), true);
                     return;
                 }
                 operationStatus.Text = Locale.T("Connecting…");
@@ -1721,7 +1878,6 @@ public static partial class AiDialogs
             });
         }
         imageConnection.RouteChanged += QueueRefresh;
-        textCheck.Changed += QueueRefresh;
         textConnectionCheck.Changed += QueueRefresh;
         workflows.Changed += QueueRefresh;
         models.ChoicesChanged += QueueRefresh;
@@ -1769,7 +1925,7 @@ public static partial class AiDialogs
             back.IsVisible = history.Count > 0;
             validation.IsVisible = false;
             var current = body.SelectedIndex;
-            if (!firstRun && current == 10)
+            if (!firstRun && current == 5)
             {
                 directPromptHost.Child = null;
                 apiFields.IsVisible = true;
@@ -1785,33 +1941,41 @@ public static partial class AiDialogs
             {
                 cliPromptHost.Child = null;
                 localCodex.View.IsVisible = true;
-                cliConnectionHost.Child = localCodex.View;
+                cliLocalText.Child = localCodex.View;
             }
-            else if (cliConnectionHost.Child != null)
+            else if (cliLocalText.Child != null)
             {
-                cliConnectionHost.Child = null;
+                cliLocalText.Child = null;
                 localCodex.View.IsVisible = selectedProvider == "local-codex";
                 cliPromptHost.Child = localCodex.View;
             }
             foreach (var (destination, button) in destinations)
             {
                 var selected = current == destination || destination == 6 && current is 8 or 2 ||
-                    destination == 1 && current == 4 || destination == 0 && current is 5 or 10 or 11;
+                    destination == 1 && current == 4 || destination == 0 && current is 5 or 11;
                 button.Background = selected ? Palette.SettingsSelection : Avalonia.Media.Brushes.Transparent;
             }
             scope.Text = Locale.T(current switch
             {
-                2 => "Instructions apply to the selected image model and operation.",
                 4 => "Save settings to apply workflow changes.",
-                0 => "Connection fields apply to operations using this connection.",
-                5 => "Connection fields apply to operations using this connection.",
-                10 => "Connection fields apply to operations using this connection.",
+                0 or 5 or 11 => "Connection fields apply to operations using this connection.",
                 8 => "Route changes apply to this operation after saving settings.",
                 9 => "You can finish setup later in Settings.",
                 _ => ""
             });
             if (current == 1) RenderModels();
             if (current == 2) RefreshPromptProfiles(promptPack);
+            if (!firstRun)
+            {
+                if (current == 0 && !comfyCheck.Passed) ScheduleComfyCheck();
+                if (current == 2) ScheduleTextCheck();
+                if (current == 5)
+                {
+                    if (textCatalog.Connected != true) textCatalog.ScheduleCheck();
+                    if (imageConnection.ApiConnected != true) imageConnection.ScheduleApiCheck();
+                }
+                if (current == 11) RefreshCliLocation();
+            }
             if (current == 6) RenderOperations();
             if (current == 8) RenderOperation();
             if (settingsDialog != null) Locale.Refresh(settingsDialog);
@@ -1829,7 +1993,7 @@ public static partial class AiDialogs
             else if (focusField == "server") url.Focus();
             else if (page == 1) engine.Focus();
             else if (page == 2) provider.Focus();
-            else if (page == 5) imageConnection.OperationPicker.Focus();
+            else if (page == 5) imageConnection.ApiUrl.Focus();
         };
         settingsDialog.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
@@ -1848,10 +2012,10 @@ public static partial class AiDialogs
                 if (selectedProvider == "direct" || forgetDirect || !string.IsNullOrWhiteSpace(directKey.Text) ||
                     apiUrl.Text != settings.EnhancerApiUrl)
                 {
-                    tab = body.SelectedIndex == 10 ? 10 : 2; field = apiUrl;
+                    tab = body.SelectedIndex == 5 ? 5 : 2; field = apiUrl;
                     directEndpoint = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
                     if (selectedProvider == "direct" && string.IsNullOrWhiteSpace(apiModel.Text))
-                    { field = apiModel; throw new FormatException("Enter the API model ID."); }
+                    { field = tab == 5 ? apiModels : apiModel; throw new FormatException("Enter the API model ID."); }
                 }
                 if (selectedProvider == "compatible")
                 {
@@ -1889,7 +2053,7 @@ public static partial class AiDialogs
                 if (error is FormatException)
                 {
                     if (!firstRun) body.SelectedIndex = tab;
-                    if (tab == 2 && field != apiModel) promptConnectionDetails.IsExpanded = true;
+                    if (tab == 2 && field != apiModel) promptConnectionDetails.IsChecked = true;
                     field.Focus();
                     if (field is TextBox input) input.SelectAll();
                 }
@@ -1952,6 +2116,7 @@ public static partial class AiDialogs
         SavePromptDraft();
         ReadEnhancer(settings);
         settings.EnhancerApiCatalogs = textCatalog.Save();
+        settings.EnhancerCliModels = cliModels;
         imageConnection.Save(settings);
 
         foreach (var (key, value) in changedGeneration)

@@ -150,6 +150,7 @@ public sealed class Settings
     public Dictionary<Composa.AI.AiTaskKind, string> ImageOperationApiModels { get; set; } = [];
     public Dictionary<string, Dictionary<string, string>> ImageApiCatalogs { get; set; } = [];
     public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
+    public Dictionary<string, List<string>> EnhancerCliModels { get; set; } = [];
     public string EnhancerServerApiUrl { get; set; } = "";
     public string EnhancerServerApiMode { get; set; } = "auto";
     public string EffectiveEnhancerProvider() => EnhancerProvider ?? (EnhancerUseCompatibleApi ? "direct" : "comfy");
@@ -296,6 +297,7 @@ public sealed class Settings
         value.ImageOperationApiModels ??= [];
         value.ImageApiCatalogs ??= [];
         value.EnhancerApiCatalogs ??= [];
+        value.EnhancerCliModels ??= [];
         value.EraserPresets ??= [];
         value.BrushPresets ??= [];
         value.RecentCanvasPresets ??= [];

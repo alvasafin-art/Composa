@@ -43,6 +43,20 @@ public sealed partial class AiTaskService
         ServerCapabilities?.NodeDefinitions.GetValueOrDefault("OpenAIChatNode")?["input"]?["required"]?["model"]?[1]?["options"]
             is JsonArray choices ? choices.Select(value => value!.GetValue<string>()).ToArray() : [];
 
+    internal string[] ChatReasoningEfforts
+    {
+        get
+        {
+            var config = ServerCapabilities?.NodeDefinitions.GetValueOrDefault("OpenAIChatConfig")?["input"];
+            var effortInput = config?["optional"]?["reasoning_effort"] ?? config?["required"]?["reasoning_effort"];
+            if (effortInput is not JsonArray { Count: > 0 } descriptor) return [];
+            var choices = descriptor[0] as JsonArray ??
+                (descriptor.Count > 1 && descriptor[1] is JsonObject properties ? properties["options"] as JsonArray : null);
+            return choices?.OfType<JsonValue>().Select(item => item.TryGetValue<string>(out var value) ? value : null)
+                .OfType<string>().Where(value => value is not ("auto" or "default" or "")).Distinct().ToArray() ?? [];
+        }
+    }
+
     internal string DefaultInstructions(EngineProfile? engine)
     {
         if (engine != null)
@@ -85,7 +99,8 @@ public sealed partial class AiTaskService
         }
         if (task == AiTaskKind.GenerateImage)
             return $"Write a concise prompt to create a new image with {pack?.ModelName ?? pack?.DisplayName}. Describe the requested subject, composition, lighting and style. Preserve quoted text and reference roles. Return only the prompt.";
-        return overrides.GetValueOrDefault(id + "/edit") ?? overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);
+        return overrides.GetValueOrDefault(InstructionKey(scope, AiTaskKind.ImageEdit))
+            ?? overrides.GetValueOrDefault(id + "/edit") ?? overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);
     }
 
     internal static string? EnhancedText(JsonElement root, string id)

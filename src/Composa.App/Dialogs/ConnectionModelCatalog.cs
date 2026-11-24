@@ -23,6 +23,12 @@ internal sealed class ConnectionModelCatalog
     private readonly Func<Uri, string?> credential;
     private readonly bool images;
     private readonly bool compactSetup;
+    private readonly bool autoProbe;
+    private readonly CancellationToken lifetime;
+    private CancellationTokenSource? background;
+    private Func<bool>? canProbe;
+    private string? typedKeyScope;
+    private readonly TextBox key;
     private readonly string legacyModel;
     private readonly string? legacyScope;
     private readonly StackPanel rows = Ui.Column(6);
@@ -34,20 +40,27 @@ internal sealed class ConnectionModelCatalog
     private bool failed;
     private string? current;
     private int revision;
+    private readonly Dictionary<string, string[]> efforts = new(StringComparer.Ordinal);
     internal Control View { get; }
     internal SettingsStatus? CheckStatus => checkedConnection || failed
         ? Status(status.Text ?? "", checkedConnection, failed) : null;
     internal event Action? CheckChanged;
+    internal bool? Connected => failed ? false : checkedConnection ? true : null;
+    internal string CheckMessage => string.IsNullOrEmpty(status.Text) ? "Connection has not been checked" : status.Text;
+    internal string[]? ReasoningFor(string id) => efforts.GetValueOrDefault(id);
 
     internal ConnectionModelCatalog(Dictionary<string, Dictionary<string, string>> saved,
         TextBox endpoint, TextBox key, TextBox selectedModel, Func<(Uri Credential, Uri Models)> address,
-        Func<Uri, string?> credential, CancellationToken lifetime, bool images = false, bool compactSetup = false)
+        Func<Uri, string?> credential, CancellationToken lifetime, bool images = false, bool compactSetup = false, bool autoProbe = false)
     {
         this.saved = saved;
         this.address = address;
         this.credential = credential;
         this.images = images;
         this.compactSetup = compactSetup;
+        this.autoProbe = autoProbe;
+        this.lifetime = lifetime;
+        this.key = key;
         legacyModel = selectedModel.Text?.Trim() ?? "";
         try { legacyScope = address().Credential.AbsoluteUri; }
         catch (FormatException) { }
@@ -95,9 +108,27 @@ internal sealed class ConnectionModelCatalog
             };
         }
         else
-            View = Ui.Column(7, InsetRow(Columns("*,Auto", Heading("Models", 12), toolbar), vertical: 6), status, rows, add);
-        endpoint.TextChanged += (_, _) => SelectEndpoint();
-        key.TextChanged += (_, _) => InvalidateCheck();
+        {
+            fetch.IsVisible = !autoProbe;
+            View = new Border
+            {
+                BorderBrush = Palette.SettingsLine, BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 8, 0, 0),
+                Child = Ui.Column(7, Columns("*,Auto", Heading("Models", 12), toolbar), status, rows, add)
+            };
+        }
+        endpoint.TextChanged += (_, _) =>
+        {
+            SelectEndpoint();
+            if (!endpoint.IsFocused) ScheduleCheck();
+        };
+        endpoint.LostFocus += (_, _) => ScheduleCheck();
+        key.TextChanged += (_, _) =>
+        {
+            typedKeyScope = current;
+            InvalidateCheck();
+            ScheduleCheck();
+        };
         SelectEndpoint();
     }
 
@@ -108,6 +139,35 @@ internal sealed class ConnectionModelCatalog
     internal event Action? Changed;
     internal bool CanFetch => current != null;
     internal string LegacySelection => current != null && current == legacyScope && Models.Any(row => row.Id == legacyModel) ? legacyModel : "";
+
+    internal void EnableMonitoring(Func<bool> visible) => canProbe = visible;
+
+    internal void ScheduleCheck()
+    {
+        if (!autoProbe || current == null || canProbe?.Invoke() != true || lifetime.IsCancellationRequested ||
+            !string.IsNullOrWhiteSpace(key.Text) && typedKeyScope != current)
+            return;
+        background?.Cancel();
+        _ = ProbeAsync();
+        async Task ProbeAsync()
+        {
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            background = request;
+            var expected = revision;
+            try
+            {
+                await Task.Delay(650, request.Token);
+                if (canProbe?.Invoke() == true) await FetchAsync(request.Token);
+            }
+            catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+            catch (Exception error) when (error is InvalidOperationException or FormatException or HttpRequestException or
+                OperationCanceledException or JsonException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            {
+                if (expected == revision && !request.IsCancellationRequested) SetCheckStatus(Locale.Message(error.Message), failed: true);
+            }
+            finally { if (background == request) background = null; }
+        }
+    }
 
     internal async Task<int> FetchAsync(CancellationToken token)
     {
@@ -135,6 +195,7 @@ internal sealed class ConnectionModelCatalog
                 throw new InvalidDataException("The API returned an invalid model catalog.");
             var entries = Entries();
             var known = entries.Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+            efforts.Clear();
             var found = 0;
             foreach (var model in data.EnumerateArray())
             {
@@ -144,6 +205,11 @@ internal sealed class ConnectionModelCatalog
                     architecture.TryGetProperty("output_modalities", out var outputs) && outputs.ValueKind == JsonValueKind.Array &&
                     !outputs.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.String && value.GetString() == "image")) continue;
                 found++;
+                if (!images && (model.TryGetProperty("supported_reasoning_efforts", out var levels) ||
+                    model.TryGetProperty("supportedReasoningEfforts", out levels)) && levels.ValueKind == JsonValueKind.Array)
+                    efforts[id] = levels.EnumerateArray().Select(level => level.ValueKind == JsonValueKind.String ? level.GetString()
+                        : level.ValueKind == JsonValueKind.Object && level.TryGetProperty("reasoningEffort", out var value) &&
+                          value.ValueKind == JsonValueKind.String ? value.GetString() : null).OfType<string>().Distinct().ToArray();
                 if (known.Add(id) && entries.Count < 500)
                     entries.Add(new(id, model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? id : id));
             }
@@ -170,17 +236,18 @@ internal sealed class ConnectionModelCatalog
 
     private void SelectEndpoint()
     {
-        revision++;
+        InvalidateCheck();
         try { current = address().Credential.AbsoluteUri; }
         catch (FormatException) { current = null; }
         fetch.IsEnabled = add.IsEnabled = reset.IsEnabled = current != null;
-        SetCheckStatus("");
         Render();
     }
 
     internal void InvalidateCheck()
     {
         revision++;
+        background?.Cancel();
+        efforts.Clear();
         SetCheckStatus("");
     }
 
@@ -189,7 +256,7 @@ internal sealed class ConnectionModelCatalog
         this.checkedConnection = checkedConnection;
         this.failed = failed;
         status.Text = message;
-        status.IsVisible = !compactSetup || (!hide && message.Length > 0);
+        status.IsVisible = !hide && message.Length > 0;
         CheckChanged?.Invoke();
     }
 
@@ -227,10 +294,10 @@ internal sealed class ConnectionModelCatalog
             name.TextChanged += (_, _) => { row.Name = name.Text ?? ""; Changed?.Invoke(); };
             var remove = Ui.IconButton(Icons.Trash, "Remove model", () => { entries.Remove(row); Render(); }, 14);
             remove.MinWidth = compactSetup ? 0 : 30;
+            SetupInput(id);
+            SetupInput(name);
             if (compactSetup)
             {
-                SetupInput(id);
-                SetupInput(name);
                 remove.Padding = new Thickness(0);
                 remove.Height = 30;
                 remove.Width = 26;

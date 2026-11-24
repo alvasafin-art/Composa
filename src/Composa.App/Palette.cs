@@ -24,6 +24,7 @@ public static class Palette
     internal static readonly SolidColorBrush SettingsSidebar = Brush("#202124", "#EFEFF0");
     internal static readonly SolidColorBrush SettingsLine = Brush("#393C41", "#C9CCD0");
     internal static readonly SolidColorBrush SettingsFieldLine = Brush("#484D54", "#BFC3C8");
+    internal static readonly SolidColorBrush SettingsConnectionError = Brush("#E87575", "#AE3535");
     internal static readonly SolidColorBrush SettingsLink = Brush("#82BCF7", "#245D92", "#B8C7D8");
     internal static readonly SolidColorBrush SettingsSelection = Brush("#303237", "#D9DBDE", "#18191B");
     internal static readonly SolidColorBrush SettingsWarning = Brush("#332E25", "#FFF4DF");

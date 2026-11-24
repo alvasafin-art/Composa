@@ -237,7 +237,9 @@ public class ComfyModelSelectionTests
         try
         {
             Dispatcher.UIThread.RunJobs();
-            Assert.True(dialog.Bounds.Height <= 780);
+            var screen = owner.Screens.ScreenFromWindow(owner) ?? owner.Screens.Primary;
+            var availableHeight = (screen?.WorkingArea.Height ?? 960) / (screen?.Scaling ?? 1);
+            Assert.Equal(Math.Min(1000, availableHeight - 54), dialog.Bounds.Height, precision: 1);
             var tabs = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
             tabs.SelectedIndex = 1; Dispatcher.UIThread.RunJobs();
             Dispatcher.UIThread.RunJobs();

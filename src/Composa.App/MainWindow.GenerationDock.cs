@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Composa.AI;
 using Composa.App.AI;
 using Composa.App.Controls;
+using Composa.App.Dialogs;
 using Composa.Rendering;
 
 namespace Composa.App;
@@ -173,7 +174,7 @@ public sealed partial class MainWindow
         }
         connection.Items.Add(new Separator());
         var configure = new MenuItem { Header = Locale.T("Connection settings…") };
-        configure.Click += (_, _) => _ = ShowAiSettings(5);
+        configure.Click += (_, _) => _ = ShowAiSettings(AiDialogs.ConnectionPageFor(settings.ImageRouteFor(EditorTask)));
         connection.Items.Add(configure);
         menu.Items.Add(connection);
     }

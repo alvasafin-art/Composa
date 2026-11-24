@@ -413,7 +413,7 @@ public class QwenImageTests
     }
 
     [AvaloniaFact]
-    public async Task Settings_navigation_and_helper_retry_keep_the_operation_and_use_live_check_results()
+    public async Task Settings_navigation_keeps_the_operation_and_checks_the_helper_without_a_prompt()
     {
         var previousLanguage = Locale.Language;
         Locale.Language = "ru";
@@ -457,26 +457,32 @@ public class QwenImageTests
             Click("Prompt enhancer ›");
             Assert.Equal(2, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-05-prompt-ru"));
-            Click("Test prompt");
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, Locale.T("Test prompt")));
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text ==
+                Locale.T("Instructions apply to the selected image model and operation."));
+            var instructionEditors = dialog.GetVisualDescendants().OfType<TextBox>()
+                .Where(box => box.Name is "EnhancerInstructions" or "EnhancerEditInstructions").ToArray();
+            Assert.Equal(2, instructionEditors.Length);
+            Assert.All(instructionEditors, box => Assert.Equal(260, box.Bounds.Height, precision: 2));
+            Assert.Equal(instructionEditors[0].TranslatePoint(default, dialog)!.Value.Y,
+                instructionEditors[1].TranslatePoint(default, dialog)!.Value.Y, precision: 2);
+            Click("Refresh models");
             var warning = dialog.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "AvsPromptHelperWarning" && border.IsVisible);
             Assert.True(warning.IsVisible);
             Assert.Empty(connection.Graphs);
             var scroll = Assert.IsType<ScrollViewer>(pages.Content);
             scroll.Offset = new(0, 5000);
             Assert.True(Screenshots.Save(dialog, "studio-settings-avs-warning-ru"));
-            connection.MissingHelper = false;
-            Click("Retry check");
-            Assert.False(warning.IsVisible);
-            Assert.Single(connection.Graphs);
-            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text == "Rewritten prompt");
-            dialog.GetVisualDescendants().OfType<Expander>().Single(panel => Equals(panel.Header, Locale.T("Connection details"))).IsExpanded = true;
+            dialog.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(panel =>
+                Avalonia.Automation.AutomationProperties.GetName(panel) == Locale.T("Connection details")).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
             var address = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "EnhancerComfyServer");
             address.Text = "http://localhost:8189";
-            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBox>(), field => field.Text == "Rewritten prompt");
             connection.Offline = true;
-            Click("Test prompt");
+            Dispatcher.UIThread.RunJobs();
+            Click("Refresh models");
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("The ComfyUI server is unavailable."));
+            Assert.Empty(connection.Graphs);
             Click("‹ Back");
             Assert.Equal(8, pages.SelectedIndex);
             pages.SelectedIndex = 7;

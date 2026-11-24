@@ -53,6 +53,7 @@ internal static class StudioSettingsLayout
         input.Padding = new Thickness(10, 0);
         if (input is TextBox text) text.VerticalContentAlignment = VerticalAlignment.Center;
         if (input is ComboBox combo) combo.VerticalContentAlignment = VerticalAlignment.Center;
+        if (input is NumericUpDown number) number.VerticalContentAlignment = VerticalAlignment.Center;
         return input;
     }
 
@@ -89,6 +90,44 @@ internal static class StudioSettingsLayout
         var card = Card(content);
         card.Padding = new Thickness(16, 11);
         return Ui.Column(7, Columns("*,19", Heading(name, 14), indicator), card);
+    }
+
+    internal static Control Disclosure(string label, Control details, out ToggleButton toggle)
+    {
+        var arrow = Ui.Label("⌄", Palette.Secondary, 11);
+        toggle = new ToggleButton
+        {
+            Content = Ui.Row(6, Caption(label), arrow),
+            HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(0, 4),
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0)
+        };
+        var header = toggle;
+        Avalonia.Automation.AutomationProperties.SetName(header, Locale.T(label));
+        details.IsVisible = false;
+        header.IsCheckedChanged += (_, _) =>
+        {
+            details.IsVisible = header.IsChecked == true;
+            arrow.Text = details.IsVisible ? "⌃" : "⌄";
+        };
+        return Ui.Column(10, header, details);
+    }
+
+    internal static Border ConnectionLight(string message, bool? connected)
+    {
+        var light = new Border
+        {
+            Width = 10, Height = 10, CornerRadius = new CornerRadius(5),
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            Background = connected switch
+            {
+                true => Palette.SettingsSuccessText,
+                false => Palette.SettingsConnectionError,
+                _ => Palette.Secondary
+            }
+        };
+        Locale.Tip(light, message);
+        Avalonia.Automation.AutomationProperties.SetName(light, Locale.T(message));
+        return light;
     }
 
     internal static Grid Columns(string widths, params Control[] children)
@@ -223,7 +262,7 @@ internal sealed class StudioSettingsWindow : DialogWindow
         var screen = owner.Screens.ScreenFromWindow(owner) ?? owner.Screens.Primary;
         var scale = screen?.Scaling ?? 1;
         Width = Math.Min(firstRun ? 1158 : 1250, (screen?.WorkingArea.Width ?? 1280) / scale - 18);
-        Height = Math.Min(780, (screen?.WorkingArea.Height ?? 800) / scale - 54);
+        Height = Math.Min(firstRun ? 780 : 1000, (screen?.WorkingArea.Height ?? 960) / scale - 54);
         MinWidth = Math.Min(820, Width);
         MinHeight = Math.Min(460, Height);
     }

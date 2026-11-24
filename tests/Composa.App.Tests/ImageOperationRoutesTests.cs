@@ -54,18 +54,13 @@ public sealed class ImageOperationRoutesTests
             Assert.Equal(ImageGenerationRoute.LocalCodex, settings.ImageRouteFor(AiTaskKind.GenerativeFill));
             Assert.Equal(ImageGenerationRoute.ComfyWorkflow, settings.ImageRouteFor(AiTaskKind.GenerativeExpand));
             Assert.Equal(ImageGenerationRoute.BuiltIn, settings.ImageRouteFor(AiTaskKind.SelectSubject));
-            var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 5);
+            var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 6);
             var dialog = Assert.Single(owner.OwnedWindows);
             Dispatcher.UIThread.RunJobs();
             Assert.True(Screenshots.Save(dialog, "image-operation-connections"));
-            dialog.GetVisualDescendants().OfType<Expander>().Single(panel => Equals(panel.Header, Locale.T("Connection by operation"))).IsExpanded = true;
-            Dispatcher.UIThread.RunJobs();
-            var routes = dialog.GetVisualDescendants().OfType<ComboBox>().Where(combo => combo.Name?.StartsWith("ImageRoute") == true)
-                .ToDictionary(combo => combo.Name!);
-            Assert.Equal(DirectImageGenerator.Operations.Length, routes.Count);
-            routes["ImageRouteGenerativeExpand"].SelectedIndex = 2;
-            routes["ImageRouteUpscale"].SelectedIndex = 1;
-            routes["ImageRouteObjectSelection"].SelectedIndex = 3;
+            SelectRoute(AiTaskKind.GenerativeExpand, ImageGenerationRoute.DirectApi);
+            SelectRoute(AiTaskKind.Upscale, ImageGenerationRoute.LocalCodex);
+            SelectRoute(AiTaskKind.ObjectSelection, ImageGenerationRoute.DirectApi);
             Assert.Empty(settings.ImageOperationRoutes);
             Assert.Empty(settings.ImageGenerationApiUrl);
             Assert.Empty(settings.ImageGenerationApiModel);
@@ -81,6 +76,17 @@ public sealed class ImageOperationRoutesTests
             var restored = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
             Assert.Equal(ImageGenerationRoute.DirectApi, restored.ImageRouteFor(AiTaskKind.SelectSubject));
             Assert.Equal(ImageGenerationRoute.LocalCodex, restored.ImageRouteFor(AiTaskKind.Upscale));
+
+            void SelectRoute(AiTaskKind task, ImageGenerationRoute route)
+            {
+                dialog.GetVisualDescendants().OfType<Button>().Single(button => button.IsEffectivelyVisible &&
+                    button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == Locale.T(task.DisplayName())))
+                    .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                var field = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Name == "ImageRoute" + task);
+                field.SelectedItem = Locale.T(DirectImageGenerator.RouteLabel(route));
+                Dispatcher.UIThread.RunJobs();
+            }
         }
         finally { owner.Close(); }
     }

@@ -2093,3 +2093,9 @@ Medium reasoning	Средний
 High reasoning	Высокий
 Extra high reasoning	Очень высокий
 Models	Модели
+Reset instructions for this model	Сбросить инструкции для этой модели
+Language model and image operations	Языковая модель и работа с изображениями
+This computer or ComfyUI server	Этот компьютер или сервер ComfyUI
+Run CLI on	Где запускать CLI
+Selected model	Выбранная модель
+The installed AVS Prompt Helper supports language models only.	Установленный AVS Prompt Helper поддерживает только языковые модели.

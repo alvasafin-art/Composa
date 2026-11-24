@@ -2,9 +2,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Composa.AI;
 using Composa.App.AI;
+using Composa.App.Dialogs;
 using Composa.Editing;
 using SkiaSharp;
 
@@ -21,6 +25,74 @@ public sealed class ImageConnectionTests
     }
 
     public static bool CheckLocalCatalog => Environment.GetEnvironmentVariable("COMPOSA_CHECK_CODEX_CATALOG") == "1";
+
+    [AvaloniaFact]
+    public async Task Connection_page_updates_both_api_status_lights_with_catalog_gets_only()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        using var server = new TcpListener(IPAddress.Loopback, 0);
+        server.Start();
+        var root = $"http://127.0.0.1:{((IPEndPoint)server.LocalEndpoint).Port}";
+        var settings = new Settings { EnhancerProvider = "direct", EnhancerApiUrl = root + "/text/v1", EnhancerApiModel = "text-example",
+            ImageGenerationApiUrl = root + "/image/v1" };
+        var owner = new Window { Width = 1280, Height = 850 };
+        owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings,
+                new AiTaskService(() => "http://127.0.0.1:1", Path.Combine(AppContext.BaseDirectory, "ai", "engines")), page: 5);
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            var requests = new[] { await Reply(), await Reply() };
+            Assert.Contains("GET /text/v1/models HTTP/1.1", requests);
+            Assert.Contains("GET /image/v1/models HTTP/1.1", requests);
+            await WaitFor(() => Lights().Count(light => ReferenceEquals(light.Background, Palette.SettingsSuccessText)) >= 3);
+            var pages = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
+            pages.SelectedIndex = 2;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), field => field.IsEnabled && field.Items.Contains("high"));
+            dialog.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(button =>
+                Avalonia.Automation.AutomationProperties.GetName(button) == Locale.T("Connection details")).IsChecked = true;
+            Assert.True(Screenshots.Save(dialog, "studio-settings-followup-prompt-details"));
+            pages.SelectedIndex = 5;
+            Dispatcher.UIThread.RunJobs();
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible &&
+                (Equals(button.Content, Locale.T("Check connection")) || Equals(button.Content, Locale.T("Add"))));
+            Assert.True(Screenshots.Save(dialog, "studio-settings-followup-api"));
+            dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "ImageApiKey").Text = "rejected";
+            Assert.Equal("GET /image/v1/models HTTP/1.1", await Reply("401 Unauthorized"));
+            await WaitFor(() => Lights().Count(light => ReferenceEquals(light.Background, Palette.SettingsConnectionError)) >= 2);
+            dialog.Close(false);
+            Assert.False(await pending);
+
+            IEnumerable<Border> Lights() => dialog.GetVisualDescendants().OfType<Border>().Where(border => border.IsEffectivelyVisible);
+            async Task WaitFor(Func<bool> ready)
+            {
+                while (!ready())
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    await Task.Delay(25, timeout.Token);
+                }
+            }
+        }
+        finally { owner.Close(); }
+
+        async Task<string?> Reply(string status = "200 OK")
+        {
+            using var client = await server.AcceptTcpClientAsync(timeout.Token);
+            await using var stream = client.GetStream();
+            using var request = new StreamReader(stream, leaveOpen: true);
+            var method = await request.ReadLineAsync(timeout.Token);
+            while (await request.ReadLineAsync(timeout.Token) is { Length: > 0 }) { }
+            var data = method?.Contains("/text/", StringComparison.Ordinal) == true
+                ? """{"data":[{"id":"text-example","supported_reasoning_efforts":["medium","high"]}]}"""
+                : """{"data":[{"id":"image-example","name":"Example image model"}]}""";
+            var response = Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {data.Length}\r\nConnection: close\r\n\r\n{data}");
+            await stream.WriteAsync(response, timeout.Token);
+            return method;
+        }
+    }
 
     private const string CupPrompt = "Product photograph of a cobalt-blue ceramic cup on a pale gray background.";
     public static bool LiveLocalCodex => Environment.GetEnvironmentVariable("COMPOSA_LIVE_CODEX") == "1";

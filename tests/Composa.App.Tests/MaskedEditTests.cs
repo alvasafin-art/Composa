@@ -116,7 +116,7 @@ public class MaskedEditTests
     }
 
     [AvaloniaFact]
-    public async Task Comfy_prompt_settings_are_editable_toggleable_and_cancel_safe()
+    public async Task Comfy_prompt_settings_are_editable_and_cancel_safe_in_both_instruction_fields()
     {
         var window = new MainWindow(); window.Show(); var settings = new Settings();
         var service = new AiTaskService(() => "http://localhost:8188", Catalog().Root);
@@ -125,11 +125,11 @@ public class MaskedEditTests
             var asking = AiDialogs.SettingsDialog(window, settings, service, 2); Dispatcher.UIThread.RunJobs();
             var dialog = Assert.Single(window.OwnedWindows);
             Dispatcher.UIThread.RunJobs();
-            var box = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerInstructions");
-            var mode = dialog.GetVisualDescendants().OfType<ComboBox>().Single(b => Equals(b.SelectedItem, "Edit image"));
-            box.Text = "Edit only the requested detail.";
-            mode.SelectedItem = "Generate image"; box.Text = "Describe a new scene.";
-            mode.SelectedItem = "Edit image"; Assert.Equal("Edit only the requested detail.", box.Text);
+            var generation = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerInstructions");
+            var editing = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerEditInstructions");
+            editing.Text = "Edit only the requested detail.";
+            generation.Text = "Describe a new scene.";
+            Assert.Equal("Edit only the requested detail.", editing.Text);
             dialog.Close(accept); Assert.Equal(accept, await asking);
             if (!accept) Assert.Empty(settings.EnhancerInstructions);
         }
