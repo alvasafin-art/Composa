@@ -146,14 +146,24 @@ public sealed partial class EditorSession
         if (layer.VectorMask == null || PixelsLocked(layer)) return;
         Apply("Delete Vector Mask", () => layer.VectorMask = null); InvalidateAll(); LayersChanged?.Invoke();
     }
-    public void RefinedSelectionToMask(SKBitmap selection)
+    public bool RefinedSelectionToMask(SKBitmap selection)
     {
-        if (ActiveLayer is not { Pixels: { } pixels } layer || PixelsLocked(layer) || !layer.Matrix.TryInvert(out var inverse)) return;
+        if (ActiveLayer is not { Pixels: { } pixels } layer || PixelsLocked(layer) || !layer.Matrix.TryInvert(out var inverse)) return false;
         var mask = SelectionMask.Remap(selection, pixels.Width, pixels.Height, inverse) ?? Pixels.NewMask(pixels.Width, pixels.Height);
         var candidate = document.Clone(); candidate.Find(layer.Id)!.Mask = mask;
         if (candidate.RasterPixels() > DocumentLimits.DocumentPixelBudget) { mask.Dispose(); throw new InvalidOperationException("The refined mask exceeds the document raster memory budget."); }
+        var hadSelection = document.Selection != null;
         Apply("Refine Layer Mask", () =>
-        { layer.Mask = mask; layer.MaskEnabled = true; layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp; layer.MaskTransform = null; layer.MaskDefault = 0; layer.MaskDensity = 1; layer.MaskFeather = 0; });
-        InvalidateAll(); LayersChanged?.Invoke();
+        {
+            layer.Mask = mask;
+            layer.MaskEnabled = true; layer.MaskLinked = true; layer.MaskFollowsWarp = !layer.HasWarp;
+            layer.MaskTransform = null; layer.MaskDefault = 0; layer.MaskDensity = 1; layer.MaskFeather = 0;
+            document.Selection = null;
+        });
+        EditingMask = true;
+        InvalidateAll();
+        LayersChanged?.Invoke();
+        if (hadSelection) SelectionChanged?.Invoke();
+        return true;
     }
 }

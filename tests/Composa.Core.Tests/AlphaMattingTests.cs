@@ -211,6 +211,23 @@ public class AlphaMattingTests
     }
 
     [Fact]
+    public void Locked_mask_conversion_keeps_the_selection_and_history()
+    {
+        var session = EditorSession.NewCanvas(60, 40, SKColors.Blue);
+        var layer = session.ActiveLayer!;
+        session.SelectRect(new(15, 10, 45, 30));
+        session.SetLayerLocks(layer, LayerLocks.Pixels);
+        var state = session.History.CurrentId;
+        var selection = session.Selection!;
+
+        session.AddMask(layer);
+        Assert.False(session.RefinedSelectionToMask(selection));
+        Assert.Same(selection, session.Selection);
+        Assert.Null(layer.Mask);
+        Assert.Equal(state, session.History.CurrentId);
+    }
+
+    [Fact]
     public void Refined_output_keeps_an_editable_mask_hides_only_its_source_and_undo_restores_the_old_mask_properties()
     {
         var session = EditorSession.NewCanvas(60, 40, SKColors.Blue, ColorDepth.Sixteen); var source = session.ActiveLayer!; var pixels = source.Pixels!;

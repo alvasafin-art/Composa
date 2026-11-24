@@ -129,15 +129,17 @@ public sealed partial class ComposaTools
     private static IEnumerable<Layer> Descendants(Layer layer) => new[] { layer }.Concat(layer.Children.SelectMany(Descendants));
 
     [McpServerTool(Name = "layer_mask")]
-    [Description("Manages a layer's mask: add (uses current selection, otherwise reveals all), hide_all, delete, apply (bake into pixel alpha), enable, disable, link or unlink (preserves the mask's document position). Selection and layer masks are separate.")]
+    [Description("Manages a layer's mask: add (turns the current selection into mask coverage and deselects, otherwise reveals all), hide_all, delete, apply (bake into pixel alpha), enable, disable, link or unlink (preserves the mask's document position). Selection and layer masks are separate.")]
     public Task<string> LayerMask(string layer, string action, int? document = null) => OnUi(() =>
     {
         var s = Editable(document); var target = Find(s, layer);
         if (target.Mask == null && action.ToLowerInvariant() is "add" or "hide_all")
             CheckRasterAllocation(s,target.Pixels?.Width ?? s.Document.Width,target.Pixels?.Height ?? s.Document.Height);
+        var activatingSelectionMask = action.Equals("add", StringComparison.OrdinalIgnoreCase)
+            && s.Selection != null && target.Mask == null && target == s.ActiveLayer;
         switch (action.ToLowerInvariant())
         {
-            case "add": s.AddMask(target); break;
+            case "add": s.AddMask(target, activateLayer: false); break;
             case "hide_all":
                 if (s.Selection != null) throw new McpException("Deselect first for hide_all; add uses the current selection.");
                 s.AddMask(target, true); break;
@@ -151,7 +153,7 @@ public sealed partial class ComposaTools
             case "unlink": s.SetMaskLinked(target, false); break;
             default: throw new McpException("action: add, hide_all, delete, apply, enable, disable, link or unlink.");
         }
-        s.EditingMask = false;
+        if (!activatingSelectionMask || s.Selection != null) s.EditingMask = false;
         return $"Mask {action}: \"{target.Name}\"; hasMask={target.Mask != null}, enabled={target.MaskEnabled}, linked={target.MaskLinked}.";
     });
 

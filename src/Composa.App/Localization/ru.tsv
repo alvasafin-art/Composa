@@ -1112,6 +1112,7 @@ Select an area, then drag it to the donor	Выделите область и п�
 Select an image layer first.	Сначала выберите слой изображения.
 Select an unlocked image layer to warp.	Для деформации выберите разблокированный слой изображения.
 Select an unlocked pixel layer to create a layer mask.	Для создания маски выберите разблокированный пиксельный слой.
+Select an unlocked pixel layer with an invertible transform to create a layer mask.	Для создания маски выберите разблокированный пиксельный слой с обратимым преобразованием.
 Select and Mask…	Выделение и маска…
 Select at least one RGB channel.	Выберите хотя бы один канал RGB.
 Select everything except those colors, such as all but a green screen	Выделить всё, кроме заданных цветов, например всё вокруг зелёного фона

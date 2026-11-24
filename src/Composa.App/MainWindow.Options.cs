@@ -148,7 +148,7 @@ public sealed partial class MainWindow
                 Action? refreshTip = null;
                 if (s.Tool is Tool.Brush or Tool.Eraser)
                 {
-                    Add(BrushLibrary(s), BrushTipPicker(s, out var updateTip));
+                    Add(BrushLibrary(s, out var updateTip));
                     refreshTip = updateTip;
                     refreshOptions += updateTip;
                 }

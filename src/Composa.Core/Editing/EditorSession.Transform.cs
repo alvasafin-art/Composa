@@ -125,7 +125,7 @@ public sealed class TransformEdit
         }
     }
 
-    /// <summary>Drags a resize handle, optionally snapping its actual position to the document layout.</summary>
+    /// <summary>Drags a resize handle, optionally snapping to the canvas edges and layout guides.</summary>
     public (float? SnapX, float? SnapY) Resize(TransformHandle handle, SKPoint point, bool free, bool fromCenter, float snapTolerance = 0)
     {
         // Work in the frame's own unrotated space.
@@ -179,7 +179,7 @@ public sealed class TransformEdit
         (float? SnapX, float? SnapY) guides = default;
         var horizontal = movesLeft || movesRight;
         var vertical = movesTop || movesBottom;
-        if (snapTolerance > 0 && (horizontal || vertical) && session.View.Snap && session.View.SnapToCanvasLayout && session.Document.Layout.HasGuides)
+        if (snapTolerance > 0 && (horizontal || vertical) && session.View.Snap)
         {
             var midX = (left + right) / 2;
             var midY = (top + bottom) / 2;
@@ -187,12 +187,31 @@ public sealed class TransformEdit
             var anchor = fromCenter ? new SKPoint(midX, midY)
                 : new SKPoint(movesLeft ? right : movesRight ? left : midX, movesTop ? bottom : movesBottom ? top : midY);
             var freeCorner = free && horizontal && vertical;
-            var ray = rotate.MapPoint(grab) - rotate.MapPoint(anchor);
-            var (snapped, x, y) = session.SnapLayoutPoint(rotate.MapPoint(grab), snapTolerance, freeCorner ? null : ray);
+            var frame = new SKRect(left, top, right, bottom);
+            var grip = rotate.MapPoint(grab);
+            var ray = rotate.MapVector(grab - anchor);
+            var (snapped, x, y) = session.SnapLayoutPoint(grip, snapTolerance, freeCorner ? null : ray);
+            if (session.View.SnapToDocumentBounds && maskTarget == null && !hasFrameOverride)
+            {
+                var (canvasPoint, canvasX, canvasY) = SnapResizeToCanvas(frame, anchor, grip, ray, rotate,
+                    snapTolerance, free, horizontal, vertical);
+                if (freeCorner)
+                {
+                    if (canvasX.HasValue && (!x.HasValue || MathF.Abs(canvasPoint.X - grip.X) <= MathF.Abs(snapped.X - grip.X)))
+                        (snapped.X, x) = (canvasPoint.X, canvasX);
+                    if (canvasY.HasValue && (!y.HasValue || MathF.Abs(canvasPoint.Y - grip.Y) <= MathF.Abs(snapped.Y - grip.Y)))
+                        (snapped.Y, y) = (canvasPoint.Y, canvasY);
+                }
+                else if ((canvasX.HasValue || canvasY.HasValue) &&
+                    ((!x.HasValue && !y.HasValue) || SKPoint.Distance(canvasPoint, grip) <= SKPoint.Distance(snapped, grip)))
+                {
+                    (snapped, x, y) = (canvasPoint, canvasX, canvasY);
+                }
+            }
             if (x.HasValue || y.HasValue)
             {
                 var target = unrotate.MapPoint(snapped);
-                var next = new SKRect(left, top, right, bottom);
+                var next = frame;
                 if (freeCorner)
                 {
                     var delta = target - grab;
@@ -218,6 +237,69 @@ public sealed class TransformEdit
         float width = right - left, height = bottom - top;
         Set(new SKRect(center.X - width / 2, center.Y - height / 2, center.X + width / 2, center.Y + height / 2), StartRotation);
         return guides;
+    }
+
+    private (SKPoint Point, float? X, float? Y) SnapResizeToCanvas(SKRect frame, SKPoint anchor, SKPoint grip,
+        SKPoint ray, SKMatrix rotation, float tolerance, bool free, bool horizontal, bool vertical)
+    {
+        var width = session.Document.Width;
+        var height = session.Document.Height;
+        if (free && horizontal && vertical)
+        {
+            var x = BoundaryNear(grip.X, width, tolerance);
+            var y = BoundaryNear(grip.Y, height, tolerance);
+            return (new SKPoint(x ?? grip.X, y ?? grip.Y), x, y);
+        }
+
+        // Along a one-dimensional resize, each corner travels in proportion to the handle's movement.
+        // Consider the frame's actual outer edges, including the perpendicular edges of a proportional side drag.
+        var length = SKPoint.Distance(ray, SKPoint.Empty);
+        if (length < 1e-6f) return (grip, null, null);
+        var bounds = rotation.MapRect(frame.Standardized);
+        var maxChange = tolerance / length;
+        var change = 0f;
+        float? snapX = null, snapY = null;
+        ReadOnlySpan<SKPoint> corners =
+        [
+            new(frame.Left, frame.Top), new(frame.Right, frame.Top),
+            new(frame.Right, frame.Bottom), new(frame.Left, frame.Bottom)
+        ];
+        foreach (var corner in corners)
+        {
+            var point = rotation.MapPoint(corner);
+            var offset = corner - anchor;
+            if (free && !horizontal) offset.X = 0;
+            if (free && !vertical) offset.Y = 0;
+            var velocity = rotation.MapVector(offset);
+            if (MathF.Abs(point.X - bounds.Left) < .001f || MathF.Abs(point.X - bounds.Right) < .001f)
+                Consider(point.X, velocity.X, width, ref snapX, ref snapY);
+            if (MathF.Abs(point.Y - bounds.Top) < .001f || MathF.Abs(point.Y - bounds.Bottom) < .001f)
+                Consider(point.Y, velocity.Y, height, ref snapY, ref snapX);
+        }
+        return (new SKPoint(grip.X + change * ray.X, grip.Y + change * ray.Y), snapX, snapY);
+
+        void Consider(float position, float velocity, float extent, ref float? line, ref float? other)
+        {
+            if (MathF.Abs(velocity) < 1e-6f ||
+                BoundaryNear(position, extent, maxChange * MathF.Abs(velocity)) is not { } boundary) return;
+            var candidate = (boundary - position) / velocity;
+            if (1 + candidate <= 0 || MathF.Abs(candidate) > maxChange) return;
+            if ((snapX.HasValue || snapY.HasValue) && MathF.Abs(candidate - change) * length < .001f)
+            {
+                line ??= boundary;
+                return;
+            }
+            change = candidate;
+            maxChange = MathF.Abs(candidate);
+            line = boundary;
+            other = null;
+        }
+    }
+
+    private static float? BoundaryNear(float position, float extent, float tolerance)
+    {
+        var boundary = position < extent / 2 ? 0 : extent;
+        return MathF.Abs(position - boundary) <= tolerance ? boundary : null;
     }
 
     public void RotateTo(SKPoint start, SKPoint point, bool snap)

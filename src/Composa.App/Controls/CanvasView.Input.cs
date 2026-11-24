@@ -40,6 +40,8 @@ public sealed partial class CanvasView
     private SKRect cropStart;
     private TransformHandle handle;
     private int distortCorner = -1;
+    private bool IsResizeDrag => drag == Drag.Transform && distortCorner < 0 &&
+        handle is not (TransformHandle.None or TransformHandle.Move or TransformHandle.Rotate);
     private bool spaceDown;
     private double scrubZoom;
     private readonly List<(SKPoint From, SKPoint To)> guides = [];
@@ -468,9 +470,11 @@ public sealed partial class CanvasView
             if (drag == Drag.ShapeParameter) UpdateShapeParameter();
             else snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
-        if (drag == Drag.Transform && e.GetPosition(this) != cursorScreen)
+        var releasePosition = e.GetPosition(this);
+        if (drag == Drag.Transform && (releasePosition != cursorScreen ||
+            IsResizeDrag && e.KeyModifiers != dragModifiers && Distance(pressScreen, releasePosition) > 2))
         {
-            cursorScreen = e.GetPosition(this);
+            cursorScreen = releasePosition;
             currentDocument = ToDocument(cursorScreen);
             DragTransform(shift, alt, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
@@ -956,11 +960,20 @@ public sealed partial class CanvasView
     {
         if (drag != Drag.None)
         {
-            // The pointer need not move while Shift or Alt changes, so the drag takes the change from the key and redraws.
-            var flag = key is Key.LeftShift or Key.RightShift ? KeyModifiers.Shift : key is Key.LeftAlt or Key.RightAlt ? KeyModifiers.Alt : KeyModifiers.None;
+            // Update the resize and its guides even when the pointer is stationary.
+            var flag = key switch
+            {
+                Key.LeftShift or Key.RightShift => KeyModifiers.Shift,
+                Key.LeftAlt or Key.RightAlt => KeyModifiers.Alt,
+                Key.LeftCtrl or Key.RightCtrl when IsResizeDrag => KeyModifiers.Control,
+                _ => KeyModifiers.None
+            };
             if (flag == KeyModifiers.None) return;
             dragModifiers = down ? dragModifiers | flag : dragModifiers & ~flag;
             if (drag == Drag.Marquee && flag == KeyModifiers.Shift && !down) shiftReleased = true;
+            if (IsResizeDrag && Distance(pressScreen, cursorScreen) > 2)
+                DragTransform(dragModifiers.HasFlag(KeyModifiers.Shift), dragModifiers.HasFlag(KeyModifiers.Alt),
+                    dragModifiers.HasFlag(KeyModifiers.Control));
             InvalidateCanvas();
             return;
         }

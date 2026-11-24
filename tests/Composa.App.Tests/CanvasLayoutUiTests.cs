@@ -58,6 +58,85 @@ public sealed class CanvasLayoutUiTests
         Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
     }
 
+    [AvaloniaTheory]
+    [InlineData(.5)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Layer_resize_snaps_in_screen_points_and_releases_the_smart_guide(double zoom)
+    {
+        var window = new MainWindow { Width = 1280, Height = 850 };
+        window.Show();
+        var session = EditorSession.NewCanvas(300, 240, SKColors.White);
+        window.AddSession(session);
+        var source = Composa.Rendering.Pixels.NewColor(80, 80);
+        source.Erase(SKColors.CornflowerBlue);
+        var layer = session.AddImageLayer("Image", source, new SKPoint(140, 80), fit: false);
+        window.SelectTool(Tool.Move);
+        window.Canvas.ZoomTo(zoom);
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            var right = At(180, 80);
+            var near = At(300 - (float)(4 / zoom), 80);
+            window.MouseDown(right, MouseButton.Left);
+            window.MouseMove(near, RawInputModifiers.LeftMouseButton);
+            Assert.Equal(300, layer.ControlBounds.Right, 2);
+            Assert.Equal(100, layer.ControlBounds.Left, 2);
+            Assert.Equal(layer.ControlBounds.Width, layer.ControlBounds.Height, 2);
+            if (zoom == 1) Assert.True(HasRightGuide("resize-canvas-guide-active"));
+
+            window.Canvas.ModifierKeyChanged(Key.LeftCtrl, KeyModifiers.None, down: true);
+            Assert.Equal(300 - 4 / zoom, layer.ControlBounds.Right, 2);
+            window.Canvas.ModifierKeyChanged(Key.LeftCtrl, KeyModifiers.Control, down: false);
+            Assert.Equal(300, layer.ControlBounds.Right, 2);
+            window.MouseUp(near, MouseButton.Left);
+            Assert.Null(session.Transform);
+            Assert.Equal(300, layer.ControlBounds.Right, 2);
+            if (zoom == 1) Assert.False(HasRightGuide("resize-canvas-guide-released"));
+            session.Undo();
+
+            // The button-up is the first event to reach the snap range.
+            var corner = At(180, 120);
+            var outside = At(300 + (float)(10 / zoom), 240 + (float)(10 / zoom));
+            var close = At(300 - (float)(3 / zoom), 240 - (float)(3 / zoom));
+            window.MouseDown(corner, MouseButton.Left);
+            window.MouseMove(outside, RawInputModifiers.LeftMouseButton);
+            var restored = session.ActiveLayer!;
+            Assert.Equal(300 + 10 / zoom, restored.ControlBounds.Right, 2);
+            window.MouseUp(close, MouseButton.Left);
+            Assert.Equal(300, restored.ControlBounds.Right, 2);
+            Assert.Equal(240, restored.ControlBounds.Bottom, 2);
+            Assert.Equal(100, restored.ControlBounds.Left, 2);
+            Assert.Equal(40, restored.ControlBounds.Top, 2);
+            session.Undo();
+
+            foreach (var view in new[] { session.View with { Snap = false }, session.View with { SnapToDocumentBounds = false } })
+            {
+                session.View = view;
+                window.MouseDown(right, MouseButton.Left);
+                window.MouseMove(near, RawInputModifiers.LeftMouseButton);
+                window.MouseUp(near, MouseButton.Left);
+                Assert.Equal(300 - 4 / zoom, session.ActiveLayer!.ControlBounds.Right, 2);
+                session.Undo();
+            }
+        }
+        finally { session.MarkSaved("resize.cmps", session.History.CurrentId); window.Close(); }
+
+        Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+        bool HasRightGuide(string screenshot)
+        {
+            Assert.True(Screenshots.Save(window, screenshot));
+            using var frame = SKBitmap.Decode(Path.Combine(Screenshots.Folder, screenshot + ".png"));
+            var point = At(300, 25);
+            for (var x = (int)point.X - 2; x <= (int)point.X + 2; x++)
+            {
+                var pixel = frame.GetPixel(x, (int)point.Y);
+                if (pixel.Red > 230 && pixel.Green < 100 && pixel.Blue > 170) return true;
+            }
+            return false;
+        }
+    }
+
     [AvaloniaFact]
     public async Task Compact_new_canvas_leaves_room_for_the_settings_scrollbar()
     {
