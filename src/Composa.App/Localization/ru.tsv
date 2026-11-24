@@ -619,7 +619,7 @@ Hanging list indent	Выступ маркеров списка
 Hanging punctuation	Висячая пунктуация
 Hard Light	Жёсткий свет
 Hard Mix	Жёсткое смешение
-Hard round	Жёсткая круглая
+Hard	Твёрдая
 Hardness	Жёсткость
 Harmonize…	Гармонизация…
 Healing Brush	Восстанавливающая кисть
@@ -1164,8 +1164,13 @@ Smoothing	Сглаживание
 Snap	Привязка
 Snap To	Привязать к
 Soft Light	Мягкий свет
-Soft eraser	Мягкий ластик
-Soft round	Мягкая круглая
+Soft	Мягкая
+Brush tip	Отпечаток
+Built-in presets	Встроенные
+Change the shape of the brush mark	Изменить форму отпечатка
+Roundness	Скругление
+100% is a circle. Lower values make an oval.	100% — круг. Меньшие значения делают отпечаток овальным.
+Single dab at full pressure	Один отпечаток при полном нажиме
 Something went wrong	Не удалось выполнить действие
 Source contributions (%)	Доли исходных каналов (%)
 Spacing	Интервал

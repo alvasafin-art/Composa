@@ -145,20 +145,26 @@ public sealed partial class MainWindow
             case Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.CloneStamp or Tool.HealingBrush or Tool.Smear:
                 Add(Title(s.Tool switch { Tool.SpotHealing => "Spot Healing", Tool.Brush => "Brush", Tool.Eraser => "Eraser", Tool.CloneStamp => "Clone Stamp", Tool.HealingBrush => "Healing Brush", _ => Chosen() }));
                 if (s.Tool == Tool.CloneStamp) Add(StampMode());
-                var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v => s.Brush = s.Brush with { Size = v });
-                var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => s.Brush = s.Brush with { Hardness = v / 100 });
-                if (s.Tool is Tool.Brush or Tool.Eraser) Add(BrushLibrary(s));
+                Action? refreshTip = null;
+                if (s.Tool is Tool.Brush or Tool.Eraser)
+                {
+                    Add(BrushLibrary(s), BrushTipPicker(s, out var updateTip));
+                    refreshTip = updateTip;
+                    refreshOptions += updateTip;
+                }
+                var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v => { s.Brush = s.Brush with { Size = v }; refreshTip?.Invoke(); });
+                var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => { s.Brush = s.Brush with { Hardness = v / 100 }; refreshTip?.Invoke(); });
                 Add(size, hardness);
                 if (s.Tool is Tool.Brush or Tool.Eraser)
                 {
-                    var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => s.Brush = s.Brush with { Flow = v / 100 }, width: 100);
+                    var flow = Ui.SliderField("Flow", s.Brush.Flow * 100, 1, 100, v => { s.Brush = s.Brush with { Flow = v / 100 }; refreshTip?.Invoke(); }, width: 100);
                     Add(flow);
                     refreshOptions += () => flow.Value = s.Brush.Flow * 100;
                 }
                 Action<double>? setOpacity = null;
                 if (s.Tool != Tool.SpotHealing)
                 {
-                    var opacity = Ui.SliderField(s.Tool == Tool.Smear ? "Strength" : "Opacity", s.Brush.Opacity * 100, 1, 100, v => s.Brush = s.Brush with { Opacity = v / 100 });
+                    var opacity = Ui.SliderField(s.Tool == Tool.Smear ? "Strength" : "Opacity", s.Brush.Opacity * 100, 1, 100, v => { s.Brush = s.Brush with { Opacity = v / 100 }; refreshTip?.Invoke(); });
                     if (s.Tool is Tool.Brush or Tool.Eraser)
                     {
                         opacity.UseIcon(Icons.Adjust);
