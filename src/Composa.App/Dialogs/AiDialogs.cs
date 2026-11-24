@@ -1807,6 +1807,9 @@ public static partial class AiDialogs
         Button? addReference = null;
         var more = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "Image size and quality", () => { });
         var actions = Ui.Row(3, more);
+        var alignPixels = settings.AiAlignMaskedEdits;
+        if (AiGenerationControls.SupportsAlignment(task))
+            actions.Children.Insert(0, AiGenerationControls.AlignmentToggle(alignPixels, align => alignPixels = align));
         var imageSize = Ui.Row(8, Ui.Label(Locale.T("Image size"), Palette.Secondary), size);
         more.Flyout = new Flyout { Content = Ui.Column(7, imageSize, qualityHost), Placement = PlacementMode.BottomEdgeAlignedRight };
         AiGenerationControls.StyleModelField(size, "Image size");
@@ -1993,6 +1996,7 @@ public static partial class AiDialogs
             settings.RememberAiPrompt(task, finalPrompt);
         if (!accepted) return null;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
+        if (AiGenerationControls.SupportsAlignment(task)) settings.AiAlignMaskedEdits = alignPixels;
         settings.Save();
         return new(task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand : finalPrompt, width, height, profile.Seed, chosenEngine?.Id, variants);
     }
