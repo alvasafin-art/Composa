@@ -39,6 +39,7 @@ public sealed partial class CanvasView : Decorator
     private const int FullDetailPoints = 20_000;
     private bool outlineComplex;
     private (SKPath Path, int Block)? antsLevel;
+    private (SKPath Source, SelectionOutlineBatches? Batches)? antsBatches;
 
     // What is on screen, rendered straight from the layers at screen resolution. Its cost follows the window size,
     // not the document size, which keeps 24-megapixel documents as responsive as small ones.
@@ -153,6 +154,7 @@ public sealed partial class CanvasView : Decorator
             cropRect = null;
             spaceDown = false;
             outlinedSelection = null;
+            antsBatches = null;
             outlineStale = true;
             fitPending = true;
             viewStale = true;
@@ -391,6 +393,7 @@ public sealed partial class CanvasView : Decorator
             selectionOutline = outlinedSelection != null ? SelectionMask.Outline(outlinedSelection) : null;
             outlineComplex = selectionOutline?.PointCount > FullDetailPoints;
             antsLevel = null;
+            antsBatches = null;
             outlineStale = false;
         }
         // Everything the render thread needs is captured here, on the UI thread.
@@ -405,6 +408,8 @@ public sealed partial class CanvasView : Decorator
         var nearest = zoom >= 1;
         // While the selection is being dragged, the overlay draws it at its new place; the outline it left behind stays hidden.
         var outline = drag == Drag.MoveSelection ? null : AntsOutline();
+        // Reduced views expose more contours at once. Live brush previews also change before batches can be reused.
+        var batches = zoom >= 1 && !session.IsPaintingSelection ? OutlineBatches(outline) : null;
         var phase = antsPhase;
         var scaling = (float)Scaling;
 
@@ -438,7 +443,7 @@ public sealed partial class CanvasView : Decorator
             CanvasPerformanceTrace.StageCompleted("canvas image draw", displaying);
 #endif
             if (grid) DrawPixelGrid(canvas, view, documentRect, new SKRect(0, 0, (float)size.Width, (float)size.Height));
-            if (outline != null) DrawAnts(canvas, outline, view, phase, scaling);
+            if (outline != null) DrawAnts(canvas, outline, view, phase, scaling, batches);
             overlay?.Invoke(canvas);
             rulers?.Invoke(canvas);
 #if CANVAS_PERFORMANCE
@@ -649,17 +654,23 @@ public sealed partial class CanvasView : Decorator
         }
     }
 
-    internal static void DrawAnts(SKCanvas canvas, SKPath documentPath, SKMatrix view, float phase, float scaling)
+    internal static void DrawAnts(SKCanvas canvas, SKPath documentPath, SKMatrix view, float phase, float scaling, SelectionOutlineBatches? batches = null)
     {
-        using var path = new SKPath();
-        documentPath.Transform(in view, path);
         var width = 1f / scaling;
+        using var dash = SKPathEffect.CreateDash([4, 4], phase);
         using var white = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = width, IsAntialias = false };
         using var black = new SKPaint
         {
             Color = SKColors.Black, Style = SKPaintStyle.Stroke, StrokeWidth = width, IsAntialias = false,
-            PathEffect = SKPathEffect.CreateDash([4, 4], phase)
+            PathEffect = dash
         };
+        if (batches != null)
+        {
+            batches.Draw(canvas, view, white, black);
+            return;
+        }
+        using var path = new SKPath();
+        documentPath.Transform(in view, path);
         canvas.DrawPath(path, white);
         canvas.DrawPath(path, black);
     }
