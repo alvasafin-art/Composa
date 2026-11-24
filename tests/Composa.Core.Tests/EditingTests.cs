@@ -598,6 +598,64 @@ public class EditingTests
         Assert.Equal(50, session.Document.Find(layer.Id)!.Transform.Width);
     }
 
+    [Fact]
+    public void A_proportional_side_resize_can_snap_the_perpendicular_canvas_edge()
+    {
+        var session = EditorSession.NewCanvas(300, 200);
+        var layer = session.AddImageLayer("box", Solid(80, 80, SKColors.Red), new SKPoint(80, 80));
+        var edit = session.BeginTransform()!;
+
+        var (x, y) = edit.Resize(TransformHandle.Right, new SKPoint(198, 80), free: false, fromCenter: false, snapTolerance: 6);
+        Assert.Null(x);
+        Assert.Equal(0, y);
+        Assert.Equal(new SKRect(40, 0, 200, 160), layer.ControlBounds);
+        session.CommitTransform();
+    }
+
+    [Fact]
+    public void A_rotated_side_resize_snaps_the_outer_edge_and_keeps_the_opposite_side_center()
+    {
+        var session = EditorSession.NewCanvas(300, 400);
+        var layer = session.AddImageLayer("box", Solid(80, 40, SKColors.Red), new SKPoint(140, 180));
+        layer.Transform = layer.Transform with { Rotation = 30 };
+        var edit = session.BeginTransform()!;
+        var start = edit.StartFrame;
+        var corners = edit.Corners();
+        var anchor = SideCenter(corners);
+        var rotate = SKMatrix.CreateRotationDegrees(30, start.MidX, start.MidY);
+        var point = rotate.MapPoint(start.Right + 116, start.MidY);
+
+        var (x, y) = edit.Resize(TransformHandle.Right, point, free: false, fromCenter: false, snapTolerance: 6);
+        Assert.Equal(300, x);
+        Assert.Null(y);
+        Assert.Equal(300, layer.ControlBounds.Right, 3);
+        Assert.Equal(2, layer.Transform.Width / layer.Transform.Height, 3);
+        corners = edit.Corners();
+        Assert.InRange(SKPoint.Distance(anchor, SideCenter(corners)), 0, .001f);
+        session.CommitTransform();
+
+        static SKPoint SideCenter(SKPoint[] points) => new((points[0].X + points[3].X) / 2, (points[0].Y + points[3].Y) / 2);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Free_corner_resize_snaps_both_axes_without_changing_its_anchor(bool fromCenter)
+    {
+        var session = EditorSession.NewCanvas(300, 220);
+        var layer = session.AddImageLayer("box", Solid(80, 60, SKColors.Red), new SKPoint(140, 100));
+        var edit = session.BeginTransform()!;
+        var (x, y) = edit.Resize(TransformHandle.BottomRight, new SKPoint(297, 216), free: true, fromCenter, snapTolerance: 6);
+
+        Assert.Equal(300, x);
+        Assert.Equal(220, y);
+        Assert.Equal(300, layer.ControlBounds.Right, 3);
+        Assert.Equal(220, layer.ControlBounds.Bottom, 3);
+        if (fromCenter) Assert.Equal(new SKPoint(140, 100), layer.Transform.Center);
+        else Assert.Equal(new SKPoint(100, 70), new SKPoint(layer.ControlBounds.Left, layer.ControlBounds.Top));
+        session.CommitTransform();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

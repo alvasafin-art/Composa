@@ -77,83 +77,111 @@ public sealed partial class MainWindow
         }
     }
 
-    private Button BrushTipPicker(EditorSession target, out Action refresh)
-    {
-        var sample = new TipSample(target.Brush, 22);
-        var flyout = new Flyout();
-        var button = new Button
-        {
-            Name = "BrushTipPicker", Flyout = flyout,
-            Content = Ui.Row(5, sample, Ui.Label(Locale.T("Brush tip")), Icons.Create(Icons.ChevronDown, 12))
-        };
-        Locale.Tip(button, "Change the shape of the brush mark");
-        var changed = false;
-        flyout.Opening += (_, _) =>
-        {
-            changed = false;
-            var preview = new TipSample(target.Brush, 72) { HorizontalAlignment = HorizontalAlignment.Center };
-            void Update(BrushSettings brush)
-            {
-                target.Brush = brush;
-                preview.Update(brush);
-                sample.Update(brush);
-                canvas.InvalidateCanvas();
-                changed = true;
-            }
-
-            const double width = 190;
-            var roundness = Ui.SliderField("Roundness", target.Brush.TipRoundness * 100, BrushSettings.MinRoundness * 100, 100,
-                v => Update(target.Brush with { Roundness = v / 100 }), width: width, reset: 100);
-            roundness.Name = "BrushTipRoundness";
-            if (ToolTip.GetTip(roundness) is Control sliderHelp)
-                Locale.Tip(roundness, Ui.Column(6, Ui.Label(Locale.T("100% is a circle. Lower values make an oval.")), sliderHelp));
-            var angle = Ui.AngleField("Tip angle", target.Brush.TipAngle, -180, 180,
-                v => Update(target.Brush with { Angle = v }), width, Controls.AngleDialStyle.Line, reset: 0);
-            angle.Name = "BrushTipAngle";
-            flyout.Content = Ui.Column(8,
-                Ui.Label(Locale.T("Single dab at full pressure"), Palette.Secondary),
-                preview, roundness, angle);
-        };
-        flyout.Closed += (_, _) => { if (changed) RememberToolSettings(); };
-        refresh = () => sample.Update(target.Brush);
-        return button;
-    }
-
-    private Button BrushLibrary(EditorSession target)
+    private Button BrushLibrary(EditorSession target, out Action refresh)
     {
         bool eraser = target.Tool == Tool.Eraser;
         var custom = eraser ? settings.EraserPresets : settings.BrushPresets;
         var title = eraser ? "Eraser presets" : "Brush presets";
-        var button = new Button { Name = "BrushPresetPicker", Content = Ui.Row(6, Ui.Label(Locale.T("Presets")), Icons.Create(Icons.ChevronDown, 12)) };
-        Locale.Tip(button, Locale.T(title));
+        var sample = new TipSample(target.Brush, 22);
         var flyout = new Flyout();
-        button.Flyout = flyout;
+        var button = new Button
+        {
+            Name = "BrushPresetPicker", Flyout = flyout,
+            Content = Ui.Row(6, sample, Ui.Label(Locale.T("Presets")), Icons.Create(Icons.ChevronDown, 12))
+        };
+        Locale.Tip(button, title);
+        Action? refreshOpen = null;
+        var changed = false;
+        void Refresh()
+        {
+            sample.Update(target.Brush);
+            refreshOpen?.Invoke();
+        }
+
         flyout.Opening += (_, _) =>
         {
+            changed = false;
             var list = Ui.Column(4);
+            var entries = new List<(BrushSettings Settings, Button Button, TextBlock Status)>();
+            var preview = new TipSample(target.Brush, 60);
+            var tipFields = Ui.Column(6);
+            void UpdateTip(BrushSettings brush)
+            {
+                target.Brush = brush;
+                changed = true;
+                Refresh();
+                canvas.InvalidateCanvas();
+            }
+
+            void BuildTipFields()
+            {
+                const double width = 177;
+                var roundness = Ui.SliderField("Roundness", target.Brush.TipRoundness * 100, BrushSettings.MinRoundness * 100, 100,
+                    v => UpdateTip(target.Brush with { Roundness = v / 100 }), width: width, reset: 100);
+                roundness.Name = "BrushTipRoundness";
+                if (ToolTip.GetTip(roundness) is Control sliderHelp)
+                    Locale.Tip(roundness, Ui.Column(6, Ui.Label(Locale.T("100% is a circle. Lower values make an oval.")), sliderHelp));
+                var angle = Ui.AngleField("Tip angle", target.Brush.TipAngle, -180, 180,
+                    v => UpdateTip(target.Brush with { Angle = v }), width, Controls.AngleDialStyle.Line, reset: 0);
+                angle.Name = "BrushTipAngle";
+                tipFields.Children.Clear();
+                tipFields.Children.Add(roundness);
+                tipFields.Children.Add(angle);
+            }
+
             void Entry(BrushPreset preset, bool saved)
             {
-                var selected = preset.Settings == target.Brush;
                 var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("32,*,Auto"), ColumnSpacing = 8 };
                 grid.Children.Add(new TipSample(preset.Settings, 27));
                 AddAt(grid, Ui.Label(saved ? preset.Name : Locale.T(preset.Name)), 1);
-                AddAt(grid, Ui.Label(selected ? "✓" : $"{preset.Settings.Hardness:P0}", Palette.Secondary, 11), 2);
+                var status = Ui.Label("", Palette.Secondary, 11);
+                AddAt(grid, status, 2);
                 var entry = new Button { Classes = { "flat" }, Content = grid, HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 4),
-                    Background = selected ? Palette.Selected : Brushes.Transparent };
-                entry.Click += (_, _) => { target.Brush = preset.Settings; RememberToolSettings(); flyout.Hide(); RebuildOptions(); canvas.InvalidateCanvas(); };
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 4) };
+                entry.Click += (_, _) =>
+                {
+                    target.Brush = preset.Settings;
+                    BuildTipFields();
+                    refreshOptions?.Invoke();
+                    RememberToolSettings();
+                    changed = false;
+                    canvas.InvalidateCanvas();
+                };
+                entries.Add((preset.Settings, entry, status));
                 list.Children.Add(entry);
             }
+
             list.Children.Add(Ui.Label(Locale.T("Built-in presets"), Palette.Secondary, 11));
             foreach (var preset in BrushPresets.All) Entry(preset, false);
             if (custom.Count > 0) list.Children.Add(Ui.Label(Locale.T("My presets"), Palette.Secondary, 11));
             foreach (var pair in custom.OrderBy(p => p.Key, StringComparer.CurrentCultureIgnoreCase))
                 Entry(new BrushPreset(pair.Key, pair.Value), true);
-            var save = Ui.TextButton("Save current tip…", () => { flyout.Hide(); _ = SaveBrushPreset(target.Brush, eraser); });
+
+            BuildTipFields();
+            refreshOpen = () =>
+            {
+                preview.Update(target.Brush);
+                foreach (var (preset, entry, status) in entries)
+                {
+                    var selected = preset == target.Brush;
+                    entry.Background = selected ? Palette.Selected : Brushes.Transparent;
+                    status.Text = selected ? "✓" : $"{preset.Hardness:P0}";
+                }
+            };
+            Refresh();
+            var save = Ui.TextButton("Save preset…", () => { flyout.Hide(); _ = SaveBrushPreset(target.Brush, eraser); });
             flyout.Content = Ui.Column(8, Ui.Label(Locale.T(title), weight: FontWeight.SemiBold),
-                new ScrollViewer { Content = list, MaxHeight = 300 }, save);
-            ((Control)flyout.Content).Width = 228;
+                new ScrollViewer { Content = list, MaxHeight = 185 },
+                Ui.Separator(vertical: false), Ui.Label(Locale.T("Brush tip"), weight: FontWeight.SemiBold),
+                Ui.Row(10, preview, tipFields), save);
+            ((Control)flyout.Content).Width = 270;
         };
+        flyout.Closed += (_, _) =>
+        {
+            refreshOpen = null;
+            if (changed) RememberToolSettings();
+        };
+        refresh = Refresh;
         return button;
     }
 

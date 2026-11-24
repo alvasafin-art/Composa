@@ -102,6 +102,8 @@ public class SelectionMaskPipelineTests
         Assert.Equal(sourceBytes, Bytes(layer.Pixels!));
         Assert.Equal(layerCount, session.Document.Layers.Count);
         Assert.Equal(selection, Bytes(layer.Mask!));
+        Assert.Null(session.Selection);
+        Assert.Same(layer.Mask, session.EditingMaskBitmap);
         Assert.True(layer.MaskEnabled);
         Assert.Equal(RgbProfile.DisplayP3, Pixels.ProfileOf(layer.Pixels!));
         Assert.Equal(SKColorType.RgbaF32, layer.Pixels!.ColorType);
@@ -128,6 +130,7 @@ public class SelectionMaskPipelineTests
         session.Undo(); // Remove the mask.
         Assert.Equal(state, session.History.CurrentId);
         Assert.Null(session.ActiveLayer!.Mask);
+        Assert.Equal(selection, Bytes(session.Selection!));
         Assert.Same(original, session.ActiveLayer.Pixels);
         using var undone = session.Flatten();
         Assert.Equal(Bytes(before), Bytes(undone));
