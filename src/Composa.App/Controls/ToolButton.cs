@@ -33,6 +33,8 @@ public sealed class ToolButton : ToggleButton
     private readonly IReadOnlyList<ToolChoice> group;
     private readonly DispatcherTimer holdTimer;
     private MenuFlyout? flyout;
+    private (ToolChoice Choice, KeyGesture? Key, string Language)? shownChoice;
+    private Icons.Icon? shownIcon;
     internal PlacementMode GroupPlacement { get; set; } = PlacementMode.RightEdgeAlignedTop;
     /// <summary>
     /// The press that is still down opened the group. The flyout takes the keyboard focus as it opens, which ends the button's
@@ -97,8 +99,11 @@ public sealed class ToolButton : ToggleButton
     public void Refresh()
     {
         if (Current is not { } current) return;
+        var presentation = (Choice: current, Key: current.Key(), Language: Locale.Language);
+        if (shownChoice == presentation) return;
+        shownChoice = presentation;
         Show(current.Icon);
-        var key = current.Key() is { } gesture ? $" ({Shortcut.Label(gesture)})" : "";
+        var key = presentation.Key is { } gesture ? $" ({Shortcut.Label(gesture)})" : "";
         var others = group.Where(c => c != current).Select(c => Locale.T(c.Name)).ToList();
         var list = others.Count == 1 ? others[0] : string.Join(", ", others.SkipLast(1)) + ", " + others[^1];
         SetPassiveTip(this, $"{Locale.T(current.Name)}{key} · {Locale.T("Click and hold")}: {list}");
@@ -183,6 +188,8 @@ public sealed class ToolButton : ToggleButton
 
     private void Show(Icons.Icon icon)
     {
+        if (shownIcon == icon) return;
+        shownIcon = icon;
         var glyph = Icons.Create(icon, 19);
         if (!HasGroup) { Content = glyph; return; }
         var mark = new Path

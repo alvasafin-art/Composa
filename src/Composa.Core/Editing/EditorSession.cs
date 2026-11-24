@@ -20,6 +20,8 @@ public enum SmearMode { Liquify, Blur, Smudge, Dodge, Burn }
 /// </summary>
 public sealed partial class EditorSession
 {
+    public readonly record struct VisibilityChange(Guid LayerId, bool Visible, SKRect? Bounds);
+
     private Document document;
     private Document? pendingBefore;
     private string pendingName = "";
@@ -155,6 +157,8 @@ public sealed partial class EditorSession
 
     /// <summary>Raised after pixels changed; the rectangle is in document space (null means everything, including size).</summary>
     public event Action<SKRectI?>? CanvasChanged;
+    /// <summary>Canvas damage and the visibility edit that caused it, when a retained viewport can use it.</summary>
+    public event Action<SKRectI?, VisibilityChange?>? ViewportInvalidated;
     /// <summary>Raised when layers were added, removed, reordered or had their properties changed.</summary>
     public event Action? LayersChanged;
     public event Action? SelectionChanged;
@@ -381,15 +385,23 @@ public sealed partial class EditorSession
     public void Invalidate(SKRectI area)
     {
         dirty = Geometry.Union(dirty, Geometry.Intersect(area, document.Bounds));
-        CanvasChanged?.Invoke(area);
+        NotifyCanvasChanged(area);
     }
 
     public void Invalidate(SKRect area) => Invalidate(Geometry.RoundOut(area));
 
-    public void InvalidateAll()
+    public void InvalidateAll() => InvalidateAll(null);
+
+    private void InvalidateAll(VisibilityChange? visibility)
     {
         dirty = document.Bounds;
-        CanvasChanged?.Invoke(null);
+        NotifyCanvasChanged(null, visibility);
+    }
+
+    private void NotifyCanvasChanged(SKRectI? area, VisibilityChange? visibility = null)
+    {
+        CanvasChanged?.Invoke(area);
+        ViewportInvalidated?.Invoke(area, visibility);
     }
 
     public void NotifyLayersChanged() => LayersChanged?.Invoke();
@@ -465,8 +477,20 @@ public sealed partial class EditorSession
     {
         if (comparisonGroup == groupId) return;
         comparisonGroup = groupId;
-        CanvasChanged?.Invoke(null);
+        NotifyCanvasChanged(null);
     }
+
+    private bool CanUseRegularViewport => !IsInteracting && strokeLayer == null && finishingStrokeEffect == null &&
+        SoloLayerId == null && comparisonGroup == null && fontSample == null &&
+        !IsEditingAlphaChannel && VisibleRgbChannels == RgbChannels.All;
+
+    /// <summary>Whether a full render uses the same CPU compositor as a visibility refresh.</summary>
+    public bool CanRetainVisibilityBands(RenderView view) =>
+        CanUseRegularViewport && (view.Scale != 1 || !GpuAcceleration.EditorEnabled);
+
+    /// <summary>Refreshes affected bands of an otherwise current, fully rendered viewport.</summary>
+    public bool TryRefreshVisibilityBands(SKBitmap target, SKRectI viewport, RenderView view, SKRect bounds) =>
+        CanRetainVisibilityBands(view) && DocumentRenderer.TryRefreshVisibility(document, target, viewport, view, bounds);
 
     public void RenderView(SKBitmap target, SKRectI area, RenderView view)
     {

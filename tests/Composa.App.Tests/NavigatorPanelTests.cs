@@ -19,6 +19,39 @@ namespace Composa.App.Tests;
 
 public class NavigatorPanelTests
 {
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Navigator_and_channels_refresh_after_a_stroke_finishes(bool cancel)
+    {
+        var session = EditorSession.NewCanvas(240, 160, SKColors.White);
+        var canvas = new CanvasView { Session = session };
+        var navigator = new NavigatorPanel(canvas) { Session = session };
+        var channels = new ChannelsPanel { Session = session };
+        var window = new Window { Width = 800, Height = 400, Content = new StackPanel { Children = { navigator, channels, canvas } } };
+        window.Show();
+        try
+        {
+            Pump();
+            navigator.RefreshThumbnail();
+            var builds = navigator.ThumbnailBuilds;
+            Assert.True(builds > 0);
+            Border RgbRow() => channels.GetVisualDescendants().OfType<Border>().Single(row => row.Name == "ChannelRGB");
+            var rgbRow = RgbRow();
+            Assert.True(session.BeginStroke(new SKPoint(30, 30), out var problem), problem);
+            await Task.Delay(360, TestContext.Current.CancellationToken);
+            Assert.Equal(builds, navigator.ThumbnailBuilds);
+            Assert.Same(rgbRow, RgbRow());
+
+            if (cancel) session.CancelStroke(); else session.EndStroke();
+            for (var i = 0; i < 20 && (builds == navigator.ThumbnailBuilds || ReferenceEquals(rgbRow, RgbRow())); i++)
+                await Task.Delay(50, TestContext.Current.CancellationToken);
+            Assert.Equal(builds + 1, navigator.ThumbnailBuilds);
+            Assert.NotSame(rgbRow, RgbRow());
+        }
+        finally { session.CancelStroke(); window.Close(); }
+    }
+
     [AvaloniaFact]
     public void Zoom_drag_is_logarithmic_Alt_is_fine_and_the_numeric_editor_keeps_printable_keys()
     {

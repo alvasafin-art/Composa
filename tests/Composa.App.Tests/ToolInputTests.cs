@@ -465,6 +465,38 @@ public class ToolInputTests
         Click(500, 350); Assert.Null(transparent.ActiveLayer);
     }
 
+    [AvaloniaFact]
+    public void Move_checks_nested_group_masks_and_visibility_from_the_top_of_the_stack()
+    {
+        var document = new Document(600, 400);
+        var pixels = Rendering.Pixels.NewColor(600, 400);
+        pixels.Erase(SKColors.White);
+        var lower = Layer.Raster("Lower", pixels);
+        var child = Layer.Raster("Child", pixels);
+        var mask = Rendering.Pixels.NewMask(600, 400);
+        using (var canvas = new SKCanvas(mask))
+        using (var paint = new SKPaint { Color = SKColors.White })
+            canvas.DrawRect(0, 0, 300, 400, paint);
+        var outer = new Layer { Kind = LayerKind.Group, Mask = mask };
+        var inner = new Layer { Kind = LayerKind.Group, Opacity = .5 };
+        inner.Children.Add(child);
+        outer.Children.Add(inner);
+        document.Layers.AddRange([lower, outer]);
+        var nested = new EditorSession(document);
+        window.AddSession(nested);
+        window.Canvas.ShowTransformControls = false;
+        window.SelectTool(Tool.Move);
+        Dispatcher.UIThread.RunJobs();
+
+        Click(200, 180);
+        Assert.Equal(child.Id, nested.ActiveLayer!.Id);
+        Click(410, 180);
+        Assert.Equal(lower.Id, nested.ActiveLayer!.Id);
+        nested.SetVisible(nested.Document.Find(outer.Id)!, false);
+        Click(200, 180);
+        Assert.Equal(lower.Id, nested.ActiveLayer!.Id);
+    }
+
     private static void TestColor(SKColor expected, SKColor actual) =>
         Assert.True(Math.Abs(expected.Red - actual.Red) < 3 && Math.Abs(expected.Green - actual.Green) < 3 && Math.Abs(expected.Blue - actual.Blue) < 3, $"expected {expected}, found {actual}");
 }

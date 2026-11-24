@@ -29,6 +29,31 @@ public class ToolRailTests
 
     private Point Center(Control control) => control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
 
+    [AvaloniaFact]
+    public void Refresh_keeps_the_glyph_until_the_tool_changes_and_updates_its_shortcut()
+    {
+        var ellipse = false;
+        var shortcut = new KeyGesture(Key.M);
+        var button = new ToolButton(Icons.Marquee, "Marquee",
+        [
+            new("Rectangular Marquee", Icons.Marquee, () => shortcut, () => !ellipse, () => ellipse = false),
+            new("Elliptical Marquee", Icons.MarqueeEllipse, () => shortcut, () => ellipse, () => ellipse = true)
+        ]);
+        button.Refresh();
+        var content = button.Content;
+        var tip = Assert.IsType<ToolTip>(ToolTip.GetTip(button));
+        var original = tip.Content;
+        shortcut = new KeyGesture(Key.F9);
+        button.Refresh();
+        Assert.Same(content, button.Content);
+        Assert.NotEqual(original, tip.Content);
+
+        ellipse = true;
+        button.Refresh();
+        Assert.NotSame(content, button.Content);
+        Assert.Same(tip, ToolTip.GetTip(button));
+    }
+
     /// <summary>Where a control in another top level (the flyout's popup) lies in the window's coordinates.</summary>
     private Point InWindow(Control control) => window.PointToClient(control.PointToScreen(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2)));
 

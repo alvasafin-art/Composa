@@ -38,7 +38,12 @@ public sealed class ChannelsPanel : UserControl
         var panel = new DockPanel(); DockPanel.SetDock(target, Dock.Top); DockPanel.SetDock(buttons, Dock.Bottom);
         panel.Children.Add(target); panel.Children.Add(buttons); panel.Children.Add(new ScrollViewer { Content = rows, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         Content = panel;
-        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); if (IsEffectivelyVisible) Rebuild(); };
+        refreshTimer.Tick += (_, _) =>
+        {
+            if (IsEffectivelyVisible && session?.IsStroking == true) return;
+            refreshTimer.Stop();
+            if (IsEffectivelyVisible) Rebuild();
+        };
         DetachedFromVisualTree += (_, _) => refreshTimer.Stop();
         AttachedToVisualTree += (_, _) => Rebuild();
     }

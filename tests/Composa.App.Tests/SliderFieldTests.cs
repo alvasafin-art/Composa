@@ -255,6 +255,7 @@ public class SliderFieldTrackTests
         Assert.True(track[2].B > track[2].R && track[2].B > track[2].G);    // Blue sits 120 degrees before it, green 120 after.
         Assert.True(track[10].G > track[10].R && track[10].G > track[10].B);
         Assert.False(field.IsResetVisible);
+        Assert.Empty(field.GetVisualDescendants().OfType<TextBox>());
 
         DoubleClick(Center(field));
         Assert.True(field.IsEditing);

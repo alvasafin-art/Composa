@@ -425,7 +425,9 @@ public sealed partial class CanvasView
         // Pixel damage from ContinueStroke already invalidates the canvas. When a
         // sample only moves the cursor, keep the document frame that is on screen.
         if (IsBrushTool && drag is Drag.None or Drag.Stroke) Child!.InvalidateVisual();
-        else InvalidateCanvas();
+        // The marquee's crosshair is a system cursor. Its overlay starts with a press.
+        else if (drag != Drag.None || session.Tool != Tool.Marquee || polygon.Count > 0)
+            InvalidateCanvas();
     }
 
     private void ContinueBrushDrag(PointerEventArgs e)
@@ -916,39 +918,49 @@ public sealed partial class CanvasView
     private bool IsDistorted() => session?.IndependentMaskTarget is { MaskTransform.Distort: not null }
         || session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
 
-    /// <summary>The topmost visible layer with a non-transparent pixel under a document point.</summary>
-    private Layer? LayerAt(SKPoint p)
+    /// <summary>The topmost visible material under the point, promoted to its layout group unless picking a child.</summary>
+    private Layer? MoveLayerAt(SKPoint point, bool pickChild)
     {
-        if (session == null || !session.Document.Bounds.Contains((int)Math.Floor(p.X), (int)Math.Floor(p.Y))) return null;
-        foreach (var layer in session.Document.AllLayers().Reverse())
+        if (session == null || !session.Document.Bounds.Contains((int)Math.Floor(point.X), (int)Math.Floor(point.Y))) return null;
+        return PickLayer(session.Document.Layers, point, (float)zoom, pickChild, []);
+    }
+
+    private static Layer? PickLayer(List<Layer> layers, SKPoint point, float scale, bool pickChild, List<Layer> parents)
+    {
+        for (var i = layers.Count - 1; i >= 0; i--)
         {
-            if (layer.Pixels == null || !session.Document.IsEffectivelyVisible(layer)) continue;
+            var layer = layers[i];
+            if (!layer.Visible) continue;
             // Live text is picked by its editable box, including spaces and thin glyphs. Keep stack order:
             // an opaque layer above the text still wins, and layer/group masks still constrain the hit.
-            var alpha = layer.HitCoverage(p, (float)zoom) * 255 * layer.Opacity;
-            for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
-            {
-                alpha *= parent.Opacity;
-                if (parent.RenderMask() is { } parentMask)
-                {
-                    if (!parent.MaskMatrix.TryInvert(out var maskInverse)) { alpha = 0; break; }
-                    var maskPoint = maskInverse.MapPoint(p);
-                    int px = (int)Math.Floor(maskPoint.X), py = (int)Math.Floor(maskPoint.Y);
-                    alpha *= (px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha : parent.MaskDefault) / 255.0;
-                }
-            }
-            if (alpha > 12) return layer;
+            if (layer.Pixels != null && PickCoverage(layer, point, scale, parents) > 12)
+                return pickChild ? layer : parents.FirstOrDefault(parent => parent.AutoLayout != null) ?? layer;
+            if (layer.Children.Count == 0) continue;
+            parents.Add(layer);
+            var child = PickLayer(layer.Children, point, scale, pickChild, parents);
+            parents.RemoveAt(parents.Count - 1);
+            if (child != null) return child;
         }
         return null;
     }
 
-    private Layer? MoveLayerAt(SKPoint point, bool pickChild)
+    private static double PickCoverage(Layer layer, SKPoint point, float scale, List<Layer> parents)
     {
-        var layer = LayerAt(point);
-        if (pickChild || layer == null || session == null) return layer;
-        for (var parent = session.Document.ParentOf(layer.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
-            if (parent.AutoLayout != null) layer = parent;
-        return layer;
+        var alpha = layer.HitCoverage(point, scale) * 255 * layer.Opacity;
+        if (alpha == 0) return 0;
+        for (var i = parents.Count - 1; i >= 0; i--)
+        {
+            var parent = parents[i];
+            alpha *= parent.Opacity;
+            if (parent.RenderMask() is { } parentMask)
+            {
+                if (!parent.MaskMatrix.TryInvert(out var maskInverse)) return 0;
+                var maskPoint = maskInverse.MapPoint(point);
+                int px = (int)Math.Floor(maskPoint.X), py = (int)Math.Floor(maskPoint.Y);
+                alpha *= (px >= 0 && py >= 0 && px < parentMask.Width && py < parentMask.Height ? parentMask.GetPixel(px, py).Alpha : parent.MaskDefault) / 255.0;
+            }
+        }
+        return alpha;
     }
 
     /// <summary>

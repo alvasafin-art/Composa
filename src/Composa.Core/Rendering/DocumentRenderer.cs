@@ -13,12 +13,14 @@ public readonly record struct RenderView(float Scale, SKPoint Origin)
 /// <summary>A buffer covering <see cref="Area"/> of the render target, with a canvas that draws in document space.</summary>
 internal sealed class Tile : IDisposable
 {
+    internal const int SamplingFringe = 4;
     public SKBitmap Bitmap { get; }
     public SKCanvas Canvas { get; }
     /// <summary>In target pixels.</summary>
     public SKRectI Area { get; }
     public RenderView View { get; }
     public ColorDepth Depth { get; }
+    public SKRect DocumentBounds { get; }
     private readonly RgbProfile profile;
 
     public Tile(SKRectI area, RenderView view, bool mask = false, ColorDepth depth = ColorDepth.Eight, RgbProfile? profile = null)
@@ -26,6 +28,9 @@ internal sealed class Tile : IDisposable
         Area = area;
         View = view;
         Depth = depth;
+        // Keep a sampling fringe and account for float rounding at band edges.
+        DocumentBounds = new(view.Origin.X + (area.Left - SamplingFringe) / view.Scale, view.Origin.Y + (area.Top - SamplingFringe) / view.Scale,
+            view.Origin.X + (area.Right + SamplingFringe) / view.Scale, view.Origin.Y + (area.Bottom + SamplingFringe) / view.Scale);
         this.profile = profile ?? RgbProfile.Srgb;
         Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
 #if CANVAS_PERFORMANCE
@@ -96,17 +101,43 @@ public static partial class DocumentRenderer
             Pixels.Invalidate(target);
             return;
         }
+        RenderCpu(document, target, area, area, view, options, SamplingMargin(document, options));
+    }
+
+    /// <summary>Updates complete bands on the same grid as the previous full CPU render.</summary>
+    internal static bool TryRefreshVisibility(Document document, SKBitmap target, SKRectI viewport, RenderView view, SKRect bounds)
+    {
+        if (!(view.Scale > 0 && view.Scale <= 1) || view.Scale == 1 && GpuAcceleration.EditorEnabled ||
+            SamplingMargin(document) > 0) return false;
+        var mapped = new SKRect(
+            (bounds.Left - view.Origin.X) * view.Scale, (bounds.Top - view.Origin.Y) * view.Scale,
+            (bounds.Right - view.Origin.X) * view.Scale, (bounds.Bottom - view.Origin.Y) * view.Scale);
+        mapped.Inflate(Tile.SamplingFringe, Tile.SamplingFringe);
+        var viewportBounds = (SKRect)viewport;
+        if (mapped.IntersectsWith(viewportBounds))
+            RenderCpu(document, target, viewport, Geometry.RoundOut(SKRect.Intersect(mapped, viewportBounds)), view, null, 0);
+        return true;
+    }
+
+    private static void RenderCpu(Document document, SKBitmap target, SKRectI area, SKRectI changed, RenderView view,
+        RenderOptions? options, double samplingMargin)
+    {
         // Skia's raster backend draws on one thread, so large areas are split into bands rendered side by side.
         // Every layer operation is per-pixel, which makes the bands independent of each other, except the blur
         // adjustments: their bands are rendered with a halo of the picture around them that is then left out.
         var bands = (long)area.Width * area.Height < 300_000 ? 1 : Math.Clamp(area.Height / 48, 1, Environment.ProcessorCount);
         if (bands > 1) Pixels.PrepareLevels(document, view.Scale);
         var bandHeight = (area.Height + bands - 1) / bands;
-        var margin = (int)Math.Ceiling(SamplingMargin(document, options) * view.Scale);
+        var margin = (int)Math.Ceiling(samplingMargin * view.Scale);
         var canvas = Geometry.RoundOut(new SKRect(-view.Origin.X * view.Scale, -view.Origin.Y * view.Scale,
             (document.Width - view.Origin.X) * view.Scale, (document.Height - view.Origin.Y) * view.Scale));
         var depth = document.WorkingDepth;
-        Parallel.For(0, bands, band =>
+        var firstBand = (changed.Top - area.Top) / bandHeight;
+        var lastBand = (changed.Bottom - 1 - area.Top) / bandHeight;
+        if (firstBand == lastBand) RenderBand(firstBand);
+        else Parallel.For(firstBand, lastBand + 1, RenderBand);
+
+        void RenderBand(int band)
         {
             var top = area.Top + band * bandHeight;
             var part = new SKRectI(area.Left, top, area.Right, Math.Min(area.Bottom, top + bandHeight));
@@ -122,8 +153,14 @@ public static partial class DocumentRenderer
             RenderNodes(document.Layers, tile, options);
             tile.Canvas.Flush();
             CopyRows(tile.Bitmap, new SKPointI(part.Left - padded.Left, part.Top - padded.Top), target, part);
-        });
-        Pixels.ClampColor(target, area);
+        }
+        if (target.ColorType == SKColorType.RgbaF32)
+        {
+            // These are the complete bands just copied into the destination.
+            var copied = new SKRectI(area.Left, area.Top + firstBand * bandHeight, area.Right,
+                Math.Min(area.Bottom, area.Top + (lastBand + 1) * bandHeight));
+            Pixels.ClampColor(target, copied);
+        }
         Pixels.Invalidate(target);
     }
 
@@ -183,6 +220,10 @@ public static partial class DocumentRenderer
             var firstClipped = i + 1;
             while (i + 1 < nodes.Count && nodes[i + 1].Clipped) i++;
             if (layer.Clipped || !layer.Visible || layer.Opacity <= 0) continue;
+            // A raster clipping base bounds the whole unit: its original alpha is restored
+            // after blending its followers. Skip empty bands before resolving masks or effects.
+            if (options?.EffectPatch?.LayerId != layer.Id && TryRasterBounds(layer, out var bounds) &&
+                !tile.DocumentBounds.IntersectsWith(bounds)) continue;
             List<Layer>? clipped = null;
             for (var j = firstClipped; j <= i; j++)
             {
@@ -191,6 +232,48 @@ public static partial class DocumentRenderer
                     (clipped ??= []).Add(follower.WarpAppearanceForView(tile.View.Scale));
             }
             RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped is null ? [] : clipped, tile, options);
+        }
+    }
+
+    private static bool TryRasterBounds(Layer layer, out SKRect bounds)
+    {
+        bounds = default;
+        if (layer.Kind != LayerKind.Raster || layer.Pixels == null || layer.HasWarp || layer.HasSmartFilterMask ||
+            layer.Transform.Distort != null) return false;
+        bounds = layer.VisibleBounds;
+        return float.IsFinite(bounds.Left) && float.IsFinite(bounds.Top) && float.IsFinite(bounds.Right) &&
+            float.IsFinite(bounds.Bottom) && !bounds.IsEmpty;
+    }
+
+    internal static SKRect? VisibilityBounds(Document document, Layer layer)
+    {
+        var bounds = SKRect.Empty;
+        if (layer.Clipped)
+        {
+            var siblings = document.SiblingsOf(layer.Id);
+            if (siblings == null) return null;
+            var i = siblings.IndexOf(layer) - 1;
+            while (i >= 0 && siblings[i].Clipped) i--;
+            // Switching between the direct and clipping paths can change the entire base.
+            if (i >= 0 && !Collect(siblings[i])) return null;
+        }
+        return Collect(layer) && !bounds.IsEmpty ? bounds : null;
+
+        bool Collect(Layer node)
+        {
+            if (node.IsGroup)
+            {
+                // Mixing a seeded pass-through group can affect the backdrop outside its children.
+                if (node.Blend == BlendMode.PassThrough &&
+                    (node.Opacity < 1 || node.Mask != null || node.VectorMask != null || !node.BlendIf.IsIdentity))
+                    return false;
+                foreach (var child in node.Children)
+                    if (child.Visible && child.Opacity > 0 && !Collect(child)) return false;
+                return true;
+            }
+            if (!TryRasterBounds(node, out var rasterBounds)) return false;
+            bounds = bounds.IsEmpty ? rasterBounds : SKRect.Union(bounds, rasterBounds);
+            return true;
         }
     }
 
@@ -295,11 +378,13 @@ public static partial class DocumentRenderer
     /// <summary>Straightens premultiplied pixels and gives every covered pixel full alpha.</summary>
     private static unsafe void MakeOpaque(SKBitmap bitmap)
     {
-        if (bitmap.ColorType == SKColorType.RgbaF32)
+        // SKBitmap queries its dimensions through Skia. Read them once per band.
+        var info = bitmap.Info;
+        if (info.ColorType == SKColorType.RgbaF32)
         {
             var colors = new PixelBuffer(bitmap);
-            for (var y = 0; y < bitmap.Height; y++)
-            for (var x = 0; x < bitmap.Width; x++)
+            for (var y = 0; y < info.Height; y++)
+            for (var x = 0; x < info.Width; x++)
             {
                 var value = colors.Read(x, y);
                 if (value.A > 0) colors.Write(x, y, value.Straight with { A = 1 });
@@ -307,10 +392,11 @@ public static partial class DocumentRenderer
             return;
         }
         var pixels = (byte*)bitmap.GetPixels();
-        for (var y = 0; y < bitmap.Height; y++)
+        var stride = bitmap.RowBytes;
+        for (var y = 0; y < info.Height; y++)
         {
-            var p = pixels + (long)y * bitmap.RowBytes;
-            for (var x = 0; x < bitmap.Width; x++, p += 4)
+            var p = pixels + (long)y * stride;
+            for (var x = 0; x < info.Width; x++, p += 4)
             {
                 int a = p[3];
                 if (a is 0 or 255) continue;

@@ -278,29 +278,46 @@ public static partial class Pixels
     internal static void PrepareLevels(Document document, float scale)
     {
         if (scale >= 0.5f) return;
-        foreach (var layer in document.AllLayers())
+        Visit(document.Layers);
+
+        void Visit(List<Layer> layers)
         {
-            // Warp builds its own reduced material. Preparing an unused source pyramid wastes a full-image pass.
-            if (layer.HasWarp || !document.IsEffectivelyVisible(layer)) continue;
-            foreach (var bitmap in new[] { layer.Pixels, layer.Mask })
+            foreach (var layer in layers)
             {
-                if (bitmap == null || IsLive(bitmap)) continue;
-                var layerScale = scale * (layer.Pixels != null ? Math.Sqrt(Math.Abs(layer.Transform.Width * layer.Transform.Height) / Math.Max(1.0, (double)layer.Pixels.Width * layer.Pixels.Height)) : 1);
-                var level = layerScale >= 0.5 ? 0 : (int)Math.Floor(Math.Log2(1 / layerScale));
-                if (level > 0) Level(bitmap, ref level);
+                if (!layer.Visible) continue;
+                Visit(layer.Children);
+                // Warp builds its own reduced material.
+                if (layer.HasWarp || layer.Pixels == null && layer.Mask == null) continue;
+                var layerScale = (double)scale;
+                if (layer.Pixels is { } pixels)
+                {
+                    var info = pixels.Info;
+                    layerScale *= Math.Sqrt(Math.Abs(layer.Transform.Width * layer.Transform.Height) /
+                        Math.Max(1d, (double)info.Width * info.Height));
+                }
+                if (layerScale >= .5) continue;
+                var level = (int)Math.Floor(Math.Log2(1 / layerScale));
+                Prepare(layer.Pixels, level);
+                Prepare(layer.Mask, level);
             }
+        }
+
+        static void Prepare(SKBitmap? bitmap, int level)
+        {
+            if (level > 0 && bitmap != null && !IsLive(bitmap)) Level(bitmap, ref level);
         }
     }
 
     /// <summary>A half-size copy averaging each 2×2 block. Premultiplied pixels average correctly as they are.</summary>
     internal static unsafe SKBitmap Halve(SKBitmap source)
     {
-        int width = Math.Max(1, source.Width / 2), height = Math.Max(1, source.Height / 2), bpp = source.BytesPerPixel;
-        var half = new SKBitmap(source.Info.WithSize(width, height));
-        if (source.ColorType == SKColorType.RgbaF32)
+        var info = source.Info;
+        int width = Math.Max(1, info.Width / 2), height = Math.Max(1, info.Height / 2), bpp = info.BytesPerPixel;
+        var half = new SKBitmap(info.WithSize(width, height));
+        if (info.ColorType == SKColorType.RgbaF32)
         {
             var input = new PixelBuffer(source); var output = new PixelBuffer(half);
-            int highLastX = source.Width - 1, highLastY = source.Height - 1;
+            int highLastX = info.Width - 1, highLastY = info.Height - 1;
             Parallel.For(0, height, y =>
             {
                 int y0 = Math.Min(y * 2, highLastY), y1 = Math.Min(y * 2 + 1, highLastY);
@@ -314,11 +331,23 @@ public static partial class Pixels
         }
         byte* from = (byte*)source.GetPixels(), to = (byte*)half.GetPixels();
         int fromStride = source.RowBytes, toStride = half.RowBytes;
-        int lastX = source.Width - 1, lastY = source.Height - 1;
+        int lastX = info.Width - 1, lastY = info.Height - 1;
         Parallel.For(0, height, y =>
         {
             byte* top = from + (long)Math.Min(y * 2, lastY) * fromStride, bottom = from + (long)Math.Min(y * 2 + 1, lastY) * fromStride;
             var row = to + (long)y * toStride;
+            if (bpp == 4 && lastX > 0)
+            {
+                for (var x = 0; x < width; x++, top += 8, bottom += 8, row += 4)
+                {
+                    var a = Unsafe.ReadUnaligned<uint>(top);
+                    var b = Unsafe.ReadUnaligned<uint>(top + 4);
+                    var c = Unsafe.ReadUnaligned<uint>(bottom);
+                    var d = Unsafe.ReadUnaligned<uint>(bottom + 4);
+                    Unsafe.WriteUnaligned(row, AverageFourBytes(a, b, c, d));
+                }
+                return;
+            }
             for (var x = 0; x < width; x++)
             {
                 int a = Math.Min(x * 2, lastX) * bpp, b = Math.Min(x * 2 + 1, lastX) * bpp;
@@ -326,5 +355,15 @@ public static partial class Pixels
             }
         });
         return half;
+    }
+
+    private static uint AverageFourBytes(uint a, uint b, uint c, uint d)
+    {
+        // Sum alternating channels in 16-bit lanes. Add two for the same rounding as the byte loop.
+        const uint lanes = 0x00FF00FF;
+        const uint round = 0x00020002;
+        var even = ((a & lanes) + (b & lanes) + (c & lanes) + (d & lanes) + round) >> 2;
+        var odd = (((a >> 8) & lanes) + ((b >> 8) & lanes) + ((c >> 8) & lanes) + ((d >> 8) & lanes) + round) >> 2;
+        return (even & lanes) | ((odd & lanes) << 8);
     }
 }

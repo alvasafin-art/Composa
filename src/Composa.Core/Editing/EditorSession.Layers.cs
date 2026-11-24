@@ -252,7 +252,8 @@ public sealed partial class EditorSession
         if (layer.Visible == visible) return;
         if (undoable) Apply(visible ? "Show Layer" : "Hide Layer", () => layer.Visible = visible);
         else layer.Visible = visible;
-        InvalidateAll();
+        InvalidateAll(ViewportInvalidated != null && CanUseRegularViewport && ReferenceEquals(document.Find(layer.Id), layer)
+            ? new VisibilityChange(layer.Id, visible, DocumentRenderer.VisibilityBounds(document, layer)) : null);
         LayersChanged?.Invoke();
     }
 

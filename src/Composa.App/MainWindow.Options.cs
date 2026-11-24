@@ -36,7 +36,7 @@ public sealed partial class MainWindow
     private Button generativeExpandButton = null!;
 
     /// <summary>Rebuilds the bar under the tabs with the current tool's settings.</summary>
-    private void RebuildOptions()
+    private void RebuildOptions(bool updateLayout = true)
     {
         refreshOptions = null;
         refreshTransformFields = null;
@@ -52,7 +52,6 @@ public sealed partial class MainWindow
         if (nextLayer != optionsLayer) propertiesView.Offset = default;
         optionsLayer = nextLayer;
         generativeExpandButton.IsVisible = session?.Tool == Tool.Crop;
-        generativeExpandButton.IsEnabled = CanRunAi(AiTaskKind.GenerativeExpand);
         propertiesView.Content = null;
         var propertiesPanel = dock.Section("Properties");
         var inspectorHeight = optionsLayoutInspector switch
@@ -338,7 +337,7 @@ public sealed partial class MainWindow
         }
         toolOptionsHost.Child = wrap;
         BuildObjectProperties();
-        UpdateLayout();
+        if (updateLayout) UpdateLayout();
     }
 
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
