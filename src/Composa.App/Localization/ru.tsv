@@ -2100,3 +2100,11 @@ Run CLI on	Где запускать CLI
 Selected model	Выбранная модель
 The installed AVS Prompt Helper supports language models only.	Установленный AVS Prompt Helper поддерживает только языковые модели.
 Choose the language model in Prompt enhancer.	Выберите языковую модель в разделе «Улучшение промпта».
+Model files	Файлы моделей
+Default model and execution route	Модель по умолчанию и способ запуска
+No compatible model is available on the configured connections.	В настроенных подключениях нет совместимой модели.
+No configurable model files	Нет настраиваемых файлов моделей
+Choose an upscaler in Operations.	Выберите апскейлер в разделе «Операции».
+Choose installed weights in Model files.	Выберите установленные веса в разделе «Файлы моделей».
+Unavailable file: {0} ({1})	Недоступен файл {0} ({1})
+This API model generates images only. Choose an image editing model.	Эта модель API поддерживает только создание изображений. Выберите модель с поддержкой редактирования.

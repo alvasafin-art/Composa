@@ -113,17 +113,34 @@ public class RdpToolsUiTests
     }
 
     [AvaloniaFact]
-    public async Task Upscale_lists_actual_models_and_saves_the_selected_seedvr_backend_and_slot()
+    public async Task Model_files_lists_and_saves_the_connected_servers_upscale_weights()
     {
-        var settings = new Settings(); var service = new AiTaskService(() => settings.ComfyServerUrl, Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-        var native = service.Engines.Find("seedvr2-native")!;
-        service.SetConnectedForTests(new() { NodeTypes = new(native.RequiredNodeTypes), ModelChoices = new() {
+        var settings = new Settings { ComfyServerUrl = "http://localhost:8188" };
+        var engineRoot = Path.Combine(AppContext.BaseDirectory, "ai", "engines");
+        var native = new EngineCatalog(engineRoot).Find("seedvr2-native")!;
+        var capabilities = new ComfyServerCapabilities { NodeTypes = new(native.RequiredNodeTypes), ModelChoices = new() {
             ["UNETLoader.unet_name"] = ["flux-2-klein-9b.safetensors", "shared/seedvr2_3b_fp16.safetensors"],
-            ["UpscaleModelLoader.model_name"] = ["4x-UltraSharp.pth"] } });
+            ["UpscaleModelLoader.model_name"] = ["4x-UltraSharp.pth"] } };
+        var service = new AiTaskService(() => settings.ComfyServerUrl, engineRoot, _ => new PartnerImageTests.Connection { Server = capabilities });
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
         var choices = UpscaleModels.Choices(service); Assert.Single(choices); Assert.Contains("seedvr2", choices[0].Model); Assert.DoesNotContain(choices, choice => choice.Model.Contains("flux"));
-        var owner = new Window(); owner.Show(); var pending = AiDialogs.Upscale(owner, settings, 100, 100, false, service.SelectedEngine, service);
-        var dialog = owner.OwnedWindows.Single(); Dispatcher.UIThread.RunJobs(); Screenshots.Save(dialog, "rdp-upscale-models");
-        dialog.Close(true); Assert.True(await pending); Assert.Equal(native.Id, settings.AiTaskEngineIds[nameof(AiTaskKind.Upscale)]);
-        Assert.Equal(choices[0].Model, settings.ComfyModelsFor(settings.ComfyServerUrl)[choices[0].Slot.Key]); owner.Close();
+        var owner = new Window { Width = 1250, Height = 900 }; owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service, page: 1, focusField: "model:" + native.Id);
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            Dispatcher.UIThread.RunJobs();
+            var picker = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(), field =>
+                Avalonia.Automation.AutomationProperties.GetName(field) == Locale.T("Main model"));
+            Assert.DoesNotContain(picker.Items, item => item?.ToString()?.Contains("flux", StringComparison.OrdinalIgnoreCase) == true);
+            picker.SelectedItem = Assert.Single(picker.Items, item => item?.ToString() == choices[0].Model);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-model-files-upscale"));
+            dialog.Close(true);
+            Assert.True(await pending);
+            Assert.False(settings.AiTaskEngineIds.ContainsKey(nameof(AiTaskKind.Upscale)));
+            Assert.Equal(choices[0].Model, settings.ComfyModelsFor(settings.ComfyServerUrl)[choices[0].Slot.Key]);
+        }
+        finally { owner.Close(); }
     }
 }

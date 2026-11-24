@@ -271,11 +271,13 @@ public class AiVariantsTests
         public bool UseGenerationDimensions { get; init; }
         public Action? DuringExecute { get; init; }
         public PromptCapture? Transport { get; init; }
+        public Dictionary<string, HashSet<string>> ModelChoices { get; init; } = [];
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
             var nodes = catalog.Profiles.Single(profile => profile.Id == "flux2-klein-intel-xpu").RequiredNodeTypes.Concat(new[] { "EmptyImage", "ImageCompositeMasked", "ImageFromBatch", "ImageBatch", "InpaintModelConditioning", "SetLatentNoiseMask", "ConditioningZeroOut", "RepeatLatentBatch", "GrowMask", "ThresholdMask", "ImageCrop", "ImageScale", "CropMask", "MaskToImage", "LoadImageMask", "ImageBlur", "ImagePadForOutpaint", "SolidMask", "MaskComposite" }).ToHashSet();
-            return Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), new ComfyServerCapabilities { Version = "1.0", NodeTypes = nodes }));
+            return Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), new ComfyServerCapabilities
+                { Version = "1.0", NodeTypes = nodes, ModelChoices = ModelChoices }));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
         { Uploads.Add(semantic); return Task.FromResult(semantic + ".png"); }

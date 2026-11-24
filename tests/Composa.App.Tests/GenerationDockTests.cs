@@ -20,6 +20,78 @@ namespace Composa.App.Tests;
 
 public class GenerationDockTests
 {
+    [AvaloniaFact]
+    public async Task Editor_runs_a_different_route_without_changing_the_cli_default_in_operations()
+    {
+        const AiTaskKind task = AiTaskKind.GenerateImage;
+        const string pack = "flux2-klein-intel-xpu";
+        using var capture = new AiVariantsTests.PromptCapture();
+        var server = new AiVariantsTests.Connection { Transport = capture };
+        var folder = Directory.CreateTempSubdirectory("composa-route-choice-");
+        var previousKey = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
+        Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", "test-route-key");
+        var window = new MainWindow(null, _ => server) { Width = 1250, Height = 900 };
+        try
+        {
+            var settings = window.Settings;
+            settings.ComfyServerUrl = server.Address.ToString();
+            settings.AiTaskEngineIds[task.ToString()] = pack;
+            settings.ImageGenerationCodexPath = Path.Combine(folder.FullName, "codex.exe");
+            File.WriteAllText(settings.ImageGenerationCodexPath, "");
+            settings.ImageGenerationApiUrl = "http://127.0.0.1:1234/v1";
+            settings.ImageApiDisplayName = "Images API";
+            var scope = DirectImageGenerator.Endpoint(settings.ImageGenerationApiUrl).AbsoluteUri;
+            settings.ImageApiCatalogs[scope] = new() { ["api-one"] = "Image provider A", ["api-two"] = "Image provider B" };
+            window.Show();
+            var canvas = EditorSession.NewCanvas(160, 120);
+            window.AddSession(canvas);
+            await window.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken);
+            var saving = window.ShowAiSettings(operation: task);
+            var dialog = Assert.Single(window.OwnedWindows);
+            Pump();
+            var defaults = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(), field => field.Name == "DefaultModel" + task);
+            var cli = Assert.Single(defaults.Items.OfType<ImageModelChoice>(), choice => choice.Route == ImageGenerationRoute.LocalCodex);
+            defaults.SelectedItem = cli;
+            Pump();
+            Assert.True(Screenshots.Save(dialog, "studio-settings-operations"));
+            dialog.Close(true);
+            await saving;
+
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var generation = dock.Section("AI Generation");
+            dock.SetVisible(generation, true);
+            Pump();
+            var picker = Assert.Single(generation.Content.GetVisualDescendants().OfType<ComboBox>(), field => field.IsEffectivelyVisible);
+            Assert.Equal(ImageGenerationRoute.LocalCodex, Assert.IsType<ImageModelChoice>(picker.SelectedItem).Route);
+            Assert.Equal(2, picker.Items.OfType<ImageModelChoice>().Count(choice => choice.Route == ImageGenerationRoute.DirectApi));
+            picker.SelectedItem = Assert.Single(picker.Items.OfType<ImageModelChoice>(), choice =>
+                choice.Route == ImageGenerationRoute.ComfyWorkflow && choice.Engine.Id == pack);
+            await window.RunAiForTests(task, "A ceramic cube");
+            Assert.Equal(AiOperationStatus.Completed, window.AiTasks.Operation?.Status);
+            Assert.Single(capture.Prompts);
+            Assert.Equal(ImageGenerationRoute.LocalCodex, settings.ImageRouteFor(task));
+            picker.SelectedItem = Assert.Single(picker.Items.OfType<ImageModelChoice>(), choice => choice.Direct?.Model == "api-two");
+            Assert.Equal("api-two", Assert.IsType<ImageModelChoice>(picker.SelectedItem).Direct?.Model);
+            Assert.False(settings.ImageOperationApiModels.ContainsKey(task));
+            var reopening = window.ShowAiSettings(operation: task);
+            dialog = Assert.Single(window.OwnedWindows);
+            Pump();
+            defaults = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(), field => field.Name == "DefaultModel" + task);
+            Assert.Equal(ImageGenerationRoute.LocalCodex, Assert.IsType<ImageModelChoice>(defaults.SelectedItem).Route);
+            dialog.Close(false);
+            await reopening;
+            canvas.MarkSaved("route-test.cmps", canvas.History.CurrentId);
+        }
+        finally
+        {
+            window.Close();
+            Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", previousKey);
+            // The fixture directory contains only the dummy executable.
+            File.Delete(Path.Combine(folder.FullName, "codex.exe"));
+            folder.Delete();
+        }
+    }
+
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
@@ -464,7 +536,7 @@ public class GenerationDockTests
         AutomationProperties.GetName(view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation"))!;
 
     [AvaloniaFact]
-    public void Dock_shows_the_selected_paid_model_and_credit_estimate_in_the_run_row()
+    public async Task Dock_shows_the_selected_paid_model_and_credit_estimate_in_the_run_row()
     {
         var window = new MainWindow { Width = 1280, Height = 800 };
         window.Show();
@@ -472,7 +544,9 @@ public class GenerationDockTests
         try
         {
             window.AddSession(session);
-            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
+            var paid = PartnerImageTests.Capabilities();
+            var (_, local) = await new AiVariantsTests.Connection().TestConnectionAsync(TestContext.Current.CancellationToken);
+            window.AiTasks.SetConnectedForTests(paid with { NodeTypes = paid.NodeTypes.Concat(local.NodeTypes).ToHashSet() });
             session.SelectRect(new(40, 40, 160, 160));
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
@@ -481,13 +555,11 @@ public class GenerationDockTests
             var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible);
             var badge = section.Content.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Name == "AiCreditEstimate");
             var models = picker.Items.OfType<ImageModelChoice>().ToArray();
-            picker.SelectedItem = models.First(m => m.Name.StartsWith("Nano Banana 2", StringComparison.Ordinal));
-            Pump();
-            Assert.Contains(picker.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Nano Banana 2");
-            Assert.Equal("—", badge.Children.OfType<TextBlock>().Single().Text);
+            Assert.DoesNotContain(models, model => model.Name.StartsWith("Nano Banana 2", StringComparison.Ordinal));
             picker.SelectedItem = models.Single(m => m.Engine.Id == "chatgpt-image-2.5");
             section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn).Text = "Add a small ceramic vase beside the plant.";
             Pump();
+            Assert.Contains(picker.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.EndsWith(" · Comfy credits", StringComparison.Ordinal) == true);
             Assert.True(badge.IsEffectivelyVisible);
             Assert.Equal("≈10", badge.Children.OfType<TextBlock>().Single().Text);
             var row = badge.TranslatePoint(new Rect(badge.Bounds.Size).Center, window)!.Value;

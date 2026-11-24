@@ -14,6 +14,18 @@ namespace Composa.App.Tests;
 
 public sealed class ImageOperationRoutesTests
 {
+    [Theory]
+    [InlineData(AiTaskKind.GenerateImage, true)]
+    [InlineData(AiTaskKind.ImageEdit, false)]
+    public void API_models_with_text_only_inputs_are_offered_for_generation_but_excluded_from_editing(AiTaskKind task, bool included)
+    {
+        var api = new DirectImageGenerator(ImageGenerationRoute.DirectApi, "", "https://image.example/v1", "generation-only") { Task = task };
+        var choices = ImageOperationModels.DirectChoices(api, [("generation-only", "Generate only"), ("with-image", "Edit and generate")],
+            "Images API", true, new HashSet<string> { "generation-only" }).Where(choice => choice.Route == ImageGenerationRoute.DirectApi).ToArray();
+        Assert.Equal(included, choices.Any(choice => choice.Identifier == "generation-only"));
+        Assert.Contains(choices, choice => choice.Identifier == "with-image");
+    }
+
     [AvaloniaFact]
     public async Task The_image_catalog_preserves_the_legacy_model_without_a_duplicate_default_field()
     {
@@ -46,11 +58,20 @@ public sealed class ImageOperationRoutesTests
     [AvaloniaFact]
     public async Task Routes_are_saved_per_operation_and_keep_legacy_workflow_and_selection_defaults()
     {
+        var keys = new[] { "COMPOSA_IMAGE_API_KEY", "FAL_KEY" };
+        var previousKeys = keys.Select(Environment.GetEnvironmentVariable).ToArray();
+        foreach (var key in keys) Environment.SetEnvironmentVariable(key, "test-route-key");
+        var file = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".exe");
+        File.WriteAllText(file, "");
         var owner = new MainWindow { Width = 1120, Height = 850 };
         owner.Show();
         try
         {
-            var settings = new Settings { ImageGenerationRoute = ImageGenerationRoute.LocalCodex };
+            var settings = new Settings
+            {
+                ImageGenerationRoute = ImageGenerationRoute.LocalCodex, ImageGenerationApiUrl = "http://127.0.0.1:1234/v1",
+                ImageGenerationApiModel = "test-image", UpscaleCliPath = file
+            };
             Assert.Equal(ImageGenerationRoute.LocalCodex, settings.ImageRouteFor(AiTaskKind.GenerativeFill));
             Assert.Equal(ImageGenerationRoute.ComfyWorkflow, settings.ImageRouteFor(AiTaskKind.GenerativeExpand));
             Assert.Equal(ImageGenerationRoute.BuiltIn, settings.ImageRouteFor(AiTaskKind.SelectSubject));
@@ -62,8 +83,8 @@ public sealed class ImageOperationRoutesTests
             SelectRoute(AiTaskKind.Upscale, ImageGenerationRoute.LocalCodex);
             SelectRoute(AiTaskKind.ObjectSelection, ImageGenerationRoute.DirectApi);
             Assert.Empty(settings.ImageOperationRoutes);
-            Assert.Empty(settings.ImageGenerationApiUrl);
-            Assert.Empty(settings.ImageGenerationApiModel);
+            Assert.Equal("http://127.0.0.1:1234/v1", settings.ImageGenerationApiUrl);
+            Assert.Equal("test-image", settings.ImageGenerationApiModel);
             Assert.Empty(settings.ImageGenerationCodexPath);
             dialog.Close(true);
             Assert.True(await pending);
@@ -83,12 +104,17 @@ public sealed class ImageOperationRoutesTests
                     button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == Locale.T(task.DisplayName())))
                     .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 Dispatcher.UIThread.RunJobs();
-                var field = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Name == "ImageRoute" + task);
-                field.SelectedItem = Locale.T(DirectImageGenerator.RouteLabel(route));
+                var field = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Name == "DefaultModel" + task);
+                field.SelectedItem = Assert.Single(field.Items.OfType<ImageModelChoice>(), choice => choice.Route == route);
                 Dispatcher.UIThread.RunJobs();
             }
         }
-        finally { owner.Close(); }
+        finally
+        {
+            owner.Close();
+            File.Delete(file);
+            for (var i = 0; i < keys.Length; i++) Environment.SetEnvironmentVariable(keys[i], previousKeys[i]);
+        }
     }
 
     [Theory]

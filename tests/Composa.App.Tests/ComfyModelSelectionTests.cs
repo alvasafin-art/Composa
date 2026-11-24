@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
+using Avalonia.Automation;
 using Avalonia.VisualTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
@@ -18,6 +19,65 @@ public class ComfyModelSelectionTests
 {
     private static string Engines => Path.Combine(AppContext.BaseDirectory, "ai", "engines");
     private static readonly string Lan = "http://192.168.1.50:8188";
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Model_files_replacement_reaches_the_submitted_factory_and_saved_graphs(bool imported)
+    {
+        const string renamed = "quantized/flux-2-klein-9b-fp8.safetensors";
+        const AiTaskKind task = AiTaskKind.GenerateImage;
+        using var transport = new AiVariantsTests.PromptCapture();
+        var connection = new AiVariantsTests.Connection { Transport = transport,
+            ModelChoices = new() { ["UNETLoader.unet_name"] = [renamed, "quantized/flux-2-klein-9b-fp16.safetensors"] } };
+        var settings = new Settings { ComfyServerUrl = connection.Address.ToString() };
+        var service = new AiTaskService(() => settings.ComfyServerUrl, Engines, _ => connection)
+        { ModelSelections = settings.ComfyModelsFor, WorkflowSettings = () => settings.Workflows };
+        var engine = service.Engines.Find("flux2-klein-intel-xpu")!;
+        service.SelectedEngine = engine;
+        foreach (var slot in service.Engines.ModelSlots(engine).Where(slot => slot.Kind is EngineAssetKind.TextEncoder or EngineAssetKind.Vae))
+            connection.ModelChoices[slot.LoaderKey] = [slot.Default];
+        SavedWorkflow? saved = null;
+        if (imported)
+        {
+            saved = EditableWorkflows.Factory(service.Engines, engine, task) with { Name = "Previously saved Klein" };
+            saved.Graph["model"]!["inputs"]!["unet_name"] = "old/previous-custom.safetensors";
+            saved.Graph["sampler"]!["inputs"]!["steps"] = 13;
+            settings.Workflows.Workflows["imported"] = saved;
+            settings.Workflows.Assignments[task] = "imported";
+        }
+        await service.TestConnectionAsync(TestContext.Current.CancellationToken);
+        var owner = new Window { Width = 1280, Height = 900 };
+        owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, service, page: 1);
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            Dispatcher.UIThread.RunJobs();
+            var picker = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(), field => AutomationProperties.GetName(field) == Locale.T("Main model"));
+            picker.SelectedItem = Assert.Single(picker.Items, item => item?.ToString() == renamed);
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.IsEffectivelyVisible &&
+                label.Text?.Contains("Unavailable file", StringComparison.Ordinal) == true);
+            Assert.True(Screenshots.Save(dialog, "studio-settings-model-files"));
+            dialog.Close(true);
+            Assert.True(await pending);
+        }
+        finally { owner.Close(); }
+
+        var compatible = service.OperationCompatibility(engine, task, settings.ComfyModelsFor(settings.ComfyServerUrl), new());
+        Assert.True(compatible.IsCompatible, string.Join(", ", compatible.Missing));
+        var session = EditorSession.NewCanvas(160, 120);
+        await service.RunAsync(new EditorCommandService(session), new AiTaskRequest { Task = task, EngineId = engine.Id, Prompt = "A ceramic cube",
+            Settings = new() { Width = 160, Height = 120, Seed = 123 } }, TestContext.Current.CancellationToken);
+        var submitted = Assert.Single(transport.Prompts);
+        Assert.Equal(renamed, submitted["model"]!["inputs"]!["unet_name"]!.GetValue<string>());
+        if (saved != null)
+        {
+            Assert.Equal(13, submitted["sampler"]!["inputs"]!["steps"]!.GetValue<int>());
+            Assert.Equal("old/previous-custom.safetensors", saved.Graph["model"]!["inputs"]!["unet_name"]!.GetValue<string>());
+        }
+    }
 
     [Theory]
     [InlineData("flux.safetensors", "shared/flux.safetensors", "shared/flux.safetensors")]
@@ -384,10 +444,10 @@ public class ComfyModelSelectionTests
         try
         {
             Dispatcher.UIThread.RunJobs();
-            var combos = picker.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-            Assert.Equal(service.Engines.ModelSlots(service.SelectedEngine!).Count, combos.Length);
-            Assert.All(combos.Take(5), combo => Assert.True(combo.IsEnabled));
-            Assert.Equal("shared/flux-2-klein-9b_int8_convrot.safetensors", combos[0].SelectedItem?.ToString());
+            var combos = FileCombos();
+            Assert.Equal(3, combos.Length);
+            Assert.All(combos, combo => Assert.True(combo.IsEnabled));
+            Assert.StartsWith("shared/flux-2-klein-9b_int8_convrot.safetensors", combos[0].SelectedItem?.ToString());
             Assert.DoesNotContain(combos[0].Items, item => item?.ToString() == "flux-2-klein-4b-fp8.safetensors");
             var selected = combos[0].Items.Cast<object>().Single(item => item.ToString() == "shared/my-klein.safetensors");
             combos[0].SelectedItem = selected;
@@ -396,11 +456,14 @@ public class ComfyModelSelectionTests
             Assert.True(Screenshots.Save(window, "comfy-server-model-picker"));
             address = "http://192.168.1.51:8188";
             picker.Refresh();
-            Assert.All(picker.GetLogicalDescendants().OfType<ComboBox>(), combo => Assert.False(combo.IsEnabled));
+            Assert.All(FileCombos(), combo => Assert.False(combo.IsEnabled));
             Assert.Empty(picker.Choices(address));
             picker.Save();
             Assert.Contains("shared/my-klein.safetensors", settings.ComfyModelsFor(Lan).Values);
             Assert.Empty(settings.ComfyModelsFor(address));
+
+            ComboBox[] FileCombos() => picker.GetLogicalDescendants().OfType<ComboBox>()
+                .Where(combo => AutomationProperties.GetName(combo) != Locale.T("Connection")).ToArray();
         }
         finally { window.Close(); }
     }

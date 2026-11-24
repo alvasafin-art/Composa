@@ -317,19 +317,6 @@ public static partial class AiDialogs
         internal event Action? RouteChanged;
         internal ImageGenerationRoute RouteFor(AiTaskKind task) => routes[task];
 
-        internal Control RouteField(AiTaskKind task)
-        {
-            var choices = task == AiTaskKind.ObjectSelection
-                ? new[] { ImageGenerationRoute.BuiltIn }.Concat(DirectImageGenerator.Connections).ToArray()
-                : DirectImageGenerator.Connections;
-            var available = choices.Where(value => value != ImageGenerationRoute.LocalCodex || value == routes[task] ||
-                task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection || LocalCodex.FindExecutable(path.Text) != null).ToArray();
-            var field = Ui.Combo(available, routes[task], DirectImageGenerator.RouteLabel,
-                value => SetRoute(task, value), double.NaN);
-            field.Name = "ImageRoute" + task;
-            return field;
-        }
-
         internal void SetRoute(AiTaskKind task, ImageGenerationRoute selected)
         {
             if (routes[task] == selected) return;
@@ -337,37 +324,44 @@ public static partial class AiDialogs
             RouteChanged?.Invoke();
         }
 
-        internal DirectImageGenerator ModelFor(AiTaskKind task) =>
-            Draft() with { Route = routes[task], Task = task, ApiModel = modelOverrides.GetValueOrDefault(task) ?? Draft().ApiModel };
-
-        internal string DisplayName => string.IsNullOrWhiteSpace(displayName.Text) ? Locale.T("Direct image API") : displayName.Text.Trim();
-        internal int CatalogSize => catalog.Models.Count;
-
-        internal string ModelLabel(AiTaskKind task)
+        internal DirectImageGenerator ModelFor(AiTaskKind task) => Draft() with
         {
-            var selected = ModelFor(task);
-            if (task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection) return selected.Label;
-            return catalog.Models.FirstOrDefault(item => item.Id == selected.Model).Label
-                ?? (selected.Model.Length > 0 ? selected.Model : Locale.T("Choose a model"));
+            Route = routes[task], Task = task, ApiModel = modelOverrides.GetValueOrDefault(task) ?? catalog.LegacySelection,
+            UtilityPath = (task == AiTaskKind.Upscale ? upscalePath.Text : segmentationPath.Text)?.Trim() ?? "",
+            UtilityModel = segmentationModel.Text?.Trim() ?? ""
+        };
+        internal ImageModelChoice DefaultModel(AiTaskKind task)
+        {
+            var direct = ModelFor(task);
+            var label = direct.Route == ImageGenerationRoute.DirectApi ? catalog.Models.FirstOrDefault(item => item.Id == direct.Model).Label : null;
+            return ImageOperationModels.DirectChoice(direct, label ?? "", displayName.Text?.Trim());
         }
 
-        internal Control ConnectionField(AiTaskKind task, bool credits)
+        internal IEnumerable<ImageModelChoice> ModelOptions(AiTaskKind task)
         {
-            var current = RouteFor(task);
-            var label = current switch
+            var direct = ModelFor(task) with { Route = ImageGenerationRoute.DirectApi };
+            bool enabled;
+            try
             {
-                ImageGenerationRoute.DirectApi when catalog.CanFetch => DisplayName,
-                ImageGenerationRoute.LocalCodex when task == AiTaskKind.Upscale => "Real-ESRGAN",
-                ImageGenerationRoute.LocalCodex when task == AiTaskKind.ObjectSelection => "rembg",
-                ImageGenerationRoute.LocalCodex when LocalCodex.FindExecutable(path.Text) != null => "Codex CLI",
-                ImageGenerationRoute.ComfyWorkflow when credits => Locale.T("Comfy credits"),
-                ImageGenerationRoute.ComfyWorkflow => Locale.T("ComfyUI server"),
-                ImageGenerationRoute.BuiltIn => Locale.T("Built-in"),
-                _ => ""
-            };
-            return new ComboBox { ItemsSource = label.Length > 0 ? new[] { label } : Array.Empty<string>(),
-                SelectedIndex = label.Length > 0 ? 0 : -1, PlaceholderText = Locale.T("No configured connection"),
-                HorizontalAlignment = HorizontalAlignment.Stretch };
+                enabled = task switch
+                {
+                    AiTaskKind.Upscale => !string.IsNullOrWhiteSpace(polzaKey.Text) || !forgetPolza && direct.Availability(task) == null,
+                    AiTaskKind.ObjectSelection => !string.IsNullOrWhiteSpace(falKey.Text) || !forgetFal && direct.Availability(task) == null,
+                    _ => catalog.CanFetch && (!string.IsNullOrWhiteSpace(key.Text) || !forgetKey &&
+                        !string.IsNullOrWhiteSpace(DirectImageGenerator.ReadKey(DirectImageGenerator.Endpoint(direct.ApiAddress))))
+                };
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or System.ComponentModel.Win32Exception)
+            { enabled = false; }
+            return ImageOperationModels.DirectChoices(direct, catalog.Models, displayName.Text?.Trim(), enabled, catalog.GenerationOnly);
+        }
+
+        internal void SetDefault(AiTaskKind task, ImageModelChoice choice)
+        {
+            if (choice.Direct is { Route: ImageGenerationRoute.DirectApi } direct && task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection))
+                modelOverrides[task] = direct.Model;
+            routes[task] = choice.Route;
+            RouteChanged?.Invoke();
         }
 
         internal IReadOnlyList<EngineProfile> PromptProfiles()
@@ -379,24 +373,6 @@ public static partial class AiDialogs
             return (LocalCodex.FindExecutable(path.Text) != null || routes.ContainsValue(ImageGenerationRoute.LocalCodex)
                 ? direct.Prepend((configured with { Route = ImageGenerationRoute.LocalCodex }).PromptProfile()) : direct).ToArray();
         }
-
-        internal Control ApiModelField(AiTaskKind task)
-        {
-            var ids = catalog.Models;
-            var current = ModelFor(task).ApiModel;
-            var options = ids.Select(value => value.Id).Append(current).Distinct().Where(id => id.Length != 0).ToArray();
-            var picker = Ui.Combo(options, current, id => id.Length == 0 ? Locale.T("Choose a model")
-                : ids.FirstOrDefault(item => item.Id == id).Label ?? id, id =>
-            {
-                if (id.Length == 0) modelOverrides.Remove(task);
-                else modelOverrides[task] = id;
-                RouteChanged?.Invoke();
-            }, double.NaN);
-            picker.PlaceholderText = Locale.T("Choose a model");
-            return picker;
-        }
-
-        internal void ResetModel(AiTaskKind task) => modelOverrides.Remove(task);
 
         internal ImageConnectionFields(Settings settings, AiTaskService service, TextBox server, CancellationToken lifetime, bool firstRun)
         {
@@ -415,7 +391,7 @@ public static partial class AiDialogs
                 return (api.CredentialEndpoint, api.CatalogEndpoint);
             }, endpoint => !string.IsNullOrWhiteSpace(key.Text) ? key.Text.Trim()
                 : forgetKey ? Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY") : DirectImageGenerator.ReadKey(endpoint),
-                lifetime, images: true, compactSetup: firstRun, autoProbe: !firstRun);
+                lifetime, images: true, compactSetup: firstRun, autoProbe: !firstRun, savedGenerationOnly: settings.ImageApiGenerationOnly);
             void ForgetKey()
             {
                 forgetKey = true;
@@ -576,6 +552,7 @@ public static partial class AiDialogs
             settings.ImageApiDisplayName = displayName.Text?.Trim() ?? "";
             settings.ImageOperationApiModels = new(modelOverrides);
             settings.ImageApiCatalogs = catalog.Save();
+            settings.ImageApiGenerationOnly = catalog.SaveImageCapabilities();
             settings.UpscaleCliPath = upscalePath.Text?.Trim() ?? "";
             settings.SegmentationCliPath = segmentationPath.Text?.Trim() ?? "";
             settings.SegmentationCliModel = segmentationModel.Text?.Trim() ?? "";

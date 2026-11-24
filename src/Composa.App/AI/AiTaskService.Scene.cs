@@ -141,10 +141,11 @@ public sealed partial class AiTaskService
                 if(!PartnerPricing.Choices(capabilities,engine.ApiModel,nano ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The server does not support this image quality or resolution.");
             }
+            var modelFiles = ModelSelections(client.Address.ToString());
             JsonObject Bind(IReadOnlyDictionary<string,string> files,int variant,SceneEditingWorkflow? stageNative,PartnerImageInputs? stagePartner,bool cleanup)
             {
                 var graph=(JsonObject)baseGraph.DeepClone();
-                WorkflowModels.ApplyChoices(graph,engine.Id,ModelSelections(client.Address.ToString()));
+                WorkflowModels.ApplyChoices(graph,engine.Id,modelFiles);
                 if(stageNative!=null)
                 {
                     if(qwen)

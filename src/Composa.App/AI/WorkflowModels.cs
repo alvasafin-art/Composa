@@ -36,11 +36,38 @@ public static class WorkflowModels
         return slots;
     }
 
-    public static void ApplyChoices(JsonObject graph, string engineId, IReadOnlyDictionary<string, string> choices)
+    public static void ApplyChoices(JsonObject graph, string engineId, IReadOnlyDictionary<string, string> choices, bool savedGraph = false)
     {
-        foreach (var slot in Slots(graph, engineId))
-            if (choices.TryGetValue(slot.Key, out var name) && !string.IsNullOrWhiteSpace(name))
+        var slots = Slots(graph, engineId);
+        var overrides = new List<(string Node, string Loader, string Default, string Value)>();
+        if (savedGraph)
+            foreach (var (key, value) in choices)
+            {
+                string[]? parts;
+                try { parts = JsonSerializer.Deserialize<string[]>(key); }
+                catch (JsonException) { continue; }
+                if (parts is { Length: 5 } && parts[0] == engineId && !string.IsNullOrWhiteSpace(value))
+                    overrides.Add((parts[2], parts[1] + "." + parts[3], parts[4], value));
+            }
+        foreach (var slot in slots)
+        {
+            var name = choices.GetValueOrDefault(slot.Key);
+            if (name == null && overrides.Count > 0)
+            {
+                var matching = overrides.Where(item => item.Loader == slot.LoaderKey).ToArray();
+                name = Unique(matching.Where(item => item.Node == slot.NodeId))
+                    ?? Unique(matching.Where(item => NormalizeFile(item.Default) == NormalizeFile(slot.Default)));
+                if (name == null && slots.Count(item => item.LoaderKey == slot.LoaderKey) == 1) name = Unique(matching);
+            }
+            if (!string.IsNullOrWhiteSpace(name))
                 graph[slot.NodeId]!["inputs"]![slot.Input] = name;
+        }
+
+        static string? Unique(IEnumerable<(string Node, string Loader, string Default, string Value)> candidates)
+        {
+            var values = candidates.Select(item => item.Value).Distinct(StringComparer.Ordinal).Take(2).ToArray();
+            return values.Length == 1 ? values[0] : null;
+        }
     }
 
     /// <summary>Only resolve an exact identifier or a unique same filename in a subfolder. Never pick a different model.</summary>

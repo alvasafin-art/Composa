@@ -41,6 +41,9 @@ internal sealed class ConnectionModelCatalog
     private string? current;
     private int revision;
     private readonly Dictionary<string, string[]> efforts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> generationOnly;
+    internal IReadOnlySet<string>? GenerationOnly => current == null ? null : generationOnly.GetValueOrDefault(current);
+    internal Dictionary<string, HashSet<string>> SaveImageCapabilities() => new(generationOnly, StringComparer.Ordinal);
     internal Control View { get; }
     internal SettingsStatus? CheckStatus => checkedConnection || failed
         ? Status(status.Text ?? "", checkedConnection, failed) : null;
@@ -51,7 +54,8 @@ internal sealed class ConnectionModelCatalog
 
     internal ConnectionModelCatalog(Dictionary<string, Dictionary<string, string>> saved,
         TextBox endpoint, TextBox key, TextBox selectedModel, Func<(Uri Credential, Uri Models)> address,
-        Func<Uri, string?> credential, CancellationToken lifetime, bool images = false, bool compactSetup = false, bool autoProbe = false)
+        Func<Uri, string?> credential, CancellationToken lifetime, bool images = false, bool compactSetup = false, bool autoProbe = false,
+        Dictionary<string, HashSet<string>>? savedGenerationOnly = null)
     {
         this.saved = saved;
         this.address = address;
@@ -61,6 +65,7 @@ internal sealed class ConnectionModelCatalog
         this.autoProbe = autoProbe;
         this.lifetime = lifetime;
         this.key = key;
+        generationOnly = savedGenerationOnly == null ? new(StringComparer.Ordinal) : new(savedGenerationOnly, StringComparer.Ordinal);
         legacyModel = selectedModel.Text?.Trim() ?? "";
         try { legacyScope = address().Credential.AbsoluteUri; }
         catch (FormatException) { }
@@ -194,15 +199,22 @@ internal sealed class ConnectionModelCatalog
                 throw new InvalidDataException("The API returned an invalid model catalog.");
             var entries = Entries();
             var known = entries.Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+            var textInputs = new HashSet<string>(GenerationOnly ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             efforts.Clear();
             var found = 0;
             foreach (var model in data.EnumerateArray())
             {
                 if (model.ValueKind != JsonValueKind.Object || !model.TryGetProperty("id", out var idValue) ||
                     idValue.ValueKind != JsonValueKind.String || idValue.GetString() is not { Length: > 0 } id) continue;
-                if (images && model.TryGetProperty("architecture", out var architecture) && architecture.ValueKind == JsonValueKind.Object &&
-                    architecture.TryGetProperty("output_modalities", out var outputs) && outputs.ValueKind == JsonValueKind.Array &&
-                    !outputs.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.String && value.GetString() == "image")) continue;
+                if (images && model.TryGetProperty("architecture", out var architecture) && architecture.ValueKind == JsonValueKind.Object)
+                {
+                    if (HasImageModality(architecture, "output_modalities") == false) continue;
+                    if (HasImageModality(architecture, "input_modalities") is { } acceptsImages)
+                    {
+                        if (acceptsImages) textInputs.Remove(id);
+                        else textInputs.Add(id);
+                    }
+                }
                 found++;
                 if (!images && (model.TryGetProperty("supported_reasoning_efforts", out var levels) ||
                     model.TryGetProperty("supportedReasoningEfforts", out levels)) && levels.ValueKind == JsonValueKind.Array)
@@ -212,12 +224,18 @@ internal sealed class ConnectionModelCatalog
                 if (known.Add(id) && entries.Count < 500)
                     entries.Add(new(id, model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? id : id));
             }
+            if (images && textInputs.Count > 0) generationOnly[scope.AbsoluteUri] = textInputs;
+            else if (images) generationOnly.Remove(scope.AbsoluteUri);
             SetCheckStatus(Locale.T(found > 0 ? "The API responded. Models are available below." : "The API reported no models."),
                 checkedConnection: true, hide: found > 0);
             Render();
             return found;
         }
         finally { fetch.IsEnabled = current != null; }
+
+        static bool? HasImageModality(JsonElement architecture, string key) =>
+            architecture.TryGetProperty(key, out var values) && values.ValueKind == JsonValueKind.Array
+                ? values.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.String && value.GetString() == "image") : null;
     }
 
     internal Dictionary<string, Dictionary<string, string>> Save()

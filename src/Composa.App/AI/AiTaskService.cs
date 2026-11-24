@@ -21,7 +21,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
     public Func<AiTaskKind, string?> ModelKeyForTask { get; set; } = _ => null;
     public Func<AiTaskKind, string?> EngineIdForTask { get; set; } = _ => null;
     internal Func<WorkflowPreferences> WorkflowSettings { get; set; } = () => new();
-    internal SavedWorkflow? ActiveWorkflow(AiTaskKind task, EngineProfile? engine) => WorkflowSettings().Active(task, engine?.Id);
+    internal SavedWorkflow? ActiveWorkflow(AiTaskKind task, EngineProfile? engine, bool? useAssigned = null) =>
+        WorkflowSettings().Active(task, engine?.Id, useAssigned);
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
     {
         if(task==AiTaskKind.MatchToScene && overrideId==null && EngineIdForTask(task)==null) task=AiTaskKind.Harmonize;
@@ -37,10 +38,14 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 key.StartsWith("server:", StringComparison.Ordinal) && WorkflowModels.IsKlein9BVariant(key["server:".Length..]) &&
                 WorkflowModels.IsKlein9BVariant(Engines.ModelFor(engine, bindingTask, choices).Identifier))
                 return engine;
+            if (task == AiTaskKind.MatchToScene && engine != null && ImageOperationModels.Supports(engine, task) &&
+                Engines.ModelFor(engine, task, choices).ModelKey == key)
+                return engine;
             return matched?.Engine;
         }
-        if (id == null && task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.Upscale && engine?.Binding(task) == null)
-            engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(task) != null);
+        var operation = ImageOperationModels.ModelTask(task);
+        if (overrideId == null && operation is AiTaskKind.ObjectSelection or AiTaskKind.Upscale && engine?.Binding(operation) == null)
+            engine = Engines.Profiles.FirstOrDefault(pack => !pack.PaidApi && pack.Binding(operation) != null);
         return engine;
     }
     public AiOperationState? Operation { get; private set; }
@@ -205,7 +210,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
             return;
         }
         var engine = EngineFor(requestedTask, request.EngineId);
-        var saved = ActiveWorkflow(requestedTask, engine);
+        var preferences = WorkflowSettings();
+        if (preferences.ActiveId(requestedTask, engine?.Id, request.UseAssignedWorkflow) is { } active &&
+            active == preferences.Assignments.GetValueOrDefault(requestedTask))
+            engine = preferences.AssignedEngine(Engines, requestedTask, engine);
+        var saved = preferences.Active(requestedTask, engine?.Id, request.UseAssignedWorkflow);
         if (saved != null)
         {
             EditableWorkflows.Validate(saved, requestedTask);
@@ -281,7 +290,12 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 if (paid && engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel!, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
-            WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()));
+            WorkflowModels.ApplyChoices(graph, engine.Id, ModelSelections(client.Address.ToString()), savedGraph: saved != null);
+            if (saved != null)
+            {
+                WorkflowModels.ResolvePaths(graph, capabilities);
+                saved = saved with { Graph = graph };
+            }
             JsonObject Bind(IReadOnlyDictionary<string, string> files, int index = 0)
             {
                 var variantSeed = (seed + index) & long.MaxValue;
@@ -507,18 +521,24 @@ public sealed partial class AiTaskService : IAiTaskRunner
         return boundGraph;
     }
 
-    internal EngineCompatibility OperationCompatibility(EngineProfile engine, AiTaskKind operation, IReadOnlyDictionary<string, string> choices, AiOperationSettings profile)
+    internal EngineCompatibility OperationCompatibility(EngineProfile engine, AiTaskKind operation, IReadOnlyDictionary<string, string> choices,
+        AiOperationSettings profile, bool? useAssigned = null)
     {
         if (ServerCapabilities is not { } capabilities) return new(false, ["Connect to ComfyUI"]);
-        if (ActiveWorkflow(operation, engine) is { } saved)
+        var preferences = WorkflowSettings();
+        var activeId = preferences.ActiveId(operation, engine.Id, useAssigned);
+        if (preferences.Active(operation, engine.Id, useAssigned) is { } saved)
         {
             EditableWorkflows.Validate(saved, operation);
+            if (activeId == preferences.Assignments.GetValueOrDefault(operation))
+                engine = preferences.AssignedEngine(Engines, operation, engine) ?? engine;
             var assignedGraph = (JsonObject)saved.Graph.DeepClone();
-            WorkflowModels.ApplyChoices(assignedGraph, engine.Id, choices);
+            WorkflowModels.ApplyChoices(assignedGraph, engine.Id, choices, savedGraph: true);
             WorkflowModels.ResolvePaths(assignedGraph, capabilities);
             return EngineCompatibility.CheckWorkflow(assignedGraph, capabilities);
         }
-        var binding = engine.Binding(operation);
+        var binding = engine.Binding(operation) ?? (operation == AiTaskKind.MatchToScene && ImageOperationModels.Supports(engine, operation)
+            ? engine.Binding(AiTaskKind.ImageEdit) : null);
         if (binding == null) return new(false, ["No workflow for this operation"]);
         var scene = operation is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground;
         var task = scene && engine.PaidApi ? AiTaskKind.ImageEdit : operation;

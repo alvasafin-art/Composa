@@ -57,7 +57,7 @@ public sealed partial class MainWindow
     private void RefreshObjectModelChoices()
     {
         if (objectModelsCombo == null) return;
-        var route = settings.ImageRouteFor(AiTaskKind.ObjectSelection);
+        var route = PanelRoute(AiTaskKind.ObjectSelection);
         var choices = AvailableObjectModels();
         var stamp = string.Join("\n", choices.Select(c => c.Label + c.SlotKey)) + route + settings.ObjectSelectionComfyModel + settings.ObjectSelectionQuickOutline;
         if (objectModelChoicesStamp == stamp) return;
@@ -114,7 +114,7 @@ public sealed partial class MainWindow
     {
         var target = session;
         if (target == null || localSelectionBusy || canvas.IsDragging || target.IsInteracting) return;
-        var route = settings.ImageRouteFor(AiTaskKind.ObjectSelection);
+        var route = PanelRoute(AiTaskKind.ObjectSelection);
         if (DirectImageGenerator.IsDirect(route))
         {
             if (point is { } clicked && !target.Document.Bounds.Contains(clicked.X, clicked.Y)) return;
@@ -153,13 +153,6 @@ public sealed partial class MainWindow
         }
         if (route == ImageGenerationRoute.ComfyWorkflow)
         {
-            var available = AvailableObjectModels().Where(c => c.Route == ImageGenerationRoute.ComfyWorkflow).ToArray();
-            var choice = available.FirstOrDefault(c => c.ServerModel == settings.ObjectSelectionComfyModel) ?? available.FirstOrDefault();
-            if (choice?.SlotKey == null)
-            { ShowProblem("Connect ComfyUI and choose an installed object-selection model in the top bar."); return; }
-            var address = aiTasks.ConnectedServerUrl!;
-            var selected = new Dictionary<string, string>(settings.ComfyModelsFor(address)) { [choice.SlotKey] = choice.ServerModel! };
-            settings.SetComfyModels(address, selected);
             if (point is { } p)
             {
                 // A ComfyUI workflow consumes a search image, so a point uses the whole picture.

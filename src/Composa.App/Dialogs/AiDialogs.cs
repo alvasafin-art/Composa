@@ -16,6 +16,8 @@ public sealed record AiPromptResult(string Prompt, int Width, int Height, long S
 
 public static partial class AiDialogs
 {
+    private sealed record ModelFileProfile(EngineProfile Engine, AiTaskKind? Tool, string Name);
+
     private static Border Section(string title, params Control[] controls) => new()
     {
         Background = Palette.Panel, CornerRadius = new CornerRadius(5), Padding = new Thickness(10),
@@ -506,10 +508,8 @@ public static partial class AiDialogs
         status.HorizontalAlignment = HorizontalAlignment.Left;
         status.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var models = new ComfyModelPicker(settings, service, () => url.Text ?? "");
-        Action? refreshOperation = null;
         void RefreshStatus()
         {
-            refreshOperation?.Invoke();
             string address;
             try { address = ComfyServerAddress.Parse(url.Text ?? "").ToString(); }
             catch (FormatException) { status.Text = Locale.Message("Enter a complete ComfyUI URL."); if (settingsDialog != null) settingsDialog.CanAccept = false; return; }
@@ -557,42 +557,31 @@ public static partial class AiDialogs
             try { return models.Choices(url.Text ?? ""); }
             catch (FormatException) { return new Dictionary<string,string>(); }
         }
-        AiTaskKind PrimaryTask(EngineProfile pack) => pack.Binding(AiTaskKind.GenerateImage) != null ? AiTaskKind.GenerateImage
-            : pack.Tasks.FirstOrDefault()?.Task ?? AiTaskKind.ImageEdit;
-        var engineNames = service.Engines.Profiles.Count == 0 ? ["No Engine Packs installed"] : service.Engines.Profiles.Select(p => p.DisplayName).ToArray();
-        var selectedName = service.SelectedEngine?.DisplayName ?? engineNames[0];
         var defaultEngineId = service.SelectedEngine?.Id;
-        var routeDrafts = new Dictionary<string,string>(settings.AiModelRoutes);
+        var routeDrafts = new Dictionary<string, string>(settings.AiModelRoutes);
         var changedAssignments = new HashSet<string>();
-        var changedDefault = false;
-        var assignmentPickers = new Dictionary<AiTaskKind, ComboBox>();
-        const string inherit = "Use default model";
-        var useDefault = Ui.TextButton("Make default", () => { });
-        void DefaultState()
+        var fileProfiles = service.Engines.Profiles.Where(pack => !pack.PaidApi).SelectMany(FileProfiles).ToArray();
+        ModelFileProfile? selectedFileProfile = null;
+        IEnumerable<ModelFileProfile> FileProfiles(EngineProfile pack)
         {
-            useDefault.IsEnabled = service.SelectedEngine != null && service.SelectedEngine.Id != defaultEngineId;
-            useDefault.Content = useDefault.IsEnabled ? "Make default" : "Default model";
-        }
-        useDefault.Click += (_, _) =>
-        {
-            if (service.SelectedEngine is not { } selected) return;
-            changedDefault = true;
-            var previous = service.Engines.Find(defaultEngineId);
-            foreach (var (operation, picker) in assignmentPickers)
+            foreach (AiTaskKind? task in new AiTaskKind?[] { null, AiTaskKind.Upscale, AiTaskKind.ObjectSelection })
             {
-                var key = operation.ToString();
-                if (selected.Binding(operation) != null && !taskDrafts.ContainsKey(key))
-                    picker.SelectedItem = inherit;
-                else if (selected.Binding(operation) == null && Equals(picker.SelectedItem, inherit))
-                {
-                    var fallback = previous?.Binding(operation) != null ? previous : service.Engines.Profiles.First(p => p.Binding(operation) != null);
-                    picker.SelectedItem = picker.Items.OfType<ImageModelChoice>().FirstOrDefault(m => m.ModelKey == service.Engines.ModelFor(fallback, operation, CurrentFiles()).ModelKey);
-                }
+                if (task is { } tool && pack.Binding(tool) == null || task == null &&
+                    pack.Tasks.All(binding => binding.Task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection)) continue;
+                bool hasFiles;
+                try { hasFiles = ComfyModelPicker.FileSlots(service.Engines, pack, task).Any(); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or KeyNotFoundException)
+                { continue; }
+                if (hasFiles) yield return new(pack, task, task == null || pack.Id.StartsWith("seedvr2", StringComparison.Ordinal)
+                    ? pack.ModelName ?? pack.DisplayName : service.Engines.ModelFor(pack, task.Value, new Dictionary<string, string>()).Name);
             }
-            defaultEngineId = selected.Id;
-            DefaultState();
-        };
-        DefaultState();
+        }
+        void SelectFileProfile(ModelFileProfile pack)
+        {
+            selectedFileProfile = pack;
+            models.ShowFilesFor(pack.Engine, pack.Tool);
+            RenderModels();
+        }
         var promptPicker = new ComboBox
         {
             Name = "PromptInstructionModel",
@@ -628,100 +617,15 @@ public static partial class AiDialogs
             SavePromptDraft();
             LoadPromptDraft(pack);
         };
-        var engine = new ComboBox { Width = 260 };
-        var routePicker = new ComboBox { Width = 260, Name = "ModelWorkflowRoute" };
-        AiGenerationControls.StyleModelField(routePicker, "Workflow");
-        routePicker.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<EngineProfile>((pack, _) => Ui.Label(pack?.Id ?? ""));
-        bool populating = false;
-        void RefreshModelList()
-        {
-            populating = true;
-            try
-            {
-                var filesForServer = CurrentFiles();
-                var options = service.Engines.Profiles.Select(pack => service.Engines.ModelFor(pack, PrimaryTask(pack), filesForServer))
-                    .GroupBy(model => model.ModelKey)
-                    .Select(group => group.FirstOrDefault(model => model.Engine.Id == service.SelectedEngine?.Id) ?? group.First()).ToArray();
-                AiGenerationControls.PresentImageModels(engine, options);
-                var selected = options.FirstOrDefault(model => model.Engine.Id == service.SelectedEngine?.Id);
-                engine.SelectedItem = selected;
-                var routes = service.Engines.Profiles.Where(pack => service.Engines.ModelFor(pack, PrimaryTask(pack), filesForServer).ModelKey == selected?.ModelKey).ToArray();
-                routePicker.ItemsSource = routes;
-                routePicker.SelectedItem = service.SelectedEngine;
-                routePicker.IsVisible = routes.Length > 1;
-            }
-            finally { populating = false; }
-        }
-        void SelectRoute(EngineProfile? pack)
-        {
-            if (pack == null || populating) return;
-            service.SelectedEngine = pack;
-            DefaultState(); RefreshModelList(); models.Refresh(); RefreshStatus();
-        }
-        engine.SelectionChanged += (_, _) => SelectRoute((engine.SelectedItem as ImageModelChoice)?.Engine);
-        routePicker.SelectionChanged += (_, _) =>
-        {
-            if (populating || routePicker.SelectedItem is not EngineProfile route || engine.SelectedItem is not ImageModelChoice choice) return;
-            routeDrafts[choice.ModelKey] = route.Id;
-            SelectRoute(route);
-        };
-        RefreshModelList();
-        models.ChoicesChanged += RefreshModelList;
-        url.LostFocus += (_, _) => RefreshModelList();
         string ModelTitle(EngineProfile pack, AiTaskKind task)
         {
             if (pack.Id is "direct-codex-image" or "direct-api-image") return pack.DisplayName;
             try { return service.Engines.ModelFor(pack, task, models.Choices(url.Text ?? "")).Name; }
             catch (FormatException) { return pack.ModelName ?? pack.DisplayName; }
         }
-        engine.IsEnabled = service.Engines.Profiles.Count > 0;
         var connection = Ui.Column(8,
             Columns("*,146", SetupField("ComfyUI Server URL", SetupInput(url)), SetupField("Connection timeout", SetupInput(timeout))),
             comfyCheck.View, status);
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task is not (AiTaskKind.SelectSubject or AiTaskKind.MatchToScene or AiTaskKind.ObjectSelection)))
-        {
-            var key = task.ToString();
-            var packs = service.Engines.Profiles.Where(pack => pack.Binding(task) != null).ToArray();
-            if (packs.Length == 0) continue;
-            var assignmentPicker = new ComboBox { Width = 260 };
-            bool refreshing = false;
-            void FillAssignments()
-            {
-                refreshing = true;
-                try
-                {
-                    var filesForServer = CurrentFiles();
-                    var assigned = taskDrafts.GetValueOrDefault(key) ?? settings.EngineForTask(task);
-                    var route = packs.FirstOrDefault(p => p.Id == assigned);
-                    var options = service.Engines.ImageModels(task, route, filesForServer, routeDrafts);
-                    var modelKey = !changedAssignments.Contains(key) ? settings.AiTaskModelKeys.GetValueOrDefault(key) : null;
-                    var savedFiles = settings.ComfyModelsFor(url.Text ?? "");
-                    if (route != null && service.Engines.ModelFor(route, task, filesForServer).ModelKey != service.Engines.ModelFor(route, task, savedFiles).ModelKey)
-                        modelKey = null;
-                    var selected = modelKey != null ? options.FirstOrDefault(m => m.ModelKey == modelKey)
-                        : route == null ? null : options.FirstOrDefault(m => m.ModelKey == service.Engines.ModelFor(route, task, filesForServer).ModelKey);
-                    string? missing = !string.IsNullOrEmpty(assigned) && selected == null ? "Unavailable · " + (modelKey ?? assigned) : null;
-                    assignmentPicker.ItemsSource = new object[] { inherit }.Concat(options).Concat(missing == null ? [] : new[] { missing }).ToArray();
-                    assignmentPicker.SelectedItem = string.IsNullOrEmpty(assigned) ? inherit : (object?)selected ?? missing;
-                }
-                finally { refreshing = false; }
-            }
-            assignmentPicker.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<object>((item, _) =>
-                Ui.Label(item is ImageModelChoice model ? model.Name : item?.ToString() ?? ""));
-            AiGenerationControls.StyleModelField(assignmentPicker, task.DisplayName() + " model");
-            FillAssignments();
-            models.ChoicesChanged += FillAssignments;
-            url.LostFocus += (_, _) => FillAssignments();
-            assignmentPicker.SelectionChanged += (_, _) =>
-            {
-                if (refreshing) return;
-                changedAssignments.Add(key);
-                if (Equals(assignmentPicker.SelectedItem, inherit)) taskDrafts[key] = "";
-                else if (assignmentPicker.SelectedItem is ImageModelChoice model) taskDrafts[key] = model.Engine.Id;
-            };
-            assignmentPickers[task] = assignmentPicker;
-        }
-        var files = Ui.Column(8, routePicker, models);
         var auth = Ui.Column(8, Columns("*,*", SetupField("Saved API key", SetupInput(sessionKey)),
             SetupField("Environment variable", SetupInput(keyEnvironment))), clear);
         var credentials = new Expander { Header = Locale.T("Comfy credits"), Content = Ui.Column(8, auth, keyNote), IsExpanded = focusField == "key" };
@@ -765,25 +669,6 @@ public static partial class AiDialogs
                 ?? (!clearKey && address.ToString() == live.ConnectedServerUrl ? live.SessionApiKey : null)
                 ?? (string.IsNullOrWhiteSpace(environment) ? null : Environment.GetEnvironmentVariable(environment));
         }
-        var readiness = Ui.Label("", Palette.Secondary);
-        readiness.HorizontalAlignment = HorizontalAlignment.Left;
-        readiness.MaxWidth = 490; readiness.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var operationPicker = new ComboBox { Name = "ModelOperation", HorizontalAlignment = HorizontalAlignment.Stretch };
-        AiGenerationControls.StyleModelField(operationPicker, "Operation");
-        operationPicker.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<AiTaskKind>((task, _) => Ui.Label(task.DisplayName()));
-        var fix = Ui.TextButton("Connect", () => { });
-        Action? fixAction = null;
-        fix.Click += (_, _) => fixAction?.Invoke();
-        var generation = Ui.TextButton("Generation settings…", () => { });
-        var generationDraft = settings.CopyPreferences();
-        var changedGeneration = new Dictionary<(string Engine, AiTaskKind Task), AiOperationSettings>();
-        generation.Click += async (_, _) =>
-        {
-            if (service.SelectedEngine is not { } pack || operationPicker.SelectedItem is not AiTaskKind task) return;
-            var key = (pack.Id, task);
-            var current = changedGeneration.GetValueOrDefault(key) ?? settings.OperationFor(pack.Id, task, pack.PaidApi);
-            await Advanced(settingsDialog!, generationDraft, service, task, current, updated => changedGeneration[key] = updated, deferSave: true);
-        };
         Control Page(string title, params Control[] controls)
         {
             var column = Ui.Column(16, controls);
@@ -949,31 +834,14 @@ public static partial class AiDialogs
                 Columns("*,Auto", Ui.Column(2, Heading("Large RGB16 blur filters", 12),
                     Caption(settings.UseRasterFilterGpu ? "Use GPU when available" : "Always use CPU")), changeGpu), gpuOptions), 13)));
         var modelMaster = Ui.Column(2);
-        var modelUsage = Ui.Column(2);
-        var modelWorkflows = Ui.Column(6);
-        var modelParameters = Ui.Column(7);
+        var modelUsage = Ui.Column(6);
         var modelHeading = Heading("", 15);
-        var modelStatusHost = new Border();
-        var workflowInspector = Ui.Column(7, Columns("*,Auto", Field("Operation", operationPicker), useDefault),
-            modelParameters, Ui.Row(8, readiness, fix), generation);
-        workflowInspector.IsVisible = false;
-        string? openModelWorkflow = null;
-        var workflowModelDetail = Card(Ui.Column(12, Columns("*,Auto", modelHeading, modelStatusHost),
-            files, modelUsage, modelWorkflows, workflowInspector));
-        var modelDetail = new ContentControl { Content = workflowModelDetail, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        EngineProfile? directModelSelection = null;
-        var addWorkflow = Ui.TextButton("Add workflow…", () => { });
-        addWorkflow.HorizontalAlignment = HorizontalAlignment.Right;
         var modelList = Card(modelMaster, 6);
         modelList.VerticalAlignment = VerticalAlignment.Top;
-        var modelPage = PageWithAction("Models and workflows", addWorkflow, MasterDetail(modelList, modelDetail, 260));
+        var modelPage = Page("Model files", MasterDetail(modelList, Card(Ui.Column(14, modelHeading, models, modelUsage)), 260));
         var promptTable = Ui.Column(0);
         var operationTable = Ui.Column(1);
-        var operationDetail = Ui.Column(11);
-        var detailHeader = Heading("", 25);
-        var activeOperation = initialOperation ?? AiTaskKind.GenerativeExpand;
-        AiTaskKind? expandedOperation = null;
-        var pendingComfyConnections = new Dictionary<AiTaskKind, bool>();
+        AiTaskKind? expandedOperation = initialOperation;
         bool refreshQueued = false;
         var checkAll = Ui.TextButton("Check all", () =>
         {
@@ -983,12 +851,6 @@ public static partial class AiDialogs
         var operationsPage = PageWithAction("Operations", checkAll,
             Ui.Column(8, Heading("Prompt enhancer", 13), Card(promptTable, 0)),
             Ui.Column(8, Heading("Image operations", 13), Card(operationTable, 0)));
-        var detailBreadcrumb = Caption("");
-        var restoreOperation = Ui.TextButton("Reset this operation’s route", () => { });
-        var closeToEditor = Ui.TextButton("Back to editor", () => settingsDialog?.Close(false));
-        closeToEditor.Classes.Add("flat");
-        var operationPage = Page("", Ui.Column(4, detailBreadcrumb,
-            Columns("*,Auto", detailHeader, Ui.Row(8, closeToEditor, restoreOperation))), operationDetail);
         var apiTextLight = new Border();
         var apiImageLight = new Border();
         Control ConnectionCard(string title, Control content, Border light) =>
@@ -1106,9 +968,9 @@ public static partial class AiDialogs
         }
         var workflowPage = Page("Workflows", Card(workflows.Content));
         var body = new StudioSettingsPages(
-            [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage, operationPage, setupPage, new ContentControl(), cliConnectionPage],
-            firstRun ? 9 : page == 10 ? 5 : page == 11 ? 11 : Math.Clamp(page, 0, 8));
-        void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex == 0 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
+            [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage, new ContentControl(), setupPage, new ContentControl(), cliConnectionPage],
+            firstRun ? 9 : page == 10 ? 5 : page == 11 ? 11 : page == 8 ? 6 : Math.Clamp(page, 0, 7));
+        void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex is 0 or 1 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
         void ScheduleTextCheck()
         {
             if (firstRun || body.SelectedIndex != 2) return;
@@ -1195,56 +1057,6 @@ public static partial class AiDialogs
             credentials.IsExpanded = true;
             Avalonia.Threading.Dispatcher.UIThread.Post(() => { sessionKey.BringIntoView(); sessionKey.Focus(); });
         };
-        bool refreshingOperation = false;
-        refreshOperation = () =>
-        {
-            if (refreshingOperation) return;
-            refreshingOperation = true;
-            try
-            {
-                var pack = service.SelectedEngine;
-                var selectedModel = engine.SelectedItem as ImageModelChoice;
-                var choices = CurrentFiles();
-                var operations = pack?.Tasks.Select(b => b.Task).Distinct()
-                    .Where(t => t is not (AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject or AiTaskKind.MatchToScene)
-                        && service.Engines.ModelFor(pack, t, choices).ModelKey == selectedModel?.ModelKey).ToArray() ?? [];
-                if (!operationPicker.Items.OfType<AiTaskKind>().SequenceEqual(operations))
-                {
-                    var previous = operationPicker.SelectedItem as AiTaskKind?;
-                    operationPicker.ItemsSource = operations;
-                    operationPicker.SelectedItem = previous is { } p && operations.Contains(p) ? p
-                        : operations.Contains(AiTaskKind.GenerativeFill) ? AiTaskKind.GenerativeFill : operations.FirstOrDefault();
-                }
-                models.SetOperation(operationPicker.SelectedItem as AiTaskKind?);
-                readiness.Foreground = Palette.Secondary;
-                fix.IsVisible = true;
-                fix.Content = Locale.T("Connection…");
-                fixAction = () => { body.SelectedIndex = 0; url.Focus(); };
-                if (service.ConnectionState != ComfyConnectionState.Connected || service.ConnectedServerUrl != ComfyServerAddress.Parse(url.Text ?? "").ToString())
-                { readiness.Text = "Connect to check this operation."; return; }
-                if (pack == null || operationPicker.SelectedItem is not AiTaskKind task) { readiness.Text = "No workflow installed."; return; }
-                var result = service.OperationCompatibility(pack, task, models.Choices(url.Text ?? ""), settings.OperationFor(pack.Id, task, pack.PaidApi) with { AlignPixels = settings.AiAlignMaskedEdits });
-                if (!result.IsCompatible)
-                {
-                    readiness.Foreground = Palette.SettingsWarningText;
-                    readiness.Text = Locale.T("Workflow needs attention") + " · " + result.Missing.Count;
-                    ToolTip.SetTip(readiness, string.Join("\n", result.Missing));
-                    fix.Content = Locale.T("Model components…");
-                    fixAction = () => files.BringIntoView();
-                }
-                else if (pack.PaidApi && string.IsNullOrWhiteSpace(DraftCredential(ComfyServerAddress.Parse(url.Text ?? ""))))
-                {
-                    readiness.Text = "Workflow ready · Comfy credits key required";
-                    fix.Content = Locale.T("Set API key…"); fixAction = () => { body.SelectedIndex = 0; credentials.IsExpanded = true; sessionKey.Focus(); };
-                }
-                else { readiness.Text = "Ready"; fix.IsVisible = false; }
-            }
-            catch (Exception error) when (error is not OutOfMemoryException)
-            { readiness.Text = error.Message; }
-            finally { refreshingOperation = false; }
-        };
-        operationPicker.SelectionChanged += (_, _) => refreshOperation();
-        sessionKey.TextChanged += (_, _) => refreshOperation();
         var validation = Ui.Label("", Avalonia.Media.Brushes.Orange);
         validation.IsVisible = false; validation.MaxWidth = 520; validation.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var search = new TextBox { Name = "SettingsSearch", PlaceholderText = Locale.T("Search settings…"), MaxLength = 120,
@@ -1257,8 +1069,8 @@ public static partial class AiDialogs
             ("Comfy credits API key", "ключ токен авторизация", 0, sessionKey, credentials, null),
             ("Operations", "назначение модель default", 6, operationTable, null, null),
             ("Workflows", "graph JSON prompt binding граф привязки импорт", 4, workflows.Content, null, null),
-            ("Model components", "checkpoint vae encoder файлы граф", 1, files, null, null),
-            ("Show AI context bounds", "output selection выделение контекст", 1, showContext, null, null),
+            ("Model files", "checkpoint vae encoder файлы веса", 1, models, null, null),
+            ("Show AI context bounds", "output selection выделение контекст", 3, showContext, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
             ("Text model", "chatgpt luna comfy credits", 2, provider, null, null),
             ("Direct text API", "connection endpoint key catalog URL каталог прямое подключение", 5, apiUrl, null, null),
@@ -1278,9 +1090,9 @@ public static partial class AiDialogs
             ("Automatically refresh linked files", "обновление связь", 3, linkedSources, null, null),
             ("Check for updates", "обновления", 3, updates, null, null)
         };
-        foreach (var pack in service.Engines.Profiles)
-            anchors.Add((ModelTitle(pack, pack.Tasks.FirstOrDefault()?.Task ?? AiTaskKind.GenerateImage), pack.Id + " model модель", 1, engine, null, () => SelectRoute(pack)));
-        var history = new Stack<(int Page, AiTaskKind Operation)>();
+        foreach (var pack in fileProfiles)
+            anchors.Add((pack.Name, pack.Engine.Id + " model модель", 1, models, null, () => SelectFileProfile(pack)));
+        var history = new Stack<int>();
         void OpenMatch()
         {
             if (matches.SelectedItem is not ListBoxItem { Tag: int index }) return;
@@ -1319,26 +1131,18 @@ public static partial class AiDialogs
         var scope = Caption("");
         var back = Ui.TextButton("‹ Back", () => { });
         back.IsVisible = false;
-        void Navigate(int index, bool preserveContext, AiTaskKind? operation = null)
+        void Navigate(int index, bool preserveContext)
         {
             if (firstRun || index == body.SelectedIndex) return;
-            if (preserveContext) history.Push((body.SelectedIndex, activeOperation));
+            if (preserveContext) history.Push(body.SelectedIndex);
             else history.Clear();
-            if (operation != null) activeOperation = operation.Value;
             body.SelectedIndex = index;
         }
         openRelated = index => Navigate(index, true);
-        addWorkflow.Click += async (_, _) =>
-        {
-            workflows.Open(null, null);
-            Navigate(4, true);
-            await workflows.AddWorkflow();
-        };
         back.Click += (_, _) =>
         {
             if (!history.TryPop(out var route)) return;
-            activeOperation = route.Operation;
-            body.SelectedIndex = route.Page;
+            body.SelectedIndex = route;
         };
         openPrompt = (pack, task) =>
         {
@@ -1349,502 +1153,136 @@ public static partial class AiDialogs
 
         EngineProfile? EngineForOperation(AiTaskKind task)
         {
-            if ((taskDrafts.GetValueOrDefault(task.ToString()) ?? settings.EngineForTask(task)) is { Length: > 0 } id &&
-                service.Engines.Profiles.FirstOrDefault(pack => pack.Id == id && pack.Binding(task) != null) is { } assigned)
-                return assigned;
+            var key = task.ToString();
+            var id = taskDrafts.GetValueOrDefault(key) ?? settings.EngineForTask(task);
+            var assigned = service.Engines.Profiles.FirstOrDefault(pack => pack.Id == id && ImageOperationModels.Supports(pack, task));
+            if (!changedAssignments.Contains(key) && settings.AiTaskModelKeys.TryGetValue(key, out var savedKey))
+            {
+                var matching = service.Engines.ImageModels(task, assigned, CurrentFiles(), routeDrafts)
+                    .FirstOrDefault(choice => choice.ModelKey == savedKey);
+                if (matching != null) return matching.Engine;
+            }
             var preferred = service.Engines.Find(defaultEngineId);
-            return preferred?.Binding(task) != null ? preferred : service.Engines.Profiles.FirstOrDefault(pack => pack.Binding(task) != null);
+            return assigned ?? (preferred != null && ImageOperationModels.Supports(preferred, task) ? preferred :
+                service.Engines.Profiles.FirstOrDefault(pack => ImageOperationModels.Supports(pack, task)));
         }
 
-        string OperationRoute(AiTaskKind task)
+        ImageModelChoice? OperationDefault(AiTaskKind task)
         {
-            var route = imageConnection.RouteFor(task);
-            if (route == ImageGenerationRoute.BuiltIn) return Locale.T("Built-in");
-            if (route != ImageGenerationRoute.ComfyWorkflow) return imageConnection.ModelLabel(task);
-            var pack = EngineForOperation(task);
-            if (workflowDraft.Assignments.TryGetValue(task, out var assigned) && workflowDraft.Workflows.TryGetValue(assigned, out var workflow))
-                return workflow.Name;
-            return pack == null ? Locale.T("No workflow installed.") : ModelTitle(pack, task);
+            return imageConnection.RouteFor(task) switch
+            {
+                ImageGenerationRoute.BuiltIn => ImageOperationModels.LocalSelection(settings),
+                ImageGenerationRoute.ComfyWorkflow => ImageOperationModels.ComfyDefault(service.Engines, task,
+                    EngineForOperation(task), CurrentFiles(), workflowDraft),
+                _ => imageConnection.DefaultModel(task)
+            };
         }
-        void ShowOperation(AiTaskKind task)
+        bool ServerMatchesDraft() => service.ConnectionState == ComfyConnectionState.Connected &&
+            ComfyAddress()?.ToString() == service.ConnectedServerUrl;
+        ComfyServerAddress? ComfyAddress()
         {
-            Navigate(8, true, task);
+            try { return ComfyServerAddress.Parse(url.Text ?? ""); }
+            catch (FormatException) { return null; }
         }
-        void OpenWorkflow(EngineProfile? pack, AiTaskKind task)
+        bool HasCredits()
         {
-            var id = pack == null ? workflowDraft.Assignments.GetValueOrDefault(task)
-                : WorkflowIdForModel(pack, task) ?? WorkflowPreferences.FactoryId(pack.Id, task);
-            workflows.Open(id, task);
-            Navigate(4, true);
+            try { return ComfyAddress() is { } address && !string.IsNullOrWhiteSpace(DraftCredential(address)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            { return false; }
         }
-        string? WorkflowIdForModel(EngineProfile pack, AiTaskKind operation)
-        {
-            if (EngineForOperation(operation)?.Id == pack.Id && imageConnection.RouteFor(operation) == ImageGenerationRoute.ComfyWorkflow)
-                return workflowDraft.ActiveId(operation, pack.Id);
-            var factory = WorkflowPreferences.FactoryId(pack.Id, operation);
-            return workflowDraft.Workflows.ContainsKey(factory) ? factory : null;
-        }
+        ImageModelChoice[] OperationChoices(AiTaskKind task, ImageModelChoice? current) => ImageOperationModels.Choices(service, task,
+            EngineForOperation(task), CurrentFiles(), workflowDraft, settings, ComfyAddress() != null, ServerMatchesDraft(),
+            HasCredits(), imageConnection.ModelOptions(task), current);
         void RenderOperations()
         {
+            if (body.SelectedIndex != 6) return;
             promptTable.Children.Clear();
             operationTable.Children.Clear();
-            const string columns = "1.15*,1.7*,116,24";
-            foreach (var table in new[] { promptTable, operationTable })
-                table.Children.Add(InsetRow(Columns(columns, Caption(table == promptTable ? "Model" : "Operation"),
-                    Caption("Model and execution route"), Caption(table == promptTable ? "" : "Configuration"), Caption("")), Palette.SettingsSidebar, 7));
+            const string columns = "1.15*,1.7*,24";
+            promptTable.Children.Add(InsetRow(Columns(columns, Caption("Model"), Caption("Model and execution route")), Palette.SettingsSidebar));
+            operationTable.Children.Add(InsetRow(Columns(columns, Caption("Operation"), Caption("Default model and execution route")), Palette.SettingsSidebar));
             var textMethod = selectedProvider switch
             {
                 "direct" => "API directly", "local-codex" => "CLI on this computer",
                 "comfy" => "Comfy credits", _ => "CLI on the ComfyUI server"
             };
-            var check = textConnectionCheck;
-            promptTable.Children.Add(TableRow("Language model", operationTextModel.Text + " · " + Locale.T(textMethod), null,
-                Status(check.StatusText, check.Passed, check.Failed), () => openPrompt?.Invoke(null, null)));
+            promptTable.Children.Add(OperationRow(Columns(columns, Heading("Language model", 12),
+                Caption(operationTextModel.Text + " · " + Locale.T(textMethod)), textConnectionCheck.Light()), () => openPrompt?.Invoke(null, null)));
             foreach (var task in DirectImageGenerator.Operations)
             {
-                var route = imageConnection.RouteFor(task);
-                var pack = EngineForOperation(task);
-                var method = route == ImageGenerationRoute.ComfyWorkflow && pack?.PaidApi == true && !workflowDraft.Assignments.ContainsKey(task)
-                    ? "Comfy credits" : DirectImageGenerator.RouteLabel(route);
-                var custom = taskDrafts.ContainsKey(task.ToString()) || workflowDraft.Assignments.ContainsKey(task)
-                    || route != new Settings().ImageRouteFor(task) || changedGeneration.Keys.Any(key => key.Task == task);
-                var serverResponded = ServerMatchesDraft() && route == ImageGenerationRoute.ComfyWorkflow;
-                var ready = route == ImageGenerationRoute.BuiltIn || serverResponded && IsWorkflowReady(task, pack);
-                var isExpanded = expandedOperation == task;
-                operationTable.Children.Add(TableRow(task.DisplayName(), OperationRoute(task) + " · " + Locale.T(method), custom,
-                    Status(ready ? "Ready" : serverResponded ? "Workflow needs attention" : "Connection has not been checked",
-                        ready, serverResponded && !ready), () => { expandedOperation = isExpanded ? null : task; RenderOperations(); }, isExpanded));
-                if (!isExpanded) continue;
-                var open = Ui.TextButton("Run parameters ›", () => ShowOperation(task));
-                open.HorizontalAlignment = HorizontalAlignment.Right;
-                open.Classes.Add("flat");
-                var hint = route == ImageGenerationRoute.DirectApi && imageConnection.CatalogSize > 0
-                    ? string.Format(Locale.T("{0} models available in this connection"), imageConnection.CatalogSize)
-                    : route == ImageGenerationRoute.BuiltIn ? Locale.T("Built-in") : "";
-                operationTable.Children.Add(InsetRow(Ui.Column(8,
-                    Columns("*,*,1.25*", Field("Connection method", imageConnection.RouteField(task)),
-                        Field("Connection", OperationConnectionPicker(task, route, pack)),
-                        Field(route == ImageGenerationRoute.DirectApi ? "Model from API catalog" : "Image model",
-                            OperationModelPicker(task, route, pack))),
-                    Columns("*,Auto", Caption(hint), open)), Palette.PanelRaised, 13));
-            }
-            Control TableRow(string label, string route, bool? custom, Control statusIcon, Action open, bool expanded = false) => new Border
-            {
-                BorderBrush = Palette.SettingsLine, BorderThickness = new Thickness(0, 1, 0, 0),
-                Background = expanded ? Palette.PanelRaised : null,
-                Child = RowButton(Columns(columns, Heading(label, 12), Caption(route),
-                    Caption(custom == null ? "" : custom.Value ? "Custom" : "Default"), statusIcon), open)
-            };
-        }
+                var current = OperationDefault(task);
+                var expanded = expandedOperation == task;
+                var name = current == null ? Locale.T("Choose a model") :
+                    $"{Locale.T(current.Name)} · {Locale.T(current.ConnectionLabel)}";
+                operationTable.Children.Add(OperationRow(Columns(columns, Heading(task.DisplayName(), 12),
+                    Caption(name), Caption(expanded ? "⌄" : "›")), () =>
+                    {
+                        expandedOperation = expanded ? null : task;
+                        RenderOperations();
+                    }, expanded));
+                if (!expanded) continue;
 
-        Control OperationConnectionPicker(AiTaskKind task, ImageGenerationRoute route, EngineProfile? pack)
-        {
-            if (route != ImageGenerationRoute.ComfyWorkflow) return imageConnection.ConnectionField(task, false);
-            var local = service.Engines.Profiles.Any(item => !item.PaidApi && item.Binding(task) != null);
-            var credits = pack?.PaidApi == true;
-            try
-            {
-                var address = ComfyServerAddress.Parse(url.Text ?? "");
-                credits |= service.Engines.Profiles.Any(item => item.PaidApi && item.Binding(task) != null) &&
-                    !string.IsNullOrWhiteSpace(DraftCredential(address));
-            }
-            catch (FormatException) { local = credits = false; }
-            var options = new[] { false, true }.Where(paid => paid ? credits : local).ToArray();
-            var picker = Ui.Combo(options, pendingComfyConnections.GetValueOrDefault(task, pack?.PaidApi == true),
-                paid => Locale.T(paid ? "Comfy credits" : "ComfyUI server"), paid =>
-                {
-                    pendingComfyConnections[task] = paid;
-                    RenderOperations();
-                }, double.NaN);
-            picker.PlaceholderText = Locale.T("No configured connection");
-            return picker;
-        }
-
-        Control OperationModelPicker(AiTaskKind task, ImageGenerationRoute route, EngineProfile? pack)
-        {
-            if (route == ImageGenerationRoute.DirectApi && task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection))
-                return imageConnection.ApiModelField(task);
-            if (route == ImageGenerationRoute.ComfyWorkflow && assignmentPickers.TryGetValue(task, out var source))
-            {
-                var paid = pendingComfyConnections.GetValueOrDefault(task, pack?.PaidApi == true);
-                var options = source.Items.OfType<object>().Where(item => item is ImageModelChoice model
-                    ? model.Engine.PaidApi == paid : pack?.PaidApi == paid).ToArray();
-                var picker = new ComboBox { ItemsSource = options, SelectedItem = options.Contains(source.SelectedItem) ? source.SelectedItem : null,
-                    ItemTemplate = source.ItemTemplate, PlaceholderText = Locale.T("Choose a model") };
-                AiGenerationControls.StyleModelField(picker, "Image model");
+                var options = OperationChoices(task, current);
+                var picker = new ComboBox { Name = "DefaultModel" + task, PlaceholderText = Locale.T("Choose a model") };
+                AiGenerationControls.PresentImageModels(picker, options);
+                SetupInput(picker);
+                picker.SelectedItem = options.FirstOrDefault(choice => choice.SelectionKey == current?.SelectionKey);
+                picker.IsEnabled = options.Any(choice => choice.Available);
                 picker.SelectionChanged += (_, _) =>
                 {
-                    source.SelectedItem = picker.SelectedItem;
-                    if (picker.SelectedItem != null) pendingComfyConnections.Remove(task);
-                    QueueRefresh();
+                    if (picker.SelectedItem is not ImageModelChoice { Available: true } chosen) return;
+                    if (workflowDraft.Assignments.ContainsKey(task) && EngineForOperation(task) is { } previous)
+                        workflowDraft.AssignedEngines.TryAdd(task, previous.Id);
+                    if (chosen.Route == ImageGenerationRoute.ComfyWorkflow)
+                    {
+                        taskDrafts[task.ToString()] = chosen.Engine.Id;
+                        changedAssignments.Add(task.ToString());
+                        routeDrafts[chosen.ModelKey] = chosen.Engine.Id;
+                        if (chosen.AssignedWorkflow) workflowDraft.FactoryDefaults.Remove(task);
+                        else if (workflowDraft.Assignments.ContainsKey(task)) workflowDraft.FactoryDefaults.Add(task);
+                    }
+                    imageConnection.SetDefault(task, chosen);
                 };
-                return picker;
+                var field = SetupField("Default model", picker);
+                var detail = Ui.Column(7, field);
+                if (!picker.IsEnabled) detail.Children.Add(Caption("No compatible model is available on the configured connections."));
+                operationTable.Children.Add(InsetRow(detail, Palette.PanelRaised, vertical: 12));
             }
-            return new TextBox { Text = OperationRoute(task), IsReadOnly = true };
-        }
-        bool ServerMatchesDraft()
-        {
-            try
-            {
-                return service.ConnectionState == ComfyConnectionState.Connected &&
-                    service.ConnectedServerUrl == ComfyServerAddress.Parse(url.Text ?? "").ToString();
-            }
-            catch (FormatException) { return false; }
-        }
-        bool IsWorkflowReady(AiTaskKind task, EngineProfile? pack)
-        {
-            if (pack == null) return false;
-            try
-            {
-                return service.OperationCompatibility(pack, task, CurrentFiles(), settings.OperationFor(pack.Id, task, pack.PaidApi)).IsCompatible
-                    && (!pack.PaidApi || !string.IsNullOrWhiteSpace(DraftCredential(ComfyServerAddress.Parse(url.Text ?? ""))));
-            }
-            catch (Exception error) when (error is IOException or InvalidOperationException or KeyNotFoundException or FormatException or System.Text.Json.JsonException)
-            { return false; }
-        }
-        restoreOperation.Click += (_, _) =>
-        {
-            var task = activeOperation;
-            pendingComfyConnections.Remove(task);
-            if (assignmentPickers.TryGetValue(task, out var picker)) picker.SelectedItem = inherit;
-            workflowDraft.Assignments.Remove(task);
-            imageConnection.ResetModel(task);
-            imageConnection.SetRoute(task, new Settings().ImageRouteFor(task));
-            QueueRefresh();
-        };
-        void RenderOperation()
-        {
-            var task = activeOperation;
-            var pack = EngineForOperation(task);
-            var route = imageConnection.RouteFor(task);
-            detailHeader.Text = Locale.T(task.DisplayName());
-            detailBreadcrumb.Text = Locale.T("Operations") + " / " + detailHeader.Text;
-            operationDetail.Children.Clear();
-            var links = new WrapPanel { ItemSpacing = 7, LineSpacing = 6 };
-            var connectionColumn = Ui.Column(3, Caption("Connection"), Heading(route == ImageGenerationRoute.ComfyWorkflow
-                ? pack?.PaidApi == true ? "Comfy credits" : "ComfyUI server" : DirectImageGenerator.RouteLabel(route), 13),
-                Caption(route == ImageGenerationRoute.ComfyWorkflow ? url.Text ?? "" :
-                    route == ImageGenerationRoute.DirectApi ? imageConnection.ModelFor(task).ApiAddress : "This computer"));
-            if (route != ImageGenerationRoute.BuiltIn)
-                connectionColumn.Children.Add(Ui.TextButton("Open connection ›", () =>
-                {
-                    Navigate(ConnectionPageFor(route), true);
-                }));
-            var modelName = pack != null && route == ImageGenerationRoute.ComfyWorkflow ? ModelTitle(pack, task)
-                : route == ImageGenerationRoute.BuiltIn ? "Built-in" : imageConnection.ModelFor(task).Model;
-            var modelColumn = Ui.Column(3, Caption("Model"), Heading(modelName, 13));
-            SavedWorkflow? assignedWorkflow = null;
-            System.Text.Json.Nodes.JsonObject? graph = null;
-            string? workflowTitle = null;
-            if (route == ImageGenerationRoute.ComfyWorkflow && pack != null)
-            {
-                try
-                {
-                    var workflow = EngineCatalog.WorkflowFor(pack, task);
-                    assignedWorkflow = service.ActiveWorkflow(task, pack);
-                    graph = assignedWorkflow?.Graph ?? service.Engines.ReadWorkflow(pack, workflow);
-                    workflowTitle = assignedWorkflow?.Name ?? Path.GetFileName(workflow.File);
-                    modelColumn.Children.Add(Caption(service.Engines.ModelFor(pack, task, CurrentFiles()).ModelKey));
-                }
-                catch (Exception error) when (error is IOException or InvalidOperationException or System.Text.Json.JsonException or KeyNotFoundException or UnauthorizedAccessException)
-                { workflowTitle = Locale.Message(error.Message); }
-            }
-            var workflowColumn = Ui.Column(3, Caption("Workflow"), Heading(workflowTitle ?? "No workflow", 13));
-            if (graph != null)
-                workflowColumn.Children.Add(Caption(string.Format(Locale.T("{0} nodes · {1}"), graph.Count, Locale.T(assignedWorkflow == null ? "Factory" : "Custom"))));
-            if (route == ImageGenerationRoute.ComfyWorkflow && pack != null)
-            {
-                modelColumn.Children.Add(Ui.TextButton("Open model ›", () =>
-                {
-                    directModelSelection = null;
-                    SelectRoute(pack);
-                    operationPicker.SelectedItem = task;
-                    Navigate(1, true);
-                }));
-                if (WorkflowPreferences.Operations.Contains(task))
-                    workflowColumn.Children.Add(Ui.TextButton("Open workflow ›", () => OpenWorkflow(pack, task)));
-                links.Children.Add(Ui.TextButton("Generation settings…", async () =>
-                {
-                    SelectRoute(pack);
-                    var key = (pack.Id, task);
-                    await Advanced(settingsDialog!, generationDraft, service, task,
-                        changedGeneration.GetValueOrDefault(key) ?? settings.OperationFor(pack.Id, task, pack.PaidApi),
-                        value => changedGeneration[key] = value, deferSave: true);
-                    QueueRefresh();
-                }));
-            }
-            if (route == ImageGenerationRoute.DirectApi || route == ImageGenerationRoute.LocalCodex)
-                modelColumn.Children.Add(Ui.TextButton("Open model ›", () =>
-                {
-                    directModelSelection = imageConnection.ModelFor(task).PromptProfile();
-                    Navigate(1, true);
-                }));
-            if (route != ImageGenerationRoute.BuiltIn && task is not (AiTaskKind.Upscale or AiTaskKind.GenerativeExpand or AiTaskKind.ObjectSelection))
-            {
-                links.Children.Add(Ui.TextButton("Prompt enhancer ›", () => openPrompt(route == ImageGenerationRoute.ComfyWorkflow ? pack :
-                    imageConnection.ModelFor(task).PromptProfile(), task)));
-            }
-            operationDetail.Children.Add(Card(Columns("*,*,*", modelColumn, connectionColumn, workflowColumn), 15));
-            var routeLabel = DirectImageGenerator.RouteLabel(route);
-            operationDetail.Children.Add(Columns("*,Auto", Heading("Run parameters", 13), Caption(routeLabel)));
-            var direct = DirectImageGenerator.IsDirect(route);
-            var engine = direct ? imageConnection.ModelFor(task).PromptProfile() : pack;
-            var profileKey = (engine?.Id ?? "default", task);
-            var profile = changedGeneration.GetValueOrDefault(profileKey) ?? settings.OperationFor(engine?.Id, task, engine?.PaidApi == true);
-            void UpdateProfile(Func<AiOperationSettings, AiOperationSettings> change)
-            {
-                profile = change(profile);
-                changedGeneration[profileKey] = profile;
-            }
-            string? GraphValue(string source, string input)
-            {
-                if (assignedWorkflow?.Bindings.GetValueOrDefault(source) is { } target)
-                    return graph?[target.NodeId]?["inputs"]?[target.Input]?.ToString();
-                return graph?.Select(node => node.Value?["inputs"]?[input]).FirstOrDefault(value => value != null)?.ToString();
-            }
-            var stepsFromGraph = GraphValue("steps", "steps");
-            var samplerFromGraph = GraphValue("sampler", "sampler_name");
-            Control stepsField = assignedWorkflow?.Bindings.ContainsKey("steps") == true
-                ? Ui.Number(profile.WorkflowSteps ?? (int.TryParse(stepsFromGraph, out var count) ? count : 4),
-                    1, int.MaxValue, value => UpdateProfile(old => old with { WorkflowSteps = (int)value }), width: double.NaN)
-                : ReadOnly(stepsFromGraph);
-            Control samplerField = ReadOnly(samplerFromGraph);
-            if (assignedWorkflow?.Bindings.ContainsKey("sampler") == true)
-            {
-                var sampler = new TextBox { Text = profile.WorkflowSampler ?? "", PlaceholderText = samplerFromGraph };
-                sampler.TextChanged += (_, _) => UpdateProfile(old => old with { WorkflowSampler = string.IsNullOrWhiteSpace(sampler.Text) ? null : sampler.Text.Trim() });
-                samplerField = sampler;
-            }
-            var seed = new TextBox { Text = profile.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture) };
-            seed.IsReadOnly = route == ImageGenerationRoute.BuiltIn || direct || assignedWorkflow != null && !assignedWorkflow.Bindings.ContainsKey("seed");
-            seed.TextChanged += (_, _) =>
-            {
-                if (long.TryParse(seed.Text, out var value) && value >= -1) UpdateProfile(old => old with { Seed = value });
-            };
-            Control size;
-            if (task == AiTaskKind.GenerativeExpand)
-            {
-                var whole = profile.ExpansionMode == AiExpansionMode.WholeImage;
-                var sides = whole ? new[] { 0 }.Concat(AiDimensions.ExpansionSides) : AiDimensions.ExpansionSides;
-                size = Ui.Combo(sides, whole ? profile.WholeExpansionMinimumSide : profile.ExpansionMinimumSide,
-                    value => value == 0 ? Locale.T("Original size") : string.Format(Locale.T("{0} px · longest side"), value),
-                    value => UpdateProfile(old => whole ? old with { WholeExpansionMinimumSide = value } : old with { ExpansionMinimumSide = value }), double.NaN);
-            }
-            else
-            {
-                var sizes = AiDimensions.MegapixelOptions.Prepend(0);
-                size = Ui.Combo(sizes, profile.OriginalSize ? 0 : ClosestMegapixels(profile.Megapixels),
-                    value => value == 0 ? Locale.T("Original size") : AiDimensions.Label(value),
-                    value => UpdateProfile(old => old with { OriginalSize = value == 0, Megapixels = value == 0 ? old.Megapixels : value }), double.NaN);
-            }
-            var variants = Ui.Combo(Enum.GetValues<AiVariantMode>(), profile.VariantMode, value => value.ToString(),
-                value => UpdateProfile(old => old with { VariantMode = value }), double.NaN);
-            variants.IsEnabled = assignedWorkflow == null && !direct && AiGenerationControls.SupportsVariants(task);
-            var align = new CheckBox { IsChecked = profile.AlignPixels ?? settings.AiAlignMaskedEdits,
-                IsEnabled = !direct && route != ImageGenerationRoute.BuiltIn && task is not AiTaskKind.GenerateImage };
-            align.IsCheckedChanged += (_, _) => UpdateProfile(old => old with { AlignPixels = align.IsChecked == true });
-            operationDetail.Children.Add(Card(Ui.Column(2,
-                Pair("Image size", size, "Steps", stepsField), Pair("Seed", seed, "Sampler", samplerField),
-                Pair("Variant execution", variants, "Reference resolution", ReadOnly(profile.ReferenceMegapixels is { } resolution ? AiDimensions.Label(resolution) : null)),
-                Pair("API quality", ReadOnly(engine?.PaidApi == true ? profile.ApiQuality : null), "Align pixels", align)), 13));
-            var operationStatus = Caption(ServerMatchesDraft() ? "Server responded." : "Connection has not been checked");
-            var check = Ui.TextButton("Check", async () =>
-            {
-                if (route != ImageGenerationRoute.ComfyWorkflow)
-                {
-                    Navigate(ConnectionPageFor(route), true);
-                    return;
-                }
-                operationStatus.Text = Locale.T("Connecting…");
-                try
-                {
-                    await service.TestConnectionAsync(lifetime.Token, url.Text);
-                    var result = pack == null ? null : service.OperationCompatibility(pack, task, CurrentFiles(), profile);
-                    operationStatus.Text = Locale.T(result?.IsCompatible == true ? "Operation ready" : "Workflow needs attention");
-                    ToolTip.SetTip(operationStatus, result == null ? null : string.Join("\n", result.Missing));
-                }
-                catch (Exception error) when (error is not OutOfMemoryException && !lifetime.IsCancellationRequested)
-                { operationStatus.Text = Locale.Message(error.Message); }
-                catch (OperationCanceledException) { }
-            });
-            check.IsEnabled = route != ImageGenerationRoute.BuiltIn;
-            operationDetail.Children.Add(Card(Columns("*,Auto", operationStatus, check), 12));
-            operationDetail.Children.Add(links);
 
-            static TextBox ReadOnly(string? value) => new() { Text = value ?? Locale.T("Not available for this route"), IsReadOnly = true };
-            static Control Pair(string a, Control aValue, string b, Control bValue) =>
-                InsetRow(Columns("1*,1.45*,1*,1.45*", Caption(a), aValue, Caption(b), bValue), vertical: 6);
+            Border OperationRow(Control content, Action open, bool expanded = false)
+            {
+                var row = RowButton(content, open);
+                row.Padding = new Thickness(0, 8);
+                return InsetRow(row, expanded ? Palette.PanelRaised : null, vertical: 0);
+            }
         }
+
         void RenderModels()
         {
-            var selected = service.SelectedEngine;
             modelMaster.Children.Clear();
-            var choices = engine.Items.OfType<ImageModelChoice>().ToArray();
-            foreach (var choice in choices)
-            {
-                var pack = choice.Engine;
-                var option = RowButton(Ui.Column(3, Heading(choice.Name, 12),
-                    Caption(pack.PaidApi ? "Comfy credits" : "ComfyUI server")), () =>
-                    {
-                        if (service.SelectedEngine?.Id != pack.Id) openModelWorkflow = null;
-                        directModelSelection = null;
-                        SelectRoute(pack);
-                        RenderModels();
-                    });
-                if (pack.Id == selected?.Id && directModelSelection == null) option.Background = Palette.SettingsSelection;
-                modelMaster.Children.Add(option);
-            }
-            var direct = imageConnection.PromptProfiles();
-            foreach (var item in direct)
-            {
-                var name = item.ModelName ?? item.DisplayName;
-                var choice = RowButton(Ui.Column(3, Heading(name, 12),
-                    Caption(item.Id == "direct-codex-image" ? "CLI on this computer" : "API directly")), () =>
-                    {
-                        directModelSelection = item;
-                        RenderModels();
-                    });
-                if (directModelSelection is { } modelChoice &&
-                    AiTaskService.InstructionScope(modelChoice) == AiTaskService.InstructionScope(item)) choice.Background = Palette.SettingsSelection;
-                modelMaster.Children.Add(choice);
-            }
-            if (directModelSelection is { } directModel)
-            {
-                var assigned = DirectImageGenerator.Operations.Where(task =>
-                {
-                    var model = imageConnection.ModelFor(task);
-                    return DirectImageGenerator.IsDirect(model.Route) && task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection)
-                        && AiTaskService.InstructionScope(model.PromptProfile()) == AiTaskService.InstructionScope(directModel);
-                }).ToArray();
-                var usage = Ui.Column(8, Heading(directModel.ModelName ?? directModel.DisplayName, 15),
-                    Caption(directModel.DisplayName), Heading("Used in operations"));
-                foreach (var task in assigned)
-                    usage.Children.Add(RowButton(Columns("*,18", Caption(task.DisplayName()), Caption("›")), () => ShowOperation(task)));
-                if (assigned.Length == 0) usage.Children.Add(Caption("No operations assigned."));
-                usage.Children.Add(Ui.TextButton("Prompt instructions for this model and operation", () =>
-                    openPrompt?.Invoke(directModel, assigned.FirstOrDefault())));
-                modelDetail.Content = Card(usage);
-                return;
-            }
-            if (modelDetail.Content != workflowModelDetail) modelDetail.Content = workflowModelDetail;
             modelUsage.Children.Clear();
-            modelWorkflows.Children.Clear();
-            modelParameters.Children.Clear();
-            if (selected == null) { modelHeading.Text = Locale.T("No Engine Packs installed"); return; }
-            var operation = operationPicker.SelectedItem as AiTaskKind?;
-            modelHeading.Text = (engine.SelectedItem as ImageModelChoice)?.Name ?? selected.DisplayName;
-            modelStatusHost.Child = Status(readiness.Text ?? "Connection has not been checked", readiness.Text == Locale.T("Ready"),
-                ServerMatchesDraft() && readiness.Text != Locale.T("Ready"));
-            modelUsage.Children.Add(Heading("Used in operations"));
-            var assignmentsForModel = DirectImageGenerator.Operations.Where(task =>
-                imageConnection.RouteFor(task) == ImageGenerationRoute.ComfyWorkflow &&
-                EngineForOperation(task) is { } candidate && candidate.Id == selected.Id).ToArray();
-            var usageRows = Ui.Column(0);
-            var usageTable = Scroll(usageRows);
-            usageTable.MaxHeight = 162;
-            modelUsage.Children.Add(usageTable);
-            foreach (var task in assignmentsForModel)
-                usageRows.Children.Add(InsetRow(RowButton(Columns("*,110,18", Caption(task.DisplayName()),
-                    Caption(taskDrafts.GetValueOrDefault(task.ToString()) is { Length: > 0 } ? "Custom" : "Default"),
-                    Caption("›")), () => ShowOperation(task)), vertical: 1));
-            if (assignmentsForModel.Length == 0) modelUsage.Children.Add(Caption("No operations assigned."));
-            var folder = Ui.TextButton("Open folder ›", () =>
+            if (selectedFileProfile == null)
             {
-                var path = service.Engines.DirectoryOf(selected);
-                try { using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
-                catch (System.ComponentModel.Win32Exception) { _ = Prompts.Alert(settingsDialog!, "Workflows", path); }
-            });
-            folder.Classes.Add("flat");
-            modelWorkflows.Children.Add(Columns("*,Auto", Heading("Workflows"), folder));
-            if (operation is not { } active || selected.Binding(active) == null) return;
-            var workflowRows = new Dictionary<string, (string Title, int Nodes, bool Custom, List<AiTaskKind> Tasks)>();
-            foreach (var task in operationPicker.Items.OfType<AiTaskKind>())
-            {
-                try
-                {
-                    var workflow = EngineCatalog.WorkflowFor(selected, task);
-                    var id = WorkflowIdForModel(selected, task);
-                    var saved = id == null ? null : workflowDraft.Workflows.GetValueOrDefault(id);
-                    var key = id ?? workflow.File;
-                    if (!workflowRows.TryGetValue(key, out var item))
-                    {
-                        var contents = saved?.Graph ?? service.Engines.ReadWorkflow(selected, workflow);
-                        workflowRows.Add(key, item = (saved?.Name ?? Path.GetFileName(workflow.File), contents.Count, saved != null, []));
-                    }
-                    item.Tasks.Add(task);
-                }
-                catch (Exception error) when (error is IOException or InvalidOperationException or System.Text.Json.JsonException or KeyNotFoundException or UnauthorizedAccessException)
-                { modelWorkflows.Children.Add(Caption(error.Message)); }
+                selectedFileProfile = fileProfiles.FirstOrDefault(profile => profile.Engine.Id == defaultEngineId) ?? fileProfiles.FirstOrDefault();
+                if (selectedFileProfile is { } first) models.ShowFilesFor(first.Engine, first.Tool);
             }
-            foreach (var (key, row) in workflowRows)
+            var selected = selectedFileProfile;
+            modelHeading.Text = selected?.Name ?? Locale.T("No configurable model files");
+            foreach (var pack in fileProfiles)
             {
-                var expanded = key == openModelWorkflow;
-                var button = RowButton(Columns("1.3*,*,22",
-                    Ui.Column(2, Heading(row.Title, 11), Caption(string.Format(Locale.T("{0} nodes · {1}"), row.Nodes,
-                        Locale.T(row.Custom ? "Custom" : "Factory")))),
-                    Caption(string.Join(" · ", row.Tasks.Select(task => Locale.T(task.DisplayName())))), Caption(expanded ? "⌄" : "›")), () =>
-                {
-                    openModelWorkflow = expanded ? null : key;
-                    if (!expanded && !row.Tasks.Contains(active)) operationPicker.SelectedItem = row.Tasks[0];
-                    RenderModels();
-                });
-                modelWorkflows.Children.Add(InsetRow(button, expanded ? Palette.PanelRaised : null, vertical: 1));
+                var button = RowButton(Heading(pack.Name, 12), () => SelectFileProfile(pack));
+                if (pack == selected) button.Background = Palette.SettingsSelection;
+                modelMaster.Children.Add(button);
             }
-            workflowInspector.IsVisible = openModelWorkflow != null && workflowRows.ContainsKey(openModelWorkflow);
-            if (!workflowInspector.IsVisible) return;
-            if (active is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection))
-                modelParameters.Children.Add(Ui.TextButton("Prompt instructions for this model and operation", () => openPrompt(selected, active)));
-            try
-            {
-                var graph = WorkflowIdForModel(selected, active) is { } id ? workflowDraft.Workflows.GetValueOrDefault(id) : null;
-                var workflow = EngineCatalog.WorkflowFor(selected, active);
-                var contents = graph?.Graph ?? service.Engines.ReadWorkflow(selected, workflow);
-                var title = graph?.Name ?? Path.GetFileName(workflow.File);
-                var metadata = string.Format(Locale.T("{0} nodes · {1}"), contents.Count, Locale.T(graph == null ? "Factory" : "Custom"));
-                Control editorLink = WorkflowPreferences.Operations.Contains(active)
-                    ? RowButton(Columns("*,Auto", Heading(title, 12), Caption("›")), () => OpenWorkflow(selected, active))
-                    : Heading(title, 12);
-                modelWorkflows.Children.Add(Card(Ui.Column(4, editorLink, Caption(metadata)), 8));
-                var key = (selected.Id, active);
-                var profile = changedGeneration.GetValueOrDefault(key) ?? settings.OperationFor(selected.Id, active, selected.PaidApi);
-                if (graph?.Bindings.TryGetValue("steps", out var steps) == true)
-                    AddParameter("Steps", steps, profile.WorkflowSteps?.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        () => changedGeneration[key] = profile with { WorkflowSteps = null });
-                if (graph?.Bindings.TryGetValue("sampler", out var sampler) == true)
-                    AddParameter("Sampler", sampler, profile.WorkflowSampler,
-                        () => changedGeneration[key] = profile with { WorkflowSampler = null });
-                foreach (var (_, node) in contents)
-                {
-                    if (node?["inputs"] is not System.Text.Json.Nodes.JsonObject inputs) continue;
-                    foreach (var (label, name, binding) in new[] { ("Steps", "steps", "steps"),
-                        ("Sampler", "sampler_name", "sampler"), ("Scheduler", "scheduler", ""),
-                        ("Denoise", "denoise", ""), ("CFG", "cfg", "") })
-                    {
-                        if (graph?.Bindings.ContainsKey(binding) == true || inputs[name] is not System.Text.Json.Nodes.JsonValue field) continue;
-                        modelParameters.Children.Add(Columns("130,*", Caption(label),
-                            Caption(field.ToString() + " · " + Locale.T("From workflow"))));
-                    }
-                }
-                void AddParameter(string label, WorkflowTarget target, string? value, Action reset)
-                {
-                    var graphValue = contents[target.NodeId]?["inputs"]?[target.Input]?.ToString() ?? "";
-                    var overridden = value != null && value != graphValue;
-                    var origin = overridden ? "Set in Composa" : "From workflow";
-                    var item = Columns("*,Auto", Ui.Column(3, Heading(label, 12),
-                        Caption((value ?? graphValue) + " · " + Locale.T(origin))));
-                    if (overridden)
-                    {
-                        var restore = Ui.TextButton("Use workflow value", () => { reset(); RenderModels(); });
-                        Grid.SetColumn(restore, 1);
-                        item.Children.Add(restore);
-                    }
-                    modelParameters.Children.Add(item);
-                }
-            }
-            catch (Exception error) when (error is IOException or InvalidOperationException or System.Text.Json.JsonException or KeyNotFoundException or UnauthorizedAccessException)
-            {
-                modelWorkflows.Children.Add(Caption(error.Message));
-            }
+            if (selected == null) return;
+            var assigned = DirectImageGenerator.Operations.Where(task =>
+                imageConnection.RouteFor(task) == ImageGenerationRoute.ComfyWorkflow && EngineForOperation(task)?.Id == selected.Engine.Id &&
+                (selected.Tool is { } tool ? task == tool : task is not (AiTaskKind.Upscale or AiTaskKind.ObjectSelection))).ToArray();
+            if (assigned.Length == 0) return;
+            modelUsage.Children.Add(Heading("Used in operations", 13));
+            var usage = Scroll(Ui.Column(3, assigned.Select(task => (Control)Caption(task.DisplayName())).ToArray()));
+            usage.MaxHeight = 125;
+            modelUsage.Children.Add(usage);
         }
         void QueueRefresh()
         {
@@ -1855,25 +1293,21 @@ public static partial class AiDialogs
                 refreshQueued = false;
                 if (lifetime.IsCancellationRequested) return;
                 RenderOperations();
-                if (body.SelectedIndex == 8) RenderOperation();
                 if (body.SelectedIndex == 1) RenderModels();
             });
         }
         imageConnection.RouteChanged += QueueRefresh;
         textConnectionCheck.Changed += QueueRefresh;
+        comfyCheck.Changed += QueueRefresh;
         workflows.Changed += QueueRefresh;
         models.ChoicesChanged += QueueRefresh;
-        operationPicker.SelectionChanged += (_, _) => QueueRefresh();
-        engine.SelectionChanged += (_, _) => QueueRefresh();
-        useDefault.Click += (_, _) => QueueRefresh();
-        generation.Click += (_, _) => QueueRefresh();
 
         var navigation = Ui.Column(4, Heading("Settings", 21), search, matches, back);
         navigation.Margin = new Thickness(12, 20, 12, 12);
         var destinations = new (int Page, Button Button)[]
         {
             (6, NavButton("Operations", Icons.Layers, 6)),
-            (1, NavButton("Models and workflows", Icons.Image, 1)),
+            (1, NavButton("Model files", Icons.Image, 1)),
             (0, NavButton("Connections", Icons.Link, 0)),
             (3, NavButton("Editor", Icons.Gear, 3)),
             (7, NavButton("Performance", Icons.Gear, 7))
@@ -1933,7 +1367,7 @@ public static partial class AiDialogs
             }
             foreach (var (destination, button) in destinations)
             {
-                var selected = current == destination || destination == 6 && current is 8 or 2 ||
+                var selected = current == destination || destination == 6 && current == 2 ||
                     destination == 1 && current == 4 || destination == 0 && current is 5 or 11;
                 button.Background = selected ? Palette.SettingsSelection : Avalonia.Media.Brushes.Transparent;
             }
@@ -1941,7 +1375,6 @@ public static partial class AiDialogs
             {
                 4 => "Save settings to apply workflow changes.",
                 0 or 5 or 11 => "Connection fields apply to operations using this connection.",
-                8 => "Route changes apply to this operation after saving settings.",
                 9 => "You can finish setup later in Settings.",
                 _ => ""
             });
@@ -1949,7 +1382,7 @@ public static partial class AiDialogs
             if (current == 2) RefreshPromptProfiles(promptPack);
             if (!firstRun)
             {
-                if (current == 0 && !comfyCheck.Passed) ScheduleComfyCheck();
+                if (current is 0 or 1 && !comfyCheck.Passed) ScheduleComfyCheck();
                 if (current == 2) ScheduleTextCheck();
                 if (current == 5)
                 {
@@ -1959,7 +1392,6 @@ public static partial class AiDialogs
                 if (current == 11) RefreshCliLocation();
             }
             if (current == 6) RenderOperations();
-            if (current == 8) RenderOperation();
             if (settingsDialog != null) Locale.Refresh(settingsDialog);
         }
         body.PageChanged += ShowPage;
@@ -1969,11 +1401,11 @@ public static partial class AiDialogs
         ShowPage();
         settingsDialog.Opened += (_, _) =>
         {
-            if (focusField?.StartsWith("model:", StringComparison.Ordinal) == true && service.Engines.Find(focusField[6..]) is { } target)
-            { SelectRoute(target); engine.Focus(); }
+            if (focusField?.StartsWith("model:", StringComparison.Ordinal) == true && fileProfiles.FirstOrDefault(pack => pack.Engine.Id == focusField[6..]) is { } target)
+            { SelectFileProfile(target); models.Focus(); }
             else if (focusField == "key") sessionKey.Focus();
             else if (focusField == "server") url.Focus();
-            else if (page == 1) engine.Focus();
+            else if (page == 1) models.Focus();
             else if (page == 2) provider.Focus();
             else if (page == 5) imageConnection.ApiUrl.Focus();
         };
@@ -2066,12 +1498,12 @@ public static partial class AiDialogs
         // Bind the saved assignment to the actual model and keep the chosen workflow as its preferred route.
         // Opening an unrelated page must not silently replace a model that disappeared from the server.
         var modelFiles = models.Choices(settings.ComfyServerUrl);
-        foreach (var (operation, picker) in assignmentPickers)
+        foreach (var operation in DirectImageGenerator.Operations)
         {
             var key = operation.ToString();
             var routeId = taskDrafts.GetValueOrDefault(key) ?? settings.EngineForTask(operation);
             var route = service.Engines.Find(string.IsNullOrEmpty(routeId) ? defaultEngineId : routeId);
-            if (route?.Binding(operation) == null || routeId is { Length: > 0 } && route.Id != routeId) continue;
+            if (route == null || !ImageOperationModels.Supports(route, operation) || routeId is { Length: > 0 } && route.Id != routeId) continue;
             var selectedModel = service.Engines.ModelFor(route, operation, modelFiles);
             var oldModel = service.Engines.ModelFor(route, operation, settings.ComfyModelsFor(settings.ComfyServerUrl));
             var filesChanged = oldModel.ModelKey != selectedModel.ModelKey;
@@ -2082,7 +1514,7 @@ public static partial class AiDialogs
                 if (!settings.GenerationPresets.TryGetValue(modelScope, out var saved)) settings.GenerationPresets[modelScope] = saved = [];
                 foreach (var preset in legacy) saved.TryAdd(preset.Key, preset.Value);
             }
-            if (!settings.AiTaskModelKeys.ContainsKey(key) || filesChanged || changedAssignments.Contains(key) || (string.IsNullOrEmpty(routeId) && changedDefault))
+            if (!settings.AiTaskModelKeys.ContainsKey(key) || filesChanged || changedAssignments.Contains(key))
                 settings.AiTaskModelKeys[key] = selectedModel.ModelKey;
         }
         settings.AiModelRoutes = routeDrafts;
@@ -2105,11 +1537,6 @@ public static partial class AiDialogs
         settings.EnhancerCliModels = cliModels;
         imageConnection.Save(settings);
 
-        foreach (var (key, value) in changedGeneration)
-        {
-            settings.SetOperation(key.Engine, key.Task, value);
-        }
-        if (changedGeneration.Count > 0) settings.GenerationPresets = generationDraft.GenerationPresets;
         models.Save();
         if (editor != null && ReferenceEquals(editor.Settings, settings))
             editor.ApplyEditorArrangement(chosenLayout != initialSetup.Layout ? chosenLayout : null,
@@ -2118,7 +1545,8 @@ public static partial class AiDialogs
         return true;
     }
 
-    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill, AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null, bool deferSave = false)
+    public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill,
+        AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null, bool deferSave = false, bool? useAssigned = null)
     {
         var paid = service?.SelectedEngine?.PaidApi == true;
         var profile = initialProfile ?? settings.OperationFor(service?.SelectedEngine?.Id, task, paid);
@@ -2132,7 +1560,7 @@ public static partial class AiDialogs
         var modified = false;
         var editor = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         Func<AiOperationSettings> read;
-        editor.Content = GenerationFields(profile, service, task, paid, out read);
+        editor.Content = GenerationFields(profile, service, task, paid, useAssigned, out read);
         var list = new ComboBox { MinWidth = 165, PlaceholderText = Locale.T("Choose preset") };
         AiGenerationControls.StyleModelField(list, "Generation preset");
         var name = new TextBox { Width = 165, MaxLength = 70, PlaceholderText = Locale.T("Preset name") };
@@ -2160,7 +1588,7 @@ public static partial class AiDialogs
             delete.IsEnabled = list.SelectedItem is string;
             if (list.SelectedItem is not string key || !presets.TryGetValue(key, out var saved)) return;
             name.Text = key;
-            editor.Content = GenerationFields(saved with { AlignPixels = saved.AlignPixels ?? read().AlignPixels }, service, task, paid, out read);
+            editor.Content = GenerationFields(saved with { AlignPixels = saved.AlignPixels ?? read().AlignPixels }, service, task, paid, useAssigned, out read);
         };
         delete.IsEnabled = save.IsEnabled = false;
         name.TextChanged += (_, _) => save.IsEnabled = !string.IsNullOrWhiteSpace(name.Text);
@@ -2187,9 +1615,10 @@ public static partial class AiDialogs
         return true;
     }
 
-    private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, out Func<AiOperationSettings> read)
+    private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, bool? useAssigned,
+        out Func<AiOperationSettings> read)
     {
-        if (service?.ActiveWorkflow(task, service.SelectedEngine) is { } workflow)
+        if (service?.ActiveWorkflow(task, service.SelectedEngine, useAssigned) is { } workflow)
             return BoundGenerationFields(profile, workflow, out read);
         var align = new CheckBox { Content = Locale.T("Align pixels"), IsChecked = profile.AlignPixels ?? true };
         var mp = ClosestMegapixels(profile.Megapixels); var originalSize = profile.OriginalSize;
@@ -2299,36 +1728,17 @@ public static partial class AiDialogs
         void Refresh() => dimensions.Text = $"{width * (long)factor} × {height * (long)factor} px" + (selection ? " · fitted back into your selection" : " · resizes the canvas");
         var scale = Ui.Combo(new[] { 2, 4 }, factor, value => "×" + value, value => { factor = value; Refresh(); }, 100);
         Refresh();
-        var note = Ui.Label("", Palette.Secondary);
-        void EngineNote() => note.Text = engine?.Id.StartsWith("seedvr2", StringComparison.Ordinal) == true
-            ? "Official ComfyUI SeedVR2 workflow: the whole image in one run, one Euler/simple step. Only VAE uses the official 512 px tiles with 128 px overlap. ComfyUI manages memory; no extra Composa image tiles. Select its models in ComfyUI Settings."
-            : "Inference is tiled. A ×4 model still computes its native scale for a ×2 result; the input is not reduced, so source details are preserved. For lowest memory use a native ×2 model in ComfyUI Settings.";
-        EngineNote();
-        var models = service == null ? [] : UpscaleModels.Choices(service);
-        var savedModels = settings.ComfyModelsFor(settings.ComfyServerUrl);
-        var selected = models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == savedModels.GetValueOrDefault(choice.Slot.Key))
-            ?? models.FirstOrDefault(choice => choice.Engine.Id == engine?.Id && choice.Model == choice.Slot.Default) ?? models.FirstOrDefault();
-        if (selected != null) { engine = selected.Engine; EngineNote(); }
-        Control picker = directModel != null ? Ui.Label(directModel) : selected == null ? Ui.Label(Locale.T("Refresh Models on ComfyUI to read available upscale models.")) : Ui.Combo(models.ToArray(), selected,
-            choice => choice.ToString(), choice => { selected = choice; engine = choice.Engine; EngineNote(); }, 430);
-        if (picker is ComboBox upscaleModels) AiGenerationControls.StyleModelField(upscaleModels, "Upscale model");
-        if (directModel == null) Locale.Tip(picker, note);
-        note.MaxWidth = 450; note.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        var upscaleDialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", picker), ("Scale", scale)), dimensions), "Upscale") { CanAccept = selected != null || directModel != null };
-        if (!await upscaleDialog.Ask(owner)) return false;
-        if (selected != null)
-        {
-            var choices = new Dictionary<string, string>(savedModels, StringComparer.Ordinal) { [selected.Slot.Key] = selected.Model };
-            settings.SetComfyModels(settings.ComfyServerUrl, choices);
-        }
-        if (engine != null && directModel == null)
-        {
-            settings.AiTaskEngineIds[nameof(AiTaskKind.Upscale)] = engine.Id;
-            if (service != null) settings.AiTaskModelKeys[nameof(AiTaskKind.Upscale)] =
-                service.Engines.ModelFor(engine, AiTaskKind.Upscale, settings.ComfyModelsFor(settings.ComfyServerUrl)).ModelKey;
-        }
-        profile = settings.OperationFor(engine?.Id, AiTaskKind.Upscale, engine?.PaidApi == true);
-        settings.SetOperation(engine?.Id, AiTaskKind.Upscale, profile with { UpscaleFactor = factor }); settings.Save(); return true;
+        var model = directModel ?? (engine != null
+            ? service?.Engines.ModelFor(engine, AiTaskKind.Upscale, settings.ComfyModelsFor(settings.ComfyServerUrl)).Name ?? engine.DisplayName
+            : Locale.T("Choose an upscaler in Operations."));
+        var label = Ui.Label(model);
+        Locale.Tip(label, "Choose installed weights in Model files.");
+        var dialog = new DialogWindow("AI Upscale", Ui.Column(12, CanvasDialogs.Form(("Model", label), ("Scale", scale)), dimensions), "Upscale")
+        { CanAccept = directModel != null || engine?.Binding(AiTaskKind.Upscale) != null };
+        if (!await dialog.Ask(owner)) return false;
+        settings.SetOperation(engine?.Id, AiTaskKind.Upscale, profile with { UpscaleFactor = factor });
+        settings.Save();
+        return true;
     }
 
     public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null,

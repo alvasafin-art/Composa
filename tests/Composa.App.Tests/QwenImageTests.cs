@@ -379,7 +379,7 @@ public class QwenImageTests
     }
 
     [AvaloniaFact]
-    public async Task Model_settings_search_selects_Qwen_and_reports_masked_operation_readiness()
+    public async Task Model_files_search_selects_Qwen_and_shows_its_loader_fields()
     {
         var connection = new Connection { MissingAlignment = true };
         var settings = new Settings { ComfyServerUrl = connection.Address.ToString() };
@@ -398,12 +398,11 @@ public class QwenImageTests
             search.Focus();
             dialog.KeyPressQwerty(Avalonia.Input.PhysicalKey.Enter, Avalonia.Input.RawInputModifiers.None);
             Dispatcher.UIThread.RunJobs();
-            dialog.GetVisualDescendants().OfType<Button>().Single(button => button.GetVisualDescendants().OfType<TextBlock>()
-                .Any(label => label.Text == "edit.json")).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            Dispatcher.UIThread.RunJobs();
-            var operation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(b => b.Name == "ModelOperation");
-            operation.SelectedItem = AiTaskKind.GenerativeFill; Dispatcher.UIThread.RunJobs();
-            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), b => b.Text == "Ready");
+            var pages = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
+            Assert.Equal(1, pages.SelectedIndex);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), field =>
+                Avalonia.Automation.AutomationProperties.GetName(field) == Locale.T("Main model"));
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == "edit.json");
             Assert.True(Screenshots.Save(dialog, "studio2-model-readiness"));
             dialog.Close(false); Assert.False(await pending);
             Assert.Equal("flux2-klein-intel-xpu", service.SelectedEngine.Id);
@@ -441,20 +440,16 @@ public class QwenImageTests
             ClickText("Image Edit");
             Assert.Equal(6, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-01-operations-expanded-ru"));
-            Click("Run parameters ›");
-            Assert.Equal(8, pages.SelectedIndex);
-            Assert.True(Screenshots.Save(dialog, "studio-settings-04-operation-ru"));
-            Click("Open model ›");
+            Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), field => field.Name == "DefaultModelImageEdit");
+            ClickText("Model files");
             Assert.Equal(1, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-08-models-ru"));
-            Click("‹ Back");
-            Assert.Equal(8, pages.SelectedIndex);
-            Click("Open connection ›");
+            ClickText("Connections");
             Assert.Equal(0, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-06-connections-ru"));
-            Click("‹ Back");
-            Assert.Equal(8, pages.SelectedIndex);
-            Click("Prompt enhancer ›");
+            ClickText("Operations");
+            Assert.Equal(6, pages.SelectedIndex);
+            ClickText("Language model");
             Assert.Equal(2, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-05-prompt-ru"));
             Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, Locale.T("Test prompt")));
@@ -484,7 +479,7 @@ public class QwenImageTests
             Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("The ComfyUI server is unavailable."));
             Assert.Empty(connection.Graphs);
             Click("‹ Back");
-            Assert.Equal(8, pages.SelectedIndex);
+            Assert.Equal(6, pages.SelectedIndex);
             pages.SelectedIndex = 7;
             Assert.True(Screenshots.Save(dialog, "studio-settings-07-performance-ru"));
             dialog.Width = 1024;

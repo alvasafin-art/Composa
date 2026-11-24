@@ -11,23 +11,32 @@ public sealed class WorkflowPreferences
 {
     public Dictionary<string, SavedWorkflow> Workflows { get; init; } = [];
     public Dictionary<AiTaskKind, string> Assignments { get; init; } = [];
+    public Dictionary<AiTaskKind, string> AssignedEngines { get; init; } = [];
+    public HashSet<AiTaskKind> FactoryDefaults { get; init; } = [];
 
     internal static readonly AiTaskKind[] Operations = [AiTaskKind.GenerateImage, AiTaskKind.ImageEdit, AiTaskKind.GenerativeFill, AiTaskKind.GenerativeExpand];
 
-    internal WorkflowPreferences Copy() => new() { Workflows = new(Workflows), Assignments = new(Assignments) };
-
-    internal SavedWorkflow? Active(AiTaskKind task, string? engineId)
+    internal WorkflowPreferences Copy() => new()
     {
-        var id = ActiveId(task, engineId);
+        Workflows = new(Workflows), Assignments = new(Assignments), FactoryDefaults = new(FactoryDefaults),
+        AssignedEngines = new(AssignedEngines)
+    };
+
+    internal EngineProfile? AssignedEngine(EngineCatalog catalog, AiTaskKind task, EngineProfile? fallback) =>
+        AssignedEngines.TryGetValue(task, out var id) ? catalog.Profiles.FirstOrDefault(pack => pack.Id == id) ?? fallback : fallback;
+
+    internal SavedWorkflow? Active(AiTaskKind task, string? engineId, bool? useAssigned = null)
+    {
+        var id = ActiveId(task, engineId, useAssigned);
         if (id == null) return null;
         if (Workflows.TryGetValue(id, out var workflow)) return workflow;
         throw new InvalidDataException("The assigned workflow is missing. Choose a workflow in Settings → Workflows.");
     }
 
-    internal string? ActiveId(AiTaskKind task, string? engineId)
+    internal string? ActiveId(AiTaskKind task, string? engineId, bool? useAssigned = null)
     {
         if (!Operations.Contains(task)) return null;
-        if (Assignments.TryGetValue(task, out var assigned)) return assigned;
+        if ((useAssigned ?? !FactoryDefaults.Contains(task)) && Assignments.TryGetValue(task, out var assigned)) return assigned;
         if (engineId == null) return null;
         var factory = FactoryId(engineId, task);
         return Workflows.ContainsKey(factory) ? factory : null;

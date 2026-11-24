@@ -159,10 +159,7 @@ public class AiInteractionTests
             button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == "Generate Image"))
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
-        var connection = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.Contains("ComfyUI server"));
-        connection.SelectedItem = "ComfyUI server";
-        Dispatcher.UIThread.RunJobs();
-        var generation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Items.OfType<ImageModelChoice>().Any());
+        var generation = dialog.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Name == "DefaultModelGenerateImage");
         Assert.All(generation.Items.OfType<ImageModelChoice>(), model => Assert.NotNull(model.Engine.Binding(AiTaskKind.GenerateImage)));
         generation.SelectedItem = generation.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "flux2-klein-intel-xpu");
         Assert.True(Screenshots.Save(dialog,"ai-workflow-by-task"));
@@ -193,13 +190,14 @@ public class AiInteractionTests
     }
 
     [AvaloniaFact]
-    public async Task Making_a_default_model_updates_unassigned_operations_and_preserves_explicit_overrides()
+    public async Task Browsing_model_files_preserves_all_operation_defaults()
     {
         var owner = new MainWindow();
         owner.Show();
         try
         {
             var settings = new Settings();
+            var engine = owner.AiTasks.SelectedEngine!.Id;
             settings.AiTaskEngineIds[nameof(AiTaskKind.GenerateImage)] = "chatgpt-image-2.5";
             var pending = AiDialogs.SettingsDialog(owner, settings, owner.AiTasks, page: 1);
             var dialog = Assert.Single(owner.OwnedWindows);
@@ -209,16 +207,11 @@ public class AiInteractionTests
                 button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == qwen.ModelName))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
-            dialog.GetVisualDescendants().OfType<Button>().Single(button =>
-                button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == "generate.json"))
-                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Dispatcher.UIThread.RunJobs();
-            dialog.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Make default"))
-                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, "Make default"));
             dialog.Close(true);
             Assert.True(await pending);
-            Assert.Equal(qwen.Id, settings.AiEngineId);
-            Assert.Null(settings.EngineForTask(AiTaskKind.GenerativeFill));
+            Assert.Equal(engine, settings.AiEngineId);
+            Assert.Equal("flux2-klein-intel-xpu", settings.EngineForTask(AiTaskKind.GenerativeFill));
             Assert.Equal("chatgpt-image-2.5", settings.EngineForTask(AiTaskKind.GenerateImage));
         }
         finally { owner.Close(); }

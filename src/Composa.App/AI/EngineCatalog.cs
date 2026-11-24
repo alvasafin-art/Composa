@@ -100,9 +100,13 @@ public sealed class EngineCatalog
         .DistinctBy(slot => slot.Key).OrderBy(slot => slot.Kind).ThenBy(slot => slot.NodeId, StringComparer.Ordinal).ToArray();
 }
 
-internal sealed record ImageModelChoice(string Name, string Identifier, EngineProfile Engine)
+internal sealed record ImageModelChoice(string Name, string Identifier, EngineProfile Engine, DirectImageGenerator? Direct = null,
+    string? Connection = null, bool AssignedWorkflow = false, bool BuiltIn = false, bool Available = true)
 {
     public string ModelKey => (Engine.PaidApi ? "api:" : "server:") + Identifier.Replace('\\', '/');
+    internal ImageGenerationRoute Route => Direct?.Route ?? (BuiltIn ? ImageGenerationRoute.BuiltIn : ImageGenerationRoute.ComfyWorkflow);
+    internal string ConnectionLabel => Connection ?? (Engine.PaidApi ? "Comfy credits" : "ComfyUI server");
+    internal string SelectionKey => Direct != null ? $"{Route}:{Identifier}" : $"{Engine.Id}:{AssignedWorkflow}";
 }
 
 

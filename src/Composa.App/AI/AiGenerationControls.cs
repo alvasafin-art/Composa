@@ -96,14 +96,12 @@ internal static class AiGenerationControls
         Control Row(ImageModelChoice? model, bool details)
         {
             if (model == null) return new TextBlock();
-            var compact = model.Name.Split([" (", " · "], 2, StringSplitOptions.None)[0];
-            if (compact.StartsWith("GPT Image ", StringComparison.Ordinal)) compact = "GPT " + compact[10..];
-            var name = Ui.Label(details ? model.Name : compact, size: details ? null : 12);
+            var description = $"{Locale.T(model.Name)} · {Locale.T(model.ConnectionLabel)}";
+            if (!model.Available) description += " · " + Locale.T("Unavailable");
+            var name = Ui.Label(description, size: details ? null : 12);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
-            name.MaxWidth = details ? 310 : 155;
-            Locale.Tip(name, model.Name == model.Identifier ? model.Name : $"{model.Name}\n{model.Identifier}");
-            if (!details) return name;
-            return Ui.Column(3, name, Ui.Label(model.Engine.PaidApi ? "Comfy credits" : "ComfyUI server", Palette.Secondary, 11));
+            Locale.Tip(name, name.Text + (model.Name == model.Identifier ? "" : $"\n{model.Identifier}"));
+            return name;
         }
         picker.ItemsSource = models;
         picker.ItemTemplate = new FuncDataTemplate<ImageModelChoice>((item, _) => Row(item, true));

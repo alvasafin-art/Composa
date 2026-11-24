@@ -211,11 +211,14 @@ internal sealed class WorkflowSettingsPage
         if (refreshing) return;
         try
         {
-            if (id == null) draft.Assignments.Remove(task);
+            if (id == null) RemoveAssignment(task);
             else
             {
                 EditableWorkflows.Validate(draft.Workflows[id], task);
+                if (draft.Assignments.GetValueOrDefault(task) != id) draft.AssignedEngines.Remove(task);
                 draft.Assignments[task] = id;
+                if (factories.TryGetValue(id, out var factory)) draft.AssignedEngines[task] = factory.Engine.Id;
+                draft.FactoryDefaults.Remove(task);
             }
             message.Text = "";
             Changed?.Invoke();
@@ -241,8 +244,11 @@ internal sealed class WorkflowSettingsPage
                         && draft.Assignments.GetValueOrDefault(operation) != current))
             {
                 EditableWorkflows.Validate(workflow, operation);
+                var sourceEngine = factories.GetValueOrDefault(current).Engine;
                 current = Guid.NewGuid().ToString("N");
                 draft.Assignments[operation] = current;
+                if (sourceEngine != null) draft.AssignedEngines[operation] = sourceEngine.Id;
+                draft.FactoryDefaults.Remove(operation);
             }
             else if (!copy)
             {
@@ -269,7 +275,7 @@ internal sealed class WorkflowSettingsPage
         if (current == null || !factories.ContainsKey(current)) return;
         if (editingOperation is { } operation && draft.Assignments.GetValueOrDefault(operation) == current)
         {
-            draft.Assignments.Remove(operation);
+            RemoveAssignment(operation);
             Refresh();
             Load(current);
             message.Text = Locale.T("Factory workflow restored. Save settings to apply your changes.");
@@ -278,11 +284,18 @@ internal sealed class WorkflowSettingsPage
         }
         draft.Workflows.Remove(current);
         foreach (var task in draft.Assignments.Where(pair => pair.Value == current).Select(pair => pair.Key).ToArray())
-            draft.Assignments.Remove(task);
+            RemoveAssignment(task);
         Refresh();
         Load(current);
         message.Text = Locale.T("Factory workflow restored. Save settings to apply your changes.");
         Changed?.Invoke();
+    }
+
+    private void RemoveAssignment(AiTaskKind task)
+    {
+        draft.Assignments.Remove(task);
+        draft.FactoryDefaults.Remove(task);
+        draft.AssignedEngines.Remove(task);
     }
 
     private async Task ImportAsync()

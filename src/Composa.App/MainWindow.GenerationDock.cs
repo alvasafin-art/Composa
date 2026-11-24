@@ -87,7 +87,8 @@ public sealed partial class MainWindow
     private void RefreshGenerationDock()
     {
         var useDock = DockEditorVisible;
-        if (useDock != editorInDock)
+        var placementChanged = useDock != editorInDock;
+        if (placementChanged)
         {
             editorInDock = useDock;
             foreach (var (editor, floating, docked) in generationSlots)
@@ -113,7 +114,11 @@ public sealed partial class MainWindow
             }
         }
         var task = EditorTask;
-        if (presentedTask == task) return;
+        if (presentedTask == task)
+        {
+            if (placementChanged) RefreshEditorModels();
+            return;
+        }
         presentedTask = task;
         aiFloatingPrompt.Text = settings.AiPromptFor(task);
         dockOperationName.Text = DockTaskName(task);
@@ -157,25 +162,8 @@ public sealed partial class MainWindow
 
     private void AddGenerationConnectionMenu(MenuFlyout menu)
     {
-        var connection = new MenuItem { Header = Locale.T("Image generation connection") };
-        foreach (var route in DirectImageGenerator.Connections)
-        {
-            var item = new MenuItem { Header = Locale.T(DirectImageGenerator.RouteLabel(route)), ToggleType = MenuItemToggleType.Radio,
-                IsChecked = settings.ImageRouteFor(EditorTask) == route };
-            menu.Opening += (_, _) => { item.IsChecked = settings.ImageRouteFor(EditorTask) == route; };
-            item.Click += (_, _) =>
-            {
-                settings.ImageOperationRoutes[EditorTask] = route;
-                settings.Save();
-                RefreshEditorModels();
-                RefreshAiUi();
-            };
-            connection.Items.Add(item);
-        }
-        connection.Items.Add(new Separator());
         var configure = new MenuItem { Header = Locale.T("Connection settings…") };
-        configure.Click += (_, _) => _ = ShowAiSettings(AiDialogs.ConnectionPageFor(settings.ImageRouteFor(EditorTask)));
-        connection.Items.Add(configure);
-        menu.Items.Add(connection);
+        configure.Click += (_, _) => _ = ShowAiSettings(AiDialogs.ConnectionPageFor(PanelRoute(EditorTask)));
+        menu.Items.Add(configure);
     }
 }

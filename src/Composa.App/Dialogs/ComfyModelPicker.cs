@@ -14,13 +14,7 @@ public sealed class ComfyModelPicker : StackPanel
     private readonly Dictionary<string, Dictionary<string, string>> drafts = new(StringComparer.Ordinal);
     private readonly HashSet<string> changed = new(StringComparer.Ordinal);
     public event Action? ChoicesChanged;
-    private AiTaskKind? operation;
-    public void SetOperation(AiTaskKind? value)
-    {
-        if (operation == value) return;
-        operation = value;
-        Refresh();
-    }
+    private AiTaskKind? tool;
     private sealed record Option(string? Name, string Label) { public override string ToString() => Label; }
 
     public ComfyModelPicker(Settings settings, AiTaskService service, Func<string> serverUrl)
@@ -44,6 +38,17 @@ public sealed class ComfyModelPicker : StackPanel
         foreach (var url in changed) settings.SetComfyModels(url, drafts[url]);
     }
 
+    internal void ShowFilesFor(EngineProfile engine, AiTaskKind? task)
+    {
+        service.SelectedEngine = engine;
+        tool = task;
+        Refresh();
+    }
+
+    internal static IEnumerable<WorkflowModelSlot> FileSlots(EngineCatalog catalog, EngineProfile engine, AiTaskKind? tool) =>
+        tool == null ? catalog.ModelSlots(engine).Where(slot => slot.Kind is not (EngineAssetKind.Upscaler or EngineAssetKind.BackgroundRemoval))
+            : WorkflowModels.Slots(catalog.ReadWorkflow(engine, EngineCatalog.WorkflowFor(engine, tool.Value)), engine.Id);
+
     public void Refresh()
     {
         Children.Clear();
@@ -54,7 +59,8 @@ public sealed class ComfyModelPicker : StackPanel
         var connected = service.ConnectedServerUrl == address && service.ConnectionState == ComfyConnectionState.Connected;
         var fields = new List<Control>
         {
-            StudioSettingsLayout.Field("Connection", new TextBox { Text = address, IsReadOnly = true })
+            StudioSettingsLayout.SetupField("Connection", StudioSettingsLayout.SetupInput(
+                Ui.Combo(new[] { address }, address, value => value, _ => { }, double.NaN)))
         };
         if (service.SelectedEngine is { PaidApi: true } api)
         {
@@ -65,50 +71,42 @@ public sealed class ComfyModelPicker : StackPanel
         WorkflowModelSlot[] slots;
         try
         {
-            var scoped = operation is { } task && engine.Binding(task) != null ? EngineCatalog.WorkflowFor(engine, task) : null;
-            slots = engine.PaidApi ? [] : scoped == null ? service.Engines.ModelSlots(engine).ToArray()
-                : WorkflowModels.Slots(service.Engines.ReadWorkflow(engine, scoped), engine.Id).ToArray();
+            slots = engine.PaidApi ? [] : FileSlots(service.Engines, engine, tool).ToArray();
         }
         catch (Exception error) when (error is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException)
         {
             Children.Add(Note(error.Message));
             return;
         }
-        foreach (var slot in slots)
+        foreach (var group in slots.GroupBy(slot => (slot.LoaderKey, slot.Default)))
         {
+            var slot = group.First();
             var available = connected ? service.ServerCapabilities?.ModelChoices.GetValueOrDefault(slot.LoaderKey) : null;
             if (available != null) available = new HashSet<string>(UpscaleModels.Available(slot, available)
                 .Where(name => !WorkflowModels.IsKnownIncompatible(slot, name)), StringComparer.Ordinal);
             var workflowValue = available == null ? null : WorkflowModels.ResolveSlot(slot, slot.Default, available);
-            choices.TryGetValue(slot.Key, out var saved);
+            var saved = group.Select(item => choices.GetValueOrDefault(item.Key)).FirstOrDefault(value => value != null);
             var options = new List<Option> { new(null, workflowValue ?? slot.Default) };
-            options.AddRange((available ?? []).Where(name => name != workflowValue || name == saved)
-                .Order(StringComparer.OrdinalIgnoreCase).Select(name => new Option(name, name)));
+            options.AddRange((available ?? []).Order(StringComparer.OrdinalIgnoreCase).Select(name => new Option(name, name)));
             if (saved != null && !options.Any(option => option.Name == saved))
                 options.Add(new(saved, (available != null && WorkflowModels.Resolve(saved, available) != null ? "Saved · " : "Unavailable · ") + saved));
             var backendAvailable = !slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal)
                 || service.Engines.Find(slot.EngineId)!.RequiredNodeTypes.All(type => service.ServerCapabilities?.NodeTypes.Contains(type) == true);
             var combo = new ComboBox { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
                 ItemsSource = options, SelectedItem = options.First(option => option.Name == saved), IsEnabled = connected && available?.Count > 0 && backendAvailable };
-            AiGenerationControls.StyleModelField(combo, slot.Label);
-            combo.Height = double.NaN;
-            combo.MinHeight = 34;
+            StudioSettingsLayout.SetupInput(combo);
             combo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<Option>((option, _) =>
-                new TextBlock { Text = option?.Label, TextWrapping = TextWrapping.Wrap });
-            combo.SelectionBoxItemTemplate = combo.ItemTemplate;
+                FileLabel(option?.Name == null && option != null ? option.Label + " · " + Locale.T("Automatic") : option?.Label));
+            combo.SelectionBoxItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<Option>((option, _) => FileLabel(option?.Label));
             Locale.Tip(combo, slot.NodeType + "." + slot.Input + " · node " + slot.NodeId);
             var hint = Note("");
-            var origin = StudioSettingsLayout.Caption("");
-            var reset = Ui.TextButton("Use workflow value", () => combo.SelectedIndex = 0);
             void Hint()
             {
                 var selected = (combo.SelectedItem as Option)?.Name ?? slot.Default;
-                reset.IsVisible = (combo.SelectedItem as Option)?.Name != null;
-                origin.Text = Locale.T(reset.IsVisible ? "Set in Composa" : "From workflow");
                 var resolved = available == null ? null : WorkflowModels.ResolveSlot(slot, selected, available);
                 hint.Text = Locale.Message(!connected ? "Not connected to this server." : !backendAvailable ? "This SeedVR2 backend is not installed on the server." : available == null
                     ? (service.ServerCapabilities!.NodeTypes.Contains(slot.NodeType) ? "This loader does not report a model list." : "Missing node: " + slot.NodeType)
-                    : resolved == null ? "Not found or ambiguous. Choose a model above; files must match this workflow's architecture."
+                    : resolved == null ? $"Unavailable file: {selected} ({slot.LoaderKey})"
                     : "Server model: " + resolved);
                 hint.IsVisible = connected && resolved == null;
                 Locale.Tip(combo, hint.Text);
@@ -116,21 +114,22 @@ public sealed class ComfyModelPicker : StackPanel
             }
             combo.SelectionChanged += (_, _) =>
             {
-                if (combo.SelectedItem is Option { Name: { } name }) choices[slot.Key] = name;
-                else choices.Remove(slot.Key);
+                foreach (var component in group)
+                    if (combo.SelectedItem is Option { Name: { } name }) choices[component.Key] = name;
+                    else choices.Remove(component.Key);
                 changed.Add(address);
                 Hint();
                 ChoicesChanged?.Invoke();
             };
             Hint();
             var label = slot.Kind == EngineAssetKind.DiffusionModel ? "Main model" : slot.Label;
-            fields.Add(Ui.Column(4, StudioSettingsLayout.Caption((slot.EngineId.StartsWith("seedvr2", StringComparison.Ordinal)
-                ? service.Engines.Find(slot.EngineId)!.DisplayName + " · " : "") + label +
-                (slots.Count(other => other.Kind == slot.Kind) > 1 ? " · " + slot.NodeId : "")),
-                StudioSettingsLayout.Columns("*,Auto", combo, reset), origin, hint));
+            fields.Add(Ui.Column(4, StudioSettingsLayout.SetupField(label +
+                (slots.Count(other => other.Kind == slot.Kind && (other.LoaderKey != slot.LoaderKey || other.Default != slot.Default)) > 0
+                    ? " · " + slot.NodeId : ""), combo), hint));
         }
-        foreach (var row in fields.Chunk(2)) Children.Add(StudioSettingsLayout.Columns("*,*", row));
+        foreach (var row in fields.Chunk(2)) Children.Add(StudioSettingsLayout.SetupColumns(row));
     }
 
     private static TextBlock Note(string text) => new() { Text = text, MaxWidth = 430, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Secondary };
+    private static TextBlock FileLabel(string? text) => new() { Text = text, TextTrimming = TextTrimming.CharacterEllipsis };
 }

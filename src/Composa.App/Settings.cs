@@ -149,6 +149,7 @@ public sealed class Settings
     public string ImageApiDisplayName { get; set; } = "";
     public Dictionary<Composa.AI.AiTaskKind, string> ImageOperationApiModels { get; set; } = [];
     public Dictionary<string, Dictionary<string, string>> ImageApiCatalogs { get; set; } = [];
+    public Dictionary<string, HashSet<string>> ImageApiGenerationOnly { get; set; } = [];
     public Dictionary<string, string> EnhancerServerModels { get; set; } = [];
     public Dictionary<string, List<string>> EnhancerCliModels { get; set; } = [];
     public string EnhancerServerApiUrl { get; set; } = "";
@@ -296,6 +297,7 @@ public sealed class Settings
         if (value.Language is not ("en" or "ru")) value.Language = "en";
         value.ImageOperationApiModels ??= [];
         value.ImageApiCatalogs ??= [];
+        value.ImageApiGenerationOnly ??= [];
         value.EnhancerApiCatalogs ??= [];
         value.EnhancerCliModels ??= [];
         value.EraserPresets ??= [];
