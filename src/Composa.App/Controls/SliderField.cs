@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.VisualTree;
 using Avalonia.Layout;
@@ -34,9 +35,8 @@ public sealed class SliderField : Control
     private const double TrackRestOpacity = 0.3, TrackFillOpacity = 0.85;
     private const double ResetWidth = 48, ResetMargin = 3;
 
-    private readonly TextBox editor;
-    private readonly Border resetButton;
-    private readonly TextBlock resetText;
+    private TextBox? editor;
+    private Border? resetButton;
     private IReadOnlyList<Color>? track;
     private LinearGradientBrush? trackBrush;
     private double? reset;
@@ -61,23 +61,6 @@ public sealed class SliderField : Control
         Focusable = true;
         Cursor = new Cursor(StandardCursorType.SizeWestEast);
         VerticalAlignment = VerticalAlignment.Center;
-        editor = new TextBox
-        {
-            IsVisible = false, TextAlignment = TextAlignment.Right, MinHeight = 0, Padding = new Thickness(6, 0), FontSize = 12.5,
-            VerticalContentAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(4)
-        };
-        editor.KeyDown += OnEditorKeyDown;
-        editor.LostFocus += (_, _) => { if (editing) CommitEdit(); };
-        VisualChildren.Add(editor);
-        LogicalChildren.Add(editor);
-        // Not focusable, so pressing it leaves the editor focused until the reset has closed it on purpose.
-        resetText = new TextBlock { Text = Locale.T("Reset"), FontSize = 11.5, Foreground = Palette.Secondary, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        resetButton = new Border { IsVisible = false, Background = Palette.PanelRaised, CornerRadius = new CornerRadius(3), Child = resetText, Cursor = new Cursor(StandardCursorType.Hand), Focusable = false };
-        resetButton.PointerEntered += (_, _) => resetText.Foreground = Palette.Foreground;
-        resetButton.PointerExited += (_, _) => resetText.Foreground = Palette.Secondary;
-        resetButton.PointerPressed += OnResetPressed;
-        VisualChildren.Add(resetButton);
-        LogicalChildren.Add(resetButton);
         Locale.Tip(this, BuildTip());
         ToolTip.SetShowDelay(this, 450);
     }
@@ -126,14 +109,15 @@ public sealed class SliderField : Control
         get => reset;
         set
         {
+            if (reset == value) return;
             reset = value;
             Locale.Tip(this, BuildTip());
-            if (editing) { resetButton.IsVisible = value != null; InvalidateArrange(); }
+            if (editing) UpdateResetButton();
         }
     }
 
     /// <summary>True while the editor is open with its Reset button showing.</summary>
-    public bool IsResetVisible => resetButton.IsVisible;
+    public bool IsResetVisible => resetButton?.IsVisible == true;
 
     /// <summary>The current value. Setting it from code updates the drawing and any open editor without raising <see cref="Changed"/>.</summary>
     public double Value
@@ -144,7 +128,7 @@ public sealed class SliderField : Control
             var snapped = Snap(value);
             if (snapped == this.value) return;
             this.value = snapped;
-            if (editing) editor.Text = Text;
+            if (editing) editor!.Text = Text;
             InvalidateVisual();
         }
     }
@@ -165,7 +149,12 @@ public sealed class SliderField : Control
     /// <summary>Moves the value by whole steps, as the wheel and the arrow keys do.</summary>
     public void Nudge(int steps) => SetFromUser(value + steps * step);
 
-    private Control BuildTip()
+    private Control BuildTip() => new ContentControl
+    {
+        Template = new FuncControlTemplate<ContentControl>((_, _) => BuildTipGrid())
+    };
+
+    private Control BuildTipGrid()
     {
         var unit = step.ToString(format == "0" && step != Math.Floor(step) ? "0.##" : format, System.Globalization.CultureInfo.CurrentCulture);
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"), ColumnSpacing = 10, RowSpacing = 2 };
@@ -187,18 +176,18 @@ public sealed class SliderField : Control
     protected override Size MeasureOverride(Size availableSize)
     {
         labelIcon?.Measure(availableSize);
-        editor.Measure(availableSize);
-        resetButton.Measure(availableSize);
+        editor?.Measure(availableSize);
+        resetButton?.Measure(availableSize);
         return new Size(double.IsFinite(availableSize.Width) ? availableSize.Width : 0, double.IsFinite(availableSize.Height) ? availableSize.Height : DefaultHeight);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
         // The Reset button takes the left of the box while it shows; the editor has the rest.
-        var left = resetButton.IsVisible ? ResetWidth + ResetMargin * 2 : 0;
-        resetButton.Arrange(new Rect(ResetMargin, ResetMargin, ResetWidth, Math.Max(0, finalSize.Height - ResetMargin * 2)));
+        var left = IsResetVisible ? ResetWidth + ResetMargin * 2 : 0;
+        resetButton?.Arrange(new Rect(ResetMargin, ResetMargin, ResetWidth, Math.Max(0, finalSize.Height - ResetMargin * 2)));
         labelIcon?.Arrange(new Rect(8, (finalSize.Height - 16) / 2, 16, 16));
-        editor.Arrange(new Rect(left, 0, Math.Max(0, finalSize.Width - left), finalSize.Height));
+        editor?.Arrange(new Rect(left, 0, Math.Max(0, finalSize.Width - left), finalSize.Height));
         return finalSize;
     }
 
@@ -360,16 +349,50 @@ public sealed class SliderField : Control
     public void BeginEdit()
     {
         if (editing) return;
+        editor ??= CreateEditor();
         editing = true;
         if (labelIcon != null) labelIcon.IsVisible = false;
         ToolTip.SetIsOpen(this, false);
         editor.Text = Text;
         editor.IsVisible = true;
-        resetButton.IsVisible = reset != null;
-        InvalidateArrange();
+        UpdateResetButton();
         editor.Focus();
         editor.SelectAll();
         InvalidateVisual();
+    }
+
+    private TextBox CreateEditor()
+    {
+        var box = new TextBox
+        {
+            IsVisible = false, TextAlignment = TextAlignment.Right, MinHeight = 0, Padding = new Thickness(6, 0), FontSize = 12.5,
+            VerticalContentAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(4)
+        };
+        box.KeyDown += OnEditorKeyDown;
+        box.LostFocus += (_, _) => { if (editing) CommitEdit(); };
+        VisualChildren.Add(box);
+        LogicalChildren.Add(box);
+        return box;
+    }
+
+    private void UpdateResetButton()
+    {
+        if (reset != null) resetButton ??= CreateResetButton();
+        if (resetButton != null) resetButton.IsVisible = reset != null;
+        InvalidateArrange();
+    }
+
+    private Border CreateResetButton()
+    {
+        var text = new TextBlock { Text = Locale.T("Reset"), FontSize = 11.5, Foreground = Palette.Secondary, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        // Pressing Reset keeps focus in the editor until the button closes it.
+        var button = new Border { Background = Palette.PanelRaised, CornerRadius = new CornerRadius(3), Child = text, Cursor = new Cursor(StandardCursorType.Hand), Focusable = false };
+        button.PointerEntered += (_, _) => text.Foreground = Palette.Foreground;
+        button.PointerExited += (_, _) => text.Foreground = Palette.Secondary;
+        button.PointerPressed += OnResetPressed;
+        VisualChildren.Add(button);
+        LogicalChildren.Add(button);
+        return button;
     }
 
     private void OnResetPressed(object? sender, PointerPressedEventArgs e)
@@ -390,7 +413,7 @@ public sealed class SliderField : Control
     private void CommitEdit()
     {
         if (!editing) return;
-        var typed = double.TryParse(editor.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var parsed)
+        var typed = double.TryParse(editor!.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var parsed)
             || double.TryParse(editor.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out parsed);
         EndEdit();
         if (typed) SetFromUser(parsed);
@@ -406,8 +429,8 @@ public sealed class SliderField : Control
     {
         editing = false;
         if (labelIcon != null) labelIcon.IsVisible = true;
-        editor.IsVisible = false;
-        resetButton.IsVisible = false;
+        editor!.IsVisible = false;
+        if (resetButton != null) resetButton.IsVisible = false;
         if (editor.IsFocused) Focus();
         InvalidateVisual();
     }

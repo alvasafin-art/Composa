@@ -39,12 +39,18 @@ public sealed partial class CanvasView : Decorator
     private const int FullDetailPoints = 20_000;
     private bool outlineComplex;
     private (SKPath Path, int Block)? antsLevel;
+    private (SKPath Source, SelectionOutlineBatches? Batches)? antsBatches;
 
     // What is on screen, rendered straight from the layers at screen resolution. Its cost follows the window size,
     // not the document size, which keeps 24-megapixel documents as responsive as small ones.
     private SKBitmap? viewCache;
     private (float Scale, SKPoint Origin, int Width, int Height) viewKey;
     private SKRectI viewDirty;
+    private EditorSession.VisibilityChange? pendingVisibility;
+    private Guid? lastVisibilityLayer;
+    private (Guid Id, bool Visible, SKBitmap Bitmap)? alternateVisibility;
+    private const long MaxAlternateVisibilityBytes = 16 * 1024 * 1024;
+    private bool viewHasFullBands;
     private bool viewStale = true;
     private RgbProfile displayProfile = RgbProfile.Srgb;
     public RgbProfile DisplayProfile
@@ -54,7 +60,7 @@ public sealed partial class CanvasView : Decorator
         {
             ArgumentNullException.ThrowIfNull(value);
             if (displayProfile.Equals(value)) return;
-            displayProfile = value; viewCache = null; viewStale = true; InvalidateCanvas();
+            displayProfile = value; viewCache = null; viewStale = true; ClearVisibilityFrames(); InvalidateCanvas();
         }
     }
 
@@ -129,7 +135,7 @@ public sealed partial class CanvasView : Decorator
             {
                 CancelInteraction();
                 FinishPen(); penSelectedLayer = null; penSelectedNode = -1; EditVectorMask = false;
-                session.CanvasChanged -= OnCanvasChanged;
+                session.ViewportInvalidated -= OnCanvasChanged;
                 session.SelectionChanged -= OnSelectionChanged;
                 session.ColorRangeChanged -= OnColorRangeChanged;
                 session.LayersChanged -= OnLayersChanged;
@@ -139,7 +145,7 @@ public sealed partial class CanvasView : Decorator
             observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
             if (session != null)
             {
-                session.CanvasChanged += OnCanvasChanged;
+                session.ViewportInvalidated += OnCanvasChanged;
                 session.SelectionChanged += OnSelectionChanged;
                 session.ColorRangeChanged += OnColorRangeChanged;
                 session.LayersChanged += OnLayersChanged;
@@ -148,16 +154,18 @@ public sealed partial class CanvasView : Decorator
             cropRect = null;
             spaceDown = false;
             outlinedSelection = null;
+            antsBatches = null;
             outlineStale = true;
             fitPending = true;
             viewStale = true;
+            ClearVisibilityFrames();
             UpdateCursor();
             InvalidateCanvas();
             ViewChanged?.Invoke();
         }
     }
 
-    private void OnCanvasChanged(SKRectI? area)
+    private void OnCanvasChanged(SKRectI? area, EditorSession.VisibilityChange? visibility)
     {
         if (session != null && observedCanvasSize != (session.Document.Width, session.Document.Height))
         {
@@ -170,17 +178,33 @@ public sealed partial class CanvasView : Decorator
                 ToolStateChanged?.Invoke();
             }
         }
-        if (area is { } changed && !viewStale)
+        if (visibility != null && !viewStale && viewDirty.IsEmpty && viewHasFullBands && pendingVisibility == null)
         {
+            pendingVisibility = visibility;
+        }
+        else if (area is { } changed && !viewStale && pendingVisibility == null)
+        {
+            ClearVisibilityFrames();
             var (scale, shown, _, _) = viewKey;
             var mapped = new SKRectI(
                 (int)Math.Floor((changed.Left - shown.X) * scale) - 1, (int)Math.Floor((changed.Top - shown.Y) * scale) - 1,
                 (int)Math.Ceiling((changed.Right - shown.X) * scale) + 1, (int)Math.Ceiling((changed.Bottom - shown.Y) * scale) + 1);
             viewDirty = Geometry.Union(viewDirty, mapped);
         }
-        else viewStale = true;
+        else
+        {
+            viewStale = true;
+            ClearVisibilityFrames();
+        }
         InvalidateCanvas();
         if (area == null) ViewChanged?.Invoke();
+    }
+
+    private void ClearVisibilityFrames()
+    {
+        pendingVisibility = null;
+        lastVisibilityLayer = null;
+        alternateVisibility = null;
     }
 
     /// <summary>Color Range opening or closing changes what a click does, so the cursor says so.</summary>
@@ -369,6 +393,7 @@ public sealed partial class CanvasView : Decorator
             selectionOutline = outlinedSelection != null ? SelectionMask.Outline(outlinedSelection) : null;
             outlineComplex = selectionOutline?.PointCount > FullDetailPoints;
             antsLevel = null;
+            antsBatches = null;
             outlineStale = false;
         }
         // Everything the render thread needs is captured here, on the UI thread.
@@ -383,6 +408,8 @@ public sealed partial class CanvasView : Decorator
         var nearest = zoom >= 1;
         // While the selection is being dragged, the overlay draws it at its new place; the outline it left behind stays hidden.
         var outline = drag == Drag.MoveSelection ? null : AntsOutline();
+        // Reduced views expose more contours at once. Live brush previews also change before batches can be reused.
+        var batches = zoom >= 1 && !session.IsPaintingSelection ? OutlineBatches(outline) : null;
         var phase = antsPhase;
         var scaling = (float)Scaling;
 
@@ -416,7 +443,7 @@ public sealed partial class CanvasView : Decorator
             CanvasPerformanceTrace.StageCompleted("canvas image draw", displaying);
 #endif
             if (grid) DrawPixelGrid(canvas, view, documentRect, new SKRect(0, 0, (float)size.Width, (float)size.Height));
-            if (outline != null) DrawAnts(canvas, outline, view, phase, scaling);
+            if (outline != null) DrawAnts(canvas, outline, view, phase, scaling, batches);
             overlay?.Invoke(canvas);
             rulers?.Invoke(canvas);
 #if CANVAS_PERFORMANCE
@@ -456,7 +483,7 @@ public sealed partial class CanvasView : Decorator
             // Dirty events are mapped into this entire rectangle, including its offscreen border.
             var cached = SKRectI.Create((int)viewKey.Origin.X, (int)viewKey.Origin.Y, viewKey.Width, viewKey.Height);
             var backing = shown;
-            if (!viewStale && viewKey.Scale == 1)
+            if (!viewStale && pendingVisibility == null && viewKey.Scale == 1)
             {
                 if (cached.Contains(shown)) backing = cached;
                 else
@@ -493,16 +520,54 @@ public sealed partial class CanvasView : Decorator
         }
         var key = (scale, viewOrigin, width, height);
         var whole = new SKRectI(0, 0, width, height);
+        if (viewStale || key != viewKey) ClearVisibilityFrames();
         var dirty = viewStale || key != viewKey ? whole : Geometry.Intersect(viewDirty, whole);
+        var changedVisibility = pendingVisibility;
         viewKey = key;
         viewStale = false;
         viewDirty = SKRectI.Empty;
-        if (!dirty.IsEmpty)
+        pendingVisibility = null;
+        if (!dirty.IsEmpty || changedVisibility != null)
         {
 #if CANVAS_PERFORMANCE
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-            session.RenderView(viewCache, dirty, new RenderView(scale, viewOrigin));
+            var mapping = new RenderView(scale, viewOrigin);
+            if (changedVisibility is { } change)
+            {
+                if (!session.CanRetainVisibilityBands(mapping))
+                {
+                    ClearVisibilityFrames();
+                    dirty = whole;
+                }
+                else if (alternateVisibility is { } alternate && alternate.Id == change.LayerId && alternate.Visible == change.Visible)
+                {
+                    alternateVisibility = (change.LayerId, !change.Visible, viewCache);
+                    viewCache = alternate.Bitmap;
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("cached visibility frame", started);
+#endif
+                }
+                else
+                {
+                    alternateVisibility = null;
+                    // Keep one alternate frame after the user toggles the same layer again. Each frame
+                    // stays on its own bitmap so a compositor still borrowing it can finish drawing it.
+                    if (lastVisibilityLayer == change.LayerId && (long)viewCache.RowBytes * viewCache.Height <= MaxAlternateVisibilityBytes)
+                    {
+                        alternateVisibility = (change.LayerId, !change.Visible, viewCache);
+                        viewCache = Pixels.Clone(viewCache);
+                    }
+                    if (change.Bounds is not { } bounds || !session.TryRefreshVisibilityBands(viewCache, whole, mapping, bounds))
+                        dirty = whole;
+                    lastVisibilityLayer = change.LayerId;
+                }
+            }
+            if (!dirty.IsEmpty)
+            {
+                viewHasFullBands = dirty == whole && session.CanRetainVisibilityBands(mapping);
+                session.RenderView(viewCache, dirty, mapping);
+            }
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.StageCompleted("canvas composite", started);
 #endif
@@ -589,17 +654,23 @@ public sealed partial class CanvasView : Decorator
         }
     }
 
-    internal static void DrawAnts(SKCanvas canvas, SKPath documentPath, SKMatrix view, float phase, float scaling)
+    internal static void DrawAnts(SKCanvas canvas, SKPath documentPath, SKMatrix view, float phase, float scaling, SelectionOutlineBatches? batches = null)
     {
-        using var path = new SKPath();
-        documentPath.Transform(in view, path);
         var width = 1f / scaling;
+        using var dash = SKPathEffect.CreateDash([4, 4], phase);
         using var white = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = width, IsAntialias = false };
         using var black = new SKPaint
         {
             Color = SKColors.Black, Style = SKPaintStyle.Stroke, StrokeWidth = width, IsAntialias = false,
-            PathEffect = SKPathEffect.CreateDash([4, 4], phase)
+            PathEffect = dash
         };
+        if (batches != null)
+        {
+            batches.Draw(canvas, view, white, black);
+            return;
+        }
+        using var path = new SKPath();
+        documentPath.Transform(in view, path);
         canvas.DrawPath(path, white);
         canvas.DrawPath(path, black);
     }

@@ -112,6 +112,8 @@ public class LayersPanelInputTests
         Assert.NotSame(top, restored);
         Assert.Same(same, Rows().Single(row => row.Tag == restored));
         Click(same, 16);
+        PumpLayout();
+        Assert.Same(same, Rows().Single(row => row.Tag == restored));
         Assert.False(restored.Visible);
         Assert.True(top.Visible);
 

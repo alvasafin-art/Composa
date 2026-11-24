@@ -358,10 +358,30 @@ public sealed class Settings
     }
 
     private bool recoveredPreferences;
+    private readonly object saveGate = new();
+    private long saveVersion;
 
     public void Save()
     {
         if (Persist) SaveTo(FilePath);
+    }
+
+    internal void SaveInBackground()
+    {
+        if (Persist) _ = SaveInBackgroundTo(FilePath);
+    }
+
+    internal Task SaveInBackgroundTo(string path)
+    {
+        // Capture mutable preferences on the calling thread. Skip any queued snapshot
+        // superseded by a newer request, including the synchronous save on window close.
+        var json = JsonSerializer.Serialize(this, PreferencesJson);
+        var version = Interlocked.Increment(ref saveVersion);
+        return Task.Run(() =>
+        {
+            lock (saveGate)
+                if (version == Volatile.Read(ref saveVersion)) WritePreferences(path, json);
+        });
     }
 
     internal void SaveWithWorkflows(AI.WorkflowPreferences workflows)
@@ -375,11 +395,18 @@ public sealed class Settings
 
     internal bool SaveTo(string path)
     {
+        var json = JsonSerializer.Serialize(this, PreferencesJson);
+        Interlocked.Increment(ref saveVersion);
+        lock (saveGate) return WritePreferences(path, json);
+    }
+
+    private bool WritePreferences(string path, string json)
+    {
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(temp, JsonSerializer.Serialize(this, PreferencesJson));
+            File.WriteAllText(temp, json);
             if (File.Exists(path) && !recoveredPreferences) File.Replace(temp, path, path + ".bak");
             else File.Move(temp, path, true);
             recoveredPreferences = false;

@@ -105,7 +105,7 @@ public sealed partial class EditorSession
         var copy = original.Clone();
         ReplaceTextAppearance(copy, style, pixels);
         fontSample = copy;
-        CanvasChanged?.Invoke(Geometry.Union(AffectedArea(original), AffectedArea(copy)));
+        NotifyCanvasChanged(Geometry.Union(AffectedArea(original), AffectedArea(copy)));
     }
 
     public void ClearFontSample()
@@ -114,7 +114,7 @@ public sealed partial class EditorSession
         fontSample = null;
         var area = AffectedArea(sample);
         if (document.Find(sample.Id) is {} live) area = Geometry.Union(area, AffectedArea(live));
-        CanvasChanged?.Invoke(area);
+        NotifyCanvasChanged(area);
         if (sample.Pixels is {} pixels) { Pixels.Invalidate(pixels); pixels.Dispose(); }
     }
 

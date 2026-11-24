@@ -915,7 +915,7 @@ public sealed partial class MainWindow : Window
         problem = note = null;
         ShowTool(session.Tool);
         canvas.ToolChanged();
-        RebuildOptions();
+        RebuildOptions(updateLayout: false);
         UpdateStatus();
         // The Move bar has a second row. Settle the viewport before the next pointer event maps its coordinates.
         UpdateLayout();
@@ -935,7 +935,7 @@ public sealed partial class MainWindow : Window
             button.Refresh();
         }
         RememberToolPalette();
-        settings.Save();
+        settings.SaveInBackground();
     }
 
     private void RememberToolPalette()

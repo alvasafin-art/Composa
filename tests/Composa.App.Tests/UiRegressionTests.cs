@@ -211,6 +211,62 @@ public class UiRegressionTests
     }
 
     [AvaloniaFact]
+    public void Repeated_visibility_frames_are_discarded_after_an_edit_or_a_view_change()
+    {
+        var session = EditorSession.NewCanvas(1100, 800, SKColors.White);
+        var background = session.ActiveLayer!;
+        var pixels = Rendering.Pixels.NewColor(120, 110);
+        pixels.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("Overlay", pixels, fit: false);
+        var canvas = new CanvasView { Session = session };
+        var window = new Window { Width = 840, Height = 630, Content = canvas };
+        window.Show();
+        try
+        {
+            var shown = Frame();
+            session.SetVisible(layer, false);
+            var hidden = Frame();
+            Assert.False(shown.AsSpan().SequenceEqual(hidden));
+            foreach (var visible in new[] { true, false, true })
+            {
+                session.SetVisible(layer, visible);
+                Assert.True(Frame().AsSpan().SequenceEqual(visible ? shown : hidden));
+            }
+
+            session.SelectLayer(background.Id);
+            session.Fill(SKColors.MediumPurple);
+            session.SetVisible(layer, false);
+            AssertFreshFrame();
+            session.SetVisible(layer, true); Frame();
+            session.SetVisible(layer, false); Frame();
+            canvas.ZoomTo(1.1); Frame();
+            session.SetVisible(layer, true);
+            AssertFreshFrame();
+            session.Undo();
+            AssertFreshFrame();
+        }
+        finally { window.Close(); }
+
+        byte[] Frame()
+        {
+            Dispatcher.UIThread.RunJobs();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            using var frame = window.CaptureRenderedFrame()!;
+            using var buffer = frame.Lock();
+            var bytes = new byte[buffer.RowBytes * buffer.Size.Height];
+            System.Runtime.InteropServices.Marshal.Copy(buffer.Address, bytes, 0, bytes.Length);
+            return bytes;
+        }
+
+        void AssertFreshFrame()
+        {
+            var cached = Frame();
+            session.InvalidateAll();
+            Assert.True(cached.AsSpan().SequenceEqual(Frame()));
+        }
+    }
+
+    [AvaloniaFact]
     public void Panning_exposes_current_pixels_after_offscreen_edits_and_channel_changes()
     {
         var session = EditorSession.NewCanvas(1024, 768);

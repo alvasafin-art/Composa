@@ -23,7 +23,7 @@ public sealed partial class EditorSession
         if (editingAlphaChannel == null && EditingRgbChannels == RgbChannels.All && VisibleRgbChannels == RgbChannels.All) return;
         editingAlphaChannel = null; EditingRgbChannels = VisibleRgbChannels = RgbChannels.All; AlphaChannelOverlay = false;
         channelControls = null;
-        CanvasChanged?.Invoke(null); ChannelsChanged?.Invoke();
+        NotifyCanvasChanged(null); ChannelsChanged?.Invoke();
     }
 
     public void EditRgbChannels(RgbChannels channels = RgbChannels.All, bool changeView = true)
@@ -33,7 +33,7 @@ public sealed partial class EditorSession
         if (editingAlphaChannel == null && !IsEditingMask && EditingRgbChannels == channels && (!changeView || VisibleRgbChannels == channels) && !AlphaChannelOverlay) return;
         editingAlphaChannel = null; EditingMask = false; EditingRgbChannels = channels;
         if (changeView) VisibleRgbChannels = channels;
-        AlphaChannelOverlay = false; CanvasChanged?.Invoke(null); ChannelsChanged?.Invoke(); LayersChanged?.Invoke();
+        AlphaChannelOverlay = false; NotifyCanvasChanged(null); ChannelsChanged?.Invoke(); LayersChanged?.Invoke();
     }
 
     public void EditAlphaChannel(string name, bool overlay = false)
@@ -42,7 +42,7 @@ public sealed partial class EditorSession
         FinishInteraction();
         if (EditingAlphaChannel?.Equals(name, StringComparison.OrdinalIgnoreCase) == true && AlphaChannelOverlay == overlay) return;
         EditingMask = false; editingAlphaChannel = name; EditingRgbChannels = RgbChannels.All;
-        AlphaChannelOverlay = overlay; CanvasChanged?.Invoke(null); ChannelsChanged?.Invoke(); LayersChanged?.Invoke();
+        AlphaChannelOverlay = overlay; NotifyCanvasChanged(null); ChannelsChanged?.Invoke(); LayersChanged?.Invoke();
     }
 
     public void SetChannelView(RgbChannels visible, bool alphaOverlay = false)
@@ -51,7 +51,7 @@ public sealed partial class EditorSession
         var overlay = IsEditingAlphaChannel && alphaOverlay;
         if (VisibleRgbChannels == visible && AlphaChannelOverlay == overlay) return;
         VisibleRgbChannels = visible; AlphaChannelOverlay = overlay;
-        CanvasChanged?.Invoke(null); ChannelsChanged?.Invoke();
+        NotifyCanvasChanged(null); ChannelsChanged?.Invoke();
     }
 
     public void AddAlphaChannel(string name, bool fromSelection = false, bool revealAll = false)
