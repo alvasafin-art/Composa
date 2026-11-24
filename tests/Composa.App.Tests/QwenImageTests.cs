@@ -432,6 +432,11 @@ public class QwenImageTests
             dialog.Height = 720;
             var pages = Assert.Single(dialog.GetVisualDescendants().OfType<StudioSettingsPages>());
             Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, Locale.T("Run parameters ›")));
+            var labels = dialog.GetVisualDescendants().OfType<TextBlock>().Where(label => label.IsEffectivelyVisible).ToArray();
+            Assert.Single(labels, label => label.Text == Locale.T("Language model"));
+            Assert.Single(labels, label => label.Text == Locale.T("Generate Image"));
+            Assert.Single(labels, label => label.Text == Locale.T("Image Edit"));
+            Assert.DoesNotContain(labels, label => label.Text == Locale.T("Overview"));
             Assert.True(Screenshots.Save(dialog, "studio-settings-01-operations-ru"));
             ClickText("Image Edit");
             Assert.Equal(6, pages.SelectedIndex);
@@ -520,7 +525,8 @@ public class QwenImageTests
             var window = Assert.Single(owner.OwnedWindows);
             Dispatcher.UIThread.RunJobs();
             Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, Locale.T("Test prompt")));
-            window.GetVisualDescendants().OfType<Button>().First(button => Equals(button.Content, Locale.T("Check connection")))
+            window.GetVisualDescendants().OfType<Button>().Single(button =>
+                    button.IsEffectivelyVisible && Equals(button.Content, Locale.T("Get available models")))
                 .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
             Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(), picker => picker.Items.Contains("gpt-6-luna"));
@@ -539,6 +545,60 @@ public class QwenImageTests
             Assert.False(await pending);
         }
         finally { owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task First_launch_connections_align_the_cli_fields_and_the_image_api_catalog()
+    {
+        var previousLanguage = Locale.Language;
+        Locale.Language = "ru";
+        var address = "https://api.openai.com/v1";
+        var settings = new Settings
+        {
+            EnhancerProvider = "local-codex", EnhancerCodexModel = "gpt-5.3-codex", EnhancerEffort = "high",
+            ImageGenerationRoute = ImageGenerationRoute.DirectApi, ImageGenerationApiUrl = address, ImageApiDisplayName = "OpenAI Images",
+            ImageApiCatalogs = new()
+            {
+                [DirectImageApi.Parse(address).CredentialEndpoint.AbsoluteUri] = new()
+                {
+                    ["openai/gpt-image-2"] = "GPT Image 2",
+                    ["openai/gpt-image-2.5-sunburst"] = "GPT Image 2.5"
+                }
+            }
+        };
+        var owner = new Window { Width = 1280, Height = 760 };
+        owner.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(owner, settings, Service(new Connection()), firstRun: true, firstRunBack: () => { });
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(owner.OwnedWindows);
+            dialog.Width = 1158;
+            dialog.Height = 760;
+            Dispatcher.UIThread.RunJobs();
+            var controls = dialog.GetVisualDescendants().OfType<Control>().Where(control => control.IsEffectivelyVisible).ToArray();
+            var left = controls.OfType<ComboBox>().Single(box => box.Name == "TextEnhancerRoute");
+            var right = controls.OfType<ComboBox>().Single(box => Equals(box.SelectedItem, "Codex CLI"));
+            var api = controls.OfType<TextBox>().Single(box => box.Name == "ImageGenerationApiUrl");
+            var name = controls.OfType<TextBox>().Single(box => box.Text == "OpenAI Images");
+            var modelId = controls.OfType<TextBox>().Single(box => box.Text == "openai/gpt-image-2");
+            var modelName = controls.OfType<TextBox>().Single(box => box.Text == "GPT Image 2");
+            foreach (var field in new Control[] { left, right, api, name, modelId, modelName })
+                Assert.Equal(34, field.Bounds.Height, precision: 2);
+            Assert.Equal(X(left), X(api), precision: 2);
+            Assert.Equal(X(left), X(modelId), precision: 2);
+            Assert.Equal(X(right), X(name), precision: 2);
+            Assert.Equal(left.Bounds.Width, right.Bounds.Width, precision: 2);
+            Assert.Equal(14, X(right) - X(left) - left.Bounds.Width, precision: 2);
+            Assert.Equal(8, X(modelName) - X(modelId) - modelId.Bounds.Width, precision: 2);
+            Assert.Equal(2, controls.OfType<Button>().Count(button => Equals(button.Content, Locale.T("Get available models"))));
+            Assert.True(Screenshots.Save(dialog, "studio-settings-03-reference-ru"));
+            dialog.Close(false);
+            Assert.False(await pending);
+
+            double X(Control control) => control.TranslatePoint(default, dialog)!.Value.X;
+        }
+        finally { Locale.Language = previousLanguage; owner.Close(); }
     }
 
     private sealed class Connection : IComfyConnection

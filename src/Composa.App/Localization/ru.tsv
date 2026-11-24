@@ -2078,3 +2078,18 @@ Model from API catalog	Модель из каталога API
 Remove model	Удалить модель
 {0} models available in this connection	Доступно моделей в этом подключении: {0}
 Open folder ›	Открыть папку ›
+Method	Способ
+Reasoning level	Уровень reasoning
+Base URL	Базовый URL
+API key	Ключ API
+Third-party API	Прямой сторонний API
+Executable · detected automatically	Исполняемый файл · найден автоматически
+Change manually	Изменить вручную
+Checking connection…	Проверка подключения…
+No reasoning	Без рассуждения
+Minimal reasoning	Минимальный
+Low reasoning	Низкий
+Medium reasoning	Средний
+High reasoning	Высокий
+Extra high reasoning	Очень высокий
+Models	Модели

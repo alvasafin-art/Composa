@@ -22,6 +22,7 @@ internal sealed class ConnectionModelCatalog
     private readonly Func<(Uri Credential, Uri Models)> address;
     private readonly Func<Uri, string?> credential;
     private readonly bool images;
+    private readonly bool compactSetup;
     private readonly string legacyModel;
     private readonly string? legacyScope;
     private readonly StackPanel rows = Ui.Column(6);
@@ -29,22 +30,28 @@ internal sealed class ConnectionModelCatalog
     private readonly Button fetch;
     private readonly Button add;
     private readonly Button reset;
+    private bool checkedConnection;
+    private bool failed;
     private string? current;
     private int revision;
     internal Control View { get; }
+    internal SettingsStatus? CheckStatus => checkedConnection || failed
+        ? Status(status.Text ?? "", checkedConnection, failed) : null;
+    internal event Action? CheckChanged;
 
     internal ConnectionModelCatalog(Dictionary<string, Dictionary<string, string>> saved,
         TextBox endpoint, TextBox key, TextBox selectedModel, Func<(Uri Credential, Uri Models)> address,
-        Func<Uri, string?> credential, CancellationToken lifetime, bool images = false)
+        Func<Uri, string?> credential, CancellationToken lifetime, bool images = false, bool compactSetup = false)
     {
         this.saved = saved;
         this.address = address;
         this.credential = credential;
         this.images = images;
+        this.compactSetup = compactSetup;
         legacyModel = selectedModel.Text?.Trim() ?? "";
         try { legacyScope = address().Credential.AbsoluteUri; }
         catch (FormatException) { }
-        fetch = Ui.TextButton("Get available models", () => { });
+        fetch = compactSetup ? SetupLink("Get available models", () => { }) : Ui.TextButton("Get available models", () => { });
         add = Ui.TextButton("Add model", () => { if (current != null) { Entries().Add(new("", "")); Render(); } });
         reset = Ui.TextButton("Reset this connection’s catalog", () =>
         {
@@ -54,18 +61,43 @@ internal sealed class ConnectionModelCatalog
         });
         fetch.Click += async (_, _) =>
         {
+            var requestedRevision = revision;
             try { await FetchAsync(lifetime); }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
             catch (Exception error) when (error is InvalidOperationException or FormatException or HttpRequestException or OperationCanceledException or JsonException or IOException)
-            { status.Text = Locale.Message(error.Message); }
+            {
+                if (requestedRevision == revision) SetCheckStatus(Locale.Message(error.Message), failed: true);
+            }
         };
         reset.Classes.Add("flat");
         fetch.Classes.Add("flat");
         add.HorizontalAlignment = HorizontalAlignment.Stretch;
         var toolbar = new WrapPanel { ItemSpacing = 5, LineSpacing = 4, Children = { reset, fetch } };
-        View = Ui.Column(7, InsetRow(Columns("*,Auto", Heading("Models", 12), toolbar), vertical: 6), status, rows, add);
+        if (compactSetup)
+        {
+            toolbar.Children.Clear();
+            Locale.Tip(fetch, "Check connection");
+            add.Classes.Add("flat");
+            add.Height = 32;
+            add.Padding = new Thickness(0);
+            add.Content = Ui.Row(6, Icons.Create(Icons.Plus, 13), Ui.Label(Locale.T("Add model"), Palette.Secondary, 11));
+            var border = new Avalonia.Controls.Shapes.Rectangle
+            {
+                RadiusX = 5, RadiusY = 5, Stroke = Palette.SettingsFieldLine, StrokeThickness = 1,
+                StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 3, 2 }, IsHitTestVisible = false
+            };
+            var addFrame = new Grid { Margin = new Thickness(0, 2, 0, 0), Children = { add, border } };
+            View = new Border
+            {
+                BorderBrush = Palette.SettingsLine, BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 9, 0, 0),
+                Child = Ui.Column(7, Columns("*,Auto", Heading("Models", 11), fetch), status, rows, addFrame)
+            };
+        }
+        else
+            View = Ui.Column(7, InsetRow(Columns("*,Auto", Heading("Models", 12), toolbar), vertical: 6), status, rows, add);
         endpoint.TextChanged += (_, _) => SelectEndpoint();
-        key.TextChanged += (_, _) => { revision++; status.Text = ""; };
+        key.TextChanged += (_, _) => InvalidateCheck();
         SelectEndpoint();
     }
 
@@ -82,7 +114,7 @@ internal sealed class ConnectionModelCatalog
         if (current == null) throw new FormatException("Enter a complete API base URL.");
         var version = revision;
         fetch.IsEnabled = false;
-        status.Text = Locale.T("Reading model catalog…");
+        SetCheckStatus(Locale.T("Reading model catalog…"));
         try
         {
             var (scope, list) = address();
@@ -115,7 +147,8 @@ internal sealed class ConnectionModelCatalog
                 if (known.Add(id) && entries.Count < 500)
                     entries.Add(new(id, model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? id : id));
             }
-            status.Text = Locale.T(found > 0 ? "The API responded. Models are available below." : "The API reported no models.");
+            SetCheckStatus(Locale.T(found > 0 ? "The API responded. Models are available below." : "The API reported no models."),
+                checkedConnection: true, hide: found > 0);
             Render();
             return found;
         }
@@ -141,8 +174,23 @@ internal sealed class ConnectionModelCatalog
         try { current = address().Credential.AbsoluteUri; }
         catch (FormatException) { current = null; }
         fetch.IsEnabled = add.IsEnabled = reset.IsEnabled = current != null;
-        status.Text = "";
+        SetCheckStatus("");
         Render();
+    }
+
+    internal void InvalidateCheck()
+    {
+        revision++;
+        SetCheckStatus("");
+    }
+
+    private void SetCheckStatus(string message, bool checkedConnection = false, bool failed = false, bool hide = false)
+    {
+        this.checkedConnection = checkedConnection;
+        this.failed = failed;
+        status.Text = message;
+        status.IsVisible = !compactSetup || (!hide && message.Length > 0);
+        CheckChanged?.Invoke();
     }
 
     private List<Entry> Entries()
@@ -161,8 +209,14 @@ internal sealed class ConnectionModelCatalog
         rows.Children.Clear();
         if (current == null) return;
         var entries = Entries();
-        const string widths = "*,*,35";
-        rows.Children.Add(Columns(widths, Caption("Model ID"), Caption("Display name"), Caption("")));
+        Grid CatalogRow(params Control[] fields)
+        {
+            var grid = Columns(compactSetup ? "*,*,26" : "*,*,35", fields);
+            if (compactSetup) grid.ColumnSpacing = 8;
+            return grid;
+        }
+        rows.Children.Add(compactSetup ? CatalogRow(SetupLabel("Model ID", translate: false), SetupLabel("Display name"))
+            : CatalogRow(Caption("Model ID"), Caption("Display name")));
         foreach (var row in entries)
         {
             var id = new TextBox { Text = row.Id };
@@ -171,12 +225,20 @@ internal sealed class ConnectionModelCatalog
             Avalonia.Automation.AutomationProperties.SetName(name, Locale.T("Display name"));
             id.TextChanged += (_, _) => { row.Id = id.Text ?? ""; Changed?.Invoke(); };
             name.TextChanged += (_, _) => { row.Name = name.Text ?? ""; Changed?.Invoke(); };
-            var remove = Ui.TextButton("", () => { entries.Remove(row); Render(); }, translate: false);
-            remove.Content = Icons.Create(Icons.Trash, 14);
-            remove.MinWidth = 30;
-            Locale.Tip(remove, "Remove model");
-            Avalonia.Automation.AutomationProperties.SetName(remove, Locale.T("Remove model"));
-            rows.Children.Add(Columns(widths, id, name, remove));
+            var remove = Ui.IconButton(Icons.Trash, "Remove model", () => { entries.Remove(row); Render(); }, 14);
+            remove.MinWidth = compactSetup ? 0 : 30;
+            if (compactSetup)
+            {
+                SetupInput(id);
+                SetupInput(name);
+                remove.Padding = new Thickness(0);
+                remove.Height = 30;
+                remove.Width = 26;
+                remove.HorizontalContentAlignment = HorizontalAlignment.Center;
+                remove.VerticalContentAlignment = VerticalAlignment.Center;
+                remove.VerticalAlignment = VerticalAlignment.Center;
+            }
+            rows.Children.Add(CatalogRow(id, name, remove));
         }
         Changed?.Invoke();
     }

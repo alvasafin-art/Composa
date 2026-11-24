@@ -33,6 +33,64 @@ internal static class StudioSettingsLayout
         return Ui.Column(4, Caption(label), field);
     }
 
+    internal static TextBlock SetupLabel(string text, bool translate = true) => new()
+    {
+        Text = translate ? Locale.T(text) : text, FontSize = 10, Foreground = Palette.Secondary,
+        VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap
+    };
+
+    internal static T SetupInput<T>(T input) where T : TemplatedControl
+    {
+        input.Width = double.NaN;
+        input.Height = 34;
+        input.MinHeight = 34;
+        input.HorizontalAlignment = HorizontalAlignment.Stretch;
+        input.Background = Palette.Field;
+        input.BorderBrush = Palette.SettingsFieldLine;
+        input.BorderThickness = new Thickness(1);
+        input.CornerRadius = new CornerRadius(5);
+        input.FontSize = 11;
+        input.Padding = new Thickness(10, 0);
+        if (input is TextBox text) text.VerticalContentAlignment = VerticalAlignment.Center;
+        if (input is ComboBox combo) combo.VerticalContentAlignment = VerticalAlignment.Center;
+        return input;
+    }
+
+    internal static Button SetupLink(string text, Action action, double fontSize = 11)
+    {
+        var link = Ui.TextButton(text, action);
+        link.Classes.Add("flat");
+        link.FontSize = fontSize;
+        link.MinWidth = link.MinHeight = 0;
+        link.Padding = new Thickness(0);
+        link.Foreground = Palette.SettingsLink;
+        link.VerticalAlignment = VerticalAlignment.Center;
+        return link;
+    }
+
+    internal static StackPanel SetupField(string label, Control field, Control? action = null, TextBlock? caption = null)
+    {
+        caption ??= SetupLabel(label);
+        Avalonia.Automation.AutomationProperties.SetName(field, caption.Text);
+        Control heading = action == null ? caption : Columns("*,Auto", caption, action);
+        heading.MinHeight = 15;
+        return Ui.Column(4, heading, field);
+    }
+
+    internal static Grid SetupColumns(params Control[] children)
+    {
+        var grid = Columns("*,*", children);
+        grid.ColumnSpacing = 14;
+        return grid;
+    }
+
+    internal static Control SetupSection(string name, Control content, Border indicator)
+    {
+        var card = Card(content);
+        card.Padding = new Thickness(16, 11);
+        return Ui.Column(7, Columns("*,19", Heading(name, 14), indicator), card);
+    }
+
     internal static Grid Columns(string widths, params Control[] children)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(widths), ColumnSpacing = 10 };
@@ -164,7 +222,7 @@ internal sealed class StudioSettingsWindow : DialogWindow
         Content = layout;
         var screen = owner.Screens.ScreenFromWindow(owner) ?? owner.Screens.Primary;
         var scale = screen?.Scaling ?? 1;
-        Width = Math.Min(firstRun ? 1040 : 1250, (screen?.WorkingArea.Width ?? 1280) / scale - 18);
+        Width = Math.Min(firstRun ? 1158 : 1250, (screen?.WorkingArea.Width ?? 1280) / scale - 18);
         Height = Math.Min(780, (screen?.WorkingArea.Height ?? 800) / scale - 54);
         MinWidth = Math.Min(820, Width);
         MinHeight = Math.Min(460, Height);

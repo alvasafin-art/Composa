@@ -98,13 +98,26 @@ public static partial class AiDialogs
         internal TextBox Model { get; }
         internal StackPanel View { get; }
 
-        internal CodexConnectionFields(string path, string model, bool showModel = true)
+        internal CodexConnectionFields(string path, string model, bool showModel = true, bool firstRun = false)
         {
             Path = new TextBox { Text = path, PlaceholderText = Locale.T("Detect automatically") };
             Model = new TextBox { Text = model, PlaceholderText = Locale.T("Model ID") };
             var status = ConnectionNote("");
-            void CheckPath() => status.Text = Locale.T(LocalCodex.FindExecutable(Path.Text) != null
-                ? "Codex CLI found." : "Codex CLI was not found. Install Codex or select its executable.");
+            var detectedPath = StudioSettingsLayout.SetupInput(new TextBox { IsReadOnly = true });
+            var pathBadge = new Border();
+            var executableLabel = StudioSettingsLayout.SetupLabel("Executable");
+            void CheckPath()
+            {
+                var executable = LocalCodex.FindExecutable(Path.Text);
+                var found = executable != null;
+                status.Text = Locale.T(found
+                    ? "Codex CLI found." : "Codex CLI was not found. Install Codex or select its executable.");
+                detectedPath.Text = executable ?? Path.Text;
+                executableLabel.Text = Locale.T(found && string.IsNullOrWhiteSpace(Path.Text)
+                    ? "Executable · detected automatically" : "Executable");
+                pathBadge.Child = StudioSettingsLayout.Status(status.Text, found, !found);
+                Locale.Tip(detectedPath, detectedPath.Text);
+            }
             Path.TextChanged += (_, _) => CheckPath();
             CheckPath();
             var find = Ui.TextButton("Detect automatically", () =>
@@ -116,7 +129,8 @@ public static partial class AiDialogs
                 }
                 else status.Text = Locale.T("Codex CLI was not found. Install Codex or select its executable.");
             });
-            var choose = Ui.TextButton("Choose…", () => { });
+            var choose = firstRun ? StudioSettingsLayout.SetupLink("Change manually", () => { })
+                : Ui.TextButton("Choose…", () => { });
             choose.Click += async (_, _) =>
             {
                 if (TopLevel.GetTopLevel(choose) is not { } top) return;
@@ -132,8 +146,16 @@ public static partial class AiDialogs
             var cli = Ui.Label("Codex CLI");
             Control identity = showModel ? StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("CLI", cli),
                 StudioSettingsLayout.Field("Text model", Model)) : cli;
-            View = Ui.Column(6, identity,
-                StudioSettingsLayout.Field("Executable", StudioSettingsLayout.Columns("*,Auto", Path, Ui.Row(5, find, choose))), status);
+            if (firstRun)
+            {
+                var row = StudioSettingsLayout.Columns("19,*,Auto", pathBadge, detectedPath, choose);
+                row.ColumnSpacing = 9;
+                View = Ui.Column(4, executableLabel, row);
+                Avalonia.Automation.AutomationProperties.SetName(detectedPath, Locale.T("Executable"));
+            }
+            else
+                View = Ui.Column(6, identity,
+                    StudioSettingsLayout.Field("Executable", StudioSettingsLayout.Columns("*,Auto", Path, Ui.Row(5, find, choose))), status);
         }
     }
 
@@ -145,21 +167,26 @@ public static partial class AiDialogs
         private readonly Func<Task> run;
         private CancellationTokenSource? current;
         private int revision;
+        private readonly bool inlineAction;
         internal StackPanel View { get; }
+        internal Button ActionButton { get; }
         internal bool Passed { get; private set; }
         internal bool Failed { get; private set; }
         internal string StatusText => status.Text ?? "";
         internal event Action? Changed;
 
         internal ConnectionCheck(CancellationToken lifetime, Func<CancellationToken, Task<string>> check, string hint,
-            bool showHelperWarning = false, string? buttonText = null)
+            bool showHelperWarning = false, string? buttonText = null, bool inlineAction = false)
         {
             this.hint = hint;
+            this.inlineAction = inlineAction;
             status = ConnectionNote(hint);
-            var test = Ui.TextButton(buttonText ?? (showHelperWarning ? "Test prompt" : "Test connection"), () => { });
+            var text = buttonText ?? (showHelperWarning ? "Test prompt" : "Test connection");
+            var test = ActionButton = inlineAction ? StudioSettingsLayout.SetupLink(text, () => { }, fontSize: 10)
+                : Ui.TextButton(text, () => { });
             var cancel = Ui.TextButton("Cancel", () => current?.Cancel());
             cancel.IsVisible = false;
-            View = showHelperWarning
+            View = inlineAction ? Ui.Column(6, StudioSettingsLayout.Columns("*,Auto", status, cancel)) : showHelperWarning
                 ? Ui.Column(8, StudioSettingsLayout.Columns("*,Auto", status, Ui.Row(6, cancel, test)))
                 : Ui.Column(5, Ui.Row(5, test, cancel), status);
             run = Run;
@@ -168,6 +195,7 @@ public static partial class AiDialogs
                 warning = HelperWarning(() => _ = Run());
                 View.Children.Add(warning);
             }
+            if (inlineAction) View.IsVisible = false;
             test.Click += async (_, _) => await Run();
             async Task Run()
             {
@@ -176,10 +204,11 @@ public static partial class AiDialogs
                 current = request;
                 var expected = revision;
                 test.IsEnabled = false;
+                View.IsVisible = true;
                 cancel.IsVisible = true;
                 if (warning != null) warning.IsVisible = false;
                 Passed = Failed = false;
-                status.Text = Locale.T("Testing the selected model…");
+                status.Text = Locale.T(buttonText == null ? "Testing the selected model…" : "Checking connection…");
                 Changed?.Invoke();
                 try
                 {
@@ -215,6 +244,7 @@ public static partial class AiDialogs
                     current = null;
                     test.IsEnabled = true;
                     cancel.IsVisible = false;
+                    if (inlineAction) View.IsVisible = !Passed && !string.IsNullOrEmpty(status.Text);
                     Changed?.Invoke();
                 }
             }
@@ -228,10 +258,14 @@ public static partial class AiDialogs
             current?.Cancel();
             Passed = Failed = false;
             status.Text = Locale.T(hint);
+            if (inlineAction) View.IsVisible = false;
             if (warning != null) warning.IsVisible = false;
             Changed?.Invoke();
         }
     }
+
+    private static SettingsStatus? CheckStatus(ConnectionCheck check) => check.Passed || check.Failed
+        ? StudioSettingsLayout.Status(check.StatusText, check.Passed, check.Failed) : null;
 
     private sealed class ImageConnectionFields
     {
@@ -249,6 +283,7 @@ public static partial class AiDialogs
         internal Control OperationPicker { get; }
         internal Control ApiUrl => url;
         internal StackPanel SetupView => View;
+        internal Border SetupIndicator { get; } = new();
         internal event Action? RouteChanged;
         internal ImageGenerationRoute RouteFor(AiTaskKind task) => routes[task];
 
@@ -347,7 +382,7 @@ public static partial class AiDialogs
             routes = DirectImageGenerator.Operations.ToDictionary(task => task, settings.ImageRouteFor);
             modelOverrides = new(settings.ImageOperationApiModels);
             route = routes[AiTaskKind.GenerateImage];
-            var codex = new CodexConnectionFields(settings.ImageGenerationCodexPath, "gpt-image-2", showModel: false);
+            var codex = new CodexConnectionFields(settings.ImageGenerationCodexPath, "gpt-image-2", showModel: false, firstRun: firstRun);
             path = codex.Path;
             url = new TextBox { Text = settings.ImageGenerationApiUrl, Name = "ImageGenerationApiUrl" };
             var model = new TextBox { Text = settings.ImageGenerationApiModel };
@@ -358,8 +393,21 @@ public static partial class AiDialogs
                 var api = DirectImageApi.Parse(url.Text ?? "");
                 return (api.CredentialEndpoint, api.CatalogEndpoint);
             }, endpoint => !string.IsNullOrWhiteSpace(key.Text) ? key.Text.Trim()
-                : forgetKey ? Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY") : DirectImageGenerator.ReadKey(endpoint), lifetime, images: true);
-            var forget = Ui.TextButton("Forget saved key", () => { key.Text = ""; forgetKey = true; });
+                : forgetKey ? Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY") : DirectImageGenerator.ReadKey(endpoint),
+                lifetime, images: true, compactSetup: firstRun);
+            void ForgetKey()
+            {
+                forgetKey = true;
+                key.Text = "";
+                catalog.InvalidateCheck();
+            }
+            var forget = Ui.TextButton("Forget saved key", ForgetKey);
+            if (firstRun)
+            {
+                var forgetMenu = new MenuItem { Header = Locale.T("Forget saved key") };
+                forgetMenu.Click += (_, _) => ForgetKey();
+                key.ContextMenu = new ContextMenu { Items = { forgetMenu } };
+            }
             upscalePath = new TextBox { Text = settings.UpscaleCliPath, PlaceholderText = "realesrgan-ncnn-vulkan" };
             segmentationPath = new TextBox { Text = settings.SegmentationCliPath, PlaceholderText = "rembg" };
             segmentationModel = new TextBox { Text = settings.SegmentationCliModel, PlaceholderText = "birefnet-general" };
@@ -399,13 +447,14 @@ public static partial class AiDialogs
                 return (label, (Control)picker);
             }).ToArray();
             OperationPicker = operationRows[0].Item2;
-            var nameField = StudioSettingsLayout.Field("Display name", displayName);
+            var nameField = firstRun ? StudioSettingsLayout.SetupField("Display name", StudioSettingsLayout.SetupInput(displayName))
+                : StudioSettingsLayout.Field("Display name", displayName);
             var protocol = new TextBox { IsReadOnly = true };
             var protocolField = StudioSettingsLayout.Field("API protocol", protocol);
-            var api = Ui.Column(8, firstRun
-                    ? StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("API base URL", url), StudioSettingsLayout.Field("Image API key", key))
-                    : Ui.Column(8, StudioSettingsLayout.Field("API base URL", url), StudioSettingsLayout.Field("Image API key", key)),
-                forget, catalog.View);
+            var api = firstRun ? Ui.Column(9, StudioSettingsLayout.SetupColumns(
+                    StudioSettingsLayout.SetupField("Base URL", StudioSettingsLayout.SetupInput(url)),
+                    StudioSettingsLayout.SetupField("API key", StudioSettingsLayout.SetupInput(key))), catalog.View)
+                : Ui.Column(8, StudioSettingsLayout.Field("API base URL", url), StudioSettingsLayout.Field("Image API key", key), forget, catalog.View);
             var serverAddress = new TextBox { Text = server.Text, Name = "ImageComfyServer" };
             serverAddress.PropertyChanged += (_, args) =>
             {
@@ -415,7 +464,9 @@ public static partial class AiDialogs
             {
                 if (args.Property == TextBox.TextProperty && serverAddress.Text != server.Text) serverAddress.Text = server.Text;
             };
-            var workflow = StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("ComfyUI server", serverAddress));
+            var workflow = firstRun ? StudioSettingsLayout.SetupColumns(
+                    StudioSettingsLayout.SetupField("ComfyUI server", StudioSettingsLayout.SetupInput(serverAddress)))
+                : StudioSettingsLayout.Columns("*,*", StudioSettingsLayout.Field("ComfyUI server", serverAddress));
             Control? methodField = null;
             var check = new ConnectionCheck(lifetime, async token =>
             {
@@ -432,31 +483,43 @@ public static partial class AiDialogs
                 var count = await catalog.FetchAsync(token);
                 return count > 0 ? "The API responded. Models are available below." : "The API reported no models.";
             }, "", buttonText: "Check connection");
+            void RefreshIndicator() => SetupIndicator.Child = route == ImageGenerationRoute.DirectApi
+                ? catalog.CheckStatus : CheckStatus(check);
             void Refresh()
             {
                 check.Reset();
                 workflow.IsVisible = route == ImageGenerationRoute.ComfyWorkflow;
                 api.IsVisible = nameField.IsVisible = route == ImageGenerationRoute.DirectApi;
+                check.View.IsVisible = !firstRun || route != ImageGenerationRoute.DirectApi;
                 codex.View.IsVisible = route == ImageGenerationRoute.LocalCodex;
                 protocolField.IsVisible = route == ImageGenerationRoute.DirectApi;
                 try { protocol.Text = DirectImageApi.Parse(url.Text ?? "").Protocol; }
                 catch (FormatException) { protocol.Text = ""; }
                 if (methodField != null) methodField.IsVisible = firstRun || route != ImageGenerationRoute.DirectApi;
+                if (firstRun) RefreshIndicator();
             }
-            Picker = Ui.Combo(DirectImageGenerator.Connections, route, DirectImageGenerator.RouteLabel, value =>
+            var connectionPicker = Ui.Combo(DirectImageGenerator.Connections, route, value => firstRun && value == ImageGenerationRoute.DirectApi
+                ? "Third-party API" : DirectImageGenerator.RouteLabel(value), value =>
             {
                 route = value;
                 if (firstRun) SetRoute(AiTaskKind.GenerateImage, value);
                 Refresh();
             }, double.NaN);
-            methodField = StudioSettingsLayout.Field("Connection method", Picker);
-            View = Ui.Column(10, firstRun ? StudioSettingsLayout.Columns("*,*", methodField, nameField)
+            Picker = connectionPicker;
+            methodField = firstRun ? StudioSettingsLayout.SetupField("Method", StudioSettingsLayout.SetupInput(connectionPicker))
+                : StudioSettingsLayout.Field("Connection method", Picker);
+            View = Ui.Column(firstRun ? 12 : 10, firstRun ? StudioSettingsLayout.SetupColumns(methodField, nameField)
                     : Ui.Column(8, methodField, StudioSettingsLayout.Columns("*,*", nameField, protocolField)),
                 workflow, codex.View, check.View, api);
             if (!firstRun)
                 View.Children.Add(new Expander { Header = Locale.T("Connection by operation"), HorizontalAlignment = HorizontalAlignment.Stretch,
                     Content = Ui.Column(6, CanvasDialogs.Form(operationRows), upscaleCli, upscaleApi, segmentationCli, segmentationApi) });
             catalog.Changed += () => RouteChanged?.Invoke();
+            if (firstRun)
+            {
+                check.Changed += RefreshIndicator;
+                catalog.CheckChanged += RefreshIndicator;
+            }
             foreach (var input in new[] { model, url, key, path }) input.TextChanged += (_, _) => Refresh();
             server.TextChanged += (_, _) => check.Reset();
             forget.Click += (_, _) => Refresh();
