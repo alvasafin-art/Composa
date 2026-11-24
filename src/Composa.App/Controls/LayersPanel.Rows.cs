@@ -29,6 +29,8 @@ public sealed partial class LayersPanel
         internal Border? Main;
         internal Appearance? Shown;
         internal FilterPreview? Preview;
+        internal Button? Eye;
+        internal Control? Contents;
     }
 
     private sealed record FilterPreview(object Pixels, object Source, object Mask, int PadX, int PadY,
@@ -83,8 +85,12 @@ public sealed partial class LayersPanel
         old.Child = null;
         host.Shown = old.Shown;
         host.Child = host.Main = old.Main;
+        host.Eye = old.Eye;
+        host.Contents = old.Contents;
         old.Main = null;
         old.Shown = null;
+        old.Eye = null;
+        old.Contents = null;
     }
 
     private void InitializeRows()
@@ -209,8 +215,23 @@ public sealed partial class LayersPanel
             existing.Tag = layer;
         }
         if (host.Shown == state) return;
+        var previous = host.Shown;
         host.Shown = state;
-        var main = BuildRow(entry, state);
+        if (previous is { } shown && !state.Renaming && host.Main is { } row &&
+            host.Eye is { } eye && host.Contents is { } content &&
+            shown with { Visible = state.Visible, ParentVisible = state.ParentVisible } == state)
+        {
+            if (row.ContextMenu?.IsOpen == true) row.ContextMenu.Close();
+            if (shown.Visible != state.Visible) eye.Content = EyeIcon(state.Visible);
+            var opacity = state.ParentVisible && state.Visible ? 1 : 0.45;
+            content.Opacity = opacity;
+            if (host.Child is StackPanel subRows)
+                foreach (var child in subRows.Children)
+                    if (child is Border { Tag: ValueTuple<Layer, LayerEffectKind>, Child: { } effectContent })
+                        effectContent.Opacity = opacity;
+            return;
+        }
+        var main = BuildRow(entry, state, host);
         host.Main = rowFor[layer.Id] = main;
         if (layer.Effects is not { IsEmpty: false } && layer.SmartFilters.Length == 0)
         {
