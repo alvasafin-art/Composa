@@ -45,6 +45,11 @@ public sealed partial class CanvasView : Decorator
     private SKBitmap? viewCache;
     private (float Scale, SKPoint Origin, int Width, int Height) viewKey;
     private SKRectI viewDirty;
+    private EditorSession.VisibilityChange? pendingVisibility;
+    private Guid? lastVisibilityLayer;
+    private (Guid Id, bool Visible, SKBitmap Bitmap)? alternateVisibility;
+    private const long MaxAlternateVisibilityBytes = 16 * 1024 * 1024;
+    private bool viewHasFullBands;
     private bool viewStale = true;
     private RgbProfile displayProfile = RgbProfile.Srgb;
     public RgbProfile DisplayProfile
@@ -54,7 +59,7 @@ public sealed partial class CanvasView : Decorator
         {
             ArgumentNullException.ThrowIfNull(value);
             if (displayProfile.Equals(value)) return;
-            displayProfile = value; viewCache = null; viewStale = true; InvalidateCanvas();
+            displayProfile = value; viewCache = null; viewStale = true; ClearVisibilityFrames(); InvalidateCanvas();
         }
     }
 
@@ -129,7 +134,7 @@ public sealed partial class CanvasView : Decorator
             {
                 CancelInteraction();
                 FinishPen(); penSelectedLayer = null; penSelectedNode = -1; EditVectorMask = false;
-                session.CanvasChanged -= OnCanvasChanged;
+                session.ViewportInvalidated -= OnCanvasChanged;
                 session.SelectionChanged -= OnSelectionChanged;
                 session.ColorRangeChanged -= OnColorRangeChanged;
                 session.LayersChanged -= OnLayersChanged;
@@ -139,7 +144,7 @@ public sealed partial class CanvasView : Decorator
             observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
             if (session != null)
             {
-                session.CanvasChanged += OnCanvasChanged;
+                session.ViewportInvalidated += OnCanvasChanged;
                 session.SelectionChanged += OnSelectionChanged;
                 session.ColorRangeChanged += OnColorRangeChanged;
                 session.LayersChanged += OnLayersChanged;
@@ -151,13 +156,14 @@ public sealed partial class CanvasView : Decorator
             outlineStale = true;
             fitPending = true;
             viewStale = true;
+            ClearVisibilityFrames();
             UpdateCursor();
             InvalidateCanvas();
             ViewChanged?.Invoke();
         }
     }
 
-    private void OnCanvasChanged(SKRectI? area)
+    private void OnCanvasChanged(SKRectI? area, EditorSession.VisibilityChange? visibility)
     {
         if (session != null && observedCanvasSize != (session.Document.Width, session.Document.Height))
         {
@@ -170,17 +176,33 @@ public sealed partial class CanvasView : Decorator
                 ToolStateChanged?.Invoke();
             }
         }
-        if (area is { } changed && !viewStale)
+        if (visibility != null && !viewStale && viewDirty.IsEmpty && viewHasFullBands && pendingVisibility == null)
         {
+            pendingVisibility = visibility;
+        }
+        else if (area is { } changed && !viewStale && pendingVisibility == null)
+        {
+            ClearVisibilityFrames();
             var (scale, shown, _, _) = viewKey;
             var mapped = new SKRectI(
                 (int)Math.Floor((changed.Left - shown.X) * scale) - 1, (int)Math.Floor((changed.Top - shown.Y) * scale) - 1,
                 (int)Math.Ceiling((changed.Right - shown.X) * scale) + 1, (int)Math.Ceiling((changed.Bottom - shown.Y) * scale) + 1);
             viewDirty = Geometry.Union(viewDirty, mapped);
         }
-        else viewStale = true;
+        else
+        {
+            viewStale = true;
+            ClearVisibilityFrames();
+        }
         InvalidateCanvas();
         if (area == null) ViewChanged?.Invoke();
+    }
+
+    private void ClearVisibilityFrames()
+    {
+        pendingVisibility = null;
+        lastVisibilityLayer = null;
+        alternateVisibility = null;
     }
 
     /// <summary>Color Range opening or closing changes what a click does, so the cursor says so.</summary>
@@ -456,7 +478,7 @@ public sealed partial class CanvasView : Decorator
             // Dirty events are mapped into this entire rectangle, including its offscreen border.
             var cached = SKRectI.Create((int)viewKey.Origin.X, (int)viewKey.Origin.Y, viewKey.Width, viewKey.Height);
             var backing = shown;
-            if (!viewStale && viewKey.Scale == 1)
+            if (!viewStale && pendingVisibility == null && viewKey.Scale == 1)
             {
                 if (cached.Contains(shown)) backing = cached;
                 else
@@ -493,16 +515,54 @@ public sealed partial class CanvasView : Decorator
         }
         var key = (scale, viewOrigin, width, height);
         var whole = new SKRectI(0, 0, width, height);
+        if (viewStale || key != viewKey) ClearVisibilityFrames();
         var dirty = viewStale || key != viewKey ? whole : Geometry.Intersect(viewDirty, whole);
+        var changedVisibility = pendingVisibility;
         viewKey = key;
         viewStale = false;
         viewDirty = SKRectI.Empty;
-        if (!dirty.IsEmpty)
+        pendingVisibility = null;
+        if (!dirty.IsEmpty || changedVisibility != null)
         {
 #if CANVAS_PERFORMANCE
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-            session.RenderView(viewCache, dirty, new RenderView(scale, viewOrigin));
+            var mapping = new RenderView(scale, viewOrigin);
+            if (changedVisibility is { } change)
+            {
+                if (!session.CanRetainVisibilityBands(mapping))
+                {
+                    ClearVisibilityFrames();
+                    dirty = whole;
+                }
+                else if (alternateVisibility is { } alternate && alternate.Id == change.LayerId && alternate.Visible == change.Visible)
+                {
+                    alternateVisibility = (change.LayerId, !change.Visible, viewCache);
+                    viewCache = alternate.Bitmap;
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("cached visibility frame", started);
+#endif
+                }
+                else
+                {
+                    alternateVisibility = null;
+                    // Keep one alternate frame after the user toggles the same layer again. Each frame
+                    // stays on its own bitmap so a compositor still borrowing it can finish drawing it.
+                    if (lastVisibilityLayer == change.LayerId && (long)viewCache.RowBytes * viewCache.Height <= MaxAlternateVisibilityBytes)
+                    {
+                        alternateVisibility = (change.LayerId, !change.Visible, viewCache);
+                        viewCache = Pixels.Clone(viewCache);
+                    }
+                    if (change.Bounds is not { } bounds || !session.TryRefreshVisibilityBands(viewCache, whole, mapping, bounds))
+                        dirty = whole;
+                    lastVisibilityLayer = change.LayerId;
+                }
+            }
+            if (!dirty.IsEmpty)
+            {
+                viewHasFullBands = dirty == whole && session.CanRetainVisibilityBands(mapping);
+                session.RenderView(viewCache, dirty, mapping);
+            }
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.StageCompleted("canvas composite", started);
 #endif
