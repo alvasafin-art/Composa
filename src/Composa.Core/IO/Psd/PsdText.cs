@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Composa.Editing;
 using Composa.Model;
+using Composa.Rendering;
 using Composa.Text;
 using SkiaSharp;
 
@@ -16,10 +17,12 @@ namespace Composa.IO.Psd;
 internal static class PsdText
 {
     /// <summary>What the block held, before it is drawn: the style, where its anchor lands and how it is turned.</summary>
-    public sealed record Source(TextStyle Style, List<string> Notes, SKPoint DocumentAnchor, double Rotation, bool FlipY, bool AnchorIsFrame, SKMatrix? Affine = null);
+    public sealed record Source(TextStyle Style, List<string> Notes, SKPoint DocumentAnchor, double Rotation, bool FlipY, bool AnchorIsFrame, SKMatrix? Affine = null, SKRect? DocumentInk = null, SKMatrix? TypeMatrix = null);
 
     public const string RasterizedNote = "Editable Photoshop text becomes pixels and can't be retyped.";
-    public const string FirstStyleNote = "A malformed style range or unsupported character scale could not be kept.";
+    public const string FirstStyleNote = "Some Photoshop character formatting (character scaling, baseline shift, or manual kerning) could not be kept.";
+    public const string LayoutNote = "Some text spacing or glyph metrics differ from the Photoshop preview.";
+    private const string InvalidRangeNote = "Some character style ranges could not be read.";
     public const string WarpNote = "The Photoshop text warp was omitted.";
     public const string JustifyNote = "Full justification was imported as left alignment.";
 
@@ -73,14 +76,16 @@ internal static class PsdText
                 anchor = new SKPoint((float)(xx * bounds.Left + xy * bounds.Top + tx), (float)(yx * bounds.Left + yy * bounds.Top + ty));
                 anchorIsFrame = true;
             }
+            var typeMatrix = new SKMatrix((float)xx, (float)xy, (float)tx, (float)yx, (float)yy, (float)ty, 0, 0, 1);
+            var ink = Rect(text, "boundingBox");
             return new Source(style.Clamped(), notes, anchor, placed?.Rotation ?? 0, placed?.FlipY ?? false, anchorIsFrame,
-                placed == null ? new SKMatrix((float)xx, (float)xy, 0, (float)yx, (float)yy, 0, 0, 0, 1) : null);
+                placed == null ? new SKMatrix((float)xx, (float)xy, 0, (float)yx, (float)yy, 0, 0, 0, 1) : null, ink, typeMatrix);
         }
         catch (PsdException) { return null; }
     }
 
     /// <summary>The text drawn as a live layer, placed so its anchor lands where Photoshop had it; null when it would not fit the budget.</summary>
-    public static Layer? Place(Source source, string name, ref long remainingPixels)
+    public static Layer? Place(Source source, string name, ref long remainingPixels, PsdLayer? record = null)
     {
         var layout = new TextLayout(source.Style);
         if ((long)layout.Width * layout.Height > Math.Max(0, remainingPixels)) return null;
@@ -104,7 +109,33 @@ internal static class PsdText
             layer.Transform = PsdGeometry.Place(matrix, pixels.Width, pixels.Height);
         }
         else layer.Transform = Transform(pixels.Width, pixels.Height, imageAnchor, source.DocumentAnchor, source.Rotation, source.FlipY);
+        if (record?.Image is { } preview && !record.Cropped && !source.Notes.Contains(WarpNote))
+            MatchInk(source, layer, pixels, preview, record.Left, record.Top);
         return layer;
+    }
+
+    private static void MatchInk(Source source, Layer layer, SKBitmap pixels, SKBitmap preview, int left, int top)
+    {
+        if (source.DocumentInk is not { IsEmpty: false } expected || source.TypeMatrix is not { } matrix) return;
+        var saved = (SKRect)Pixels.ContentBounds(preview);
+        var ink = (SKRect)Pixels.ContentBounds(pixels);
+        if (saved.IsEmpty || ink.IsEmpty) return;
+        saved.Offset(left, top);
+        var reference = matrix.MapRect(expected);
+        static float Error(SKRect a, SKRect b) => Math.Max(Math.Max(Math.Abs(a.Left - b.Left), Math.Abs(a.Right - b.Right)),
+            Math.Max(Math.Abs(a.Top - b.Top), Math.Abs(a.Bottom - b.Bottom)));
+        // Some writers put the layout box here. The rendered Photoshop channel must confirm this
+        // is the glyph box before we use it to reconcile differences between the two text engines.
+        if (!(Error(saved, reference) <= 2)) return;
+        if (Error(layer.Matrix.MapRect(ink), reference) < 2) return;
+
+        var sx = expected.Width / ink.Width;
+        var sy = expected.Height / ink.Height;
+        if (!(sx is >= .25f and <= 4 && sy is >= .25f and <= 4)) { source.Notes.Add(LayoutNote); return; }
+        var fit = new SKMatrix(sx, 0, expected.Left - ink.Left * sx, 0, sy, expected.Top - ink.Top * sy, 0, 0, 1);
+        var mapped = SKMatrix.Concat(matrix, fit);
+        if (!mapped.TryInvert(out _)) return;
+        layer.Transform = PsdGeometry.Place(mapped, pixels.Width, pixels.Height);
     }
 
     /// <summary>Puts the image so that <paramref name="imageAnchor"/> maps onto <paramref name="documentAnchor"/> under the flip (about the center) and the clockwise rotation (about the center) the layer transform applies.</summary>
@@ -173,11 +204,9 @@ internal static class PsdText
         var index = (int)Math.Round(EngineData.Number(EngineData.Walk(sheet, "Font")) ?? 0);
         if (index >= 0 && index < fonts.Count && EngineData.String(EngineData.Walk(fonts[index], "Name")) is { Length: > 0 } postScriptName)
         {
-            var face = ResolveFace(postScriptName);
+            var face = ResolveFace(postScriptName, notes);
             var family = face.FontFamily;
             style = style with { FontFamily = family, Bold = face.Bold, Italic = face.Italic, FontStyle = face.FontStyle };
-            if (!EditorSession.FontFamilies.Contains(family, StringComparer.OrdinalIgnoreCase))
-                notes.Add($"The font \"{family}\" isn't installed, so the text is drawn with the default font.");
         }
         var values = EngineData.List(EngineData.Walk(sheet, "FillColor", "Values")).Select(EngineData.Number).OfType<double>().ToList();
         if (values.Count > 0) style = style with { Color = Color(values) };
@@ -188,6 +217,7 @@ internal static class PsdText
             style = style with { Leading = Math.Clamp(leading * pixelScale, 0, 5000) };
         style = style with { Bold = style.Bold || EngineData.Bool(EngineData.Walk(sheet, "FauxBold")) == true,
             Italic = style.Italic || EngineData.Bool(EngineData.Walk(sheet, "FauxItalic")) == true };
+        if (UnsupportedCharacterStyle(sheet)) notes.Add(FirstStyleNote);
         var lengths = EngineData.List(EngineData.Walk(engine, "EngineDict", "StyleRun", "RunLengthArray"));
         var characters = new List<TextFormatRun>();
         if (runs.Count == lengths.Count && lengths.Count > 0)
@@ -201,7 +231,7 @@ internal static class PsdText
             for (var i = 0; i < runs.Count; i++)
             {
                 var n = EngineData.Number(lengths[i]);
-                if (n == null || n < 0 || n != Math.Truncate(n.Value) || n > TextStyle.MaxLength + 1) { notes.Add(FirstStyleNote); break; }
+                if (n == null || n < 0 || n != Math.Truncate(n.Value) || n > TextStyle.MaxLength + 1) { notes.Add(InvalidRangeNote); break; }
                 var length = (int)Math.Min(n.Value, Math.Max(0, style.Text.Length - start));
                 var data = EngineData.Walk(runs[i], "StyleSheet", "StyleSheetData");
                 var size = EngineData.Number(EngineData.Walk(data, "FontSize")) ?? points;
@@ -213,9 +243,7 @@ internal static class PsdText
                 var face = style.Face;
                 if (fontIndex >= 0 && fontIndex < fonts.Count && EngineData.String(EngineData.Walk(fonts[fontIndex], "Name")) is { } fontName)
                 {
-                    face = ResolveFace(fontName);
-                    if (!EditorSession.FontFamilies.Contains(face.FontFamily, StringComparer.OrdinalIgnoreCase) && !notes.Any(note => note.Contains('"' + face.FontFamily + '"')))
-                        notes.Add($"The font \"{face.FontFamily}\" isn't installed, so the text is drawn with the default font.");
+                    if (length > 0) face = ResolveFace(fontName, notes);
                 }
                 face = face with { Bold = face.Bold || EngineData.Bool(EngineData.Walk(data, "FauxBold")) == true, Italic = face.Italic || EngineData.Bool(EngineData.Walk(data, "FauxItalic")) == true };
                 if (length > 0 && face != style.Face) faces.Add(new TextFontRun((int)start, length, face.FontFamily, face.Bold, face.Italic) { FontStyle = face.FontStyle });
@@ -230,7 +258,7 @@ internal static class PsdText
                     Type = CharacterType(data, CharacterType(sheet, style.Type))
                 };
                 if (length > 0) characters.Add(new((int)start, length, local));
-                if ((Signature(runs[i]) != Signature(first)) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
+                if (length > 0 && UnsupportedCharacterStyle(data) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
                 start += (int)n.Value;
                 if (start >= style.Text.Length) break;
             }
@@ -315,13 +343,12 @@ internal static class PsdText
         Strike = EngineData.Bool(EngineData.Walk(sheet, "Strikethrough")) ?? fallback.Strike
     };
 
-    /// <summary>What a run's style amounts to, so runs that differ only in things this model ignores still count as one style.</summary>
-    private static string Signature(object? run)
-    {
-        var sheet = EngineData.Walk(run, "StyleSheet", "StyleSheetData") ?? run;
-        return string.Join("|", new[] { "HorizontalScale", "VerticalScale" }
-            .Select(key => EngineData.Walk(sheet, key) switch { double d => d.ToString("0.###", CultureInfo.InvariantCulture), bool b => b.ToString(), _ => "" }));
-    }
+    private static bool UnsupportedCharacterStyle(object? sheet) =>
+        EngineData.Number(EngineData.Walk(sheet, "HorizontalScale")) is not (null or 1)
+        || EngineData.Number(EngineData.Walk(sheet, "VerticalScale")) is not (null or 1)
+        || EngineData.Number(EngineData.Walk(sheet, "BaselineShift")) is not (null or 0)
+        || EngineData.Bool(EngineData.Walk(sheet, "AutoKerning")) == false
+            && EngineData.Number(EngineData.Walk(sheet, "Kerning")) is not (null or 0);
 
     /// <summary>The fill color's channels: alpha, red, green, blue as 0…1 (or 0…255 from older writers), or three channels, or one gray.</summary>
     private static uint Color(List<double> values)
@@ -362,16 +389,21 @@ internal static class PsdText
             else family = installed.FirstOrDefault(f => f.Replace(" ", "").Equals(family, StringComparison.OrdinalIgnoreCase)) ?? family;
         }
         else family = installed.First(f => f.Equals(family, StringComparison.OrdinalIgnoreCase));
-        if (PsdFonts.Find(postScriptName, new TextFace(family, bold, italic)) is { } actual)
-            return (actual.FontFamily, actual.Bold, actual.Italic);
         return (family, bold, italic);
     }
 
-    private static TextFace ResolveFace(string name)
+    private static TextFace ResolveFace(string name, List<string> notes)
     {
         var (family, bold, italic) = Font(name);
         var guess = new TextFace(family, bold, italic);
-        return PsdFonts.Find(name, guess) ?? guess;
+        if (PsdFonts.Find(name, guess) is { } face) return face;
+
+        var installed = EditorSession.FontFamilies.Contains(family, StringComparer.OrdinalIgnoreCase);
+        var note = installed
+            ? $"The exact Photoshop font \"{name}\" was unavailable. The closest installed face in \"{family}\" was used."
+            : $"The Photoshop font \"{name}\" isn't installed. The text is drawn with a fallback font.";
+        if (!notes.Contains(note)) notes.Add(note);
+        return installed ? FontCatalog.Closest(family, guess).Face : guess;
     }
 
     private static string Spaced(string name)

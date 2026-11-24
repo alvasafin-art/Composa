@@ -183,7 +183,7 @@ public sealed partial class CanvasView
     private static BezierNode ConvertedNode(BezierNode[] nodes, int index, bool closed, double width, double height)
     {
         var node = nodes[index];
-        if (node.InX != node.X || node.InY != node.Y || node.OutX != node.X || node.OutY != node.Y) return BezierNode.Corner(node.X, node.Y) with { StartsContour=node.StartsContour };
+        if (node.InX != node.X || node.InY != node.Y || node.OutX != node.X || node.OutY != node.Y) return BezierNode.Corner(node.X, node.Y) with { StartsContour = node.StartsContour, StartsUnion = node.StartsUnion };
         var before = nodes[index > 0 && !node.StartsContour ? index - 1 : closed ? nodes.Length - 1 : index];
         var after = nodes[index < nodes.Length - 1 && !nodes[index+1].StartsContour ? index + 1 : closed ? 0 : index];
         var dx = (after.X - before.X) * width; var dy = (after.Y - before.Y) * height;
@@ -233,7 +233,7 @@ public sealed partial class CanvasView
             using var selected = new SKPaint { Color = Accent, IsAntialias = true };
             if (geometry.HasSegment(selectedSegment))
             {
-                var edge = new VectorPath { Nodes = [geometry.Nodes[selectedSegment], geometry.Nodes[(selectedSegment+1)%geometry.Nodes.Length]] };
+                var edge = new VectorPath { Nodes = [geometry.Nodes[selectedSegment], geometry.Nodes[geometry.SegmentEnd(selectedSegment)] with { StartsContour = false }] };
                 using var highlight = edge.Build(width,height); highlight.Transform(matrix);
                 stroke.StrokeWidth = 3*hair; canvas.DrawPath(highlight,stroke); stroke.StrokeWidth=hair;
             }

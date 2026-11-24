@@ -204,7 +204,7 @@ internal sealed class PsdWriter
     public static Descriptor Rgb(SKColor color) => new Descriptor().Add("Rd  ", Descriptor.Doub(color.Red)).Add("Grn ", Descriptor.Doub(color.Green)).Add("Bl  ", Descriptor.Doub(color.Blue));
 
     /// <summary>Vector origination: <paramref name="type"/> 1 rectangle, 2 rounded rectangle, 5 ellipse, over a box in canvas pixels.</summary>
-    public static byte[] Origination(int type, SKRect box, double? radius = null, bool radiiFirst = false)
+    public static byte[] Origination(int type, SKRect box, double? radius = null, bool radiiFirst = false, SKMatrix? transform = null)
     {
         var shape = new Descriptor();
         var bbox = new Descriptor().Add("unitValueQuadVersion", Descriptor.Long(1))
@@ -215,6 +215,10 @@ internal sealed class PsdWriter
         if (radiiFirst && radii != null) shape.Add("keyOriginRRectRadii", Descriptor.Objc(radii));
         shape.Add("keyOriginShapeBBox", Descriptor.Objc(bbox));
         if (!radiiFirst && radii != null) shape.Add("keyOriginRRectRadii", Descriptor.Objc(radii));
+        if (transform is { } m) shape.Add("Trnf", Descriptor.Objc(new Descriptor()
+            .Add("xx", Descriptor.Doub(m.ScaleX)).Add("xy", Descriptor.Doub(m.SkewY))
+            .Add("yx", Descriptor.Doub(m.SkewX)).Add("yy", Descriptor.Doub(m.ScaleY))
+            .Add("tx", Descriptor.Doub(m.TransX)).Add("ty", Descriptor.Doub(m.TransY))));
         shape.Add("keyOriginIndex", Descriptor.Long(0));
         var root = new Descriptor().Add("keyDescriptorList", Descriptor.List(Descriptor.Objc(shape)));
         var buffer = new Buffer();
