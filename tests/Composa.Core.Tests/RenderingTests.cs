@@ -253,6 +253,35 @@ public class ViewRenderingTests
         TestImages.AssertColor(SKColors.Lime, view.GetPixel(10, 10));
     }
 
+    [Theory]
+    [InlineData(67, 49)]
+    [InlineData(1, 17)]
+    [InlineData(54, 1)]
+    public void Rgb8_pyramid_matches_the_scalar_average_at_odd_and_single_pixel_edges(int width, int height)
+    {
+        using var source = Pixels.NewColor(width, height);
+        new Random(539).NextBytes(source.GetPixelSpan());
+        using var half = Pixels.Halve(source);
+        var input = source.GetPixelSpan();
+        var actual = half.GetPixelSpan();
+        var stride = source.RowBytes;
+        var halfStride = half.RowBytes;
+        for (var y = 0; y < half.Height; y++)
+        for (var x = 0; x < half.Width; x++)
+        {
+            var top = y * 2 * stride;
+            var below = Math.Min(y * 2 + 1, height - 1) * stride;
+            var left = x * 2 * 4;
+            var right = Math.Min(x * 2 + 1, width - 1) * 4;
+            for (var channel = 0; channel < 4; channel++)
+            {
+                var sum = input[top + left + channel] + input[top + right + channel] +
+                    input[below + left + channel] + input[below + right + channel];
+                Assert.Equal((byte)((sum + 2) / 4), actual[y * halfStride + x * 4 + channel]);
+            }
+        }
+    }
+
     [Fact]
     public void High_precision_pyramid_averages_premultiplied_samples_without_rounding_to_bytes()
     {
