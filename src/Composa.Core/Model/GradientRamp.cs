@@ -26,10 +26,16 @@ public sealed record GradientRamp
         var left = Colors.LastOrDefault(c => c.Position <= position) ?? Colors[0]; var right = Colors.FirstOrDefault(c => c.Position > position) ?? Colors[^1];
         var t = right.Position > left.Position ? Math.Clamp((position - left.Position) / (right.Position - left.Position), 0, 1) : 0;
         var a = new SKColor(left.Color); var b = new SKColor(right.Color);
-        var ol = Opacities.LastOrDefault(o => o.Position <= position) ?? Opacities[0]; var or = Opacities.FirstOrDefault(o => o.Position > position) ?? Opacities[^1];
-        var ot = or.Position > ol.Position ? Math.Clamp((position - ol.Position) / (or.Position - ol.Position), 0, 1) : 0;
         byte Mix(byte x, byte y) => (byte)Math.Clamp(Math.Round(x + (y - x) * t), 0, 255);
-        return new(Mix(a.Red, b.Red), Mix(a.Green, b.Green), Mix(a.Blue, b.Blue), (byte)Math.Clamp(Math.Round((ol.Opacity + (or.Opacity - ol.Opacity) * ot) * 255), 0, 255));
+        return new(Mix(a.Red, b.Red), Mix(a.Green, b.Green), Mix(a.Blue, b.Blue), (byte)Math.Round(OpacityAt(position) * 255));
+    }
+
+    internal double OpacityAt(double position)
+    {
+        var left = Opacities.LastOrDefault(o => o.Position <= position) ?? Opacities[0];
+        var right = Opacities.FirstOrDefault(o => o.Position > position) ?? Opacities[^1];
+        var t = right.Position > left.Position ? Math.Clamp((position - left.Position) / (right.Position - left.Position), 0, 1) : 0;
+        return Math.Clamp(left.Opacity + (right.Opacity - left.Opacity) * t, 0, 1);
     }
     public SKColor[] ShaderColors(bool reverse = false)
     {

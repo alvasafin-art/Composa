@@ -31,13 +31,28 @@ internal static class PsdFonts
     {
         // A font manager may synthesize the requested weight/slant while keeping the regular face's
         // OpenType PostScript name. The installed name's actual face wins over that requested metadata.
-        if (installed.Value.TryGetValue(name, out var actual)) return actual;
+        if (FindInstalled(name, installed.Value, out var ambiguous) is { } actual) return actual;
+        if (ambiguous) return null;
         var face = TextLayout.TypefaceFor(guess);
         var actualName = PostScriptName(face);
         if (actualName == name || face.FamilyName.Equals(guess.FontFamily, StringComparison.OrdinalIgnoreCase)
             && (actualName == name + "MT" || actualName == name + "-Regular" && !guess.Bold && !guess.Italic))
             return FontCatalog.Face(face.FamilyName, face.FontWeight, face.FontWidth, face.FontSlant);
         return null;
+    }
+
+    internal static TextFace? FindInstalled(string name, IReadOnlyDictionary<string, TextFace> faces, out bool ambiguous)
+    {
+        ambiguous = false;
+        if (faces.TryGetValue(name, out var exact)) return exact;
+        TextFace? match = null;
+        foreach (var (postScriptName, face) in faces)
+        {
+            if (!postScriptName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (match != null) { ambiguous = true; return null; }
+            match = face;
+        }
+        return match;
     }
 
     public static TextFace IntrinsicFace(SKTypeface face) => installed.Value.TryGetValue(PostScriptName(face), out var actual)
