@@ -449,14 +449,12 @@ public static partial class AiDialogs
                 segmentationApi.IsVisible = routes[AiTaskKind.ObjectSelection] == ImageGenerationRoute.DirectApi;
             }
             RouteChanged += RefreshUtilities;
-            var nameField = StudioSettingsLayout.SetupField("Display name", StudioSettingsLayout.SetupInput(displayName));
+            var nameField = firstRun ? StudioSettingsLayout.SetupField("Display name", StudioSettingsLayout.SetupInput(displayName)) : null;
             var protocol = new TextBox { IsReadOnly = true };
-            var protocolField = StudioSettingsLayout.SetupField("API protocol", StudioSettingsLayout.SetupInput(protocol));
             var api = firstRun ? Ui.Column(9, StudioSettingsLayout.SetupColumns(
                     StudioSettingsLayout.SetupField("Base URL", StudioSettingsLayout.SetupInput(url)),
                     StudioSettingsLayout.SetupField("API key", StudioSettingsLayout.SetupInput(key))), catalog.View)
-                : Ui.Column(10, StudioSettingsLayout.SetupField("API base URL", StudioSettingsLayout.SetupInput(url)),
-                    StudioSettingsLayout.SetupField("Image API key", StudioSettingsLayout.SetupInput(key)), forget, catalog.View);
+                : StudioSettingsLayout.ApiConnectionForm(displayName, protocol, url, key, forget, catalog.View);
             var serverAddress = new TextBox { Text = server.Text, Name = "ImageComfyServer" };
             serverAddress.PropertyChanged += (_, args) =>
             {
@@ -496,10 +494,9 @@ public static partial class AiDialogs
             {
                 check.Reset();
                 workflow.IsVisible = route == ImageGenerationRoute.ComfyWorkflow;
-                api.IsVisible = nameField.IsVisible = !firstRun || route == ImageGenerationRoute.DirectApi;
+                if (nameField != null) api.IsVisible = nameField.IsVisible = route == ImageGenerationRoute.DirectApi;
                 check.View.IsVisible = !firstRun || route != ImageGenerationRoute.DirectApi;
                 codex.View.IsVisible = !firstRun || route == ImageGenerationRoute.LocalCodex;
-                protocolField.IsVisible = !firstRun || route == ImageGenerationRoute.DirectApi;
                 try { protocol.Text = DirectImageApi.Parse(url.Text ?? "").Protocol; }
                 catch (FormatException) { protocol.Text = ""; }
                 if (methodField != null) methodField.IsVisible = firstRun || route != ImageGenerationRoute.DirectApi;
@@ -515,8 +512,8 @@ public static partial class AiDialogs
             methodField = firstRun ? StudioSettingsLayout.SetupField("Method", StudioSettingsLayout.SetupInput(connectionPicker))
                 : StudioSettingsLayout.Field("Connection method", connectionPicker);
             View = firstRun
-                ? Ui.Column(12, StudioSettingsLayout.SetupColumns(methodField, nameField), workflow, codex.View, check.View, api)
-                : Ui.Column(10, StudioSettingsLayout.Columns("*,*", nameField, protocolField), api, upscaleApi, segmentationApi);
+                ? Ui.Column(12, StudioSettingsLayout.SetupColumns(methodField, nameField!), workflow, codex.View, check.View, api)
+                : Ui.Column(10, api, upscaleApi, segmentationApi);
             CliSettings = firstRun ? new Border() : Ui.Column(10, codex.View,
                 StudioSettingsLayout.SetupField("Image model", StudioSettingsLayout.SetupInput(new TextBox { Text = "gpt-image-2", IsReadOnly = true })),
                 CliCheck.View, upscaleCli, segmentationCli);

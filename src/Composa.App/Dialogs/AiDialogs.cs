@@ -292,9 +292,8 @@ public static partial class AiDialogs
         textCatalog.CheckChanged += UpdateDirectEfforts;
         var apiFields = firstRun ? Ui.Column(12, SetupColumns(
             SetupField("API base URL", SetupInput(apiUrl)), SetupField("API key", SetupInput(directKey))), clearDirect)
-            : Ui.Column(10, Columns("*,*", SetupField("Display name", apiName),
-            SetupField("API protocol", SetupInput(new TextBox { Text = Locale.T("OpenAI chat completions"), IsReadOnly = true }))),
-            SetupField("API base URL", SetupInput(apiUrl)), SetupField("Saved API key", SetupInput(directKey)), clearDirect, textCatalog.View);
+            : ApiConnectionForm(apiName, new TextBox { Text = Locale.T("OpenAI chat completions"), IsReadOnly = true },
+                apiUrl, directKey, clearDirect, textCatalog.View);
         Locale.Tip(apiUrl, "Optional bearer key: AVS_COMPATIBLE_API_KEY");
         var serverApiFields = EnhancerFields(("Server API base URL", serverUrl), ("API mode", apiMode));
         var serverFields = Ui.Column(6, serverApiFields, serverHelp);
@@ -994,25 +993,8 @@ public static partial class AiDialogs
         var apiImageLight = new Border();
         Control ConnectionCard(string title, Control content, Border light) =>
             Card(Ui.Column(12, Columns("*,19", Heading(title, 14), light), content));
-        var apiModels = SetupInput(new ComboBox { PlaceholderText = Locale.T("Choose a model") });
-        bool refreshingApiModels = false;
-        void RefreshApiSelection()
-        {
-            refreshingApiModels = true;
-            var value = apiModel.Text ?? "";
-            apiModels.ItemsSource = textCatalog.Models.Select(item => item.Id).Append(value).Where(id => id.Length > 0).Distinct().ToArray();
-            apiModels.SelectedItem = value;
-            refreshingApiModels = false;
-        }
-        apiModels.SelectionChanged += (_, _) =>
-        {
-            if (!refreshingApiModels && apiModels.SelectedItem is string id) apiModel.Text = id;
-        };
-        apiModel.TextChanged += (_, _) => RefreshApiSelection();
-        textCatalog.Changed += RefreshApiSelection;
-        RefreshApiSelection();
         var imagePage = firstRun ? new ContentControl() : ConnectionPage(5, Ui.Column(16,
-            ConnectionCard("Language model", Ui.Column(12, textConnectionHost, SetupField("Selected model", apiModels)), apiTextLight),
+            ConnectionCard("Language model", textConnectionHost, apiTextLight),
             ConnectionCard("Image operations", imageConnection.View, apiImageLight)));
         var cliLocation = SetupInput(Ui.Combo(new[] { "local", "remote" }, remoteHelp.IsVisible ? "remote" : "local",
             value => Locale.T(value == "local" ? "This computer" : "ComfyUI server"), _ => { }, double.NaN));
@@ -1132,8 +1114,8 @@ public static partial class AiDialogs
             if (firstRun || body.SelectedIndex != 2) return;
             if (selectedProvider == "direct")
             {
-                if (textCatalog.Connected == true) PresentDirectCatalog();
-                else textCatalog.ScheduleCheck();
+                if (textCatalog.Models.Count > 0) PresentDirectCatalog();
+                if (textCatalog.Connected != true) textCatalog.ScheduleCheck();
             }
             else textConnectionCheck.Schedule(() => body.SelectedIndex == 2 && (!url.IsFocused || selectedProvider == "local-codex"));
         }
@@ -2015,7 +1997,11 @@ public static partial class AiDialogs
                     tab = body.SelectedIndex == 5 ? 5 : 2; field = apiUrl;
                     directEndpoint = Assistant.ChatCompletionAssistantProvider.Endpoint(apiUrl.Text ?? "");
                     if (selectedProvider == "direct" && string.IsNullOrWhiteSpace(apiModel.Text))
-                    { field = tab == 5 ? apiModels : apiModel; throw new FormatException("Enter the API model ID."); }
+                    {
+                        tab = 2;
+                        field = textModelField.Child ?? apiModel;
+                        throw new FormatException("Choose the language model in Prompt enhancer.");
+                    }
                 }
                 if (selectedProvider == "compatible")
                 {
@@ -2053,7 +2039,7 @@ public static partial class AiDialogs
                 if (error is FormatException)
                 {
                     if (!firstRun) body.SelectedIndex = tab;
-                    if (tab == 2 && field != apiModel) promptConnectionDetails.IsChecked = true;
+                    if (tab == 2 && field != textModelField.Child) promptConnectionDetails.IsChecked = true;
                     field.Focus();
                     if (field is TextBox input) input.SelectAll();
                 }

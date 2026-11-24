@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -59,6 +60,23 @@ public sealed class ImageConnectionTests
             Dispatcher.UIThread.RunJobs();
             Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible &&
                 (Equals(button.Content, Locale.T("Check connection")) || Equals(button.Content, Locale.T("Add"))));
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(), label =>
+                label.IsEffectivelyVisible && label.Text == Locale.T("Selected model"));
+            var protocols = Fields("API protocol");
+            var modelIds = Fields("Model ID");
+            var modelNames = Fields("Display name").Where(box => string.IsNullOrEmpty(box.PlaceholderText)).ToArray();
+            var keys = Fields("API key");
+            Assert.Equal(2, protocols.Length);
+            Assert.Equal(2, modelNames.Length);
+            for (var i = 0; i < protocols.Length; i++)
+            {
+                Assert.Equal(Position(protocols[i]).X, Position(modelNames[i]).X, precision: 2);
+                Assert.Equal(Position(keys[i]).X, Position(modelIds[i]).X, precision: 2);
+                Assert.Equal(Position(modelIds[i]).Y, Position(modelNames[i]).Y, precision: 2);
+                Assert.Equal(34, modelIds[i].Bounds.Height, precision: 2);
+            }
+            Assert.Equal(Position(modelIds[0]).Y - Position(protocols[0]).Y,
+                Position(modelIds[1]).Y - Position(protocols[1]).Y, precision: 2);
             Assert.True(Screenshots.Save(dialog, "studio-settings-followup-api"));
             dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "ImageApiKey").Text = "rejected";
             Assert.Equal("GET /image/v1/models HTTP/1.1", await Reply("401 Unauthorized"));
@@ -67,6 +85,9 @@ public sealed class ImageConnectionTests
             Assert.False(await pending);
 
             IEnumerable<Border> Lights() => dialog.GetVisualDescendants().OfType<Border>().Where(border => border.IsEffectivelyVisible);
+            TextBox[] Fields(string label) => dialog.GetVisualDescendants().OfType<TextBox>().Where(box => box.IsEffectivelyVisible &&
+                Avalonia.Automation.AutomationProperties.GetName(box) == Locale.T(label)).OrderBy(box => Position(box).Y).ToArray();
+            Avalonia.Point Position(Control control) => control.TranslatePoint(default, dialog)!.Value;
             async Task WaitFor(Func<bool> ready)
             {
                 while (!ready())

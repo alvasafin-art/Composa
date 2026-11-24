@@ -66,7 +66,7 @@ internal sealed class ConnectionModelCatalog
         catch (FormatException) { }
         fetch = compactSetup ? SetupLink("Get available models", () => { }) : Ui.TextButton("Get available models", () => { });
         add = Ui.TextButton("Add model", () => { if (current != null) { Entries().Add(new("", "")); Render(); } });
-        reset = Ui.TextButton("Reset this connection’s catalog", () =>
+        reset = SetupLink("Reset this connection’s catalog", () =>
         {
             if (current == null) return;
             drafts.Remove(current);
@@ -82,7 +82,6 @@ internal sealed class ConnectionModelCatalog
                 if (requestedRevision == revision) SetCheckStatus(Locale.Message(error.Message), failed: true);
             }
         };
-        reset.Classes.Add("flat");
         fetch.Classes.Add("flat");
         add.HorizontalAlignment = HorizontalAlignment.Stretch;
         var toolbar = new WrapPanel { ItemSpacing = 5, LineSpacing = 4, Children = { reset, fetch } };
@@ -276,10 +275,12 @@ internal sealed class ConnectionModelCatalog
         rows.Children.Clear();
         if (current == null) return;
         var entries = Entries();
-        Grid CatalogRow(params Control[] fields)
+        Grid CatalogRow(Control id, Control name, Control? remove = null)
         {
-            var grid = Columns(compactSetup ? "*,*,26" : "*,*,35", fields);
-            if (compactSetup) grid.ColumnSpacing = 8;
+            if (!compactSetup)
+                return Columns("*,*", id, remove == null ? name : Columns("*,35", name, remove));
+            var grid = Columns("*,*,26", remove == null ? [id, name] : [id, name, remove]);
+            grid.ColumnSpacing = 8;
             return grid;
         }
         rows.Children.Add(compactSetup ? CatalogRow(SetupLabel("Model ID", translate: false), SetupLabel("Display name"))

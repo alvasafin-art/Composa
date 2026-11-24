@@ -85,6 +85,10 @@ internal static class StudioSettingsLayout
         return grid;
     }
 
+    internal static Control ApiConnectionForm(TextBox name, TextBox protocol, TextBox address, TextBox key, Button forget, Control catalog) =>
+        Ui.Column(10, Columns("*,*", SetupField("Display name", SetupInput(name)), SetupField("API protocol", SetupInput(protocol))),
+            SetupField("API base URL", SetupInput(address)), SetupField("API key", SetupInput(key)), forget, catalog);
+
     internal static Control SetupSection(string name, Control content, Border indicator)
     {
         var card = Card(content);
