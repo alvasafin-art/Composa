@@ -423,7 +423,9 @@ public sealed partial class CanvasView
         // Pixel damage from ContinueStroke already invalidates the canvas. When a
         // sample only moves the cursor, keep the document frame that is on screen.
         if (IsBrushTool && drag is Drag.None or Drag.Stroke) Child!.InvalidateVisual();
-        else InvalidateCanvas();
+        // The marquee's crosshair is a system cursor. Its overlay starts with a press.
+        else if (drag != Drag.None || session.Tool != Tool.Marquee || polygon.Count > 0)
+            InvalidateCanvas();
     }
 
     private void ContinueBrushDrag(PointerEventArgs e)
