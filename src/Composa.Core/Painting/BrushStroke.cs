@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
@@ -19,6 +20,15 @@ public sealed record BrushSettings
     public bool PressureSize { get; init; } = true;
     public bool PressureFlow { get; init; }
     public bool FullCursor { get; init; }
+    /// <summary>Minor diameter divided by the major diameter (1 is round).</summary>
+    public double Roundness { get; init; } = 1;
+    public const double MinRoundness = .1;
+    [JsonIgnore]
+    public double TipRoundness => double.IsFinite(Roundness) ? Math.Clamp(Roundness, MinRoundness, 1) : 1;
+    /// <summary>Direction of the major axis in degrees, counterclockwise from the right.</summary>
+    public double Angle { get; init; }
+    [JsonIgnore]
+    public double TipAngle => double.IsFinite(Angle) ? Math.IEEERemainder(Angle, 360) : 0;
     public double PressureRadius(double pressure) => PressureSize ? 0.15 + 0.85 * Math.Clamp(pressure, 0, 1) : 1;
     public double CursorRadius(double pressure = 1) => Size / 2 * PressureRadius(pressure) *
         (FullCursor ? 1 : (1 + Math.Clamp(Hardness, 0, 1)) / 2);
@@ -60,7 +70,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
     private PixelValue[] pushColors = [];
     private SKPoint? last;
     private SKPoint? lastDab;
-    private float residual;
+    private float spacingPhase;
+    private readonly EllipseTip? ellipse;
+    private readonly float strokeScale;
     // One small radial table per stroke, not a diameter-sized stamp per pressure change.
     // Squared-radius lookup removes sqrt/cos from the soft brush's hot inner loop.
     private const int FalloffSteps = 2048;
@@ -99,6 +111,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
         {
             field = value;
             selectionTranslationOnly = value == SKMatrix.CreateTranslation(value.TransX, value.TransY);
+            if (ellipse.HasValue && !selectionTranslationOnly && value.Persp0 == 0 && value.Persp1 == 0 && value.Persp2 == 1)
+                ellipse = new EllipseTip(settings, value, strokeScale);
         }
     } = SKMatrix.Identity;
     public bool LockTransparency { get; init; }
@@ -122,7 +136,10 @@ public sealed unsafe partial class BrushStroke : IDisposable
         width = target.Width;
         height = target.Height;
         coverage = new StrokeCoverage(width, height);
+        strokeScale = (float)Math.Max(1e-6, scale);
         radius = fullRadius = (float)Math.Max(0.5, settings.Size / 2 / Math.Max(1e-6, scale));
+        if (settings.TipRoundness < 1 && mode is (BrushMode.Paint or BrushMode.Erase))
+            ellipse = new EllipseTip(settings, SKMatrix.Identity, 1);
         hardness = (float)Math.Clamp(settings.Hardness, 0, 1);
         for (var i = 0; i <= FalloffSteps; i++)
         {
@@ -163,20 +180,24 @@ public sealed unsafe partial class BrushStroke : IDisposable
             radius = RadiusFor(pressure);
             dirty = Dab(point);
             last = point;
-            residual = 0;
+            spacingPhase = 0;
         }
         else
         {
             var diameter = RadiusFor(Math.Min(pressure, lastPressure)) * 2;
-            var spacing = Math.Max(0.5f, diameter * (float)settings.Spacing);
             float dx = point.X - from.X, dy = point.Y - from.Y;
             var length = MathF.Sqrt(dx * dx + dy * dy);
             if (length <= 0) return dirty;
+            // Space an oval in the direction of travel so its narrow side stays connected.
+            var span = ellipse is { } tip ? diameter * length / tip.Distance(dx, dy) : diameter;
+            var spacing = Math.Max(0.5f, span * (float)settings.Spacing);
             // Nearby dabs can share one color pass. For long moves, keep the work on the
             // tiles along the stroke so each pixel gets one color pass even on a diagonal.
             var deferColor = collected == null && length <= diameter
                 && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Heal or BrushMode.Healing);
-            var travelled = spacing - residual;
+            // Carry a fraction of the current spacing. A change in pressure or direction
+            // can shrink the next step but cannot place a dab behind this segment.
+            var travelled = spacing * (1 - spacingPhase);
             var batch = collected;
             if (batch == null && mode is (BrushMode.Paint or BrushMode.Erase) && !deferColor && length - travelled >= 3 * spacing)
                 batch = strokeStamps ??= new List<Stamp>(StampsPerBatch);
@@ -197,7 +218,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
             }
             if (batch != null && collected == null) dirty = Geometry.Union(dirty, FlushStamps(batch));
             if (deferColor && !dirty.IsEmpty) Recompute(dirty);
-            residual = length - (travelled - spacing);
+            spacingPhase = Math.Clamp((length - (travelled - spacing)) / spacing, 0, 1);
             last = point;
             lastPressure = pressure;
         }
@@ -244,16 +265,26 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 + Falloff(MathF.Sqrt((dx - 0.25f) * (dx - 0.25f) + (dy + 0.25f) * (dy + 0.25f)), radius)
                 + Falloff(MathF.Sqrt((dx + 0.25f) * (dx + 0.25f) + (dy + 0.25f) * (dy + 0.25f)), radius)) * 0.25f;
         if (hardness >= 0.995f) return Math.Clamp(radius - MathF.Sqrt(squared) + 0.5f, 0, 1);
-        var position = Math.Min(FalloffSteps, squared / (radius * radius) * FalloffSteps);
-        var index = Math.Min(FalloffSteps - 1, (int)position);
-        var value = falloff[index] + (falloff[index + 1] - falloff[index]) * (position - index);
+        var value = SoftCoverage(squared, radius);
         if (squared > (radius - 0.5f) * (radius - 0.5f)) value *= Math.Clamp(radius - MathF.Sqrt(squared) + 0.5f, 0, 1);
         return value;
     }
 
-    private SKRectI StampBounds(SKPoint center) => Geometry.Intersect(new SKRectI(
-        (int)MathF.Floor(center.X - radius - 1), (int)MathF.Floor(center.Y - radius - 1),
-        (int)MathF.Ceiling(center.X + radius + 1), (int)MathF.Ceiling(center.Y + radius + 1)), new SKRectI(0, 0, width, height));
+    private float SoftCoverage(float squared, float radius)
+    {
+        var position = Math.Min(FalloffSteps, squared / (radius * radius) * FalloffSteps);
+        var index = Math.Min(FalloffSteps - 1, (int)position);
+        return falloff[index] + (falloff[index + 1] - falloff[index]) * (position - index);
+    }
+
+    private SKRectI StampBounds(SKPoint center)
+    {
+        var x = radius * (ellipse?.ExtentX ?? 1);
+        var y = radius * (ellipse?.ExtentY ?? 1);
+        return Geometry.Intersect(new SKRectI(
+            (int)MathF.Floor(center.X - x - 1), (int)MathF.Floor(center.Y - y - 1),
+            (int)MathF.Ceiling(center.X + x + 1), (int)MathF.Ceiling(center.Y + y + 1)), new SKRectI(0, 0, width, height));
+    }
 
     private float DabFlow() => (float)Math.Clamp(settings.Flow, 0, 1) * (settings.PressureFlow ? dabPressure : 1);
 
@@ -274,7 +305,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
 
         var changed = false;
         var flow = DabFlow();
-        if (GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect)
+        if (ellipse == null && GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect)
             && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing)
             && GpuAcceleration.TryCoverage(coverage, rect, center, radius, hardness, falloff, flow, out changed))
         {
@@ -314,7 +345,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
         var saturated = buildsUp && flow >= 0 ? ushort.MaxValue - Math.Min(ushort.MaxValue, (int)(.49f / Math.Max(flow, 1e-8f)))
             : ushort.MaxValue;
         if (saturated == 0) return false;
-        var vectorize = CanVectorizeCoverage(buildsUp, radius);
+        var tip = ellipse;
+        var vectorize = tip == null && CanVectorizeCoverage(buildsUp, radius);
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             var dy = y + .5f - center.Y;
@@ -325,7 +357,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 // Skip segments completely outside the dab, without allocating a coverage tile.
                 var closest = Math.Clamp(center.X, left + .5f, end - .5f) - center.X;
                 x = end;
-                if (closest * closest + dy * dy >= outer * outer) continue;
+                if (tip == null && closest * closest + dy * dy >= outer * outer) continue;
 
                 var row = coverage.WritableRowSegment(left, y, end - left);
                 var offset = 0;
@@ -336,7 +368,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 {
                     var old = row[offset];
                     if (old >= saturated) continue;
-                    var amount = CoverageAt(left + offset + .5f - center.X, dy, radius);
+                    var dx = left + offset + .5f - center.X;
+                    var amount = tip is { } shaped ? OvalCoverage(shaped, dx, dy, radius) : CoverageAt(dx, dy, radius);
                     if (amount <= 0) continue;
                     var accumulated = buildsUp
                         ? old + (ushort.MaxValue - old) * amount * flow
@@ -478,7 +511,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private void Recompute(SKRectI rect)
     {
-        if (GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect) && mode is (BrushMode.Paint or BrushMode.Erase)
+        if (ellipse == null && GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect) && mode is (BrushMode.Paint or BrushMode.Erase)
             && selectionPixels == null && !LockTransparency && Working.ColorType == SKColorType.Rgba8888
             && GpuAcceleration.TryBrush(original, Working, rect, coverage, GpuPaintColor, (float)Math.Clamp(settings.Opacity, 0, 1)))
             return;
