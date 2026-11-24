@@ -65,7 +65,7 @@ public class BrushPresetUiTests
             var tip = Open("BrushTipPicker", out var tipFlyout);
             var roundness = tip.Children.OfType<SliderField>().Single(f => f.Name == "BrushTipRoundness");
             roundness.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Left });
-            var angle = tip.GetVisualDescendants().OfType<SliderField>().Single(f => f.Label == "Angle");
+            var angle = tip.GetVisualDescendants().OfType<SliderField>().Single(f => f.Label == "Tip angle");
             angle.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
             Assert.Equal(.99, session.Brush.Roundness);
             Assert.Equal(1, session.Brush.Angle);

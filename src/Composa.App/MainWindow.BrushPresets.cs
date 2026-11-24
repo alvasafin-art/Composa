@@ -105,8 +105,9 @@ public sealed partial class MainWindow
             var roundness = Ui.SliderField("Roundness", target.Brush.TipRoundness * 100, BrushSettings.MinRoundness * 100, 100,
                 v => Update(target.Brush with { Roundness = v / 100 }), width: width, reset: 100);
             roundness.Name = "BrushTipRoundness";
-            Locale.Tip(roundness, "100% is a circle. Lower values make an oval.");
-            var angle = Ui.AngleField("Angle", target.Brush.TipAngle, -180, 180,
+            if (ToolTip.GetTip(roundness) is Control sliderHelp)
+                Locale.Tip(roundness, Ui.Column(6, Ui.Label(Locale.T("100% is a circle. Lower values make an oval.")), sliderHelp));
+            var angle = Ui.AngleField("Tip angle", target.Brush.TipAngle, -180, 180,
                 v => Update(target.Brush with { Angle = v }), width, Controls.AngleDialStyle.Line, reset: 0);
             angle.Name = "BrushTipAngle";
             flyout.Content = Ui.Column(8,
