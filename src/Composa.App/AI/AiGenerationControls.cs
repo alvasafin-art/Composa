@@ -51,6 +51,20 @@ internal static class AiGenerationControls
         return button;
     }
 
+    internal static bool SupportsAlignment(AiTaskKind task) =>
+        task is AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill;
+
+    internal static ToggleButton AlignmentToggle(bool enabled, Action<bool> changed)
+    {
+        var toggle = new ToggleButton { Name = "AiPixelAlignment", Classes = { "tool" },
+            Width = 30, Height = 28, Padding = new Thickness(4), IsChecked = enabled,
+            Content = Icons.Create(Icons.PixelAlignment, 18) };
+        AutomationProperties.SetName(toggle, Locale.T("Align pixels"));
+        Locale.Tip(toggle, "Align pixels · use unchanged image details to correct small shifts before inserting the result.");
+        toggle.Click += (_, _) => changed(toggle.IsChecked == true);
+        return toggle;
+    }
+
     internal static bool SupportsVariants(AiTaskKind task) =>
         task is not (AiTaskKind.Upscale or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection);
 

@@ -9,6 +9,7 @@ using Composa.App.AI;
 using Composa.App.Controls;
 using Composa.App.Dialogs;
 using Composa.Rendering;
+using Composa.Editing;
 
 namespace Composa.App;
 
@@ -21,7 +22,9 @@ public sealed partial class MainWindow
     private bool editorInDock;
     private AiTaskKind automaticDockTask = AiTaskKind.GenerateImage;
     private AiTaskKind? manualDockTask;
-    private AiTaskKind EditorTask => editorInDock ? manualDockTask ?? automaticDockTask : AiTaskKind.GenerativeFill;
+    private EditorSession? floatingTaskSession;
+    private AiTaskKind? manualFloatingTask;
+    private AiTaskKind EditorTask => editorInDock ? manualDockTask ?? automaticDockTask : manualFloatingTask ?? AiTaskKind.GenerativeFill;
     private bool DockEditorVisible => session != null && !settings.CanvasOnly && dock.Presents(generationSection);
     private AiTaskKind? presentedTask;
 
@@ -62,7 +65,7 @@ public sealed partial class MainWindow
         Locale.Tip(dockOperation, "Choose AI operation");
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         header.Children.Add(dockOperation);
-        AddAt(header, Ui.Row(0, DockSlot(aiHeaderReference!), DockSlot(aiEnhance), DockSlot(aiAdvanced)), 1);
+        AddAt(header, Ui.Row(0, DockSlot(aiHeaderReference!), DockSlot(aiEnhance), DockSlot(aiPixelAlignment), DockSlot(aiAdvanced)), 1);
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,4,Auto") };
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiPriceBadge), 1);
@@ -113,6 +116,11 @@ public sealed partial class MainWindow
                 manualDockTask = null;
             }
         }
+        if (useDock || session?.Selection == null || !ReferenceEquals(floatingTaskSession, session))
+        {
+            manualFloatingTask = null;
+            floatingTaskSession = useDock || session?.Selection == null ? null : session;
+        }
         var task = EditorTask;
         if (presentedTask == task)
         {
@@ -122,6 +130,7 @@ public sealed partial class MainWindow
         presentedTask = task;
         aiFloatingPrompt.Text = settings.AiPromptFor(task);
         dockOperationName.Text = DockTaskName(task);
+        aiFloatingOperation.Text = Locale.T(task.DisplayName());
         AutomationProperties.SetName(dockOperation, "Choose AI operation · " + dockOperationName.Text);
         aiFloatingPrompt.PlaceholderText = Locale.T(task switch
         {

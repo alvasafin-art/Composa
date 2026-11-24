@@ -25,7 +25,7 @@ internal sealed class PartnerImageInputs : IDisposable
     internal SKBitmap SourceReference => original.ContextImage;
     internal SKRectI SourceBounds => crop;
 
-    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null)
+    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null, bool supportsNativeMask = false)
     {
         original = inputs; this.request = request; nano = NanoBanana.IsModel(apiModel);
         var source = request.Task is AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.GenerativeExpand
@@ -66,7 +66,8 @@ internal sealed class PartnerImageInputs : IDisposable
         if (originalSize)
         {
             desired = AiDimensions.OriginalGenerationSize(desired.Width, desired.Height);
-            if (Images.TryGetValue("apiSource", out var input) && (long)input.Width * input.Height < Composa.Model.DocumentLimits.MinimumGenerationPixels)
+            var keepNativeUpload = request.Task == AiTaskKind.ImageEdit && apiModel?.StartsWith("gpt-image-", StringComparison.Ordinal) == true;
+            if (!keepNativeUpload && Images.TryGetValue("apiSource", out var input) && (long)input.Width * input.Height < Composa.Model.DocumentLimits.MinimumGenerationPixels)
                 Images["apiSource"] = Own(Resize(input, desired.Width, desired.Height));
         }
         try
@@ -91,6 +92,17 @@ internal sealed class PartnerImageInputs : IDisposable
             else if (apiModel == PartnerNodes.Seedream) generationSize = PartnerNodes.SeedreamSize(desired.Width, desired.Height);
             else generationSize = PartnerImageSize.Plan(desired.Width, desired.Height,
                 originalSize ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels);
+
+            // GPT's V2 node accepts a white-is-edit mask only with one input image.
+            if (supportsNativeMask && request.Task == AiTaskKind.GenerativeFill && mask != null && inputs.ReferenceImages.Count == 0)
+            {
+                var input = Images["apiSource"];
+                using var cropped = Crop(mask, crop);
+                var modelMask = Own(Pixels.NewMask(input.Width, input.Height));
+                Images["apiMask"] = modelMask;
+                using var canvas = new SKCanvas(modelMask);
+                canvas.DrawImage(Pixels.ImageOf(cropped), SKRect.Create(input.Width, input.Height), new SKSamplingOptions(SKFilterMode.Nearest));
+            }
         }
         catch { Dispose(); throw; }
     }
@@ -123,7 +135,7 @@ internal sealed class PartnerImageInputs : IDisposable
             node["model.custom_width"] = generationSize.Width;
             node["model.custom_height"] = generationSize.Height;
         }
-        // Masks stay local. Do not let template image ports or upload enumeration order
+        // Do not let template image ports or upload enumeration order
         // change source/reference numbering, or accidentally add a mask as a reference.
         foreach (var key in node.Select(pair => pair.Key).Where(key => key == "model.mask" || key.StartsWith("model.images.image_", StringComparison.Ordinal)).ToArray())
             node.Remove(key);
@@ -136,19 +148,25 @@ internal sealed class PartnerImageInputs : IDisposable
             var id = "composa_api_image_" + ++number;
             result[id] = Load(filename); node[$"model.images.image_{number}"] = new JsonArray(id, 0);
         }
+        if (files.TryGetValue("apiMask", out var maskFile))
+        {
+            result["composa_api_mask_image"] = Load(maskFile);
+            result["composa_api_mask"] = new JsonObject { ["class_type"] = "ImageToMask",
+                ["inputs"] = new JsonObject { ["image"] = new JsonArray("composa_api_mask_image", 0), ["channel"] = "red" } };
+            node["model.mask"] = new JsonArray("composa_api_mask", 0);
+        }
         node["prompt"] = Prompt();
         return result;
     }
 
     private string Prompt()
     {
-        // GPT edits a rectangular image, not an externally described mask. Keep
-        // operation instructions, but never refer to a mask it has not received.
+        // Keep operation instructions; only mention a native mask when it is bound.
         var guidance = request.Prompt.Trim();
         var instruction = request.Task switch
         {
             AiTaskKind.GenerativeFill when request.BlackEditRegion => AiPromptDefaults.Expand,
-            AiTaskKind.GenerativeFill => guidance,
+            AiTaskKind.GenerativeFill => Images.ContainsKey("apiMask") ? $"Edit the masked area. {guidance}" : guidance,
             AiTaskKind.Harmonize when blendMask != null => $"Harmonize the object in image 1 with its surrounding scene while preserving identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
             AiTaskKind.Relight when blendMask != null => $"Relight image 1. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill. Lighting request: {guidance}",
             AiTaskKind.GenerativeExpand => AiPromptDefaults.Expand,
@@ -180,8 +198,9 @@ internal sealed class PartnerImageInputs : IDisposable
         if(nano) generated=NanoBanana.Unpad(generated,nanoContent,nanoPadded);
         if (request.Task == AiTaskKind.GenerateImage) { using(generated) return Resize(generated,original.CanvasWidth,original.CanvasHeight); }
         using (generated)
-        using (var fitted = Resize(generated, crop.Width, crop.Height))
         {
+            if (AlignsFullEdit) return FitCrop(generated);
+            using var fitted = FitCrop(generated);
             var result = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage);
             Blend(result, fitted, null, crop);
             if (blendMask == null) return result;
@@ -189,10 +208,21 @@ internal sealed class PartnerImageInputs : IDisposable
             using (var context = request.Task == AiTaskKind.GenerativeExpand ? original.ExpandedContext() : Pixels.Clone(original.ContextImage))
                 return AiSeamlessFinisher.Match(result, context, blendMask, crop, plan!.SeamWidth,
                     request.Task is not (AiTaskKind.Relight or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground),
-                    alignPixels: request.AlignMaskedEdits && request.Task != AiTaskKind.GenerativeExpand,
+                    alignPixels: !AlignsDuringFit && request.AlignMaskedEdits && request.Task != AiTaskKind.GenerativeExpand,
                     keepGeneratedContext: request.Task == AiTaskKind.GenerativeFill);
         }
     }
+
+    private SKBitmap FitCrop(SKBitmap generated)
+    {
+        if (!AlignsDuringFit) return Resize(generated, crop.Width, crop.Height);
+        ValidateProportions(generated, crop.Width, crop.Height);
+        return AiSeamlessFinisher.FitEdit(generated, original.ContextImage, crop, blendMask, request.AlignMaskedEdits);
+    }
+
+    private bool AlignsDuringFit => AlignsFullEdit || request.Task == AiTaskKind.GenerativeFill;
+
+    internal bool AlignsFullEdit => request.Task == AiTaskKind.ImageEdit;
 
     private SKBitmap Own(SKBitmap bitmap) { owned.Add(bitmap); return bitmap; }
     private static JsonObject Load(string filename) => new() { ["class_type"] = "LoadImage", ["inputs"] = new JsonObject { ["image"] = filename } };
@@ -204,10 +234,15 @@ internal sealed class PartnerImageInputs : IDisposable
     private static SKBitmap Resize(SKBitmap source, int width, int height)
     {
         if (source.Width == width && source.Height == height) return Pixels.Clone(source);
-        var mismatch = Math.Abs((double)source.Width / source.Height / ((double)width / height) - 1);
-        if (mismatch > 0.025) throw new InvalidDataException($"The image model returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
+        ValidateProportions(source, width, height);
         var result = Pixels.NewColor(width, height); using var canvas = new SKCanvas(result);
         canvas.DrawImage(Pixels.ImageOf(source), SKRect.Create(width, height), new SKSamplingOptions(SKCubicResampler.Mitchell)); return result;
+    }
+
+    private static void ValidateProportions(SKBitmap source, int width, int height)
+    {
+        var mismatch = Math.Abs((double)source.Width / source.Height / ((double)width / height) - 1);
+        if (mismatch > 0.025) throw new InvalidDataException($"The image model returned {source.Width} × {source.Height} with different proportions from {width} × {height}. Refusing to stretch or misalign it with the mask; no edit was applied.");
     }
     private static unsafe void Blend(SKBitmap destination, SKBitmap image, SKBitmap? mask, SKRectI bounds)
     {
