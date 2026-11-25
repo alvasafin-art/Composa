@@ -58,6 +58,7 @@ public sealed partial class MainWindow
         {
             LayoutInspector.Group => 264,
             LayoutInspector.Child when session?.ActiveLayer?.SupportsLayoutImageFrame == true => 304,
+            _ when session?.ActiveLayer?.Text?.Path != null => 342,
             _ when session?.ActiveLayer?.Text != null => 306,
             _ when session is { ActiveLayer: null, IsEditingAlphaChannel: false } => 455,
             _ => 0
@@ -292,8 +293,8 @@ public sealed partial class MainWindow
                     Add(Ui.Label(Locale.Message(s.ShapeKind == ShapeKind.Line ? "Draws in the foreground color · Shift snaps to 45°" : "Fills with the foreground color"), Palette.Secondary));
                 }
                 break;
-            case Tool.Text:
-                Add(Title("Type"));
+            case Tool.Text or Tool.TextOnPath or Tool.VerticalText:
+                Add(Title(s.Tool == Tool.TextOnPath ? "Text on Path" : s.Tool == Tool.VerticalText ? "Vertical Type" : "Type"));
                 if (s.ActiveLayer?.Text == null || !dock.Section("Properties").State.Visible) BuildTextFields(row);
                 else if (s.IsEditingText)
                 {
@@ -588,12 +589,57 @@ public sealed partial class MainWindow
             UpdateColors();
             refreshOptions?.Invoke();
         };
+        var pathAlignments = new Dictionary<TextPathAlignment, ToggleButton>();
+        var pathAlignmentRow = new Grid
+        {
+            Name = "TextPathAlignment",
+            ColumnDefinitions = new ColumnDefinitions(properties ? "*,*,*,*" : "Auto,Auto,Auto,Auto"),
+            ColumnSpacing = 1
+        };
+        Avalonia.Automation.AutomationProperties.SetName(pathAlignmentRow, Locale.T("Align to Path"));
+        foreach (var (mode, icon, label) in new[]
+        {
+            (TextPathAlignment.Ascender, Icons.PathAscender, "Ascender"),
+            (TextPathAlignment.Center, Icons.PathCenter, "Center"),
+            (TextPathAlignment.Baseline, Icons.PathBaseline, "Path Baseline"),
+            (TextPathAlignment.Descender, Icons.PathDescender, "Descender")
+        })
+        {
+            var button = new ToggleButton
+            {
+                Classes = { "tool" }, Width = properties ? double.NaN : 30, Height = 28, MinWidth = 0,
+                Padding = default, HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Center, Content = Icons.Create(icon, 18)
+            };
+            var caption = Locale.T(label);
+            Locale.Tip(button, caption);
+            Avalonia.Automation.AutomationProperties.SetName(button, caption);
+            button.Click += (_, _) =>
+            {
+                s.ChangeTextStyle(st => st.Path is { } path ? st with { Path = path with { Alignment = mode } } : st);
+                refreshOptions?.Invoke();
+            };
+            pathAlignments.Add(mode, button);
+            AddAt(pathAlignmentRow, button, pathAlignments.Count - 1);
+        }
+        var editCurve = new Button { Classes = { "tool" }, Width = 34, Height = 28, MinWidth = 0,
+            Padding = default, Content = Icons.Create(Icons.Pen, 16) };
+        Locale.Tip(editCurve, "Edit Text Curve");
+        Avalonia.Automation.AutomationProperties.SetName(editCurve, Locale.T("Edit Text Curve"));
+        editCurve.Click += (_, _) => { SelectTool(Tool.Pen); canvas.Focus(); };
+        Control pathControls = properties
+            ? PropertyPair(pathAlignmentRow, new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, Children = { editCurve } })
+            : Ui.Row(5, pathAlignmentRow, editCurve);
         var alignments = new Dictionary<TextAlignment, ToggleButton>();
         var alignRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight), (TextAlignment.Justify, new Icons.Icon("M3 5h18 M3 10h18 M3 15h18 M3 20h18")) })
         {
             var button = new ToggleButton { Classes = { "tool" }, Width = 30, Height = 26, Content = Icons.Create(icon, 15), IsChecked = style.Alignment == alignment };
-            Locale.Tip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
+            Locale.Tip(button, Locale.T(style.Path != null || style.IsVertical ? alignment switch
+            {
+                TextAlignment.Left => "Align to start", TextAlignment.Right => "Align to end", _ => "Align center"
+            } : "Align " + alignment.ToString().ToLowerInvariant()));
+            if (style.Path != null || style.IsVertical) button.IsVisible = alignment != TextAlignment.Justify;
             button.Click += (_, _) => { s.FormatText(st => st with { Alignment = alignment }, paragraph: true); refreshOptions?.Invoke(); };
             alignments[alignment] = button;
             alignRow.Children.Add(button);
@@ -667,12 +713,14 @@ public sealed partial class MainWindow
                 AddAt(alignmentGrid,button,alignmentGrid.Children.Count);
             }
             row.Children.Add(PropertyPair(alignmentGrid,decoration));
+            row.Children.Add(pathControls);
         }
         else
         {
             row.Children.AddRange([font, faceMenu, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), swatch, alignRow,
                 Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Tracking"), Palette.Secondary), tracking), tracking),
                 Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Leading"), Palette.Secondary), leading), leading), Ui.Separator()]);
+            row.Children.Add(pathControls);
             if (s.IsEditingText) row.Children.AddRange([done, cancel]);
             else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
         }
@@ -680,6 +728,8 @@ public sealed partial class MainWindow
         {
             var current = s.InspectedTextStyle;
             updating = true;
+            pathControls.IsVisible = current.Path != null;
+            foreach (var (mode, button) in pathAlignments) button.IsChecked = current.Path?.Alignment == mode;
             if (leadingUnit != null) leadingUnit.Text = current.Type.PercentLeading ? "%" : "px";
             if (trackingUnit != null) trackingUnit.Text = current.Type.PercentTracking ? "%" : "px";
             if (underline != null) underline.IsChecked = current.Type.Underline;

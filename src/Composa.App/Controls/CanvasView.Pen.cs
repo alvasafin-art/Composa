@@ -1,4 +1,5 @@
 using Avalonia.Input;
+using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
 namespace Composa.App.Controls;
@@ -24,8 +25,10 @@ public sealed partial class CanvasView
         get => session?.Tool == Composa.Editing.Tool.Pen && session.ActiveLayer is { VectorMask: not null } layer && penMaskLayer == layer.Id;
         set => penMaskLayer = value ? session?.ActiveLayer?.Id : null;
     }
+    private (SKMatrix Matrix, int Width, int Height, SKPoint Origin)? penTextFrame;
+
     private VectorPath? CurrentPenPath => session?.ActiveLayer is { } layer
-        ? EditVectorMask ? layer.VectorMask : Composa.Editing.EditorSession.EditableShapePath(layer)
+        ? EditVectorMask ? layer.VectorMask : EditorSession.EditableTextCurve(layer) ?? EditorSession.EditableShapePath(layer)
         : null;
     public void FinishPen(bool closed = false)
     {
@@ -92,6 +95,9 @@ public sealed partial class CanvasView
         penConverted = endpointCorner = false;
         if (session?.ActiveLayer is not { Pixels: { } pixels } layer || session.PixelsLocked(layer) || CurrentPenPath is not { } path)
             return false;
+        penTextFrame = !EditVectorMask && layer.Text is { Path: not null } text
+            ? (layer.Matrix, pixels.Width, pixels.Height, Composa.Text.TextLayout.PathOriginFor(text))
+            : null;
         var nearest = 9.0; var found = -1; var which = 0;
         for (var i = 0; i < path.Nodes.Length; i++)
         {
@@ -106,11 +112,11 @@ public sealed partial class CanvasView
         if (found >= 0)
         {
             penSelectedSegment = -1; penSelectedLayer = layer.Id; penSelectedNode = found;
-            session.Begin("Edit Path"); penLayer = layer; penOriginal = path; penNode = found; penHandle = alt && which == 0 ? 2 : which;
+            session.Begin(penTextFrame != null ? "Edit Text Curve" : "Edit Path"); penLayer = layer; penOriginal = path; penNode = found; penHandle = alt && which == 0 ? 2 : which;
             if (alt && which == 0)
             {
                 var nodes = path.Nodes.ToArray(); nodes[found] = ConvertedNode(nodes, found, path.Closed, pixels.Width, pixels.Height);
-                penOriginal = path with { Nodes = nodes }; session.PreviewVectorPath(layer, penOriginal, EditVectorMask); penConverted = true;
+                penOriginal = path with { Nodes = nodes }; PreviewPenOutline(layer, penOriginal); penConverted = true;
             }
             penDraftDrag = false; drag = Drag.PenNode; return true;
         }
@@ -119,7 +125,7 @@ public sealed partial class CanvasView
         if (segment >= 0)
         {
             penSelectedLayer = layer.Id; penSelectedNode = -1; penSelectedSegment = segment;
-            if (insert || clicks >= 2)
+            if (penTextFrame == null && (insert || clicks >= 2))
             {
                 var next = path.SplitSegment(segment,t);
                 if (next == path) return true;
@@ -129,7 +135,7 @@ public sealed partial class CanvasView
             else
             {
                 penLayer=layer; penOriginal=path; penNode=segment; penHandle=3; bendParameter=t;
-                penDraftDrag=false; session.Begin("Bend Path"); drag=Drag.PenNode;
+                penDraftDrag=false; session.Begin(penTextFrame != null ? "Edit Text Curve" : "Bend Path"); drag=Drag.PenNode;
             }
             return true;
         }
@@ -146,6 +152,7 @@ public sealed partial class CanvasView
     private bool DeletePenNode()
     {
         if ((penSelectedSegment < 0 && penSelectedNode < 0) || session?.ActiveLayer is not { } layer || penSelectedLayer != layer.Id || CurrentPenPath is not { } path || session.PixelsLocked(layer)) return false;
+        if (!EditVectorMask && layer.Text?.Path != null) return false;
         var next = penSelectedSegment >= 0 ? path.RemoveSegment(penSelectedSegment)
             : path.RemoveNode(penSelectedNode, layer.Pixels!.Width, layer.Pixels.Height); if (ReferenceEquals(path, next)) return true;
         session.Begin("Edit Path"); session.PreviewVectorPath(layer, next, EditVectorMask);
@@ -166,19 +173,30 @@ public sealed partial class CanvasView
             if (penDraft.Count == 0) return; var n = penDraft[^1];
             penDraft[^1] = n with { OutX = currentDocument.X, OutY = currentDocument.Y, InX = 2 * n.X - currentDocument.X, InY = 2 * n.Y - currentDocument.Y }; return;
         }
-        if (penLayer?.Pixels == null || penOriginal == null || !penLayer.Matrix.TryInvert(out var inverse)) return;
+        if (penLayer?.Pixels == null || penOriginal == null || !(penTextFrame?.Matrix ?? penLayer.Matrix).TryInvert(out var inverse)) return;
+        double width = penTextFrame?.Width ?? penLayer.Pixels.Width, height = penTextFrame?.Height ?? penLayer.Pixels.Height;
         var p = inverse.MapPoint(penHandle == 0 ? SnapLayoutHandle(currentDocument) : currentDocument);
         if (penHandle == 3)
         {
             var start = inverse.MapPoint(pressDocument);
             var bent = penOriginal.BendSegment(penNode, bendParameter,
-                (p.X-start.X)/penLayer.Pixels.Width, (p.Y-start.Y)/penLayer.Pixels.Height);
-            session!.PreviewVectorPath(penLayer, bent, EditVectorMask); return;
+                (p.X-start.X)/width, (p.Y-start.Y)/height);
+            PreviewPenOutline(penLayer, bent); return;
         }
         var nodes = penOriginal.Nodes.ToArray(); var node = nodes[penNode];
-        double x = p.X / penLayer.Pixels.Width, y = p.Y / penLayer.Pixels.Height;
+        double x = p.X / width, y = p.Y / height;
         nodes[penNode] = MovedNode(node, x, y, penHandle, alt);
-        session!.PreviewVectorPath(penLayer, penOriginal with { Nodes = nodes }, EditVectorMask);
+        PreviewPenOutline(penLayer, penOriginal with { Nodes = nodes });
+    }
+
+    private void PreviewPenOutline(Layer layer, VectorPath path)
+    {
+        if (penTextFrame is { } frame)
+        {
+            var outline = new TextPath(path).MapOutline(frame.Width, frame.Height, frame.Origin.X, frame.Origin.Y);
+            session!.PreviewTextCurve(layer, outline);
+        }
+        else session!.PreviewVectorPath(layer, path, EditVectorMask);
     }
     private static BezierNode ConvertedNode(BezierNode[] nodes, int index, bool closed, double width, double height)
     {

@@ -13,6 +13,7 @@ public sealed class TextEditor
     private readonly List<(TextStyle Style, int Caret, int Anchor)> redo = [];
     private TextLayout? layout;
     private bool lastWasTyping;
+    private TextStyle? pathStartBefore;
 
     public TextEditor(TextStyle style)
     {
@@ -91,6 +92,24 @@ public sealed class TextEditor
         if (next == Style) return;
         Record(typing: false);
         Apply(next, Caret, Anchor);
+    }
+
+    public void BeginPathStartDrag() => pathStartBefore = Style.Path == null ? null : Style;
+
+    public void PreviewPathStart(double? parameter)
+    {
+        if (pathStartBefore?.Path is not { } path) return;
+        var next = Style with { Path = parameter is { } start ? path.WithStart(start) : path };
+        if (next != Style) Apply(next, Caret, Anchor);
+    }
+
+    public void EndPathStartDrag(bool keep)
+    {
+        var before = pathStartBefore;
+        pathStartBefore = null;
+        if (before == null || Style == before) return;
+        if (keep) Record(typing: false, before);
+        else Apply(before, Caret, Anchor);
     }
 
     /// <summary>Paints the selected letters in a color, or all of the text (dropping its per-letter colors) when nothing is selected. Undoable within the editor.</summary>
@@ -175,10 +194,10 @@ public sealed class TextEditor
 
     // ---- Undo -----------------------------------------------------------------------------------------------------
 
-    private void Record(bool typing)
+    private void Record(bool typing, TextStyle? before = null)
     {
         if (typing && lastWasTyping && undo.Count > 0) return;
-        undo.Add((Style, Caret, Anchor));
+        undo.Add((before ?? Style, Caret, Anchor));
         if (undo.Count > 200) undo.RemoveAt(0);
         redo.Clear();
         lastWasTyping = typing;

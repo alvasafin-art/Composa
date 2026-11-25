@@ -89,6 +89,24 @@ public sealed partial class EditorSession
         return converted;
     }
 
+    public static VectorPath? EditableTextCurve(Layer layer)
+    {
+        if (layer.Text is not { Path: { } path } style || layer.Pixels is not { } pixels) return null;
+        var origin = Text.TextLayout.PathOriginFor(style);
+        return path.MapOutline(1.0 / pixels.Width, 1.0 / pixels.Height, -origin.X / pixels.Width, -origin.Y / pixels.Height);
+    }
+
+    public void PreviewTextCurve(Layer layer, VectorPath outline)
+    {
+        if (!IsInteracting || layer.Text is not { Path: { } path } style || PixelsLocked(layer)) return;
+        var next = path with { Outline = outline };
+        if (!next.IsValid() || next == path) return;
+        var layout = new Text.TextLayout(style with { Path = next });
+        if (!DocumentLimits.FitsSurface(layout.Width, layout.Height, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4)) return;
+        SetText(layer, layout.Style);
+        TextChanged?.Invoke();
+    }
+
     public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;

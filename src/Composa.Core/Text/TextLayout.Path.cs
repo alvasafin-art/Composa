@@ -9,25 +9,44 @@ public sealed partial class TextLayout
     /// <summary>Text-space coordinates of the top-left pixel of a path text bitmap.</summary>
     public SKPoint PathOrigin { get; }
 
-    private static SKRectI PathBounds(TextStyle style, SKPath curve)
+    // The entire line shares one typographic reference, including runs in a different face or size.
+    internal float PathBaselineOffset { get; }
+
+    internal static float PathOffset(TextPathAlignment alignment, float ascent, float descent) => alignment switch
+    {
+        TextPathAlignment.Ascender => ascent,
+        TextPathAlignment.Descender => -descent,
+        TextPathAlignment.Center => (ascent - descent) / 2,
+        _ => 0
+    };
+
+    internal static float PathBaselineOffsetFor(TextStyle style)
+    {
+        if (style.Path is not { Alignment: not TextPathAlignment.Baseline } path) return 0;
+        using var font = MakeFont(style.Face, style.Size, style.Type.Axes);
+        var metrics = font.Metrics;
+        return PathOffset(path.Alignment, -metrics.Ascent, metrics.Descent);
+    }
+
+    private static SKRectI PathBounds(TextStyle style, SKPath curve, float offset)
     {
         var bounds = curve.TightBounds;
-        var margin = Padding + (float)Math.Max(style.Size, style.SizeRuns?.Max(r => r.Size) ?? style.Size) * 2;
+        var margin = Padding + (float)Math.Max(style.Size, style.SizeRuns?.Max(r => r.Size) ?? style.Size) * 2 + Math.Abs(offset);
         bounds.Inflate(margin, margin);
         return Geometry.RoundOut(bounds);
     }
 
-    internal static SKPoint PathOriginFor(TextStyle style)
+    public static SKPoint PathOriginFor(TextStyle style)
     {
         using var curve = style.Path?.Build();
         if (curve == null) return SKPoint.Empty;
-        var bounds = PathBounds(style, curve);
+        var bounds = PathBounds(style, curve, PathBaselineOffsetFor(style));
         return new(bounds.Left, bounds.Top);
     }
 
-    public SKPath? CreateLocalTextPath()
+    public SKPath? CreateLocalTextPath(bool fullOutline = false)
     {
-        var curve = Style.Path?.Build();
+        var curve = fullOutline ? Style.Path?.Outline.Build(1, 1) : Style.Path?.Build();
         curve?.Offset(-PathOrigin.X, -PathOrigin.Y);
         return curve;
     }
@@ -52,7 +71,7 @@ public sealed partial class TextLayout
             var centre = position.X + half;
             if (centre < Padding || centre > Padding + pathLength || !SamplePath(measure, centre, out var at, out var tangent)) continue;
             at -= new SKPoint(tangent.X * half, tangent.Y * half);
-            at = Offset(at, tangent, position.Y - line.Baseline);
+            at = Offset(at, tangent, position.Y - line.Baseline + PathBaselineOffset);
             maps[used] = new(tangent.X, tangent.Y, at.X, at.Y);
             glyphs[used++] = glyphs[i];
         }
@@ -68,7 +87,7 @@ public sealed partial class TextLayout
         for (var i = 0; i <= steps; i++)
         {
             if (!SamplePath(measure, from + (to - from) * i / steps, out var at, out var tangent)) return;
-            at = Offset(at, tangent, offset);
+            at = Offset(at, tangent, offset + PathBaselineOffset);
             if (i == 0) rule.MoveTo(at); else rule.LineTo(at);
         }
         paint.Style = SKPaintStyle.Stroke;
@@ -80,22 +99,25 @@ public sealed partial class TextLayout
     {
         var (x, top, bottom) = CaretAt(index);
         if (Style.Path == null)
-            return Style.IsBox && top > Height - Padding ? null : (new SKPoint(x, top), new SKPoint(x, bottom));
+            return Style.IsBox && top > BlockSize - Padding ? null : (LocalPoint(x, top), LocalPoint(x, bottom));
         using var curve = Style.Path.Build();
         using var measure = new SKPathMeasure(curve, false, 2);
+        var baseline = Lines[0].Baseline - PathBaselineOffset;
         return SamplePath(measure, x, out var at, out var tangent)
-            ? (Offset(at, tangent, top - Lines[0].Baseline), Offset(at, tangent, bottom - Lines[0].Baseline)) : null;
+            ? (Offset(at, tangent, top - baseline), Offset(at, tangent, bottom - baseline)) : null;
     }
 
     public List<SKPoint[]> SelectionPolygons(int start, int end)
     {
         if (Style.Path == null)
-            return SelectionRects(start, end).Select(r => new SKPoint[] { new(r.Left, r.Top), new(r.Right, r.Top), new(r.Right, r.Bottom), new(r.Left, r.Bottom) }).ToList();
+            return SelectionRects(start, end).Select(r => new SKPoint[] { LocalPoint(r.Left, r.Top), LocalPoint(r.Right, r.Top), LocalPoint(r.Right, r.Bottom), LocalPoint(r.Left, r.Bottom) }).ToList();
 
         var line = Lines[0];
         using var curve = Style.Path.Build();
         using var measure = new SKPathMeasure(curve, false, 2);
         var polygons = new List<SKPoint[]>();
+        var top = PathBaselineOffset - line.Ascent;
+        var bottom = PathBaselineOffset + line.Descent;
         int stop = Math.Min(end, line.End);
         for (var i = Math.Max(start, line.Start); i < stop; i++)
         {
@@ -103,7 +125,7 @@ public sealed partial class TextLayout
             var next = line.X + line.Positions[i + 1 - line.Start];
             if (next <= x || x >= Padding + pathLength || next <= Padding) continue;
             if (SamplePath(measure, x, out var a, out var ta) && SamplePath(measure, next, out var b, out var tb))
-                polygons.Add([Offset(a, ta, -line.Ascent), Offset(b, tb, -line.Ascent), Offset(b, tb, line.Descent), Offset(a, ta, line.Descent)]);
+                polygons.Add([Offset(a, ta, top), Offset(b, tb, top), Offset(b, tb, bottom), Offset(a, ta, bottom)]);
         }
         return polygons;
     }
@@ -122,7 +144,8 @@ public sealed partial class TextLayout
             if (!SamplePath(measure, x, out var at, out var tangent)) continue;
             var normal = new SKPoint(-tangent.Y, tangent.X);
             var delta = point - at;
-            at = Offset(at, tangent, Math.Clamp(delta.X * normal.X + delta.Y * normal.Y, -line.Ascent, line.Descent));
+            at = Offset(at, tangent, Math.Clamp(delta.X * normal.X + delta.Y * normal.Y,
+                PathBaselineOffset - line.Ascent, PathBaselineOffset + line.Descent));
             delta = point - at;
             float distance = delta.X * delta.X + delta.Y * delta.Y;
             if (distance < best) { nearest = i; best = distance; }

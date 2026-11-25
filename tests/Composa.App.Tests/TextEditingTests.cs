@@ -69,6 +69,84 @@ public class TextEditingTests
     }
 
     [AvaloniaFact]
+    public void Path_type_starts_at_the_clicked_point_and_its_curve_can_be_dragged()
+    {
+        var shape = session.AddPath(new VectorPath
+        {
+            Nodes = [BezierNode.Corner(120, 240), BezierNode.Corner(600, 240)]
+        });
+        window.SelectTool(Tool.TextOnPath);
+        Click(240, 240);
+        var label = Assert.IsType<Layer>(session.TextEditLayer);
+        Assert.InRange(label.Text!.Path!.Start, .31, .34);
+        window.KeyTextInput("Follow the curve");
+        var originalStart = label.Text.Path.Start;
+        var marker = At(240, 240) + new Vector(0, 12);
+        window.MouseDown(marker, MouseButton.Left);
+        window.MouseMove(At(275, 240) + new Vector(0, 12), RawInputModifiers.LeftMouseButton);
+        Assert.True(label.Text.Path.Start > originalStart);
+        window.MouseMove(At(310, 240) + new Vector(0, 12), RawInputModifiers.LeftMouseButton);
+        Assert.InRange(label.Text.Path.Start, .41, .47);
+        window.MouseUp(At(310, 240) + new Vector(0, 12), MouseButton.Left);
+        var movedStart = label.Text.Path.Start;
+        window.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Assert.Equal(originalStart, label.Text.Path.Start);
+        window.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control | RawInputModifiers.Shift);
+        Assert.Equal(movedStart, label.Text.Path.Start);
+        window.MouseDown(At(310, 240) + new Vector(0, 12), MouseButton.Left);
+        window.MouseMove(At(350, 240) + new Vector(0, 12), RawInputModifiers.LeftMouseButton);
+        Assert.True(label.Text.Path.Start > movedStart);
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        window.MouseUp(At(350, 240) + new Vector(0, 12), MouseButton.Left);
+        Assert.Equal(movedStart, label.Text.Path.Start);
+        Assert.True(session.IsEditingText);
+
+        Dispatcher.UIThread.RunJobs();
+        var alignment = window.GetVisualDescendants().OfType<Grid>().First(c => c.Name == "TextPathAlignment" && c.IsEffectivelyVisible);
+        var buttons = alignment.Children.OfType<ToggleButton>().ToArray();
+        Assert.Equal(4, buttons.Length);
+        Assert.True(buttons[2].IsChecked);
+        buttons[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(TextPathAlignment.Ascender, label.Text.Path.Alignment);
+        Assert.True(buttons[0].IsChecked);
+        Assert.False(buttons[2].IsChecked);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        var original = label.Text.Path;
+
+        window.SelectTool(Tool.Pen);
+        window.MouseDown(At(120, 240), MouseButton.Left);
+        window.MouseMove(At(120, 200), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(At(120, 200), MouseButton.Left);
+        Assert.Equal("Follow the curve", label.Text.Text);
+        Assert.Equal(200, label.Text.Path!.Outline.Nodes[0].Y, 2);
+        Assert.Equal(240, shape.Matrix.MapPoint(0, 2).Y, 1);
+        Assert.Equal("Edit Text Curve", session.History.UndoName);
+        session.Undo();
+        Assert.Equal(original, session.Document.Find(label.Id)!.Text!.Path);
+    }
+
+    [AvaloniaFact]
+    public void Vertical_type_remains_live_and_down_moves_the_caret_in_the_column()
+    {
+        window.SelectTool(Tool.VerticalText);
+        Click(240, 120);
+        var label = Assert.IsType<Layer>(session.TextEditLayer);
+        var editor = session.TextEdit!;
+        window.KeyTextInput("Vertical");
+        Assert.True(label.Text!.IsVertical);
+        Assert.True(label.Pixels!.Height > label.Pixels.Width);
+        var first = editor.Layout.CaretSegmentAt(0)!.Value;
+        Assert.Equal(first.Top.Y, first.Bottom.Y, 3);
+        window.KeyPressQwerty(PhysicalKey.Home, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        Assert.Equal(1, editor.Caret);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
+        Assert.Equal("Vertical", label.Text.Text);
+        session.Undo();
+        Assert.Null(session.Document.Find(label.Id));
+    }
+
+    [AvaloniaFact]
     public void Printable_keys_stay_unhandled_while_typing_so_the_platform_delivers_the_characters()
     {
         // X11 only sends text input for a key press nobody handled, so a handled letter would never be typed.

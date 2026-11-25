@@ -135,6 +135,7 @@ public sealed partial record VectorPath
         int segment = -1; double parameter = 0, best = radius * radius;
         Point Map(double x, double y) { var p = transform.MapPoint((float)x, (float)y); return new(p.X, p.Y); }
         var hit = new Point(target.X, target.Y);
+        double precision = double.IsPositiveInfinity(radius) ? .125 : radius / 64;
         for (int i = 0; i < Nodes.Length; i++)
         {
             if (!HasSegment(i)) continue;
@@ -150,7 +151,7 @@ public sealed partial record VectorPath
                 var l = (ab + bc) * .5; var r = (bc + cd) * .5; var mid = (l + r) * .5; var t = (start + stop) * .5;
                 var delta = mid - hit; var distance = delta.Dot(delta);
                 if (distance < best) { best = distance; segment = i; parameter = t; }
-                if (depth >= 26 || Math.Max(maxX - minX, maxY - minY) < radius / 64) return;
+                if (depth >= 26 || Math.Max(maxX - minX, maxY - minY) < precision) return;
                 Search(a, ab, l, mid, start, t, depth + 1); Search(mid, r, cd, d, t, stop, depth + 1);
             }
         }

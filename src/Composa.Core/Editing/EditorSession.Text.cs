@@ -63,7 +63,7 @@ public sealed partial class EditorSession
         var old = layer.Pixels;
         var transform = layer.Transform;
         var mask = preservePlacement && layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
-        if ((style.AutoBoxHeight || style.Path != null) && TextEdit is { } editor && textLayer == layer && editor.Style == style)
+        if ((style.AutoBoxHeight || style.Path != null || style.IsVertical) && TextEdit is { } editor && textLayer == layer && editor.Style == style)
             ReplaceTextAppearance(layer, style, editor.Layout.Render(document.WorkingDepth, document.Profile), resizeLegacyMask: !preservePlacement);
         else ReplaceTextAppearance(layer, style, RenderWorkingText(style), resizeLegacyMask: !preservePlacement);
         if (preservePlacement)
@@ -94,13 +94,13 @@ public sealed partial class EditorSession
         }
         double scaleX = t.Width / old.Width, scaleY = t.Height / old.Height;
         var unit = style.IsBox ? 0f : style.Alignment switch { TextAlignment.Center => 0.5f, TextAlignment.Right => 1f, _ => 0f };
-        var anchorBefore = layer.Matrix.MapPoint(unit * old.Width, 0);
+        var anchorBefore = style.IsVertical && !style.IsBox ? layer.Matrix.MapPoint(old.Width, unit * old.Height) : layer.Matrix.MapPoint(unit * old.Width, 0);
         // A text layer is named after its text until someone names it by hand (or it is a copy); that name then stays.
         if (layer.Text == null || layer.Name == layer.Text.LayerName()) layer.Name = style.LayerName();
         layer.Text = style;
         layer.Pixels = pixels;
         layer.Transform = t with { Width = pixels.Width * scaleX, Height = pixels.Height * scaleY, Distort = null };
-        var anchorAfter = layer.Matrix.MapPoint(unit * pixels.Width, 0);
+        var anchorAfter = style.IsVertical && !style.IsBox ? layer.Matrix.MapPoint(pixels.Width, unit * pixels.Height) : layer.Matrix.MapPoint(unit * pixels.Width, 0);
         var moved = layer.Transform with { X = layer.Transform.X + anchorBefore.X - anchorAfter.X, Y = layer.Transform.Y + anchorBefore.Y - anchorAfter.Y };
         // Freshly drawn glyphs are only sharp when they sit on the pixel grid at their own size.
         if (moved.Rotation == 0 && Math.Abs(moved.Width - pixels.Width) < 0.01 && Math.Abs(moved.Height - pixels.Height) < 0.01)
@@ -136,8 +136,9 @@ public sealed partial class EditorSession
     {
         if (layer.Text is not { Path: null } style || layer.Pixels is not { } pixels) return;
         double factorX = layer.Transform.Width / pixels.Width, factorY = layer.Transform.Height / pixels.Height;
-        if (Math.Abs(factorY - 1) < 0.01 && (!style.IsBox || Math.Abs(factorX - 1) < 0.01) || layer.Transform.Distort != null) return;
-        var resized = style.IsBox ? style.Scaled(factorX, factorY) : style.Scaled(factorY);
+        double blockScale = style.IsVertical ? factorX : factorY, inlineScale = style.IsVertical ? factorY : factorX;
+        if (Math.Abs(blockScale - 1) < 0.01 && (!style.IsBox || Math.Abs(inlineScale - 1) < 0.01) || layer.Transform.Distort != null) return;
+        var resized = style.IsBox ? style.Scaled(factorX, factorY) : style.Scaled(blockScale);
         var center = layer.Transform.Center;
         var rendered = RenderWorkingText(resized);
         layer.Text = resized;
@@ -154,7 +155,8 @@ public sealed partial class EditorSession
         {
             if (layer.Text == null || layer.Pixels == null || !document.IsEffectivelyVisible(layer) || !layer.Matrix.TryInvert(out var inverse)) continue;
             var local = inverse.MapPoint(point);
-            if (local.X >= 0 && local.Y >= 0 && local.X <= layer.Pixels.Width && local.Y <= layer.Pixels.Height) return layer;
+            if (local.X < 0 || local.Y < 0 || local.X > layer.Pixels.Width || local.Y > layer.Pixels.Height) continue;
+            if (layer.Text.Path == null || Pixels.ContentBounds(layer.Pixels).Contains((int)local.X, (int)local.Y)) return layer;
         }
         return null;
     }
@@ -163,21 +165,24 @@ public sealed partial class EditorSession
     /// Starts new point text at a clicked document point: no box of its own, so what is typed decides how big the layer
     /// is. The click lands on the first baseline, as Photoshop's does, so the letters rise from where the pointer was.
     /// </summary>
-    public TextEditor BeginText(SKPoint at)
+    public TextEditor BeginText(SKPoint at, bool vertical = false)
     {
         FinishText();
-        var style = TextDefaults with { Text = "", BoxWidth = null, BoxHeight = null, Color = (uint)Foreground | 0xFF000000 };
-        var layer = AddText(new SKPoint(at.X, at.Y - new TextLayout(style).Ascent), style, commit: false);
+        var style = TextDefaults.AsDefaults() with { IsVertical = vertical, Color = (uint)Foreground | 0xFF000000 };
+        var layout = new TextLayout(style);
+        SKPoint origin = vertical ? at - layout.LocalPoint(TextLayout.Padding, layout.Lines[0].Baseline)
+            : new(at.X - TextLayout.Padding, at.Y - TextLayout.Padding - layout.Ascent);
+        var layer = AddText(origin + new SKPoint(TextLayout.Padding, TextLayout.Padding), style, commit: false);
         return OpenTextEditor(layer, isNew: true);
     }
 
     /// <summary>Starts new paragraph text that wraps inside a dragged-out box.</summary>
-    public TextEditor BeginText(SKRect box)
+    public TextEditor BeginText(SKRect box, bool vertical = false)
     {
         FinishText();
-        var style = (TextDefaults with
+        var style = (TextDefaults.AsDefaults() with
         {
-            Text = "", Color = (uint)Foreground | 0xFF000000,
+            IsVertical = vertical, Color = (uint)Foreground | 0xFF000000,
             BoxWidth = Math.Max(TextStyle.MinBox, Math.Round(box.Width)), BoxHeight = Math.Max(TextStyle.MinBox, Math.Round(box.Height))
         }).Clamped();
         var layer = AddText(new SKPoint(box.Left + TextLayout.Padding, box.Top + TextLayout.Padding), style, commit: false);
@@ -189,8 +194,22 @@ public sealed partial class EditorSession
         && layer.Matrix.Persp0 == 0 && layer.Matrix.Persp1 == 0
         && (layer.Shape.Path == null || layer.Shape.Path.Nodes.Skip(1).All(n => !n.StartsContour && !n.StartsUnion));
 
+    /// <summary>Finds the topmost visible vector contour hit in document space.</summary>
+    public (Layer Layer, double Start)? TextPathSourceAt(SKPoint point, float tolerance)
+    {
+        foreach (var layer in document.AllLayers().Reverse())
+        {
+            if (!CanCreateTextOnPath(layer) || !document.IsEffectivelyVisible(layer)
+                || EditableShapePath(layer) is not { } outline || layer.Pixels is not { } pixels) continue;
+            var matrix = SKMatrix.CreateScale(pixels.Width, pixels.Height).PostConcat(layer.Matrix);
+            var (segment, t) = outline.NearestSegment(matrix, point, tolerance);
+            if (segment >= 0) return (layer, segment + t);
+        }
+        return null;
+    }
+
     /// <summary>Starts a text layer on a copy of a shape's outline in document coordinates.</summary>
-    public Layer? BeginTextOnPath(Layer shape)
+    public Layer? BeginTextOnPath(Layer shape, double start = 0)
     {
         if (!CanCreateTextOnPath(shape) || document.Find(shape.Id) != shape
             || EditableShapePath(shape) is not { } outline || shape.Pixels is not { } source) return null;
@@ -202,7 +221,7 @@ public sealed partial class EditorSession
             var at = Point(n.X, n.Y); var incoming = Point(n.InX, n.InY); var outgoing = Point(n.OutX, n.OutY);
             return new(at.X, at.Y, incoming.X, incoming.Y, outgoing.X, outgoing.Y);
         }
-        var path = new TextPath(outline with { Nodes = outline.Nodes.Select(Map).ToArray() });
+        var path = new TextPath(outline with { Nodes = outline.Nodes.Select(Map).ToArray() }).WithStart(start);
         if (!path.IsValid()) return null;
         var style = TextDefaults.AsDefaults() with { Path = path, Color = (uint)Foreground | 0xFF000000 };
         var layout = new TextLayout(style);
@@ -238,7 +257,7 @@ public sealed partial class EditorSession
         var editor = new TextEditor(layer.Text!);
         editor.Changed += SyncTextLayer;
         TextEdit = editor;
-        Tool = Tool.Text;
+        tool = layer.Text!.Path != null ? Tool.TextOnPath : layer.Text.IsVertical ? Tool.VerticalText : Tool.Text;
         LayersChanged?.Invoke();
         return editor;
     }
@@ -260,6 +279,7 @@ public sealed partial class EditorSession
     public bool FinishText()
     {
         if (TextEdit is not { } editor || textLayer is not { } layer) return false;
+        editor.EndPathStartDrag(keep: false);
         var (isNew, original) = (textIsNew, textOriginal);
         CloseTextEditor();
         var style = editor.Style;
