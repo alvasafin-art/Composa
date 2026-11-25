@@ -165,7 +165,6 @@ internal sealed class SceneEditingWorkflow : IDisposable
         return operation+shadow+" Preserve identity, material texture, labels and colors. Render ordinary photographic surface shading and a continuous natural background. Keep the object's silhouette and support in their original image coordinates. User guidance: "+request.Prompt+
             (string.IsNullOrWhiteSpace(request.AdditionalPrompt) ? "" : "\nWorkflow guidance: "+request.AdditionalPrompt);
     }
-    internal const string MaterialColorInstruction = "Keep the original material colors across all parts of the subject, including food and labels. Adjust the illumination, retaining natural highlights and restrained reflections from the environment. Avoid local recoloring or replacing details.";
     internal static string CleanupPrompt(AiTaskRequest request)=>"Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.";
     internal static string LayoutInstruction(SceneEditInput scene)
     {

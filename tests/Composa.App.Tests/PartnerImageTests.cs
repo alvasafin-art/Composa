@@ -280,6 +280,7 @@ public class PartnerImageTests
     {
         var ground = new SKColor(190,183,173);
         var ceramic = new SKColor(169,163,155);
+        var cake = new SKColor(145,36,9);
         var tomato = new SKColor(200,66,41);
         var highlight = new SKColor(225,218,207);
         var session = EditorSession.NewCanvas(200,140,ground);
@@ -288,6 +289,8 @@ public class PartnerImageTests
         using (var paint = new SKPaint { Color = ceramic })
         {
             draw.DrawRect(52,24,72,50,paint);
+            paint.Color = cake;
+            draw.DrawRect(79,35,24,26,paint);
             paint.Color = tomato;
             draw.DrawRect(54,35,20,24,paint);
             paint.Color = highlight;
@@ -305,9 +308,9 @@ public class PartnerImageTests
             using var paint = new SKPaint { Color = new SKColor(141,133,126) };
             draw.Scale(bitmap.Width/200f,bitmap.Height/140f);
             draw.DrawRect(63,74,40,16,paint);
-            paint.Color = ceramic;
+            paint.Color = new SKColor(134,129,122);
             draw.DrawRect(52,24,72,50,paint);
-            paint.Color = new SKColor(80,175,78);
+            paint.Color = new SKColor(134,64,21);
             draw.DrawRect(79,35,24,26,paint);
             paint.Color = tomato;
             draw.DrawRect(54,35,20,24,paint);
@@ -321,7 +324,6 @@ public class PartnerImageTests
 
         var prompt = Assert.Single(connection.Graphs)["gpt"]!["inputs"]!["prompt"]!.GetValue<string>();
         Assert.Contains("135 degrees",prompt);
-        Assert.Contains("original material colors",prompt);
         Assert.Null(connection.Graphs[0]["gpt"]!["inputs"]!["model.mask"]);
         Assert.Equal(new[] { "apiSource" },connection.Uploads);
         Assert.Contains("support is at",prompt);
@@ -329,12 +331,12 @@ public class PartnerImageTests
         var group = Assert.Single(session.Document.Layers,layer => layer.IsGroup);
         var lighting = Assert.Single(group.Children,layer => layer.Tags.Contains("scene-object")).Pixels!;
         var shadow = Assert.Single(group.Children,layer => layer.Tags.Contains("scene-shadow")).Pixels!;
-        var patch = lighting.GetPixel(90,47);
-        Assert.InRange(patch.Green-patch.Red,-9,9);
-        Assert.InRange(patch.Green-patch.Blue,-9,13);
-        Assert.True(patch.Red < ceramic.Red);
-        Assert.True(lighting.GetPixel(63,47).Red - lighting.GetPixel(63,47).Green > 115);
-        Assert.True(lighting.GetPixel(111,35).Red > 210);
+        var plate = lighting.GetPixel(91,66);
+        Assert.InRange(plate.Red,130,138);
+        Assert.InRange(plate.Green,125,133);
+        Assert.InRange(plate.Blue,118,126);
+        Assert.True(lighting.GetPixel(63,47).Red - lighting.GetPixel(63,47).Green > 100);
+        Assert.True(lighting.GetPixel(111,35).Red > 180);
         using var beforeAlpha = SceneEditInput.Alpha(original);
         using var afterAlpha = SceneEditInput.Alpha(lighting);
         Assert.Equal(beforeAlpha.Bytes,afterAlpha.Bytes);

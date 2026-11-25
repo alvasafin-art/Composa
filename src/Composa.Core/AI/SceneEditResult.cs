@@ -8,13 +8,13 @@ namespace Composa.AI;
 /// <summary>Extracts lighting on the original silhouette and only model-created darkening on the permitted floor.</summary>
 public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowPixels,int ContactCorrectionX=0,int ContactCorrectionY=0)
 {
-    public static SceneEditResult Extract(SceneEditInput input, SKBitmap generated, AiTaskRequest request, CancellationToken token = default,SKBitmap? reconstruction = null,double modelToDocument=1,bool protectMaterialColors=false)
+    public static SceneEditResult Extract(SceneEditInput input, SKBitmap generated, AiTaskRequest request, CancellationToken token = default,SKBitmap? reconstruction = null,double modelToDocument=1,bool useMaterialAwareLighting=false)
     {
         if (!Pixels.IsSrgb8(generated) || reconstruction != null && !Pixels.IsSrgb8(reconstruction))
         {
             using var model = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
             using var baselineCopy = reconstruction != null && !Pixels.IsSrgb8(reconstruction) ? Pixels.DisplayCopy(reconstruction) : null;
-            return Extract(input, model ?? generated, request, token, baselineCopy ?? reconstruction, modelToDocument, protectMaterialColors);
+            return Extract(input, model ?? generated, request, token, baselineCopy ?? reconstruction, modelToDocument, useMaterialAwareLighting);
         }
         if(generated.Width!=input.Before.Width || generated.Height!=input.Before.Height)
             throw new InvalidDataException("The scene result must have the original document dimensions.");
@@ -37,7 +37,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
             var transfer=working.Transfer;
             var toModel=new LinearRgbTransform(working,RgbProfile.Srgb); var toWorking=new LinearRgbTransform(RgbProfile.Srgb,working);
             layers.Add(new(settings.PreserveDetails ? "Subject Lighting" : "Generated Subject",objectPixels,Tags:["scene-object",settings.PreserveDetails ? "original-details" : "generated-details"]));
-            var ratios=settings.PreserveDetails ? new SceneLightingMap(input,generated,baseline,token,protectMaterialColors) : null;
+            var ratios=settings.PreserveDetails ? new SceneLightingMap(input,generated,baseline,token,useMaterialAwareLighting) : null;
             for(var y=0;y<generated.Height;y++)
             {
                 token.ThrowIfCancellationRequested();
