@@ -284,6 +284,7 @@ public class AiVariantsTests
         public Action? DuringExecute { get; init; }
         public PromptCapture? Transport { get; init; }
         public Func<SKBitmap>? DownloadImage { get; init; }
+        public Action<string, SKBitmap>? InspectUpload { get; init; }
         public Dictionary<string, HashSet<string>> ModelChoices { get; init; } = [];
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
@@ -293,7 +294,11 @@ public class AiVariantsTests
                 { Version = "1.0", NodeTypes = nodes, ModelChoices = ModelChoices }));
         }
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
-        { Uploads.Add(semantic); return Task.FromResult(semantic + ".png"); }
+        {
+            Uploads.Add(semantic);
+            InspectUpload?.Invoke(semantic, image);
+            return Task.FromResult(semantic + ".png");
+        }
         public async Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
             if (Transport != null)

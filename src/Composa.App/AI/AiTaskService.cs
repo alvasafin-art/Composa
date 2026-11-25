@@ -777,21 +777,35 @@ public sealed partial class AiTaskService : IAiTaskRunner
 
     private static SKBitmap ToMask(SKBitmap image, int width, int height)
     {
-        if (image.ColorType == SKColorType.Alpha8)
+        var coverage = image.ColorType == SKColorType.Alpha8 ? image : ReadWorkflowCoverage(image);
+        if (coverage != image && coverage.Width == width && coverage.Height == height) return coverage;
+        try
         {
-            var coverage = Pixels.NewMask(width, height);
-            using var canvas = new SKCanvas(coverage);
-            canvas.DrawImage(Pixels.ImageOf(image), SKRect.Create(width, height), new SKSamplingOptions(SKFilterMode.Linear));
-            return coverage;
+            var result = Pixels.NewMask(width, height);
+            using var canvas = new SKCanvas(result);
+            canvas.DrawImage(Pixels.ImageOf(coverage), SKRect.Create(width, height), new SKSamplingOptions(SKFilterMode.Linear));
+            return result;
         }
-        using var resized = image.Width == width && image.Height == height ? null : Resize(image, width, height);
-        var source = resized ?? image;
-        var mask = Pixels.NewMask(width, height);
-        for (var y = 0; y < height; y++)
-            for (var x = 0; x < width; x++)
+        finally
+        {
+            if (coverage != image) coverage.Dispose();
+        }
+    }
+
+    private static SKBitmap ReadWorkflowCoverage(SKBitmap image)
+    {
+        // An RGBA cutout uses alpha for the whole frame, including dark opaque
+        // pixels. An opaque image such as MaskToImage carries coverage in RGB.
+        using var pixmap = image.PeekPixels();
+        var useAlpha = !pixmap.ComputeIsOpaque();
+        var mask = Pixels.NewMask(image.Width, image.Height);
+        var coverage = mask.GetPixelSpan();
+        for (var y = 0; y < image.Height; y++)
+            for (var x = 0; x < image.Width; x++)
             {
-                var color = source.GetPixel(x, y);
-                mask.GetPixelSpan()[y * mask.RowBytes + x] = color.Alpha < 255 ? color.Alpha : (byte)((color.Red * 54 + color.Green * 183 + color.Blue * 19) >> 8);
+                var color = image.GetPixel(x, y);
+                coverage[y * mask.RowBytes + x] = useAlpha ? color.Alpha
+                    : (byte)((color.Red * 54 + color.Green * 183 + color.Blue * 19) >> 8);
             }
         Pixels.Invalidate(mask);
         return mask;
