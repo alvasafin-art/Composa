@@ -38,6 +38,7 @@ internal sealed class AiPromptField : TextBox
 
     internal AiPromptField()
     {
+        // The window overlay hosts the suggestions without taking space in the AI panel.
         picker = new Popup
         {
             PlacementTarget = this, Placement = PlacementMode.BottomEdgeAlignedLeft, VerticalOffset = 4, ShouldUseOverlayLayer = true,
