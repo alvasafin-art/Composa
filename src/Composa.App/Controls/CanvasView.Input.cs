@@ -40,8 +40,10 @@ public sealed partial class CanvasView
     private SKRect cropStart;
     private TransformHandle handle;
     private int distortCorner = -1;
-    private bool IsResizeDrag => drag == Drag.Transform && distortCorner < 0 &&
+    private bool distortEdge;
+    private bool IsResizeDrag => drag == Drag.Transform && distortCorner < 0 && !distortEdge &&
         handle is not (TransformHandle.None or TransformHandle.Move or TransformHandle.Rotate);
+    private bool UpdatesTransformModifiers => IsResizeDrag || drag == Drag.Transform && distortEdge;
     private bool spaceDown;
     private double scrubZoom;
     private readonly List<(SKPoint From, SKPoint To)> guides = [];
@@ -474,7 +476,7 @@ public sealed partial class CanvasView
         }
         var releasePosition = e.GetPosition(this);
         if (drag == Drag.Transform && (releasePosition != cursorScreen ||
-            IsResizeDrag && e.KeyModifiers != dragModifiers && Distance(pressScreen, releasePosition) > 2))
+            UpdatesTransformModifiers && e.KeyModifiers != dragModifiers && Distance(pressScreen, releasePosition) > 2))
         {
             cursorScreen = releasePosition;
             currentDocument = ToDocument(cursorScreen);
@@ -819,15 +821,14 @@ public sealed partial class CanvasView
         if (SelectedLayoutGroup() != null) return null;
         if (session.IsEditingChannel && session.Selection is { } channelSelection) return Corners(SelectionMask.Bounds(channelSelection));
         if (session.IndependentMaskTarget is { Mask: { } mask } maskLayer)
-            return MaskCorners(maskLayer, mask);
+            return maskLayer.MaskTransform?.FrameCorners() ?? MaskCorners(maskLayer, mask);
         var targets = session.TransformTargets();
         if (targets.Count == 0) return null;
         if (targets.Count == 1)
         {
             // A distorted layer's handles sit on its corners, wherever they were dragged to.
             var target = targets[0];
-            if (target.Pixels != null && target.Transform.Distort != null) return target.ControlTransform.Corners(target.Pixels.Width, target.Pixels.Height);
-            return new TransformFrame(target.ControlTransform).Corners();
+            return target.ControlTransform.FrameCorners();
         }
         var bounds = SKRect.Empty;
         foreach (var layer in targets) bounds = bounds.IsEmpty ? layer.ControlBounds : SKRect.Union(bounds, layer.ControlBounds);
@@ -836,17 +837,6 @@ public sealed partial class CanvasView
 
     private static SKPoint[] MaskCorners(Layer layer, SKBitmap mask) =>
         [layer.MaskMatrix.MapPoint(0, 0), layer.MaskMatrix.MapPoint(mask.Width, 0), layer.MaskMatrix.MapPoint(mask.Width, mask.Height), layer.MaskMatrix.MapPoint(0, mask.Height)];
-
-    private readonly record struct TransformFrame(LayerTransform Transform)
-    {
-        public SKPoint[] Corners()
-        {
-            var t = Transform;
-            var rotate = SKMatrix.CreateRotationDegrees((float)t.Rotation, t.Center.X, t.Center.Y);
-            float l = (float)t.X, tp = (float)t.Y, r = (float)(t.X + t.Width), b = (float)(t.Y + t.Height);
-            return [rotate.MapPoint(l, tp), rotate.MapPoint(r, tp), rotate.MapPoint(r, b), rotate.MapPoint(l, b)];
-        }
-    }
 
     private static SKPoint RotationGrip(SKPoint a, SKPoint b, SKPoint opposite)
     {
@@ -983,7 +973,7 @@ public sealed partial class CanvasView
             if (flag == KeyModifiers.None) return;
             dragModifiers = down ? dragModifiers | flag : dragModifiers & ~flag;
             if (drag == Drag.Marquee && flag == KeyModifiers.Shift && !down) shiftReleased = true;
-            if (IsResizeDrag && Distance(pressScreen, cursorScreen) > 2)
+            if (UpdatesTransformModifiers && Distance(pressScreen, cursorScreen) > 2)
                 DragTransform(dragModifiers.HasFlag(KeyModifiers.Shift), dragModifiers.HasFlag(KeyModifiers.Alt),
                     dragModifiers.HasFlag(KeyModifiers.Control));
             InvalidateCanvas();
@@ -1011,6 +1001,7 @@ public sealed partial class CanvasView
         if (session == null) return;
         handle = TransformHandle.Move;
         distortCorner = -1;
+        distortEdge = false;
         var frame = CurrentFrame();
         var hit = MoveLayerAt(pressDocument, pickChild: false);
         if (hit != null && !session.Document.SelectedLayerIds.Contains(hit.Id) && (frame == null || HitFrame(frame, pressScreen, allowRotate: false) == TransformHandle.None))
@@ -1030,6 +1021,7 @@ public sealed partial class CanvasView
         if (session == null) return;
         handle = moveHandle;
         distortCorner = -1;
+        distortEdge = false;
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
         var keepFrame = handle == TransformHandle.Move && transformSelection != null && !control && !dragModifiers.HasFlag(KeyModifiers.Shift);
         if (!onHandle && !keepFrame && session.IndependentMaskTarget == null && !session.IsEditingChannel)
@@ -1055,7 +1047,10 @@ public sealed partial class CanvasView
             // Ctrl-dragging a corner distorts, as in Photoshop; once a layer is distorted its corners keep distorting.
             distortCorner = handle switch { TransformHandle.TopLeft => 0, TransformHandle.TopRight => 1, TransformHandle.BottomRight => 2, _ => 3 };
         }
-        if (session.BeginTransform(handle == TransformHandle.Move ? "Move" : handle == TransformHandle.Rotate ? "Rotate" : distortCorner >= 0 ? "Distort" : "Scale", duplicate: handle == TransformHandle.Move && dragModifiers.HasFlag(KeyModifiers.Alt)) == null)
+        else if (control && handle is TransformHandle.Top or TransformHandle.Right or TransformHandle.Bottom or TransformHandle.Left)
+            distortEdge = true;
+        if (session.BeginTransform(handle == TransformHandle.Move ? "Move" : handle == TransformHandle.Rotate ? "Rotate"
+            : distortCorner >= 0 || distortEdge ? "Distort" : "Scale", duplicate: handle == TransformHandle.Move && dragModifiers.HasFlag(KeyModifiers.Alt)) == null)
         {
             Problem?.Invoke("Select a layer with pixels to move.");
             return;
@@ -1082,6 +1077,12 @@ public sealed partial class CanvasView
                 break;
             default:
                 if (distortCorner >= 0) edit.DistortCorner(distortCorner, SnapLayoutHandle(currentDocument));
+                else if (distortEdge)
+                {
+                    var (x, y) = edit.DistortEdge(handle, currentDocument - pressDocument, skew: shift, fromCenter: alt,
+                        snapTolerance: (float)(6 / UnitsPerPixel));
+                    DrawSnapLines(x, y);
+                }
                 else
                 {
                     var (x, y) = edit.Resize(handle, currentDocument, free: shift, fromCenter: alt,
@@ -1160,6 +1161,7 @@ public sealed partial class CanvasView
         }
         // Mid-drag only Escape (cancel) and Space (pan) mean anything; everything else waits for the drag to end.
         if (IsDragging && e.Key is not (Key.Escape or Key.Space)) return true;
+        if (e.Key == Key.Escape && drag == Drag.Transform) { CancelInteraction(); return true; }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Alt)) return false;
         switch (e.Key)
         {

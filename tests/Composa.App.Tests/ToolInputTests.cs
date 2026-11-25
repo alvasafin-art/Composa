@@ -289,6 +289,84 @@ public class ToolInputTests
     }
 
     [AvaloniaFact]
+    public void Ctrl_drag_on_each_edge_moves_its_two_corners_and_undo_restores_the_frame()
+    {
+        var box = Rendering.Pixels.NewColor(100, 100);
+        box.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("box", box, new SKPoint(300, 200));
+        session.View = session.View with { Snap = false };
+        window.KeyPressQwerty(PhysicalKey.T, RawInputModifiers.Control);
+        var original = layer.Transform.FrameCorners();
+        var offset = new SKPoint(24, -16);
+
+        for (var first = 0; first < 4; first++)
+        {
+            var second = (first + 1) % 4;
+            var mid = Midpoint(original[first], original[second]);
+            Drag(mid, mid + offset, RawInputModifiers.Control);
+            var transformed = session.ActiveLayer!.Transform.FrameCorners();
+            for (var i = 0; i < 4; i++)
+                AssertNear(original[i] + (i == first || i == second ? offset : SKPoint.Empty), transformed[i]);
+            Assert.Equal("Distort", session.History.UndoName);
+            window.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+            Assert.Equal(original, session.ActiveLayer!.Transform.FrameCorners());
+        }
+    }
+
+    [AvaloniaFact]
+    public void Distorting_a_rotated_edge_can_skew_along_the_edge_and_cancel_with_ctrl_held()
+    {
+        var box = Rendering.Pixels.NewColor(100, 100);
+        box.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("box", box, new SKPoint(300, 200));
+        layer.Transform = layer.Transform with { Rotation = 30, FlipHorizontal = true };
+        session.View = session.View with { Snap = false };
+        window.KeyPressQwerty(PhysicalKey.T, RawInputModifiers.Control);
+        var original = layer.Transform.FrameCorners();
+        var mid = Midpoint(original[0], original[1]);
+        var delta = new SKPoint(30, 10);
+        var end = mid + delta;
+        var edge = original[1] - original[0];
+        var fraction = (delta.X * edge.X + delta.Y * edge.Y) / (edge.X * edge.X + edge.Y * edge.Y);
+        var expected = new SKPoint(edge.X * fraction, edge.Y * fraction);
+
+        window.MouseDown(At(mid.X, mid.Y), MouseButton.Left, RawInputModifiers.Control);
+        window.MouseMove(At(end.X, end.Y), RawInputModifiers.Control | RawInputModifiers.LeftMouseButton);
+        AssertNear(original[0] + delta, layer.Transform.FrameCorners()[0]);
+        window.KeyPressQwerty(PhysicalKey.ShiftLeft, RawInputModifiers.Control);
+        AssertNear(original[0] + expected, layer.Transform.FrameCorners()[0]);
+        AssertNear(original[1] + expected, layer.Transform.FrameCorners()[1]);
+        AssertNear(original[2], layer.Transform.FrameCorners()[2]);
+        var previousStep = session.History.UndoName;
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.Control);
+        window.MouseUp(At(end.X, end.Y), MouseButton.Left, RawInputModifiers.Control);
+        Assert.Equal(original, session.ActiveLayer!.Transform.FrameCorners());
+        Assert.Equal(previousStep, session.History.UndoName);
+    }
+
+    [AvaloniaFact]
+    public void Distorted_edge_snaps_its_midpoint_and_can_move_from_the_center()
+    {
+        var box = Rendering.Pixels.NewColor(100, 100);
+        box.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("box", box, new SKPoint(300, 200));
+        session.SetCanvasLayout(new CanvasLayout { SquareSize = 50 });
+        session.View = session.View with { Snap = true, SnapToCanvasLayout = true };
+        window.KeyPressQwerty(PhysicalKey.T, RawInputModifiers.Control);
+        var original = layer.Transform.FrameCorners();
+        Drag(new SKPoint(300, 150), new SKPoint(348, 102), RawInputModifiers.Control | RawInputModifiers.Alt);
+        var corners = layer.Transform.FrameCorners();
+        AssertNear(new SKPoint(350, 100), Midpoint(corners[0], corners[1]));
+        AssertNear(new SKPoint(250, 300), Midpoint(corners[2], corners[3]));
+        AssertNear(original[0] + new SKPoint(50, -50), corners[0]);
+    }
+
+    private static SKPoint Midpoint(SKPoint a, SKPoint b) => new((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+
+    private static void AssertNear(SKPoint expected, SKPoint actual) =>
+        Assert.True(SKPoint.Distance(expected, actual) < .05f, $"Expected {expected}, got {actual}");
+
+    [AvaloniaFact]
     public void Auto_select_picks_a_layer_stacked_on_a_selected_background_and_can_be_turned_off()
     {
         var background = session.ActiveLayer!; // The white canvas covers every press.

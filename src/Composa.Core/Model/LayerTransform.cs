@@ -88,6 +88,9 @@ public sealed record LayerTransform
         ];
     }
 
+    /// <summary>The control frame corners in geometric order, independent of the source's flips.</summary>
+    public SKPoint[] FrameCorners() => (this with { FlipHorizontal = false, FlipVertical = false }).Corners(1, 1);
+
     public SKRect Bounds(int sourceWidth, int sourceHeight)
     {
         var c = Corners(sourceWidth, sourceHeight);

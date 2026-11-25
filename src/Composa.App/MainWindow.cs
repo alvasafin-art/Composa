@@ -984,7 +984,7 @@ public sealed partial class MainWindow : Window
             "Drag the selected layout item to reorder it · Ctrl-click picks a layer",
         Tool.Move when s.ActiveLayer?.AutoLayout != null =>
             "Drag to move the whole layout group · Ctrl-click picks an item · Drag the gap label to adjust spacing",
-        Tool.Move => "Drag to move · Handles resize (Shift free, Alt from center) · Outside a corner rotates · Ctrl-drag a corner distorts · Ctrl-click picks a layer · 1–0 opacity",
+        Tool.Move => "Drag to move · Handles resize (Shift free, Alt from center) · Outside a corner rotates · Ctrl-drag a handle distorts · Ctrl-click picks a layer · 1–0 opacity",
         Tool.Marquee => "Drag to select · Shift add · Alt subtract · Shift+Alt intersect · Drag inside to move · Delete clears · Ctrl+D deselect",
         Tool.Lasso => s.LassoKind == LassoKind.Freehand ? "Drag to select · Shift add · Alt subtract · Drag inside to move" : "Click corners · Click the start, double-click or Enter to close · Backspace removes a corner · Escape cancels",
         Tool.Wand => s.WandMode == WandMode.Object ? "Click an object or drag a rectangle · Tab for Wand · Shift add · Alt subtract" : "Click to select similar colors · Tab for Object · Shift add · Alt subtract",

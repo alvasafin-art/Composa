@@ -962,11 +962,14 @@ public sealed partial class MainWindow
 
     // ---- Clipboard ----------------------------------------------------------------------------------------------
 
+    private static readonly DataFormat<string> CopyTokenFormat = DataFormat.CreateStringApplicationFormat("composa-copy-token");
+    private static string? copyToken;
+    private static Task clipboardPublication = Task.CompletedTask;
+
     private async Task Copy(bool merged)
     {
         if (session == null || !(merged ? session.CopyMerged() : session.Copy())) { ShowProblem("There is nothing to copy here."); return; }
         ShowCopied();
-        if (EditorSession.Clipboard == null) { await ClearExternalClipboard(); return; }
         await PublishClipboard();
     }
 
@@ -994,33 +997,40 @@ public sealed partial class MainWindow
         else if (EditorSession.Clipboard is { } image) ShowNote($"Copied {image.Pixels.Width} × {image.Pixels.Height} px");
     }
 
-    /// <summary>Shares the copied pixels with other apps.</summary>
-    private async Task PublishClipboard()
+    /// <summary>Shares the pixel preview and marks it as belonging to the current in-app copy.</summary>
+    private Task PublishClipboard()
     {
-        if (EditorSession.Clipboard is not { } image || Clipboard == null) return;
-        try
-        {
-            using var bgra = new SKBitmap(new SKImageInfo(image.Pixels.Width, image.Pixels.Height, SKColorType.Bgra8888, SKAlphaType.Premul));
-            image.Pixels.CopyTo(bgra, SKColorType.Bgra8888);
-            var bitmap = new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, bgra.GetPixels(), new Avalonia.PixelSize(bgra.Width, bgra.Height), new Avalonia.Vector(96, 96), bgra.RowBytes);
-            await Clipboard.SetBitmapAsync(bitmap);
-        }
-        catch { /* The in-app clipboard still works when the desktop's clipboard refuses the image. */ }
-    }
+        copyToken = Guid.NewGuid().ToString("N");
+        return clipboardPublication = PublishAfter(clipboardPublication, copyToken, EditorSession.Clipboard);
 
-    /// <summary>Layers with nothing to show other apps (an adjustment) leave the desktop's clipboard empty, so Paste here is not mistaken for an outside image.</summary>
-    private async Task ClearExternalClipboard()
-    {
-        if (Clipboard == null) return;
-        try { await Clipboard.ClearAsync(); }
-        catch { /* Nothing to share; the in-app clipboard still has the layers. */ }
+        async Task PublishAfter(Task previous, string token, ClipboardImage? image)
+        {
+            await previous;
+            if (Clipboard is not { } clipboard) return;
+            try
+            {
+                var item = DataTransferItem.Create(CopyTokenFormat, token);
+                if (image != null)
+                {
+                    using var bgra = new SKBitmap(new SKImageInfo(image.Pixels.Width, image.Pixels.Height, SKColorType.Bgra8888, SKAlphaType.Premul));
+                    image.Pixels.CopyTo(bgra, SKColorType.Bgra8888);
+                    item.SetBitmap(new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, bgra.GetPixels(),
+                        new Avalonia.PixelSize(bgra.Width, bgra.Height), new Avalonia.Vector(96, 96), bgra.RowBytes));
+                }
+                var data = new DataTransfer();
+                data.Add(item);
+                await clipboard.SetDataAsync(data);
+            }
+            catch { /* The in-app clipboard still works when the desktop clipboard is unavailable. */ }
+        }
     }
 
     private enum PasteKind { Normal, InPlace, Into }
 
     private async Task Paste(PasteKind kind = PasteKind.Normal)
     {
-        if (session == null) return;
+        if (session is not { } target) return;
+        var token = copyToken;
         ClipboardImage? external = null;
         try
         {
@@ -1036,14 +1046,16 @@ public sealed partial class MainWindow
             }
         }
         catch { /* Fall back to the in-app clipboard. */ }
+        using var externalPixels = external?.Pixels;
+        if (session != target || token != copyToken || canvas.IsDragging || target.IsInteracting) return;
         var pasted = kind switch
         {
-            PasteKind.InPlace => session.PasteInPlace(external),
-            PasteKind.Into => session.PasteInto(external),
-            _ => session.Paste(external)
+            PasteKind.InPlace => target.PasteInPlace(external),
+            PasteKind.Into => target.PasteInto(external),
+            _ => target.Paste(external)
         };
         if (pasted == null) ShowProblem("The clipboard has no image.");
-        else if (!session.IsEditingAlphaChannel && !session.IsEditingComponent) SelectTool(Tool.Move);
+        else if (!target.IsEditingAlphaChannel && !target.IsEditingComponent) SelectTool(Tool.Move);
     }
 
     /// <summary>
@@ -1053,8 +1065,16 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task<Bitmap?> ExternalClipboardBitmap()
     {
-        if (Clipboard == null) return null;
-        try { return await Clipboard.TryGetInProcessDataAsync() == null ? await Clipboard.TryGetBitmapAsync() : null; }
+        if (Clipboard is not { } clipboard) return null;
+        try
+        {
+            await clipboardPublication;
+            using var data = await clipboard.TryGetDataAsync();
+            if (data == null) return null;
+            // Some backends expose our copy through the system formats but cannot identify its in-process owner.
+            if (copyToken is { } token && await data.TryGetValueAsync(CopyTokenFormat) == token) return null;
+            return await data.TryGetValueAsync(DataFormat.Bitmap);
+        }
         catch { return null; } // The in-app clipboard still works when the desktop's does not.
     }
 
