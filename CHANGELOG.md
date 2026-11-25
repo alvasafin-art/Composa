@@ -4,6 +4,16 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.11] - 2026-11-25
+
+- Distort a raster layer or independent mask by dragging an edge in Free Transform, and copy and paste multiple layers as an editable batch.
+- Send layered PSD snapshots from Photoshop to Composa with the bundled Windows script and helper.
+- Preserve source samples and the returned matte when using BiRefNet through ComfyUI. Improve local SAM selection of details and exterior-connected gaps between fine strands.
+- Match subject patches for Harmonize and estimate color transfer separately from exposure.
+- Run Codex CLI image operations through a ComfyUI server running AVS Prompt Helper 0.4.3.
+- Edit vertical text and text on a path, adjust the path start on the canvas, and improve PSD interchange for supported type layers.
+- Reduce cursor and styled brush dab latency, including wide brush outlines and sustained strokes.
+
 ## [1.3.0-preview.4.studio.17.10] - 2026-11-24
 
 - Import Photoshop text on a path as editable text. Create new text from a shape or curve with Text on a Path. CMPS stores the curve and text for further editing. PSD export rasterizes text on a path and reports the conversion.
