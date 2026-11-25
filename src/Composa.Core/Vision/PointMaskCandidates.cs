@@ -94,10 +94,14 @@ internal static class PointMaskCandidates
                 if (foreground[j] != 0) shared++;
             }
             if (shared < .94 * small || area < 1.5 * small || area > .25 * width * height / 4) continue;
-            if (predictBox(Extent(outer)) is not { } box || box.Score < .95f) continue;
+            if (predictBox(Extent(outer)) is not { } box || box.Score < .75f) continue;
             if (Agreement(outer, box.Mask) < .90) continue;
             innerScore ??= predictBox(Extent(part))?.Score;
-            if (innerScore.HasValue && box.Score >= innerScore.Value + .025f) return i;
+            if (innerScore.HasValue && box.Score >= .95f && box.Score >= innerScore.Value + .025f) return i;
+            // A point may strongly recognize the part because it is locally more
+            // distinctive. Two prompt types can still agree on a substantial body.
+            if (area >= .12 * width * height / 4 && area >= 4 * small &&
+                scores[i] >= .75f && scores[i] >= scores[best] - .12f) return i;
         }
         return best;
     }
