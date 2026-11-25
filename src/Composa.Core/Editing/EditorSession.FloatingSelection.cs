@@ -12,6 +12,7 @@ public sealed partial class EditorSession
     private SKPointI floatOffset;
     private SKPointI floatOrigin;
     private SKRectI floatPreviewArea;
+    private SKRectI floatSelectionBounds;
 
     public bool IsMovingPixels => floatLayer != null;
 
@@ -47,6 +48,7 @@ public sealed partial class EditorSession
         }
         floatOrigin = new SKPointI(bounds.Left, bounds.Top);
         floatSelection = document.Selection;
+        floatSelectionBounds = SelectionMask.Bounds(floatSelection!);
         floatOriginal = original;
         floatOffset = SKPointI.Empty;
         floatPreviewArea = SKRectI.Empty;
@@ -81,7 +83,7 @@ public sealed partial class EditorSession
             Pixels.Invalidate(moved, damage);
         }
         layer.Pixels = moved ?? floatOriginal!;
-        document.Selection = SelectionMask.Translate(floatSelection!, dx, dy) ?? floatSelection;
+        document.Selection = SelectionMask.Translate(floatSelection!, floatSelectionBounds, dx, dy) ?? floatSelection;
         if (layer.Effects != null || layer.HasWarp || layer.LayoutFrame != null || layer.FilterSource != null)
             Invalidate(AffectedArea(layer));
         else

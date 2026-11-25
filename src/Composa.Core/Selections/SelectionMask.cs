@@ -137,6 +137,29 @@ public static class SelectionMask
         return null;
     }
 
+    /// <summary>Translates a selection whose nonzero bounds are already known.</summary>
+    internal static SKBitmap? Translate(SKBitmap mask, SKRectI bounds, int dx, int dy)
+    {
+        var shifted = bounds;
+        shifted.Offset(dx, dy);
+        var visible = SKRectI.Intersect(shifted, mask.Info.Rect);
+        if (visible.IsEmpty) return null;
+        var source = new SKPointI(visible.Left - dx, visible.Top - dy);
+        if (visible != shifted)
+        {
+            // A clipped rectangle can contain only the transparent gap between parts of a selection.
+            var pixels = mask.GetPixelSpan();
+            var stride = mask.RowBytes;
+            var hasCoverage = false;
+            for (var y = source.Y; y < source.Y + visible.Height && !hasCoverage; y++)
+                hasCoverage = pixels.Slice(y * stride + source.X, visible.Width).IndexOfAnyExcept((byte)0) >= 0;
+            if (!hasCoverage) return null;
+        }
+        var result = Pixels.NewMask(mask.Width, mask.Height);
+        DocumentRenderer.CopyRows(mask, source, result, visible);
+        return result;
+    }
+
     /// <summary>Resizes or repositions a selection for a changed canvas.</summary>
     public static SKBitmap? Remap(SKBitmap mask, int width, int height, SKMatrix matrix)
     {
