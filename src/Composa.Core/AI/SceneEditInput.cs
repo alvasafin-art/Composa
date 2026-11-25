@@ -16,6 +16,7 @@ public sealed class SceneEditInput : IDisposable
     public SKMatrix SourceFrame {get;private set;}=SKMatrix.Identity;
     public bool IsCutout { get; private set; }
     public bool WholeImage { get; private set; }
+    public bool SuspendedSubject { get; private set; }
     public SKBitmap Before { get; private set; } = null!;
     public SKBitmap Background { get; private set; } = null!;
     public SKBitmap Foreground { get; private set; } = null!;
@@ -46,6 +47,7 @@ public sealed class SceneEditInput : IDisposable
         _ = new Composa.ColorManagement.LinearRgbTransform(Composa.ColorManagement.RgbProfile.Srgb, document.Profile);
         var settings=request.Scene.Normalized();
         WholeImage=request.Task==AiTaskKind.Relight && settings.Scope==RelightScope.WholeImage;
+        SuspendedSubject=settings.SuspendedSubject && request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
         var selected=SceneSource.SelectedObject(document);
         var active=WholeImage?document.ActiveLayer:SceneSource.Original(document,selected);
         if (!WholeImage && (active?.Pixels==null || active.IsAdjustment || active.IsGroup || selected==null || !document.IsEffectivelyVisible(selected)))

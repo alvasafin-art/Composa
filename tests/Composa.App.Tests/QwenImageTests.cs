@@ -315,6 +315,10 @@ public class QwenImageTests
         var prompt=QwenImageWorkflow.ScenePrompt(Request(AiTaskKind.Relight) with {Scene=new() {Preset=RelightPreset.GoldenHour}});
         Assert.Contains("shadow falls diagonally toward the lower-right",prompt);
         Assert.Equal(QwenImageWorkflow.HarmonizePrompt,QwenImageWorkflow.ScenePrompt(Request(AiTaskKind.Harmonize)));
+        var suspended = QwenImageWorkflow.ScenePrompt(Request(AiTaskKind.Harmonize) with { Scene = new() { SuspendedSubject = true, LightAngle = 135 } });
+        Assert.Contains("receiving surface",suspended);
+        Assert.Contains("135 degrees",suspended);
+        Assert.DoesNotContain("contact shadow",suspended);
     }
 
     [Fact]

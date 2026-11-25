@@ -242,8 +242,18 @@ public class SceneEditingTests
                 Dispatcher.UIThread.RunJobs();
                 var advanced=Assert.Single(prompt.OwnedWindows);
                 var shadows=advanced.GetVisualDescendants().OfType<CheckBox>().Single(c=>c.Content as string=="Create a separate shadow layer");
-                if(change) shadows.IsChecked=false;
-                else Assert.False(shadows.IsChecked);
+                var suspended=advanced.GetVisualDescendants().OfType<CheckBox>().Single(c=>c.Content as string=="Subject is suspended");
+                if(change)
+                {
+                    Assert.False(suspended.IsChecked);
+                    shadows.IsChecked=false;
+                    suspended.IsChecked=true;
+                }
+                else
+                {
+                    Assert.False(shadows.IsChecked);
+                    Assert.True(suspended.IsChecked);
+                }
                 Assert.Contains(advanced.GetVisualDescendants().OfType<TextBlock>(),text=>text.Text=="FLUX denoise");
                 Assert.True(Screenshots.Save(advanced,"harmonize-advanced-compact"));
                 advanced.Close(true);await Task.Yield();Dispatcher.UIThread.RunJobs();

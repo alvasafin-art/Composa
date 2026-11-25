@@ -66,23 +66,27 @@ internal static class QwenImageWorkflow
     {
         if (cleanup) return SceneEditingWorkflow.CleanupPrompt(request);
         var settings = request.Scene.Normalized();
+        var suspended = settings.SuspendedSubject && request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
         var prompt = request.Task switch
         {
             AiTaskKind.ChangeBackground => "Replace the background around the foreground subject. Keep the subject's position, shape and size. Create a natural support surface and contact shadow. " + request.Prompt,
             AiTaskKind.Relight when settings.Preset==RelightPreset.GoldenHour && settings.LightAngle==null =>
                 "Relight " + (wholeImage ? "the image" : target) + " with warm sunlight from the upper-left corner. Its shadow falls diagonally toward the lower-right corner of the image. Keep its shape, position" + (wholeImage ? "." : " and the background.") + (string.IsNullOrWhiteSpace(request.Prompt) ? "" : " " + request.Prompt.Trim()),
             AiTaskKind.Relight => "Relight " + (wholeImage ? "the image. " : "the foreground subject. ") + settings.LightingInstruction + " " + request.Prompt,
+            _ when suspended => "Adapt the suspended subject's visible faces and underside to the scene's lighting. Preserve its shape, position, clearance and existing attachment.",
             _ => (wholeImage ? "Match the image lighting naturally. " : "") + HarmonizePrompt
         };
         if (request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene && !string.IsNullOrWhiteSpace(request.Prompt))
             prompt += ". " + request.Prompt.Trim();
         if (request.Task != AiTaskKind.ChangeBackground && (!settings.AddShadows || settings.MatchMode != SceneMatchMode.LightAndShadows))
             prompt += ". Keep lighting changes on the subject; do not add shadows outside it";
+        if (suspended && settings.AddShadows && settings.MatchMode == SceneMatchMode.LightAndShadows)
+            prompt += ". " + SceneEditingWorkflow.SuspendedCastInstruction;
         if (settings.LightAngle is { } angle)
             prompt += FormattableString.Invariant($". Light comes from angle {angle:0.#} degrees counterclockwise from image right");
         var explicitAngle = settings.LightAngle ?? (request.Task == AiTaskKind.Relight && settings.Preset is not (RelightPreset.MatchScene or RelightPreset.GoldenHour)
             ? settings.Preset == RelightPreset.SoftboxRight ? 45d : settings.Preset is RelightPreset.SoftboxLeft or RelightPreset.WindowLight or RelightPreset.GoldenHour or RelightPreset.Neon ? 135d : 90d : (double?)null);
-        if (explicitAngle is { } degrees && settings.AddShadows && settings.MatchMode == SceneMatchMode.LightAndShadows)
+        if (!suspended && explicitAngle is { } degrees && settings.AddShadows && settings.MatchMode == SceneMatchMode.LightAndShadows)
         {
             var dx = -Math.Cos(degrees * Math.PI / 180); var dy = Math.Sin(degrees * Math.PI / 180);
             var direction = (dy > .3 ? "lower" : dy < -.3 ? "upper" : "") + (Math.Abs(dx) > .3 ? (Math.Abs(dy) > .3 ? "-" : "") + (dx > 0 ? "right" : "left") : "");

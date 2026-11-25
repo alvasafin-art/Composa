@@ -70,6 +70,28 @@ public class SceneRegressionTests
         using var third=SceneEditInput.Prepare(session.Document.Clone(),request);Assert.Equal(moved.Foreground.Bytes,third.Foreground.Bytes);
     }
     [Fact]
+    public void Result_with_a_missing_source_uses_the_hidden_fallback_rasters_placement()
+    {
+        var session = Scene();
+        var original = session.ActiveLayer!;
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize };
+        using var first = SceneEditInput.Prepare(session.Document.Clone(),request);
+        var result = SceneEditResult.Extract(first,first.Before,request);
+        session.InsertSceneEdit(request.Task,original.Id,[result],true,false,first.PreviousResultIds,first.SourceFrame);
+        var subject = session.Document.AllLayers().Single(layer => layer.Tags.Contains("scene-object"));
+        subject.Tags.Remove(SceneSource.Tag(original.Id));
+        subject.Tags.RemoveWhere(tag => tag.StartsWith("scene-frame-",StringComparison.Ordinal));
+        subject.Tags.UnionWith(SceneSource.FrameTags(SKMatrix.Identity));
+        subject.Tags.Add(SceneSource.Tag(Guid.NewGuid()));
+        subject.Transform = subject.Transform with { X = 12, Y = 5 };
+
+        using var retried = SceneEditInput.Prepare(session.Document.Clone(),request);
+        Assert.Equal(original.Id,retried.SourceLayerId);
+        Assert.Equal(first.SubjectBounds.Left+12,retried.SubjectBounds.Left);
+        Assert.Equal(first.SubjectBounds.Top+5,retried.SubjectBounds.Top);
+    }
+
+    [Fact]
     public void Legacy_nested_results_do_not_leave_ancestor_shadows_in_the_next_input()
     {
         var session=Scene();var source=session.ActiveLayer!;using var initial=SceneEditInput.Prepare(session.Document.Clone(),new() {Task=AiTaskKind.MatchToScene});

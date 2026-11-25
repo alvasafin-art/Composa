@@ -275,6 +275,96 @@ public class PartnerImageTests
         Assert.DoesNotContain("masked", prompt); Assert.Equal(new[] { "apiSource" }, connection.Uploads);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Gpt_harmonize_preserves_material_color_and_respects_subject_support(bool suspended)
+    {
+        var ground = new SKColor(190,183,173);
+        var ceramic = new SKColor(169,163,155);
+        var tomato = new SKColor(200,66,41);
+        var highlight = new SKColor(225,218,207);
+        var session = EditorSession.NewCanvas(200,140,ground);
+        var original = Pixels.NewColor(200,140);
+        using (var draw = new SKCanvas(original))
+        using (var paint = new SKPaint { Color = ceramic })
+        {
+            draw.DrawRect(52,24,72,50,paint);
+            paint.Color = tomato;
+            draw.DrawRect(54,35,20,24,paint);
+            paint.Color = highlight;
+            draw.DrawRect(109,30,5,12,paint);
+        }
+        Pixels.Invalidate(original);
+        var subject = Composa.Model.Layer.Raster("Subject",original);
+        session.Document.Layers.Add(subject);
+        session.Document.SetActive(subject.Id);
+
+        var connection = new Connection { DrawResult = bitmap =>
+        {
+            bitmap.Erase(ground);
+            using var draw = new SKCanvas(bitmap);
+            using var paint = new SKPaint { Color = new SKColor(141,133,126) };
+            draw.Scale(bitmap.Width/200f,bitmap.Height/140f);
+            draw.DrawRect(suspended ? 127 : 63,suspended ? 91 : 74,40,16,paint);
+            paint.Color = ceramic;
+            draw.DrawRect(52,24,72,50,paint);
+            paint.Color = new SKColor(80,175,78);
+            draw.DrawRect(79,35,24,26,paint);
+            paint.Color = tomato;
+            draw.DrawRect(54,35,20,24,paint);
+            paint.Color = highlight;
+            draw.DrawRect(109,30,5,12,paint);
+        }};
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize, AlignMaskedEdits = false,
+            Scene = new() { SuspendedSubject = suspended, LightAngle = 135 } };
+        var state = session.History.CurrentId;
+        await Service(connection).RunAsync(new EditorCommandService(session),request,TestContext.Current.CancellationToken);
+
+        var prompt = Assert.Single(connection.Graphs)["gpt"]!["inputs"]!["prompt"]!.GetValue<string>();
+        Assert.Contains("135 degrees",prompt);
+        Assert.Contains("original material colors",prompt);
+        Assert.Null(connection.Graphs[0]["gpt"]!["inputs"]!["model.mask"]);
+        Assert.Equal(new[] { "apiSource" },connection.Uploads);
+        if (suspended)
+        {
+            Assert.Contains("receiving surface such as a wall",prompt);
+            Assert.Contains("visible faces and underside",prompt);
+            Assert.DoesNotContain("support is at",prompt);
+        }
+        else
+            Assert.Contains("support is at",prompt);
+
+        var group = Assert.Single(session.Document.Layers,layer => layer.IsGroup);
+        var lighting = Assert.Single(group.Children,layer => layer.Tags.Contains("scene-object")).Pixels!;
+        var shadow = Assert.Single(group.Children,layer => layer.Tags.Contains("scene-shadow")).Pixels!;
+        var patch = lighting.GetPixel(90,47);
+        Assert.InRange(patch.Green-patch.Red,-9,9);
+        Assert.InRange(patch.Green-patch.Blue,-9,13);
+        Assert.True(patch.Red < ceramic.Red);
+        Assert.True(lighting.GetPixel(63,47).Red - lighting.GetPixel(63,47).Green > 115);
+        Assert.True(lighting.GetPixel(111,35).Red > 210);
+        using var beforeAlpha = SceneEditInput.Alpha(original);
+        using var afterAlpha = SceneEditInput.Alpha(lighting);
+        Assert.Equal(beforeAlpha.Bytes,afterAlpha.Bytes);
+        Assert.Equal((byte)0,shadow.GetPixel(90,47).Alpha);
+        var composite = session.Flatten();
+        Assert.Equal(ground,composite.GetPixel(12,130));
+        if (suspended)
+        {
+            Assert.Equal(ground,composite.GetPixel(110,80));
+            Assert.True(shadow.GetPixel(144,98).Alpha > 20);
+        }
+        else
+        {
+            Assert.True(shadow.GetPixel(90,75).Alpha > 20);
+            Assert.Equal(ground,composite.GetPixel(144,98));
+        }
+        session.Undo();
+        Assert.Equal(state,session.History.CurrentId);
+        Assert.Same(original,session.ActiveLayer!.Pixels);
+    }
+
     [Fact]
     public async Task Missing_key_unsupported_model_or_settings_fail_before_upload_or_billing()
     {
@@ -409,6 +499,7 @@ public class PartnerImageTests
         public List<JsonObject> Graphs { get; } = []; public List<string> Uploads { get; } = [];
         public int FailAt { get; init; }
         public Func<CancellationToken, Task>? BeforeResult { get; init; }
+        public Action<SKBitmap>? DrawResult { get; init; }
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
             => Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), Server));
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
@@ -425,7 +516,9 @@ public class PartnerImageTests
             var node = Graphs[^1]["gpt"]!["inputs"]!;
             var ratio = node["model.aspect_ratio"]?.GetValue<string>().Split(':').Select(int.Parse).ToArray();
             var bitmap = ratio == null ? Pixels.NewColor(node["model.custom_width"]!.GetValue<int>(),node["model.custom_height"]!.GetValue<int>()) : Pixels.NewColor(ratio[0]*128,ratio[1]*128);
-            bitmap.Erase(SKColors.CornflowerBlue); return Task.FromResult(bitmap);
+            if (DrawResult is { } draw) draw(bitmap);
+            else bitmap.Erase(SKColors.CornflowerBlue);
+            return Task.FromResult(bitmap);
         }
         public void Dispose() { }
     }

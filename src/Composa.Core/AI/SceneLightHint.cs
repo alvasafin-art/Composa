@@ -12,6 +12,13 @@ public sealed record SceneLightHint(SKPoint Direction, bool Directional, string 
         var angle=settings.LightAngle;
         if(angle==null && task==AiTaskKind.Relight && settings.Preset!=RelightPreset.MatchScene)
             angle=settings.Preset is RelightPreset.SoftboxRight ? 45 : settings.Preset is RelightPreset.SoftboxLeft or RelightPreset.WindowLight or RelightPreset.GoldenHour or RelightPreset.Neon ? 135 : 90;
+        if (settings.SuspendedSubject && task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene)
+        {
+            var direction = angle is { } manual
+                ? FormattableString.Invariant($"The dominant light comes from angle {manual:0.#} degrees counterclockwise from image right. ")
+                : "Infer the dominant light direction from the scene's lit surfaces and existing shadows. ";
+            return new(new(0,1), false, direction + "Match this lighting on the subject's visible faces, including its underside. Follow the perspective of each receiving surface.");
+        }
         if(angle is { } degrees)
         {
             var radians=degrees*Math.PI/180;

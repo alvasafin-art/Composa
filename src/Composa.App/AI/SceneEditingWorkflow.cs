@@ -83,7 +83,7 @@ internal sealed class SceneEditingWorkflow : IDisposable
         graph["maskImage"]!["inputs"]!["image"]=mask;
         var harmonize=request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize;
         graph["prompt"]!["inputs"]!["text"]=cleanup ? CleanupPrompt(request) :
-            (harmonize ? HarmonizePrompt+Prompt(request,scene.LightHint) : Prompt(request,scene.LightHint))+LayoutInstruction(scene)+
+            (harmonize && !scene.SuspendedSubject ? HarmonizePrompt : "") + Prompt(request,scene.LightHint)+LayoutInstruction(scene)+
             (request.Task!=AiTaskKind.ChangeBackground ? "\nLighting guidance: "+scene.LightHint.Instruction : "");
         // Cleanup is an image edit: its reference identifies the actual object to remove.
         // At denoise 1 the target mask is fully resampled; the surrounding encoded latent stays context.
@@ -101,7 +101,9 @@ internal sealed class SceneEditingWorkflow : IDisposable
         {
             var explicitLight=request.Scene.LightAngle!=null||request.Task==AiTaskKind.Relight&&request.Scene.Preset!=RelightPreset.MatchScene;
             graph["prompt"]!["inputs"]!["text"]=graph["prompt"]!["inputs"]!["text"]!.GetValue<string>()+
-                (explicitLight?"\nReference image 1 shows the foreground placement. Reference image 2 shows the full background and support-surface perspective. Apply the requested lighting direction and preset to the foreground and its shadow.":scene.LightHint.SoftContactOnly
+                (scene.SuspendedSubject
+                    ? "\nReference image 1 shows the foreground placement. Reference image 2 shows the complete background and the perspective of its receiving surfaces."
+                    : explicitLight?"\nReference image 1 shows the foreground placement. Reference image 2 shows the full background and support-surface perspective. Apply the requested lighting direction and preset to the foreground and its shadow.":scene.LightHint.SoftContactOnly
                     ? "\nReference image 1 shows the object placement. Reference image 2 shows the softly illuminated background alone. Match its broad ambient lighting and even support surface, with gentle localized contact shading."
                     :"\nReference image 1 shows the object placement. Reference image 2 shows the complete background alone: use its existing illumination and cast shadows as the lighting reference. Adapt the subject to that background's light, rather than imposing the subject's original studio lighting on the scene.");
         }
@@ -152,23 +154,32 @@ internal sealed class SceneEditingWorkflow : IDisposable
     internal static string Prompt(AiTaskRequest request,SceneLightHint? light=null)
     {
         var settings=request.Scene.Normalized();
+        var suspended=settings.SuspendedSubject && request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
         var operation=request.Task==AiTaskKind.ChangeBackground
             ? "Replace the background around the existing foreground subject with the requested environment. Use the subject's actual scale, material, position and support points to compose a believable scene. Keep the subject in exactly the same position and shape. Build the support surface directly against its base, with a soft grounded contact shadow."
             : request.Task==AiTaskKind.Relight
                 ? "Change the lighting of "+(settings.Scope==RelightScope.WholeImage ? "the image" : "the foreground subject")+". "+settings.LightingInstruction
-                : "Match the existing foreground subject's illumination to the visible background: light direction, exposure, color temperature and reflected light. Keep its exact position, dimensions and support points. Preserve the surrounding scene. Lighting changes belong on its surfaces.";
+                : suspended
+                    ? "Match the suspended subject's illumination to the visible scene. Relight its visible faces and underside using the surroundings. Preserve its position, shape, clearance and existing attachment."
+                    : "Match the existing foreground subject's illumination to the visible background: light direction, exposure, color temperature and reflected light. Keep its exact position, dimensions and support points. Preserve the surrounding scene. Lighting changes belong on its surfaces.";
         var shadow=request.Task==AiTaskKind.ChangeBackground ? "" : settings.AddShadows && settings.MatchMode==SceneMatchMode.LightAndShadows
-            ? light?.SoftContactOnly==true
+            ? suspended
+                ? " " + SuspendedCastInstruction
+                : light?.SoftContactOnly==true
                 ? " Generate a short faint diffuse contact shadow immediately beneath the base: a small soft ambient-occlusion patch spreading less than one base-width around the support. Preserve the floor's even illumination beyond this localized patch. Match the gentle ambient shadows of the existing objects."
                 : " Generate continuous contact shading and a cast shadow appropriate to "+(settings.LightAngle!=null||request.Task==AiTaskKind.Relight&&settings.Preset!=RelightPreset.MatchScene?"the requested lighting":"the background's existing illumination")+" and support-surface perspective. Match the existing shadows' density, length and softness. Start shading at the subject's support points and respect material translucency."
             : " Do not add a new shadow outside the subject.";
-        return operation+shadow+" Preserve identity, material texture, labels and colors. Render ordinary photographic surface shading and a continuous natural background. Keep the object's silhouette and support in their original image coordinates. User guidance: "+request.Prompt+
+        return operation+shadow+" Preserve identity, material texture, labels and colors. Render ordinary photographic surface shading and a continuous natural background. Keep the object's silhouette and placement in their original image coordinates. User guidance: "+request.Prompt+
             (string.IsNullOrWhiteSpace(request.AdditionalPrompt) ? "" : "\nWorkflow guidance: "+request.AdditionalPrompt);
     }
+    internal const string SuspendedCastInstruction = "Cast a shadow only where light from the scene is blocked on a visible receiving surface such as a wall, cabinet or counter. Follow that surface's perspective and the direction, softness and falloff of the scene lighting. Preserve the gap below the subject. Contact shading belongs only at actual attachments. Keep the rest of the background unchanged.";
+    internal const string MaterialColorInstruction = "Keep the original material colors across all parts of the subject, including food and labels. Adjust the illumination, retaining natural highlights and restrained reflections from the environment. Avoid local recoloring or replacing details.";
     internal static string CleanupPrompt(AiTaskRequest request)=>"Remove the main foreground object. Keep the surrounding objects, background, perspective and lighting.";
     internal static string LayoutInstruction(SceneEditInput scene)
     {
         var b=scene.SubjectBounds;var w=scene.Before.Width;var h=scene.Before.Height;
+        if (scene.SuspendedSubject)
+            return FormattableString.Invariant($"\nThe suspended foreground occupies x={100d*b.Left/w:0.#}% to {100d*b.Right/w:0.#}%, y={100d*b.Top/h:0.#}% to {100d*b.Bottom/h:0.#}% of the complete image. Keep that placement, camera perspective and the open space underneath.");
         return FormattableString.Invariant($"\nThe foreground occupies x={100d*b.Left/w:0.#}% to {100d*b.Right/w:0.#}%, y={100d*b.Top/h:0.#}% to {100d*b.Bottom/h:0.#}% of the complete image. Its support is at y={100d*scene.SupportBounds.Bottom/h:0.#}%. Keep that placement and construct the support surface through that support point; retain the camera perspective.");
     }
     internal static SKBitmap CopyReference(SKBitmap reference,double? megapixels)

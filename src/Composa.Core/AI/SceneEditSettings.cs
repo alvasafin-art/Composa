@@ -20,6 +20,7 @@ public sealed record SceneEditSettings
     public double ShadowReach { get; init; } = 1;
     public bool PreserveDetails { get; init; } = true;
     public bool AddShadows { get; init; } = true;
+    public bool SuspendedSubject { get; init; }
     public double? LightAngle { get; init; }
 
     public SceneEditSettings Normalized() => this with

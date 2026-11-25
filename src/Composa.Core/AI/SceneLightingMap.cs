@@ -10,7 +10,7 @@ internal sealed class SceneLightingMap
     private readonly float[] values;
     private readonly double scale;
 
-    internal SceneLightingMap(SceneEditInput input,SKBitmap generated,SKBitmap baseline,CancellationToken token)
+    internal SceneLightingMap(SceneEditInput input,SKBitmap generated,SKBitmap baseline,CancellationToken token,bool protectMaterialColors)
     {
         var bounds=input.SubjectBounds;
         // Transfer illumination, not the model's high-frequency outlines, texture or ringing.
@@ -40,9 +40,12 @@ internal sealed class SceneLightingMap
                     if(!input.WholeImage && (input.ObjectAlpha.GetPixel(Math.Max(0,x-guard),y).Alpha<threshold || input.ObjectAlpha.GetPixel(Math.Min(generated.Width-1,x+guard),y).Alpha<threshold
                         || input.ObjectAlpha.GetPixel(x,Math.Max(0,y-guard)).Alpha<threshold || input.ObjectAlpha.GetPixel(x,Math.Min(generated.Height-1,y+guard)).Alpha<threshold)) continue;
                     var source=baseline.GetPixel(x,y); var target=generated.GetPixel(x,y);
-                    static float Gain(byte source,byte target)=>(float)Math.Log(Math.Clamp((Linear(target)+.01)/(Linear(source)+.01),.25,4));
+                    static double Gain(byte source,byte target)=>Math.Clamp((Linear(target)+.01)/(Linear(source)+.01),.25,4);
+                    var r = Gain(source.Red,target.Red); var g = Gain(source.Green,target.Green); var b = Gain(source.Blue,target.Blue);
+                    if (protectMaterialColors)
+                        (r,g,b) = LimitChromaticChange(source,r,g,b);
                     var weight=(float)Math.Pow(alpha/255d,2);
-                    raw[cell]+=Gain(source.Red,target.Red)*weight; raw[cell+1]+=Gain(source.Green,target.Green)*weight; raw[cell+2]+=Gain(source.Blue,target.Blue)*weight; raw[cell+3]+=weight;
+                    raw[cell]+=(float)Math.Log(r)*weight; raw[cell+1]+=(float)Math.Log(g)*weight; raw[cell+2]+=(float)Math.Log(b)*weight; raw[cell+3]+=weight;
                 }
             }
         }
@@ -97,5 +100,21 @@ internal sealed class SceneLightingMap
         }
         return output;
     }
+    private static (double R,double G,double B) LimitChromaticChange(SKColor source,double r,double g,double b)
+    {
+        // Attenuate strong chromatic changes before they spread to nearby material.
+        // The adjustment retains the same linear luminance on the sampled source color.
+        const double subtleTint = 1.2;
+        var spread = Math.Max(r,Math.Max(g,b)) / Math.Min(r,Math.Min(g,b));
+        if (spread <= subtleTint) return (r,g,b);
+        var red = .2126 * Linear(source.Red);
+        var green = .7152 * Linear(source.Green);
+        var blue = .0722 * Linear(source.Blue);
+        var luminance = red + green + blue;
+        var neutral = luminance > 0 ? (red*r + green*g + blue*b) / luminance : (r+g+b)/3;
+        var tint = Math.Pow(Math.Log(subtleTint)/Math.Log(spread),2);
+        return (neutral + (r-neutral)*tint,neutral + (g-neutral)*tint,neutral + (b-neutral)*tint);
+    }
+
     private static double Linear(byte value) {var v=value/255d;return v<=.04045?v/12.92:Math.Pow((v+.055)/1.055,2.4);}
 }
