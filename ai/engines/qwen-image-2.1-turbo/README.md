@@ -32,8 +32,12 @@ send a marked context crop to the image encoder. The sampler receives the clean
 source latents and a grayscale noise mask in the same padded frame. Composa fits
 the decoded crop to its document position and applies the editable insertion mask.
 **Align pixels** in the prompt panel controls alignment for masked and full-image edits. Reference images follow the source in UI order; masks are never references.
-Use direct editing instructions; with several images the source is `<image1>` and
-user references start at `<image2>`. For Generate Image references start at `<image1>`.
+Use direct instructions and name a single input in plain language. With two or more
+inputs, use `<image1>`, `<image2>`, and so on, with no spaces or underscores. Image
+Edit sends the source first, followed by user references. Generate Image sends the
+first reference as `<image1>`. The workflow field `images.image_1` names an input
+socket. In prompt text, `<image 1>` and `<image_1>` pass through as typed with no
+alias conversion. [Qwen reference rules](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/prompt_rewrite/prompts/system_prompt_edit.txt#L41-L43) · [ComfyUI text encoder](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy/text_encoders/qwen_image21.py#L15-L22)
 
 Harmonize defaults to the short prompt selected by the indoor/outdoor sunlight and
 diffuse-light comparison:
