@@ -1971,6 +1971,14 @@ Model or workflow	Модель или workflow
 Run parameters	Параметры запуска
 Used in operations	Используется в операциях
 Hardware acceleration	Аппаратное ускорение
+Available device	Доступное устройство
+Canvas preview (Skia)	Предпросмотр холста (Skia)
+Canvas compositing (OpenCL)	Композиция холста (OpenCL)
+Brush and eraser coverage (OpenCL)	Покрытие кисти и ластика (OpenCL)
+Brush and eraser blending (OpenCL)	Смешивание кисти и ластика (OpenCL)
+Shadow and glow blur (OpenCL)	Размытие теней и свечения (OpenCL)
+Layer strokes (OpenCL)	Обводки слоёв (OpenCL)
+Save settings to apply acceleration changes.	Сохраните настройки, чтобы применить изменения ускорения.
 Devices	Устройства
 Not loaded	Ещё не загружено
 Editor rendering	Отрисовка редактора

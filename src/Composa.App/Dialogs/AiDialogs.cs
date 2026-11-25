@@ -788,37 +788,7 @@ public static partial class AiDialogs
             Card(Columns("*,*", Field("Language", languagePicker), Field("Interface theme", themePicker))),
             Card(Columns("*,*", Field("Workspace layout", layoutPicker), Field("AI panel placement", aiPanelPicker))),
             Card(Ui.Column(5, rememberPrompts, showContext, groupedPanels, linkedSources, updates)));
-        var accelerated = new ToggleSwitch { IsChecked = settings.UseEditorGpu || settings.UseRasterFilterGpu || settings.UseSelectionGpu };
-        accelerated.IsCheckedChanged += (_, _) =>
-        {
-            foreach (var toggle in new[] { selectionGpu, rasterGpu, editorGpu })
-                if (toggle.IsEnabled) toggle.IsChecked = accelerated.IsChecked == true;
-        };
-        var actualGpu = Composa.Rendering.GpuAcceleration.EditorDevice ?? Composa.Rendering.GpuAcceleration.FilterDevice;
-        var deviceRows = Ui.Column(0, InsetRow(Columns("*,130", Caption("Module"), Caption("Device")), Palette.SettingsSidebar));
-        var sam = Composa.Vision.ModelRunner.DeviceFor(devices[0]) ?? Composa.Vision.ModelRunner.DeviceFor(devices[1]);
-        DeviceRow("EfficientSAM S", sam, null);
-        DeviceRow("ViTMatte Small", Composa.Vision.ModelRunner.DeviceFor(devices[2]), null);
-        DeviceRow("SkiaSharp / OpenCL", Composa.Rendering.GpuAcceleration.EditorDevice == null ? "CPU" : "GPU", actualGpu);
-        DeviceRow("Image filters", Composa.Rendering.GpuAcceleration.FilterDevice == null ? "CPU" : "GPU",
-            Composa.Rendering.GpuAcceleration.FilterDevice);
-        void DeviceRow(string name, string? device, string? description)
-        {
-            var value = Caption(device ?? "Not loaded");
-            value.Foreground = device == "CPU" ? Palette.SettingsWarningText : device == null ? Palette.Secondary : Palette.SettingsSuccessText;
-            if (description != null) Locale.Tip(value, description);
-            deviceRows.Children.Add(InsetRow(Columns("*,130", Caption(name), value), vertical: 13));
-        }
-        var gpuOptions = Ui.Column(6, selectionGpu, editorGpu, rasterGpu);
-        gpuOptions.IsVisible = false;
-        var changeGpu = Ui.TextButton("Change", () => gpuOptions.IsVisible = !gpuOptions.IsVisible);
-        var performancePage = Page("Performance",
-            Card(Ui.Column(12, Columns("*,Auto", Heading("Hardware acceleration", 14), accelerated),
-                Columns("*,Auto", Heading(actualGpu ?? "Local computation", 12), Caption(actualGpu == null ? "CPU" : "GPU"))), 16),
-            Ui.Column(8, Heading("Devices", 13), Card(deviceRows, 0)),
-            Ui.Column(8, Heading("Exceptions", 13), Card(Ui.Column(8,
-                Columns("*,Auto", Ui.Column(2, Heading("Large RGB16 blur filters", 12),
-                    Caption(settings.UseRasterFilterGpu ? "Use GPU when available" : "Always use CPU")), changeGpu), gpuOptions), 13)));
+        var performancePage = Page("Performance", PerformanceSections(settings, editor?.Canvas, editorGpu, rasterGpu, selectionGpu, devices));
         var modelMaster = Ui.Column(2);
         var modelUsage = Ui.Column(6);
         var modelHeading = Heading("", 15);
@@ -1082,7 +1052,6 @@ public static partial class AiDialogs
             search.Text = "";
             Navigate(entry.Page, false);
             if (entry.Section != null) entry.Section.IsExpanded = true;
-            if (entry.Target == selectionGpu || entry.Target == editorGpu || entry.Target == rasterGpu) gpuOptions.IsVisible = true;
             entry.Select?.Invoke();
             Avalonia.Threading.Dispatcher.UIThread.Post(() => { entry.Target.BringIntoView(); entry.Target.Focus(); });
         }
@@ -1408,6 +1377,7 @@ public static partial class AiDialogs
             scope.Text = Locale.T(current switch
             {
                 4 => "Save settings to apply workflow changes.",
+                7 => "Save settings to apply acceleration changes.",
                 0 or 5 or 11 => "Connection fields apply to operations using this connection.",
                 9 => "You can finish setup later in Settings.",
                 _ => ""
@@ -1557,9 +1527,11 @@ public static partial class AiDialogs
         settings.UseSelectionGpu = selectionGpu.IsChecked == true;
         Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;
         settings.UseRasterFilterGpu = rasterGpu.IsChecked == true;
-        if (settings.UseEditorGpu && editorGpu.IsChecked != true) Composa.Rendering.GpuAcceleration.ReleaseCanvasCache();
+        var editorGpuChanged = settings.UseEditorGpu != (editorGpu.IsChecked == true);
+        if (settings.UseEditorGpu && editorGpuChanged) Composa.Rendering.GpuAcceleration.ReleaseCanvasCache();
         settings.UseEditorGpu = editorGpu.IsChecked == true;
         Composa.Rendering.GpuAcceleration.Configure(settings.UseRasterFilterGpu, settings.UseEditorGpu);
+        if (editorGpuChanged) editor?.Canvas.InvalidateCanvas();
         settings.TabbedPanels = groupedPanels.IsChecked == true;
         settings.AutoUpdateLinkedSources = linkedSources.IsChecked == true;
         settings.CheckForUpdates = updates.IsChecked == true;

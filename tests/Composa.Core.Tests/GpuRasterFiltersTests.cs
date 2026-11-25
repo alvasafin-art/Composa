@@ -68,6 +68,11 @@ public sealed class GpuRasterFiltersTests
         {
             var device = Assert.IsType<OpenClDevice>(await GpuAcceleration.Initialization!);
             Assert.True(device.StrokeRingAvailable);
+            var capabilities = GpuAcceleration.OpenCl;
+            Assert.True(capabilities.Probed);
+            Assert.Equal(device.Device, capabilities.Device);
+            Assert.True(capabilities.LayerStroke);
+            Assert.Equal(device.FloatBlurAvailable, capabilities.Rgb16Blur);
             using var source = Pixels.NewMask(563, 419);
             using var expected = Pixels.NewLike(source);
             using var actual = Pixels.NewLike(source);

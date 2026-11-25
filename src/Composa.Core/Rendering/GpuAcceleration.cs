@@ -10,6 +10,10 @@ namespace Composa.Rendering;
 /// <summary>Optional GPU compute. Each operation has a CPU implementation and a device-specific reference check.</summary>
 public static partial class GpuAcceleration
 {
+    public readonly record struct OpenClSupport(bool Probed, string? Device, bool Composite = false,
+        bool BrushCoverage = false, bool BrushBlending = false, bool LayerBlur = false, bool LayerStroke = false,
+        bool Rgb16Blur = false);
+
     // Transfer and dispatch cost can exceed the CPU blur time for small images.
     internal const int MinimumPixels = 3_000_000;
     private static readonly object configuration = new();
@@ -19,6 +23,20 @@ public static partial class GpuAcceleration
     public static bool CanEnable => (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) && Environment.Is64BitProcess;
     public static string? EditorDevice => editorEnabled ? ReadyDevice?.Device : null;
     public static string? FilterDevice => filterEnabled && ReadyDevice is { FloatBlurAvailable: true } backend ? backend.Device : null;
+
+    public static OpenClSupport OpenCl
+    {
+        get
+        {
+            var probe = Initialization;
+            if (probe is not { IsCompleted: true }) return default;
+            if (!probe.IsCompletedSuccessfully || probe.Result is not { IsDisposed: false } device) return new(true, null);
+            return new(true, device.Device, device.CompositeAvailable, device.CoverageAvailable, device.PaintAvailable,
+                device.AlphaBlurAvailable, device.StrokeRingAvailable, device.FloatBlurAvailable);
+        }
+    }
+
+    public static void ProbeOpenCl() => RequestEditorDevice();
 
     internal static Task<OpenClDevice?>? Initialization => Volatile.Read(ref initialization);
 
@@ -44,7 +62,7 @@ public static partial class GpuAcceleration
         && backend.TryFloatBlur(source, scratch, radii, clamp);
 
     private static OpenClDevice? ReadyDevice =>
-        Initialization is { IsCompletedSuccessfully: true } task ? task.Result : null;
+        Initialization is { IsCompletedSuccessfully: true } task && task.Result is { IsDisposed: false } device ? device : null;
 
     private static OpenClDevice? RequestEditorDevice()
     {

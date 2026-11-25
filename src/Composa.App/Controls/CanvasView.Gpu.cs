@@ -9,15 +9,30 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private bool hardwareViewport;
+    private enum ViewportGraphics { Unknown, Software, Hardware }
+    private int viewportGraphics;
     private bool acceleratedViewportVisible;
     private GRContext? rejectedViewportGraphics;
     private static readonly SKColorSpace ViewportSrgb = SKColorSpace.CreateSrgb();
     private DispatcherTimer? navigationPreview;
 
+    internal bool? HardwareViewportAvailable => (ViewportGraphics)Volatile.Read(ref viewportGraphics) switch
+    {
+        ViewportGraphics.Hardware => true,
+        ViewportGraphics.Software => false,
+        _ => null
+    };
+
+    private bool DetectViewportGraphics(GRContext? graphics)
+    {
+        var available = graphics is { IsAbandoned: false } && !ReferenceEquals(graphics, rejectedViewportGraphics);
+        Volatile.Write(ref viewportGraphics, (int)(available ? ViewportGraphics.Hardware : ViewportGraphics.Software));
+        return available;
+    }
+
     private void PreviewDuringNavigation()
     {
-        if (!Volatile.Read(ref hardwareViewport) || zoom >= 1) return;
+        if (HardwareViewportAvailable != true || zoom >= 1) return;
         if (navigationPreview == null)
         {
             navigationPreview = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
@@ -38,7 +53,7 @@ public sealed partial class CanvasView
     private AcceleratedViewport? CaptureAcceleratedViewport(Size size, Point displayOrigin)
     {
         var movingLayer = drag == Drag.Transform;
-        if (!Volatile.Read(ref hardwareViewport) || zoom >= 1 || session == null || !displayProfile.Equals(RgbProfile.Srgb)
+        if (HardwareViewportAvailable != true || zoom >= 1 || session == null || !displayProfile.Equals(RgbProfile.Srgb)
             || (!movingLayer && navigationPreview?.IsEnabled != true)) return null;
 
         var scaling = Scaling;

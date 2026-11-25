@@ -17,6 +17,7 @@ internal sealed unsafe partial class OpenClDevice : IDisposable
     private nint context, queue, program, floatBlur, alphaBlur, strokeRing, paint, brushCoverage, composite;
     private readonly ulong maxAllocation, workingBytes;
     private bool disposed;
+    internal bool IsDisposed => Volatile.Read(ref disposed);
     internal string Device { get; }
     internal bool FloatBlurAvailable { get; set; }
     internal bool AlphaBlurAvailable { get; set; }
