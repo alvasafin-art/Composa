@@ -33,15 +33,17 @@ internal static class ImageOperationModels
     {
         var utility = direct.Task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection;
         var local = direct.Route == ImageGenerationRoute.LocalCodex;
+        var remote = direct.Route == ImageGenerationRoute.RemoteCodex;
         if (string.IsNullOrWhiteSpace(name))
             name = direct.Task switch
             {
                 AiTaskKind.Upscale => local ? "Real-ESRGAN" : direct.UsesConfiguredUpscaler ? direct.Model : "Topaz Upscale",
                 AiTaskKind.ObjectSelection => local ? (string.IsNullOrWhiteSpace(direct.UtilityModel) ? "rembg" : direct.UtilityModel) : "BiRefNet",
+                _ when remote => direct.Label,
                 _ => local ? string.IsNullOrWhiteSpace(direct.CodexDisplayName) ? "GPT Image 2" : direct.CodexDisplayName : direct.Model
             };
         if (name.Length == 0) name = "Choose a model";
-        var connection = local ? "CLI on this computer" : utility && !direct.UsesConfiguredUpscaler
+        var connection = remote || local ? DirectImageGenerator.RouteLabel(direct.Route) : utility && !direct.UsesConfiguredUpscaler
             ? (direct.Task == AiTaskKind.Upscale ? "Polza AI · API" : "fal API")
             : string.IsNullOrWhiteSpace(apiName) ? "API directly" : apiName;
         return new(name, utility && !direct.UsesConfiguredUpscaler ? direct.Label : direct.Model, direct.PromptProfile(), direct, connection);
@@ -84,6 +86,8 @@ internal static class ImageOperationModels
     {
         var local = draft with { Route = ImageGenerationRoute.LocalCodex };
         if (local.Availability(draft.Task) == null) yield return DirectChoice(local);
+        var remote = draft with { Route = ImageGenerationRoute.RemoteCodex };
+        if (remote.Availability(draft.Task) == null) yield return DirectChoice(remote);
         var api = draft with { Route = ImageGenerationRoute.DirectApi };
         if (IsUtility(draft.Task))
         {

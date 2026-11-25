@@ -5,33 +5,49 @@ using SkiaSharp;
 
 namespace Composa.App.AI;
 
-public enum ImageGenerationRoute { ComfyWorkflow, LocalCodex, DirectApi, BuiltIn }
+public enum ImageGenerationRoute { ComfyWorkflow, LocalCodex, DirectApi, BuiltIn, RemoteCodex }
 
 internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string CodexPath, string ApiAddress, string ApiModel)
 {
     internal static readonly AiTaskKind[] Operations = Enum.GetValues<AiTaskKind>().Where(task => task != AiTaskKind.SelectSubject).ToArray();
-    internal static readonly ImageGenerationRoute[] Connections = [ImageGenerationRoute.ComfyWorkflow, ImageGenerationRoute.LocalCodex, ImageGenerationRoute.DirectApi];
+    internal static readonly ImageGenerationRoute[] Connections = [ImageGenerationRoute.ComfyWorkflow, ImageGenerationRoute.LocalCodex,
+        ImageGenerationRoute.DirectApi, ImageGenerationRoute.RemoteCodex];
     internal AiTaskKind Task { get; init; }
     internal string UtilityPath { get; init; } = "";
     internal string UtilityModel { get; init; } = "";
     internal string CodexDisplayName { get; init; } = "";
     internal string CodexLanguageModel { get; init; } = "";
     internal string CodexReasoningEffort { get; init; } = "default";
+    internal string ComfyServer { get; init; } = "";
+    internal string RemoteLanguageModel { get; init; } = "";
+    internal string RemoteReasoningEffort { get; init; } = "default";
 
-    internal string Model => Route == ImageGenerationRoute.LocalCodex ? "gpt-image-2" : ApiModel.Trim();
+    internal string Model => Route switch
+    {
+        ImageGenerationRoute.LocalCodex => "gpt-image-2",
+        ImageGenerationRoute.RemoteCodex => "image_generation",
+        _ => ApiModel.Trim()
+    };
     internal bool UsesConfiguredUpscaler => Task == AiTaskKind.Upscale && Route == ImageGenerationRoute.DirectApi && Model.Length > 0;
-    internal string Id => Route == ImageGenerationRoute.LocalCodex ? "direct-codex-image" : "direct-api-image";
+    internal string Id => Route switch
+    {
+        ImageGenerationRoute.LocalCodex => "direct-codex-image",
+        ImageGenerationRoute.RemoteCodex => "server-codex-image",
+        _ => "direct-api-image"
+    };
     internal string Label => Task switch
     {
         AiTaskKind.Upscale => Route == ImageGenerationRoute.LocalCodex ? "Real-ESRGAN · CLI" : UsesConfiguredUpscaler ? Model : "Polza AI · Topaz Upscale",
         AiTaskKind.ObjectSelection => Route == ImageGenerationRoute.LocalCodex ? "rembg · CLI" : "BiRefNet · fal API",
+        _ when Route == ImageGenerationRoute.RemoteCodex => "Codex image generation",
         _ => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : Model.Length > 0 ? $"{Model} · API" : "Direct image API"
     };
 
     internal static DirectImageGenerator From(Settings settings) =>
         new(settings.ImageGenerationRoute, settings.ImageGenerationCodexPath, settings.ImageGenerationApiUrl, settings.ImageGenerationApiModel)
         { CodexDisplayName = settings.ImageCodexDisplayName, CodexLanguageModel = settings.ImageCodexLanguageModel,
-            CodexReasoningEffort = settings.ImageCodexReasoningEffort };
+            CodexReasoningEffort = settings.ImageCodexReasoningEffort, ComfyServer = settings.ComfyServerUrl,
+            RemoteLanguageModel = settings.ImageRemoteCodexModel, RemoteReasoningEffort = settings.ImageRemoteCodexEffort };
 
     internal static DirectImageGenerator For(Settings settings, AiTaskKind task) => From(settings) with
     {
@@ -52,12 +68,14 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     internal static string RouteLabel(ImageGenerationRoute route) => route switch
     {
         ImageGenerationRoute.LocalCodex => "CLI on this computer",
+        ImageGenerationRoute.RemoteCodex => "CLI on ComfyUI server",
         ImageGenerationRoute.DirectApi => "API directly",
         ImageGenerationRoute.BuiltIn => "Built-in",
         _ => "ComfyUI workflow"
     };
 
-    internal static bool IsDirect(ImageGenerationRoute route) => route is ImageGenerationRoute.LocalCodex or ImageGenerationRoute.DirectApi;
+    internal static bool IsDirect(ImageGenerationRoute route) => route is ImageGenerationRoute.LocalCodex or ImageGenerationRoute.DirectApi
+        or ImageGenerationRoute.RemoteCodex;
 
     internal static Uri Endpoint(string value) => DirectImageApi.Parse(value).CredentialEndpoint;
     internal bool UsesNativeMask => Route == ImageGenerationRoute.DirectApi && DirectImageApi.Parse(ApiAddress).UsesNativeMask;
@@ -71,6 +89,14 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
 
     internal string? Availability(AiTaskKind task, int references = 0)
     {
+        if (Route == ImageGenerationRoute.RemoteCodex)
+        {
+            if (task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
+                return "Codex CLI on the ComfyUI server supports generative image operations.";
+            if (references > 6) return "Choose at most six reference images.";
+            try { _ = ComfyServerAddress.Parse(ComfyServer); return null; }
+            catch (FormatException error) { return error.Message; }
+        }
         if (task == AiTaskKind.Upscale && !UsesConfiguredUpscaler || task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
             return DirectImageUtilities.Availability(this);
         if (references > 6) return "Choose at most six reference images.";
@@ -88,7 +114,7 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     }
 
     internal async Task<SKBitmap> GenerateAsync(string prompt, int width, int height, CancellationToken token,
-        string? draftKey = null, DirectImageFiles? files = null, Action<ImageApiRate>? onCharge = null)
+        string? draftKey = null, DirectImageFiles? files = null, Action<ImageApiRate>? onCharge = null, bool edit = false)
     {
         if (string.IsNullOrWhiteSpace(prompt)) throw new InvalidOperationException("Enter a prompt to generate an image.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -99,6 +125,9 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
             if (Route == ImageGenerationRoute.LocalCodex)
                 return await LocalCodex.GenerateAsync(CodexPath, prompt, requestWidth, requestHeight, timeout.Token,
                     files?.Images, CodexLanguageModel, CodexReasoningEffort);
+            if (Route == ImageGenerationRoute.RemoteCodex)
+                return await RemoteCodexImage.GenerateAsync(ComfyServer, RemoteLanguageModel, RemoteReasoningEffort,
+                    prompt, requestWidth, requestHeight, files, edit, timeout.Token);
             if (Route != ImageGenerationRoute.DirectApi) throw new InvalidOperationException("Choose a direct image connection.");
             var api = DirectImageApi.Parse(ApiAddress);
             if (string.IsNullOrWhiteSpace(Model)) throw new InvalidOperationException("Choose the image model in AI Settings → Image generation.");

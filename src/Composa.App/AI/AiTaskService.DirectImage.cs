@@ -91,8 +91,12 @@ public sealed partial class AiTaskService
                 prompt = "Use the attached images as visual references for the new image. " + prompt;
             }
             var variants = request.Settings.Variants;
-            var stage = utility ? generator.Label
-                : generator.Route == ImageGenerationRoute.LocalCodex ? "Generating through Codex CLI…" : "Generating through the image API…";
+            var stage = utility ? generator.Label : generator.Route switch
+            {
+                ImageGenerationRoute.LocalCodex => "Generating through Codex CLI…",
+                ImageGenerationRoute.RemoteCodex => "Generating through Codex CLI on the ComfyUI server…",
+                _ => "Generating through the image API…"
+            };
             for (var i = 0; i < variants; i++)
             {
                 linked.Token.ThrowIfCancellationRequested();
@@ -116,7 +120,7 @@ public sealed partial class AiTaskService
                 else
                 {
                     image = await generator.GenerateAsync(prompt, editInputs?.Width ?? request.Settings.Width,
-                        editInputs?.Height ?? request.Settings.Height, linked.Token, files: files, onCharge: ReportCharge);
+                        editInputs?.Height ?? request.Settings.Height, linked.Token, files: files, onCharge: ReportCharge, edit: edit);
                     if (editInputs != null) image = await Task.Run(() => editInputs.Finish(image));
                     if (remove && prepared!.SelectionMask is { } removal)
                     {
