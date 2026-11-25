@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.App.Controls;
@@ -14,6 +15,49 @@ namespace Composa.App.Tests;
 
 public sealed class EditorChromeInputTests
 {
+    [AvaloniaFact]
+    public async Task Only_the_file_menu_refreshes_recent_paths_when_switching_menus()
+    {
+        var path = Path.GetTempFileName();
+        var window = new MainWindow { Width = 1100, Height = 680 };
+        window.Settings.RecentFiles.Add(path);
+        window.Show();
+        try
+        {
+            Pump();
+            var menu = window.GetVisualDescendants().OfType<Menu>().Single();
+            var files = menu.Items.OfType<MenuItem>().First();
+            var recent = files.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Open Recent"));
+            await WaitForRecent(() => recent.Items.Count > 0);
+            var previous = Assert.Single(recent.Items);
+
+            File.Delete(path);
+            foreach (var neighboring in menu.Items.OfType<MenuItem>().Skip(1).Take(5))
+                neighboring.RaiseEvent(new RoutedEventArgs(MenuItem.SubmenuOpenedEvent));
+            Pump();
+            Assert.Same(previous, Assert.Single(recent.Items));
+
+            files.RaiseEvent(new RoutedEventArgs(MenuItem.SubmenuOpenedEvent));
+            await WaitForRecent(() => recent.Items.Count == 0);
+            Assert.False(recent.IsEnabled);
+        }
+        finally
+        {
+            window.Close();
+            File.Delete(path);
+        }
+
+        static async Task WaitForRecent(Func<bool> ready)
+        {
+            for (var i = 0; !ready() && i < 100; i++)
+            {
+                Pump();
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+            Assert.True(ready());
+        }
+    }
+
     [AvaloniaTheory]
     [InlineData(1.0)]
     [InlineData(1.25)]
@@ -148,10 +192,11 @@ public sealed class EditorChromeInputTests
                 var at = Center(target, window);
                 // Deliberately place the tip over the next button to exercise hit testing.
                 Assert.True(ToolTip.GetShouldUseOverlayLayer(source));
-                ToolTip.SetPlacement(source, bottomRail
-                    ? PlacementMode.RightEdgeAlignedTop : PlacementMode.BottomEdgeAlignedLeft);
-                ToolTip.SetVerticalOffset(source, 0);
-                window.MouseMove(Center(source, window));
+                var fromPoint = Center(source, window);
+                ToolTip.SetPlacement(source, PlacementMode.Center);
+                ToolTip.SetHorizontalOffset(source, at.X - fromPoint.X);
+                ToolTip.SetVerticalOffset(source, at.Y - fromPoint.Y);
+                window.MouseMove(fromPoint);
                 ToolTip.SetIsOpen(source, true);
                 Pump();
 

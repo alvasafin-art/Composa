@@ -97,6 +97,35 @@ public class RegressionTests
         Assert.False(session.History.UndoName.StartsWith("Move"));
     }
 
+    [Theory]
+    [InlineData(ColorDepth.Eight, false)]
+    [InlineData(ColorDepth.Sixteen, true)]
+    public void Moving_pixels_through_multiple_positions_matches_directly_moving_to_the_destination(ColorDepth depth, bool duplicate)
+    {
+        EditorSession Start()
+        {
+            var session = EditorSession.NewCanvas(100, 80, new SKColor(194, 81, 160, 181), depth);
+            session.Feather = 3;
+            session.SelectRect(new SKRect(8, 9, 36, 48));
+            Assert.True(session.BeginMovePixels(duplicate));
+            return session;
+        }
+        var swept = Start();
+        var direct = Start();
+        swept.MovePixelsBy(-20, 3);
+        swept.MovePixelsBy(4, 19);
+        swept.MovePixelsBy(0, 0);
+        swept.MovePixelsBy(80, -8);
+        direct.MovePixelsBy(80, -8);
+        swept.EndMovePixels(keep: true);
+        direct.EndMovePixels(keep: true);
+        Assert.True(swept.ActiveLayer!.Pixels!.GetPixelSpan().SequenceEqual(direct.ActiveLayer!.Pixels!.GetPixelSpan()));
+        Assert.True(swept.Selection!.GetPixelSpan().SequenceEqual(direct.Selection!.GetPixelSpan()));
+        swept.Undo();
+        swept.Redo();
+        Assert.True(swept.ActiveLayer!.Pixels!.GetPixelSpan().SequenceEqual(direct.ActiveLayer!.Pixels!.GetPixelSpan()));
+    }
+
     [Fact]
     public void Merge_down_is_refused_onto_a_hidden_layer()
     {

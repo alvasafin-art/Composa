@@ -11,6 +11,7 @@ public sealed partial class EditorSession
     private SKBitmap? floatBase, floatPixels, floatSelection, floatPreview, floatOriginal;
     private SKPointI floatOffset;
     private SKPointI floatOrigin;
+    private SKRectI floatPreviewArea;
 
     public bool IsMovingPixels => floatLayer != null;
 
@@ -48,6 +49,7 @@ public sealed partial class EditorSession
         floatSelection = document.Selection;
         floatOriginal = original;
         floatOffset = SKPointI.Empty;
+        floatPreviewArea = SKRectI.Empty;
         floatLayer = layer;
         return true;
     }
@@ -55,22 +57,46 @@ public sealed partial class EditorSession
     public void MovePixelsBy(int dx, int dy)
     {
         if (floatLayer is not { } layer || floatBase == null || floatPixels == null) return;
-        floatOffset = new SKPointI(dx, dy);
+        var next = new SKPointI(dx, dy);
+        if (next == floatOffset) return;
+        var previous = floatOffset;
+        var damage = previous == SKPointI.Empty ? SKRectI.Empty : floatPreviewArea;
+        floatOffset = next;
         // Back at the start nothing has moved: with a feathered selection, re-compositing the lifted pixels over their
         // own hole would otherwise leave a faint translucent seam.
         SKBitmap? moved = null;
         if (dx != 0 || dy != 0)
         {
-            moved = Pixels.Clone(floatBase);
-            using var canvas = new SKCanvas(moved);
-            canvas.DrawBitmap(floatPixels, floatOrigin.X + dx, floatOrigin.Y + dy);
+            if (floatPreview == null) floatPreview = Pixels.Clone(floatBase);
+            else if (!floatPreviewArea.IsEmpty)
+                DocumentRenderer.CopyRows(floatBase, new SKPointI(floatPreviewArea.Left, floatPreviewArea.Top), floatPreview, floatPreviewArea);
+
+            moved = floatPreview;
+            var x = floatOrigin.X + dx;
+            var y = floatOrigin.Y + dy;
+            using (var canvas = new SKCanvas(moved)) canvas.DrawBitmap(floatPixels, x, y);
+            floatPreviewArea = SKRectI.Intersect(SKRectI.Create(x, y, floatPixels.Width, floatPixels.Height),
+                SKRectI.Create(moved.Width, moved.Height));
+            damage = Geometry.Union(damage, floatPreviewArea);
+            Pixels.Invalidate(moved, damage);
         }
         layer.Pixels = moved ?? floatOriginal!;
-        // Only bitmaps made by earlier moves are disposed; the layer's original pixels belong to the undo history.
-        if (floatPreview != null) { Pixels.Invalidate(floatPreview); floatPreview.Dispose(); }
-        floatPreview = moved;
         document.Selection = SelectionMask.Translate(floatSelection!, dx, dy) ?? floatSelection;
-        Invalidate(AffectedArea(layer));
+        if (layer.Effects != null || layer.HasWarp || layer.LayoutFrame != null || layer.FilterSource != null)
+            Invalidate(AffectedArea(layer));
+        else
+        {
+            // The removal at the source only changes when entering or returning from a displaced position.
+            if (previous == SKPointI.Empty || next == SKPointI.Empty)
+                damage = Geometry.Union(damage, SKRectI.Create(floatOrigin.X, floatOrigin.Y, floatPixels.Width, floatPixels.Height));
+            if (!damage.IsEmpty)
+            {
+                damage = Geometry.RoundOut(layer.Matrix.MapRect(damage));
+                var margin = DamageMargin;
+                damage.Inflate(margin, margin);
+                Invalidate(damage);
+            }
+        }
         SelectionChanged?.Invoke();
     }
 
@@ -80,9 +106,10 @@ public sealed partial class EditorSession
         if (floatOffset == SKPointI.Empty) keep = false;
         floatLayer = null;
         floatPixels?.Dispose();
+        floatBase?.Dispose();
         if (!keep && floatPreview != null) { Pixels.Invalidate(floatPreview); floatPreview.Dispose(); }
         floatBase = floatPixels = floatSelection = floatPreview = floatOriginal = null;
-        if (keep) { Commit(); LayersChanged?.Invoke(); }
+        if (keep) { Commit(); LayersChanged?.Invoke(); SelectionChanged?.Invoke(); }
         else Cancel();
     }
 }

@@ -1,4 +1,5 @@
 using Composa.Model;
+using Composa.Rendering;
 using SkiaSharp;
 
 namespace Composa.Editing;
@@ -21,6 +22,9 @@ public sealed class TransformEdit
     private sealed record LayoutPlacement(Layer Layer, AutoLayout? Layout, LayoutImageFrame? ImageFrame,
         LayerTransform? MaskTransform, SKMatrix? IndependentMask);
     private LayoutPlacement[]? layoutPlacements;
+    private (Layer[] Below, Layer[] Above)? moveLayers;
+    private bool checkedMoveLayers;
+    private (SKBitmap Pixels, SKRectI Viewport, RenderView View)? moveBackdrop;
     public bool IsMovingAutoLayout { get; private set; }
 
     /// <summary>The frame being manipulated: an unrotated rectangle plus a rotation about its center.</summary>
@@ -107,8 +111,50 @@ public sealed class TransformEdit
             ? []
             : session.LayoutMovePlacementTargets().Select(layer => new LayoutPlacement(layer, layer.AutoLayout, layer.LayoutFrame,
                 layer.MaskTransform, layer.Mask != null && !layer.MaskLinked ? layer.MaskMatrix : null)).ToArray();
-        Set(SKRect.Create(StartFrame.Left + dx, StartFrame.Top + dy, StartFrame.Width, StartFrame.Height),
+        var frame = SKRect.Create(StartFrame.Left + dx, StartFrame.Top + dy, StartFrame.Width, StartFrame.Height);
+        if (frame == Frame && overrideCorners == null && (IsMovingAutoLayout || layoutPlacements.Length == 0)) return;
+        Set(frame,
             layoutPlacements.Length > 0 ? StartRotation : Rotation, layoutPlacements.Length > 0 ? new SKPoint(dx, dy) : null);
+    }
+
+    internal bool TryRenderMoveView(SKBitmap target, SKRectI viewport, SKRectI dirty, RenderView view)
+    {
+        var document = session.Document;
+        if (document.WorkingDepth != ColorDepth.Eight || view.Scale == 1 && GpuAcceleration.EditorEnabled
+            || (long)viewport.Width * viewport.Height * 4 > 16 * 1024 * 1024
+            || maskTarget != null || masks.Count > 0 || IsMovingAutoLayout) return false;
+        if (!checkedMoveLayers)
+        {
+            checkedMoveLayers = true;
+            var roots = document.Layers;
+            var first = roots.FindIndex(layer => MovingLayerIds.Contains(layer.Id));
+            // Keep clipping chains together. Adjustments with a sampling halo also need the layers below each band.
+            if (first >= 3 && !roots[first].Clipped && Layers.All(roots.Contains)
+                && DocumentRenderer.SamplingMargin(document) == 0)
+                moveLayers = (roots.Take(first).ToArray(), roots.Skip(first).ToArray());
+        }
+        if (moveLayers is not { } split) return false;
+        if (moveBackdrop is not { } cached || cached.View != view || cached.Viewport != viewport)
+        {
+            ReleaseMoveBackdrop();
+            var pixels = Pixels.NewWorkingColor(viewport.Width, viewport.Height, document.WorkingDepth, document.Profile);
+            try
+            {
+                DocumentRenderer.RenderMoveBands(document, pixels, viewport, viewport, view, split.Below);
+                moveBackdrop = (pixels, viewport, view);
+            }
+            catch { pixels.Dispose(); throw; }
+            cached = moveBackdrop.Value;
+        }
+        // Start from the already blended lower layers in the working color space, then apply the same remaining layers.
+        DocumentRenderer.RenderMoveBands(document, target, viewport, dirty, view, split.Above, cached.Pixels);
+        return true;
+    }
+
+    internal void ReleaseMoveBackdrop()
+    {
+        moveBackdrop?.Pixels.Dispose();
+        moveBackdrop = null;
     }
 
     private void SetLayoutPlacement(SKPoint? delta)
@@ -463,6 +509,7 @@ public sealed partial class EditorSession
             if (changed && !IsEditingMask && !IsEditingChannel)
                 ReflowAfterTransform(Transform.Layers, pendingBefore);
         }
+        Transform.ReleaseMoveBackdrop();
         Transform = null;
         if (changed) Commit(); else Cancel();
         InvalidateAll();
@@ -473,6 +520,7 @@ public sealed partial class EditorSession
     {
         if (EndChannelTransform(keep: false)) return;
         if (Transform == null) return;
+        Transform.ReleaseMoveBackdrop();
         Transform = null;
         Cancel();
     }

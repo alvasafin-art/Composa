@@ -300,7 +300,12 @@ public class UiRegressionTests
             {
                 var cached = Frame();
                 session.InvalidateAll();
-                Assert.True(cached.AsSpan().SequenceEqual(Frame()));
+                var fresh = Frame();
+                if (!cached.AsSpan().SequenceEqual(fresh))
+                {
+                    var differences = cached.Zip(fresh, (a, b) => Math.Abs(a - b)).Where(value => value != 0).ToArray();
+                    Assert.Fail($"{differences.Length} bytes differ; largest difference {differences.Max()}.");
+                }
             }
 
             Frame();
@@ -324,6 +329,13 @@ public class UiRegressionTests
             canvas.CenterOn(new(0, 0));
             CompareWithFreshFrame();
             canvas.ZoomTo(.625);
+            CompareWithFreshFrame();
+            session.SetChannelView(RgbChannels.All);
+            canvas.CenterOn(new(500, 380));
+            Frame();
+            canvas.CenterOn(new(516, 388));
+            CompareWithFreshFrame();
+            canvas.CenterOn(new(525.25f, 391.75f));
             CompareWithFreshFrame();
         }
         finally { window.Close(); }

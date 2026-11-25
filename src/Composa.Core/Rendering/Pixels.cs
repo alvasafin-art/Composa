@@ -275,12 +275,12 @@ public static partial class Pixels
     }
 
     /// <summary>Builds the pyramids a reduced render will read, once, before the render fans out over threads.</summary>
-    internal static void PrepareLevels(Document document, float scale)
+    internal static void PrepareLevels(IReadOnlyList<Layer> layers, float scale)
     {
         if (scale >= 0.5f) return;
-        Visit(document.Layers);
+        Visit(layers);
 
-        void Visit(List<Layer> layers)
+        void Visit(IReadOnlyList<Layer> layers)
         {
             foreach (var layer in layers)
             {

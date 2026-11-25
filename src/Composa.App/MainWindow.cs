@@ -368,6 +368,11 @@ public sealed partial class MainWindow : Window
         {
             if (added != session) return;
             floatingBoundsMask = null;
+            if (added.IsMovingPixels)
+            {
+                RefreshAiFloatingPosition();
+                return;
+            }
             refreshOptions?.Invoke();
             RefreshAiUi();
         };
@@ -843,15 +848,12 @@ public sealed partial class MainWindow : Window
             foreach (var image in recent.GetVisualDescendants().OfType<Image>())
                 if (image.Source is IDisposable bitmap) { image.Source = null; bitmap.Dispose(); }
             recent.Children.Clear();
-            var paths = settings.RecentFiles.Where(p => File.Exists(p) || Directory.Exists(p)).Take(5).ToList();
-            if (paths.Count == 0) { recent.Children.Add(Ui.Label(Locale.T("Drop an image or project here"), Palette.Secondary)); return; }
+            if (availableRecentPaths.Length == 0) { recent.Children.Add(Ui.Label(Locale.T("Drop an image or project here"), Palette.Secondary)); return; }
             recent.Children.Add(Ui.Label(Locale.T("Recent files"), Palette.Secondary, 12, FontWeight.SemiBold));
-            foreach (var path in paths)
+            foreach (var path in availableRecentPaths.Take(5))
             {
-                var preview = RecentPreviews.Load(path);
-                Control visual = preview == null ? Icons.Create(Icons.Layers, 18, Palette.Secondary)
-                    : new Image { Source = preview, Stretch = Stretch.Uniform };
-                var tile = new Border { Width = 42, Height = 36, Child = visual, CornerRadius = new CornerRadius(4), Background = Palette.PanelRaised };
+                var tile = new Border { Width = 42, Height = 36, Child = Icons.Create(Icons.Layers, 18, Palette.Secondary),
+                    CornerRadius = new CornerRadius(4), Background = Palette.PanelRaised };
                 var name = Ui.Label(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)), weight: FontWeight.SemiBold);
                 var folder = Ui.Label(Path.GetDirectoryName(path) ?? "", Palette.Secondary, 11);
                 name.TextTrimming = folder.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -861,12 +863,27 @@ public sealed partial class MainWindow : Window
                     Padding = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Stretch };
                 ToolTip.SetTip(open, path); open.Click += (_, _) => _ = OpenPaths([path]);
                 recent.Children.Add(open);
+                if (Settings.Persist) _ = LoadPreview(tile, path);
             }
+        }
+        async Task LoadPreview(Border tile, string path)
+        {
+            var preview = await Task.Run(() => RecentPreviews.Load(path));
+            if (preview == null) return;
+            if (TopLevel.GetTopLevel(tile) == this && tile.IsEffectivelyVisible)
+                tile.Child = new Image { Source = preview, Stretch = Stretch.Uniform };
+            else preview.Dispose();
         }
         content.Children.Add(recent);
         var panel = new Panel { Children = { content } };
-        panel.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty && panel.IsVisible) RefreshRecent(); };
-        panel.AttachedToVisualTree += (_, _) => { if (panel.IsVisible) RefreshRecent(); };
+        void ShowRecent()
+        {
+            RefreshRecent();
+            _ = RefreshRecentPaths();
+        }
+        RecentPathsChanged += () => { if (panel.IsEffectivelyVisible) RefreshRecent(); };
+        panel.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty && panel.IsVisible) ShowRecent(); };
+        panel.AttachedToVisualTree += (_, _) => { if (panel.IsVisible) ShowRecent(); };
         return panel;
     }
 

@@ -60,6 +60,8 @@ public sealed class CanvasPerformanceBench
         try
         {
             if (scenario == "tabs") await TabCycles(folder);
+            else if (scenario == "interaction") ExerciseInteraction();
+            else if (scenario == "brush-preview") CheckBrushPreviews();
             else if (scenario is "brush8" or "brush16")
             {
                 var depth = scenario == "brush16" ? ColorDepth.Sixteen : ColorDepth.Eight;
@@ -83,7 +85,7 @@ public sealed class CanvasPerformanceBench
             }
             else await Exercise(folder, scenario);
             Checkpoint("closed");
-            if (scenario is not ("brush8" or "brush16"))
+            if (scenario is not ("brush8" or "brush16" or "interaction" or "brush-preview"))
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
                 Checkpoint("closed +30s");
@@ -115,6 +117,140 @@ public sealed class CanvasPerformanceBench
         {
             window.Close();
             GpuAcceleration.Configure(filters: false, editor: false);
+        }
+    }
+
+    private void ExerciseInteraction()
+    {
+        var recent = Directory.CreateTempSubdirectory("composa-menu-replay-");
+        try
+        {
+            for (var i = 0; i < 12; i++)
+            {
+                var path = PathCombine(recent.FullName, $"document-{i}.cmps");
+                File.WriteAllBytes(path, []);
+                window.Settings.RecentFiles.Add(path);
+            }
+            var menus = window.GetLogicalDescendants().OfType<Menu>().Single().Items.OfType<MenuItem>().ToArray();
+            foreach (var menu in menus) menu.RaiseEvent(new RoutedEventArgs(MenuItem.SubmenuOpenedEvent));
+            var menuTimes = new List<InputFrame>();
+            StartPhase();
+            for (var i = 0; i < 6; i++)
+            foreach (var menu in menus)
+                Measure("submenu opened", () => menu.RaiseEvent(new RoutedEventArgs(MenuItem.SubmenuOpenedEvent)), menuTimes, measureInput: true);
+            EndPhase("menu state with 12 recent paths", menuTimes);
+        }
+        finally
+        {
+            window.Settings.RecentFiles.Clear();
+            foreach (var file in recent.EnumerateFiles()) file.Delete();
+            recent.Delete();
+        }
+
+        var session = EditorSession.NewCanvas(3072, 2048, SKColors.White);
+        for (int i = 0; i < 16; i++)
+        {
+            var pixels = Pixels.NewColor(2000, 1400);
+            using (var canvas = new SKCanvas(pixels))
+            using (var paint = new SKPaint { Color = new SKColor((byte)(i * 13), 120, 165, 90) })
+            {
+                canvas.DrawRect(0, 0, pixels.Width, pixels.Height, paint);
+                paint.Color = new SKColor(66, (byte)(i * 11), 85, 154);
+                canvas.DrawOval(548, 406, 500, 380, paint);
+            }
+            var layer = Layer.Raster($"Overlay {i}", pixels, 320 + i * 9, 200 + i * 6);
+            if (i % 4 == 0) layer.Blend = BlendMode.Multiply;
+            session.Document.Layers.Add(layer);
+        }
+        var moving = session.Document.Layers[^1];
+        session.Document.SetActive(moving.Id);
+        session.View = session.View with { Snap = false };
+        window.AddSession(session);
+        window.Canvas.AutoSelect = false;
+        window.Canvas.ZoomTo(.625);
+        window.Canvas.CenterOn(new(1510, 1000));
+        Pump();
+
+        var times = new List<InputFrame>();
+        StartPhase();
+        for (var i = 1; i <= 42; i++)
+        {
+            var offset = i <= 21 ? i : 42 - i;
+            Measure("pan", () => window.Canvas.CenterOn(new(1510 + 8 * offset, 1000)), times);
+        }
+        EndPhase("pan 62.5%", times);
+
+        window.SelectTool(Tool.Move);
+        Pump();
+        var pointer = window.Canvas.TranslatePoint(window.Canvas.ToScreen(new(1350, 1050)), window)!.Value;
+        window.MouseDown(pointer, MouseButton.Left);
+        Assert.NotNull(session.Transform);
+        times = [];
+        StartPhase();
+        for (var i = 1; i <= 32; i++)
+        {
+            var destination = pointer + new Vector(4 * i, i);
+            Measure("move", () => window.MouseMove(destination, RawInputModifiers.LeftMouseButton), times);
+        }
+        EndPhase("move layer 62.5%", times);
+        window.MouseUp(pointer + new Vector(128, 32), MouseButton.Left);
+        Pump();
+        Assert.Null(session.Transform);
+        checks["layer position"] = new[] { moving.Transform.X, moving.Transform.Y };
+
+        window.Canvas.ZoomTo(1);
+        session.SelectRect(new SKRect(1250, 840, 1380, 990));
+        Pump();
+        Assert.True(session.BeginMovePixels(duplicate: false));
+        times = [];
+        StartPhase();
+        for (var i = 1; i <= 24; i++)
+        {
+            var offset = i * 7;
+            Measure("move pixels", () => session.MovePixelsBy(offset, 12), times, measureInput: true);
+        }
+        EndPhase("move selected pixels 100%", times);
+        session.EndMovePixels(keep: true);
+        checks["moved pixels"] = Hash(moving.Pixels!);
+        checks["moved selection"] = Hash(session.Selection!);
+        session.MarkSaved("interaction-benchmark.cmps", session.History.CurrentId);
+        Pump();
+    }
+
+    private void CheckBrushPreviews()
+    {
+        foreach (var depth in new[] { ColorDepth.Eight, ColorDepth.Sixteen })
+        foreach (var mode in new[] { BrushMode.Paint, BrushMode.Erase })
+        {
+            var session = EditorSession.NewCanvas(1500, 1000, SKColors.Beige, depth);
+            var pixels = Pixels.NewColor(1000, 780, depth);
+            pixels.Erase(new SKColor(88, 154, 122, 226));
+            var layer = Layer.Raster("Paint on this layer", pixels, 170, 119);
+            layer.Effects = new LayerEffects
+            {
+                Stroke = new StrokeEffect { Size = 5 },
+                Shadow = new ShadowEffect { Blur = 28, Distance = 18 }
+            };
+            session.Document.Layers.Add(layer);
+            session.Document.SetActive(layer.Id);
+            session.Foreground = new SKColor(197, 41, 68);
+            session.Brush = new BrushSettings { Size = 500, Hardness = .42, Flow = .62, Opacity = .85 };
+            session.ViewZoom = .5;
+            session.SelectRect(SKRect.Create(250, 215, 920, 650));
+            Assert.True(session.BeginStroke(new SKPoint(510, 335), out _, mode: mode));
+            var phase = $"{depth} {mode}";
+            using var viewport = Pixels.NewColor(750, 500);
+            var view = new RenderView(.5f, SKPoint.Empty);
+            session.RenderView(viewport, viewport.Info.Rect, view);
+            checks[$"{phase} first dab"] = Hash(viewport);
+            session.ContinueStrokeSamples([(new SKPoint(591, 372), .79f), (new SKPoint(711, 430), .63f), (new SKPoint(802, 483), 1)]);
+            session.RenderView(viewport, viewport.Info.Rect, view);
+            checks[$"{phase} live"] = Hash(viewport);
+            checks[$"{phase} working layer"] = Hash(layer.Pixels!);
+            session.EndStroke();
+            session.RenderView(viewport, viewport.Info.Rect, view);
+            checks[$"{phase} last frame"] = Hash(viewport);
+            checks[$"{phase} committed layer"] = Hash(layer.Pixels!);
         }
     }
 
@@ -398,7 +534,7 @@ public sealed class CanvasPerformanceBench
         Measure("release", () => window.MouseUp(At(points[^1]), MouseButton.Left), times);
     }
 
-    private static void Measure(string input, Action action, List<InputFrame> times)
+    private static void Measure(string input, Action action, List<InputFrame> times, bool measureInput = false)
     {
         var traceStages = input == "press" && Environment.GetEnvironmentVariable("COMPOSA_PERF_STAGE") == "1";
         var before = traceStages ? CanvasPerformanceTrace.Snapshot().Stages : null;
@@ -413,7 +549,7 @@ public sealed class CanvasPerformanceBench
             return new CanvasPerformanceTrace.Stage(stage.Name, stage.Calls - (old?.Calls ?? 0), stage.Milliseconds - (old?.Milliseconds ?? 0));
         }).Where(stage => stage.Calls != 0).ToArray();
         times.Add(new(input, frame >= begin ? Stopwatch.GetElapsedTime(begin, frame).TotalMilliseconds : null,
-            traceStages ? Stopwatch.GetElapsedTime(begin, afterInput).TotalMilliseconds : null, stages));
+            traceStages || measureInput ? Stopwatch.GetElapsedTime(begin, afterInput).TotalMilliseconds : null, stages));
     }
 
     private static void Pump()

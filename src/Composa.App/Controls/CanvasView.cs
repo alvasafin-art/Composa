@@ -44,7 +44,9 @@ public sealed partial class CanvasView : Decorator
     // What is on screen, rendered straight from the layers at screen resolution. Its cost follows the window size,
     // not the document size, which keeps 24-megapixel documents as responsive as small ones.
     private SKBitmap? viewCache;
+    private ViewportImage? viewportImage;
     private (float Scale, SKPoint Origin, int Width, int Height) viewKey;
+    private Point? reducedCacheOffset; // Cache origin relative to the document origin, in device pixels.
     private SKRectI viewDirty;
     private EditorSession.VisibilityChange? pendingVisibility;
     private Guid? lastVisibilityLayer;
@@ -86,6 +88,7 @@ public sealed partial class CanvasView : Decorator
             antsTimer.Stop();
             antsRedrawPending = false;
             ReleaseNativeBrushCursor();
+            ReleaseViewportImage();
         };
         // The Space key-up that ends panning goes wherever focus went, so panning ends with the focus.
         LostFocus += (_, _) =>
@@ -146,6 +149,7 @@ public sealed partial class CanvasView : Decorator
                 session.LayersChanged -= OnLayersChanged;
             }
             transformSelection = null;
+            ReleaseViewportImage();
             session = value;
             observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
             if (session != null)
@@ -163,6 +167,7 @@ public sealed partial class CanvasView : Decorator
             outlineStale = true;
             fitPending = true;
             viewStale = true;
+            reducedCacheOffset = null;
             ClearVisibilityFrames();
             UpdateCursor();
             InvalidateCanvas();
@@ -174,6 +179,7 @@ public sealed partial class CanvasView : Decorator
     {
         if (session != null && observedCanvasSize != (session.Document.Width, session.Document.Height))
         {
+            reducedCacheOffset = null;
             observedCanvasSize = (session.Document.Width, session.Document.Height);
             if (session.Tool == Tool.Crop && cropRect != null)
             {
@@ -191,9 +197,10 @@ public sealed partial class CanvasView : Decorator
         {
             ClearVisibilityFrames();
             var (scale, shown, _, _) = viewKey;
+            var fringe = session?.IsMovingPixels == true ? 4 : 1;
             var mapped = new SKRectI(
-                (int)Math.Floor((changed.Left - shown.X) * scale) - 1, (int)Math.Floor((changed.Top - shown.Y) * scale) - 1,
-                (int)Math.Ceiling((changed.Right - shown.X) * scale) + 1, (int)Math.Ceiling((changed.Bottom - shown.Y) * scale) + 1);
+                (int)Math.Floor((changed.Left - shown.X) * scale) - fringe, (int)Math.Floor((changed.Top - shown.Y) * scale) - fringe,
+                (int)Math.Ceiling((changed.Right - shown.X) * scale) + fringe, (int)Math.Ceiling((changed.Bottom - shown.Y) * scale) + fringe);
             viewDirty = Geometry.Union(viewDirty, mapped);
         }
         else
@@ -332,8 +339,10 @@ public sealed partial class CanvasView : Decorator
 
     private void PanBy(Vector delta)
     {
+        var previous = DisplayOrigin;
         origin += delta;
         ClampOrigin();
+        if (DisplayOrigin == previous) return;
         InvalidateCanvas();
         ViewChanged?.Invoke();
     }
@@ -381,9 +390,10 @@ public sealed partial class CanvasView : Decorator
 
     // Overlay damage can draw the retained document operation many times. Keep
     // the same image (and texture identity) until the canvas publishes new pixels.
-    private sealed class ViewportImage(SKBitmap pixels) : IDisposable
+    private sealed class ViewportImage(SKBitmap pixels)
     {
         private SKImage? image;
+        private int references = 1;
 
         public SKImage Image
         {
@@ -396,7 +406,18 @@ public sealed partial class CanvasView : Decorator
             }
         }
 
-        public void Dispose() => image?.Dispose();
+        public void Retain() => Interlocked.Increment(ref references);
+
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref references) == 0) image?.Dispose();
+        }
+    }
+
+    private void ReleaseViewportImage()
+    {
+        viewportImage?.Release();
+        viewportImage = null;
     }
 
     private static readonly Lazy<SKBitmap> CheckerTile = new(CreateCheckerTile);
@@ -427,7 +448,8 @@ public sealed partial class CanvasView : Decorator
         var view = SKMatrix.CreateScale(units, units).PostConcat(SKMatrix.CreateTranslation((float)displayOrigin.X, (float)displayOrigin.Y));
         var documentRect = new SKRect(0, 0, session.Document.Width, session.Document.Height);
         var (cache, cacheSource, cacheTarget) = UpdateViewCache(view, size);
-        var presentation = cache == null ? null : new ViewportImage(cache);
+        var presentation = cache == null ? null : viewportImage ??= new ViewportImage(cache);
+        presentation?.Retain();
         var overlay = CaptureOverlay(view);
         var rulers = CaptureRulers((float)Scaling);
         var grid = ShowPixelGrid && zoom >= 8;
@@ -472,7 +494,7 @@ public sealed partial class CanvasView : Decorator
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.FrameCompleted();
 #endif
-        }, presentation == null ? null : presentation.Dispose));
+        }, presentation == null ? null : presentation.Release));
     }
 
     /// <summary>What the ants stroke: the selection's outline, or when zoomed out on a complex one, the outline traced at screen resolution.</summary>
@@ -501,6 +523,7 @@ public sealed partial class CanvasView : Decorator
         SKRect target, source;
         if (zoom >= 1)
         {
+            reducedCacheOffset = null;
             scale = 1;
             // During a pan, keep a small border of native document pixels around the view.
             // Dirty events are mapped into this entire rectangle, including its offscreen border.
@@ -527,12 +550,39 @@ public sealed partial class CanvasView : Decorator
             scale = (float)zoom;
             var scaling = Scaling;
             var displayOrigin = DisplayOrigin;
-            double left = Math.Floor(displayOrigin.X * scaling + shown.Left * zoom), top = Math.Floor(displayOrigin.Y * scaling + shown.Top * zoom);
-            double right = Math.Ceiling(displayOrigin.X * scaling + shown.Right * zoom), bottom = Math.Ceiling(displayOrigin.Y * scaling + shown.Bottom * zoom);
-            viewOrigin = new SKPoint((float)((left - displayOrigin.X * scaling) / zoom), (float)((top - displayOrigin.Y * scaling) / zoom));
-            width = Math.Max(1, (int)(right - left));
-            height = Math.Max(1, (int)(bottom - top));
-            source = SKRect.Create(width, height);
+            double deviceX = Math.Round(displayOrigin.X * scaling), deviceY = Math.Round(displayOrigin.Y * scaling);
+            double left = Math.Floor(deviceX + shown.Left * zoom), top = Math.Floor(deviceY + shown.Top * zoom);
+            double right = Math.Ceiling(deviceX + shown.Right * zoom), bottom = Math.Ceiling(deviceY + shown.Bottom * zoom);
+            var oldOffset = reducedCacheOffset.GetValueOrDefault();
+            var alignedLeft = deviceX + oldOffset.X;
+            var alignedTop = deviceY + oldOffset.Y;
+            // An integral device-pixel pan preserves the sampling phase. Keep a border so
+            // these moves can display the same composite without reading the layer stack.
+            // Keep the same bounds for a full refresh while they still cover the view.
+            if (reducedCacheOffset != null && viewKey.Scale == scale
+                && alignedLeft <= left && alignedTop <= top
+                && alignedLeft + viewKey.Width >= right && alignedTop + viewKey.Height >= bottom)
+            {
+                (_, viewOrigin, width, height) = viewKey;
+                source = new SKRect((float)(left - alignedLeft), (float)(top - alignedTop),
+                    (float)(right - alignedLeft), (float)(bottom - alignedTop));
+            }
+            else
+            {
+                var padX = Math.Min(128, (int)((right - left) / 6));
+                var padY = Math.Min(128, (int)((bottom - top) / 6));
+                var backingLeft = Math.Max(Math.Floor(deviceX), left - padX);
+                var backingTop = Math.Max(Math.Floor(deviceY), top - padY);
+                var backingRight = Math.Min(Math.Ceiling(deviceX + session.Document.Width * zoom), right + padX);
+                var backingBottom = Math.Min(Math.Ceiling(deviceY + session.Document.Height * zoom), bottom + padY);
+                var backingOffset = new Point(backingLeft - deviceX, backingTop - deviceY);
+                reducedCacheOffset = backingOffset;
+                viewOrigin = new SKPoint((float)(backingOffset.X / zoom), (float)(backingOffset.Y / zoom));
+                width = Math.Max(1, (int)(backingRight - backingLeft));
+                height = Math.Max(1, (int)(backingBottom - backingTop));
+                source = new SKRect((float)(left - backingLeft), (float)(top - backingTop),
+                    (float)(right - backingLeft), (float)(bottom - backingTop));
+            }
             target = new SKRect((float)(left / scaling), (float)(top / scaling), (float)(right / scaling), (float)(bottom / scaling));
         }
         if (viewCache == null || viewCache.Width < width || viewCache.Height < height)
@@ -552,10 +602,14 @@ public sealed partial class CanvasView : Decorator
         pendingVisibility = null;
         if (!dirty.IsEmpty || changedVisibility != null)
         {
+            ReleaseViewportImage();
 #if CANVAS_PERFORMANCE
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-            var mapping = new RenderView(scale, viewOrigin);
+            var mapping = new RenderView(scale, viewOrigin)
+            {
+                OutputOffset = reducedCacheOffset is { } offset ? new SKPoint((float)-offset.X, (float)-offset.Y) : null
+            };
             if (changedVisibility is { } change)
             {
                 if (!session.CanRetainVisibilityBands(mapping))
@@ -589,7 +643,8 @@ public sealed partial class CanvasView : Decorator
             if (!dirty.IsEmpty)
             {
                 viewHasFullBands = dirty == whole && session.CanRetainVisibilityBands(mapping);
-                session.RenderView(viewCache, dirty, mapping);
+                if (drag != Drag.Transform || handle != TransformHandle.Move || !session.TryRenderLayerMove(viewCache, whole, dirty, mapping))
+                    session.RenderView(viewCache, dirty, mapping);
             }
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.StageCompleted("canvas composite", started);

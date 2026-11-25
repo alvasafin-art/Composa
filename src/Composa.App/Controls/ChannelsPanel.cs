@@ -17,7 +17,7 @@ public sealed class ChannelsPanel : UserControl
 {
     private EditorSession? session;
     private readonly StackPanel rows = new();
-    private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
+    private readonly DispatcherTimer refreshTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
     private readonly TextBlock target = Ui.Label(Locale.T("No document"), Palette.Secondary);
     private readonly Button add, saveSelection, loadSelection, delete;
     private bool rebuilding;
@@ -40,7 +40,8 @@ public sealed class ChannelsPanel : UserControl
         Content = panel;
         refreshTimer.Tick += (_, _) =>
         {
-            if (IsEffectivelyVisible && session?.IsStroking == true) return;
+            if (IsEffectivelyVisible && session is { } current &&
+                (current.IsStroking || current.IsMovingPixels || current.Transform != null)) return;
             refreshTimer.Stop();
             if (IsEffectivelyVisible) Rebuild();
         };

@@ -8,6 +8,9 @@ namespace Composa.Rendering;
 public readonly record struct RenderView(float Scale, SKPoint Origin)
 {
     public static readonly RenderView Identity = new(1, SKPoint.Empty);
+    // A reduced viewport already knows the document origin on its snapped output grid.
+    // Keep it as an output offset so rebasing a cached viewport never rounds it through document coordinates.
+    public SKPoint? OutputOffset { get; init; }
 }
 
 /// <summary>A buffer covering <see cref="Area"/> of the render target, with a canvas that draws in document space.</summary>
@@ -38,8 +41,9 @@ internal sealed class Tile : IDisposable
 #endif
         Canvas = new SKCanvas(Bitmap);
         Canvas.Translate(-area.Left, -area.Top);
+        if (view.OutputOffset is { } offset) Canvas.Translate(offset.X, offset.Y);
         Canvas.Scale(view.Scale);
-        Canvas.Translate(-view.Origin.X, -view.Origin.Y);
+        if (view.OutputOffset == null) Canvas.Translate(-view.Origin.X, -view.Origin.Y);
     }
 
     /// <summary>A sibling buffer over the same area.</summary>
@@ -56,7 +60,9 @@ internal sealed class Tile : IDisposable
     }
 
     /// <summary>The document point at this tile's top-left pixel, and the document distance between pixels.</summary>
-    public (double X, double Y, double Step) DocumentGrid => (View.Origin.X + Area.Left / (double)View.Scale, View.Origin.Y + Area.Top / (double)View.Scale, 1.0 / View.Scale);
+    public (double X, double Y, double Step) DocumentGrid => View.OutputOffset is { } offset
+        ? ((Area.Left - offset.X) / (double)View.Scale, (Area.Top - offset.Y) / (double)View.Scale, 1.0 / View.Scale)
+        : (View.Origin.X + Area.Left / (double)View.Scale, View.Origin.Y + Area.Top / (double)View.Scale, 1.0 / View.Scale);
 
     public void Dispose()
     {
@@ -119,14 +125,19 @@ public static partial class DocumentRenderer
         return true;
     }
 
+    internal static void RenderMoveBands(Document document, SKBitmap target, SKRectI viewport, SKRectI changed,
+        RenderView view, IReadOnlyList<Layer> layers, SKBitmap? backdrop = null) =>
+        RenderCpu(document, target, viewport, changed, view, null, 0, layers, backdrop);
+
     private static void RenderCpu(Document document, SKBitmap target, SKRectI area, SKRectI changed, RenderView view,
-        RenderOptions? options, double samplingMargin)
+        RenderOptions? options, double samplingMargin, IReadOnlyList<Layer>? layers = null, SKBitmap? backdrop = null)
     {
+        layers ??= document.Layers;
         // Skia's raster backend draws on one thread, so large areas are split into bands rendered side by side.
         // Every layer operation is per-pixel, which makes the bands independent of each other, except the blur
         // adjustments: their bands are rendered with a halo of the picture around them that is then left out.
         var bands = (long)area.Width * area.Height < 300_000 ? 1 : Math.Clamp(area.Height / 48, 1, Environment.ProcessorCount);
-        if (bands > 1) Pixels.PrepareLevels(document, view.Scale);
+        if (bands > 1) Pixels.PrepareLevels(layers, view.Scale);
         var bandHeight = (area.Height + bands - 1) / bands;
         var margin = (int)Math.Ceiling(samplingMargin * view.Scale);
         var canvas = Geometry.RoundOut(new SKRect(-view.Origin.X * view.Scale, -view.Origin.Y * view.Scale,
@@ -150,7 +161,9 @@ public static partial class DocumentRenderer
                 padded = Geometry.Union(part, Geometry.Intersect(padded, canvas));
             }
             using var tile = new Tile(padded, view, depth: depth, profile: document.Profile);
-            RenderNodes(document.Layers, tile, options);
+            if (backdrop != null)
+                CopyRows(backdrop, new SKPointI(padded.Left, padded.Top), tile.Bitmap, tile.Bitmap.Info.Rect);
+            RenderNodes(layers, tile, options);
             tile.Canvas.Flush();
             CopyRows(tile.Bitmap, new SKPointI(part.Left - padded.Left, part.Top - padded.Top), target, part);
         }

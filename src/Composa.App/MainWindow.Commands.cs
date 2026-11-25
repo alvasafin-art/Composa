@@ -30,6 +30,9 @@ public sealed partial class MainWindow
     private Guid? optionsLayer;
     private int jpegQuality = 90;
     private MenuItem? recentMenu, tabbedPanelItem;
+    private string[] availableRecentPaths = [];
+    private bool checkingRecentPaths;
+    private event Action? RecentPathsChanged;
     private const string FindCommandId = "Find Command";
     private MenuItem? canvasOnlyItem;
 
@@ -44,7 +47,10 @@ public sealed partial class MainWindow
         {
             var top = new MenuItem { Header = Locale.T(header) };
             foreach (var item in items) top.Items.Add(item);
-            top.SubmenuOpened += (_, _) => RefreshMenuState();
+            top.SubmenuOpened += (_, e) =>
+            {
+                if (e.Source is MenuItem opened) RefreshMenuState(opened);
+            };
             menu.Items.Add(top);
             return top;
         }
@@ -68,7 +74,7 @@ public sealed partial class MainWindow
         }
         Separator Line() => new();
 
-        Top("_File",
+        var files = Top("_File",
             Item("New Canvas…", () => _ = NewCanvas(), Key.N, ctrl, needsDocument: false),
             Item("Open…", () => _ = Open(), Key.O, ctrl, needsDocument: false),
             recentMenu = Sub("Open Recent"),
@@ -87,6 +93,22 @@ public sealed partial class MainWindow
             Line(),
             Item("Close Project", () => _ = CloseSession(session!), Key.W, ctrl),
             Item("Quit", Close, Key.Q, ctrl, needsDocument: false));
+        files.SubmenuOpened += (_, e) =>
+        {
+            if (ReferenceEquals(e.Source, files)) _ = RefreshRecentPaths();
+        };
+        recentMenu.IsEnabled = false;
+        RecentPathsChanged += () =>
+        {
+            recentMenu.Items.Clear();
+            foreach (var path in availableRecentPaths)
+            {
+                var item = new MenuItem { Header = path.Replace("_", "__") };
+                item.Click += (_, _) => _ = OpenPaths([path]);
+                recentMenu.Items.Add(item);
+            }
+            recentMenu.IsEnabled = recentMenu.Items.Count > 0;
+        };
 
         undoItem = Item("Undo", () => session!.Undo(), Key.Z, ctrl, () => session!.CanUndo);
         redoItem = Item("Redo", () => session!.Redo(), Key.Z, ctrl | shift, () => session!.CanRedo);
@@ -410,29 +432,45 @@ public sealed partial class MainWindow
         settings.Save();
     }
 
-    private void RefreshMenuState()
+    private async Task RefreshRecentPaths()
     {
-        if (recentMenu != null)
+        if (checkingRecentPaths) return;
+        checkingRecentPaths = true;
+        try
         {
-            recentMenu.Items.Clear();
-            foreach (var path in settings.RecentFiles.Where(p => File.Exists(p) || Directory.Exists(p)))
+            while (true)
             {
-                var item = new MenuItem { Header = path.Replace("_", "__") };
-                item.Click += (_, _) => _ = OpenPaths([path]);
-                recentMenu.Items.Add(item);
+                var requested = settings.RecentFiles.ToArray();
+                // A recent project can be on a disconnected network share. Keep filesystem waits off the UI thread.
+                var available = await Task.Run(() => requested.Where(p => File.Exists(p) || Directory.Exists(p)).ToArray());
+                if (!settings.RecentFiles.SequenceEqual(requested)) continue;
+                if (!availableRecentPaths.SequenceEqual(available))
+                {
+                    availableRecentPaths = available;
+                    RecentPathsChanged?.Invoke();
+                }
+                return;
             }
-            recentMenu.IsEnabled = recentMenu.Items.Count > 0;
         }
-        foreach (var (item, command) in menuItems) item.IsEnabled = command.Enabled?.Invoke() ?? true;
-        foreach (var (item, isChecked) in viewToggles) item.IsChecked = session != null && isChecked(session.View);
-        if (tabbedPanelItem != null) tabbedPanelItem.IsChecked = dock.Tabbed;
-        foreach (var (item, section) in panelToggles) item.IsChecked = dock.Section(section).State.Visible;
-        if (canvasOnlyItem != null) canvasOnlyItem.IsChecked = settings.CanvasOnly;
+        finally { checkingRecentPaths = false; }
+    }
+
+    private void RefreshMenuState(MenuItem? opened = null)
+    {
+        bool Includes(MenuItem? item) => item != null && (opened == null || opened.Items.Contains(item));
+        foreach (var (item, command) in menuItems)
+            if (Includes(item)) item.IsEnabled = command.Enabled?.Invoke() ?? true;
+        foreach (var (item, isChecked) in viewToggles)
+            if (Includes(item)) item.IsChecked = session != null && isChecked(session.View);
+        if (Includes(tabbedPanelItem)) tabbedPanelItem!.IsChecked = dock.Tabbed;
+        foreach (var (item, section) in panelToggles)
+            if (Includes(item)) item.IsChecked = dock.Section(section).State.Visible;
+        if (Includes(canvasOnlyItem)) canvasOnlyItem!.IsChecked = settings.CanvasOnly;
         if (session == null) return;
-        undoItem!.Header = session.History.CanUndo ? Locale.T("Undo") + " " + Locale.T(session.History.UndoName ?? "") : Locale.T("Undo");
-        redoItem!.Header = session.History.CanRedo ? Locale.T("Redo") + " " + Locale.T(session.History.RedoName ?? "") : Locale.T("Redo");
-        mergeItem!.Header = Locale.T(session.MergeTitle);
-        clipItem!.Header = session.ActiveLayer?.Clipped == true ? Locale.T("Release Clipping Mask") : Locale.T("Create Clipping Mask");
+        if (Includes(undoItem)) undoItem!.Header = session.History.CanUndo ? Locale.T("Undo") + " " + Locale.T(session.History.UndoName ?? "") : Locale.T("Undo");
+        if (Includes(redoItem)) redoItem!.Header = session.History.CanRedo ? Locale.T("Redo") + " " + Locale.T(session.History.RedoName ?? "") : Locale.T("Redo");
+        if (Includes(mergeItem)) mergeItem!.Header = Locale.T(session.MergeTitle);
+        if (Includes(clipItem)) clipItem!.Header = session.ActiveLayer?.Clipped == true ? Locale.T("Release Clipping Mask") : Locale.T("Create Clipping Mask");
     }
 
     private void Execute(Shortcut command)
@@ -661,6 +699,7 @@ public sealed partial class MainWindow
         if (Settings.Persist) _ = RecentPreviews.Remember(path, opened.Document.Clone());
         if (opened.FilePath != null) RecordFileVersion(opened, path);
         settings.AddRecent(Path.GetFullPath(path));
+        _ = RefreshRecentPaths();
         return opened;
     }
 
@@ -905,6 +944,7 @@ public sealed partial class MainWindow
         if (Settings.Persist) _ = RecentPreviews.Remember(path, snapshot);
         if (!target.IsModified) recovery?.Forget(target);
         settings.AddRecent(Path.GetFullPath(path));
+        _ = RefreshRecentPaths();
         return null;
     }
 
