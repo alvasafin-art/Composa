@@ -968,8 +968,16 @@ public sealed partial class EditorSession
         {
             if (ActiveLayer is { } active)
             {
-                var siblings = active.IsGroup && !active.Collapsed ? active.Children : document.SiblingsOf(active.Id)!;
-                var index = active.IsGroup && !active.Collapsed ? siblings.Count : siblings.IndexOf(active) + 1;
+                Layer? copiedRoot = null;
+                var copiedIds = copied.Layers.Select(root => root.Id).ToHashSet();
+                if (copied.Source == this)
+                    for (Layer? ancestor = active; ancestor != null; ancestor = document.ParentOf(ancestor.Id))
+                        if (copiedIds.Contains(ancestor.Id)) copiedRoot = ancestor;
+                // If the active layer is part of the copy, paste beside the copied roots at that stack level.
+                var intoGroup = copiedRoot == null && active.IsGroup && !active.Collapsed;
+                var siblings = intoGroup ? active.Children : document.SiblingsOf((copiedRoot ?? active).Id)!;
+                var index = intoGroup ? siblings.Count : copiedRoot == null ? siblings.IndexOf(active) + 1
+                    : siblings.FindLastIndex(layer => copiedIds.Contains(layer.Id)) + 1;
                 siblings.InsertRange(index, pasted);
             }
             else document.Layers.AddRange(pasted);
