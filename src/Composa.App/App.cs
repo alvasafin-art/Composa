@@ -1,5 +1,7 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Primitives;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 
@@ -7,6 +9,15 @@ namespace Composa.App;
 
 public sealed class App : Application
 {
+    static App()
+    {
+        Popup.ChildProperty.Changed.AddClassHandler<Popup>((popup, change) =>
+        {
+            // The popup host otherwise intercepts clicks even if its tooltip content ignores them.
+            if (change.GetNewValue<Control?>() is ToolTip) popup.IsHitTestVisible = false;
+        });
+    }
+
     private FluentTheme fluent = null!;
     internal EditorTheme CurrentTheme { get; private set; }
 
