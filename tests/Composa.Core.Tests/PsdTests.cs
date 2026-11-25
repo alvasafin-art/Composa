@@ -4,6 +4,7 @@ using Composa.IO.Psd;
 using Composa.Model;
 using Composa.Selections;
 using Composa.Rendering;
+using Composa.Text;
 using SkiaSharp;
 using static Composa.Core.Tests.TestImages;
 
@@ -205,17 +206,22 @@ public class PsdTests
     [Fact]
     public void Simple_photoshop_text_stays_editable_with_its_style_and_place()
     {
-        var installed = EditorSession.FontFamilies.FirstOrDefault(f => f.Contains("Sans", StringComparison.OrdinalIgnoreCase)) ?? EditorSession.FontFamilies[0];
+        var face = EditorSession.FontFamilies
+            .OrderByDescending(family => family.Contains("Sans", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(FontCatalog.ForFamily)
+            .Select(choice => choice.Face)
+            .First(candidate => candidate.Bold && candidate.Italic && FontCatalog.Style(candidate).Width == 5);
+        var font = PsdFonts.PostScriptName(TextLayout.TypefaceFor(face));
         var import = LoadText(new PsdWriter.TypeTool
         {
-            Text = "Hello\rworld", Font = installed.Replace(" ", "") + "-BoldItalic", FontSize = 24, Color = new SKColor(20, 40, 200),
+            Text = "Hello\rworld", Font = font, FontSize = 24, Color = new SKColor(20, 40, 200),
             Justification = 1, Tracking = 100, Leading = 30, Tx = 40, Ty = 50
         });
         var layer = Assert.Single(import.Layers);
         var text = layer.Text;
         Assert.NotNull(text);
         Assert.Equal("Hello\nworld", text!.Text);                           // Photoshop's return becomes a line break.
-        Assert.Equal(installed, text.FontFamily);
+        Assert.Equal(face.FontFamily, text.FontFamily);
         Assert.True(text.Bold && text.Italic);
         Assert.Equal(24, text.Size);
         Assert.Equal(0xFF1428C8u, text.Color);
