@@ -134,7 +134,7 @@ public static partial class PsdExport
         var text = new D("TxLr").Text("Txt ", PhotoshopText(style)).Enum("textGridding", "textGridding", "None")
             .Enum("Ornt", "Ornt", "Hrzn").Enum("AntA", "Annt", "AnSm").Long("TextIndex", textIndex)
             .Obj("bounds", RectDescriptor(frame, "Rctn", "#Pnt")).Obj("boundingBox", RectDescriptor(glyphs, "boundingBox", "#Pnt"))
-            .Raw("EngineData", TextEngine(style, pathFrame?.Bounds ?? frame));
+            .Raw("EngineData", TextEngine(style, pathFrame?.Bounds ?? frame, -layout.PathBaselineOffset));
         o.Additional("TySh", () =>
         {
             o.U16(1);
@@ -156,7 +156,7 @@ public static partial class PsdExport
         return text.Replace('\n', '\r').Replace('\u2028', '\u0003');
     }
 
-    private static byte[] TextEngine(TextStyle s, SKRect frame)
+    private static byte[] TextEngine(TextStyle s, SKRect frame, double baselineShift)
     {
         var segments = Segments(s);
         var faces = new List<TextFace> { s.Face };
@@ -170,7 +170,7 @@ public static partial class PsdExport
             ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? st.Size), ("FauxBold", face.FontStyle == null && face.Bold && !intrinsic.Bold),
             ("FauxItalic", face.FontStyle == null && face.Italic && !intrinsic.Italic),
             ("AutoLeading", st.Leading == 0), ("Leading", st.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
-            ("Tracking", (int)Math.Round(st.Type.PercentTracking ? st.Tracking * 10 : st.Tracking * 1000 / (fontSize ?? st.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
+            ("Tracking", (int)Math.Round(st.Type.PercentTracking ? st.Tracking * 10 : st.Tracking * 1000 / (fontSize ?? st.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", baselineShift),
             ("FontCaps", st.Type.Case switch { TextLetterCase.Upper => 2, TextLetterCase.SmallCaps => 1, _ => 0 }),
             ("FontBaseline", st.Type.FigurePosition switch { FigurePosition.Superscript => 1, FigurePosition.Subscript => 2, _ => 0 }),
             ("Underline", st.Type.Underline), ("Strikethrough", st.Type.Strike), ("Ligatures", true), ("DLigatures", false),

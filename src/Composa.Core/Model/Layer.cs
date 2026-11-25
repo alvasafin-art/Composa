@@ -185,6 +185,7 @@ public sealed partial record TextStyle
     {
         var text = Text.Length > MaxLength ? Text[..MaxLength] : Text;
         var path = Path?.IsValid() == true ? Path : null;
+        if (path != null && !Enum.IsDefined(path.Alignment)) path = path with { Alignment = TextPathAlignment.Baseline };
         if (path != null) text = text.Replace('\r', ' ').Replace('\n', ' ').Replace('\u2028', ' ');
         var box = path == null && BoxWidth is { } w && BoxHeight is { } h && double.IsFinite(w) && double.IsFinite(h);
         return this with

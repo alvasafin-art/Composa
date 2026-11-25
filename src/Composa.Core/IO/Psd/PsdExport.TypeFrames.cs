@@ -62,7 +62,7 @@ public static partial class PsdExport
                 var layout = new TextLayout(style);
                 var shorthand = path == null ? SimpleFrame(style, layout) : path.Data;
                 frames.Add(Dict(("0", shorthand)));
-                stories.Add(Story(style, index, path));
+                stories.Add(Story(style, index, path, -layout.PathBaselineOffset));
             }
         }
 
@@ -110,7 +110,7 @@ public static partial class PsdExport
             }))), ("2", Dict(("0", 1), ("6", new object[] { -2, -2 }), ("11", Dict(("4", -1), ("18", -1))))));
         }
 
-        private Dictionary<string, object> Story(TextStyle style, int index, NativePathFrame? path)
+        private Dictionary<string, object> Story(TextStyle style, int index, NativePathFrame? path, double baselineShift)
         {
             var content = PhotoshopText(style) + "\r";
             var segments = Segments(style);
@@ -127,6 +127,7 @@ public static partial class PsdExport
                     ("3", r.Face.FontStyle == null && r.Face.Italic && !intrinsic.Italic),
                     ("4", f.Leading == 0), ("5", f.Type.PercentLeading ? r.Size * f.Leading / 100 : f.Leading), ("6", 1.0), ("7", 1.0),
                     ("8", (int)Math.Round(f.Type.PercentTracking ? f.Tracking * 10 : f.Tracking * 1000 / r.Size)),
+                    ("9", baselineShift),
                     ("11", 1), ("12", f.Type.Case == TextLetterCase.Upper ? 2 : f.Type.Case == TextLetterCase.SmallCaps ? 1 : 0),
                     ("13", (int)f.Type.FigurePosition), ("15", f.Type.Underline ? 1 : 0),
                     ("16", f.Type.Strike ? 1 : 0), ("18", true), ("20", true),

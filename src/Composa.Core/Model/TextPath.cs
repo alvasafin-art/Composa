@@ -2,9 +2,14 @@ using SkiaSharp;
 
 namespace Composa.Model;
 
+public enum TextPathAlignment { Baseline, Ascender, Descender, Center }
+
 /// <summary>A single Bézier contour in text-space pixels. The range is in segment indices and fractional Bézier parameters.</summary>
 public sealed record TextPath(VectorPath Outline, double Start = 0, double? End = null)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public TextPathAlignment Alignment { get; init; }
+
     [System.Text.Json.Serialization.JsonIgnore]
     public int SegmentCount => Outline.Closed ? Outline.Nodes.Length : Outline.Nodes.Length - 1;
 

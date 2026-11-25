@@ -598,6 +598,23 @@ public sealed partial class MainWindow
         pathRow.IsVisible = style.Path != null;
         if (style.Path != null)
             pathRow.Children.Add(Ui.TextButton("Edit Text Curve", () => { SelectTool(Tool.Pen); canvas.Focus(); }));
+        TextPathAlignment[] pathAlignments =
+            [TextPathAlignment.Ascender, TextPathAlignment.Descender, TextPathAlignment.Center, TextPathAlignment.Baseline];
+        var pathAlignment = Ui.Combo(pathAlignments, style.Path?.Alignment ?? TextPathAlignment.Baseline, value => value switch
+        {
+            TextPathAlignment.Ascender => "Ascender",
+            TextPathAlignment.Descender => "Descender",
+            TextPathAlignment.Center => "Center",
+            _ => "Path Baseline"
+        }, value =>
+        {
+            if (!updating) s.ChangeTextStyle(st => st.Path is { } path ? st with { Path = path with { Alignment = value } } : st);
+        }, width: properties ? double.NaN : 160);
+        pathAlignment.Name = "TextPathAlignment";
+        pathAlignment.HorizontalAlignment = HorizontalAlignment.Stretch;
+        var pathAlignmentLabel = Ui.Label(Locale.T("Align to Path"), Palette.Secondary);
+        var pathAlignmentRow = properties ? Ui.Column(4, pathAlignmentLabel, pathAlignment) : Ui.Row(5, pathAlignmentLabel, pathAlignment);
+        pathAlignmentRow.IsVisible = style.Path != null;
         var alignments = new Dictionary<TextAlignment, ToggleButton>();
         var alignRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight), (TextAlignment.Justify, new Icons.Icon("M3 5h18 M3 10h18 M3 15h18 M3 20h18")) })
@@ -682,6 +699,7 @@ public sealed partial class MainWindow
             }
             row.Children.Add(PropertyPair(alignmentGrid,decoration));
             row.Children.Add(pathRow);
+            row.Children.Add(pathAlignmentRow);
         }
         else
         {
@@ -689,6 +707,7 @@ public sealed partial class MainWindow
                 Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Tracking"), Palette.Secondary), tracking), tracking),
                 Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Leading"), Palette.Secondary), leading), leading), Ui.Separator()]);
             row.Children.Add(pathRow);
+            row.Children.Add(pathAlignmentRow);
             if (s.IsEditingText) row.Children.AddRange([done, cancel]);
             else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
         }
@@ -697,7 +716,12 @@ public sealed partial class MainWindow
             var current = s.InspectedTextStyle;
             updating = true;
             pathRow.IsVisible = current.Path != null;
-            if (current.Path is { } path) pathStart.Value = (decimal)path.Start;
+            pathAlignmentRow.IsVisible = current.Path != null;
+            if (current.Path is { } path)
+            {
+                pathStart.Value = (decimal)path.Start;
+                pathAlignment.SelectedIndex = Array.IndexOf(pathAlignments, path.Alignment);
+            }
             if (leadingUnit != null) leadingUnit.Text = current.Type.PercentLeading ? "%" : "px";
             if (trackingUnit != null) trackingUnit.Text = current.Type.PercentTracking ? "%" : "px";
             if (underline != null) underline.IsChecked = current.Type.Underline;

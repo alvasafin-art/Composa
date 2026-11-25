@@ -2146,3 +2146,7 @@ Edit Text Curve	Править кривую текста
 Segment number from zero and fractional position within the segment	Номер сегмента с нуля и дробная позиция внутри него
 Align to start	По началу
 Align to end	По концу
+Align to Path	Выравнивание относительно контура
+Ascender	Верхний выносной элемент
+Descender	Нижний выносной элемент
+Path Baseline	Базовая линия

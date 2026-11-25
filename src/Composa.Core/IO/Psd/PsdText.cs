@@ -58,10 +58,10 @@ internal static class PsdText
             if (path == null && (hasPath || text.ContainsKey("TxPT") || text.ContainsKey("TxPR") || text.ContainsKey("TxMP"))) return null;
             var typeMatrix = new SKMatrix((float)xx, (float)xy, (float)tx, (float)yx, (float)yy, (float)ty, 0, 0, 1);
             if (path != null) scale = 1; // The outline and font metrics are in the same text-space units.
-            var style = new TextStyle { Text = content, Size = Math.Clamp(12 * scale, 1, 2000) };
+            var style = new TextStyle { Text = content, Size = Math.Clamp(12 * scale, 1, 2000), Path = path };
             if (engine != null) style = ApplyStyle(style, engine, scale, notes);
             if (path != null)
-                return new Source((style with { Path = path }).Clamped(), notes, SKPoint.Empty, 0, false, false, TypeMatrix: typeMatrix);
+                return new Source(style.Clamped(), notes, SKPoint.Empty, 0, false, false, TypeMatrix: typeMatrix);
 
             var anchor = new SKPoint((float)tx, (float)ty);
             var anchorIsFrame = false;
@@ -231,6 +231,9 @@ internal static class PsdText
         style = style with { Bold = style.Bold || EngineData.Bool(EngineData.Walk(sheet, "FauxBold")) == true,
             Italic = style.Italic || EngineData.Bool(EngineData.Walk(sheet, "FauxItalic")) == true };
         if (UnsupportedCharacterStyle(sheet)) notes.Add(FirstStyleNote);
+        var defaultShift = EngineData.Number(EngineData.Walk(sheet, "BaselineShift")) ?? 0;
+        double? runShift = null;
+        bool mixedShifts = false;
         var lengths = EngineData.List(EngineData.Walk(engine, "EngineDict", "StyleRun", "RunLengthArray"));
         var characters = new List<TextFormatRun>();
         if (runs.Count == lengths.Count && lengths.Count > 0)
@@ -272,6 +275,12 @@ internal static class PsdText
                 };
                 if (length > 0) characters.Add(new((int)start, length, local));
                 if (length > 0 && UnsupportedCharacterStyle(data) && !notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
+                if (length > 0)
+                {
+                    var shift = EngineData.Number(EngineData.Walk(data, "BaselineShift")) ?? defaultShift;
+                    runShift ??= shift;
+                    mixedShifts |= shift != runShift;
+                }
                 start += (int)n.Value;
                 if (start >= style.Text.Length) break;
             }
@@ -343,6 +352,28 @@ internal static class PsdText
             if (p?.End == end) pi++;
             start = end;
         }
+        var baselineShift = runShift ?? defaultShift;
+        if (mixedShifts || baselineShift != 0 || style.Path == null && defaultShift != 0)
+        {
+            // PSD carries a baseline shift in points. Recover a named mode when the whole inscription
+            // has the corresponding shift. Unrelated Photoshop character shifts still get reported.
+            var path = style.Path;
+            TextPath? aligned = null;
+            if (path != null && !mixedShifts)
+            {
+                foreach (var mode in Enum.GetValues<TextPathAlignment>())
+                {
+                    var candidate = path with { Alignment = mode };
+                    if (Math.Abs(TextLayout.PathBaselineOffsetFor(style with { Path = candidate }) + baselineShift) <= .01)
+                    {
+                        aligned = candidate;
+                        break;
+                    }
+                }
+            }
+            if (aligned != null) style = style with { Path = aligned };
+            else if (!notes.Contains(FirstStyleNote)) notes.Add(FirstStyleNote);
+        }
         return style with { FormatRuns = mixed.Count == 0 ? null : mixed };
     }
 
@@ -359,7 +390,6 @@ internal static class PsdText
     private static bool UnsupportedCharacterStyle(object? sheet) =>
         EngineData.Number(EngineData.Walk(sheet, "HorizontalScale")) is not (null or 1)
         || EngineData.Number(EngineData.Walk(sheet, "VerticalScale")) is not (null or 1)
-        || EngineData.Number(EngineData.Walk(sheet, "BaselineShift")) is not (null or 0)
         || EngineData.Bool(EngineData.Walk(sheet, "AutoKerning")) == false
             && EngineData.Number(EngineData.Walk(sheet, "Kerning")) is not (null or 0);
 

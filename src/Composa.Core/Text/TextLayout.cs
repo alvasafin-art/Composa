@@ -65,7 +65,7 @@ public sealed partial class TextLayout
     });
 
     /// <summary>The font for layout and drawing alike. A face without a bold or italic variant gets them synthesized, as Photoshop's faux styles do.</summary>
-    private SKFont MakeFont(TextFace face, double size, string axes)
+    private static SKFont MakeFont(TextFace face, double size, string axes)
     {
         var typeface = FontVariations.Instance(TypefaceFor(face), axes);
         var font = new SKFont(typeface, (float)Math.Clamp(size, 1, 4000)) { Subpixel = true, Edging = SKFontEdging.Antialias, Hinting = SKFontHinting.None };
@@ -84,7 +84,7 @@ public sealed partial class TextLayout
         public SKFont For(TextFace face, double? size = null, string? axes = null)
         {
             var key = (face, size ?? layout.Style.Size, axes ?? layout.Style.Type.Axes);
-            return fonts.TryGetValue(key, out var font) ? font : fonts[key] = layout.MakeFont(face, key.Item2, key.Item3);
+            return fonts.TryGetValue(key, out var font) ? font : fonts[key] = MakeFont(face, key.Item2, key.Item3);
         }
         public void Dispose()
         {
@@ -107,6 +107,7 @@ public sealed partial class TextLayout
         var metrics = fonts.For(style.Face).Metrics;
         Ascent = -metrics.Ascent;
         Descent = metrics.Descent;
+        PathBaselineOffset = PathOffset(style.Path?.Alignment ?? TextPathAlignment.Baseline, Ascent, Descent);
         LineHeight = (float)style.LineHeight;
         var advances = Advances(fonts, Text);
         using var curve = style.Path?.Build();
@@ -168,7 +169,7 @@ public sealed partial class TextLayout
         var naturalHeight = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentHeight + Padding * 2));
         if (curve != null)
         {
-            var bounds = PathBounds(style, curve);
+            var bounds = PathBounds(style, curve, PathBaselineOffset);
             PathOrigin = new(bounds.Left, bounds.Top);
             Width = bounds.Width;
             Height = bounds.Height;

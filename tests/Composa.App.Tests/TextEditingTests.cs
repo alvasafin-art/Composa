@@ -85,6 +85,11 @@ public class TextEditingTests
         window.MouseMove(At(310, 240), RawInputModifiers.LeftMouseButton);
         window.MouseUp(At(310, 240), MouseButton.Left);
         Assert.InRange(label.Text.Path.Start, .41, .47);
+        Dispatcher.UIThread.RunJobs();
+        var alignment = window.GetVisualDescendants().OfType<ComboBox>().First(c => c.Name == "TextPathAlignment" && c.IsEffectivelyVisible);
+        Assert.Equal("Path Baseline", alignment.SelectedItem);
+        alignment.SelectedIndex = 0;
+        Assert.Equal(TextPathAlignment.Ascender, label.Text.Path.Alignment);
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
         var original = label.Text.Path;
 
