@@ -156,7 +156,8 @@ internal sealed class SceneMatchedLighting
     {
         var center = y * source.Width + x;
         var norm = source.Norm[center];
-        if (norm < .019f * PatchWidth) return null;
+        const float minimumContrast = .019f;
+        if (norm < minimumContrast * PatchWidth || !HasSubjectTexture(source, x, y, minimumContrast)) return null;
 
         Span<float> kernel = stackalloc float[PatchPixels];
         var mean = source.Mean[center];
@@ -189,6 +190,29 @@ internal sealed class SceneMatchedLighting
                     runnerUp = Math.Max(runnerUp, scores[(dy + SearchRadius) * SearchWidth + dx + SearchRadius]);
         var margin = best - runnerUp;
         return best > .42f && margin >= .022f ? new Match(x + bestX, y + bestY, best, margin) : null;
+    }
+
+    private static bool HasSubjectTexture(PatchImage source, int x, int y, float minimumContrast)
+    {
+        // The high-pass filter also sees the background at the silhouette. Require
+        // contrast within the subject before treating that response as texture.
+        var count = 0;
+        double sum = 0, squares = 0;
+        for (var row = y - PatchRadius; row <= y + PatchRadius; row++)
+            for (var col = x - PatchRadius; col <= x + PatchRadius; col++)
+            {
+                var p = row * source.Width + col;
+                if (!source.Core[p]) continue;
+                var light = (double)source.Light[p];
+                sum += light;
+                squares += light * light;
+                count++;
+            }
+
+        var mean = sum / count;
+        var variance = squares / count - mean * mean;
+        var threshold = (mean + LuminanceFloor) * minimumContrast;
+        return variance >= threshold * threshold;
     }
 
     private static float DotPatch(ReadOnlySpan<float> kernel, float[] detail, int start, int stride)
