@@ -127,6 +127,8 @@ public sealed class Settings
     public string EnhancerCodexPath { get; set; } = "";
     public string EnhancerCodexModel { get; set; } = "";
     public AI.ImageGenerationRoute ImageGenerationRoute { get; set; }
+    public string ImageRemoteCodexModel { get; set; } = "";
+    public string ImageRemoteCodexEffort { get; set; } = "default";
     public Dictionary<Composa.AI.AiTaskKind, AI.ImageGenerationRoute> ImageOperationRoutes { get; set; } = [];
     public string UpscaleCliPath { get; set; } = "";
     public string SegmentationCliPath { get; set; } = "";
@@ -137,7 +139,8 @@ public sealed class Settings
         if (task == Composa.AI.AiTaskKind.SelectSubject) task = Composa.AI.AiTaskKind.ObjectSelection;
         if (ImageOperationRoutes.TryGetValue(task, out var route) &&
             (route is AI.ImageGenerationRoute.ComfyWorkflow or AI.ImageGenerationRoute.LocalCodex or AI.ImageGenerationRoute.DirectApi
-                || route == AI.ImageGenerationRoute.BuiltIn && task == Composa.AI.AiTaskKind.ObjectSelection)) return route;
+                || route == AI.ImageGenerationRoute.BuiltIn && task == Composa.AI.AiTaskKind.ObjectSelection
+                || route == AI.ImageGenerationRoute.RemoteCodex && !AI.ImageOperationModels.IsUtility(task))) return route;
         if (task == Composa.AI.AiTaskKind.ObjectSelection)
             return ObjectSelectionModel == ObjectSelectionSource.ComfyUI ? AI.ImageGenerationRoute.ComfyWorkflow : AI.ImageGenerationRoute.BuiltIn;
         return task is Composa.AI.AiTaskKind.GenerateImage or Composa.AI.AiTaskKind.ImageEdit or Composa.AI.AiTaskKind.GenerativeFill

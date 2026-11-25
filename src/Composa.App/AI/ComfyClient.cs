@@ -68,8 +68,13 @@ public sealed class ComfyClient : IComfyConnection
 
     public async Task<string> UploadPngAsync(string semanticName, SKBitmap bitmap, CancellationToken cancellationToken = default)
     {
-        var filename = $"composa-{semanticName}-{Guid.NewGuid():N}.png";
         var bytes = await Task.Run(() => EncodeUploadPng(bitmap), cancellationToken).ConfigureAwait(false);
+        return await UploadPngAsync(semanticName, bytes, cancellationToken);
+    }
+
+    internal async Task<string> UploadPngAsync(string semanticName, byte[] bytes, CancellationToken cancellationToken)
+    {
+        var filename = $"composa-{semanticName}-{Guid.NewGuid():N}.png";
         using var form = new MultipartFormDataContent();
         using var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = new("image/png");
