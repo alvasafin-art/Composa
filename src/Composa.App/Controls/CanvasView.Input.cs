@@ -11,6 +11,7 @@ namespace Composa.App.Controls;
 public sealed partial class CanvasView
 {
     private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
+    private bool brushPreparationRequested;
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
@@ -365,6 +366,7 @@ public sealed partial class CanvasView
         cursorInside = true;
         brushCursorPointer = e.Pointer.Type;
         if (session == null) return;
+        QueueBrushPreparation();
         currentDocument = ToDocument(position);
         PointerAt?.Invoke(new SKPointI((int)Math.Floor(currentDocument.X), (int)Math.Floor(currentDocument.Y)));
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
@@ -515,7 +517,7 @@ public sealed partial class CanvasView
                 adjustingShape = null; break;
             case Drag.WarpNode: guides.Clear(); EndWarpPoint(keep: true); break;
             case Drag.Pan: UpdateCursor(); break;
-            case Drag.Stroke: session.EndStroke(); break;
+            case Drag.Stroke: session.EndStroke(); QueueBrushPreparation(); break;
             case Drag.PenNode:
                 guides.Clear();
                 if (!penDraftDrag && penLayer != null) { if (moved || penConverted) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
@@ -609,9 +611,21 @@ public sealed partial class CanvasView
     {
         base.OnPointerExited(e);
         cursorInside = false;
+        brushPreparationRequested = false;
+        session?.DiscardPreparedBrushDab();
         PointerAt?.Invoke(null);
         if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
         else InvalidateCanvas();
+    }
+
+    private void QueueBrushPreparation()
+    {
+        if (!cursorInside || drag != Drag.None || brushPreparationRequested || session?.Tool is not (Tool.Brush or Tool.Eraser)) return;
+        brushPreparationRequested = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (cursorInside && drag == Drag.None) session?.PrepareFirstBrushDab();
+        }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)

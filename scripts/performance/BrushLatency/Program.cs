@@ -37,7 +37,14 @@ internal static class BrushLatency
             return 2;
         }
         Settings.Persist = false;
-        Program.BuildAvaloniaApp().SetupWithoutStarting();
+        var builder = Program.BuildAvaloniaApp();
+        if (Environment.GetEnvironmentVariable("COMPOSA_PERF_LOW_LATENCY_COMPOSITION") == "1")
+            builder.With(new Win32PlatformOptions
+            {
+                CompositionMode = [Win32CompositionMode.LowLatencyDxgiSwapChain, Win32CompositionMode.WinUIComposition,
+                    Win32CompositionMode.DirectComposition, Win32CompositionMode.RedirectionSurface]
+            });
+        builder.SetupWithoutStarting();
         var editorGpu = Environment.GetEnvironmentVariable("COMPOSA_PERF_EDITOR_GPU") == "1";
         GpuAcceleration.Configure(filters: false, editor: editorGpu);
         var window = new MainWindow { Width = 1200, Height = 760, Position = new PixelPoint(20, 20), Topmost = true };
@@ -59,14 +66,16 @@ internal static class BrushLatency
     private static async Task Run(MainWindow window, string scenario, string output, int size, bool actualSize, bool editorGpu)
     {
         var session = EditorSession.NewCanvas(4096, 3072, SKColors.White);
+        var opaqueLayer = Environment.GetEnvironmentVariable("COMPOSA_PERF_OPAQUE_LAYER") == "1";
         if (scenario == "layered")
         {
             for (int i = 1; i <= 5; i++)
             {
                 var pixels = EditorSession.NewCanvas(4096, 3072).ActiveLayer!.Pixels!;
                 using (var canvas = new SKCanvas(pixels))
-                using (var paint = new SKPaint { Color = new SKColor(180, 190, 210, 120) })
-                    canvas.DrawRect(i * 180, i * 80, 3000 - i * 260, 1300 + i * 240, paint);
+                using (var paint = new SKPaint { Color = new SKColor(180, 190, 210, (byte)(opaqueLayer && i == 5 ? 255 : 120)) })
+                    if (opaqueLayer && i == 5) canvas.DrawPaint(paint);
+                    else canvas.DrawRect(i * 180, i * 80, 3000 - i * 260, 1300 + i * 240, paint);
                 var layer = Layer.Raster($"Layer {i}", pixels);
                 session.Document.Layers.Add(layer);
                 if (i != 5) continue;
@@ -133,7 +142,7 @@ internal static class BrushLatency
         if (session.Revision != 9) throw new InvalidOperationException($"Expected nine committed strokes, got {session.Revision}.");
         var result = new
         {
-            scenario, size, fullOutline, editorGpu, editorDevice = GpuAcceleration.EditorDevice, remoteSession = GetSystemMetrics(0x1000) != 0,
+            scenario, size, fullOutline, opaqueLayer, editorGpu, editorDevice = GpuAcceleration.EditorDevice, remoteSession = GetSystemMetrics(0x1000) != 0,
             scaling = window.RenderScaling,
             screen = window.Screens.Primary!.Bounds.ToString(), window = window.ClientSize.ToString(), zoom = window.Canvas.Zoom,
             samples = samples.Select(s => new

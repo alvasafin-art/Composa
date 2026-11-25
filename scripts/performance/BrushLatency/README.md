@@ -13,6 +13,8 @@ Each process opens the Win32 editor at 1200 × 760 DIPs and opens a 4096 × 3072
 
 Set `COMPOSA_PERF_FULL_OUTLINE=1` to compare the full-diameter contour. The replay reads the three adjacent hover pixels with a single GDI copy.
 
+Set `COMPOSA_PERF_OPAQUE_LAYER=1` to compare an opaque active layer with outside effects in the layered case. `COMPOSA_PERF_LOW_LATENCY_COMPOSITION=1` requests the optional DXGI composition mode with the standard fallbacks, only in the replay.
+
 - `queueMs` measures local injection to Avalonia's routed tunnel handler. Hover uses `SetCursorPos`. Painting uses `PostMessage` on the test HWND.
 - `inputMs` measures routing through the window's bubble handler. `diagnostics.Stages` includes instrumented brush setup, dabs, compositing and Skia drawing.
 - `frameMs` measures local injection to the recorded Skia canvas draw, when the canvas drew after injection. `observedMs` measures local injection to a changed desktop pixel or a visible custom cursor at the destination. Native cursor samples set `nativeCursor` and leave both frame fields empty. Failed desktop probes leave `observedMs` empty and remain in the raw report.

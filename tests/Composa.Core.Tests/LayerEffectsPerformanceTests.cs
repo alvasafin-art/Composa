@@ -8,6 +8,44 @@ namespace Composa.Core.Tests;
 
 public sealed class LayerEffectsPerformanceTests
 {
+    [Fact]
+    public void Opaque_brush_patch_matches_rendering_outside_effects_in_a_wide_gamut_layer()
+    {
+        var profile = Composa.ColorManagement.RgbProfile.DisplayP3;
+        using var input = Pixels.NewWorkingColor(720, 620, ColorDepth.Eight, profile);
+        Pixels.FillWorking(input, SKColors.OrangeRed);
+        var effects = new LayerEffects { Shadow = new() { Angle = 78, Blur = 45, Distance = 19 },
+            OuterGlow = new() { Size = 14 }, Stroke = new() { Size = 5 } };
+        var reference = LayerEffectsRenderer.Render(input, null, effects)!.Value;
+        using var rendered = reference.Image;
+        var area = new SKRectI(100, 90, 640, 520);
+        var expectedArea = area;
+        expectedArea.Offset(reference.Inset, reference.Inset);
+        using var subset = Pixels.Subset(rendered, expectedArea);
+        using var expected = Pixels.Clone(subset);
+        using var actual = LayerEffectsRenderer.RenderBrushArea(input, null, effects, 1, area);
+        AssertExact(expected, actual);
+    }
+
+    [Theory]
+    [InlineData(90, 19, 45)]
+    [InlineData(37, 37, 67)]
+    [InlineData(283, 76, 88)]
+    public void Banded_brush_effects_match_the_unsplit_renderer(int angle, int distance, int blur)
+    {
+        using var input = Pixels.NewColor(614, 552);
+        input.Erase(new SKColor(81, 191, 111, 187));
+        using var mask = Pixels.NewMask(614, 552);
+        new Random(72).NextBytes(mask.GetPixelSpan());
+        var effects = new LayerEffects { Shadow = new() { Angle = angle, Distance = distance, Blur = blur },
+            OuterGlow = new() { Size = 14 }, Stroke = new() { Size = 5 } };
+        var reference = LayerEffectsRenderer.Render(input, mask, effects)!.Value;
+        using var expected = reference.Image;
+        using var actual = LayerEffectsRenderer.RenderBrushArea(input, mask, effects, 1,
+            new SKRectI(-reference.Inset, -reference.Inset, input.Width + reference.Inset, input.Height + reference.Inset));
+        AssertExact(expected, actual);
+    }
+
     [Theory]
     [InlineData(false, false, 1f, 76)]
     [InlineData(true, false, 1f, 76)]

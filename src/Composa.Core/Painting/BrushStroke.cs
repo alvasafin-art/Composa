@@ -307,6 +307,20 @@ public sealed unsafe partial class BrushStroke : IDisposable
 
         var changed = false;
         var flow = DabFlow();
+        if (!deferColor && mode is (BrushMode.Paint or BrushMode.Erase) && PreferCpuCoverage(rect) && BrushBands(rect) > 1)
+        {
+            // Keep coverage and color in the same batch. Each band owns complete coverage tile rows.
+            var any = 0;
+            var bands = BrushBands(rect);
+            Parallel.For(0, bands, band =>
+            {
+                var area = Band(rect, band, bands);
+                if (!AccumulateBand(area, center, radius, flow, buildsUp: true)) return;
+                RecomputeBand(area);
+                Interlocked.Exchange(ref any, 1);
+            });
+            return any != 0 ? rect : SKRectI.Empty;
+        }
         if (ellipse == null && GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect)
             && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing)
             && GpuAcceleration.TryCoverage(coverage, rect, center, radius, hardness, falloff, flow, out changed))

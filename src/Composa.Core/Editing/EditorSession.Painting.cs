@@ -8,6 +8,59 @@ namespace Composa.Editing;
 public sealed partial class EditorSession
 {
     private BrushStroke? stroke;
+    private SKBitmap? checkedBrushTarget;
+    private SKBitmap? preparedBrushCopy;
+    private static int warmedBrushInput;
+
+    /// <summary>Reserves a private copy-on-write view while the brush is idle. No document pixels are changed.</summary>
+    public void PrepareFirstBrushDab()
+    {
+        if (IsInteracting || Tool is not (Tool.Brush or Tool.Eraser) || EditableLayer is not { } layer) return;
+        if (Interlocked.Exchange(ref warmedBrushInput, 1) == 0)
+            _ = Task.Run(WarmBrushInput);
+        var source = IsEditingMask ? MaskTarget(layer) : layer.Pixels;
+        if (source == null || ReferenceEquals(source, checkedBrushTarget)) return;
+        DiscardPreparedBrushDab();
+        checkedBrushTarget = source;
+        preparedBrushCopy = LayerPixelStorage.TryPrepareStrokeCopy(source);
+    }
+
+    private static void WarmBrushInput()
+    {
+        // Run the same cold path on a small, private raster so the first real press does not compile it.
+        var sample = NewCanvas(384, 384);
+        sample.Brush = new BrushSettings { Size = 500, Hardness = .5 };
+        try
+        {
+            if (sample.BeginStroke(new SKPoint(192, 192), out _, mode: BrushMode.Paint))
+            {
+                var working = sample.stroke!.Working;
+                sample.CancelStroke();
+                working.Dispose();
+            }
+        }
+        finally { sample.ReleaseClosedResources([]); }
+    }
+
+    public void DiscardPreparedBrushDab()
+    {
+        preparedBrushCopy?.Dispose();
+        preparedBrushCopy = checkedBrushTarget = null;
+    }
+
+    private SKBitmap TakeStrokeCopy(SKBitmap target)
+    {
+        if (ReferenceEquals(target, checkedBrushTarget) && preparedBrushCopy is { } ready)
+        {
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("prepared brush copy used", System.Diagnostics.Stopwatch.GetTimestamp());
+#endif
+            preparedBrushCopy = checkedBrushTarget = null;
+            return ready;
+        }
+        DiscardPreparedBrushDab();
+        return LayerPixelStorage.CopyForStroke(target);
+    }
     private Layer? strokeLayer;
     private SKBitmap? strokeOriginal;
     private SKBitmap? strokeHealingSample;
@@ -176,7 +229,7 @@ public sealed partial class EditorSession
 #if CANVAS_PERFORMANCE
         var snapshotting = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-        stroke = new BrushStroke(target, Brush, mode.Value, color, scale, LayerPixelStorage.CopyForStroke(target))
+        stroke = new BrushStroke(target, Brush, mode.Value, color, scale, TakeStrokeCopy(target))
         {
             Selection = document.Selection, ToDocument = matrix, CloneSource = source, CloneOffset = offset, CloneFraction = fraction,
             LockTransparency = !IsEditingMask && (IsEditingComponent || EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
