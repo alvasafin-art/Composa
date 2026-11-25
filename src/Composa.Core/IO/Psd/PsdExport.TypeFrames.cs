@@ -28,7 +28,9 @@ public static partial class PsdExport
             }
 
             Data = Dict(("1", Dict(("0", points))), ("2", Dict(
-                ("0", 2), ("2", new object[] { 1, 0, 0, 1, -(double)Bounds.Left, -(double)Bounds.Top }),
+                // These coefficients are real numbers in the text engine syntax.
+                // Photoshop reads integer coefficients as 16.16 fixed-point values when it recomposes the text.
+                ("0", 2), ("2", new object[] { 1.0, 0.0, 0.0, 1.0, -(double)Bounds.Left, -(double)Bounds.Top }),
                 ("6", new object[] { path.Start, path.End ?? (path.Outline.Closed ? path.Start + count : count) }),
                 ("11", Dict(("3", 0), ("5", 0))))));
         }
@@ -78,10 +80,10 @@ public static partial class PsdExport
         {
             if (!hasPath) return;
             var black = Paint(0xff000000);
-            var normalCharacter = Dict(("0", 1), ("1", 12.0), ("4", true), ("6", 1), ("7", 1), ("11", 1),
+            var normalCharacter = Dict(("0", 1), ("1", 12.0), ("4", true), ("6", 1.0), ("7", 1.0), ("11", 1),
                 ("18", true), ("35", 2), ("37", 2), ("53", black), ("54", black), ("56", true), ("58", true), ("70", 0));
             var normalParagraph = Dict(("0", 0), ("7", 1.2), ("9", false), ("17", new object[] { .8, 1.0, 1.33 }),
-                ("18", new object[] { 0, 0, 0 }), ("19", new object[] { 1, 1, 1 }), ("33", 0), ("35", 1));
+                ("18", new object[] { 0.0, 0.0, 0.0 }), ("19", new object[] { 1.0, 1.0, 1.0 }), ("33", 0), ("35", 1));
             object NamedStyle(string name, string key, object value) => Dict(("0", Dict(("0", name), (key, value))));
             var resources = Dict(("1", Dict(("0", fonts))),
                 ("5", Dict(("0", new[] { NamedStyle("Normal RGB", "6", normalCharacter), NamedStyle("None", "6", Dict()) }))),
@@ -103,8 +105,8 @@ public static partial class PsdExport
             if (!style.IsBox) return Dict(("2", Dict(("6", new object[] { -1, -1 }), ("11", Dict(("4", -1), ("18", -1))))));
             double w = layout.Width - 2 * TextLayout.Padding, h = layout.Height - 2 * TextLayout.Padding;
             return Dict(("1", Dict(("0", new object[] {
-                0, 0, 0, 0, w, 0, w, 0, w, 0, w, 0, w, h, w, h,
-                w, h, w, h, 0, h, 0, h, 0, h, 0, h, 0, 0, 0, 0
+                0.0, 0.0, 0.0, 0.0, w, 0.0, w, 0.0, w, 0.0, w, 0.0, w, h, w, h,
+                w, h, w, h, 0.0, h, 0.0, h, 0.0, h, 0.0, h, 0.0, 0.0, 0.0, 0.0
             }))), ("2", Dict(("0", 1), ("6", new object[] { -2, -2 }), ("11", Dict(("4", -1), ("18", -1))))));
         }
 
@@ -123,7 +125,7 @@ public static partial class PsdExport
                 var data = Dict(("0", FontId(name)), ("1", r.Size),
                     ("2", r.Face.FontStyle == null && r.Face.Bold && !intrinsic.Bold),
                     ("3", r.Face.FontStyle == null && r.Face.Italic && !intrinsic.Italic),
-                    ("4", f.Leading == 0), ("5", f.Leading), ("6", 1), ("7", 1),
+                    ("4", f.Leading == 0), ("5", f.Type.PercentLeading ? r.Size * f.Leading / 100 : f.Leading), ("6", 1.0), ("7", 1.0),
                     ("8", (int)Math.Round(f.Type.PercentTracking ? f.Tracking * 10 : f.Tracking * 1000 / r.Size)),
                     ("11", 1), ("12", f.Type.Case == TextLetterCase.Upper ? 2 : f.Type.Case == TextLetterCase.SmallCaps ? 1 : 0),
                     ("13", (int)f.Type.FigurePosition), ("15", f.Type.Underline ? 1 : 0),
@@ -146,7 +148,7 @@ public static partial class PsdExport
             var renderedFrame = Dict(("99", new EngineName("F")), ("10", index), ("6", Array.Empty<object>()));
             if (path != null)
             {
-                renderedFrame.Add("1", new object[] { 0, 0, (double)path.LocalBounds.Right, (double)path.LocalBounds.Bottom });
+                renderedFrame.Add("1", new object[] { 0.0, 0.0, (double)path.LocalBounds.Right, (double)path.LocalBounds.Bottom });
                 renderedFrame.Add("5", 2);
             }
             return Dict(("0", Dict(("0", content), ("5", Dict(("0", paragraphs))), ("6", Dict(("0", characters))), ("10", Dict(("0", 4), ("2", true))))),
@@ -156,7 +158,7 @@ public static partial class PsdExport
         }
 
         private static Dictionary<string, object> Paint(uint color) => Dict(("99", new EngineName("SimplePaint")),
-            ("0", Dict(("0", 1), ("1", new object[] { 1, (color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0 }))));
+            ("0", Dict(("0", 1), ("1", new object[] { 1.0, (color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0 }))));
 
         private static Dictionary<string, object> Run(Dictionary<string, object> style, int length) =>
             Dict(("0", Dict(("0", style))), ("1", length));

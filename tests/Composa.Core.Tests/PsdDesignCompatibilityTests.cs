@@ -113,6 +113,7 @@ public class PsdDesignCompatibilityTests
         PsdExport.Write(project, psd);
         var file = PsdReader.Read(psd.ToArray(), DocumentLimits.DocumentPixelBudget);
         Assert.Contains("Txt2", file.Extra.Keys);
+        Assert.Contains("/2 [ 1.0 0.0 0.0 1.0 ", Encoding.ASCII.GetString(file.Extra["Txt2"]));
         Assert.Contains(file.Layers, l => l.Name == layer.Name && l.Extra.ContainsKey("TySh"));
 
         var reopened = PsdImport.Load(psd.ToArray()).ToDocument();
