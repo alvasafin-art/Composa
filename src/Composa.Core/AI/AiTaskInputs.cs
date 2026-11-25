@@ -266,7 +266,21 @@ public static class AiTaskInputPreparer
         // just as ComfyUI's tiled upscale uses overlap. Do not expose artificial crop borders.
         SKRectI? segmentationBounds = request.Task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && selection != null
             ? SelectionMask.Bounds(selection, 1) : null;
-        var source = (upscaleBounds ?? segmentationBounds) is { } area ? Crop(flattened, area) : flattened;
+        var source = flattened;
+        if (upscaleBounds is { } upscaleArea)
+            source = Crop(flattened, upscaleArea);
+        else if (segmentationBounds is { } segmentationArea && segmentationArea != session.Document.Bounds)
+        {
+            // The segmenter needs the original samples within the search rectangle.
+            // A 1:1 draw with a cubic filter still mixes neighboring pixels.
+            source = new SKBitmap();
+            if (!flattened.ExtractSubset(source, segmentationArea))
+            {
+                source.Dispose();
+                flattened.Dispose();
+                throw new InvalidOperationException("Unable to crop the selection input.");
+            }
+        }
         if (!ReferenceEquals(source, flattened)) flattened.Dispose();
         if (request.BlackEditRegion && selection != null)
         {
