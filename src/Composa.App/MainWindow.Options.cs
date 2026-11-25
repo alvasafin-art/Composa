@@ -58,6 +58,7 @@ public sealed partial class MainWindow
         {
             LayoutInspector.Group => 264,
             LayoutInspector.Child when session?.ActiveLayer?.SupportsLayoutImageFrame == true => 304,
+            _ when session?.ActiveLayer?.Text?.Path != null => 342,
             _ when session?.ActiveLayer?.Text != null => 306,
             _ when session is { ActiveLayer: null, IsEditingAlphaChannel: false } => 455,
             _ => 0
