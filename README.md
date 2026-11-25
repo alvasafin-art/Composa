@@ -4,15 +4,9 @@ Composa Studio is a layer-based image editor for Windows and Linux. Combine phot
 
 ![Composa Studio showing a brown bear inside a generative fill selection in a mountain landscape, with the layer mask and prompt visible](docs/images/studio-workspace.png)
 
-## Download Studio 17.3 preview
+## Download
 
-| Platform | Download |
-| --- | --- |
-| Windows x64 | [Installer](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-x64-setup.exe) · [Portable ZIP](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-x64.zip) |
-| Windows ARM64 | [Installer](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-arm64-setup.exe) · [Portable ZIP](https://github.com/alvasafin-art/Composa/releases/download/v1.3.0-preview.4.studio.17.3/composa-1.3.0-preview.4.studio.17.3-win-arm64.zip) |
-| Linux x86-64 and ARM64 | Choose the AppImage, DEB, RPM, or `.tar.gz` for your architecture from the [release downloads](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3). |
-
-For a portable Windows installation, extract the entire ZIP and run `composa.exe`. On Linux, mark the AppImage as executable before opening it. The packages include the .NET runtime and local selection models. In **Settings → Editor**, you can switch between English and Russian, choose a theme, and configure GPU acceleration for object selection. [Release notes and checksums](https://github.com/alvasafin-art/Composa/releases/tag/v1.3.0-preview.4.studio.17.3)
+Choose the package for your operating system and architecture from [GitHub Releases](https://github.com/alvasafin-art/Composa/releases).
 
 ## Working with layers
 

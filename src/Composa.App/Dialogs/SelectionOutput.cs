@@ -7,9 +7,9 @@ namespace Composa.App.Dialogs;
 internal static class SelectionOutput
 {
     internal static string Describe(SKRectI canvas, SKRectI selection, EngineProfile? engine, bool original,
-        int width, int height, string quality)
+        int width, int height, string quality, int contextPercent)
     {
-        var bounds = AutomaticAiMask.Geometry(selection, canvas).Bounds;
+        var bounds = AutomaticAiMask.Geometry(selection, canvas, contextPercent).Bounds;
         string Pixels(int w, int h) => $"{w} × {h} px";
         var request = "Workflow-defined";
         if (NanoBanana.IsModel(engine?.ApiModel))

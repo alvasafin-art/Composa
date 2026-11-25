@@ -45,6 +45,7 @@ public class SettingsTests
         {
             UseSelectionGpu = false, ShowTransformControls = false, AutoSelect = false, ShowPixelGrid = false,
             AiGptContextPadding = 64,
+            AiSelectionContextPercent = 150,
             AiTaskEngineIds = new() { [nameof(AiTaskKind.GenerateImage)] = "chatgpt-image-2.5", [nameof(AiTaskKind.GenerativeExpand)] = "flux2-klein-intel-xpu" },
             AssistantServerUrl = "http://127.0.0.1:18080", AssistantServerExecutable = "llama-server.exe",
             AssistantModelPath = "assistant.gguf", AssistantContextSize = 8192, AssistantMaxTokens = 1024, AssistantAutoStart = false,
@@ -62,6 +63,7 @@ public class SettingsTests
         Assert.False(loaded.UseSelectionGpu);
         Assert.Equal(settings.View, loaded.View);
         Assert.Equal(64, loaded.AiGptContextPadding);
+        Assert.Equal(150, loaded.AiSelectionContextPercent);
         Assert.Equal("chatgpt-image-2.5", loaded.EngineForTask(AiTaskKind.GenerateImage));
         Assert.Equal("flux2-klein-intel-xpu", loaded.EngineForTask(AiTaskKind.GenerativeExpand));
         Assert.Equal("flux2-klein-intel-xpu", loaded.EngineForTask(AiTaskKind.GenerativeFill));
@@ -73,6 +75,7 @@ public class SettingsTests
         Assert.Equal((true, true, true), (old.ShowTransformControls, old.AutoSelect, old.View.Snap));
         Assert.True(old.UseSelectionGpu);
         Assert.Equal(0, old.AiGptContextPadding);
+        Assert.Equal(100, old.AiSelectionContextPercent);
         Assert.Empty(old.AiTaskEngineIds);
     }
 

@@ -17,6 +17,10 @@ public sealed record AiMaskPlan(SKRectI Bounds, int SeamWidth, int ContextPaddin
 
 public static class AutomaticAiMask
 {
+    public const int DefaultContextPercent = 100;
+    public const int MinimumContextPercent = 25;
+    public const int MaximumContextPercent = 400;
+
     public static AiTaskRequest IgnoreLegacyControls(AiTaskRequest request)
     {
         if (!AppliesTo(request.Task)) return request;
@@ -77,7 +81,7 @@ public static class AutomaticAiMask
         return peak;
     }
 
-    public static AiMaskPlan Geometry(SKRectI selection, SKRectI canvas)
+    public static AiMaskPlan Geometry(SKRectI selection, SKRectI canvas, int contextPercent = DefaultContextPercent)
     {
         if (selection.IsEmpty) return new(SKRectI.Empty, 0, 0);
         var shortSide = Math.Min(selection.Width, selection.Height);
@@ -87,6 +91,8 @@ public static class AutomaticAiMask
         var padding = Math.Max(32, (int)Math.Ceiling(shortSide * .22)) + seam;
         if (shortSide < Math.Max(selection.Width, selection.Height) * .2)
             padding = Math.Max(padding, Math.Max(64, (int)Math.Ceiling(Math.Max(selection.Width, selection.Height) * .16)) + seam);
+        var scale = Math.Clamp(contextPercent, MinimumContextPercent, MaximumContextPercent) / 100.0;
+        padding = Math.Max(seam, (int)Math.Round(padding * scale));
         var w = Math.Min(canvas.Width, selection.Width + 2 * padding);
         var h = Math.Min(canvas.Height, selection.Height + 2 * padding);
         // Thin edits still need a useful two-dimensional neighbourhood; this also
@@ -98,12 +104,12 @@ public static class AutomaticAiMask
         return new(new(left, top, left + w, top + h), seam, padding);
     }
 
-    public static AiMaskPlan Analyze(SKBitmap core, SKBitmap reference)
+    public static AiMaskPlan Analyze(SKBitmap core, SKBitmap reference, int contextPercent = DefaultContextPercent)
     {
         if (core.Width != reference.Width || core.Height != reference.Height) throw new ArgumentException("Mask and context must share coordinates.");
         // Selection contours are already binary; expansion coverage represents
         // physical transparency and may contain only values below half opacity.
-        var geometry = Geometry(SelectionMask.Bounds(core, 1), reference.Info.Rect);
+        var geometry = Geometry(SelectionMask.Bounds(core, 1), reference.Info.Rect, contextPercent);
         if (geometry.Bounds.IsEmpty) return geometry;
         // Narrow the seam in detailed surroundings; use a wider transition on smooth
         // skies/walls. Sample source pixels only, never the object being replaced.

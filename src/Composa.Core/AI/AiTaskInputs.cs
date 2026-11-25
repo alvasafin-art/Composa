@@ -49,6 +49,7 @@ public sealed record AiTaskRequest
     public string AdditionalPrompt { get; init; } = "";
     public bool AlignMaskedEdits { get; init; } = true;
     public bool BlackEditRegion { get; init; }
+    public int SelectionContextPercent { get; init; } = AutomaticAiMask.DefaultContextPercent;
     public AiGenerationSettings Settings { get; init; } = new();
     public SKRectI? ExpansionBounds { get; init; }
     public AiExpansionMode ExpansionMode { get; init; } = AiExpansionMode.MaskedRegion;
@@ -308,7 +309,8 @@ public static class AiTaskInputPreparer
                 using (var draw = new SKCanvas(expandedContext)) draw.DrawImage(Pixels.ImageOf(context), -(request.ExpansionBounds?.Left ?? 0), -(request.ExpansionBounds?.Top ?? 0));
                 maskPlan = AutomaticAiMask.Analyze(preprocessedMask, expandedContext);
             }
-            else if ((background ?? selection) is { } core) maskPlan = AutomaticAiMask.Analyze(core, context);
+            else if ((background ?? selection) is { } core)
+                maskPlan = AutomaticAiMask.Analyze(core, context, request.SelectionContextPercent);
         }
         if (request.Task == AiTaskKind.GenerativeExpand && preprocessedMask != null && request.ExpansionMode == AiExpansionMode.MaskedRegion)
         {
