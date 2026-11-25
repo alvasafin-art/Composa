@@ -89,6 +89,8 @@ public sealed partial class CanvasView : Decorator
             antsRedrawPending = false;
             ReleaseNativeBrushCursor();
             ReleaseViewportImage();
+            session?.DiscardPreparedBrushDab();
+            brushPreparationRequested = false;
         };
         // The Space key-up that ends panning goes wherever focus went, so panning ends with the focus.
         LostFocus += (_, _) =>
@@ -141,6 +143,7 @@ public sealed partial class CanvasView : Decorator
             if (session == value) return;
             if (session != null)
             {
+                session.DiscardPreparedBrushDab();
                 CancelInteraction();
                 FinishPen(); penSelectedLayer = null; penSelectedNode = -1; EditVectorMask = false;
                 session.ViewportInvalidated -= OnCanvasChanged;
@@ -151,6 +154,7 @@ public sealed partial class CanvasView : Decorator
             transformSelection = null;
             ReleaseViewportImage();
             session = value;
+            brushPreparationRequested = false;
             observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
             if (session != null)
             {
@@ -230,6 +234,7 @@ public sealed partial class CanvasView : Decorator
 
     private void OnLayersChanged()
     {
+        brushPreparationRequested = false;
         if (transformSelection != null && session != null && !transformSelection.SetEquals(session.Document.SelectedLayerIds))
             transformSelection = null;
         InvalidateCanvas();

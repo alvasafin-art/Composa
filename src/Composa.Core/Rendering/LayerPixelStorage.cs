@@ -123,6 +123,18 @@ internal static class LayerPixelStorage
 
     // The editor guarantees that existing document pixels are immutable, including while
     // a background save is reading them. Only the new private view is ever written.
+    internal static SKBitmap? TryPrepareStrokeCopy(SKBitmap source)
+    {
+        var info = source.Info;
+        var bytes = (long)info.RowBytes * info.Height;
+        if (!Eligible(info) || bytes > 128L * 1024 * 1024 || Interlocked.Read(ref privateViewBytes) + bytes > ExtendedCopyBudget
+            || !surfaces.TryGetValue(source, out var storage) || !storage.Owns(source, info)
+            || storage.Changed is { } tiles && tiles.Count > Math.Min(32, storage.InheritedLimit))
+            return null;
+        try { return Fork(source, storage, info); }
+        catch (Exception ex) when (MappingUnavailable(ex)) { return null; }
+    }
+
     internal static SKBitmap CopyForStroke(SKBitmap source)
     {
         var info = source.Info;
@@ -131,23 +143,25 @@ internal static class LayerPixelStorage
             && (storage.Changed == null || (storage.Changed.Count <= storage.InheritedLimit
                 && (storage.Changed.Count <= 24 || Interlocked.Read(ref privateViewBytes) + (long)info.RowBytes * info.Height <= ExtendedCopyBudget))))
         {
-            try
-            {
-                var changed = storage.Changed == null ? new HashSet<int>() : new(storage.Changed);
-                var copy = Map(storage.Section, info, changed);
-                try
-                {
-                    if (changed.Count != 0) CopyTiles(source, copy, changed, storage.Columns);
-                    Pixels.RetainProfile(source, copy);
-                    return copy;
-                }
-                catch { copy.Dispose(); throw; }
-            }
+            try { return Fork(source, storage, info); }
             catch (Exception ex) when (MappingUnavailable(ex)) { }
         }
         // Foreign or densely edited bitmap: establish a fresh base with a single independent
         // copy. Future local strokes can fork it again, without an ever-growing patch chain.
         return Pixels.CloneInto(source, Allocate(info));
+    }
+
+    private static SKBitmap Fork(SKBitmap source, Storage storage, SKImageInfo info)
+    {
+        var changed = storage.Changed == null ? new HashSet<int>() : new(storage.Changed);
+        var copy = Map(storage.Section, info, changed);
+        try
+        {
+            if (changed.Count != 0) CopyTiles(source, copy, changed, storage.Columns);
+            Pixels.RetainProfile(source, copy);
+            return copy;
+        }
+        catch { copy.Dispose(); throw; }
     }
 
     private static unsafe void CopyTiles(SKBitmap source, SKBitmap copy, HashSet<int> tiles, int columns)

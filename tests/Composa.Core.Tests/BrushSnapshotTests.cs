@@ -8,6 +8,25 @@ namespace Composa.Core.Tests;
 
 public class BrushSnapshotTests
 {
+    [Fact]
+    public void A_prepared_brush_copy_does_not_follow_a_change_of_target()
+    {
+        var session = EditorSession.NewCanvas(2304, 1856, SKColors.CornflowerBlue);
+        session.Tool = Tool.Brush;
+        session.Brush = new() { Size = 500 };
+        session.Foreground = SKColors.OrangeRed;
+        var original = session.ActiveLayer!.Pixels!;
+        session.PrepareFirstBrushDab();
+        session.AddBlankLayer();
+        var point = new SKPoint(800, 880);
+        Assert.True(session.BeginStroke(point, out _));
+        session.EndStroke();
+        Assert.Equal(SKColors.OrangeRed, session.ActiveLayer!.Pixels!.GetPixel(800, 880));
+        Assert.Equal(SKColors.CornflowerBlue, original.GetPixel(800, 880));
+        session.Undo();
+        Assert.Equal(0, session.ActiveLayer!.Pixels!.GetPixel(800, 880).Alpha);
+    }
+
     [Theory]
     [InlineData(2051, 2049, ColorDepth.Eight, 29)]
     [InlineData(1051, 1049, ColorDepth.Sixteen, 29)]
@@ -27,6 +46,7 @@ public class BrushSnapshotTests
         {
             using var reference = new BrushStroke(basis, session.Brush, mode, session.Foreground);
             reference.AddPoint(start, .6f);
+            session.PrepareFirstBrushDab();
             Assert.True(session.BeginStroke(start, out _, mode: mode, pressure: .6f));
             EqualPixels(reference.Working, Current());
             reference.AddPoint(end, .9f);

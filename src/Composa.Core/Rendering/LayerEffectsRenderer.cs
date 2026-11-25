@@ -364,7 +364,7 @@ public static class LayerEffectsRenderer
         CanvasPerformanceTrace.EffectPatch();
         var rendering = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-        var image = RenderArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region);
+        var image = RenderBrushArea(pixels, layer.RenderMask(), effects, layer.FillOpacity, region);
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.StageCompleted("effect patch raster", rendering);
         var placing = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -413,6 +413,61 @@ public static class LayerEffectsRenderer
         if (width * height > MaxPixels || width > Document.MaxSide * 2 || height > Document.MaxSide * 2) return null;
         return (RenderArea(pixels, mask, visible, fillOpacity, new SKRectI(-inset, -inset,
             pixels.Width + inset, pixels.Height + inset)), inset);
+    }
+
+    internal static SKBitmap RenderBrushArea(SKBitmap pixels, SKBitmap? mask, LayerEffects effects, double fillOpacity, SKRectI area)
+    {
+        // Outside effects are entirely behind opaque paint. Once the whole padded patch
+        // is opaque, copying its color pixels produces the same image as rendering the styles.
+        if (mask == null && fillOpacity == 1 && effects.Stroke?.Inside != true && IsOpaquePatch(pixels, area))
+        {
+            var opaque = Pixels.NewLike(pixels, area.Width, area.Height);
+            DocumentRenderer.CopyRows(pixels, new SKPointI(area.Left, area.Top), opaque, opaque.Info.Rect);
+            return opaque;
+        }
+
+        var halo = PatchHalo(effects);
+        var bands = (long)area.Width * area.Height >= 180_000
+            ? Math.Min(Math.Min(4, Environment.ProcessorCount), area.Height / Math.Max(128, halo * 2)) : 1;
+        if (bands <= 1) return RenderArea(pixels, mask, effects, fillOpacity, area);
+        var result = Pixels.NewLike(pixels, area.Width, area.Height);
+        try
+        {
+            Parallel.For(0, bands, band =>
+            {
+                var top = area.Height * band / bands;
+                var bottom = area.Height * (band + 1) / bands;
+                var paddedTop = Math.Max(0, top - halo);
+                var paddedBottom = Math.Min(area.Height, bottom + halo);
+                var padded = new SKRectI(area.Left, area.Top + paddedTop, area.Right, area.Top + paddedBottom);
+                using var image = RenderArea(pixels, mask, effects, fillOpacity, padded);
+                DocumentRenderer.CopyRows(image, new SKPointI(0, top - paddedTop), result,
+                    new SKRectI(0, top, area.Width, bottom));
+            });
+            return result;
+        }
+        catch { result.Dispose(); throw; }
+    }
+
+    private static bool IsOpaquePatch(SKBitmap pixels, SKRectI area)
+    {
+        if (!BitConverter.IsLittleEndian || pixels.ColorType != SKColorType.Rgba8888 || !pixels.Info.Rect.Contains(area)) return false;
+        var bytes = pixels.GetPixelSpan();
+        var stride = pixels.RowBytes;
+        var alpha = new Vector<uint>(0xff000000u);
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var row = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(bytes.Slice(y * stride + area.Left * 4, area.Width * 4));
+            var x = 0;
+            if (Vector.IsHardwareAccelerated)
+            {
+                for (; x + Vector<uint>.Count <= row.Length; x += Vector<uint>.Count)
+                    if (!Vector.EqualsAll(new Vector<uint>(row.Slice(x, Vector<uint>.Count)) & alpha, alpha)) return false;
+            }
+            for (; x < row.Length; x++)
+                if (row[x] < 0xff000000u) return false;
+        }
+        return true;
     }
 
     private static SKBitmap RenderArea(SKBitmap pixels, SKBitmap? mask, LayerEffects visible, double fillOpacity, SKRectI area)
