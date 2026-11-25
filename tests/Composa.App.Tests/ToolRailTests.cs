@@ -213,7 +213,7 @@ public class ToolRailTests
         Assert.Equal(Tool.Bucket, session.Tool);
         window.SelectTool(Tool.SelectionBrush);
         window.SelectTool(Tool.Move);
-        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.W, RawInputModifiers.None);
         Assert.Equal(Tool.SelectionBrush, session.Tool);
     }
 

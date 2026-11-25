@@ -686,7 +686,7 @@ public class GenerationDockTests
     {
         var model = host.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible);
         var thumbnails = host.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible &&
-            (ToolTip.GetTip(b)?.ToString()?.StartsWith("Preview reference:") == true ||
+            (ToolTip.GetTip(b)?.ToString()?.StartsWith("image ", StringComparison.Ordinal) == true ||
              Equals(ToolTip.GetTip(b), "Add another reference image"))).ToArray();
         var first = thumbnails.First().TranslatePoint(default, window)!.Value;
         var modelBottom = model.TranslatePoint(new Point(0, model.Bounds.Height), window)!.Value;
@@ -751,22 +751,24 @@ public class GenerationDockTests
         var section = dock.Section("AI Generation");
         TextBox Prompt(Control host) => host.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
         Image[] Thumbnails(Control host) => host.GetVisualDescendants().OfType<Button>()
-            .Where(b => ToolTip.GetTip(b)?.ToString()?.StartsWith("Preview reference:") == true).Select(b => (Image)b.Content!).ToArray();
+            .Where(b => ToolTip.GetTip(b)?.ToString()?.StartsWith("image ", StringComparison.Ordinal) == true)
+            .Select(b => Assert.Single(Assert.IsType<Grid>(b.Content).Children.OfType<Image>())).ToArray();
         void CheckBadge(Control host)
         {
             var remove = host.GetVisualDescendants().OfType<Button>().First(b => Equals(ToolTip.GetTip(b), "Remove reference"));
             var cell = Assert.IsType<Grid>(remove.Parent);
-            var image = Assert.IsType<Image>(cell.Children.OfType<Button>().First().Content);
-            var tile = image.TranslatePoint(default, window)!.Value;
+            var frame = Assert.IsType<Border>(cell.Parent);
+            var tile = frame.TranslatePoint(default, window)!.Value;
             var badge = remove.TranslatePoint(default, window)!.Value;
             Assert.Equal(3, badge.Y - tile.Y, 2);
-            Assert.Equal(3, tile.X + image.Bounds.Width - badge.X - remove.Bounds.Width, 2);
+            Assert.Equal(3, tile.X + frame.Bounds.Width - badge.X - remove.Bounds.Width, 2);
             var glyph = Assert.IsAssignableFrom<Control>(remove.Content);
             var center = glyph.TranslatePoint(new Rect(glyph.Bounds.Size).Center, remove)!.Value;
-            Assert.Equal(remove.Bounds.Width / 2, center.X, 2);
-            Assert.Equal(remove.Bounds.Height / 2, center.Y, 2);
+            Assert.InRange(Math.Abs(remove.Bounds.Width / 2 - center.X), 0, 0.5);
+            Assert.InRange(Math.Abs(remove.Bounds.Height / 2 - center.Y), 0, 0.5);
             Assert.Equal(new CornerRadius(5), remove.CornerRadius);
-            Assert.Equal(6, Assert.IsType<Avalonia.Media.RectangleGeometry>(image.Clip).RadiusX);
+            Assert.Equal(new CornerRadius(6), frame.CornerRadius);
+            Assert.True(frame.ClipToBounds);
         }
         void Add(SKColor color) { var image = new SKBitmap(20, 15); image.Erase(color); window.AddAiReferenceForTests(image); }
         try

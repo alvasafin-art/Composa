@@ -33,7 +33,7 @@ public class ToolPalettePersistenceTests
         var restored = Settings.FromJson(JsonSerializer.Serialize(window.Settings));
         var reopened = new MainWindow(); reopened.Settings.ToolPalette = restored.ToolPalette; reopened.Show();
         reopened.AddSession(EditorSession.NewCanvas(200, 120, SKColors.White));
-        foreach (var (tool, name) in new[] { (Tool.Gradient, "Paint Bucket"), (Tool.Wand, "Selection Brush"), (Tool.Lasso, "Selection Brush"),
+        foreach (var (tool, name) in new[] { (Tool.Gradient, "Paint Bucket"), (Tool.Wand, "Selection Brush"), (Tool.Lasso, "Polygonal Lasso"),
             (Tool.Marquee, "Ellipse Marquee"), (Tool.Smear, "Burn"), (Tool.Shape, "Line"), (Tool.CloneStamp, "Healing Brush") })
             Assert.Equal(name, reopened.RailButton(tool).Current!.Name);
         reopened.SelectTool(Tool.Bucket); Assert.Equal(Tool.Bucket, reopened.Session!.Tool);

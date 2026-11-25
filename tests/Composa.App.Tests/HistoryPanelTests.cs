@@ -21,7 +21,7 @@ public class HistoryPanelTests
 
     public HistoryPanelTests()
     {
-        window = new MainWindow { Width = 1280, Height = 800 };
+        window = new MainWindow { Width = 1280, Height = 900 };
         window.Show();
         session = EditorSession.NewCanvas(300, 200, SKColors.White);
         window.AddSession(session);

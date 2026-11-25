@@ -131,7 +131,9 @@ public class AiInteractionTests
             Assert.Equal("Reference images (6/6)", Avalonia.Automation.AutomationProperties.GetName(host));
             Assert.Equal(6,host.GetVisualDescendants().OfType<Image>().Count());
             Assert.DoesNotContain(host.GetVisualDescendants().OfType<Button>(),b=>ToolTip.GetTip(b)?.ToString()?.StartsWith("Add reference")==true);
-            var preview=host.GetVisualDescendants().OfType<Button>().First(b=>ToolTip.GetTip(b)?.ToString()?.StartsWith("Preview reference")==true);
+            var firstReference = task == AiTaskKind.GenerateImage ? 1 : 2;
+            var preview = Assert.Single(host.GetVisualDescendants().OfType<Button>(), button =>
+                Equals(ToolTip.GetTip(button), $"image {firstReference} · Test reference"));
             preview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs(); var child=Assert.Single(dialog.OwnedWindows); child.Close();
             Assert.True(Screenshots.Save(dialog,"ai-"+task+"-references"));
             GenerationDockTests.CheckReferenceSpacing(dialog, dialog);

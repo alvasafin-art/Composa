@@ -307,7 +307,7 @@ public class PanelTypographyTests
             Assert.Equal("Bottom", window.CaptureWorkspace().ToolsPosition);
             Assert.Equal(revision, session.Revision);
             Assert.Single(window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Text == "Layers" && t.IsEffectivelyVisible));
-            Assert.DoesNotContain(window.GetVisualDescendants(), c => c.Name == "DocumentInfo");
+            Assert.Equal("640 × 400 px · 72 PPI", Assert.IsType<TextBlock>(dock.Section("Document Info").Content.GetVisualDescendants().Single(c => c.Name == "DocumentInfo")).Text);
             var info = window.GetVisualDescendants().OfType<TextBlock>().Single(b => b.Name == "DocumentZoom");
             var zoomPosition = info.TranslatePoint(default, window);
             Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "(RGB/8)");

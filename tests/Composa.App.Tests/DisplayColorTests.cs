@@ -26,7 +26,7 @@ public class DisplayColorTests
             window.AddSession(EditorSession.NewCanvas(320, 200));
             window.Settings.DisplayColorMode = DisplayColorMode.Custom; window.Settings.DisplayProfilePath = path; await window.RefreshDisplayColor();
             var color = new SKColor(100, 150, 200); var reference = new SKBitmap(32, 32); reference.Erase(color); window.AddAiReferenceForTests(reference);
-            var button = window.GetVisualDescendants().OfType<Button>().Single(b => ToolTip.GetTip(b)?.ToString() == "Preview reference: Test reference");
+            var button = window.GetVisualDescendants().OfType<Button>().Single(b => ToolTip.GetTip(b)?.ToString()?.EndsWith(" · Test reference", StringComparison.Ordinal) == true);
             button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs();
             var dialog = window.OwnedWindows.Single(); Assert.True(Screenshots.Save(dialog, "display-untagged-reference"));
             var view = dialog.GetVisualDescendants().OfType<Image>().Single(); var point = view.TranslatePoint(new Rect(view.Bounds.Size).Center, dialog)!.Value;

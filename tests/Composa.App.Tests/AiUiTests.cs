@@ -99,7 +99,7 @@ public class AiUiTests
         Assert.True(Screenshots.Save(window, "ai-reference-thumbnails"));
         var add = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString()?.StartsWith("Add another reference image") == true);
         Assert.Equal(0, add.MinWidth); Assert.Equal(HorizontalAlignment.Center, add.HorizontalContentAlignment); Assert.Equal(VerticalAlignment.Center, add.VerticalContentAlignment);
-        var previewButton = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString() == "Preview reference: Test reference");
+        var previewButton = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString() == "image 2 · Test reference");
         previewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs();
         var preview = Assert.Single(window.OwnedWindows); Assert.Equal("Test reference", preview.Title);
         Assert.True(Screenshots.Save(preview, "ai-reference-preview")); preview.Close(); window.Close();
