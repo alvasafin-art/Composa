@@ -203,7 +203,7 @@ public sealed partial class CanvasView
 
         public override void Render(Avalonia.Media.DrawingContext context)
         {
-            if (view.session is not { } session || !view.IsBrushTool || !view.cursorInside) return;
+            if (view.nativeBrushCursorActive || view.session is not { } session || !view.IsBrushTool || !view.cursorInside) return;
             var hair = 1 / view.Scaling;
             if (hair != penWidth)
             {
@@ -275,14 +275,14 @@ public sealed partial class CanvasView
         }
     }
 
-    private static void DrawCrosshair(SKCanvas canvas, SKPoint p, float hair)
+    private static void DrawCrosshair(SKCanvas canvas, SKPoint p, float hair, float length)
     {
         using var dark = new SKPaint { Color = SKColors.Black, StrokeWidth = 3 * hair, IsAntialias = true };
         using var light = new SKPaint { Color = SKColors.White, StrokeWidth = hair, IsAntialias = true };
         foreach (var paint in new[] { dark, light })
         {
-            canvas.DrawLine(p.X - 7, p.Y, p.X + 7, p.Y, paint);
-            canvas.DrawLine(p.X, p.Y - 7, p.X, p.Y + 7, paint);
+            canvas.DrawLine(p.X - length, p.Y, p.X + length, p.Y, paint);
+            canvas.DrawLine(p.X, p.Y - length, p.X, p.Y + length, paint);
         }
     }
 }
