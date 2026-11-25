@@ -8,7 +8,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 function Fail([string]$message) { throw $message }
-# Direct per-user pipe: no second Composa process, startup handshake race or polling.
+function WriteReport([string]$message) {
+    if ($ReportPath) {
+        $pendingReport = $ReportPath + '.part'
+        [IO.File]::WriteAllText($pendingReport, $message, (New-Object Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $pendingReport -Destination $ReportPath -Force
+    }
+}
+# Prefer the running editor's per-user pipe. Launch the bundled editor for a PSD if it is closed.
 $needsBridge = $Direction -eq 'ToComposa' -or -not $ImagePath
 $pipe = $null; $writer = $null; $reader = $null
 $generatedImage = $null
@@ -28,6 +35,10 @@ public static class ComposaExchangeWindows {
     [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int processId);
 }
 "@
+    if ($Direction -eq 'ToComposa') {
+        # Let the receiver activate its editor and any PSD conversion dialog.
+        [void][ComposaExchangeWindows]::AllowSetForegroundWindow(-1)
+    }
     if ($needsBridge) {
         $pipeName = $env:COMPOSA_EXCHANGE_PIPE
         $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -35,7 +46,21 @@ public static class ComposaExchangeWindows {
         if (-not $pipeName) { $pipeName = 'composa-image-exchange-' + $userSid }
         $pipe = New-Object IO.Pipes.NamedPipeClientStream('.', $pipeName, [IO.Pipes.PipeDirection]::InOut, [IO.Pipes.PipeOptions]::Asynchronous)
         try { $pipe.Connect(2000) }
-        catch { Fail 'No Composa image-exchange connection. Open updated Composa (preview.22 or newer). AI Control is not required; run both apps as the same Windows user without elevation.' }
+        catch [TimeoutException] {
+            if ($Direction -ne 'ToComposa' -or [IO.Path]::GetExtension($ImagePath) -notin '.psd', '.psb') {
+                Fail 'No Composa image-exchange connection. Open updated Composa. AI Control is not required; run both apps as the same Windows user without elevation.'
+            }
+            if (-not $ComposaExe) { $ComposaExe = Join-Path $PSScriptRoot '../../composa.exe' }
+            if (-not (Test-Path -LiteralPath $ComposaExe -PathType Leaf)) {
+                Fail 'Could not find composa.exe. Run the Photoshop script from scripts/photoshop in the extracted Composa package or installation.'
+            }
+            $snapshot = [IO.Path]::GetFullPath($ImagePath)
+            Start-Process -FilePath ([IO.Path]::GetFullPath($ComposaExe)) -WindowStyle Normal -ArgumentList ('--photoshop-transfer "' + $snapshot + '"')
+            $message = "Started Composa with $snapshot"
+            WriteReport $message
+            $message
+            return
+        }
         if ($pipe.GetAccessControl().GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $userSid) { Fail 'The Composa pipe belongs to another Windows user.' }
         $encoding = New-Object Text.UTF8Encoding($false)
         $writer = New-Object IO.StreamWriter($pipe, $encoding); $writer.AutoFlush = $true
@@ -61,8 +86,6 @@ public static class ComposaExchangeWindows {
         $writer.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
     }
     if ($Direction -eq 'ToComposa') {
-        # The initiated transfer may activate its receiving editor window.
-        [void][ComposaExchangeWindows]::AllowSetForegroundWindow(-1)
         $result = Request 'tools/call' @{name='open_document'; arguments=@{path=[IO.Path]::GetFullPath($ImagePath)}}
         $message = ($result.content | ForEach-Object { $_.text }) -join "`n"
     } else {
@@ -96,10 +119,10 @@ public static class ComposaExchangeWindows {
         }
         $message = "Sent to Photoshop: $temporary"
     }
-    if ($ReportPath) { [IO.File]::WriteAllText($ReportPath, $message, (New-Object Text.UTF8Encoding($false))) }
+    WriteReport $message
     $message
 } catch {
-    if ($ReportPath) { [IO.File]::WriteAllText($ReportPath, ('ERROR: ' + $_.Exception.Message), (New-Object Text.UTF8Encoding($false))) }
+    WriteReport ('ERROR: ' + $_.Exception.Message)
     throw
 } finally {
     if ($generatedImage -and -not $handedOff) { Remove-Item -LiteralPath $generatedImage -Force -ErrorAction SilentlyContinue }
