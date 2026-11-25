@@ -14,7 +14,7 @@ using Composa.AI;
 
 namespace Composa.App.AI;
 
-internal sealed record AiImageMention(int Number, string FileName)
+internal sealed record AiImageMention(int Number)
 {
     internal string Label => $"image {Number}";
     internal string Token => "@" + Label;
@@ -166,11 +166,8 @@ internal sealed class AiPromptField : TextBox
                     suggestions.Children.Clear();
                     foreach (var option in choices)
                     {
-                        var name = Ui.Label(option.FileName, Palette.Secondary, 11);
-                        name.MaxWidth = 180;
-                        name.TextTrimming = TextTrimming.CharacterEllipsis;
                         var button = new Button { Classes = { "flat" }, Focusable = false, HorizontalAlignment = HorizontalAlignment.Stretch,
-                            Padding = new Thickness(7, 4), Content = Ui.Row(9, Ui.Label(option.Token, option.Color, 12), name) };
+                            Padding = new Thickness(7, 4), Content = Ui.Label(option.Label, option.Color, 12) };
                         button.Click += (_, _) => Insert(option);
                         suggestions.Children.Add(button);
                     }

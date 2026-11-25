@@ -660,7 +660,7 @@ public sealed partial class MainWindow
     private AiImageMention[] AiImageMentions(AiTaskKind task)
     {
         var first = AiImageMention.FirstReference(task);
-        return aiReferences.Select((item, index) => new AiImageMention(first + index, item.Name)).ToArray();
+        return Enumerable.Range(first, aiReferences.Count).Select(number => new AiImageMention(number)).ToArray();
     }
 
     private void RefreshPanelReferences()

@@ -50,8 +50,9 @@ public class GenerationDockTests
             window.KeyTextInput("@");
             Pump();
 
-            var suggestion = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "@image 1");
-            Assert.NotNull(suggestion.FindAncestorOfType<OverlayPopupHost>());
+            var popup = Assert.Single(window.GetVisualDescendants().OfType<OverlayPopupHost>());
+            var suggestion = Assert.Single(popup.GetVisualDescendants().OfType<TextBlock>());
+            Assert.Equal("image 1", suggestion.Text);
             Assert.Equal(panelSize, generation.Content.Bounds.Size);
             Assert.Equal(runPosition, run.TranslatePoint(default, window));
         }
