@@ -168,7 +168,7 @@ public sealed partial class CanvasView
             };
         }
         canvasCursorType = type;
-        ApplyCanvasCursor();
+        ApplyCanvasCursor(updateStandard: true);
     }
 
     private static SelectionMode ModeFor(KeyModifiers modifiers)
