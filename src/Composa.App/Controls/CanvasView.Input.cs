@@ -165,7 +165,8 @@ public sealed partial class CanvasView
                 _ => StandardCursorType.Arrow
             };
         }
-        Cursor = new Cursor(type);
+        canvasCursorType = type;
+        ApplyCanvasCursor();
     }
 
     private static SelectionMode ModeFor(KeyModifiers modifiers)
@@ -195,6 +196,7 @@ public sealed partial class CanvasView
             && ObjectSelectionAvailable?.Invoke() == false)
         { Problem?.Invoke(Locale.T("Wait for selection to finish or check the Object Selection connection in AI Settings.")); return; }
         var point = e.GetCurrentPoint(this);
+        brushCursorPointer = e.Pointer.Type;
         pressScreen = cursorScreen = point.Position;
         pressDocument = currentDocument = ToDocument(point.Position);
         dragButton = point.Properties.IsMiddleButtonPressed ? MouseButton.Middle : point.Properties.IsRightButtonPressed ? MouseButton.Right : MouseButton.Left;
@@ -361,6 +363,7 @@ public sealed partial class CanvasView
         var delta = position - cursorScreen;
         cursorScreen = position;
         cursorInside = true;
+        brushCursorPointer = e.Pointer.Type;
         if (session == null) return;
         currentDocument = ToDocument(position);
         PointerAt?.Invoke(new SKPointI((int)Math.Floor(currentDocument.X), (int)Math.Floor(currentDocument.Y)));
@@ -422,7 +425,7 @@ public sealed partial class CanvasView
         dragModifiers = e.KeyModifiers;
         // Pixel damage from ContinueStroke already invalidates the canvas. When a
         // sample only moves the cursor, keep the document frame that is on screen.
-        if (IsBrushTool && drag is Drag.None or Drag.Stroke) Child!.InvalidateVisual();
+        if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
         // The marquee's crosshair is a system cursor. Its overlay starts with a press.
         else if (drag != Drag.None || session.Tool != Tool.Marquee || polygon.Count > 0)
             InvalidateCanvas();

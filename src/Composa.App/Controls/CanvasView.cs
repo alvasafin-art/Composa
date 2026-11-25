@@ -81,7 +81,12 @@ public sealed partial class CanvasView : Decorator
             InvalidateCanvas();
         };
         AttachedToVisualTree += (_, _) => antsTimer.Start();
-        DetachedFromVisualTree += (_, _) => { antsTimer.Stop(); antsRedrawPending = false; };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            antsTimer.Stop();
+            antsRedrawPending = false;
+            ReleaseNativeBrushCursor();
+        };
         // The Space key-up that ends panning goes wherever focus went, so panning ends with the focus.
         LostFocus += (_, _) =>
         {
@@ -94,7 +99,7 @@ public sealed partial class CanvasView : Decorator
     internal void InvalidateCanvas()
     {
         InvalidateVisual();
-        Child?.InvalidateVisual();
+        InvalidateBrushCursor();
     }
 
     public event Action? ViewChanged;

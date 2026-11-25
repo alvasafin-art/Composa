@@ -1,5 +1,6 @@
 using Composa.Model;
 using SkiaSharp;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace Composa.Rendering;
@@ -585,13 +586,21 @@ public static class LayerEffectsRenderer
     /// Where a stroke lands: the shape grown (or shrunk) by its size, less the shape itself. A square reach, not a
     /// round one: a round one eats into the corners of a rectangle, which reads as a wobbly edge.
     /// </summary>
-    private static SKBitmap Ring(SKBitmap coverage, StrokeEffect stroke)
+    internal static SKBitmap Ring(SKBitmap coverage, StrokeEffect stroke)
     {
         var reach = Math.Max(1, (int)Math.Round(stroke.Size));
         var ring = Pixels.NewMask(coverage.Width, coverage.Height);
         using var canvas = new SKCanvas(ring);
         using var cut = new SKPaint { BlendMode = SKBlendMode.DstOut };
-        if (stroke.Inside)
+        if (!stroke.Inside && Vector.IsHardwareAccelerated && reach <= 8)
+        {
+            // Work on the actual Alpha8 plane. Skia's general image-filter path for
+            // morphology runs in color, even though every sample here is coverage.
+            using var edge = DilateStrokeCoverage(coverage, reach);
+            canvas.DrawBitmap(edge, 0, 0);
+            canvas.DrawBitmap(coverage, 0, 0, cut);
+        }
+        else if (stroke.Inside)
         {
             using var shrink = SKImageFilter.CreateErode(reach, reach);
             cut.ImageFilter = shrink;
@@ -606,6 +615,67 @@ public static class LayerEffectsRenderer
             canvas.DrawBitmap(coverage, 0, 0, cut);
         }
         return ring;
+    }
+
+    // A square max kernel is separable. Vectorize contiguous samples in both
+    // passes and clamp at the edge, like the Skia filter. Use the same Skia
+    // DstOut blend in Ring for exact partial-alpha and antialiased coverage.
+    private static SKBitmap DilateStrokeCoverage(SKBitmap coverage, int reach)
+    {
+        int width = coverage.Width, height = coverage.Height;
+        using var across = new SKBitmap(coverage.Info);
+        var result = new SKBitmap(coverage.Info);
+        var source = coverage.GetPixelSpan();
+        var horizontal = across.GetPixelSpan();
+        var output = result.GetPixelSpan();
+        int block = Vector<byte>.Count;
+        for (int y = 0; y < height; y++)
+        {
+            var input = source.Slice(y * coverage.RowBytes, width);
+            var row = horizontal.Slice(y * across.RowBytes, width);
+            int x = 0;
+            for (; x < Math.Min(reach, width); x++) row[x] = Edge(x, input);
+            for (; x + block <= width - reach; x += block)
+            {
+                var value = new Vector<byte>(input.Slice(x - reach, block));
+                for (int dx = 1 - reach; dx <= reach; dx++)
+                {
+                    var next = new Vector<byte>(input.Slice(x + dx, block));
+                    value = Vector.Max(value, next);
+                }
+                value.CopyTo(row.Slice(x, block));
+            }
+            for (; x < width; x++) row[x] = Edge(x, input);
+        }
+        for (int y = 0; y < height; y++)
+        {
+            var row = output.Slice(y * result.RowBytes, width);
+            var top = Math.Max(0, y - reach);
+            var bottom = Math.Min(height - 1, y + reach);
+            horizontal.Slice(top * across.RowBytes, width).CopyTo(row);
+            for (int k = top + 1; k <= bottom; k++)
+            {
+                var input = horizontal.Slice(k * across.RowBytes, width);
+                int x = 0;
+                for (; x + block <= width; x += block)
+                {
+                    var value = new Vector<byte>(row.Slice(x, block));
+                    var next = new Vector<byte>(input.Slice(x, block));
+                    Vector.Max(value, next).CopyTo(row.Slice(x, block));
+                }
+                for (; x < width; x++) row[x] = Math.Max(row[x], input[x]);
+            }
+        }
+        return result;
+
+        byte Edge(int x, ReadOnlySpan<byte> row)
+        {
+            var value = row[x];
+            var end = Math.Min(width - 1, x + reach);
+            for (int k = Math.Max(0, x - reach); k <= end; k++)
+                value = Math.Max(value, row[k]);
+            return value;
+        }
     }
 
     /// <summary>Fills the coverage with a color at an opacity.</summary>
