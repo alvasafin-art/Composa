@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Composa.Model;
+using Composa.Rendering;
 using Composa.Text;
 using SkiaSharp;
 
@@ -19,7 +20,7 @@ public static partial class PsdExport
         if (layer.Pixels == null) return "The live layer has no render cache.";
         if (layer.HasWarp) return "The Warp surface cannot be represented by a native Photoshop text or shape transform.";
         if (layer.FilterSource != null) return "Smart filters are exported as the rendered appearance.";
-        if (layer.Text?.Path != null) return "Text on a path and its curve are editable in the Composa project.";
+        if (layer.Text?.IsVertical == true) return "Vertical type remains editable in the Composa project and is exported as pixels to PSD.";
         if (layer.Shape?.Path != null || layer.VectorMask != null) return "Editable custom paths and vector masks keep their settings in Composa and export their rendered appearance to PSD.";
         if (layer.FillOpacity < 1) return "Separate fill opacity is preserved in the raster appearance rather than native Photoshop text or shape settings.";
         if (layer.Effects?.Visible() is { IsEmpty: false }) return "This live layer has effects whose Photoshop settings are not yet supported.";
@@ -75,9 +76,9 @@ public static partial class PsdExport
             && Math.Abs(m.ScaleX * m.SkewX + m.SkewY * m.ScaleY) <= 1e-5 * x * y;
     }
 
-    private static void WriteNative(Output o, Layer layer, Document document)
+    private static void WriteNative(Output o, Layer layer, Document document, int textIndex)
     {
-        if (layer.Text != null) WriteText(o, layer);
+        if (layer.Text != null) WriteText(o, layer, textIndex);
         else WriteShape(o, layer, document);
     }
 
@@ -109,7 +110,7 @@ public static partial class PsdExport
         return result;
     }
 
-    private static void WriteText(Output o, Layer layer)
+    private static void WriteText(Output o, Layer layer, int textIndex)
     {
         var style = layer.Text!.Clamped();
         var layout = new TextLayout(style);
@@ -117,15 +118,23 @@ public static partial class PsdExport
         var anchor = style.IsBox ? new SKPoint(TextLayout.Padding, TextLayout.Padding)
             : new SKPoint(first.X + first.VisibleWidth * (style.FormatAt(0).Alignment == TextAlignment.Right ? 1 : style.FormatAt(0).Alignment == TextAlignment.Center ? .5f : 0), first.Baseline);
         var m = layer.Matrix;
+        var pathFrame = style.Path == null ? null : new NativePathFrame(style.Path);
+        if (pathFrame != null) anchor = pathFrame.Origin - layout.PathOrigin;
         var position = m.MapPoint(anchor);
         var frame = style.IsBox ? new SKRect(0, 0, layout.Width - TextLayout.Padding * 2, layout.Height - TextLayout.Padding * 2)
             : new SKRect(-anchor.X, -anchor.Y, layout.Width - anchor.X, layout.Height - anchor.Y);
         var glyphs = new SKRect(TextLayout.Padding - anchor.X, TextLayout.Padding - anchor.Y,
             layout.Width - TextLayout.Padding - anchor.X, layout.Height - TextLayout.Padding - anchor.Y);
+        if (pathFrame != null)
+        {
+            frame = pathFrame.LocalBounds;
+            glyphs = Pixels.ContentBounds(layer.Pixels!);
+            glyphs.Offset(-anchor.X, -anchor.Y);
+        }
         var text = new D("TxLr").Text("Txt ", PhotoshopText(style)).Enum("textGridding", "textGridding", "None")
-            .Enum("Ornt", "Ornt", "Hrzn").Enum("AntA", "Annt", "AnSm").Long("TextIndex", 0)
+            .Enum("Ornt", "Ornt", "Hrzn").Enum("AntA", "Annt", "AnSm").Long("TextIndex", textIndex)
             .Obj("bounds", RectDescriptor(frame, "Rctn", "#Pnt")).Obj("boundingBox", RectDescriptor(glyphs, "boundingBox", "#Pnt"))
-            .Raw("EngineData", TextEngine(style, frame));
+            .Raw("EngineData", TextEngine(style, pathFrame?.Bounds ?? frame, -layout.PathBaselineOffset));
         o.Additional("TySh", () =>
         {
             o.U16(1);
@@ -147,7 +156,7 @@ public static partial class PsdExport
         return text.Replace('\n', '\r').Replace('\u2028', '\u0003');
     }
 
-    private static byte[] TextEngine(TextStyle s, SKRect frame)
+    private static byte[] TextEngine(TextStyle s, SKRect frame, double baselineShift)
     {
         var segments = Segments(s);
         var faces = new List<TextFace> { s.Face };
@@ -161,7 +170,7 @@ public static partial class PsdExport
             ("Font", faces.IndexOf(face) + 1), ("FontSize", fontSize ?? st.Size), ("FauxBold", face.FontStyle == null && face.Bold && !intrinsic.Bold),
             ("FauxItalic", face.FontStyle == null && face.Italic && !intrinsic.Italic),
             ("AutoLeading", st.Leading == 0), ("Leading", st.LineHeight), ("HorizontalScale", 1.0), ("VerticalScale", 1.0),
-            ("Tracking", (int)Math.Round(st.Type.PercentTracking ? st.Tracking * 10 : st.Tracking * 1000 / (fontSize ?? st.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", 0.0),
+            ("Tracking", (int)Math.Round(st.Type.PercentTracking ? st.Tracking * 10 : st.Tracking * 1000 / (fontSize ?? st.Size))), ("AutoKerning", true), ("Kerning", 0), ("BaselineShift", baselineShift),
             ("FontCaps", st.Type.Case switch { TextLetterCase.Upper => 2, TextLetterCase.SmallCaps => 1, _ => 0 }),
             ("FontBaseline", st.Type.FigurePosition switch { FigurePosition.Superscript => 1, FigurePosition.Subscript => 2, _ => 0 }),
             ("Underline", st.Type.Underline), ("Strikethrough", st.Type.Strike), ("Ligatures", true), ("DLigatures", false),
@@ -184,9 +193,10 @@ public static partial class PsdExport
             ("ParagraphSheetSet", new object[] { Dict(("Name", "Normal RGB"), ("DefaultStyleSheet", 0), ("Properties", Properties(s.Format))) }),
             ("StyleSheetSet", new object[] { Dict(("Name", "Normal RGB"), ("StyleSheetData", Sheet(s.Face, s.Color))) }), ("FontSet", fonts),
             ("SuperscriptSize", .583), ("SuperscriptPosition", .333), ("SubscriptSize", .583), ("SubscriptPosition", .333), ("SmallCapSize", .7));
-        var photoshop = Dict(("ShapeType", s.IsBox ? 1 : 0));
-        photoshop[s.IsBox ? "BoxBounds" : "PointBase"] = s.IsBox ? new object[] { (double)frame.Left, (double)frame.Top, (double)frame.Right, (double)frame.Bottom } : new object[] { 0.0, 0.0 };
-        photoshop["Base"] = Dict(("ShapeType", s.IsBox ? 1 : 0), ("TransformPoint0", new object[] { 1.0, 0.0 }), ("TransformPoint1", new object[] { 0.0, 1.0 }), ("TransformPoint2", new object[] { 0.0, 0.0 }));
+        bool hasFrame = s.IsBox || s.Path != null;
+        var photoshop = Dict(("ShapeType", hasFrame ? 1 : 0));
+        photoshop[hasFrame ? "BoxBounds" : "PointBase"] = hasFrame ? new object[] { (double)frame.Left, (double)frame.Top, (double)frame.Right, (double)frame.Bottom } : new object[] { 0.0, 0.0 };
+        photoshop["Base"] = Dict(("ShapeType", hasFrame ? 1 : 0), ("TransformPoint0", new object[] { 1.0, 0.0 }), ("TransformPoint1", new object[] { 0.0, 1.0 }), ("TransformPoint2", new object[] { 0.0, 0.0 }));
         var engine = Dict(("EngineDict", Dict(("Editor", Dict(("Text", content))),
             ("ParagraphRun", Dict(("DefaultRunData", Paragraph(s.Format)), ("RunArray", paragraphs), ("RunLengthArray", lengths), ("IsJoinable", 1))),
             ("StyleRun", Dict(("DefaultRunData", Dict(("StyleSheet", Dict(("StyleSheetData", Sheet(s.Face, s.Color)))))),
@@ -196,8 +206,15 @@ public static partial class PsdExport
                 ("GridColor", Color(0xFF0000FF)), ("GridLeadingFillColor", Color(0xFF0000FF)), ("AlignLineHeightToGridFlags", false))),
             ("AntiAlias", 3), ("UseFractionalGlyphWidths", true),
             ("Rendered", Dict(("Version", 1), ("Shapes", Dict(("WritingDirection", 0), ("Children", new object[] {
-                Dict(("ShapeType", s.IsBox ? 1 : 0), ("Procession", 0), ("Lines", Dict(("WritingDirection", 0), ("Children", Array.Empty<object>()))),
+                Dict(("ShapeType", hasFrame ? 1 : 0), ("Procession", 0), ("Lines", Dict(("WritingDirection", 0), ("Children", Array.Empty<object>()))),
                     ("Cookie", Dict(("Photoshop", photoshop)))) }))))))), ("ResourceDict", resources), ("DocumentResources", resources));
+        return EncodeEngine(engine);
+    }
+
+    private sealed record EngineName(string Name);
+
+    private static byte[] EncodeEngine(Dictionary<string, object> engine, bool bare = false)
+    {
         using var stream = new MemoryStream();
         void Ascii(string v) => stream.Write(Encoding.ASCII.GetBytes(v));
         void Value(object value)
@@ -210,6 +227,7 @@ public static partial class PsdExport
                     Ascii("("); stream.WriteByte(0xFE); stream.WriteByte(0xFF);
                     foreach (var b in Encoding.BigEndianUnicode.GetBytes(text)) { if (b is 40 or 41 or 92) stream.WriteByte(92); stream.WriteByte(b); }
                     Ascii(")"); break;
+                case EngineName name: Ascii("/" + name.Name); break;
                 case bool b: Ascii(b ? "true" : "false"); break;
                 case IEnumerable<object> list: Ascii("[ "); foreach (var item in list) { Value(item); Ascii(" "); } Ascii("]"); break;
                 case double d: Ascii(d.ToString("0.0########", CultureInfo.InvariantCulture)); break;
@@ -217,7 +235,9 @@ public static partial class PsdExport
                 default: throw new InvalidOperationException("Unsupported Photoshop engine value.");
             }
         }
-        Value(engine);
+        if (bare)
+            foreach (var (key, item) in engine) { Ascii("/" + key + " "); Value(item); Ascii("\n"); }
+        else Value(engine);
         return stream.ToArray();
     }
 

@@ -324,6 +324,7 @@ public sealed partial class MainWindow : Window
     {
         Tool.Wand or Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Lasso,
         Tool.Bucket => Tool.Gradient,
+        Tool.TextOnPath or Tool.VerticalText => Tool.Text,
         Tool.Patch or Tool.HealingBrush or Tool.SpotHealing => Tool.CloneStamp,
         _ => tool
     };
@@ -732,6 +733,9 @@ public sealed partial class MainWindow : Window
     };
     private Tool StampPaintingTool => stampUsesPatch ? Tool.Patch : Tool.CloneStamp;
     private bool gradientShowsBucket;
+    private Tool typeTool = Tool.Text;
+    private static readonly Icons.Icon PathTypeIcon = new("M6 4h12 M12 4v10 M3 21Q12 12 21 21");
+    private static readonly Icons.Icon VerticalTypeIcon = new("M3 4h10 M8 4v15 M18 5v14 m-3-3 3 3 3-3");
     private IReadOnlyList<ToolChoice> ToolGroup(Tool tool)
     {
         ToolChoice Choice(string name, Icons.Icon icon, string key, Func<EditorSession, bool> isCurrent, Action<EditorSession> apply, Tool? member = null) => new(
@@ -771,6 +775,12 @@ public sealed partial class MainWindow : Window
                     () => !gradientShowsBucket, () => { SelectTool(Tool.Gradient); canvas.Focus(); }),
                 new ToolChoice("Paint Bucket", Icons.Bucket, () => toolKeys.FirstOrDefault(k => k.Id == "Gradient tool")?.Gesture,
                     () => gradientShowsBucket, () => { SelectTool(Tool.Bucket); canvas.Focus(); })
+            ],
+            Tool.Text =>
+            [
+                Choice("Type", Icons.Text, "Type tool", _ => typeTool == Tool.Text, _ => { }, Tool.Text),
+                Choice("Text on Path", PathTypeIcon, "", _ => typeTool == Tool.TextOnPath, _ => { }, Tool.TextOnPath),
+                Choice("Vertical Type", VerticalTypeIcon, "", _ => typeTool == Tool.VerticalText, _ => { }, Tool.VerticalText)
             ],
             Tool.Smear => Kinds(SmearKey, s => s.SmearMode, (s, v) => s.SmearMode = v,
                 (SmearMode.Liquify, "Liquify", Icons.Liquify), (SmearMode.Blur, "Blur", Icons.Drop), (SmearMode.Smudge, "Smudge", Icons.Smudge),
@@ -901,8 +911,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Opens a text layer for typing on the canvas.</summary>
     private void BeginTextEdit(Layer layer)
     {
-        if (session == null || layer.Text == null) return;
-        if (session.Tool != Tool.Text) SelectTool(Tool.Text);
+        if (session == null || layer.Text is not { } text) return;
+        var tool = text.Path != null ? Tool.TextOnPath : text.IsVertical ? Tool.VerticalText : Tool.Text;
+        if (session.Tool != tool) SelectTool(tool);
         canvas.EditText(layer);
         RebuildOptions();
         UpdateStatus();
@@ -929,6 +940,7 @@ public sealed partial class MainWindow : Window
         if (tool is Tool.CloneStamp or Tool.Patch) stampUsesPatch = tool == Tool.Patch;
         if (RailTool(tool) == Tool.CloneStamp) stampGroupTool = tool == Tool.Patch ? Tool.CloneStamp : tool;
         if (tool is Tool.Gradient or Tool.Bucket) gradientShowsBucket = tool == Tool.Bucket;
+        if (RailTool(tool) == Tool.Text) typeTool = tool;
         foreach (var (key, button) in toolButtons)
         {
             button.IsChecked = key == RailTool(tool);
@@ -1001,6 +1013,8 @@ public sealed partial class MainWindow : Window
         Tool.Gradient => "Drag to draw from foreground to " + (s.GradientToTransparent ? "transparent" : "background") + " · Drag an end to adjust · Shift snaps to 45° · Enter applies · Escape cancels",
         Tool.Shape => s.ShapeKind == ShapeKind.Line ? "Drag to draw a line on a new layer · Shift snaps to 45° · Tab for the next shape" : "Click for dimensions · Drag to draw a shape on a new layer · Shift square · Alt from center · Tab for the next shape",
         Tool.Text => s.IsEditingText ? "Type · Drag the box's handles to resize it · Alt+arrows tracking and leading · Ctrl+Enter finishes · Escape cancels" : "Click for point text · Drag a box for paragraph text · Click text to edit it",
+        Tool.TextOnPath => s.IsEditingText ? "Drag the start handle · Enter finishes · Escape cancels" : "Click a vector contour where the text should begin",
+        Tool.VerticalText => "Click for vertical type · Drag a box for vertical columns",
         Tool.Eyedropper => "Click to pick the foreground color · Alt-click for the background",
         Tool.Hand => "Drag to pan · Ctrl+wheel zooms",
         _ => "Click to zoom in · Alt-click to zoom out · Drag right or left to zoom smoothly"

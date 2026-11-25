@@ -2137,3 +2137,14 @@ Connect Codex CLI to load models.	Подключите Codex CLI, чтобы з�
 The selected model does not support this scene operation.	Выбранная модель не поддерживает эту операцию со сценой.
 Composa — Settings	Composa — Настройки
 Composa — Initial setup	Composa — Первичная настройка
+Vertical Type	Вертикальный текст
+Drag the start handle · Enter finishes · Escape cancels	Перетащите бегунок вдоль контура · Enter завершает · Esc отменяет
+Click a vector contour where the text should begin	Щёлкните по векторному контуру в точке начала текста
+Click for vertical type · Drag a box for vertical columns	Щёлкните для вертикального текста · Растяните рамку для колонок
+Edit Text Curve	Править кривую текста
+Align to start	По началу
+Align to end	По концу
+Align to Path	Выравнивание относительно контура
+Ascender	Верхний выносной элемент
+Descender	Нижний выносной элемент
+Path Baseline	Базовая линия

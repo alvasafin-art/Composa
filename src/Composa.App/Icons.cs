@@ -82,6 +82,11 @@ public static class Icons
     public static readonly Icon AlignLeft = new("M4 6 H20 M4 10 H14 M4 14 H20 M4 18 H12");
     public static readonly Icon AlignCenter = new("M4 6 H20 M7 10 H17 M4 14 H20 M8 18 H16");
     public static readonly Icon AlignRight = new("M4 6 H20 M10 10 H20 M4 14 H20 M12 18 H20");
+    private const string PathTypeLetters = "M5 16 L8.5 6 L12 16 M6.5 12 H10.5 M15 20 V10 M15 10 H17 A3 3 0 0 1 17 16 H15";
+    public static readonly Icon PathAscender = new(PathTypeLetters + " M2 6 Q12 2 22 6");
+    public static readonly Icon PathCenter = new(PathTypeLetters + " M2 13 Q12 9 22 13");
+    public static readonly Icon PathBaseline = new(PathTypeLetters + " M2 17 Q12 15 22 17");
+    public static readonly Icon PathDescender = new(PathTypeLetters + " M2 21 Q12 19 22 21");
     public static readonly Icon Ruler = new("M3 8 H21 V16 H3 Z M7 8 V12 M11 8 V14 M15 8 V12 M19 8 V14");
     // Letterforms use the same rounded monoline geometry as the other toolbar icons.
     public static readonly Icon EnhancePrompt = new("M2 18 L5.8 7 L9.6 18 M3.4 14 H8.2 M12 11.3 C15.4 9.5 17.5 11 17.5 13.2 V18 M17.4 13.5 H15 C10.7 13.5 11.3 18.4 14.5 18 C15.9 18 17 17 17.5 16", "M20 2 L21 5 L24 6 L21 7 L20 10 L19 7 L16 6 L19 5 Z");

@@ -148,10 +148,11 @@ public static partial class PsdExport
         output.Id("8BPS"); output.U16(1); output.Zeros(6); output.U16(4);
         output.I32(document.Height); output.I32(document.Width); output.U16((ushort)depth); output.U16(3); output.U32(0);
         output.Block(() => Resources(output, document));
+        var type = new NativeTypeTable(records, document);
         void LayerInfo()
         {
             output.U16(unchecked((ushort)-records.Count));
-            foreach (var record in records) WriteRecord(output, record, document);
+            foreach (var record in records) WriteRecord(output, record, document, type);
             foreach (var record in records)
             {
                 using var prepared = Prepare(document, record, merged);
@@ -171,6 +172,7 @@ public static partial class PsdExport
             else output.Block(LayerInfo, even: true);
             output.U32(0); // global layer mask
             if (depth == 16) output.Additional("Lr16", LayerInfo);
+            type.Write(output);
         });
         WritePlanes(output, merged.Image, [0, 1, 2, -1], matte: true, depth: depth);
         output.CheckSize();
@@ -208,7 +210,7 @@ public static partial class PsdExport
         });
     }
 
-    private static void WriteRecord(Output output, Record record, Document document)
+    private static void WriteRecord(Output output, Record record, Document document, NativeTypeTable type)
     {
         var layer = record.Layer;
         output.Rect(record.Bounds);
@@ -253,7 +255,7 @@ public static partial class PsdExport
             var name = Encoding.Latin1.GetBytes(layer.Name[..Math.Min(255, layer.Name.Length)]);
             output.U8((byte)name.Length); output.Bytes(name); output.Zeros((4 - (name.Length + 1) % 4) % 4);
             output.Additional("luni", () => output.Unicode(layer.Name));
-            if (record.Section == 0 && !record.Appearance && HasNativeContent(layer, document)) WriteNative(output, layer, document);
+            if (record.Section == 0 && !record.Appearance && HasNativeContent(layer, document)) WriteNative(output, layer, document, type.Index(layer));
             if (record.Section != 0) output.Additional("lsct", () =>
             {
                 output.U32((uint)record.Section);
