@@ -88,7 +88,7 @@ public class ToolRailTests
         Assert.NotSame(wand, window.RailButton(Tool.Lasso));
         Assert.Same(wand,window.RailButton(Tool.SelectionBrush)); Assert.True(wand.IsChecked);
         Assert.Equal("Selection Brush",wand.Current!.Name); Assert.Equal(Icons.SelectionBrush,wand.Current.Icon);
-        Assert.NotEqual(Icons.Brush,wand.Current.Icon); Assert.True(wand.Current.Icon.Dashed);
+        Assert.NotEqual(Icons.Brush,wand.Current.Icon); Assert.Equal("selection-brush", wand.Current.Icon.Asset);
         Assert.StartsWith("Selection Brush (Q)",(ToolTip.GetTip(wand) as ToolTip)?.Content as string);
         window.MouseDown(Center(wand),MouseButton.Right); window.MouseUp(Center(wand),MouseButton.Right); Dispatcher.UIThread.RunJobs();
         Assert.Equal(["Magic Wand", "Object Selection", "Selection Brush"],wand.GroupItems.Select(item=>item.Header!.ToString()));

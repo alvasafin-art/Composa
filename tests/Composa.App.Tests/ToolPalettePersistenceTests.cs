@@ -56,18 +56,31 @@ public class ToolPalettePersistenceTests
         window.Close();
     }
 
-    [AvaloniaFact]
-    public void Alignment_icons_are_filled_and_separated_from_the_reference_selector()
+    [AvaloniaTheory]
+    [InlineData(IconStyle.Outline)]
+    [InlineData(IconStyle.Filled)]
+    public void Alignment_icons_follow_the_style_and_are_separated_from_the_reference_selector(IconStyle style)
     {
-        var window = new MainWindow { Width = 1400, Height = 850 }; window.Show(); window.AddSession(EditorSession.NewCanvas(300, 200, SKColors.White));
-        Dispatcher.UIThread.RunJobs();
-        var reference = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "AlignmentReference");
-        var left = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AlignLeft");
-        var start = left.TranslatePoint(default, window)!.Value.X;
-        var end = reference.TranslatePoint(new Point(reference.Bounds.Width, 0), window)!.Value.X;
-        Assert.True(start - end >= 14, $"Gap: {start - end}");
-        foreach (var button in window.GetVisualDescendants().OfType<Button>().Where(b => b.Name?.StartsWith("Align") == true || b.Name?.StartsWith("Flip") == true))
-            Assert.Contains(button.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), p => p.Fill != null);
-        Screenshots.Save(window, "filled-spaced-alignment"); window.Close();
+        var app = (App)Application.Current!;
+        app.ApplyIconStyle(style);
+        var window = new MainWindow { Width = 1400, Height = 850 };
+        window.Show();
+        try
+        {
+            window.AddSession(EditorSession.NewCanvas(300, 200, SKColors.White));
+            Dispatcher.UIThread.RunJobs();
+            var reference = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "AlignmentReference");
+            var left = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AlignLeft");
+            var start = left.TranslatePoint(default, window)!.Value.X;
+            var end = reference.TranslatePoint(new Point(reference.Bounds.Width, 0), window)!.Value.X;
+            Assert.True(start - end >= 14, $"Gap: {start - end}");
+            var buttons = window.GetVisualDescendants().OfType<Button>()
+                .Where(b => b.Name?.StartsWith("Align") == true || b.Name?.StartsWith("Flip") == true);
+            foreach (var button in buttons)
+                Assert.Contains(button.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
+                    glyph => style == IconStyle.Filled ? glyph.Fill != null : glyph.StrokeThickness > 0);
+            Screenshots.Save(window, $"alignment-{style.ToString().ToLowerInvariant()}");
+        }
+        finally { app.ApplyIconStyle(IconStyle.Outline); window.Close(); }
     }
 }
