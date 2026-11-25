@@ -140,7 +140,7 @@ public static partial class AiDialogs
         DialogWindow? settingsDialog = null;
         var showContext = new CheckBox { Content = Locale.T("Show AI context bounds after selection"), IsChecked = settings.AiShowContextBounds };
         var contextPercent = Ui.Number(settings.AiSelectionContextPercent, AutomaticAiMask.MinimumContextPercent,
-            AutomaticAiMask.MaximumContextPercent, _ => { }, step: 5, width: 80);
+            AutomaticAiMask.MaximumContextPercent, _ => { }, step: 5, width: 130);
         contextPercent.Name = "AiSelectionContextPercent";
         contextPercent.VerticalAlignment = VerticalAlignment.Center;
         Avalonia.Automation.AutomationProperties.SetName(contextPercent, Locale.T(contextPaddingLabel));
@@ -800,12 +800,11 @@ public static partial class AiDialogs
             Card(Columns("*,*", Field("Language", languagePicker), Field("Interface theme", themePicker))),
             Card(Columns("*,*", Field("Workspace layout", layoutPicker), Field("AI panel placement", aiPanelPicker))),
             Card(Ui.Column(5, rememberPrompts, showContext, groupedPanels, linkedSources, updates)));
-        var contextLabel = Caption(contextPaddingLabel);
         var contextNote = Caption("100% uses the automatic margin around the selection.");
-        contextLabel.VerticalAlignment = contextNote.VerticalAlignment = VerticalAlignment.Center;
-        var contextRow = Columns("Auto,Auto,*,Auto", contextLabel, contextPercent, contextNote, resetContext);
+        contextNote.VerticalAlignment = VerticalAlignment.Center;
+        var contextRow = Columns("Auto,*,Auto", contextPercent, contextNote, resetContext);
         contextRow.ColumnSpacing = 12;
-        var generationsPage = Page("Generations", Card(contextRow));
+        var generationsPage = Page("Generations", Card(Ui.Column(4, Caption(contextPaddingLabel), contextRow)));
         var accelerated = new ToggleSwitch { IsChecked = settings.UseEditorGpu || settings.UseRasterFilterGpu || settings.UseSelectionGpu };
         accelerated.IsCheckedChanged += (_, _) =>
         {
