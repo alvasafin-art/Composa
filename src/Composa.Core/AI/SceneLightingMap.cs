@@ -1,3 +1,4 @@
+using System.Numerics;
 using SkiaSharp;
 
 namespace Composa.AI;
@@ -10,16 +11,17 @@ internal sealed class SceneLightingMap
     private readonly float[] values;
     private readonly double scale;
 
-    internal SceneLightingMap(SceneEditInput input,SKBitmap generated,SKBitmap baseline,CancellationToken token)
+    internal SceneLightingMap(SceneEditInput input,SKBitmap generated,SKBitmap baseline,CancellationToken token,bool useMaterialAwareLighting)
     {
         var bounds=input.SubjectBounds;
         // Transfer illumination, not the model's high-frequency outlines, texture or ringing.
         var sigma=Math.Clamp(Math.Min(bounds.Width,bounds.Height)/24d,3,24);
         var margin=(int)Math.Ceiling(sigma*3)+2;
         area=SKRectI.Intersect(new(bounds.Left-margin,bounds.Top-margin,bounds.Right+margin,bounds.Bottom+margin),input.Before.Info.Rect);
-        scale=Math.Min(1,384d/Math.Max(area.Width,area.Height));
+        scale=Math.Min(1,(useMaterialAwareLighting ? 192d : 384d)/Math.Max(area.Width,area.Height));
         width=Math.Max(1,(int)Math.Ceiling(area.Width*scale)); height=Math.Max(1,(int)Math.Ceiling(area.Height*scale));
-        var raw=new float[checked(width*height*4)];
+        var materials = useMaterialAwareLighting ? new SceneMaterialLighting(width,height,area,scale,Math.Max(.8,sigma*scale),input.ModelForeground) : null;
+        var raw = materials == null ? new float[checked(width*height*4)] : [];
         byte maximum=0;
         for(var y=bounds.Top;y<bounds.Bottom;y++) for(var x=bounds.Left;x<bounds.Right;x++) maximum=Math.Max(maximum,input.ObjectAlpha.GetPixel(x,y).Alpha);
         var threshold=Math.Max(32,Math.Min(224,maximum*.85));
@@ -40,13 +42,23 @@ internal sealed class SceneLightingMap
                     if(!input.WholeImage && (input.ObjectAlpha.GetPixel(Math.Max(0,x-guard),y).Alpha<threshold || input.ObjectAlpha.GetPixel(Math.Min(generated.Width-1,x+guard),y).Alpha<threshold
                         || input.ObjectAlpha.GetPixel(x,Math.Max(0,y-guard)).Alpha<threshold || input.ObjectAlpha.GetPixel(x,Math.Min(generated.Height-1,y+guard)).Alpha<threshold)) continue;
                     var source=baseline.GetPixel(x,y); var target=generated.GetPixel(x,y);
-                    static float Gain(byte source,byte target)=>(float)Math.Log(Math.Clamp((Linear(target)+.01)/(Linear(source)+.01),.25,4));
                     var weight=(float)Math.Pow(alpha/255d,2);
+                    if (materials != null)
+                    {
+                        var radius = Math.Clamp(guard/2,2,6);
+                        var sourceRgb = LinearRgb(source);
+                        var targetRgb = LinearRgb(target);
+                        var confidence = Math.Min(SceneMaterialLighting.ChromaStability(baseline,x,y,radius,sourceRgb),
+                            SceneMaterialLighting.ChromaStability(generated,x,y,radius,targetRgb));
+                        materials.Add(col,row,sourceRgb,targetRgb,weight,confidence);
+                        continue;
+                    }
+                    static float Gain(byte source,byte target)=>(float)Math.Log(Math.Clamp((Linear(target)+.01)/(Linear(source)+.01),.25,4));
                     raw[cell]+=Gain(source.Red,target.Red)*weight; raw[cell+1]+=Gain(source.Green,target.Green)*weight; raw[cell+2]+=Gain(source.Blue,target.Blue)*weight; raw[cell+3]+=weight;
                 }
             }
         }
-        values=Blur(Blur(raw,Math.Max(.8,sigma*scale),true,token),Math.Max(.8,sigma*scale),false,token);
+        values=materials?.Fit(token) ?? Blur(Blur(raw,Math.Max(.8,sigma*scale),true,token),Math.Max(.8,sigma*scale),false,token);
         // Carry reliable interior illumination to thin/transparent edges. Leaving their gain at 1 produces a bright rim.
         var queue=new Queue<int>();var known=new bool[width*height];
         for(var p=0;p<known.Length;p++) if(values[p*4+3]>.05) {known[p]=true;queue.Enqueue(p);}
@@ -97,5 +109,8 @@ internal sealed class SceneLightingMap
         }
         return output;
     }
+    private static readonly float[] LinearTable = Enumerable.Range(0,256).Select(value => (float)Linear((byte)value)).ToArray();
+    internal static Vector3 LinearRgb(SKColor color) => new(LinearTable[color.Red],LinearTable[color.Green],LinearTable[color.Blue]);
+
     private static double Linear(byte value) {var v=value/255d;return v<=.04045?v/12.92:Math.Pow((v+.055)/1.055,2.4);}
 }

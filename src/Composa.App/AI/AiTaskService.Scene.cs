@@ -32,6 +32,7 @@ public sealed partial class AiTaskService
             using var scene = await Task.Run(() => SceneEditInput.Prepare(snapshot, request, token), token);
             if (request.Task == AiTaskKind.ChangeBackground && requireSceneSubjectModels)
                 await Task.Run(() => SceneBackgroundSubject.EnsureAvailable(token), token);
+            var useMaterialAwareLighting = UseMaterialAwareLighting(request, generator.Model);
             using var inputs = await Task.Run(() => SceneApiInputs(scene, request), token);
             var edit = request with { Task = AiTaskKind.ImageEdit };
             for (var index = 0; index < request.Settings.Variants; index++)
@@ -53,7 +54,7 @@ public sealed partial class AiTaskService
                 {
                     if (request.AlignMaskedEdits)
                         await Task.Run(() => AiSeamlessFinisher.AlignEdit(generated, inputs.ContextImage), token);
-                    results.Add(await Task.Run(() => SceneEditResult.Extract(scene, generated, request, token), token));
+                    results.Add(await Task.Run(() => SceneEditResult.Extract(scene, generated, request, token, useMaterialAwareLighting: useMaterialAwareLighting), token));
                 }
             }
             ensureUnchanged();
@@ -122,6 +123,7 @@ public sealed partial class AiTaskService
             if(ConnectedServerUrl!=client.Address.ToString() || ServerCapabilities is not { } capabilities)
                 throw new InvalidOperationException("The ComfyUI connection changed. Retry on the selected server.");
             using var native=engine.PaidApi ? null : new SceneEditingWorkflow(scene,request,useImageReferences:useImageReferences);
+            var useMaterialAwareLighting = engine.PaidApi && UseMaterialAwareLighting(request, engine.ApiModel);
             using var apiInputs=engine.PaidApi ? SceneApiInputs(scene,request) : null;
             var editRequest=request with {Task=AiTaskKind.ImageEdit,Prompt=SceneEditingWorkflow.Prompt(request,scene.LightHint)};
             using var partner=apiInputs==null ? null : new PartnerImageInputs(apiInputs,editRequest,engine.ApiModel);
@@ -260,7 +262,7 @@ public sealed partial class AiTaskService
                 }
                 else
                 {
-                    result=await Task.Run(()=>SceneEditResult.Extract(scene,generated.Image,request,linked.Token,generated.Baseline,native==null?1:scene.Before.Width/(double)native.ContentSize.Width),linked.Token);
+                    result=await Task.Run(()=>SceneEditResult.Extract(scene,generated.Image,request,linked.Token,generated.Baseline,native==null?1:scene.Before.Width/(double)native.ContentSize.Width,useMaterialAwareLighting),linked.Token);
                 }
                 results.Add(result);
             }
@@ -282,6 +284,13 @@ public sealed partial class AiTaskService
     }
     private sealed record SceneGeneration(SKBitmap Image,SKBitmap? Baseline):IDisposable
     {public void Dispose() {Image.Dispose();Baseline?.Dispose();}}
+    private static bool UseMaterialAwareLighting(AiTaskRequest request,string? model)
+    {
+        var name = model?.Split('/').Last();
+        return request.Scene.PreserveDetails && request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene &&
+            (name == "gpt-image-2.5" || name?.StartsWith("gpt-image-2.5-", StringComparison.Ordinal) == true);
+    }
+
     internal static AiTaskInputs SceneApiInputs(SceneEditInput scene,AiTaskRequest request) => new()
     {
         SourceImage=Pixels.DisplayCopy(scene.InitialImage),ContextImage=Pixels.DisplayCopy(scene.Before),

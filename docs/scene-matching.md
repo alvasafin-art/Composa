@@ -22,6 +22,8 @@ The separate **Contact and Cast Shadow** layer extracts ground darkening against
 
 Repeated subject editing uses its original PNG and excludes that subject's previous lighting and shadow layers from the inputs. It retains the current placement and the current visible background (including a chosen replacement background). Previous results remain recoverable through Undo; they are hidden together when the new result is committed. Hidden layers and hidden variants are excluded. Source and placement links travel with the project in layer tags. Older releases' nested results also retire their ancestor shadows when the source can be recovered.
 
+With **Preserve source detail** enabled, GPT Image 2.5 Harmonize estimates lighting from locally similar source materials. This keeps color changes on one material from spilling into its neighbors and can retain colored illumination supported by the image pair.
+
 **Match light only** disables the shadow area. **Local tone and color · no AI** keeps the previous offline operation: two editable clipped Curves layers, Match Light and Match Color. This mode cannot create directional lighting or shadows.
 
 ## Relight

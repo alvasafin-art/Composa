@@ -19,8 +19,12 @@ public static class SceneSource
     }
     public static SKMatrix Placement(Layer selected,Layer original)
     {
-        if(!selected.Tags.Contains("scene-object"))return original.Matrix;
-        var frame=original.Matrix;var values=new float[9];var valid=true;
+        if(selected.Id==original.Id || !selected.Tags.Contains("scene-object"))return original.Matrix;
+        var frame=original.Matrix;
+        // A frame is in its tagged source's pixel coordinates. A hidden fallback raster can have
+        // a different size and transform, even when it depicts the same subject.
+        if (!selected.Tags.Contains(Tag(original.Id))) return frame.PostConcat(selected.Matrix);
+        var values=new float[9];var valid=true;
         for(var row=0;row<3;row++)
         {
             var prefix="scene-frame-"+row+"-";var tag=selected.Tags.FirstOrDefault(value=>value.StartsWith(prefix,StringComparison.Ordinal));

@@ -44,9 +44,11 @@ public class SceneWorkingProfileTests
     }
 
     [Theory]
-    [InlineData(ColorDepth.Eight)]
-    [InlineData(ColorDepth.Sixteen)]
-    public void Neutral_scene_model_keeps_wide_gamut_subject_numbers_profile_detail_and_alpha(ColorDepth depth)
+    [InlineData(ColorDepth.Eight,false)]
+    [InlineData(ColorDepth.Eight,true)]
+    [InlineData(ColorDepth.Sixteen,false)]
+    [InlineData(ColorDepth.Sixteen,true)]
+    public void Neutral_scene_model_keeps_wide_gamut_subject_numbers_profile_detail_and_alpha(ColorDepth depth,bool materialAware)
     {
         var doc = new Document(640, 64) { Depth = depth, Profile = RgbProfile.DisplayP3 }; var session = new EditorSession(doc);
         session.AddBlankLayer(); session.Fill(SKColors.LightGray);
@@ -58,7 +60,7 @@ public class SceneWorkingProfileTests
         using var input = SceneEditInput.Prepare(doc, request);
         Assert.True(Pixels.IsSrgb8(input.Before)); Assert.True(Pixels.IsSrgb8(input.Background)); Assert.True(Pixels.IsSrgb8(input.ModelForeground));
         Assert.Equal(doc.Profile, Pixels.ProfileOf(input.Foreground)); Assert.Equal(depth, Pixels.DepthOf(input.Foreground));
-        var result = SceneEditResult.Extract(input, input.Before, request);
+        var result = SceneEditResult.Extract(input, input.Before, request,useMaterialAwareLighting:materialAware);
         try
         {
             var actual = Assert.Single(result.Layers).Pixels;

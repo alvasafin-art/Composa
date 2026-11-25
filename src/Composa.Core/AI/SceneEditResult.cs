@@ -1,3 +1,4 @@
+using System.Numerics;
 using Composa.Editing;
 using Composa.Rendering;
 using Composa.ColorManagement;
@@ -8,13 +9,13 @@ namespace Composa.AI;
 /// <summary>Extracts lighting on the original silhouette and only model-created darkening on the permitted floor.</summary>
 public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowPixels,int ContactCorrectionX=0,int ContactCorrectionY=0)
 {
-    public static SceneEditResult Extract(SceneEditInput input, SKBitmap generated, AiTaskRequest request, CancellationToken token = default,SKBitmap? reconstruction = null,double modelToDocument=1)
+    public static SceneEditResult Extract(SceneEditInput input, SKBitmap generated, AiTaskRequest request, CancellationToken token = default,SKBitmap? reconstruction = null,double modelToDocument=1,bool useMaterialAwareLighting=false)
     {
         if (!Pixels.IsSrgb8(generated) || reconstruction != null && !Pixels.IsSrgb8(reconstruction))
         {
             using var model = !Pixels.IsSrgb8(generated) ? Pixels.DisplayCopy(generated) : null;
             using var baselineCopy = reconstruction != null && !Pixels.IsSrgb8(reconstruction) ? Pixels.DisplayCopy(reconstruction) : null;
-            return Extract(input, model ?? generated, request, token, baselineCopy ?? reconstruction, modelToDocument);
+            return Extract(input, model ?? generated, request, token, baselineCopy ?? reconstruction, modelToDocument, useMaterialAwareLighting);
         }
         if(generated.Width!=input.Before.Width || generated.Height!=input.Before.Height)
             throw new InvalidDataException("The scene result must have the original document dimensions.");
@@ -37,7 +38,13 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
             var transfer=working.Transfer;
             var toModel=new LinearRgbTransform(working,RgbProfile.Srgb); var toWorking=new LinearRgbTransform(RgbProfile.Srgb,working);
             layers.Add(new(settings.PreserveDetails ? "Subject Lighting" : "Generated Subject",objectPixels,Tags:["scene-object",settings.PreserveDetails ? "original-details" : "generated-details"]));
-            var ratios=settings.PreserveDetails ? new SceneLightingMap(input,generated,baseline,token) : null;
+            var harmonize=request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
+            var matched = settings.PreserveDetails && useMaterialAwareLighting && harmonize
+                ? SceneMatchedLighting.TryCreate(input,baseline,generated,token)
+                : null;
+            var ratios=settings.PreserveDetails && matched==null
+                ? new SceneLightingMap(input,generated,baseline,token,useMaterialAwareLighting)
+                : null;
             for(var y=0;y<generated.Height;y++)
             {
                 token.ThrowIfCancellationRequested();
@@ -56,7 +63,12 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                         if(settings.PreserveDetails)
                         {
                             var rgb=toModel.Map(r,g,b);
-                            edited=toWorking.Map(rgb.R*highRatio.Item1,rgb.G*highRatio.Item2,rgb.B*highRatio.Item3);
+                            if (matched != null)
+                            {
+                                var relit = matched.Apply(x,y,new Vector3((float)rgb.R,(float)rgb.G,(float)rgb.B),fitSrgb:false);
+                                edited=toWorking.Map(relit.X,relit.Y,relit.Z);
+                            }
+                            else edited=toWorking.Map(rgb.R*highRatio.Item1,rgb.G*highRatio.Item2,rgb.B*highRatio.Item3);
                         }
                         else
                         {
@@ -76,20 +88,22 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
                     var desired=generated.GetPixel(x,y);
                     var ratio=ratios?.At(x,y) ?? (1d,1d,1d);
                     var background=input.Background.GetPixel(x,y);
-                    byte Channel(byte source,byte model,byte backdrop,double light)
+                    var relitSrgb = matched?.Apply(x,y,SceneLightingMap.LinearRgb(original),fitSrgb:true);
+                    byte Channel(byte source,byte model,byte backdrop,double light,float? matchedLight)
                     {
                         var a=alpha/255d;
-                        var edited=settings.PreserveDetails ? Linear(source)*light
+                        var originalLight=Linear(source);
+                        var edited=settings.PreserveDetails ? matchedLight ?? originalLight*light
                             : input.IsCutout ? Linear((byte)Math.Round(Math.Clamp((model-(1-a)*backdrop)/Math.Max(.01,a),0,255))) : Linear(model);
-                        return Encode(Linear(source)*(1-amount)+edited*amount);
+                        return Encode(originalLight*(1-amount)+edited*amount);
                     }
-                    objectPixels.SetPixel(x,y,new(Channel(original.Red,desired.Red,background.Red,ratio.Item1),
-                        Channel(original.Green,desired.Green,background.Green,ratio.Item2),Channel(original.Blue,desired.Blue,background.Blue,ratio.Item3),alpha));
+                    objectPixels.SetPixel(x,y,new(Channel(original.Red,desired.Red,background.Red,ratio.Item1,relitSrgb?.X),
+                        Channel(original.Green,desired.Green,background.Green,ratio.Item2,relitSrgb?.Y),
+                        Channel(original.Blue,desired.Blue,background.Blue,ratio.Item3,relitSrgb?.Z),alpha));
                 }
             }
             Pixels.Invalidate(objectPixels);
             if(input.WholeImage) return new(layers,0);
-            var harmonize=request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
             using var rawShadow=ExtractShadow(input,generated,baseline,settings,ratios,modelToDocument,harmonize,token,out var count);
             var shadow=SceneShadowContact.Anchor(rawShadow,input,modelToDocument,token,out count,out var correction,preserveConnectedContact:harmonize);
             if(count>0) layers.Insert(0,new("Contact and Cast Shadow",shadow,Tags:["scene-shadow","editable"]));
