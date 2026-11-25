@@ -4,6 +4,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Rendering.Composition;
+using Avalonia.Skia;
 using Composa.Editing;
 using SkiaSharp;
 
@@ -11,37 +13,41 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    // Small Win32 cursor shapes can travel on the system pointer path, including over RDP.
-    // Keep larger tips, pen input, smoothing trails, and clone markers on the canvas.
-    private const int MaxNativeCursorSide = 64;
+    // Win32 owns the negotiated cursor transport. Keep the bitmap within the
+    // large-pointer size supported by the Windows RDP protocol.
+    private const int MaxNativeCursorSide = 384;
     private PointerType brushCursorPointer;
     private StandardCursorType canvasCursorType = StandardCursorType.Arrow;
     private Cursor? nativeBrushCursor;
-    private NativeBrushShape? nativeBrushShape;
+    private BrushOutlineShape? nativeBrushShape;
     private bool nativeBrushCursorActive;
-    private bool nativeBrushCursorUnavailable;
+    private int nativeCursorSideLimit = MaxNativeCursorSide;
 
-    private readonly record struct NativeBrushShape(float Radius, float Edge, float Inner, float Roundness, float Angle, float Scaling)
+    private readonly record struct BrushOutlineShape(float Radius, float Roundness, float Angle, float Scaling)
     {
         internal bool Crosshair => Radius < 3 * Scaling;
-        internal int HalfExtent => (int)Math.Ceiling(Math.Max(Edge + 3, Crosshair ? 8 * Scaling : 0));
+        internal int HalfExtent => (int)Math.Ceiling(Math.Max(Radius + 2, Crosshair ? 8 * Scaling : 0));
     }
 
-    private NativeBrushShape? CurrentNativeBrushShape()
+    private BrushOutlineShape BrushOutline(EditorSession painting, float pressure)
     {
-        if (!OperatingSystem.IsWindows() || nativeBrushCursorUnavailable || canvasCursorType != StandardCursorType.None
+        var brush = painting.Brush;
+        var radius = (float)(brush.CursorRadius(pressure) * zoom);
+        return new BrushOutlineShape(radius, (float)brush.TipRoundness, (float)brush.TipAngle, (float)Scaling);
+    }
+
+    private BrushOutlineShape? CurrentNativeBrushShape()
+    {
+        if (!OperatingSystem.IsWindows() || canvasCursorType != StandardCursorType.None
             || !cursorInside || brushCursorPointer != PointerType.Mouse || spaceDown || controlHover || temporaryMove
             || session is not { Tool: Tool.Brush or Tool.Eraser } painting
             || (drag != Drag.None && (drag != Drag.Stroke || painting.Brush.Smoothing > 0))
             || TopLevel.GetTopLevel(this)?.TryGetPlatformHandle()?.HandleDescriptor != "HWND")
             return null;
 
-        var brush = painting.Brush;
-        var radius = (float)(brush.CursorRadius() * zoom);
-        var shape = new NativeBrushShape(radius, (float)(brush.Size * .5 * zoom), (float)(radius * brush.Hardness),
-            (float)brush.TipRoundness, (float)brush.TipAngle, (float)Scaling);
-        if (!float.IsFinite(shape.Edge) || shape.Edge < 0 || shape.Edge > MaxNativeCursorSide / 2f
-            || shape.HalfExtent * 2 + 1 > MaxNativeCursorSide)
+        var shape = BrushOutline(painting, 1);
+        if (!float.IsFinite(shape.Radius) || shape.Radius < 0 || shape.Radius > nativeCursorSideLimit / 2f
+            || shape.HalfExtent * 2 + 1 > nativeCursorSideLimit)
             return null;
 
         // Preserve viewport clipping when the outline overlaps the edge of the control.
@@ -49,35 +55,25 @@ public sealed partial class CanvasView
         return new Rect(Bounds.Size).Deflate(pad).Contains(cursorScreen) ? shape : null;
     }
 
-    private void InvalidateBrushCursor()
-    {
-        ApplyCanvasCursor();
-        if (!nativeBrushCursorActive) Child?.InvalidateVisual();
-    }
+    internal void InvalidateBrushCursor() => ApplyCanvasCursor();
 
     private void ApplyCanvasCursor(bool updateStandard = false)
     {
         if (CurrentNativeBrushShape() is { } shape && TryApplyNativeBrushShape(shape))
         {
-            if (!nativeBrushCursorActive)
-            {
-                nativeBrushCursorActive = true;
-                Child?.InvalidateVisual();
-            }
-            return;
+            nativeBrushCursorActive = true;
         }
-
-        // Guides, text and transform handles can set their own cursor directly.
-        if (updateStandard || (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor)))
-            Cursor = new Cursor(canvasCursorType);
-        if (nativeBrushCursorActive)
+        else
         {
+            // Guides, text and transform handles can set their own cursor directly.
+            if (updateStandard || (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor)))
+                Cursor = new Cursor(canvasCursorType);
             nativeBrushCursorActive = false;
-            Child?.InvalidateVisual();
         }
+        if (Child is BrushCursorOverlay overlay) overlay.Refresh();
     }
 
-    private bool TryApplyNativeBrushShape(NativeBrushShape shape)
+    private bool TryApplyNativeBrushShape(BrushOutlineShape shape)
     {
         if (shape == nativeBrushShape)
         {
@@ -86,7 +82,11 @@ public sealed partial class CanvasView
         }
         Cursor next;
         try { next = CreateNativeBrushCursor(shape); }
-        catch (Win32Exception) { nativeBrushCursorUnavailable = true; return false; }
+        catch (Win32Exception)
+        {
+            nativeCursorSideLimit = shape.HalfExtent * 2;
+            return false;
+        }
         var previous = nativeBrushCursor;
         nativeBrushCursor = next;
         nativeBrushShape = shape;
@@ -103,48 +103,146 @@ public sealed partial class CanvasView
         nativeBrushCursor?.Dispose();
         nativeBrushCursor = null;
         nativeBrushShape = null;
-        nativeBrushCursorUnavailable = false;
+        nativeCursorSideLimit = MaxNativeCursorSide;
         cursorInside = false;
     }
 
-    private static Cursor CreateNativeBrushCursor(NativeBrushShape shape)
+    private static Cursor CreateNativeBrushCursor(BrushOutlineShape shape)
     {
         var center = shape.HalfExtent;
         var side = 2 * center + 1;
         using var pixels = new SKBitmap(new SKImageInfo(side, side, SKColorType.Bgra8888, SKAlphaType.Premul));
         using (var canvas = new SKCanvas(pixels))
-        using (var stroke = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true })
-        using (var dashes = SKPathEffect.CreateDash([2, 3], 0))
         {
             canvas.Clear(SKColors.Transparent);
             canvas.Translate(center + .5f, center + .5f);
-            canvas.Save();
-            if (shape.Roundness != 1) canvas.RotateDegrees(-shape.Angle);
-            if (shape.Edge - shape.Radius > 1)
-            {
-                stroke.PathEffect = dashes;
-                Ring(shape.Edge, 1, SKColors.Black);
-                Ring(shape.Edge, 0, SKColors.White);
-                stroke.PathEffect = null;
-            }
-            if (!shape.Crosshair)
-            {
-                Ring(shape.Radius, 1, SKColors.Black);
-                Ring(shape.Radius, 0, SKColors.White);
-                if (shape.Inner > 2 * shape.Scaling && shape.Inner < shape.Radius - 2 * shape.Scaling)
-                    Ring(shape.Inner, 0, SKColors.White.WithAlpha(92));
-            }
-            canvas.Restore();
-            if (shape.Crosshair) DrawCrosshair(canvas, SKPoint.Empty, 1, 7 * shape.Scaling);
-
-            void Ring(float radius, float extra, SKColor color)
-            {
-                stroke.Color = color;
-                canvas.DrawOval(0, 0, radius + extra, radius * shape.Roundness + extra, stroke);
-            }
+            DrawBrushOutline(canvas, shape);
         }
         using var image = new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, pixels.GetPixels(),
             new PixelSize(side, side), new Vector(96, 96), pixels.RowBytes);
         return new Cursor(image, new PixelPoint(center, center));
+    }
+
+    private static void DrawBrushOutline(SKCanvas canvas, BrushOutlineShape shape)
+    {
+        if (shape.Crosshair)
+        {
+            DrawCrosshair(canvas, SKPoint.Empty, 1, 7 * shape.Scaling);
+            return;
+        }
+
+        using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, IsAntialias = true };
+        canvas.Save();
+        if (shape.Roundness != 1) canvas.RotateDegrees(-shape.Angle);
+        // Draw both colors on one centerline so there is one outline on any background.
+        stroke.Color = SKColors.Black;
+        stroke.StrokeWidth = 3;
+        canvas.DrawOval(0, 0, shape.Radius, shape.Radius * shape.Roundness, stroke);
+        stroke.Color = SKColors.White;
+        stroke.StrokeWidth = 1;
+        canvas.DrawOval(0, 0, shape.Radius, shape.Radius * shape.Roundness, stroke);
+        canvas.Restore();
+    }
+
+    private sealed partial class BrushCursorOverlay
+    {
+        private CompositionCustomVisual? outlineVisual;
+        private OutlineContent? outlineContent;
+        private bool drawsLegacy;
+
+        public void Refresh()
+        {
+            var wasLegacy = drawsLegacy;
+            var showOutline = false;
+            drawsLegacy = !view.nativeBrushCursorActive && view.IsBrushTool && view.cursorInside;
+            if (drawsLegacy && view.session is { Tool: Tool.Brush or Tool.Eraser } painting
+                && !view.spaceDown && !view.controlHover && !view.temporaryMove
+                && view.drag is Drag.None or Drag.Stroke
+                && ElementComposition.GetElementVisual(this) is { } element)
+            {
+                var shape = view.BrushOutline(painting, painting.BrushPressure);
+                if (float.IsFinite(shape.Radius) && shape.Radius >= 0)
+                {
+                    if (outlineVisual == null)
+                    {
+                        outlineVisual = element.Compositor.CreateCustomVisual(new OutlineRenderer());
+                        ElementComposition.SetElementChildVisual(this, outlineVisual);
+                    }
+                    var center = painting.BrushPosition is { } strokeCenter ? view.ToScreen(strokeCenter) : view.cursorScreen;
+                    var half = shape.HalfExtent / (double)shape.Scaling;
+                    outlineVisual.Offset = new((float)(center.X - half), (float)(center.Y - half), 0);
+                    outlineVisual.Size = new(2 * half, 2 * half);
+                    showOutline = true;
+                    var next = new OutlineContent(shape, view.brushCursorPointer == PointerType.Mouse);
+                    if (outlineContent != next)
+                    {
+                        outlineContent = next;
+                        outlineVisual.SendHandlerMessage(next);
+                    }
+                    drawsLegacy = false;
+                }
+            }
+            if (drawsLegacy || wasLegacy) InvalidateVisual();
+            if (outlineVisual != null) outlineVisual.Opacity = showOutline ? 1 : 0;
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            drawsLegacy = false;
+            if (outlineVisual != null)
+            {
+                outlineVisual.SendHandlerMessage(default(OutlineContent));
+                ElementComposition.SetElementChildVisual(this, null);
+                outlineVisual = null;
+                outlineContent = null;
+            }
+            base.OnDetachedFromVisualTree(e);
+        }
+    }
+
+    private readonly record struct OutlineContent(BrushOutlineShape Shape, bool Cache);
+
+    private sealed class OutlineRenderer : CompositionCustomVisualHandler
+    {
+        private OutlineContent content;
+        private SKImage? image;
+
+        public override void OnMessage(object message)
+        {
+            if (message is not OutlineContent next || content == next) return;
+            content = next;
+            image?.Dispose();
+            image = null;
+            Invalidate();
+        }
+
+        public override void OnRender(Avalonia.Media.ImmediateDrawingContext context)
+        {
+            if (content.Shape.Scaling <= 0 || context.TryGetFeature<ISkiaSharpApiLeaseFeature>() is not { } feature) return;
+            using var lease = feature.Lease();
+            var canvas = lease.SkCanvas;
+            var shape = content.Shape;
+            var half = shape.HalfExtent;
+            var side = 2 * half + 1;
+            if (content.Cache && side <= 768 && image == null)
+            {
+                using var surface = SKSurface.Create(new SKImageInfo(side, side, SKColorType.Bgra8888, SKAlphaType.Premul));
+                surface.Canvas.Clear(SKColors.Transparent);
+                surface.Canvas.Translate(half, half);
+                DrawBrushOutline(surface.Canvas, shape);
+                image = surface.Snapshot();
+            }
+
+            canvas.Save();
+            canvas.Scale(1 / shape.Scaling);
+            if (image != null)
+                canvas.DrawImage(image, 0, 0, new SKSamplingOptions(SKFilterMode.Linear));
+            else
+            {
+                canvas.Translate(half, half);
+                DrawBrushOutline(canvas, shape);
+            }
+            canvas.Restore();
+        }
     }
 }

@@ -446,7 +446,8 @@ public static class LayerEffectsRenderer
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.SurfaceAllocated("effect coverage", coverage);
 #endif
-        using (var coverageCanvas = new SKCanvas(coverage)) coverageCanvas.DrawBitmap(shown, 0, 0);
+        using (var coverageCanvas = new SKCanvas(coverage)) DrawBorrowed(coverageCanvas, shown);
+        coverage.SetImmutable();
 
         if (visible.Shadow is { Opacity: > 0 } shadow)
         {
@@ -489,10 +490,10 @@ public static class LayerEffectsRenderer
         if (visible.ColorOverlay is { Opacity: > 0 } overlay)
         {
             MixColorOverlay(shown, overlay, fillOpacity);
-            canvas.DrawBitmap(shown, 0, 0);
+            DrawBorrowed(canvas, shown);
         }
         else using (var fill = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round(Math.Clamp(fillOpacity, 0, 1) * 255)) })
-            canvas.DrawBitmap(shown, 0, 0, fill);
+            DrawBorrowed(canvas, shown, fill);
         if (visible.InnerGlow is { Opacity: > 0, Size: > 0 } innerGlow)
         {
             // The shape softened inward: what is inside it but not inside its blurred self, kept to the layer's own shape.
@@ -527,6 +528,16 @@ public static class LayerEffectsRenderer
         }
         canvas.Flush();
         return result;
+    }
+
+    private static void DrawBorrowed(SKCanvas canvas, SKBitmap bitmap, SKPaint? paint = null)
+    {
+        // These are synchronous raster draws. Borrow the temporary source pixels
+        // instead of asking DrawBitmap for an immutable copy of the whole patch.
+        using var pixmap = bitmap.PeekPixels();
+        using var image = SKImage.FromPixels(pixmap);
+        canvas.DrawImage(image, 0, 0, paint);
+        GC.KeepAlive(bitmap);
     }
 
     private static unsafe void MixColorOverlay(SKBitmap image, ColorOverlayEffect overlay, double fillOpacity)
@@ -597,7 +608,7 @@ public static class LayerEffectsRenderer
             // Work on the actual Alpha8 plane. Skia's general image-filter path for
             // morphology runs in color, even though every sample here is coverage.
             using var edge = DilateStrokeCoverage(coverage, reach);
-            canvas.DrawBitmap(edge, 0, 0);
+            DrawBorrowed(canvas, edge);
             canvas.DrawBitmap(coverage, 0, 0, cut);
         }
         else if (stroke.Inside)
@@ -620,6 +631,7 @@ public static class LayerEffectsRenderer
     // A square max kernel is separable. Vectorize contiguous samples in both
     // passes and clamp at the edge, like the Skia filter. Use the same Skia
     // DstOut blend in Ring for exact partial-alpha and antialiased coverage.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static SKBitmap DilateStrokeCoverage(SKBitmap coverage, int reach)
     {
         int width = coverage.Width, height = coverage.Height;
@@ -628,11 +640,12 @@ public static class LayerEffectsRenderer
         var source = coverage.GetPixelSpan();
         var horizontal = across.GetPixelSpan();
         var output = result.GetPixelSpan();
+        int sourceStride = coverage.RowBytes, horizontalStride = across.RowBytes, outputStride = result.RowBytes;
         int block = Vector<byte>.Count;
         for (int y = 0; y < height; y++)
         {
-            var input = source.Slice(y * coverage.RowBytes, width);
-            var row = horizontal.Slice(y * across.RowBytes, width);
+            var input = source.Slice(y * sourceStride, width);
+            var row = horizontal.Slice(y * horizontalStride, width);
             int x = 0;
             for (; x < Math.Min(reach, width); x++) row[x] = Edge(x, input);
             for (; x + block <= width - reach; x += block)
@@ -649,13 +662,13 @@ public static class LayerEffectsRenderer
         }
         for (int y = 0; y < height; y++)
         {
-            var row = output.Slice(y * result.RowBytes, width);
+            var row = output.Slice(y * outputStride, width);
             var top = Math.Max(0, y - reach);
             var bottom = Math.Min(height - 1, y + reach);
-            horizontal.Slice(top * across.RowBytes, width).CopyTo(row);
+            horizontal.Slice(top * horizontalStride, width).CopyTo(row);
             for (int k = top + 1; k <= bottom; k++)
             {
-                var input = horizontal.Slice(k * across.RowBytes, width);
+                var input = horizontal.Slice(k * horizontalStride, width);
                 int x = 0;
                 for (; x + block <= width; x += block)
                 {
@@ -682,6 +695,7 @@ public static class LayerEffectsRenderer
     private static void Tint(SKCanvas canvas, SKBitmap coverage, uint color, double opacity, SKColorSpace? workingSpace)
     {
         var tint = new SKColor(color).WithAlpha((byte)Math.Round(Math.Clamp(opacity, 0, 1) * 255));
+        coverage.SetImmutable();
         // The color-filter overload only accepts implicit sRGB. Compose shaders so wide-gamut
         // working colors survive, and the coverage still supplies exactly the mask's alpha.
         using var mask = coverage.ToShader();

@@ -40,19 +40,30 @@ public sealed partial class MainWindow
 
         public TipSample(BrushSettings brush, int side)
         {
-            this.brush = brush;
             this.side = side;
+            this.brush = ForSample(brush);
             Width = Height = side;
             IsHitTestVisible = false;
         }
 
         public void Update(BrushSettings settings)
         {
+            settings = ForSample(settings);
             if (brush == settings) return;
             brush = settings;
             ReleaseBitmap();
             InvalidateVisual();
         }
+
+        private BrushSettings ForSample(BrushSettings settings) => new()
+        {
+            Size = Math.Clamp(settings.Size, 1, side - 4),
+            Hardness = settings.Hardness,
+            Flow = settings.Flow,
+            Opacity = settings.Opacity,
+            Roundness = settings.TipRoundness,
+            Angle = settings.TipAngle
+        };
 
         public override void Render(DrawingContext context)
         {
@@ -97,7 +108,7 @@ public sealed partial class MainWindow
                 target.Brush = brush;
                 preview.Update(brush);
                 sample.Update(brush);
-                canvas.InvalidateCanvas();
+                canvas.InvalidateBrushCursor();
                 changed = true;
             }
 
@@ -141,7 +152,7 @@ public sealed partial class MainWindow
                 var entry = new Button { Classes = { "flat" }, Content = grid, HorizontalAlignment = HorizontalAlignment.Stretch,
                     HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 4),
                     Background = selected ? Palette.Selected : Brushes.Transparent };
-                entry.Click += (_, _) => { target.Brush = preset.Settings; RememberToolSettings(); flyout.Hide(); RebuildOptions(); canvas.InvalidateCanvas(); };
+                entry.Click += (_, _) => { target.Brush = preset.Settings; RememberToolSettings(); flyout.Hide(); RebuildOptions(); canvas.InvalidateBrushCursor(); };
                 list.Children.Add(entry);
             }
             list.Children.Add(Ui.Label(Locale.T("Built-in presets"), Palette.Secondary, 11));

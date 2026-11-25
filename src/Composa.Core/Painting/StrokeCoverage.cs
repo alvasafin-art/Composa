@@ -23,6 +23,10 @@ internal sealed class StrokeCoverage
         return tile.AsSpan((y & 63) * TileSize + (x & 63), length);
     }
 
+    internal ReadOnlySpan<ushort> ReadRowSegment(int x, int y, int length) =>
+        tiles[(y >> 6) * columns + (x >> 6)] is { } tile
+            ? tile.AsSpan((y & 63) * TileSize + (x & 63), length) : default;
+
     internal void CopyTo(SkiaSharp.SKRectI rect, Span<ushort> output)
     {
         for (var y = rect.Top; y < rect.Bottom; y++)

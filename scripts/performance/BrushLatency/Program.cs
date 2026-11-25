@@ -78,7 +78,8 @@ internal static class BrushLatency
         window.AddSession(session);
         window.SelectTool(Tool.Brush);
         session.Foreground = new SKColor(165, 32, 44);
-        session.Brush = new BrushSettings { Size = size, Hardness = .42, Flow = .62, Opacity = .85 };
+        var fullOutline = Environment.GetEnvironmentVariable("COMPOSA_PERF_FULL_OUTLINE") == "1";
+        session.Brush = new BrushSettings { Size = size, Hardness = .42, Flow = .62, Opacity = .85, FullCursor = fullOutline };
         window.Canvas.Fit();
         if (actualSize) window.Canvas.ZoomTo(1);
         var hwnd = window.TryGetPlatformHandle()!.Handle;
@@ -132,7 +133,7 @@ internal static class BrushLatency
         if (session.Revision != 9) throw new InvalidOperationException($"Expected nine committed strokes, got {session.Revision}.");
         var result = new
         {
-            scenario, size, editorGpu, editorDevice = GpuAcceleration.EditorDevice, remoteSession = GetSystemMetrics(0x1000) != 0,
+            scenario, size, fullOutline, editorGpu, editorDevice = GpuAcceleration.EditorDevice, remoteSession = GetSystemMetrics(0x1000) != 0,
             scaling = window.RenderScaling,
             screen = window.Screens.Primary!.Bounds.ToString(), window = window.ClientSize.ToString(), zoom = window.Canvas.Zoom,
             samples = samples.Select(s => new

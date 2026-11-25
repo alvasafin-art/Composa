@@ -199,7 +199,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
             // can shrink the next step but cannot place a dab behind this segment.
             var travelled = spacing * (1 - spacingPhase);
             var batch = collected;
-            if (batch == null && mode is (BrushMode.Paint or BrushMode.Erase) && !deferColor && length - travelled >= 3 * spacing)
+            if (batch == null && mode is (BrushMode.Paint or BrushMode.Erase)
+                && length - travelled >= (fullRadius >= StrokeCoverage.TileSize ? spacing : 3 * spacing)
+                && (fullRadius >= StrokeCoverage.TileSize || !deferColor))
                 batch = strokeStamps ??= new List<Stamp>(StampsPerBatch);
             while (travelled <= length)
             {
@@ -217,7 +219,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 travelled += spacing;
             }
             if (batch != null && collected == null) dirty = Geometry.Union(dirty, FlushStamps(batch));
-            if (deferColor && !dirty.IsEmpty) Recompute(dirty);
+            if (deferColor && batch == null && !dirty.IsEmpty) Recompute(dirty);
             spacingPhase = Math.Clamp((length - (travelled - spacing)) / spacing, 0, 1);
             last = point;
             lastPressure = pressure;
@@ -525,6 +527,12 @@ public sealed unsafe partial class BrushStroke : IDisposable
     private void RecomputeBand(SKRectI rect)
     {
         if (Working.ColorType == SKColorType.RgbaF32) { RecomputeHighPrecision(rect); return; }
+        if (Working.ColorType == SKColorType.Rgba8888 && selectionPixels == null && !LockTransparency
+            && mode is BrushMode.Paint or BrushMode.Erase)
+        {
+            RecomputePaintBand(rect);
+            return;
+        }
         var src = (byte*)original.GetPixels();
         var dst = (byte*)Working.GetPixels();
         var sourceStride = original.RowBytes;
@@ -605,6 +613,48 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 if (LockTransparency && !isMask) Pixels.PreserveAlpha(output + index, input[index + 3]);
             }
         }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private void RecomputePaintBand(SKRectI rect)
+    {
+        var src = (byte*)original.GetPixels();
+        var dst = (byte*)Working.GetPixels();
+        int sourceStride = original.RowBytes, outputStride = Working.RowBytes;
+        var opacity = (float)Math.Clamp(settings.Opacity, 0, 1);
+        float red = 0, green = 0, blue = 0, alpha = 0;
+        if (mode == BrushMode.Paint)
+        {
+            red = premulColor[0]; green = premulColor[1]; blue = premulColor[2]; alpha = premulColor[3];
+        }
+        for (var y = rect.Top; y < rect.Bottom; y++)
+        {
+            var input = src + (long)y * sourceStride;
+            var output = dst + (long)y * outputStride;
+            for (var x = rect.Left; x < rect.Right;)
+            {
+                var end = Math.Min(rect.Right, (x | (StrokeCoverage.TileSize - 1)) + 1);
+                var row = coverage.ReadRowSegment(x, y, end - x);
+                var index = x * 4;
+                x = end;
+                foreach (var value in row)
+                {
+                    if (value != 0)
+                    {
+                        var a = value / 257f / 255f * opacity;
+                        var keep = 1 - a;
+                        output[index] = Blend(input[index], red, a, keep);
+                        output[index + 1] = Blend(input[index + 1], green, a, keep);
+                        output[index + 2] = Blend(input[index + 2], blue, a, keep);
+                        output[index + 3] = Blend(input[index + 3], alpha, a, keep);
+                    }
+                    index += 4;
+                }
+            }
+        }
+
+        static byte Blend(byte from, float to, float amount, float keep) =>
+            (byte)(from * keep + to * amount + .5f);
     }
 
     private SKBitmap MakeBlurred()
