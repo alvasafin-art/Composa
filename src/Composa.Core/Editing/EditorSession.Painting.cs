@@ -229,7 +229,7 @@ public sealed partial class EditorSession
     /// <summary>Applies the ordered samples delivered together in a pointer event.</summary>
     public void ContinueStrokeSamples(ReadOnlySpan<(SKPoint Point, float Pressure)> points)
     {
-        if (stroke == null || strokeLayer == null) return;
+        if (stroke is not { } current || strokeLayer == null) return;
         if (points.Length < 2 || strokeMode is not (BrushMode.Paint or BrushMode.Erase))
         {
             foreach (var (point, pressure) in points) ContinueStroke(point, pressure);
@@ -249,11 +249,11 @@ public sealed partial class EditorSession
 #if CANVAS_PERFORMANCE
         var dabbing = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-        var changed = stroke.AddPoints(paintedPoints[..count]);
+        var changed = current.AddPoints(paintedPoints[..count]);
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.StageCompleted("brush dabs", dabbing);
 #endif
-        PublishStrokeDamage(changed);
+        PublishStrokeDamage(current, changed);
     }
 
     private SKPoint? TrackStrokePointer(SKPoint point, float pressure)
@@ -288,24 +288,30 @@ public sealed partial class EditorSession
 
     private void Paint(SKPoint point, float pressure)
     {
+        if (stroke is not { } current) return;
 #if CANVAS_PERFORMANCE
         var dabbing = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-        var changed = stroke!.AddPoint(strokeToLayer.MapPoint(point), PressureSensitive ? pressure : 1);
+        var changed = current.AddPoint(strokeToLayer.MapPoint(point), PressureSensitive ? pressure : 1);
 #if CANVAS_PERFORMANCE
         CanvasPerformanceTrace.StageCompleted("brush dabs", dabbing);
 #endif
+        if (!ReferenceEquals(stroke, current)) return;
         lastStrokeEnd = point;
-        PublishStrokeDamage(changed);
+        PublishStrokeDamage(current, changed);
     }
 
-    private void PublishStrokeDamage(SKRectI changed)
+    private void PublishStrokeDamage(BrushStroke current, SKRectI changed)
     {
-        if (changed.IsEmpty) return;
-        if (IsEditingComponent) Pixels.ConstrainChannels(stroke!.Working, strokeOriginal!, EditingRgbChannels, changed);
+        if (changed.IsEmpty || !ReferenceEquals(stroke, current) || strokeLayer is not { } layer) return;
+        if (IsEditingComponent)
+        {
+            Pixels.ConstrainChannels(current.Working, strokeOriginal!, EditingRgbChannels, changed);
+            if (!ReferenceEquals(stroke, current)) return;
+        }
         strokeEffectBase?.AddDamage(changed);
-        var area = Geometry.RoundOut(stroke!.ToDocument.MapRect(SKRect.Create(changed.Left, changed.Top, changed.Width, changed.Height)));
-        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(strokeLayer!) is { } effects)
+        var area = Geometry.RoundOut(current.ToDocument.MapRect(SKRect.Create(changed.Left, changed.Top, changed.Width, changed.Height)));
+        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) is { } effects)
         {
             // A reduced view can sample over the changed source pixels from an adjacent pixel.
             var halo = LayerEffectsRenderer.PatchHalo(effects) + (int)Math.Ceiling(2 / Math.Clamp(ViewZoom, .001, 1));
@@ -341,10 +347,11 @@ public sealed partial class EditorSession
 
     public void EndStroke()
     {
-        if (stroke == null || strokeLayer == null) return;
+        if (stroke is not { } current || strokeLayer == null) return;
         var layer = strokeLayer;
         // Smoothing leaves the brush short of the pointer; the stroke ends where the hand did.
         if (IsSmoothing && smoothingPointer is { } pointer && smoothingAnchor is { } anchor && pointer != anchor) Paint(pointer, strokePressure);
+        if (!ReferenceEquals(stroke, current)) return;
         if (stroke.Touched.IsEmpty)
         {
             SetTarget(layer, strokeOriginal!, constrainChannels: false);

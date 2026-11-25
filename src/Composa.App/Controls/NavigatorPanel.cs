@@ -20,7 +20,7 @@ public sealed class NavigatorPanel : UserControl
     private readonly CanvasView canvas;
     private readonly NavigatorPreview preview;
     private readonly SliderField zoom;
-    private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(120) };
+    private readonly DispatcherTimer timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
     private EditorSession? session;
     private bool attached, dirty = true;
     private RgbProfile displayProfile = RgbProfile.Srgb;
@@ -37,8 +37,8 @@ public sealed class NavigatorPanel : UserControl
         var body = new DockPanel(); DockPanel.SetDock(buttons, Dock.Bottom); body.Children.Add(buttons); body.Children.Add(preview); Content = body;
         timer.Tick += (_, _) =>
         {
-            // Keep the queued refresh until the stroke releases its live raster.
-            if (IsEffectivelyVisible && session?.IsStroking == true) return;
+            // Keep the queued refresh until the gesture releases the canvas.
+            if (IsEffectivelyVisible && (canvas.IsDragging || session?.IsStroking == true || session?.Transform != null)) return;
             timer.Stop();
             RefreshThumbnail();
         };

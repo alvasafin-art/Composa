@@ -511,6 +511,11 @@ public sealed partial class EditorSession
         }
     }
 
+    public bool TryRenderLayerMove(SKBitmap target, SKRectI viewport, SKRectI area, RenderView view) =>
+        Transform != null && !IsEditingChannel && VisibleRgbChannels == RgbChannels.All
+        && SoloLayerId == null && comparisonGroup == null && fontSample == null
+        && Transform.TryRenderMoveView(target, viewport, area, view);
+
     private RenderOptions? DisplayOptions()
     {
         var options = CurrentOptions();

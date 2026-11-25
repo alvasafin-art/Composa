@@ -1347,7 +1347,7 @@ public static partial class AiDialogs
                 if (lifetime.IsCancellationRequested) return;
                 RenderOperations();
                 if (body.SelectedIndex == 1) RenderModels();
-            });
+            }, Avalonia.Threading.DispatcherPriority.Background);
         }
         imageConnection.RouteChanged += QueueRefresh;
         textConnectionCheck.Changed += QueueRefresh;

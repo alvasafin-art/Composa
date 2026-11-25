@@ -10,6 +10,39 @@ namespace Composa.Core.Tests;
 public class ViewportBandTests
 {
     [Fact]
+    public void Layer_move_backdrop_matches_rendering_all_layers_at_each_position()
+    {
+        var document = new Document(1280, 1000);
+        for (var i = 0; i < 7; i++)
+        {
+            var pixels = Pixels.NewColor(1000, 800);
+            pixels.Erase(new SKColor((byte)(60 + i * 23), (byte)(112 + i * 10), 142, 204));
+            var layer = Layer.Raster($"Layer {i}", pixels);
+            layer.Transform = layer.Transform with { X = 13.5 + i * 15, Y = 20.25 + i * 12, Rotation = i };
+            layer.Opacity = .9;
+            if (i % 2 == 0) layer.Blend = BlendMode.Multiply;
+            document.Layers.Add(layer);
+        }
+        document.Layers[^1].Clipped = true;
+        document.SetActive(document.Layers[^2].Id);
+        var session = new EditorSession(document);
+        var view = new RenderView(.73f, new SKPoint(7.38f, 21.73f));
+        using var cached = Pixels.NewColor(800, 620);
+        using var full = Pixels.NewColor(cached.Width, cached.Height);
+        var viewport = cached.Info.Rect;
+        var edit = Assert.IsType<TransformEdit>(session.BeginTransform("Move"));
+        foreach (var offset in new[] { new SKPoint(45, -33), new SKPoint(-52, 91), SKPoint.Empty })
+        {
+            edit.MoveBy(offset.X, offset.Y);
+            Assert.True(session.TryRenderLayerMove(cached, viewport, viewport, view));
+            session.RenderView(full, viewport, view);
+            Assert.True(full.GetPixelSpan().SequenceEqual(cached.GetPixelSpan()));
+        }
+        session.CancelTransform();
+        Assert.False(session.TryRenderLayerMove(cached, viewport, viewport, view));
+    }
+
+    [Fact]
     public void A_spatial_adjustment_requires_a_full_visibility_refresh()
     {
         var session = EditorSession.NewCanvas(840, 640, SKColors.White);
