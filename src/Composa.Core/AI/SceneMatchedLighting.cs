@@ -118,6 +118,7 @@ internal sealed class SceneMatchedLighting
 
         var material = MaterialGuide(foreground, coverage, width, height, token);
         var corrections = Interpolate(samples, material, width, height, exposure, token);
+        RetainConfirmedHighlights(corrections, sourceImage, targetImage, token);
         return new(area, width, height, corrections);
     }
 
@@ -362,6 +363,40 @@ internal sealed class SceneMatchedLighting
             result[p] = new(mean * (support * agreement), exposure + cell.Exposure / (.24f + cell.ExposureWeight));
         }
         return result;
+    }
+
+    private static void RetainConfirmedHighlights(Vector4[] corrections, PatchImage source, PatchImage target,
+        CancellationToken token)
+    {
+        // A small highlight can be narrower than a registration patch. Keep it if
+        // the generated subject also shows it at the same position.
+        const float highlightStart = .45f;
+        const float highlightRange = .20f;
+        const float colorTolerance = .06f;
+        var width = source.Width;
+        var height = corrections.Length / width;
+        for (var y = 1; y < height - 1; y++)
+        {
+            token.ThrowIfCancellationRequested();
+            for (var x = 1; x < width - 1; x++)
+            {
+                var p = y * width + x;
+                var strength = Math.Clamp((source.Light[p] - highlightStart) / highlightRange, 0, 1);
+                if (strength == 0 || corrections[p].W >= 0 || !target.Core[p]) continue;
+
+                var support = 0f;
+                for (var dy = -1; dy <= 1; dy++)
+                    for (var dx = -1; dx <= 1; dx++)
+                    {
+                        var q = p + dy * width + dx;
+                        if (!target.Core[q] || source.Light[q] <= highlightStart) continue;
+                        var distance = Vector3.Distance(source.Rgb[q], target.Rgb[q]);
+                        support += Math.Clamp(1 - distance / colorTolerance, 0, 1);
+                    }
+
+                corrections[p].W *= 1 - strength * support / 9;
+            }
+        }
     }
 
     private static float[] GaussianKernel(float sigma, int radius, bool normalize = true)
