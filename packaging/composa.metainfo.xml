@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.12" date="2026-11-25" type="development">
+      <description><p>Model-specific prompt enhancement, improved document navigation and image references, and AI results that survive continued editing.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.11" date="2026-11-25" type="development">
       <description><p>Editable layer batches, layered Photoshop handoff, selection and Harmonize improvements, server Codex image operations, vertical and path type, and reduced brush latency.</p></description>
     </release>

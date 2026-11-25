@@ -45,6 +45,12 @@ public sealed partial class MainWindow
         ActionItem(scriptsMenu, "Script Editor…", () => ShowScriptEditor());
         ActionItem(scriptsMenu, "Run Script File…", () => _ = PickScriptToRun());
         ActionItem(scriptsMenu, "Scripts & Plugins…", ShowAutomationLibrary);
+        if (OperatingSystem.IsWindows())
+        {
+            var script = Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Send-to-Composa.jsx");
+            if (File.Exists(script))
+                ActionItem(scriptsMenu, "Open Photoshop Exchange Folder", () => _ = OpenContainingFolder(script));
+        }
         ActionItem(pluginsMenu, "Manage / Install Plugins…", ShowAutomationLibrary);
         scriptsMenu.Items.Add(new Separator()); pluginsMenu.Items.Add(new Separator());
         foreach (var entry in automation.Commands)

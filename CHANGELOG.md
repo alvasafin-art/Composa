@@ -4,6 +4,14 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.12] - 2026-11-25
+
+- Use model-specific prompt enhancement for image generation and editing, including the number of reference images.
+- Scroll document tabs, see canvas size and PPI in Document Info, and find Freehand and Polygonal Lasso in their own tool group. Show a crossed-out eye for layers hidden by their parent groups.
+- Drag layers into the AI panel as image references and insert numbered references in prompts.
+- Keep submitted AI jobs running while editing. When the document changes, add finished variants as new layers or groups while preserving the current edit.
+- Open the bundled Photoshop exchange folder from Scripts to find Send-to-Composa.jsx after a Windows Studio update.
+
 ## [1.3.0-preview.4.studio.17.11] - 2026-11-25
 
 - Distort a raster layer or independent mask by dragging an edge in Free Transform, and copy and paste multiple layers as an editable batch.
