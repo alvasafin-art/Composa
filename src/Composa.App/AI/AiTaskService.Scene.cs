@@ -8,7 +8,7 @@ namespace Composa.App.AI;
 public sealed partial class AiTaskService
 {
     private async Task RunDirectSceneAsync(IEditorCommandService editor, DirectImageGenerator generator, AiTaskRequest request,
-        Action ensureUnchanged, CancellationToken token, Action<ImageApiRate> onCharge)
+        Func<bool> targetAvailable, long initialState, Guid? initialLayer, CancellationToken token, Action<ImageApiRate> onCharge)
     {
         request = request with { Scene = request.Scene.Normalized(),
             AdditionalPrompt = AdditionalPromptForPack?.Invoke(generator.Id) ?? AdditionalPrompt() };
@@ -56,8 +56,10 @@ public sealed partial class AiTaskService
                     results.Add(await Task.Run(() => SceneEditResult.Extract(scene, generated, request, token), token));
                 }
             }
-            ensureUnchanged();
-            editor.Session.InsertSceneEdit(request.Task, scene.SourceLayerId, results, scene.IsCutout, scene.WholeImage, scene.PreviousResultIds, scene.SourceFrame);
+            await WaitForResultTargetAsync(editor.Session, targetAvailable, token);
+            var layerOnly = ResultNeedsSeparateLayer(editor.Session, initialState, initialLayer);
+            editor.Session.InsertSceneEdit(request.Task, scene.SourceLayerId, results, scene.IsCutout, scene.WholeImage,
+                scene.PreviousResultIds, scene.SourceFrame, layerOnly: layerOnly);
             applied = true;
             var noShadow = request.Task != AiTaskKind.ChangeBackground && !scene.WholeImage && request.Scene.AddShadows
                 && request.Scene.MatchMode == SceneMatchMode.LightAndShadows && results.All(result => result.ShadowPixels == 0);
@@ -66,14 +68,14 @@ public sealed partial class AiTaskService
 
             async Task<SKBitmap> Generate(AiTaskInputs source, SKBitmap? mask, int index, string stage)
             {
-                ensureUnchanged();
+                EnsureTargetAvailable(targetAvailable, token);
                 Operation = new() { Status = AiOperationStatus.Running, Stage = $"Variant {index + 1}/{request.Settings.Variants} · {stage}" };
                 StateChanged?.Invoke();
                 using var frame = await Task.Run(() => new DirectImageEdit(source, edit), token);
                 var native = mask != null && generator.UsesNativeMask;
                 var files = await Task.Run(() => frame.Encode(source, mask, native, token), token);
                 var prompt = mask == null || native ? source.Prompt : "The final image is the mask. Edit only its white area. " + source.Prompt;
-                ensureUnchanged();
+                EnsureTargetAvailable(targetAvailable, token);
                 var image = await generator.GenerateAsync(prompt, frame.Width, frame.Height, token, files: files, onCharge: onCharge);
                 return await Task.Run(() => frame.Finish(image));
             }
@@ -86,7 +88,7 @@ public sealed partial class AiTaskService
         }
     }
 
-    private async Task RunSceneAsync(IEditorCommandService editor,AiTaskRequest request,CancellationToken token)
+    private async Task RunSceneAsync(IEditorCommandService editor, AiTaskRequest request, Func<bool>? targetAvailable, CancellationToken token)
     {
         var engine=EngineFor(request.Task,request.EngineId);
         if(engine==null && request.Task==AiTaskKind.MatchToScene) engine=EngineFor(AiTaskKind.Harmonize,request.EngineId);
@@ -186,22 +188,16 @@ public sealed partial class AiTaskService
             if(useImageReferences) images.Remove("sceneMask");
             if(native?.BackgroundReference is { } backdrop) images["sceneBackground"]=backdrop;
             if(native!=null) for(var reference=0;reference<native.ReferenceImages.Count;reference++) images["referenceImage"+(reference+1)]=native.ReferenceImages[reference];
-            if(editor.Session.History.CurrentId!=state || editor.Session.Document.ActiveLayerId!=source || LiveInteraction())
-                throw new InvalidOperationException("The document changed while preparing the scene. No generation was submitted.");
+            EnsureTargetAvailable(targetAvailable, linked.Token);
             _=Bind(images.ToDictionary(item=>item.Key,_=>"scene-preflight.png"),0,native,partner,false);
             if(useImageReferences && request.Task==AiTaskKind.ChangeBackground)
                 _=Bind(new Dictionary<string,string> {{"sourceImage","plate-preflight.png"}},0,native,null,true);
             var uploaded=new Dictionary<string,string>();
             foreach(var (key,image) in images) uploaded[key]=await client.UploadPngAsync(key,image,linked.Token);
             double? credits=null;
-            void EnsureUnchanged()
-            {
-                if(editor.Session.History.CurrentId!=state || editor.Session.Document.ActiveLayerId!=source || LiveInteraction())
-                    throw new InvalidOperationException("The document changed during scene editing. No further request was submitted and no result was applied.");
-            }
             async Task<SceneGeneration> Generate(SceneEditingWorkflow? stageNative,PartnerImageInputs? stagePartner,IReadOnlyDictionary<string,string> files,int variant,bool cleanup)
             {
-                EnsureUnchanged();
+                EnsureTargetAvailable(targetAvailable, linked.Token);
                 var progress=new Progress<AiOperationState>(update=>
                 {
                     if(!ReferenceEquals(running,linked)||linked.IsCancellationRequested) return;
@@ -228,7 +224,7 @@ public sealed partial class AiTaskService
                         }
                         if (!qwen && request.AlignMaskedEdits && (request.Task != AiTaskKind.ChangeBackground || cleanup))
                             await Task.Run(() => AiSeamlessFinisher.AlignEdit(image, baseline ?? stagePartner!.SourceReference), linked.Token);
-                        EnsureUnchanged();return new(image,baseline);
+                        return new(image,baseline);
                     }
                     catch {image?.Dispose();baseline?.Dispose();throw;}
                 }
@@ -264,10 +260,10 @@ public sealed partial class AiTaskService
                 }
                 results.Add(result);
             }
-            linked.Token.ThrowIfCancellationRequested();
-            if(editor.Session.History.CurrentId!=state || editor.Session.Document.ActiveLayerId!=source || LiveInteraction())
-                throw new InvalidOperationException("The document changed during generation. Results were not applied; retry after finishing the edit.");
-            editor.Session.InsertSceneEdit(request.Task,scene.SourceLayerId,results,scene.IsCutout,scene.WholeImage,scene.PreviousResultIds,scene.SourceFrame);
+            await WaitForResultTargetAsync(editor.Session, targetAvailable, linked.Token);
+            var layerOnly = ResultNeedsSeparateLayer(editor.Session, state, source);
+            editor.Session.InsertSceneEdit(request.Task, scene.SourceLayerId, results, scene.IsCutout, scene.WholeImage,
+                scene.PreviousResultIds, scene.SourceFrame, layerOnly: layerOnly);
             applied=true;
             var noShadow=request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight && !scene.WholeImage && request.Scene.AddShadows && request.Scene.MatchMode==SceneMatchMode.LightAndShadows && results.All(result=>result.ShadowPixels==0);
             Operation=new() {Status=AiOperationStatus.Completed,Stage=noShadow ? "Completed · no reliable cast shadow detected" : "Completed",CreditsUsed=credits}; StateChanged?.Invoke();

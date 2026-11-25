@@ -199,23 +199,33 @@ public class AiVariantsTests
     }
 
     [Fact]
-    public async Task Editing_during_generation_does_not_apply_a_result_to_another_history_state()
+    public async Task Editing_during_generation_keeps_all_requested_variants_in_a_new_group()
     {
-        var session = EditorSession.NewCanvas(48, 32); var fake = new Connection { DuringExecute = () => session.AddBlankLayer() };
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Service(fake).RunAsync(new EditorCommandService(session),
-            new AiTaskRequest { Task = AiTaskKind.GenerateImage }, TestContext.Current.CancellationToken));
-        Assert.Contains("document changed", error.Message); Assert.Equal(2, session.Document.Layers.Count); Assert.DoesNotContain(session.Document.Layers, layer => layer.Tags.Contains("ai-generated"));
+        var session = EditorSession.NewCanvas(48, 32);
+        var fake = new Connection { DuringExecute = () => { if (session.Document.Layers.Count == 1) session.AddBlankLayer(); } };
+        await Service(fake).RunAsync(new EditorCommandService(session),
+            new AiTaskRequest { Task = AiTaskKind.GenerateImage, Settings = new() { Variants = 3, VariantMode = AiVariantMode.List } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, fake.Graphs.Count);
+        Assert.Equal(3, session.Document.Layers.Count);
+        Assert.Equal(3, session.AiVariantGroup!.Children.Count);
+        session.Undo();
+        Assert.Equal(2, session.Document.Layers.Count);
     }
 
     [Fact]
-    public async Task Switching_active_layer_during_generation_does_not_insert_above_a_different_target()
+    public async Task Switching_active_layer_during_generation_inserts_a_new_top_level_layer()
     {
         var session = EditorSession.NewCanvas(48, 32); var first = session.ActiveLayer!.Id; session.AddBlankLayer();
         var history = session.History.CurrentId;
         var fake = new Connection { DuringExecute = () => session.SelectLayer(first) };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(fake).RunAsync(new EditorCommandService(session),
-            new AiTaskRequest { Task = AiTaskKind.GenerateImage }, TestContext.Current.CancellationToken));
-        Assert.Equal(history, session.History.CurrentId); Assert.Equal(2, session.Document.Layers.Count);
+        await Service(fake).RunAsync(new EditorCommandService(session),
+            new AiTaskRequest { Task = AiTaskKind.GenerateImage }, TestContext.Current.CancellationToken);
+        Assert.Equal(3, session.Document.Layers.Count);
+        Assert.Contains("ai-generated", session.Document.Layers[^1].Tags);
+        session.Undo();
+        Assert.Equal(history, session.History.CurrentId);
+        Assert.Equal(2, session.Document.Layers.Count);
     }
 
     [Theory]
