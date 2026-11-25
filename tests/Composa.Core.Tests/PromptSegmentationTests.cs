@@ -8,6 +8,63 @@ namespace Composa.Core.Tests;
 
 public class PromptSegmentationTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Loose_box_recovers_contents_only_when_a_new_prompt_confirms_the_assembly(bool contained)
+    {
+        const int width = 100, height = 80;
+        var planes = new float[2 * width * height];
+        var proposed = new float[width * height];
+        Array.Fill(planes, -1f);
+        Array.Fill(proposed, -1f);
+        for (int y = 23; y < 57; y++)
+            for (int x = 20; x < 80; x++)
+            {
+                if (x < 24 || x >= 76 || y < 27 || y >= 53)
+                    planes[y * width + x] = 1;
+                if (x >= 23 && x < 77 && y >= 26 && y < 54)
+                    proposed[y * width + (contained ? x : x + 20)] = 1;
+            }
+
+        var result = BoxMaskCandidates.Resolve(planes, [.9f, .55f], 0, width, height,
+            new SKRectI(4, 4, 96, 76), default, reframe: _ => proposed);
+
+        Assert.Equal(contained, result[40 * width + 50] > 0);
+        Assert.True(result[40 * width + 22] > 0);
+        Assert.True(result[40 * width + 88] < 0);
+    }
+
+    [Fact]
+    public void Backdrop_consensus_recovers_a_supported_extension_and_drops_an_open_run()
+    {
+        const int width = 100, height = 100;
+        var foreground = new float[width * height];
+        var backdrop = new float[width * height];
+        Array.Fill(foreground, -1f);
+        Array.Fill(backdrop, 1f);
+        for (int y = 20; y < 77; y++)
+            for (int x = 20; x < 55; x++)
+            {
+                foreground[y * width + x] = 1;
+                backdrop[y * width + x] = -1;
+            }
+        for (int y = 42; y < 58; y++)
+            for (int x = 55; x < 58; x++)
+                backdrop[y * width + x] = -1;
+        for (int y = 79; y < 83; y++)
+            for (int x = 47; x < width; x++)
+                backdrop[y * width + x] = -1;
+
+        var repaired = BackdropMaskCandidates.Recover(backdrop, [.85f], width, height, foreground,
+            new SKRectI(8, 10, 72, 91), _ => throw new InvalidOperationException(), default);
+
+        Assert.NotNull(repaired);
+        Assert.True(repaired[49 * width + 57] > 0);
+        Assert.True(repaired[80 * width + 57] < 0);
+        Assert.True(repaired[20 * width + 20] > 0);
+    }
+
     [Fact]
     public void Recheck_edge_band_when_it_has_erased_the_interior_of_a_row_of_thin_solids()
     {

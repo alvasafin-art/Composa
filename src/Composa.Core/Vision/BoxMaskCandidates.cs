@@ -10,7 +10,7 @@ internal static class BoxMaskCandidates
     // its contents. Use the alternatives only when their geometry supports the gesture.
     internal static float[] Resolve(float[] masks, float[] scores, int best, int width, int height,
         SKRectI prompt, CancellationToken cancellation, Func<float[]?>? interiorCandidate = null,
-        Func<float[]?>? guidedCandidate = null)
+        Func<float[]?>? guidedCandidate = null, Func<SKRectI, float[]?>? reframe = null)
     {
         int size = width * height;
         var result = masks.AsSpan(best * size, size).ToArray();
@@ -93,6 +93,21 @@ internal static class BoxMaskCandidates
             result[box.MidY * width + box.MidX] <= 0 && interiorCandidate?.Invoke() is { } whole &&
             DescribesAssembly(whole, 0, new Footprint(whole, 0, width, box, step, cancellation), false))
             Merge(whole, 0);
+        // Reframe on the detected rim when a loose box does not include a usable
+        // contents hypothesis. Require the new contents to stay inside the rim.
+        if (reframe != null && inside < .45 * primary.Samples && primary.SurroundsCentre &&
+            result[box.MidY * width + box.MidX] <= 0)
+        {
+            var extent = BackdropMaskCandidates.Bounds(result, width, height, cancellation);
+            if (box.Contains(extent))
+            {
+                var target = extent;
+                target.Inflate(Math.Max(2, extent.Width / 24), Math.Max(2, extent.Height / 24));
+                if (reframe(SKRectI.Intersect(target, box)) is { } reframed &&
+                    DescribesAssembly(reframed, 0, new Footprint(reframed, 0, width, box, step, cancellation), true))
+                    Merge(reframed, 0);
+            }
+        }
         if (inside > .5 * primary.Samples && result[box.MidY * width + box.MidX] > 0)
             RemoveDisputedNeighbor(result, masks, scores, best, width, height, box, cancellation);
         return result;
