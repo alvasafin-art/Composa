@@ -5,6 +5,64 @@ namespace Composa.Rendering;
 
 internal sealed unsafe partial class OpenClDevice
 {
+    internal bool TryStrokeRing(SKBitmap source, SKBitmap destination, int reach, bool inside)
+    {
+        var bytes = (ulong)source.Width * (ulong)source.Height;
+        if (source.RowBytes != source.Width || destination.RowBytes != source.RowBytes
+            || bytes > maxAllocation || bytes * 3 > workingBytes || !Monitor.TryEnter(gate)) return false;
+        nint original = 0, first = 0, second = 0;
+        try
+        {
+            if (disposed) return false;
+            original = Buffer((nuint)bytes, source.GetPixels());
+            first = Buffer((nuint)bytes, 0);
+            second = Buffer((nuint)bytes, 0);
+            var input = original;
+            var output = first;
+            Arg(strokeRing, 2, original);
+            Arg(strokeRing, 3, source.Width); Arg(strokeRing, 4, source.Height);
+            Arg(strokeRing, 6, inside ? 1 : 0);
+            for (var axis = 0; axis < 2; axis++)
+            {
+                Arg(strokeRing, 7, axis);
+                for (var radius = 0; radius < reach;)
+                {
+                    // Taking the min or max of three shifted windows extends the accumulated
+                    // radius while their union stays contiguous. Each pass reads three taps.
+                    var shift = Math.Min(2 * radius + 1, reach - radius);
+                    radius += shift;
+                    Arg(strokeRing, 0, input); Arg(strokeRing, 1, output);
+                    Arg(strokeRing, 5, shift); Arg(strokeRing, 8, axis == 1 && radius == reach ? 1 : 0);
+                    Dispatch(strokeRing, (nuint)bytes);
+                    input = output;
+                    output = output == first ? second : first;
+                }
+            }
+            ReadBuffer(input, (nuint)bytes, destination.GetPixels());
+            return true;
+        }
+        catch (InvalidOperationException error)
+        {
+            Trace.WriteLine($"OpenCL layer stroke fell back to CPU: {error.Message}");
+            ReleaseBuffers();
+            Dispose();
+            return false;
+        }
+        finally
+        {
+            ReleaseBuffers();
+            Monitor.Exit(gate);
+        }
+
+        void ReleaseBuffers()
+        {
+            Release("clReleaseMemObject", original);
+            Release("clReleaseMemObject", first);
+            Release("clReleaseMemObject", second);
+            original = first = second = 0;
+        }
+    }
+
     internal bool TryAlphaBlur(SKBitmap source, SKBitmap destination, int dx, int dy, int window)
     {
         var bytes = (ulong)source.Width * (ulong)source.Height;
@@ -57,6 +115,29 @@ internal sealed unsafe partial class OpenClDevice
 
     private const string EditorKernelSource = """
         #pragma OPENCL FP_CONTRACT OFF
+
+        __kernel void stroke_ring_step(__global const uchar* source, __global uchar* target,
+                                       __global const uchar* original, int width, int height,
+                                       int shift, int inside, int vertical, int finish)
+        {
+            int i = get_global_id(0);
+            int x = i % width, y = i / width;
+            int p = vertical ? y : x;
+            int end = (vertical ? height : width) - 1;
+            int stride = vertical ? width : 1;
+            uint a = source[i + (max(0, p - shift) - p) * stride];
+            uint b = source[i];
+            uint c = source[i + (min(end, p + shift) - p) * stride];
+            uint filtered = inside ? min(min(a, b), c) : max(max(a, b), c);
+            // Skia erodes against transparent pixels beyond the layer's bounds.
+            if (inside && (p - shift < 0 || p + shift > end)) filtered = 0;
+            if (finish) {
+                uint base = original[i];
+                // Isolate the inside or outside ring with the same DstOut as the raster path.
+                filtered = inside ? (base * (255 - filtered) + 127) / 255 : (filtered * (255 - base) + 127) / 255;
+            }
+            target[i] = filtered;
+        }
 
         uint alpha_sample(__global const uchar* source, int line, int position, int begin, int width, int length, int horizontal)
         {

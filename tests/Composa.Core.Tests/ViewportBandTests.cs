@@ -10,6 +10,37 @@ namespace Composa.Core.Tests;
 public class ViewportBandTests
 {
     [Fact]
+    public void Native_viewport_draw_list_retains_the_position_and_mask_at_capture()
+    {
+        var document = new Document(600, 520);
+        using var background = Pixels.NewColor(600, 520);
+        background.Erase(SKColors.Navy);
+        document.Layers.Add(Layer.Raster("Background", background));
+        using var source = Pixels.NewColor(200, 200);
+        source.Erase(SKColors.Orange);
+        using var mask = Pixels.NewMask(200, 200, 51);
+        var layer = Layer.Raster("Masked", source, 20, 24);
+        layer.Mask = mask;
+        var group = Layer.Group("Isolated");
+        group.Blend = BlendMode.Normal;
+        group.Opacity = .8;
+        group.Children.Add(layer);
+        document.Layers.Add(group);
+        var view = new RenderView(.5f, SKPoint.Empty);
+        using var reference = Pixels.NewColor(300, 260);
+        using var replay = Pixels.NewLike(reference);
+        DocumentRenderer.Render(document, reference, reference.Info.Rect, view);
+        var scene = Assert.IsType<DocumentRenderer.ViewportScene>(DocumentRenderer.CaptureViewport(document, new(300, 260), view));
+
+        layer.Transform = layer.Transform with { X = 240 };
+        layer.Mask = null;
+        using (var canvas = new SKCanvas(replay)) scene.Draw(canvas);
+        Assert.True(reference.GetPixelSpan().SequenceEqual(replay.GetPixelSpan()));
+        document.Depth = ColorDepth.Sixteen;
+        Assert.Null(DocumentRenderer.CaptureViewport(document, new(300, 260), view));
+    }
+
+    [Fact]
     public void Layer_move_backdrop_matches_rendering_all_layers_at_each_position()
     {
         var document = new Document(1280, 1000);

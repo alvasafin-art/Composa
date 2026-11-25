@@ -5,19 +5,23 @@ using SkiaSharp;
 
 namespace Composa.Rendering;
 
+internal readonly record struct GpuBrushPixels(SKBitmap Source, SKBitmap Destination, SKColorF Color, float Opacity);
+
 internal sealed unsafe partial class OpenClDevice
 {
     internal bool HasPaint => paint != 0;
 
     internal bool TryBrushCoverage(StrokeCoverage coverage, SKRectI area, SKPoint center, float radius, float hardness,
-        float[] falloff, float flow, out bool changed)
+        float[] falloff, float flow, out bool changed, GpuBrushPixels? paintPixels = null)
     {
         changed = false;
         var pixels = area.Width * area.Height;
         var bytes = (ulong)pixels * sizeof(ushort);
-        if (brushCoverage == 0 || bytes > maxAllocation || bytes + (ulong)falloff.Length * sizeof(float) > workingBytes
+        var paintBytes = paintPixels.HasValue ? (ulong)pixels * 4 : 0;
+        if (brushCoverage == 0 || bytes > maxAllocation || paintBytes > maxAllocation
+            || bytes + paintBytes + (ulong)falloff.Length * sizeof(float) > workingBytes
             || !Monitor.TryEnter(gate)) return false;
-        nint mask = 0, table = 0;
+        nint mask = 0, table = 0, color = 0;
         ushort[]? staging = null;
         try
         {
@@ -26,13 +30,22 @@ internal sealed unsafe partial class OpenClDevice
             coverage.CopyTo(area, staging.AsSpan(0, pixels));
             fixed (ushort* data = staging) mask = Buffer((nuint)bytes, (nint)data);
             fixed (float* data = falloff) table = Buffer((nuint)falloff.Length * sizeof(float), (nint)data);
+            if (paintPixels is { } job)
+            {
+                color = Buffer((nuint)paintBytes, 0);
+                WriteRows(color, job.Source, area);
+            }
             Arg(brushCoverage, 0, mask); Arg(brushCoverage, 1, table);
             Arg(brushCoverage, 2, area.Width); Arg(brushCoverage, 3, area.Left); Arg(brushCoverage, 4, area.Top);
             Arg(brushCoverage, 5, center.X); Arg(brushCoverage, 6, center.Y);
             Arg(brushCoverage, 7, radius); Arg(brushCoverage, 8, hardness); Arg(brushCoverage, 9, flow);
             Arg(brushCoverage, 10, falloff.Length - 1);
             Dispatch(brushCoverage, (nuint)pixels);
+            if (paintPixels is { } dab) PaintPass(color, mask, dab.Color, dab.Opacity, pixels);
             fixed (ushort* data = staging) ReadBuffer(mask, (nuint)bytes, (nint)data);
+            // Both results are ready before the CPU stroke is updated. On a device failure
+            // the ordinary CPU dab can still start from the original coverage and pixels.
+            if (paintPixels is { } output) DownloadRows(color, output.Destination, area, (int)paintBytes);
             changed = coverage.CopyFrom(area, staging.AsSpan(0, pixels));
             return true;
         }
@@ -41,7 +54,8 @@ internal sealed unsafe partial class OpenClDevice
             Trace.WriteLine($"OpenCL brush coverage fell back to CPU: {error.Message}");
             Release("clReleaseMemObject", table);
             Release("clReleaseMemObject", mask);
-            table = mask = 0;
+            Release("clReleaseMemObject", color);
+            table = mask = color = 0;
             Dispose();
             return false;
         }
@@ -50,6 +64,7 @@ internal sealed unsafe partial class OpenClDevice
             if (staging != null) ArrayPool<ushort>.Shared.Return(staging);
             Release("clReleaseMemObject", table);
             Release("clReleaseMemObject", mask);
+            Release("clReleaseMemObject", color);
             Monitor.Exit(gate);
         }
     }
@@ -76,9 +91,7 @@ internal sealed unsafe partial class OpenClDevice
             finally { ArrayPool<ushort>.Shared.Return(amounts); }
 
             WriteRows(input, source, area);
-            Arg(paint, 0, input); Arg(paint, 1, mask);
-            Arg(paint, 2, color); Arg(paint, 3, opacity);
-            Dispatch(paint, (nuint)pixels);
+            PaintPass(input, mask, color, opacity, pixels);
             DownloadRows(input, destination, area, (int)bytes);
             GC.KeepAlive(source);
             return true;
@@ -99,6 +112,13 @@ internal sealed unsafe partial class OpenClDevice
             Release("clReleaseMemObject", input);
             Monitor.Exit(gate);
         }
+    }
+
+    private void PaintPass(nint buffer, nint mask, SKColorF color, float opacity, int pixels)
+    {
+        Arg(paint, 0, buffer); Arg(paint, 1, mask);
+        Arg(paint, 2, color); Arg(paint, 3, opacity);
+        Dispatch(paint, (nuint)pixels);
     }
 
     private void WriteRows(nint buffer, SKBitmap source, SKRectI area)

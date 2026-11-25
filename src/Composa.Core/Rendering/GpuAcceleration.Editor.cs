@@ -54,19 +54,50 @@ public static partial class GpuAcceleration
         return false;
     }
 
+    internal static bool TryStrokeRing(SKBitmap source, SKBitmap destination, int reach, bool inside)
+    {
+        if (!editorEnabled || reach < 9 || (long)source.Width * source.Height < 200_000
+            || RequestEditorDevice() is not { StrokeRingAvailable: true } backend) return false;
+#if CANVAS_PERFORMANCE
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+        if (!backend.TryStrokeRing(source, destination, reach, inside)) return false;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("GPU layer stroke", started);
+#endif
+        return true;
+    }
+
+    private static bool ValidateStrokeRing(OpenClDevice backend)
+    {
+        using var source = Pixels.NewMask(73, 91);
+        using var output = Pixels.NewLike(source);
+        new Random(45).NextBytes(source.GetPixelSpan());
+        foreach (var inside in new[] { false, true })
+        foreach (var reach in new[] { 9, 30 })
+        {
+            using var reference = Pixels.NewLike(source);
+            LayerEffectsRenderer.DrawStrokeRing(source, reference, reach, inside);
+            if (!backend.TryStrokeRing(source, output, reach, inside)
+                || !reference.GetPixelSpan().SequenceEqual(output.GetPixelSpan())) return false;
+        }
+        return true;
+    }
+
     internal static bool TryCoverage(StrokeCoverage coverage, SKRectI area, SKPoint center, float radius, float hardness,
-        float[] falloff, float flow, out bool changed)
+        float[] falloff, float flow, out bool changed, GpuBrushPixels? pixels = null)
     {
         changed = false;
         if (!editorEnabled || (long)area.Width * area.Height is < 100_000 or > 2_000_000
             || radius <= 2 || radius * (1 - hardness) < 1
-            || RequestEditorDevice() is not { CoverageAvailable: true } backend) return false;
+            || RequestEditorDevice() is not { CoverageAvailable: true } backend
+            || pixels.HasValue && !backend.PaintAvailable) return false;
 #if CANVAS_PERFORMANCE
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-        if (!backend.TryBrushCoverage(coverage, area, center, radius, hardness, falloff, flow, out changed)) return false;
+        if (!backend.TryBrushCoverage(coverage, area, center, radius, hardness, falloff, flow, out changed, pixels)) return false;
 #if CANVAS_PERFORMANCE
-        CanvasPerformanceTrace.StageCompleted("GPU brush coverage", started);
+        CanvasPerformanceTrace.StageCompleted(pixels.HasValue ? "GPU brush coverage and pixels" : "GPU brush coverage", started);
 #endif
         return true;
     }

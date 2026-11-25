@@ -86,6 +86,7 @@ public sealed partial class CanvasView : Decorator
         DetachedFromVisualTree += (_, _) =>
         {
             antsTimer.Stop();
+            navigationPreview?.Stop();
             antsRedrawPending = false;
             ReleaseNativeBrushCursor();
             ReleaseViewportImage();
@@ -153,6 +154,7 @@ public sealed partial class CanvasView : Decorator
             }
             transformSelection = null;
             ReleaseViewportImage();
+            navigationPreview?.Stop();
             session = value;
             brushPreparationRequested = false;
             observedCanvasSize = value == null ? default : (value.Document.Width, value.Document.Height);
@@ -285,12 +287,13 @@ public sealed partial class CanvasView : Decorator
         double Center(double value, double viewport, int size) => viewport >= size ? size / 2d : Math.Clamp(value, viewport / 2, size - viewport / 2);
         var x = Center(point.X, w, session.Document.Width); var y = Center(point.Y, h, session.Document.Height);
         origin = new Point((RulerInset + Bounds.Width) / 2 - x * UnitsPerPixel, (RulerInset + Bounds.Height) / 2 - y * UnitsPerPixel);
-        ClampOrigin(); InvalidateCanvas(); ViewChanged?.Invoke();
+        ClampOrigin(); PreviewDuringNavigation(); InvalidateCanvas(); ViewChanged?.Invoke();
     }
 
     public void Fit()
     {
         if (!FitCore()) return;
+        PreviewDuringNavigation();
         InvalidateCanvas();
         ViewChanged?.Invoke();
     }
@@ -317,6 +320,7 @@ public sealed partial class CanvasView : Decorator
         zoom = Math.Clamp(value, 0.01, 64);
         origin = new Point(around.X - fixedPoint.X * UnitsPerPixel, around.Y - fixedPoint.Y * UnitsPerPixel);
         ClampOrigin();
+        PreviewDuringNavigation();
         InvalidateCanvas();
         ViewChanged?.Invoke();
     }
@@ -348,6 +352,7 @@ public sealed partial class CanvasView : Decorator
         origin += delta;
         ClampOrigin();
         if (DisplayOrigin == previous) return;
+        PreviewDuringNavigation();
         InvalidateCanvas();
         ViewChanged?.Invoke();
     }
@@ -374,8 +379,10 @@ public sealed partial class CanvasView : Decorator
 
     // ---- Rendering ----------------------------------------------------------------------------------------------
 
-    internal sealed class DrawOperation(Rect bounds, Action<SKCanvas> draw, Action? release = null) : ICustomDrawOperation
+    internal sealed class DrawOperation(Rect bounds, Action<SKCanvas, GRContext?> draw, Action? release = null) : ICustomDrawOperation
     {
+        public DrawOperation(Rect bounds, Action<SKCanvas> draw) : this(bounds, (canvas, _) => draw(canvas)) { }
+
         public Rect Bounds { get; } = bounds;
         public void Dispose() => release?.Invoke();
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -388,7 +395,7 @@ public sealed partial class CanvasView : Decorator
             var canvas = lease.SkCanvas;
             canvas.Save();
             canvas.ClipRect(new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height));
-            draw(canvas);
+            draw(canvas, lease.GrContext);
             canvas.Restore();
         }
     }
@@ -452,7 +459,9 @@ public sealed partial class CanvasView : Decorator
         var displayOrigin = DisplayOrigin;
         var view = SKMatrix.CreateScale(units, units).PostConcat(SKMatrix.CreateTranslation((float)displayOrigin.X, (float)displayOrigin.Y));
         var documentRect = new SKRect(0, 0, session.Document.Width, session.Document.Height);
-        var (cache, cacheSource, cacheTarget) = UpdateViewCache(view, size);
+        var accelerated = CaptureAcceleratedViewport(size, displayOrigin);
+        acceleratedViewportVisible = accelerated != null;
+        var (cache, cacheSource, cacheTarget) = accelerated != null ? (null, default(SKRect), default(SKRect)) : UpdateViewCache(view, size);
         var presentation = cache == null ? null : viewportImage ??= new ViewportImage(cache);
         presentation?.Retain();
         var overlay = CaptureOverlay(view);
@@ -466,8 +475,10 @@ public sealed partial class CanvasView : Decorator
         var phase = antsPhase;
         var scaling = (float)Scaling;
 
-        context.Custom(new DrawOperation(new Rect(size), canvas =>
+        context.Custom(new DrawOperation(new Rect(size), (canvas, graphics) =>
         {
+            var canDrawTexture = graphics is { IsAbandoned: false } && !ReferenceEquals(graphics, rejectedViewportGraphics);
+            Volatile.Write(ref hardwareViewport, canDrawTexture);
 #if CANVAS_PERFORMANCE
             var backdropStarted = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
@@ -480,7 +491,15 @@ public sealed partial class CanvasView : Decorator
             var displaying = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
 
-            if (presentation != null)
+            if (accelerated != null)
+            {
+                if (!accelerated.Draw(canvas, canDrawTexture ? graphics : null, screenRect) && canDrawTexture)
+                {
+                    rejectedViewportGraphics = graphics;
+                    Volatile.Write(ref hardwareViewport, false);
+                }
+            }
+            else if (presentation != null)
             {
                 canvas.Save();
                 canvas.ClipRect(screenRect);
@@ -647,9 +666,8 @@ public sealed partial class CanvasView : Decorator
             }
             if (!dirty.IsEmpty)
             {
-                viewHasFullBands = dirty == whole && session.CanRetainVisibilityBands(mapping);
-                if (drag != Drag.Transform || handle != TransformHandle.Move || !session.TryRenderLayerMove(viewCache, whole, dirty, mapping))
-                    session.RenderView(viewCache, dirty, mapping);
+                var moved = drag == Drag.Transform && handle == TransformHandle.Move && session.TryRenderLayerMove(viewCache, whole, dirty, mapping);
+                viewHasFullBands = !moved && session.RenderViewportFrame(viewCache, dirty, mapping) && dirty == whole;
             }
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.StageCompleted("canvas composite", started);

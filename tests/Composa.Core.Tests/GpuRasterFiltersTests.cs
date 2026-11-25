@@ -60,6 +60,30 @@ public sealed class GpuRasterFiltersTests
     }
 
     [Fact]
+    public async Task LargeInsideAndOutsideLayerStrokesMatchRasterSkia()
+    {
+        if (Environment.GetEnvironmentVariable("COMPOSA_TEST_RASTER_GPU") != "1") return;
+        GpuAcceleration.Configure(filters: true, editor: true);
+        try
+        {
+            var device = Assert.IsType<OpenClDevice>(await GpuAcceleration.Initialization!);
+            Assert.True(device.StrokeRingAvailable);
+            using var source = Pixels.NewMask(563, 419);
+            using var expected = Pixels.NewLike(source);
+            using var actual = Pixels.NewLike(source);
+            new Random(427).NextBytes(source.GetPixelSpan());
+            foreach (var inside in new[] { false, true })
+            foreach (var reach in new[] { 9, 31, 78 })
+            {
+                LayerEffectsRenderer.DrawStrokeRing(source, expected, reach, inside);
+                Assert.True(GpuAcceleration.TryStrokeRing(source, actual, reach, inside));
+                Assert.True(expected.GetPixelSpan().SequenceEqual(actual.GetPixelSpan()), $"reach {reach}, inside {inside}");
+            }
+        }
+        finally { GpuAcceleration.Configure(filters: false, editor: false); }
+    }
+
+    [Fact]
     public async Task WideMaskAndRgb16StrokesMatchEveryLiveDab()
     {
         if (Environment.GetEnvironmentVariable("COMPOSA_TEST_RASTER_GPU") != "1") return;
@@ -89,6 +113,51 @@ public sealed class GpuRasterFiltersTests
                     Assert.Equal(expectedDirty, actual.AddPoint(point, pressure));
                     Assert.True(expectedImage.GetPixelSpan().SequenceEqual(actualImage.GetPixelSpan()));
                 }
+            }
+        }
+        finally { GpuAcceleration.Configure(filters: false, editor: false); }
+    }
+
+    [Fact]
+    public async Task CombinedGpuDabMatchesPaintAndEraseAcrossOverlappingDabs()
+    {
+        if (Environment.GetEnvironmentVariable("COMPOSA_TEST_RASTER_GPU") != "1") return;
+        GpuAcceleration.Configure(filters: true, editor: true);
+        try
+        {
+            var device = Assert.IsType<OpenClDevice>(await GpuAcceleration.Initialization!);
+            using var source = Pixels.NewColor(908, 721);
+            using var expected = Pixels.NewLike(source);
+            using var actual = Pixels.NewLike(source);
+            source.Erase(new SKColor(73, 137, 191, 201));
+            var dabArea = new SKRectI(0, 0, 886, 704);
+            var settings = new BrushSettings { Size = 1100, Hardness = .996, Opacity = .68, Flow = .43 };
+            foreach (var mode in new[] { BrushMode.Paint, BrushMode.Erase })
+            {
+                using var cpu = new BrushStroke(source, settings, mode, SKColors.DarkOrange);
+                using var gpu = new BrushStroke(source, settings, mode, SKColors.DarkOrange);
+                using var cpuPixels = cpu.Working;
+                using var gpuPixels = gpu.Working;
+                foreach (var point in new[] { new SKPoint(451.375f, 352.125f), new SKPoint(571.75f, 459.25f) })
+                {
+                    GpuAcceleration.Configure(filters: true, editor: false);
+                    var changed = cpu.AddPoint(point);
+                    GpuAcceleration.Configure(filters: true, editor: true);
+                    Assert.Equal(changed, gpu.AddPoint(point));
+                    Assert.True(cpuPixels.GetPixelSpan().SequenceEqual(gpuPixels.GetPixelSpan()));
+                }
+
+                // Exercise the combined device call even on a CPU for which the interactive path may prefer SIMD.
+                var coverage = new StrokeCoverage(source.Width, source.Height);
+                var combinedCoverage = new StrokeCoverage(source.Width, source.Height);
+                float[] falloff = [1, .75f, .25f, 0];
+                var color = mode == BrushMode.Erase ? new SKColorF(0, 0, 0, 0) : new SKColorF(60, 110, 134, 175);
+                Assert.True(device.TryBrushCoverage(coverage, dabArea, new(440, 340), 440, .75f, falloff, .43f, out _));
+                Assert.True(device.TryPaint(source, expected, dabArea, coverage, color, .68f));
+                Assert.True(device.TryBrushCoverage(combinedCoverage, dabArea, new(440, 340), 440, .75f, falloff, .43f,
+                    out var changedOnGpu, new(source, actual, color, .68f)));
+                Assert.True(changedOnGpu);
+                Assert.True(expected.GetPixelSpan().SequenceEqual(actual.GetPixelSpan()));
             }
         }
         finally { GpuAcceleration.Configure(filters: false, editor: false); }
