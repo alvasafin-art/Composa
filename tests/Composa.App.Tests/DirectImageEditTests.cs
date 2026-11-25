@@ -118,17 +118,18 @@ public sealed class DirectImageEditTests
     }
 
     [AvaloniaTheory]
-    [InlineData(AiTaskKind.GenerativeExpand, true)]
-    [InlineData(AiTaskKind.GenerativeExpand, false)]
-    [InlineData(AiTaskKind.RemoveObject, false)]
-    public async Task Direct_edits_use_the_editor_mask_and_undo_in_one_step(AiTaskKind task, bool crop)
+    [InlineData(AiTaskKind.GenerativeExpand, true, false, false)]
+    [InlineData(AiTaskKind.GenerativeExpand, true, true, false)]
+    [InlineData(AiTaskKind.GenerativeExpand, true, false, true)]
+    [InlineData(AiTaskKind.GenerativeExpand, false, false, false)]
+    [InlineData(AiTaskKind.RemoveObject, false, false, false)]
+    public async Task Direct_edits_use_the_editor_mask_and_undo_in_one_step(AiTaskKind task, bool crop, bool documentChanged, bool cropChanged)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(20));
         using var server = new TcpListener(IPAddress.Loopback, 0);
         server.Start();
         var address = $"http://127.0.0.1:{((IPEndPoint)server.LocalEndpoint).Port}/v1";
-        var reply = ServeMaskedEditAsync(server, deadline.Token, assertCentered: !crop);
         var previous = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
         Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", "test-image-key");
         try
@@ -139,19 +140,46 @@ public sealed class DirectImageEditTests
             settings.ImageOperationRoutes[task] = ImageGenerationRoute.DirectApi;
             var service = new AiTaskService(() => "http://127.0.0.1:1", Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
             var state = document.History.CurrentId;
-            await service.RunDirectImageAsync(new EditorCommandService(document), DirectImageGenerator.For(settings, task),
+            var reply = ServeMaskedEditAsync(server, deadline.Token, assertCentered: !crop, beforeReply: () =>
+            {
+                if (!documentChanged) return;
+                document.Begin("Rename Layer");
+                document.ActiveLayer!.Name = "Edited during generation";
+            });
+            var run = service.RunDirectImageAsync(new EditorCommandService(document), DirectImageGenerator.For(settings, task),
                 new AiTaskRequest { Task = task, ExpansionBounds = crop ? new(-64, -32, 256, 256) : null },
-                () => true, deadline.Token);
+                () => true, deadline.Token, expansionFrameUnchanged: () => !cropChanged);
             await reply;
+            if (documentChanged)
+            {
+                try
+                {
+                    Assert.NotSame(run, await Task.WhenAny(run, Task.Delay(150, deadline.Token)));
+                    Assert.True(document.IsInteracting);
+                }
+                finally { document.Commit(); }
+                state = document.History.CurrentId;
+            }
+            var expanded = await run;
             Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
-            Assert.Equal(crop ? (320, 288) : (256, 256), (document.Document.Width, document.Document.Height));
+            Assert.Equal(crop && !documentChanged && !cropChanged, expanded);
+            Assert.Equal(expanded ? (320, 288) : (256, 256), (document.Document.Width, document.Document.Height));
             var output = Assert.Single(document.Document.AllLayers().Where(layer => layer.Tags.Contains("ai-generated")));
+            if (crop && !expanded)
+            {
+                Assert.Equal((-64f, -32f), (output.Transform.X, output.Transform.Y));
+                Assert.Equal((320, 288), (output.Pixels!.Width, output.Pixels.Height));
+                var outsideCanvas = output.Pixels.GetPixel(16, 128);
+                Assert.Equal((byte)255, outsideCanvas.Alpha);
+                Assert.True(outsideCanvas.Red > outsideCanvas.Blue);
+            }
             Assert.NotNull(output.Mask);
             Assert.Equal((byte)255, output.Mask.GetPixel(crop ? 16 : 128, 128).Alpha);
             Assert.Equal((byte)0, output.Mask.GetPixel(220, 220).Alpha);
             Assert.Equal(SKColors.CornflowerBlue, document.Composite().GetPixel(220, 220));
             document.Undo();
             Assert.Equal(state, document.History.CurrentId);
+            if (documentChanged) Assert.Equal("Edited during generation", document.ActiveLayer!.Name);
             Assert.Equal((256, 256), (document.Document.Width, document.Document.Height));
             Assert.DoesNotContain(document.Document.AllLayers(), layer => layer.Tags.Contains("ai-generated"));
         }
@@ -208,7 +236,7 @@ public sealed class DirectImageEditTests
         Assert.Equal(background, document.Composite().GetPixel(128, 128));
     }
 
-    private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true)
+    private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true, Action? beforeReply = null)
     {
         using var client = await server.AcceptTcpClientAsync(token);
         await using var stream = client.GetStream();
@@ -248,6 +276,7 @@ public sealed class DirectImageEditTests
         generated.Erase(SKColors.OrangeRed);
         var png = DirectImageEdit.EncodePng(generated);
         var data = JsonSerializer.SerializeToUtf8Bytes(new { data = new[] { new { b64_json = Convert.ToBase64String(png) } } });
+        beforeReply?.Invoke();
         await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {data.Length}\r\nConnection: close\r\n\r\n"), token);
         await stream.WriteAsync(data, token);
     }

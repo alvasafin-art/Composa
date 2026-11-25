@@ -181,9 +181,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
     public Task RunAsync(IEditorCommandService editor, AiTaskRequest request, CancellationToken cancellationToken = default) =>
         RunAsync(editor, request, null, cancellationToken);
 
-    internal async Task RunAsync(IEditorCommandService editor, AiTaskRequest request,
-        Func<bool>? targetAvailable, CancellationToken cancellationToken = default)
+    internal async Task<bool> RunAsync(IEditorCommandService editor, AiTaskRequest request,
+        Func<bool>? targetAvailable, CancellationToken cancellationToken = default, Func<bool>? expansionFrameUnchanged = null)
     {
+        if (editor.Session.IsInteracting && (targetAvailable != null || !editor.Session.IsInTransaction))
+            throw new InvalidOperationException("Finish the current interaction before running AI.");
         var requestedTask = request.Task;
         request = PrepareRequest(editor.Session, request);
         if (request.Task == AiTaskKind.MatchToScene && request.Scene.MatchMode == SceneMatchMode.ToneAndColor)
@@ -195,7 +197,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 editor.Session.MatchActiveLayerToScene();
                 Operation = Operation with { Status = AiOperationStatus.Completed, Stage = "Completed" };
                 StateChanged?.Invoke();
-                return;
+                return false;
             }
             catch (Exception error)
             {
@@ -206,8 +208,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
         }
         if (request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground)
         {
-            await RunSceneAsync(editor,request,cancellationToken);
-            return;
+            await RunSceneAsync(editor, request, targetAvailable, cancellationToken);
+            return false;
         }
         var engine = EngineFor(requestedTask, request.EngineId);
         var preferences = WorkflowSettings();
@@ -244,6 +246,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
         if (variants is < 1 or > 3) throw new ArgumentException("Choose one, two or three variants.");
         var initialState = editor.Session.History.CurrentId;
         var initialLayer = editor.Session.Document.ActiveLayerId;
+        var initialBounds = editor.Session.Document.Bounds;
+        var initialRasterPixels = request.Task == AiTaskKind.Upscale ? editor.Session.Document.RasterPixels() : 0;
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         running?.Cancel();
@@ -310,7 +314,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 var variantSeed = (seed + index) & long.MaxValue;
                 var boundGraph = saved != null ? EditableWorkflows.Bind(saved, binding, inputs, request, files, variantSeed)
                     : BuildExecutionGraph(graph, engine, binding, inputs, request, files, variantSeed,
-                        capabilities, editor.Session.Document.Bounds, editable, qwenInputs, apiInputs, variants);
+                        capabilities, initialBounds, editable, qwenInputs, apiInputs, variants);
                 var compatibility = EngineCompatibility.CheckWorkflow(boundGraph, capabilities);
                 if (!compatibility.IsCompatible) throw new InvalidOperationException(saved != null
                     ? $"Workflow \"{saved.Name}\" needs {string.Join(", ", compatibility.Missing)}. Install these on the server or edit the graph in Settings → Workflows."
@@ -353,6 +357,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 var runs = request.Settings.VariantMode == AiVariantMode.List ? variants : 1;
                 for (var index = 0; index < runs; index++)
                 {
+                    EnsureTargetAvailable(targetAvailable, linked.Token);
                     var number = index;
                     var progress = new Progress<AiOperationState>(state =>
                     {
@@ -365,7 +370,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                     });
                     if (saved == null && engine.Id.StartsWith("seedvr2", StringComparison.Ordinal))
                     {
-                        if (editor.Session.Document.RasterPixels() + (long)inputs.SourceImage.Width * inputs.SourceImage.Height * request.Settings.UpscaleFactor * request.Settings.UpscaleFactor > DocumentLimits.DocumentPixelBudget)
+                        if (initialRasterPixels + (long)inputs.SourceImage.Width * inputs.SourceImage.Height * request.Settings.UpscaleFactor * request.Settings.UpscaleFactor > DocumentLimits.DocumentPixelBudget)
                             throw new InvalidOperationException($"Upscale exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
                     }
                     var result = await client.ExecuteAsync(Bind(uploaded, index), progress, linked.Token);
@@ -400,17 +405,11 @@ public sealed partial class AiTaskService : IAiTaskRunner
                                 await Task.Run(() => AiSeamlessFinisher.AlignEdit(image, inputs.ContextImage), linked.Token);
                             var pixels = images.Sum(bitmap => (long)bitmap.Width * bitmap.Height);
                             if (binding.OutputMode == AiOutputMode.NewLayerWithMask && inputs.SelectionMask != null) pixels *= 2;
-                            if (request.Task == AiTaskKind.ChangeBackground)
-                                pixels = (long)editor.Session.Document.Width * editor.Session.Document.Height * variants * 3; // backgrounds + subject copies + masks
-                            if (editor.Session.Document.RasterPixels() + pixels > DocumentLimits.DocumentPixelBudget)
+                            if (pixels > DocumentLimits.DocumentPixelBudget)
                                 throw new InvalidOperationException($"These variants exceed the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget. Use fewer variants or a smaller image size.");
                         }
                     }
                 }
-                linked.Token.ThrowIfCancellationRequested();
-                if (targetAvailable?.Invoke() == false) throw new OperationCanceledException();
-                if (editor.Session.History.CurrentId != initialState || editor.Session.Document.ActiveLayerId != initialLayer)
-                    throw new InvalidOperationException("The document changed during generation. Results were not applied to a different document state; retry after finishing edits.");
                 if (!binding.OutputIsComposited && request.Task == AiTaskKind.RemoveObject && inputs.SelectionMask != null)
                     for (var index = 0; index < images.Count; index++)
                     {
@@ -418,11 +417,17 @@ public sealed partial class AiTaskService : IAiTaskRunner
                         images[index].Dispose();
                         images[index] = matched;
                     }
+                await WaitForResultTargetAsync(editor.Session, targetAvailable, linked.Token);
+                var layerOnly = ResultNeedsSeparateLayer(editor.Session, initialState, initialLayer, binding.OutputMode);
+                var hasExpansionFrame = request.Task == AiTaskKind.GenerativeExpand && inputs.ExpansionBounds != null;
+                layerOnly |= hasExpansionFrame && expansionFrameUnchanged?.Invoke() == false;
                 Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited,
-                    variants: variants > 1, localOutputMask: localOutputMask, preserveBiRefNetMatte: preserveBiRefNetMatte);
+                    variants: variants > 1, localOutputMask: localOutputMask, preserveBiRefNetMatte: preserveBiRefNetMatte,
+                    layerOnly: layerOnly);
                 applied = true;
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed", CreditsUsed = reportedCredits };
                 StateChanged?.Invoke();
+                return hasExpansionFrame && !layerOnly;
             }
             catch
             {
@@ -446,6 +451,32 @@ public sealed partial class AiTaskService : IAiTaskRunner
     }
 
     public void Cancel() => running?.Cancel();
+
+    private static void EnsureTargetAvailable(Func<bool>? targetAvailable, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (targetAvailable?.Invoke() == false) throw new OperationCanceledException();
+    }
+
+    private static async Task WaitForResultTargetAsync(EditorSession session, Func<bool>? targetAvailable, CancellationToken token)
+    {
+        EnsureTargetAvailable(targetAvailable, token);
+        // Scripts may be awaiting AI inside their own transaction.
+        while (session.IsInteracting && (targetAvailable != null || !session.IsInTransaction))
+        {
+            await Task.Delay(50, token);
+            EnsureTargetAvailable(targetAvailable, token);
+        }
+    }
+
+    private static bool ResultNeedsSeparateLayer(EditorSession session, long initialState, Guid? initialLayer,
+        AiOutputMode mode = AiOutputMode.NewLayer)
+    {
+        var changed = session.History.CurrentId != initialState || session.Document.ActiveLayerId != initialLayer;
+        if (changed && mode == AiOutputMode.Selection)
+            throw new InvalidOperationException("The document changed during AI selection. The current selection was kept.");
+        return changed;
+    }
 
     private static async Task<AiTaskInputs> PrepareInputsAsync(EditorSession session, AiTaskRequest request, int maxReferences, CancellationToken token)
     {
@@ -629,16 +660,18 @@ public sealed partial class AiTaskService : IAiTaskRunner
         return client;
     }
 
-    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false, SKBitmap? localOutputMask = null, bool preserveBiRefNetMatte = false)
+    internal static void Insert(IEditorCommandService editor, AiTaskKind task, AiOutputMode mode, IReadOnlyList<SKBitmap> images, SKRectI targetBounds, AiTaskInputs? inputs = null, bool outputIsComposited = false, bool variants = false, SKBitmap? localOutputMask = null, bool preserveBiRefNetMatte = false, bool layerOnly = false)
     {
         var session = editor.Session;
         if (task == AiTaskKind.GenerativeExpand && inputs?.PreprocessedImage is { } expanded)
         {
+            var origin = layerOnly && inputs.ExpansionBounds is { } originalFrame ? originalFrame.Location : SKPointI.Empty;
             editor.Transaction("AI Generative Expand", target =>
             {
-                if (inputs.ExpansionBounds is { } bounds) target.Crop(bounds, "Expand Canvas");
+                if (!layerOnly && inputs.ExpansionBounds is { } bounds) target.Crop(bounds, "Expand Canvas");
                 target.InsertAiOutput(task, images.Select((image, index) => new AiOutput(images.Count == 1 ? "AI Generative Expand" : $"AI Generative Expand {index + 1}", image,
-                    Mask: localOutputMask == null ? null : Pixels.Clone(localOutputMask), Bounds: new SKRect(0, 0, expanded.Width, expanded.Height))).ToList(), variants: variants);
+                    Mask: localOutputMask == null ? null : Pixels.Clone(localOutputMask),
+                    Bounds: SKRect.Create(origin.X, origin.Y, expanded.Width, expanded.Height))).ToList(), variants: variants, atTop: layerOnly);
             });
             return;
         }
@@ -675,6 +708,15 @@ public sealed partial class AiTaskService : IAiTaskRunner
         }
         if (task == AiTaskKind.Upscale)
         {
+            if (layerOnly)
+            {
+                var image = images[0];
+                var frame = inputs?.UpscaleSourceBounds ?? targetBounds;
+                var mask = inputs?.SelectionMask is { } captured ? MaskForBounds(captured, frame, image.Width, image.Height) : null;
+                session.InsertAiOutput(task, [new("AI Upscale", image, mask,
+                    Bounds: SKRect.Create(frame.Left, frame.Top, frame.Width, frame.Height))], atTop: true);
+                return;
+            }
             if (session.Selection is { } selection && !targetBounds.IsEmpty)
             {
                 var upscaleOutputs = images.Select((image, index) =>
@@ -734,11 +776,13 @@ public sealed partial class AiTaskService : IAiTaskRunner
             session.InsertAiOutput(task, backgroundOutputs, group: true);
             return;
         }
+        var canvasWidth = inputs?.ContextImage.Width ?? session.Document.Width;
+        var canvasHeight = inputs?.ContextImage.Height ?? session.Document.Height;
         var outputs = images.Select((image, index) =>
         {
             SKBitmap? mask = null;
-            var documentSized = image.Width == session.Document.Width && image.Height == session.Document.Height;
-            var selection = inputs?.OutputMask ?? inputs?.SelectionMask ?? session.Selection;
+            var documentSized = image.Width == canvasWidth && image.Height == canvasHeight;
+            var selection = inputs?.OutputMask ?? inputs?.SelectionMask ?? (layerOnly ? null : session.Selection);
             if (mode == AiOutputMode.NewLayerWithMask && selection != null)
             {
                 if (localOutputMask != null) mask = Pixels.Clone(localOutputMask);
@@ -753,7 +797,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
             SKRect? placement = documentSized ? null : new SKRect(targetBounds.Left, targetBounds.Top, targetBounds.Right, targetBounds.Bottom);
             return new AiOutput(images.Count == 1 ? "AI " + task.DisplayName() : $"AI {task.DisplayName()} {index + 1}", image, mask, Bounds: placement);
         }).ToList();
-        session.InsertAiOutput(task, outputs, group: mode == AiOutputMode.LayerGroup, variants: variants);
+        session.InsertAiOutput(task, outputs, group: mode == AiOutputMode.LayerGroup, variants: variants, atTop: layerOnly);
     }
 
     private static SKBitmap MaskForBounds(SKBitmap documentMask, SKRectI bounds, int width, int height)

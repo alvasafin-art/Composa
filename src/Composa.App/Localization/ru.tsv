@@ -1298,10 +1298,7 @@ The destination appeared while saving. Choose another path.	Во время со
 The destination changed during the save. Choose a different filename.	Файл назначения изменился во время сохранения. Выберите другое имя.
 The developed frame exceeds the supported surface memory. Reduce its dimensions before opening it.	Обработанный кадр превышает лимит памяти. Уменьшите его размеры перед открытием.
 The display ICC exceeds the profile size limit.	Профиль ICC экрана превышает допустимый размер.
-The document changed during generation. Results were not applied to a different document state; retry after finishing edits.	Документ изменился во время генерации. Завершите правки и повторите генерацию.
-The document changed during generation. Results were not applied; retry after finishing the edit.	Документ изменился во время генерации. Результат не применён. Завершите правку и повторите.
-The document changed during scene editing. No further request was submitted and no result was applied.	Документ изменился во время обработки сцены. Последующие запросы не отправлены, результат не применён.
-The document changed while preparing the scene. No generation was submitted.	Документ изменился при подготовке сцены. Запрос на генерацию не отправлен.
+The document changed during AI selection. The current selection was kept.	Документ изменился во время работы ИИ. Текущее выделение сохранено.
 The document lookup tables exceed {0} MB. Remove an unused table first.	Таблицы коррекции документа превышают {0} МБ. Удалите неиспользуемую таблицу.
 The document or active layer changed while Liquify was open; the result was not applied.	Во время работы с пластикой документ или активный слой изменился. Результат не применён.
 The document or active layer changed while refining; the result was not applied.	Во время уточнения документ или активный слой изменился. Результат не применён.
@@ -1934,7 +1931,6 @@ Enter a prompt to generate an image.	Введите промпт для созд
 The image generator timed out.	Время ожидания генерации истекло.
 Generating through Codex CLI…	Генерация через Codex CLI…
 Generating through the image API…	Генерация через API изображений…
-The document changed during generation. Results were discarded.	Документ изменился во время генерации. Результаты не добавлены.
 The generator returned an unreadable PNG or unsupported dimensions.	Генератор вернул нечитаемый PNG или изображение неподдерживаемого размера.
 Enter an HTTPS image API address, or an HTTP loopback address, without credentials or query parameters.	Введите HTTPS-адрес API изображений или локальный HTTP-адрес. Уберите из адреса учётные данные и параметры запроса.
 Image received ({0} × {1} px).	Получено изображение ({0} × {1} пикс.).

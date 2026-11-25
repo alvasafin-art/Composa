@@ -152,6 +152,26 @@ public class SceneEditingTests
         Assert.Equal(state,s.History.CurrentId); Assert.True(source.Visible); Assert.Equal(2,s.Document.Layers.Count); Assert.Equal(before.Bytes,s.Flatten().Bytes);
     }
     [Fact]
+    public async Task Background_edit_finishes_both_passes_and_keeps_sources_visible_after_edits()
+    {
+        var session = Scene();
+        var source = session.ActiveLayer!;
+        var connection = new Connection { OnExecute = pass => { if (pass == 1) session.AddBlankLayer(); } };
+        var service = Service(connection);
+
+        await service.RunAsync(new EditorCommandService(session), new() { Task = AiTaskKind.ChangeBackground },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, connection.Executions);
+        Assert.Equal(4, session.Document.Layers.Count);
+        Assert.True(source.Visible);
+        Assert.Contains("ai-generated", session.Document.Layers[^1].Tags);
+        session.Undo();
+        Assert.Equal(3, session.Document.Layers.Count);
+        Assert.True(session.Document.Find(source.Id)!.Visible);
+    }
+
+    [Fact]
     public async Task Failure_of_the_second_background_pass_cannot_commit_the_first_pass()
     {
         var s=Scene();var source=s.ActiveLayer!;var state=s.History.CurrentId;using var before=s.Flatten();
@@ -262,6 +282,7 @@ public class SceneEditingTests
         public ComfyServerAddress Address=>ComfyServerAddress.Parse("http://localhost:8188");
         public TimeSpan ConnectionTimeout {get;set;}
         public bool Fail,Cancel,AddShadow; public int FailAt,Uploads,Executions; private SKBitmap? source;
+        public Action<int>? OnExecute { get; init; }
         public List<JsonObject> Workflows {get;}=[];
         public Task<(ComfyServerInfo,ComfyServerCapabilities)> TestConnectionAsync(CancellationToken token=default)
         {
@@ -274,7 +295,8 @@ public class SceneEditingTests
         public Task<ComfyExecutionResult> ExecuteAsync(JsonObject workflow,IProgress<AiOperationState>? progress=null,CancellationToken token=default)
         {
             Workflows.Add(JsonNode.Parse(workflow.ToJsonString())!.AsObject());
-            Executions++; if(FailAt==0||Executions==FailAt) {if(Cancel) throw new OperationCanceledException(token);if(Fail) throw new InvalidOperationException("fixture failure");}
+            Executions++; OnExecute?.Invoke(Executions);
+            if(FailAt==0||Executions==FailAt) {if(Cancel) throw new OperationCanceledException(token);if(Fail) throw new InvalidOperationException("fixture failure");}
             Assert.Equal("sourceEncode",workflow["noiseMask"]!["inputs"]!["samples"]![0]!.GetValue<string>());
             return Task.FromResult(new ComfyExecutionResult("fixture",JsonDocument.Parse("{}"),[new("fixture.png","","output","save"),new("baseline.png","","output","baseline")]));
         }

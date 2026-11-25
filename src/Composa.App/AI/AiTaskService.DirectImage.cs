@@ -11,14 +11,14 @@ public sealed partial class AiTaskService
 {
     internal (DirectImageGenerator Generator, ImageApiRate Rate)? LastDirectImageCharge { get; private set; }
 
-    internal async Task RunDirectImageAsync(IEditorCommandService editor, DirectImageGenerator generator, AiTaskRequest request,
-        Func<bool> targetAvailable, CancellationToken cancellationToken = default)
+    internal async Task<bool> RunDirectImageAsync(IEditorCommandService editor, DirectImageGenerator generator, AiTaskRequest request,
+        Func<bool> targetAvailable, CancellationToken cancellationToken = default, Func<bool>? expansionFrameUnchanged = null)
     {
         if (running != null) throw new InvalidOperationException("Another AI operation is already running.");
         if (request.Task == AiTaskKind.MatchToScene && request.Scene.MatchMode == SceneMatchMode.ToneAndColor)
         {
             await RunAsync(editor, request, cancellationToken);
-            return;
+            return false;
         }
         var selectionTask = request.Task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject;
         var upscale = request.Task == AiTaskKind.Upscale;
@@ -49,8 +49,8 @@ public sealed partial class AiTaskService
         {
             if (request.Task is AiTaskKind.MatchToScene or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground)
             {
-                await RunDirectSceneAsync(editor, generator, request, EnsureUnchanged, linked.Token, ReportCharge);
-                return;
+                await RunDirectSceneAsync(editor, generator, request, targetAvailable, initialState, initialLayer, linked.Token, ReportCharge);
+                return false;
             }
             var expand = request.Task == AiTaskKind.GenerativeExpand;
             var remove = request.Task == AiTaskKind.RemoveObject;
@@ -97,10 +97,11 @@ public sealed partial class AiTaskService
                 ImageGenerationRoute.RemoteCodex => "Generating through Codex CLI on the ComfyUI server…",
                 _ => "Generating through the image API…"
             };
+            var outputPixels = 0L;
+            var maskPixels = outputMask == null ? 0L : (long)outputMask.Width * outputMask.Height;
             for (var i = 0; i < variants; i++)
             {
-                linked.Token.ThrowIfCancellationRequested();
-                EnsureUnchanged();
+                EnsureTargetAvailable(targetAvailable, linked.Token);
                 Operation = new() { Status = AiOperationStatus.Running, Stage = variants == 1 ? stage : $"{i + 1}/{variants} · {stage}" };
                 StateChanged?.Invoke();
                 SKBitmap image;
@@ -129,18 +130,25 @@ public sealed partial class AiTaskService
                     }
                 }
                 remaining.Add(image);
-                var total = remaining.Sum(bitmap => (long)bitmap.Width * bitmap.Height) * (target.Document.Depth == ColorDepth.Sixteen ? 4 : 1);
-                if (outputMask != null) total += (long)outputMask.Width * outputMask.Height * remaining.Count;
-                if (!utility && target.Document.RasterPixels() + total > DocumentLimits.DocumentPixelBudget)
+                outputPixels += (long)image.Width * image.Height;
+                if (!utility && outputPixels + maskPixels * remaining.Count > DocumentLimits.DocumentPixelBudget)
                     throw new InvalidOperationException("These variants exceed the document's raster budget.");
             }
-            EnsureUnchanged();
             var mode = selectionTask ? AiOutputMode.Selection : outputMask != null ? AiOutputMode.NewLayerWithMask : AiOutputMode.NewLayer;
             var placement = upscale ? prepared!.TargetBounds : edit || selectionTask ? bounds : Fit(remaining[0], bounds);
-            Insert(editor, request.Task, mode, remaining, placement, inputs: prepared, variants: variants > 1, localOutputMask: outputMask);
+            await WaitForResultTargetAsync(target, targetAvailable, linked.Token);
+            var depthScale = target.Document.Depth == ColorDepth.Sixteen ? 4 : 1;
+            if (!utility && target.Document.RasterPixels() + outputPixels * depthScale + maskPixels * variants > DocumentLimits.DocumentPixelBudget)
+                throw new InvalidOperationException("These variants exceed the document's raster budget.");
+            var layerOnly = ResultNeedsSeparateLayer(target, initialState, initialLayer, mode);
+            var hasExpansionFrame = expand && prepared?.ExpansionBounds != null;
+            layerOnly |= hasExpansionFrame && expansionFrameUnchanged?.Invoke() == false;
+            Insert(editor, request.Task, mode, remaining, placement, inputs: prepared, variants: variants > 1,
+                localOutputMask: outputMask, layerOnly: layerOnly);
             remaining.Clear(); // The document and Undo now own these pixels.
             Operation = new() { Status = AiOperationStatus.Completed, Stage = "Completed" };
             StateChanged?.Invoke();
+            return hasExpansionFrame && !layerOnly;
         }
         catch (OperationCanceledException)
         {
@@ -158,14 +166,6 @@ public sealed partial class AiTaskService
         {
             foreach (var image in remaining) image.Dispose();
             if (ReferenceEquals(running, linked)) running = null;
-        }
-
-        void EnsureUnchanged()
-        {
-            linked.Token.ThrowIfCancellationRequested();
-            if (!targetAvailable()) throw new OperationCanceledException();
-            if (target.History.CurrentId != initialState || target.Document.ActiveLayerId != initialLayer || target.IsInteracting)
-                throw new InvalidOperationException("The document changed during generation. Results were discarded.");
         }
     }
 

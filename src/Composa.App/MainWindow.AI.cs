@@ -1020,6 +1020,8 @@ public sealed partial class MainWindow
                 if (profile.WorkflowSteps is { } steps) values["steps"] = steps;
                 if (profile.WorkflowSampler is { } sampler) values["sampler"] = sampler;
             }
+            var targetSession = target!;
+            var cropAtStart = ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop ? canvas.CropRect : null;
             var request = new AiTaskRequest
             {
                 Task = task,
@@ -1036,7 +1038,7 @@ public sealed partial class MainWindow
                 ExpansionMinimumSide = profile.ExpansionMode == AiExpansionMode.WholeImage ? profile.WholeExpansionMinimumSide : profile.ExpansionMinimumSide,
                 ReferenceImages = aiReferences.Select(item => item.Pixels).ToList(),
                 ReferenceMegapixels = profile.ReferenceMegapixels,
-                ExpansionBounds = task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, target) && target?.Tool == Tool.Crop && canvas.CropRect is { } crop
+                ExpansionBounds = task == AiTaskKind.GenerativeExpand && cropAtStart is { } crop
                     ? new SKRectI((int)Math.Floor(crop.Left), (int)Math.Floor(crop.Top), (int)Math.Ceiling(crop.Right), (int)Math.Ceiling(crop.Bottom)) : null,
                 Settings = new AiGenerationSettings
                 {
@@ -1047,18 +1049,20 @@ public sealed partial class MainWindow
                     Values = values
                 }
             };
-            var targetSession = target!;
-            if (direct != null)
-                await aiTasks.RunDirectImageAsync(new EditorCommandService(targetSession), direct, request, () => sessions.Contains(targetSession));
-            else
-                await aiTasks.RunAsync(new EditorCommandService(targetSession), request, () => sessions.Contains(targetSession));
+            bool TargetAvailable() => sessions.Contains(targetSession);
+            bool ExpansionFrameUnchanged() => !ReferenceEquals(session, targetSession) ||
+                (targetSession.Tool == Tool.Crop && !IsDragging && canvas.CropRect == cropAtStart);
+            var editor = new EditorCommandService(targetSession);
+            var canvasExpanded = direct != null
+                ? await aiTasks.RunDirectImageAsync(editor, direct, request, TargetAvailable, expansionFrameUnchanged: ExpansionFrameUnchanged)
+                : await aiTasks.RunAsync(editor, request, TargetAvailable, expansionFrameUnchanged: ExpansionFrameUnchanged);
             if (task == AiTaskKind.GenerateImage && direct == null && engine?.Binding(AiTaskKind.ImageEdit) != null &&
                 modelDrafts.ContainsKey(task) && !modelDrafts.ContainsKey(AiTaskKind.ImageEdit))
             {
                 modelDrafts[AiTaskKind.ImageEdit] = aiTasks.Engines.ModelFor(engine, AiTaskKind.ImageEdit, settings.ComfyModelsFor(settings.ComfyServerUrl));
                 RefreshEditorModels();
             }
-            if (task == AiTaskKind.GenerativeExpand && ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop)
+            if (canvasExpanded && ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop)
                 canvas.ResetCropToCanvas();
         }
         catch (OperationCanceledException) { }
