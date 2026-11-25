@@ -121,7 +121,7 @@ public sealed class TransformEdit
     internal bool TryRenderMoveView(SKBitmap target, SKRectI viewport, SKRectI dirty, RenderView view)
     {
         var document = session.Document;
-        if (document.WorkingDepth != ColorDepth.Eight || view.Scale == 1 && GpuAcceleration.EditorEnabled
+        if (document.WorkingDepth != ColorDepth.Eight
             || (long)viewport.Width * viewport.Height * 4 > 16 * 1024 * 1024
             || maskTarget != null || masks.Count > 0 || IsMovingAutoLayout) return false;
         if (!checkedMoveLayers)
@@ -135,6 +135,13 @@ public sealed class TransformEdit
                 moveLayers = (roots.Take(first).ToArray(), roots.Skip(first).ToArray());
         }
         if (moveLayers is not { } split) return false;
+        // Reuse a warm exact GPU viewport when possible. A cold or unsupported
+        // frame can still take the cached CPU backdrop path.
+        if (DocumentRenderer.TryRenderGpu(document, target, dirty, view, options: null))
+        {
+            Pixels.Invalidate(target);
+            return true;
+        }
         if (moveBackdrop is not { } cached || cached.View != view || cached.Viewport != viewport)
         {
             ReleaseMoveBackdrop();

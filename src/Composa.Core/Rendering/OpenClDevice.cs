@@ -14,12 +14,13 @@ internal sealed unsafe partial class OpenClDevice : IDisposable
     private const ulong MaxWorkingBytes = 1024 * 1024 * 1024;
     private readonly object gate = new();
     private readonly nint library;
-    private nint context, queue, program, floatBlur, alphaBlur, paint, brushCoverage, composite;
+    private nint context, queue, program, floatBlur, alphaBlur, strokeRing, paint, brushCoverage, composite;
     private readonly ulong maxAllocation, workingBytes;
     private bool disposed;
     internal string Device { get; }
     internal bool FloatBlurAvailable { get; set; }
     internal bool AlphaBlurAvailable { get; set; }
+    internal bool StrokeRingAvailable { get; set; }
     internal bool PaintAvailable { get; set; }
     internal bool CoverageAvailable { get; set; }
     internal bool CompositeAvailable { get; set; }
@@ -84,6 +85,7 @@ internal sealed unsafe partial class OpenClDevice : IDisposable
             }
             if (hasFp64) floatBlur = CreateKernel("box_blur\0"u8);
             alphaBlur = CreateKernel("alpha_blur\0"u8);
+            strokeRing = CreateKernel("stroke_ring_step\0"u8);
             composite = CreateKernel("composite_normal\0"u8);
             if (hasExactPaint)
             {
@@ -224,6 +226,7 @@ internal sealed unsafe partial class OpenClDevice : IDisposable
             Release("clReleaseKernel", brushCoverage);
             Release("clReleaseKernel", composite);
             Release("clReleaseKernel", alphaBlur);
+            Release("clReleaseKernel", strokeRing);
             Release("clReleaseKernel", floatBlur);
             Release("clReleaseProgram", program);
             Release("clReleaseCommandQueue", queue);

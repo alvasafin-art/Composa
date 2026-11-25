@@ -292,8 +292,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
 
     // At these sizes the vectorized local work takes less time than moving brush
     // coverage and pixels between the editor and a separate OpenCL buffer.
-    private bool PreferCpuCoverage(SKRectI area) =>
-        (long)area.Width * area.Height < 640_000 && CanVectorizeCoverage(buildsUp: true, radius);
+    // The vectorized CPU pass shares the coverage tiles with immediate color blending.
+    // Transferring both planes loses that advantage even at the largest OpenCL dab size.
+    private bool PreferCpuCoverage => ellipse == null && CanVectorizeCoverage(buildsUp: true, radius);
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private SKRectI Dab(SKPoint center, bool deferColor = false)
@@ -307,7 +308,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
 
         var changed = false;
         var flow = DabFlow();
-        if (!deferColor && mode is (BrushMode.Paint or BrushMode.Erase) && PreferCpuCoverage(rect) && BrushBands(rect) > 1)
+        var painting = mode is BrushMode.Paint or BrushMode.Erase;
+        var useCpuCoverage = PreferCpuCoverage;
+        if (!deferColor && painting && useCpuCoverage && BrushBands(rect) > 1)
         {
             // Keep coverage and color in the same batch. Each band owns complete coverage tile rows.
             var any = 0;
@@ -321,13 +324,18 @@ public sealed unsafe partial class BrushStroke : IDisposable
             });
             return any != 0 ? rect : SKRectI.Empty;
         }
-        if (ellipse == null && GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect)
-            && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing)
-            && GpuAcceleration.TryCoverage(coverage, rect, center, radius, hardness, falloff, flow, out changed))
+        if (ellipse == null && GpuAcceleration.EditorEnabled && !useCpuCoverage
+            && (painting || mode is BrushMode.Clone or BrushMode.Healing))
         {
-            if (!changed) return SKRectI.Empty;
-            if (!deferColor) Recompute(rect);
-            return rect;
+            GpuBrushPixels? gpuPixels = !deferColor && painting && selectionPixels == null && !LockTransparency
+                && Working.ColorType == SKColorType.Rgba8888
+                ? new(original, Working, GpuPaintColor, (float)Math.Clamp(settings.Opacity, 0, 1)) : null;
+            if (GpuAcceleration.TryCoverage(coverage, rect, center, radius, hardness, falloff, flow, out changed, gpuPixels))
+            {
+                if (!changed) return SKRectI.Empty;
+                if (!deferColor && !gpuPixels.HasValue) Recompute(rect);
+                return rect;
+            }
         }
         changed = AccumulateCoverage(rect, center, flow);
         if (!changed) return SKRectI.Empty;
@@ -527,7 +535,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     private void Recompute(SKRectI rect)
     {
-        if (ellipse == null && GpuAcceleration.EditorEnabled && !PreferCpuCoverage(rect) && mode is (BrushMode.Paint or BrushMode.Erase)
+        if (ellipse == null && GpuAcceleration.EditorEnabled && !PreferCpuCoverage && mode is (BrushMode.Paint or BrushMode.Erase)
             && selectionPixels == null && !LockTransparency && Working.ColorType == SKColorType.Rgba8888
             && GpuAcceleration.TryBrush(original, Working, rect, coverage, GpuPaintColor, (float)Math.Clamp(settings.Opacity, 0, 1)))
             return;

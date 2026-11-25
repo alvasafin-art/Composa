@@ -98,23 +98,27 @@ public static partial class DocumentRenderer
     /// canvas uses this to draw only what is on screen, at screen resolution, however large the document is.
     /// </summary>
     public static void Render(Document document, SKBitmap target, SKRectI area, RenderView view, RenderOptions? options = null)
+        => RenderViewport(document, target, area, view, options);
+
+    // Reports whether this frame can be incrementally refreshed with the CPU band renderer.
+    internal static bool RenderViewport(Document document, SKBitmap target, SKRectI area, RenderView view, RenderOptions? options)
     {
         area = Geometry.Intersect(area, new SKRectI(0, 0, target.Width, target.Height));
-        if (area.IsEmpty) return;
+        if (area.IsEmpty) return false;
         if (TryRenderGpu(document, target, area, view, options))
         {
             Pixels.ClampColor(target, area);
             Pixels.Invalidate(target);
-            return;
+            return false;
         }
         RenderCpu(document, target, area, area, view, options, SamplingMargin(document, options));
+        return true;
     }
 
     /// <summary>Updates complete bands on the same grid as the previous full CPU render.</summary>
     internal static bool TryRefreshVisibility(Document document, SKBitmap target, SKRectI viewport, RenderView view, SKRect bounds)
     {
-        if (!(view.Scale > 0 && view.Scale <= 1) || view.Scale == 1 && GpuAcceleration.EditorEnabled ||
-            SamplingMargin(document) > 0) return false;
+        if (!(view.Scale > 0 && view.Scale <= 1) || SamplingMargin(document) > 0) return false;
         var mapped = new SKRect(
             (bounds.Left - view.Origin.X) * view.Scale, (bounds.Top - view.Origin.Y) * view.Scale,
             (bounds.Right - view.Origin.X) * view.Scale, (bounds.Bottom - view.Origin.Y) * view.Scale);
@@ -565,13 +569,12 @@ public static partial class DocumentRenderer
     private static void MultiplyByMask(Layer layer, Tile content)
     {
         var mask = layer.RenderMask()!;
-        var matrix = layer.Pixels == null ? layer.MaskMatrix : layer.Transform.Matrix(mask.Width, mask.Height);
-        var canvas = content.Canvas;
         if (layer.Pixels == null)
         {
             using var coverage = content.Sibling(mask: true);
             var outside = (byte)Math.Clamp(Math.Round(255 - (255 - layer.MaskDefault) * Math.Clamp(layer.MaskDensity, 0, 1)), 0, 255);
             coverage.Canvas.Clear(SKColors.Black.WithAlpha(outside));
+            var matrix = layer.MaskMatrix;
             coverage.Canvas.Concat(in matrix);
             using (var sourcePaint = new SKPaint { BlendMode = SKBlendMode.Src }) DrawBitmap(coverage.Canvas, mask, sourcePaint);
             coverage.Canvas.Flush();
@@ -579,6 +582,12 @@ public static partial class DocumentRenderer
             content.DrawRaw(coverage.Bitmap, multiply);
             return;
         }
+        DrawRasterMask(layer, content.Canvas, mask);
+    }
+
+    private static void DrawRasterMask(Layer layer, SKCanvas canvas, SKBitmap mask)
+    {
+        var matrix = layer.Transform.Matrix(mask.Width, mask.Height);
         canvas.Save();
         canvas.Concat(in matrix);
         using var paint = new SKPaint { BlendMode = SKBlendMode.DstIn };

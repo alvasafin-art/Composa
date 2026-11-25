@@ -75,6 +75,9 @@ public static class LayerEffectsRenderer
     /// draw or the result would be too large, in which case the caller draws the layer as it is.
     /// </summary>
     public static (SKBitmap Image, int Inset)? Cached(SKBitmap pixels, SKBitmap? mask, LayerEffects? effects, double fillOpacity = 1)
+        => Cached(pixels, mask, effects, fillOpacity, existingOnly: false);
+
+    internal static (SKBitmap Image, int Inset)? Cached(SKBitmap pixels, SKBitmap? mask, LayerEffects? effects, double fillOpacity, bool existingOnly)
     {
         if (effects == null) return null;
         var visible = effects.Visible();
@@ -91,6 +94,7 @@ public static class LayerEffectsRenderer
 #endif
                 return hit.Result;
             }
+            if (existingOnly) return null;
             if (!InFlight.TryGetValue(key, out pending!))
                 InFlight.Add(key, pending = new Pending(key));
         }
@@ -656,9 +660,17 @@ public static class LayerEffectsRenderer
     {
         var reach = Math.Max(1, (int)Math.Round(stroke.Size));
         var ring = Pixels.NewMask(coverage.Width, coverage.Height);
+        if (!GpuAcceleration.TryStrokeRing(coverage, ring, reach, stroke.Inside))
+            DrawStrokeRing(coverage, ring, reach, stroke.Inside);
+        return ring;
+    }
+
+    internal static void DrawStrokeRing(SKBitmap coverage, SKBitmap ring, int reach, bool inside)
+    {
+        ring.Erase(SKColors.Transparent);
         using var canvas = new SKCanvas(ring);
         using var cut = new SKPaint { BlendMode = SKBlendMode.DstOut };
-        if (!stroke.Inside && Vector.IsHardwareAccelerated && reach <= 8)
+        if (!inside && Vector.IsHardwareAccelerated && reach <= 8)
         {
             // Work on the actual Alpha8 plane. Skia's general image-filter path for
             // morphology runs in color, even though every sample here is coverage.
@@ -666,7 +678,7 @@ public static class LayerEffectsRenderer
             DrawBorrowed(canvas, edge);
             canvas.DrawBitmap(coverage, 0, 0, cut);
         }
-        else if (stroke.Inside)
+        else if (inside)
         {
             using var shrink = SKImageFilter.CreateErode(reach, reach);
             cut.ImageFilter = shrink;
@@ -680,7 +692,6 @@ public static class LayerEffectsRenderer
             canvas.DrawBitmap(coverage, 0, 0, grown);
             canvas.DrawBitmap(coverage, 0, 0, cut);
         }
-        return ring;
     }
 
     // A square max kernel is separable. Vectorize contiguous samples in both

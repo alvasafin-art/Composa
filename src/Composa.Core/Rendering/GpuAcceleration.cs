@@ -65,10 +65,12 @@ public static partial class GpuAcceleration
             backend = new OpenClDevice();
             backend.FloatBlurAvailable = backend.HasFloatBlur && ValidateFloatBlur(backend);
             backend.AlphaBlurAvailable = ValidateAlphaBlur(backend);
+            backend.StrokeRingAvailable = ValidateStrokeRing(backend);
             backend.PaintAvailable = backend.HasPaint && PaintReferenceMatches(backend);
             backend.CoverageAvailable = backend.HasPaint && BrushStroke.CoverageMatchesGpu(backend);
             backend.CompositeAvailable = CompositeReferenceMatches(backend);
-            if (backend.FloatBlurAvailable || backend.AlphaBlurAvailable || backend.PaintAvailable || backend.CoverageAvailable || backend.CompositeAvailable)
+            if (backend.FloatBlurAvailable || backend.AlphaBlurAvailable || backend.StrokeRingAvailable ||
+                backend.PaintAvailable || backend.CoverageAvailable || backend.CompositeAvailable)
                 return backend;
             Trace.WriteLine($"GPU acceleration disabled: {backend.Device} failed its pixel reference checks.");
         }

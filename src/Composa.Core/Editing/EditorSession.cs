@@ -484,31 +484,40 @@ public sealed partial class EditorSession
         SoloLayerId == null && comparisonGroup == null && fontSample == null &&
         !IsEditingAlphaChannel && VisibleRgbChannels == RgbChannels.All;
 
-    /// <summary>Whether a full render uses the same CPU compositor as a visibility refresh.</summary>
-    public bool CanRetainVisibilityBands(RenderView view) =>
-        CanUseRegularViewport && (view.Scale != 1 || !GpuAcceleration.EditorEnabled);
+    public bool CanRetainVisibilityBands(RenderView view) => CanUseRegularViewport && view.Scale > 0 && view.Scale <= 1;
+
+    public DocumentRenderer.ViewportScene? CaptureGpuViewport(SKSizeI size, RenderView view, bool movingLayer) =>
+        GpuAcceleration.EditorEnabled && (CanUseRegularViewport || movingLayer && Transform != null &&
+            !IsEditingMask && !IsEditingChannel && VisibleRgbChannels == RgbChannels.All &&
+            SoloLayerId == null && comparisonGroup == null && fontSample == null)
+            ? DocumentRenderer.CaptureViewport(document, size, view) : null;
 
     /// <summary>Refreshes affected bands of an otherwise current, fully rendered viewport.</summary>
     public bool TryRefreshVisibilityBands(SKBitmap target, SKRectI viewport, RenderView view, SKRect bounds) =>
         CanRetainVisibilityBands(view) && DocumentRenderer.TryRefreshVisibility(document, target, viewport, view, bounds);
 
-    public void RenderView(SKBitmap target, SKRectI area, RenderView view)
+    public void RenderView(SKBitmap target, SKRectI area, RenderView view) => RenderViewportFrame(target, area, view);
+
+    /// <summary>Renders the viewport and reports whether a full frame can be refreshed in CPU bands.</summary>
+    public bool RenderViewportFrame(SKBitmap target, SKRectI area, RenderView view)
     {
-        if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All) RenderChannelView(target, area, view);
-        else
+        if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All)
         {
-            var options = DisplayOptions();
-            if (comparisonGroup is { } id && document.Find(id) is { } group)
-            {
-                var overrides = options?.Overrides ?? new Dictionary<Guid, Layer>();
-                var hidden = group.Clone();
-                hidden.Visible = false;
-                overrides[id] = hidden;
-                options = new RenderOptions { Overrides = overrides };
-            }
-            using var patch = options == null ? StrokeEffectPatch(area, view) : null;
-            DocumentRenderer.Render(document, target, area, view, patch == null ? options : new RenderOptions { EffectPatch = patch });
+            RenderChannelView(target, area, view);
+            return false;
         }
+        var options = DisplayOptions();
+        if (comparisonGroup is { } id && document.Find(id) is { } group)
+        {
+            var overrides = options?.Overrides ?? new Dictionary<Guid, Layer>();
+            var hidden = group.Clone();
+            hidden.Visible = false;
+            overrides[id] = hidden;
+            options = new RenderOptions { Overrides = overrides };
+        }
+        using var patch = options == null ? StrokeEffectPatch(area, view) : null;
+        return DocumentRenderer.RenderViewport(document, target, area, view,
+            patch == null ? options : new RenderOptions { EffectPatch = patch }) && CanRetainVisibilityBands(view);
     }
 
     public bool TryRenderLayerMove(SKBitmap target, SKRectI viewport, SKRectI area, RenderView view) =>
