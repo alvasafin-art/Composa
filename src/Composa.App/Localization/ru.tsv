@@ -2138,12 +2138,10 @@ The selected model does not support this scene operation.	Выбранная м�
 Composa — Settings	Composa — Настройки
 Composa — Initial setup	Composa — Первичная настройка
 Vertical Type	Вертикальный текст
-Drag the start handle · Enter finishes · Escape cancels	Перетащите маркер начала · Enter завершает · Esc отменяет
+Drag the start handle · Enter finishes · Escape cancels	Перетащите бегунок вдоль контура · Enter завершает · Esc отменяет
 Click a vector contour where the text should begin	Щёлкните по векторному контуру в точке начала текста
 Click for vertical type · Drag a box for vertical columns	Щёлкните для вертикального текста · Растяните рамку для колонок
-Path start	Начало на контуре
 Edit Text Curve	Править кривую текста
-Segment number from zero and fractional position within the segment	Номер сегмента с нуля и дробная позиция внутри него
 Align to start	По началу
 Align to end	По концу
 Align to Path	Выравнивание относительно контура

@@ -131,6 +131,7 @@ public sealed partial class CanvasView
             case Drag.LayoutGap or Drag.LayoutReorder: EndLayoutGesture(keep: false); break;
             case Drag.ShapeParameter: session.Cancel(); adjustingShape = null; break;
             case Drag.WarpNode: EndWarpPoint(keep: false); break;
+            case Drag.TextPathStart: session.TextEdit?.EndPathStartDrag(keep: false); break;
             case Drag.Stroke: session.CancelStroke(); break;
             case Drag.Patch: session.CancelPreview(); break;
             case Drag.PenNode: if (!penDraftDrag) session.Cancel(); penLayer = null; penOriginal = null; penDraft.Clear(); break;
@@ -408,7 +409,7 @@ public sealed partial class CanvasView
                 if (Math.Abs(position.X - pressScreen.X) > 4) ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen);
                 break;
             case Drag.TextSelect: DragTextSelection(); break;
-            case Drag.TextPathStart: break;
+            case Drag.TextPathStart: DragTextPathStart(currentDocument); break;
             case Drag.TextResize: DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Guide: DragGuide(); break;
             case Drag.None when session.Tool == Tool.Move:
@@ -587,7 +588,11 @@ public sealed partial class CanvasView
                 if (!moved) ZoomTo(alt ? zoom / 1.5 : zoom * 1.5, pressScreen);
                 break;
             case Drag.TextBox: FinishTextBoxDrag(moved); break;
-            case Drag.TextPathStart: SetTextPathStart(ToDocument(e.GetPosition(this))); break;
+            case Drag.TextPathStart:
+                DragTextPathStart(ToDocument(releasePosition));
+                session.TextEdit?.EndPathStartDrag(keep: true);
+                UpdateTextCursor(releasePosition);
+                break;
             case Drag.TextResize: guides.Clear(); break;
             case Drag.Guide: FinishGuideDrag(e.GetPosition(this)); break;
         }

@@ -279,6 +279,7 @@ public sealed partial class EditorSession
     public bool FinishText()
     {
         if (TextEdit is not { } editor || textLayer is not { } layer) return false;
+        editor.EndPathStartDrag(keep: false);
         var (isNew, original) = (textIsNew, textOriginal);
         CloseTextEditor();
         var style = editor.Style;
