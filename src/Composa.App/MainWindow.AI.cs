@@ -325,7 +325,7 @@ public sealed partial class MainWindow
         {
             var bounds = AutomaticAiMask.ContourBounds(selection);
             if (!bounds.IsEmpty)
-                context = AutomaticAiMask.Geometry(bounds, session.Document.Bounds).Bounds;
+                context = AutomaticAiMask.Geometry(bounds, session.Document.Bounds, settings.AiSelectionContextPercent).Bounds;
         }
         canvas.AiContextBounds = context;
     }
@@ -1085,7 +1085,7 @@ public sealed partial class MainWindow
         if (task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.GenerativeExpand
             && session?.Selection is { } selection && AutomaticAiMask.ContourBounds(selection) is { IsEmpty: false } bounds)
         {
-            var context = AutomaticAiMask.Geometry(bounds, session.Document.Bounds).Bounds;
+            var context = AutomaticAiMask.Geometry(bounds, session.Document.Bounds, settings.AiSelectionContextPercent).Bounds;
             return (context.Width, context.Height);
         }
         return session == null ? AiDimensions.FromMegapixels(settings.AiMegapixels, 1, 1) : (session.Document.Width, session.Document.Height);

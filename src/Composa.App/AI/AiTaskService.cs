@@ -21,6 +21,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
     public Func<AiTaskKind, string?> ModelKeyForTask { get; set; } = _ => null;
     public Func<AiTaskKind, string?> EngineIdForTask { get; set; } = _ => null;
     internal Func<WorkflowPreferences> WorkflowSettings { get; set; } = () => new();
+    internal Func<int>? SelectionContextPercent { get; set; }
     internal SavedWorkflow? ActiveWorkflow(AiTaskKind task, EngineProfile? engine, bool? useAssigned = null) =>
         WorkflowSettings().Active(task, engine?.Id, useAssigned);
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
@@ -500,9 +501,12 @@ public sealed partial class AiTaskService : IAiTaskRunner
         finally { foreach (var handle in handles) handle.Dispose(); }
     }
 
-    private static AiTaskRequest PrepareRequest(EditorSession session, AiTaskRequest request)
+    private AiTaskRequest PrepareRequest(EditorSession session, AiTaskRequest request)
     {
-        request = AutomaticAiMask.IgnoreLegacyControls(request);
+        request = AutomaticAiMask.IgnoreLegacyControls(request) with
+        {
+            SelectionContextPercent = SelectionContextPercent?.Invoke() ?? request.SelectionContextPercent
+        };
         // Crop bounds take precedence over a selection on the old canvas.
         if (request.Task != AiTaskKind.GenerativeExpand || request.ExpansionBounds != null || session.Selection == null) return request;
         return request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,

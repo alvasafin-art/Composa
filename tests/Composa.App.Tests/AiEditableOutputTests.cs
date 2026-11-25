@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.AI;
@@ -169,16 +170,61 @@ public class AiEditableOutputTests
     [AvaloniaFact]
     public async Task Defaults_context_overlay_crop_reset_and_generation_advanced_are_consistent()
     {
-        var w = new MainWindow { Width = 1280, Height = 900 }; w.Settings.CheckForUpdates = false; w.Show();
+        var connection = new PartnerImageTests.Connection();
+        var w = new MainWindow(null, _ => connection) { Width = 1280, Height = 900 };
+        w.Settings.CheckForUpdates = false;
+        w.Settings.ComfyServerUrl = connection.Address.ToString();
+        w.Show();
         try
         {
             Assert.False(w.Settings.AiLorasEnabled); Assert.Equal((16,48,16,"off"), (w.Settings.AiMaskGrow,w.Settings.AiMaskBlend,w.Settings.AiMaskBlur,w.Settings.AiColorMatch));
             Assert.Equal((4,8,0),(w.Settings.AiGptMaskGrow,w.Settings.AiGptMaskBlend,w.Settings.AiGptContextPadding));
             Assert.Equal((4,8,4,1.2),(w.Settings.AiFluxFillMaskGrow,w.Settings.AiFluxFillMaskBlend,w.Settings.AiFluxFillMaskBlur,w.Settings.AiFluxFillMaskContext));
             Assert.False(w.AiTasks.EngineFor(AiTaskKind.GenerativeExpand)!.PaidApi); Assert.False(w.AiTasks.EngineFor(AiTaskKind.GenerativeFill)!.PaidApi);
-            var s = EditorSession.NewCanvas(641,423,SKColors.White); w.AddSession(s); w.AiTasks.SetConnectedForTests(); s.SelectRect(new SKRect(250,160,330,240));
+            var s = EditorSession.NewCanvas(641, 423, SKColors.White);
+            w.AddSession(s);
+            await w.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken);
+            s.SelectRect(new SKRect(250,160,330,240));
             Assert.Equal(AutomaticAiMask.Geometry(new(250,160,330,240),s.Document.Bounds).Bounds,w.Canvas.AiContextBounds);
             Assert.True(Screenshots.Save(w,"ai-context-bounds"));
+            async Task SetContext(int percent, bool save, bool reset = false)
+            {
+                var settings = w.ShowAiSettings(page: 3);
+                Dispatcher.UIThread.RunJobs();
+                var settingsDialog = Assert.Single(w.OwnedWindows);
+                var generations = settingsDialog.GetVisualDescendants().OfType<Button>().Single(button =>
+                    button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == "Generations"));
+                generations.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                var context = settingsDialog.GetVisualDescendants().OfType<NumericUpDown>()
+                    .Single(field => field.Name == "AiSelectionContextPercent");
+                Assert.Equal((decimal)w.Settings.AiSelectionContextPercent, context.Value);
+                context.Value = percent;
+                if (reset)
+                {
+                    var button = settingsDialog.GetVisualDescendants().OfType<Button>()
+                        .Single(button => button.Content as string == "Reset to factory default");
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.Equal(100m, context.Value);
+                }
+                Assert.True(Screenshots.Save(settingsDialog, "settings-generations"));
+                settingsDialog.Close(save);
+                await settings;
+            }
+            var defaultBounds = w.Canvas.AiContextBounds!.Value;
+            await SetContext(50, save: false);
+            Assert.Equal(defaultBounds, w.Canvas.AiContextBounds);
+            await SetContext(50, save: true);
+            Assert.Equal(50, w.Settings.AiSelectionContextPercent);
+            Assert.True(w.Canvas.AiContextBounds!.Value.Width < defaultBounds.Width);
+            using (var inputs = AiTaskInputPreparer.Prepare(s, new()
+                { Task = AiTaskKind.GenerativeFill, SelectionContextPercent = w.Settings.AiSelectionContextPercent }))
+            using (var api = new PartnerImageInputs(inputs, new() { Task = AiTaskKind.GenerativeFill }))
+                Assert.Equal(w.Canvas.AiContextBounds.Value, api.SourceBounds);
+            await SetContext(200, save: true);
+            Assert.True(w.Canvas.AiContextBounds!.Value.Width > defaultBounds.Width);
+            await SetContext(200, save: true, reset: true);
+            Assert.Equal(defaultBounds, w.Canvas.AiContextBounds);
             w.Settings.AiShowContextBounds = false; w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.Null(w.Canvas.AiContextBounds);
             w.Settings.AiShowContextBounds = true; w.AiTasks.SetConnectedForTests(); Dispatcher.UIThread.RunJobs(); Assert.NotNull(w.Canvas.AiContextBounds);
             s.CropRatio = "1:1"; w.SelectTool(Tool.Crop); s.Crop(new(-11,-7,691,451),"Expand Canvas");

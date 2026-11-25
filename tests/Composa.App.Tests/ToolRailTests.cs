@@ -67,6 +67,19 @@ public class ToolRailTests
     private List<string> BarTexts() => window.GetVisualDescendants().OfType<WrapPanel>().Single(p => p.Classes.Contains("options"))
         .GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
 
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Selection_groups_follow_the_same_order_in_both_rails(bool horizontal)
+    {
+        window.ApplyEditorArrangement(horizontal ? EditorLayoutPreset.Modern : EditorLayoutPreset.Classic, AiPanelPlacement.UnderSelection);
+        Dispatcher.UIThread.RunJobs();
+        var marquee = Center(window.RailButton(Tool.Marquee));
+        var lasso = Center(window.RailButton(Tool.Lasso));
+        var wand = Center(window.RailButton(Tool.Wand));
+        Assert.True(horizontal ? marquee.X < lasso.X && lasso.X < wand.X : marquee.Y < lasso.Y && lasso.Y < wand.Y);
+    }
+
     [AvaloniaFact]
     public void Selection_brush_shares_magic_wand_button_and_keeps_a_distinct_selection_icon()
     {

@@ -127,6 +127,10 @@ public class MaskedEditTests
             Dispatcher.UIThread.RunJobs();
             var generation = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerInstructions");
             var editing = dialog.GetVisualDescendants().OfType<TextBox>().Single(b => b.Name == "EnhancerEditInstructions");
+            var labels = dialog.GetVisualDescendants().OfType<TextBlock>().Select(label => label.Text).ToArray();
+            Assert.Contains("GPT Image CLI", labels);
+            Assert.DoesNotContain("image_generation", labels);
+            Assert.DoesNotContain("SeedVR2", labels);
             editing.Text = "Edit only the requested detail.";
             generation.Text = "Describe a new scene.";
             Assert.Equal("Edit only the requested detail.", editing.Text);

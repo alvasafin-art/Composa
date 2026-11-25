@@ -132,11 +132,20 @@ public static partial class AiDialogs
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service, int page = 0,
         string? focusField = null, AiTaskKind? initialOperation = null, bool firstRun = false, Action? firstRunBack = null)
     {
+        const int generationsPageIndex = 12;
+        const string contextPaddingLabel = "Selection context padding (%)";
         var live = service;
         service = live.SettingsPreview();
         using var lifetime = new CancellationTokenSource();
         DialogWindow? settingsDialog = null;
         var showContext = new CheckBox { Content = Locale.T("Show AI context bounds after selection"), IsChecked = settings.AiShowContextBounds };
+        var contextPercent = Ui.Number(settings.AiSelectionContextPercent, AutomaticAiMask.MinimumContextPercent,
+            AutomaticAiMask.MaximumContextPercent, _ => { }, step: 5, width: 130);
+        contextPercent.Name = "AiSelectionContextPercent";
+        contextPercent.VerticalAlignment = VerticalAlignment.Center;
+        Avalonia.Automation.AutomationProperties.SetName(contextPercent, Locale.T(contextPaddingLabel));
+        var resetContext = Ui.TextButton("Reset to factory default", () => contextPercent.Value = AutomaticAiMask.DefaultContextPercent);
+        resetContext.VerticalAlignment = VerticalAlignment.Center;
         var taskDrafts = new Dictionary<string, string>(settings.AiTaskEngineIds);
         var url = new TextBox { Text = settings.ComfyServerUrl };
         var imageConnection = new ImageConnectionFields(settings, service, url, lifetime.Token, firstRun);
@@ -150,12 +159,15 @@ public static partial class AiDialogs
         keyNote.HorizontalAlignment = HorizontalAlignment.Left;
         keyNote.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
         var directGenerator = DirectImageGenerator.For(settings, initialOperation ?? AiTaskKind.GenerateImage);
-        EngineProfile[] PromptProfiles() => service.Engines.Profiles.Concat(imageConnection.PromptProfiles()).ToArray();
+        static bool SupportsPromptInstructions(EngineProfile? pack) => pack?.Tasks.Any(binding =>
+            !ImageOperationModels.IsUtility(binding.Task) && binding.Task != AiTaskKind.SelectSubject) == true;
+        EngineProfile[] PromptProfiles() => service.Engines.Profiles.Concat(imageConnection.PromptProfiles())
+            .Where(SupportsPromptInstructions).ToArray();
         var operationEngine = initialOperation is { } openingTask ? settings.EngineForTask(openingTask) : null;
         var promptPack = directGenerator.Route == ImageGenerationRoute.ComfyWorkflow
             ? service.Engines.Profiles.FirstOrDefault(pack => pack.Id == operationEngine) ?? service.SelectedEngine
             : directGenerator.PromptProfile();
-        promptPack ??= PromptProfiles().FirstOrDefault();
+        if (!SupportsPromptInstructions(promptPack)) promptPack = PromptProfiles().FirstOrDefault();
         var instructionDrafts = new Dictionary<string, string>(settings.EnhancerInstructions);
         var instructions = new TextBox { Name = "EnhancerInstructions", AcceptsReturn = true, Height = 360, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             Text = service.InstructionsFor(instructionDrafts, promptPack, AiTaskKind.GenerateImage) };
@@ -577,6 +589,7 @@ public static partial class AiDialogs
         AiGenerationControls.StyleModelField(promptPicker, "Image model");
         void RefreshPromptProfiles(EngineProfile? preferred)
         {
+            if (!SupportsPromptInstructions(preferred)) preferred = null;
             var profiles = PromptProfiles();
             var scope = AiTaskService.InstructionScope(preferred);
             var match = profiles.FirstOrDefault(pack => AiTaskService.InstructionScope(pack) == scope);
@@ -603,6 +616,7 @@ public static partial class AiDialogs
         };
         string ModelTitle(EngineProfile pack, AiTaskKind task)
         {
+            if (pack.Id == "server-codex-image") return DirectImageGenerator.CodexImageName;
             if (pack.Id is "direct-codex-image" or "direct-api-image") return pack.DisplayName;
             try { return service.Engines.ModelFor(pack, task, models.Choices(url.Text ?? "")).Name; }
             catch (FormatException) { return pack.ModelName ?? pack.DisplayName; }
@@ -786,6 +800,11 @@ public static partial class AiDialogs
             Card(Columns("*,*", Field("Language", languagePicker), Field("Interface theme", themePicker))),
             Card(Columns("*,*", Field("Workspace layout", layoutPicker), Field("AI panel placement", aiPanelPicker))),
             Card(Ui.Column(5, rememberPrompts, showContext, groupedPanels, linkedSources, updates)));
+        var contextNote = Caption("100% uses the automatic margin around the selection.");
+        contextNote.VerticalAlignment = VerticalAlignment.Center;
+        var contextRow = Columns("Auto,*,Auto", contextPercent, contextNote, resetContext);
+        contextRow.ColumnSpacing = 12;
+        var generationsPage = Page("Generations", Card(Ui.Column(4, Caption(contextPaddingLabel), contextRow)));
         var accelerated = new ToggleSwitch { IsChecked = settings.UseEditorGpu || settings.UseRasterFilterGpu || settings.UseSelectionGpu };
         accelerated.IsCheckedChanged += (_, _) =>
         {
@@ -950,7 +969,8 @@ public static partial class AiDialogs
         }
         var workflowPage = Page("Workflows", Card(workflows.Content));
         var body = new StudioSettingsPages(
-            [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage, new ContentControl(), setupPage, new ContentControl(), cliConnectionPage],
+            [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage,
+                new ContentControl(), setupPage, new ContentControl(), cliConnectionPage, generationsPage],
             firstRun ? 9 : page == 10 ? 5 : page == 11 ? 11 : page == 8 ? 6 : Math.Clamp(page, 0, 7));
         void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex is 0 or 1 or 6 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
         void ScheduleTextCheck()
@@ -1058,6 +1078,7 @@ public static partial class AiDialogs
             ("Workflows", "graph JSON prompt binding граф привязки импорт", 4, workflows.Content, null, null),
             ("Model files", "checkpoint vae encoder файлы веса", 1, models, null, null),
             ("Show AI context bounds", "output selection выделение контекст", 3, showContext, null, null),
+            (contextPaddingLabel, "generations margin area выделение контекст отступ генерация", generationsPageIndex, contextPercent, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
             ("Text model", "chatgpt luna comfy credits", 2, provider, null, null),
             ("Direct text API", "connection endpoint key catalog URL каталог прямое подключение", 5, apiUrl, null, null),
@@ -1346,6 +1367,7 @@ public static partial class AiDialogs
             (6, NavButton("Operations", Icons.Layers, 6)),
             (1, NavButton("Model files", Icons.Image, 1)),
             (0, NavButton("Connections", Icons.Link, 0)),
+            (generationsPageIndex, NavButton("Generations", Icons.Marquee, generationsPageIndex)),
             (3, NavButton("Editor", Icons.Sliders, 3, Palette.Secondary)),
             (7, NavButton("Performance", Icons.Cpu, 7, Palette.Secondary))
         };
@@ -1571,6 +1593,7 @@ public static partial class AiDialogs
         settings.AutoUpdateLinkedSources = linkedSources.IsChecked == true;
         settings.CheckForUpdates = updates.IsChecked == true;
         settings.AiShowContextBounds = showContext.IsChecked == true;
+        settings.AiSelectionContextPercent = (int)(contextPercent.Value ?? AutomaticAiMask.DefaultContextPercent);
         settings.RememberAiPrompts = rememberPrompts.IsChecked == true;
         if (!settings.RememberAiPrompts) settings.AiPromptDrafts.Clear();
         SavePromptDraft();
@@ -1950,7 +1973,7 @@ public static partial class AiDialogs
                 if (sourceCanvas is { } canvas && selectionBounds is { IsEmpty: false } selection &&
                     task is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand)
                     description = SelectionOutput.Describe(canvas, selection, service?.SelectedEngine,
-                        task == AiTaskKind.GenerativeExpand ? regionSide == 0 : originalSize, width, height, quality);
+                        task == AiTaskKind.GenerativeExpand ? regionSide == 0 : originalSize, width, height, quality, settings.AiSelectionContextPercent);
                 else if (nano) description += $"\nNano Banana: {quality} · {NanoBanana.Aspect(width, height)}";
                 else if (paid && api != (width, height)) description += $"\nModel request  {api.Item1} × {api.Item2} px";
                 Locale.Tip(task == AiTaskKind.GenerativeExpand ? expandSize : size, description);

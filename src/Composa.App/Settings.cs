@@ -72,6 +72,7 @@ public sealed class Settings
     public bool UseRasterFilterGpu { get; set; } = Composa.Rendering.GpuAcceleration.CanEnable;
     public bool UseEditorGpu { get; set; } = Composa.Rendering.GpuAcceleration.CanEnable;
     public bool AiShowContextBounds { get; set; } = true;
+    public int AiSelectionContextPercent { get; set; } = Composa.AI.AutomaticAiMask.DefaultContextPercent;
     public bool AiFloatingCollapsed { get; set; }
     public int AiDefaultsRevision { get; set; } = 1;
     /// <summary>Server-side loader identifiers per normalized endpoint; never filesystem paths on the client.</summary>

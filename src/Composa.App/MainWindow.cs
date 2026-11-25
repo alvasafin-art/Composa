@@ -83,6 +83,7 @@ public sealed partial class MainWindow : Window
             ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds,
             ModelSelections = settings.ComfyModelsFor,
             WorkflowSettings = () => settings.Workflows,
+            SelectionContextPercent = () => settings.AiSelectionContextPercent,
             EngineIdForTask = settings.EngineForTask,
             PreferredModelRoutes = () => settings.AiModelRoutes,
             ModelKeyForTask = task => settings.AiTaskModelKeys.GetValueOrDefault((task == AiTaskKind.SelectSubject ? AiTaskKind.ObjectSelection : task).ToString()),
@@ -756,8 +757,8 @@ public sealed partial class MainWindow : Window
 
     private static readonly (Tool Tool, Icons.Icon Icon, string Tip)[] ToolList =
     [
-        (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Wand, Icons.Wand, "Magic Wand (W)"),
-        (Tool.Lasso, Icons.Lasso, "Lasso (L)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"),
+        (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"),
+        (Tool.Lasso, Icons.Lasso, "Lasso (L)"), (Tool.Wand, Icons.Wand, "Magic Wand (W)"),
         (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
