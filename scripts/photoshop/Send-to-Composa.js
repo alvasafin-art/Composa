@@ -14,7 +14,7 @@
 
     var folder = new Folder(Folder.temp.absoluteURI + '/Photoshop-to-Composa-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000000));
     if (folder.exists || !folder.create()) { alert('Could not create a temporary folder for the PSD.'); return; }
-    var name = source.name.replace(/\.[^.]+$/, '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '');
+    var name = source.name.replace(/\.[^.]+$/, '').replace(/[<>:"\/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '');
     var image = new File(folder.absoluteURI + '/' + encodeURIComponent('Photoshop - ' + (name || 'Untitled').substring(0, 100) + '.psd'));
     var report = new File(folder.absoluteURI + '/result.txt');
     var launcher = new File(folder.absoluteURI + '/launch.vbs');
