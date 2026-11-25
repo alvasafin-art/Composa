@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Composa.App.Mcp;
+using Composa.Core.Tests;
 using Composa.Editing;
 using Composa.Filters;
 using Composa.IO;
@@ -100,6 +101,70 @@ public class McpTests
             }
         }
         finally { File.Delete(image); }
+    }
+    [AvaloniaFact]
+    public async Task Photoshop_exchange_acknowledges_before_review_and_opens_each_snapshot_as_a_new_document()
+    {
+        var window = new MainWindow();
+        window.Show();
+        using var host = new McpHost(window, PipeName(), exchangeOnly: true);
+        Assert.True(await host.StartAsync());
+        var bridge = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "photoshop-exchange", Command = "dotnet", Arguments = [App, "--exchange"],
+            EnvironmentVariables = new Dictionary<string, string?> { ["COMPOSA_EXCHANGE_PIPE"] = host.PipeName }
+        });
+        await using var client = await Pumped(McpClient.CreateAsync(bridge));
+        var folder = Directory.CreateTempSubdirectory("Composa Слои ");
+        var paths = new[] { Path.Combine(folder.FullName, "Первый снимок.psd"), Path.Combine(folder.FullName, "Второй снимок.psd") };
+        using var pixels = Composa.Rendering.Pixels.NewColor(20, 12);
+        pixels.Erase(SKColors.Coral);
+        var fixture = new PsdWriter { Width = 96, Height = 64 };
+        using var mask = Composa.Rendering.Pixels.NewMask(20, 12, 128);
+        fixture.Layers.Add(new PsdWriterLayer { Name = "Bottom", Image = pixels, Left = 5, Top = 6 }
+            .With("luni", PsdWriter.Unicode("Нижний")));
+        fixture.Layers.Add(new PsdWriterLayer { Name = "</Layer group>" }.With("lsct", PsdWriter.Section(3)));
+        fixture.Layers.Add(new PsdWriterLayer { Name = "Top", Image = pixels, Left = 31, Top = 22, Mask = mask, MaskLeft = 31, MaskTop = 22 }
+            .With("luni", PsdWriter.Unicode("Верхний")).With("TySh", new byte[16]));
+        fixture.Layers.Add(new PsdWriterLayer { Name = "Folder", Blend = "pass" }.With("lsct", PsdWriter.Section(1)));
+        foreach (var path in paths) File.WriteAllBytes(path, fixture.Build());
+        try
+        {
+            foreach (var path in paths)
+            {
+                var response = await Pumped(client.CallToolAsync("open_document", new Dictionary<string, object?> { ["path"] = path }));
+                Assert.Null(response.IsError);
+                Assert.Contains("Accepted Photoshop transfer", Text(response));
+            }
+            Assert.Empty(window.Sessions);
+            for (var i = 0; i < paths.Length; i++)
+            {
+                await Pumped(() => window.OwnedWindows.Count > 0);
+                Assert.Contains(Path.GetFileName(paths[i]), Assert.Single(window.OwnedWindows).Title);
+                Assert.Single(window.OwnedWindows).Close(true);
+                var count = i + 1;
+                await Pumped(() => window.Sessions.Count == count);
+                Assert.Equal(count, window.Sessions.Count);
+                var session = Assert.IsType<EditorSession>(window.Session);
+                Assert.Null(session.FilePath);
+                Assert.Equal(Path.GetFileNameWithoutExtension(paths[i]), session.Title);
+                Assert.Equal((96, 64), (session.Document.Width, session.Document.Height));
+                Assert.Equal(["Нижний", "Folder"], session.Document.Layers.Select(layer => layer.Name));
+                Assert.Equal(new SKRect(5, 6, 25, 18), session.Document.Layers[0].Bounds);
+                var group = session.Document.Layers[1];
+                Assert.True(group.IsGroup);
+                var child = Assert.Single(group.Children);
+                Assert.Equal("Верхний", child.Name);
+                Assert.Equal(new SKRect(31, 22, 51, 34), child.Bounds);
+                Assert.Equal(128, child.Mask!.GetPixel(0, 0).Alpha);
+            }
+        }
+        finally
+        {
+            foreach (var path in paths) File.Delete(path);
+            folder.Delete();
+            window.Close();
+        }
     }
     private static readonly string App = Path.Combine(AppContext.BaseDirectory, "composa.dll");
 

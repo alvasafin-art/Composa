@@ -59,7 +59,10 @@ public sealed class App : Application
         {
             var window = new MainWindow();
             desktop.MainWindow = window;
-            _ = window.OpenPaths(desktop.Args ?? []);
+            if (desktop.Args is ["--photoshop-transfer", var path])
+                window.Opened += (_, _) => _ = window.OpenPhotoshopTransfer(path);
+            else
+                _ = window.OpenPaths(desktop.Args ?? []);
             // An exception in an input handler would otherwise take the whole app down, and unsaved work with it.
             // The failure is reported and logged; the document stays open so it can be saved.
             Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, e) =>
