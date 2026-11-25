@@ -137,6 +137,22 @@ public class SeedVr2Tests
         Assert.Equal(state, s.History.CurrentId); Assert.Equal((185, 143), (s.Document.Width, s.Document.Height)); Assert.Single(s.Document.Layers);
     }
 
+    [Fact]
+    public async Task Upscale_after_an_edit_keeps_the_full_resolution_in_a_layer_without_resizing_the_canvas()
+    {
+        var session = EditorSession.NewCanvas(185, 143, SKColors.Coral);
+        using var connection = new Connection { OnExecute = () => session.AddBlankLayer() };
+        await Service(connection).RunAsync(new EditorCommandService(session), Request("seedvr2-native"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal((185, 143), (session.Document.Width, session.Document.Height));
+        var result = session.Document.Layers[^1];
+        Assert.Equal((740, 572), (result.Pixels!.Width, result.Pixels.Height));
+        Assert.Equal(new SKRect(0, 0, 185, 143), result.Bounds);
+        session.Undo();
+        Assert.Equal(2, session.Document.Layers.Count);
+    }
+
     private static AiTaskRequest Request(string engine) => new() { Task = AiTaskKind.Upscale, EngineId = engine, Settings = new() { UpscaleFactor = 4, Seed = 17 } };
     private static AiTaskService Service(Connection connection) => new(() => "http://localhost:8188", Path.Combine(AppContext.BaseDirectory, "ai", "engines"), _ => connection);
 
@@ -148,6 +164,7 @@ public class SeedVr2Tests
         public int Executions;
         public List<SKSizeI> Uploads = [];
         internal HashSet<string>? ModelFiles { get; init; }
+        internal Action? OnExecute { get; init; }
         internal string? SubmittedModel { get; private set; }
         private SKBitmap? source;
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
@@ -171,6 +188,7 @@ public class SeedVr2Tests
         public Task<ComfyExecutionResult> ExecuteAsync(JsonObject graph, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
             Executions++;
+            OnExecute?.Invoke();
             SubmittedModel = graph["model"]!["inputs"]!["unet_name"]!.GetValue<string>();
             var sampler = graph["sampler"]!["inputs"]!;
             Assert.Equal(1, sampler["steps"]!.GetValue<int>()); Assert.Equal(1, sampler["cfg"]!.GetValue<int>());

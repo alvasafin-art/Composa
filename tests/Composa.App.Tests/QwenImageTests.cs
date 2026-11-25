@@ -294,19 +294,29 @@ public class QwenImageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Cancellation_and_stale_documents_never_insert_Qwen_output(bool cancel)
+    public async Task Qwen_inserts_a_separate_result_after_edits_and_honors_cancellation(bool cancel)
     {
-        var session=Scene();var state=session.History.CurrentId;
-        var connection=new Connection {OnExecute=()=>
+        var session = Scene();
+        var source = session.ActiveLayer!;
+        var state = session.History.CurrentId;
+        var connection = new Connection { OnExecute = () =>
         {
-            if(cancel) throw new OperationCanceledException();
-            session.AddShape(new(ShapeKind.Rectangle,(uint)SKColors.Blue,0),new(0,0,10,10));
-        }};
-        var service=Service(connection);
-        if(cancel) await Assert.ThrowsAsync<OperationCanceledException>(()=>service.RunAsync(new EditorCommandService(session),Request(AiTaskKind.Harmonize),TestContext.Current.CancellationToken));
-        else await Assert.ThrowsAsync<InvalidOperationException>(()=>service.RunAsync(new EditorCommandService(session),Request(AiTaskKind.Harmonize),TestContext.Current.CancellationToken));
-        Assert.DoesNotContain(session.Document.AllLayers(),layer=>layer.Tags.Contains("scene-object"));
-        if(cancel) Assert.Equal(state,session.History.CurrentId);
+            if (cancel) throw new OperationCanceledException();
+            session.AddShape(new(ShapeKind.Rectangle, (uint)SKColors.Blue, 0), new(0, 0, 10, 10));
+            state = session.History.CurrentId;
+        } };
+        var run = Service(connection).RunAsync(new EditorCommandService(session), Request(AiTaskKind.Harmonize),
+            TestContext.Current.CancellationToken);
+        if (cancel) await Assert.ThrowsAsync<OperationCanceledException>(() => run);
+        else
+        {
+            await run;
+            Assert.True(source.Visible);
+            Assert.Contains(session.Document.Layers[^1].Children, layer => layer.Tags.Contains("scene-object"));
+            session.Undo();
+        }
+        Assert.DoesNotContain(session.Document.AllLayers(), layer => layer.Tags.Contains("scene-object"));
+        Assert.Equal(state, session.History.CurrentId);
     }
 
     [Fact]
