@@ -40,19 +40,30 @@ public sealed partial class MainWindow
 
         public TipSample(BrushSettings brush, int side)
         {
-            this.brush = brush;
             this.side = side;
+            this.brush = ForSample(brush);
             Width = Height = side;
             IsHitTestVisible = false;
         }
 
         public void Update(BrushSettings settings)
         {
+            settings = ForSample(settings);
             if (brush == settings) return;
             brush = settings;
             ReleaseBitmap();
             InvalidateVisual();
         }
+
+        private BrushSettings ForSample(BrushSettings settings) => new()
+        {
+            Size = Math.Clamp(settings.Size, 1, side - 4),
+            Hardness = settings.Hardness,
+            Flow = settings.Flow,
+            Opacity = settings.Opacity,
+            Roundness = settings.TipRoundness,
+            Angle = settings.TipAngle
+        };
 
         public override void Render(DrawingContext context)
         {
@@ -110,7 +121,7 @@ public sealed partial class MainWindow
                 target.Brush = brush;
                 changed = true;
                 Refresh();
-                canvas.InvalidateCanvas();
+                canvas.InvalidateBrushCursor();
             }
 
             void BuildTipFields()
@@ -145,7 +156,7 @@ public sealed partial class MainWindow
                     refreshOptions?.Invoke();
                     RememberToolSettings();
                     changed = false;
-                    canvas.InvalidateCanvas();
+                    canvas.InvalidateBrushCursor();
                 };
                 entries.Add((preset.Settings, entry, status));
                 list.Children.Add(entry);

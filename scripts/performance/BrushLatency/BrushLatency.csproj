@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Composa.App.Tests</AssemblyName>
+    <CanvasPerformance>true</CanvasPerformance>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Composa.App/Composa.App.csproj" AdditionalProperties="CanvasPerformance=true" />
+  </ItemGroup>
+</Project>

@@ -152,8 +152,18 @@ public sealed partial class MainWindow
                     refreshTip = updateTip;
                     refreshOptions += updateTip;
                 }
-                var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v => { s.Brush = s.Brush with { Size = v }; refreshTip?.Invoke(); });
-                var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v => { s.Brush = s.Brush with { Hardness = v / 100 }; refreshTip?.Invoke(); });
+                var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v =>
+                {
+                    s.Brush = s.Brush with { Size = v };
+                    refreshTip?.Invoke();
+                    canvas.InvalidateBrushCursor();
+                });
+                var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v =>
+                {
+                    s.Brush = s.Brush with { Hardness = v / 100 };
+                    refreshTip?.Invoke();
+                    canvas.InvalidateBrushCursor();
+                });
                 Add(size, hardness);
                 if (s.Tool is Tool.Brush or Tool.Eraser)
                 {
@@ -177,7 +187,7 @@ public sealed partial class MainWindow
                 {
                     var spacing = Ui.SliderField("Spacing", s.Brush.Spacing * 100, 1, 100, v => s.Brush = s.Brush with { Spacing = v / 100 }, width: 105);
                     var smoothing = Ui.SliderField("Smoothing", s.Brush.Smoothing, 0, 100, v => s.Brush = s.Brush with { Smoothing = v });
-                    Add(spacing, smoothing, BrushDynamics(s, () => canvas.InvalidateCanvas()));
+                    Add(spacing, smoothing, BrushDynamics(s, canvas.InvalidateBrushCursor));
                     refreshOptions += () => { spacing.Value = s.Brush.Spacing * 100; smoothing.Value = s.Brush.Smoothing; };
                 }
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)

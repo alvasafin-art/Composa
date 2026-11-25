@@ -195,24 +195,25 @@ public sealed partial class CanvasView
         return steps.Count == 0 ? null : canvas => { foreach (var step in steps) step(canvas); };
     }
 
-    private sealed class BrushCursorOverlay(CanvasView view) : Avalonia.Controls.Control
+    private sealed partial class BrushCursorOverlay(CanvasView view) : Avalonia.Controls.Control
     {
-        private static readonly Avalonia.Media.Immutable.ImmutableDashStyle EdgeDash = new([2, 3], 0);
         private double penWidth;
-        private Avalonia.Media.IPen dark = null!, light = null!, cross = null!, dashedDark = null!, dashedLight = null!;
+        private Avalonia.Media.IPen dark = null!, light = null!, faint = null!, contrast = null!, ring = null!, rim = null!;
 
         public override void Render(Avalonia.Media.DrawingContext context)
         {
-            if (view.session is not { } session || !view.IsBrushTool || !view.cursorInside) return;
+            if (!drawsLegacy || view.session is not { } session) return;
             var hair = 1 / view.Scaling;
             if (hair != penWidth)
             {
                 penWidth = hair;
                 dark = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, hair);
                 light = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.White, hair);
-                cross = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, 3 * hair);
-                dashedDark = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, hair, EdgeDash);
-                dashedLight = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.White, hair, EdgeDash);
+                faint = new Avalonia.Media.Immutable.ImmutablePen(
+                    new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Avalonia.Media.Color.FromArgb(92, 255, 255, 255)), hair);
+                contrast = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, 3 * hair);
+                ring = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, 2 * hair);
+                rim = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.White, 1.25 * hair);
             }
             void Cross(Avalonia.Point p)
             {
@@ -220,8 +221,8 @@ public sealed partial class CanvasView
                 var right = p.WithX(p.X + 7);
                 var top = p.WithY(p.Y - 7);
                 var bottom = p.WithY(p.Y + 7);
-                context.DrawLine(cross, left, right);
-                context.DrawLine(cross, top, bottom);
+                context.DrawLine(contrast, left, right);
+                context.DrawLine(contrast, top, bottom);
                 context.DrawLine(light, left, right);
                 context.DrawLine(light, top, bottom);
             }
@@ -231,21 +232,21 @@ public sealed partial class CanvasView
             var center = view.ToScreen(session.BrushPosition ?? view.currentDocument);
             var selection = session.Tool is Tool.SelectionBrush or Tool.RemoveObject;
             var radius = (selection ? session.SelectionBrushSize / 2 : session.Brush.CursorRadius(session.BrushPressure)) * view.UnitsPerPixel;
-            var edge = session.Brush.Size * .5 * session.Brush.PressureRadius(session.BrushPressure) * view.UnitsPerPixel;
             var roundness = session.Tool is Tool.Brush or Tool.Eraser ? session.Brush.TipRoundness : 1;
             void Outline()
             {
-                if (!selection && edge - radius > hair)
-                {
-                    context.DrawEllipse(null, dashedDark, center, edge + hair, edge * roundness + hair);
-                    context.DrawEllipse(null, dashedLight, center, edge, edge * roundness);
-                }
                 if (radius < 3) return;
-                context.DrawEllipse(null, dark, center, radius + hair, radius * roundness + hair);
-                context.DrawEllipse(null, light, center, radius, radius * roundness);
-                var inner = selection ? radius - session.SelectionBrushFeather * view.UnitsPerPixel : radius * session.Brush.Hardness;
+                if (!selection)
+                {
+                    context.DrawEllipse(null, ring, center, radius, radius * roundness);
+                    context.DrawEllipse(null, rim, center, radius + .9 * hair, radius * roundness + .9 * hair);
+                    return;
+                }
+                context.DrawEllipse(null, dark, center, radius + hair, radius + hair);
+                context.DrawEllipse(null, light, center, radius, radius);
+                var inner = radius - session.SelectionBrushFeather * view.UnitsPerPixel;
                 if (inner > 2 && inner < radius - 2)
-                    using (context.PushOpacity(.36)) context.DrawEllipse(null, light, center, inner, inner * roundness);
+                    context.DrawEllipse(null, faint, center, inner, inner * roundness);
             }
             if (roundness == 1) Outline();
             else
@@ -275,14 +276,14 @@ public sealed partial class CanvasView
         }
     }
 
-    private static void DrawCrosshair(SKCanvas canvas, SKPoint p, float hair)
+    private static void DrawCrosshair(SKCanvas canvas, SKPoint p, float hair, float length)
     {
         using var dark = new SKPaint { Color = SKColors.Black, StrokeWidth = 3 * hair, IsAntialias = true };
         using var light = new SKPaint { Color = SKColors.White, StrokeWidth = hair, IsAntialias = true };
         foreach (var paint in new[] { dark, light })
         {
-            canvas.DrawLine(p.X - 7, p.Y, p.X + 7, p.Y, paint);
-            canvas.DrawLine(p.X, p.Y - 7, p.X, p.Y + 7, paint);
+            canvas.DrawLine(p.X - length, p.Y, p.X + length, p.Y, paint);
+            canvas.DrawLine(p.X, p.Y - length, p.X, p.Y + length, paint);
         }
     }
 }
