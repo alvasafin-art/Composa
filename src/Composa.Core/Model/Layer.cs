@@ -135,6 +135,8 @@ public sealed partial record TextStyle
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public TextPath? Path { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsVertical { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool AutoBoxHeight { get; init; }
     /// <summary>
     /// Letters in a color other than <see cref="Color"/>, as character indices into <see cref="Text"/>, sorted and not
@@ -188,6 +190,7 @@ public sealed partial record TextStyle
         return this with
         {
             Text = text,
+            IsVertical = path == null && IsVertical,
             FontFamily = IsFamilyName(FontFamily) ? FontFamily : DefaultFontFamily,
             Type = (Type ?? Typography.Default) with
             {
@@ -201,7 +204,7 @@ public sealed partial record TextStyle
             BoxWidth = box ? Math.Clamp(Math.Round(BoxWidth!.Value), MinBox, MaxBox) : null,
             BoxHeight = box ? Math.Clamp(Math.Round(BoxHeight!.Value), MinBox, MaxBox) : null,
             Path = path,
-            AutoBoxHeight = box && AutoBoxHeight,
+            AutoBoxHeight = box && !IsVertical && AutoBoxHeight,
             Color = Color | 0xFF000000,
             FontStyle = FontStyle is { IsValid: true } ? FontStyle : null,
             ColorRuns = ValidRuns(ColorRuns, text.Length),
@@ -385,7 +388,7 @@ public sealed partial record TextStyle
     }
 
     /// <summary>The style the next text takes: the same look, without this text's wording, box and per-letter colors and faces.</summary>
-    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, Path = null, AutoBoxHeight = false, ColorRuns = null, FontRuns = null, SizeRuns = null, FormatRuns = null };
+    public TextStyle AsDefaults() => this with { Text = "", BoxWidth = null, BoxHeight = null, Path = null, IsVertical = false, AutoBoxHeight = false, ColorRuns = null, FontRuns = null, SizeRuns = null, FormatRuns = null };
 
     private List<TextFace> UnitFaces()
     {
@@ -432,25 +435,33 @@ public sealed partial record TextStyle
     public bool Equals(TextStyle? other) =>
         other is not null && Text == other.Text && FontFamily == other.FontFamily && Size == other.Size && Color == other.Color
         && Bold == other.Bold && Italic == other.Italic && FontStyle == other.FontStyle && Alignment == other.Alignment && Tracking == other.Tracking && Leading == other.Leading
-        && Type == other.Type && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight && Path == other.Path && AutoBoxHeight == other.AutoBoxHeight
+        && Type == other.Type && BoxWidth == other.BoxWidth && BoxHeight == other.BoxHeight && Path == other.Path && IsVertical == other.IsVertical && AutoBoxHeight == other.AutoBoxHeight
         && (ColorRuns == null ? other.ColorRuns == null : other.ColorRuns != null && ColorRuns.SequenceEqual(other.ColorRuns))
         && (FontRuns == null ? other.FontRuns == null : other.FontRuns != null && FontRuns.SequenceEqual(other.FontRuns))
         && (FormatRuns == null ? other.FormatRuns == null : other.FormatRuns != null && FormatRuns.SequenceEqual(other.FormatRuns))
         && (SizeRuns == null ? other.SizeRuns == null : other.SizeRuns != null && SizeRuns.SequenceEqual(other.SizeRuns));
 
     public override int GetHashCode() =>
-        HashCode.Combine(HashCode.Combine(Text, Type, AutoBoxHeight, Path), FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
+        HashCode.Combine(HashCode.Combine(Text, Type, AutoBoxHeight, Path, IsVertical), FontFamily, Size, Color, Bold, Italic, Alignment, HashCode.Combine(Tracking, Leading, BoxWidth, BoxHeight, ColorRuns?.Count ?? 0, FontRuns?.Count ?? 0, FontStyle, SizeRuns?.Count ?? 0));
 
     /// <summary>The same text drawn <paramref name="factor"/> times as large: size, spacing and box together.</summary>
     public TextStyle Scaled(double factor) => Scaled(factor, factor);
 
-    public TextStyle Scaled(double horizontal, double vertical) => (this with
+    public TextStyle Scaled(double horizontal, double vertical)
     {
-        FormatRuns = FormatRuns?.Select(r => r with { Format = r.Format.Scale(horizontal, vertical) }).ToArray(),
-        Size = Size * vertical, SizeRuns = SizeRuns?.Select(r => r with { Size = Math.Clamp(r.Size * vertical, 1, 2000) }).ToArray(), Tracking = Type.PercentTracking ? Tracking : Tracking * horizontal, Leading = Type.PercentLeading ? Leading : Leading * vertical,
-        Type = Type with { Indent = Type.Indent * horizontal, ParagraphSpacing = Type.ParagraphSpacing * vertical },
-        BoxWidth = BoxWidth * horizontal, BoxHeight = BoxHeight * vertical, Path = Path?.Scaled(horizontal, vertical)
-    }).Clamped();
+        var inline = IsVertical ? vertical : horizontal;
+        var block = IsVertical ? horizontal : vertical;
+        return (this with
+        {
+            FormatRuns = FormatRuns?.Select(r => r with { Format = r.Format.Scale(inline, block) }).ToArray(),
+            Size = Size * block,
+            SizeRuns = SizeRuns?.Select(r => r with { Size = Math.Clamp(r.Size * block, 1, 2000) }).ToArray(),
+            Tracking = Type.PercentTracking ? Tracking : Tracking * inline,
+            Leading = Type.PercentLeading ? Leading : Leading * block,
+            Type = Type with { Indent = Type.Indent * inline, ParagraphSpacing = Type.ParagraphSpacing * block },
+            BoxWidth = BoxWidth * horizontal, BoxHeight = BoxHeight * vertical, Path = Path?.Scaled(horizontal, vertical)
+        }).Clamped();
+    }
 
     /// <summary>A text layer's name: its first words on one line, so a paragraph never makes a Layers row taller.</summary>
     public string LayerName()

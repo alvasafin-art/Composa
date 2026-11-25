@@ -5,7 +5,8 @@ namespace Composa.Model;
 /// <summary>A single Bézier contour in text-space pixels. The range is in segment indices and fractional Bézier parameters.</summary>
 public sealed record TextPath(VectorPath Outline, double Start = 0, double? End = null)
 {
-    private int SegmentCount => Outline.Closed ? Outline.Nodes.Length : Outline.Nodes.Length - 1;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int SegmentCount => Outline.Closed ? Outline.Nodes.Length : Outline.Nodes.Length - 1;
 
     internal bool IsValid()
     {
@@ -22,10 +23,29 @@ public sealed record TextPath(VectorPath Outline, double Start = 0, double? End 
         static bool Valid(double value) => Math.Abs(value) <= DocumentLimits.MaxSide * 4.0;
     }
 
-    internal TextPath Scaled(double x, double y) => this with
+    public TextPath WithStart(double parameter)
     {
-        Outline = Outline with { Nodes = Outline.Nodes.Select(n => new BezierNode(n.X * x, n.Y * y, n.InX * x, n.InY * y, n.OutX * x, n.OutY * y)).ToArray() }
-    };
+        if (!double.IsFinite(parameter)) return this;
+        const double gap = .00001;
+        var limit = Outline.Closed ? SegmentCount : End ?? SegmentCount;
+        var start = Math.Clamp(parameter, 0, Math.Max(0, limit - gap));
+        var end = Outline.Closed && End is { } last ? start + (last - Start) : End;
+        return this with { Start = start, End = end };
+    }
+
+    public SKPoint StartPoint()
+    {
+        using var curve = Build();
+        return curve.PointCount == 0 ? SKPoint.Empty : curve.GetPoint(0);
+    }
+
+    public VectorPath MapOutline(double scaleX, double scaleY, double offsetX = 0, double offsetY = 0) =>
+        Outline with { Nodes = Outline.Nodes.Select(n => new BezierNode(
+            n.X * scaleX + offsetX, n.Y * scaleY + offsetY,
+            n.InX * scaleX + offsetX, n.InY * scaleY + offsetY,
+            n.OutX * scaleX + offsetX, n.OutY * scaleY + offsetY)).ToArray() };
+
+    internal TextPath Scaled(double x, double y) => this with { Outline = MapOutline(x, y) };
 
     public SKPath Build()
     {

@@ -93,6 +93,11 @@ public sealed partial class TextLayout
         }
     }
 
+    private int InlineSize => Style.IsVertical ? Height : Width;
+    private int BlockSize => Style.IsVertical ? Width : Height;
+
+    public SKPoint LocalPoint(float inline, float block) => Style.IsVertical ? new(Width - block, inline) : new(inline, block);
+
     public TextLayout(TextStyle style)
     {
         Style = style = style.Clamped();
@@ -108,7 +113,7 @@ public sealed partial class TextLayout
         using var measure = curve == null ? null : new SKPathMeasure(curve, false, 2);
         pathLength = measure?.Length ?? 0;
 
-        var available = style.IsBox ? (float)Math.Max(1, style.BoxWidth!.Value - 2 * Padding) : float.PositiveInfinity;
+        var available = style.IsBox ? (float)Math.Max(1, (style.IsVertical ? style.BoxHeight!.Value : style.BoxWidth!.Value) - 2 * Padding) : float.PositiveInfinity;
         var ranges = new List<(int Start, int End)>();
         var paragraphStart = 0;
         for (var i = 0; i <= Text.Length; i++)
@@ -181,12 +186,13 @@ public sealed partial class TextLayout
             var largestSize = Math.Max(style.Size, style.SizeRuns?.Max(r => r.Size) ?? style.Size);
             Width = (int)Math.Max(TextStyle.MinBox, Math.Ceiling(contentWidth + Padding * 2 + largestSize * 0.1));
             Height = naturalHeight;
+            if (style.IsVertical) (Width, Height) = (Height, Width);
         }
         Width = Math.Min(Width, Document.MaxSide);
         Height = Math.Min(Height, Document.MaxSide);
 
         var lines = new List<Line>(ranges.Count);
-        var free = style.IsBox ? Math.Max(0, Height - 2 * Padding - blockHeight) : 0;
+        var free = style.IsBox ? Math.Max(0, BlockSize - 2 * Padding - blockHeight) : 0;
         var origin = Padding + (style.Type.Vertical switch { TextVertical.Center => free / 2, TextVertical.Bottom => free, _ => 0 });
         float top = origin, gapBefore = 0;
         int paragraph = 0;
@@ -227,7 +233,7 @@ public sealed partial class TextLayout
         }
         Lines = lines;
         Overflows = curve != null ? lines[0].VisibleWidth > pathLength
-            : style.IsBox && lines.Any(l => l.Baseline + l.Descent > Height - Padding + 0.5f || l.X + l.VisibleWidth > Width - Padding + .5f);
+            : style.IsBox && lines.Any(l => l.Baseline + l.Descent > BlockSize - Padding + 0.5f || l.X + l.VisibleWidth > InlineSize - Padding + .5f);
     }
 
     internal static string DisplayText(TextStyle style, bool photoshop = false)
@@ -282,6 +288,18 @@ public sealed partial class TextLayout
             var font = fonts.For(face, size, format.Type.Axes);
             var segment = text.Substring(start, end - start);
             var features = fonts.Features(format.Type);
+            if (Style.IsVertical)
+            {
+                for (int k = 0; k < segment.Length;)
+                {
+                    var rune = Rune.TryGetRuneAt(segment, k, out var decoded) ? decoded : Rune.ReplacementChar;
+                    var advance = Rune.IsWhiteSpace(rune) ? font.MeasureText(rune.ToString()) : (float)size;
+                    advances[start + k] = Math.Max(0, advance + (format.Type.PercentTracking ? tracking * (float)size / 100 : tracking));
+                    k += rune.Utf16SequenceLength;
+                }
+                start = end;
+                continue;
+            }
             if (features.Enabled)
             {
                 for (int k=0;k<segment.Length;)
@@ -359,27 +377,32 @@ public sealed partial class TextLayout
         using var measure = curve == null ? null : new SKPathMeasure(curve, false, 2);
         canvas.Save();
         if (Style.IsBox) canvas.ClipRect(new SKRect(0, 0, Width, Height));
+        if (Style.IsVertical)
+        {
+            canvas.Translate(Width, 0);
+            canvas.RotateDegrees(90);
+        }
         // Letters are drawn a stretch at a time, one stretch per face and color; text in one face and color is one stretch per line.
         for (int lineIndex = 0; lineIndex < Lines.Count; lineIndex++)
         {
             var line = Lines[lineIndex];
-            if (Style.Type.Ellipsis && Style.IsBox && lineIndex > 0 && line.Baseline + line.Descent > Height - Padding) break;
+            if (Style.Type.Ellipsis && Style.IsBox && lineIndex > 0 && line.Baseline + line.Descent > BlockSize - Padding) break;
             var baseFont = fonts.For(Style.FaceAt(line.Start), Style.SizeAt(line.Start));
             paint.SetColor((SKColorF)new SKColor(Style.ColorAt(line.Start)), workingSpace);
             if (line.Marker.Length > 0 && measure == null)
                 canvas.DrawText(line.Marker, line.X - (float)Style.Size * .3f, line.Baseline, SKTextAlign.Right, baseFont, paint);
             int drawLength = line.Length;
             bool ellipsis = Style.Type.Ellipsis && Style.IsBox &&
-                (line.X + line.VisibleWidth > Width - Padding || lineIndex + 1 < Lines.Count &&
-                 Lines[lineIndex+1].Baseline + Lines[lineIndex+1].Descent > Height - Padding);
+                (line.X + line.VisibleWidth > InlineSize - Padding || lineIndex + 1 < Lines.Count &&
+                 Lines[lineIndex+1].Baseline + Lines[lineIndex+1].Descent > BlockSize - Padding);
             if (ellipsis)
             {
                 float dots = baseFont.MeasureText("…");
-                while (drawLength > 0 && line.X + line.Positions[drawLength] + dots > Width - Padding) drawLength--;
+                while (drawLength > 0 && line.X + line.Positions[drawLength] + dots > InlineSize - Padding) drawLength--;
                 if (drawLength > 0 && char.IsHighSurrogate(Text[line.Start + drawLength - 1])) drawLength--;
                 canvas.DrawText("…", line.X + line.Positions[drawLength], line.Baseline, SKTextAlign.Left, baseFont, paint);
             }
-            if (Style.Type.Ellipsis && Style.IsBox && line.Top >= Height - Padding) break;
+            if (Style.Type.Ellipsis && Style.IsBox && line.Top >= BlockSize - Padding) break;
             for (var k = 0; k < drawLength;)
             {
                 var format = Style.FormatAt(line.Start + k);
@@ -421,7 +444,9 @@ public sealed partial class TextLayout
                 if (glyphs.Length > 0)
                 {
                     using var builder = new SKTextBlobBuilder();
-                    if (measure == null)
+                    if (Style.IsVertical)
+                        AddVerticalRun(builder, font, glyphs, positions, (float)size);
+                    else if (measure == null)
                     {
                         var run = builder.AllocatePositionedRun(font, glyphs.Length);
                         run.SetGlyphs(glyphs);
@@ -444,6 +469,18 @@ public sealed partial class TextLayout
             }
         }
         canvas.Restore();
+    }
+
+    private static void AddVerticalRun(SKTextBlobBuilder builder, SKFont font, ushort[] glyphs, SKPoint[] positions, float size)
+    {
+        font.GetGlyphWidths(glyphs, out var bounds);
+        var maps = new SKRotationScaleMatrix[glyphs.Length];
+        for (int i = 0; i < maps.Length; i++)
+        {
+            var position = positions[i];
+            maps[i] = new(0, -1, position.X + size / 2 - bounds[i].MidY, position.Y + bounds[i].MidX);
+        }
+        builder.AddRotationScaleRun(glyphs, font, maps);
     }
 
     // ---- Caret geometry -------------------------------------------------------------------------------------------
@@ -478,6 +515,7 @@ public sealed partial class TextLayout
     {
         if (Lines.Count == 0) return 0;
         if (Style.Path != null) return PathIndexAt(point);
+        if (Style.IsVertical) point = new(point.Y, Width - point.X);
         var line = Lines.FirstOrDefault(l => point.Y < l.Top + l.Height) ?? Lines[^1];
         return line.Start + NearestBoundary(line, point.X);
     }

@@ -6,7 +6,7 @@ using SkiaSharp;
 
 namespace Composa.Editing;
 
-public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen, Eraser }
+public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen, Eraser, TextOnPath, VerticalText }
 
 public enum MarqueeKind { Rectangle, Ellipse }
 public enum LassoKind { Freehand, Polygonal }
@@ -82,7 +82,7 @@ public sealed partial class EditorSession
             if (value == Tool.ObjectSelectionAi) { value = Tool.Wand; WandMode = WandMode.Object; }
             if (value is Tool.Brush or Tool.Eraser) eraserMode = value == Tool.Eraser;
             if (value != tool && WarpEdit != null) CommitWarp();
-            if (value != Tool.Text && TextEdit != null) FinishText();
+            if (value != tool && TextEdit != null) FinishText();
             tool = value;
         }
     }

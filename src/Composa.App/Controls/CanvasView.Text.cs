@@ -43,6 +43,11 @@ public sealed partial class CanvasView
         if (session == null) return;
         if (session.TextEdit is { } editor && session.TextEditLayer is { Pixels: { } pixels } editing)
         {
+            if (editor.Style.Path is { } path && HitTextPathStart(editing, editor.Layout, path, pressDocument))
+            {
+                drag = Drag.TextPathStart;
+                return;
+            }
             var corners = TextBoxCorners();
             textHandle = corners != null ? HitFrame(corners, pressScreen, allowRotate: false) : TransformHandle.None;
             if (corners != null && textHandle is not (TransformHandle.None or TransformHandle.Move))
@@ -62,7 +67,9 @@ public sealed partial class CanvasView
                 drag = Drag.TextResize;
                 return;
             }
-            if (InsideLayer(editing, pressDocument))
+            if (InsideLayer(editing, pressDocument) && (editor.Style.Path == null ||
+                TextCurveParameter(editing, editor.Layout, editor.Style.Path, pressDocument, 12 / UnitsPerPixel) != null ||
+                session.TextLayerAt(pressDocument) == editing))
             {
                 var local = LocalTextPoint(editing, pressDocument);
                 if (clicks >= 2) editor.SelectWordAt(editor.Layout.IndexAt(local));
@@ -80,7 +87,35 @@ public sealed partial class CanvasView
             TextEditingChanged?.Invoke();
             return;
         }
+        if (session.Tool == Tool.TextOnPath)
+        {
+            if (session.TextPathSourceAt(pressDocument, (float)(9 / UnitsPerPixel)) is { } hit &&
+                session.BeginTextOnPath(hit.Layer, hit.Start) != null)
+            {
+                Focus();
+                TextEditingChanged?.Invoke();
+            }
+            return;
+        }
         drag = Drag.TextBox;
+    }
+
+    private bool HitTextPathStart(Layer layer, TextLayout layout, TextPath path, SKPoint document) =>
+        SKPoint.Distance(layer.Matrix.MapPoint(path.StartPoint() - layout.PathOrigin), document) * UnitsPerPixel <= 9;
+
+    private static double? TextCurveParameter(Layer layer, TextLayout layout, TextPath path, SKPoint document, double tolerance)
+    {
+        var toDocument = SKMatrix.CreateTranslation(-layout.PathOrigin.X, -layout.PathOrigin.Y).PostConcat(layer.Matrix);
+        var (segment, t) = path.Outline.NearestSegment(toDocument, document, tolerance);
+        return segment >= 0 ? segment + t : null;
+    }
+
+    private void SetTextPathStart(SKPoint document)
+    {
+        if (session?.TextEdit is not { Style.Path: { } path } editor || session.TextEditLayer is not { } layer ||
+            TextCurveParameter(layer, editor.Layout, path, document, double.PositiveInfinity) is not { } parameter ||
+            SKPoint.Distance(document, pressDocument) * UnitsPerPixel < 2) return;
+        editor.ChangeStyle(style => style with { Path = path.WithStart(parameter) });
     }
 
     /// <summary>A double-click with the Move tool: opens the topmost live text under the pointer for typing, the caret at the click.</summary>
@@ -140,8 +175,9 @@ public sealed partial class CanvasView
     private void FinishTextBoxDrag(bool moved)
     {
         if (session == null) return;
-        if (moved) session.BeginText(MarqueeRect(false, false));
-        else session.BeginText(pressDocument);
+        bool vertical = session.Tool == Tool.VerticalText;
+        if (moved) session.BeginText(MarqueeRect(false, false), vertical);
+        else session.BeginText(pressDocument, vertical);
         Focus();
         TextEditingChanged?.Invoke();
     }
@@ -192,6 +228,10 @@ public sealed partial class CanvasView
             case Key.Right when alt: session.ChangeTextStyle(s => s with { Tracking = s.Tracking + step }); return true;
             case Key.Up when alt: session.ChangeTextStyle(s => s with { Leading = Math.Max(1, s.LineHeight - step) }); return true;
             case Key.Down when alt: session.ChangeTextStyle(s => s with { Leading = s.LineHeight + step }); return true;
+            case Key.Up when editor.Style.IsVertical: editor.MoveHorizontal(-1, shift, control); return true;
+            case Key.Down when editor.Style.IsVertical: editor.MoveHorizontal(1, shift, control); return true;
+            case Key.Left when editor.Style.IsVertical: editor.MoveVertical(1, shift); return true;
+            case Key.Right when editor.Style.IsVertical: editor.MoveVertical(-1, shift); return true;
             case Key.Left: editor.MoveHorizontal(-1, shift, control); return true;
             case Key.Right: editor.MoveHorizontal(1, shift, control); return true;
             case Key.Up: editor.MoveVertical(-1, shift); return true;
@@ -255,6 +295,8 @@ public sealed partial class CanvasView
                 TransformHandle.Left or TransformHandle.Right => StandardCursorType.SizeWestEast,
                 _ => StandardCursorType.Ibeam
             };
+        if (session?.TextEdit is { Style.Path: { } path } editor && session.TextEditLayer is { } layer &&
+            HitTextPathStart(layer, editor.Layout, path, ToDocument(position))) type = StandardCursorType.SizeAll;
         Cursor = new Cursor(type);
     }
 
@@ -278,10 +320,17 @@ public sealed partial class CanvasView
         var selection = editor.HasSelection ? layout.SelectionPolygons(editor.SelectionStart, editor.SelectionEnd) : [];
         var caret = editor.HasSelection || antsPhase % 8 >= 4 ? null : layout.CaretSegmentAt(editor.Caret);
         var overflows = layout.Overflows;
+        SKPoint? startMarker = null;
+        if (editor.Style.Path is { } path)
+        {
+            if (drag == Drag.TextPathStart && TextCurveParameter(layer, layout, path, currentDocument, double.PositiveInfinity) is { } parameter)
+                path = path.WithStart(parameter);
+            startMarker = toView.MapPoint(path.StartPoint() - layout.PathOrigin);
+        }
         steps.Add(canvas =>
         {
             using var line = new SKPaint { Color = Accent, StrokeWidth = hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
-            if (layout.CreateLocalTextPath() is { } curve)
+            if (layout.CreateLocalTextPath(fullOutline: true) is { } curve)
             {
                 using (curve)
                 {
@@ -295,6 +344,13 @@ public sealed partial class CanvasView
                 box.AddPoly(corners, close: true);
                 canvas.DrawPath(box, line);
                 DrawHandles(canvas, corners, hair);
+            }
+            if (startMarker is { } marker)
+            {
+                using var fill = new SKPaint { Color = Accent, IsAntialias = true };
+                canvas.DrawCircle(marker, 4, fill);
+                fill.Color = SKColors.White;
+                canvas.DrawCircle(marker, 1.5f, fill);
             }
             if (overflows)
             {

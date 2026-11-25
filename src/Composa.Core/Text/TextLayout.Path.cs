@@ -17,7 +17,7 @@ public sealed partial class TextLayout
         return Geometry.RoundOut(bounds);
     }
 
-    internal static SKPoint PathOriginFor(TextStyle style)
+    public static SKPoint PathOriginFor(TextStyle style)
     {
         using var curve = style.Path?.Build();
         if (curve == null) return SKPoint.Empty;
@@ -25,9 +25,9 @@ public sealed partial class TextLayout
         return new(bounds.Left, bounds.Top);
     }
 
-    public SKPath? CreateLocalTextPath()
+    public SKPath? CreateLocalTextPath(bool fullOutline = false)
     {
-        var curve = Style.Path?.Build();
+        var curve = fullOutline ? Style.Path?.Outline.Build(1, 1) : Style.Path?.Build();
         curve?.Offset(-PathOrigin.X, -PathOrigin.Y);
         return curve;
     }
@@ -80,7 +80,7 @@ public sealed partial class TextLayout
     {
         var (x, top, bottom) = CaretAt(index);
         if (Style.Path == null)
-            return Style.IsBox && top > Height - Padding ? null : (new SKPoint(x, top), new SKPoint(x, bottom));
+            return Style.IsBox && top > BlockSize - Padding ? null : (LocalPoint(x, top), LocalPoint(x, bottom));
         using var curve = Style.Path.Build();
         using var measure = new SKPathMeasure(curve, false, 2);
         return SamplePath(measure, x, out var at, out var tangent)
@@ -90,7 +90,7 @@ public sealed partial class TextLayout
     public List<SKPoint[]> SelectionPolygons(int start, int end)
     {
         if (Style.Path == null)
-            return SelectionRects(start, end).Select(r => new SKPoint[] { new(r.Left, r.Top), new(r.Right, r.Top), new(r.Right, r.Bottom), new(r.Left, r.Bottom) }).ToList();
+            return SelectionRects(start, end).Select(r => new SKPoint[] { LocalPoint(r.Left, r.Top), LocalPoint(r.Right, r.Top), LocalPoint(r.Right, r.Bottom), LocalPoint(r.Left, r.Bottom) }).ToList();
 
         var line = Lines[0];
         using var curve = Style.Path.Build();

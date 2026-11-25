@@ -292,8 +292,8 @@ public sealed partial class MainWindow
                     Add(Ui.Label(Locale.Message(s.ShapeKind == ShapeKind.Line ? "Draws in the foreground color · Shift snaps to 45°" : "Fills with the foreground color"), Palette.Secondary));
                 }
                 break;
-            case Tool.Text:
-                Add(Title("Type"));
+            case Tool.Text or Tool.TextOnPath or Tool.VerticalText:
+                Add(Title(s.Tool == Tool.TextOnPath ? "Text on Path" : s.Tool == Tool.VerticalText ? "Vertical Type" : "Type"));
                 if (s.ActiveLayer?.Text == null || !dock.Section("Properties").State.Visible) BuildTextFields(row);
                 else if (s.IsEditingText)
                 {
@@ -588,12 +588,26 @@ public sealed partial class MainWindow
             UpdateColors();
             refreshOptions?.Invoke();
         };
+        var pathStart = Ui.Number(style.Path?.Start ?? 0, 0, 4096, value =>
+        {
+            if (!updating) s.ChangeTextStyle(st => st.Path is { } path ? st with { Path = path.WithStart(value) } : st);
+        }, .1, "0.#####", 78);
+        pathStart.Name = "TextPathStart";
+        Locale.Tip(pathStart, "Segment number from zero and fractional position within the segment");
+        var pathRow = Ui.Row(5, Ui.Label(Locale.T("Path start"), Palette.Secondary), pathStart);
+        pathRow.IsVisible = style.Path != null;
+        if (style.Path != null)
+            pathRow.Children.Add(Ui.TextButton("Edit Text Curve", () => { SelectTool(Tool.Pen); canvas.Focus(); }));
         var alignments = new Dictionary<TextAlignment, ToggleButton>();
         var alignRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var (alignment, icon) in new[] { (TextAlignment.Left, Icons.AlignLeft), (TextAlignment.Center, Icons.AlignCenter), (TextAlignment.Right, Icons.AlignRight), (TextAlignment.Justify, new Icons.Icon("M3 5h18 M3 10h18 M3 15h18 M3 20h18")) })
         {
             var button = new ToggleButton { Classes = { "tool" }, Width = 30, Height = 26, Content = Icons.Create(icon, 15), IsChecked = style.Alignment == alignment };
-            Locale.Tip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
+            Locale.Tip(button, Locale.T(style.Path != null || style.IsVertical ? alignment switch
+            {
+                TextAlignment.Left => "Align to start", TextAlignment.Right => "Align to end", _ => "Align center"
+            } : "Align " + alignment.ToString().ToLowerInvariant()));
+            if (style.Path != null || style.IsVertical) button.IsVisible = alignment != TextAlignment.Justify;
             button.Click += (_, _) => { s.FormatText(st => st with { Alignment = alignment }, paragraph: true); refreshOptions?.Invoke(); };
             alignments[alignment] = button;
             alignRow.Children.Add(button);
@@ -667,12 +681,14 @@ public sealed partial class MainWindow
                 AddAt(alignmentGrid,button,alignmentGrid.Children.Count);
             }
             row.Children.Add(PropertyPair(alignmentGrid,decoration));
+            row.Children.Add(pathRow);
         }
         else
         {
             row.Children.AddRange([font, faceMenu, Ui.Row(4, size, Ui.Scrub(Ui.Label("px", Palette.Secondary), size)), swatch, alignRow,
                 Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Tracking"), Palette.Secondary), tracking), tracking),
                 Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Leading"), Palette.Secondary), leading), leading), Ui.Separator()]);
+            row.Children.Add(pathRow);
             if (s.IsEditingText) row.Children.AddRange([done, cancel]);
             else { edit.IsEnabled = s.ActiveLayer?.Text != null; row.Children.Add(edit); }
         }
@@ -680,6 +696,8 @@ public sealed partial class MainWindow
         {
             var current = s.InspectedTextStyle;
             updating = true;
+            pathRow.IsVisible = current.Path != null;
+            if (current.Path is { } path) pathStart.Value = (decimal)path.Start;
             if (leadingUnit != null) leadingUnit.Text = current.Type.PercentLeading ? "%" : "px";
             if (trackingUnit != null) trackingUnit.Text = current.Type.PercentTracking ? "%" : "px";
             if (underline != null) underline.IsChecked = current.Type.Underline;

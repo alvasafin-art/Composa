@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, TextPathStart, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
     public event Action<SKRectI, SelectionMode>? AiObjectSelectionRequested;
@@ -161,7 +161,7 @@ public sealed partial class CanvasView
             {
                 Tool.Hand => StandardCursorType.Hand,
                 Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
-                Tool.Text => StandardCursorType.Ibeam,
+                Tool.Text or Tool.TextOnPath or Tool.VerticalText => StandardCursorType.Ibeam,
                 Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
                 _ => StandardCursorType.Arrow
@@ -339,7 +339,7 @@ public sealed partial class CanvasView
                 drag = Drag.Shape;
                 snapFrom = snapTo = SnapCorner(pressDocument, control: false);
                 break;
-            case Tool.Text:
+            case Tool.Text or Tool.TextOnPath or Tool.VerticalText:
                 BeginTextPress(shift, e.ClickCount);
                 break;
             case Tool.Eyedropper:
@@ -408,13 +408,14 @@ public sealed partial class CanvasView
                 if (Math.Abs(position.X - pressScreen.X) > 4) ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen);
                 break;
             case Drag.TextSelect: DragTextSelection(); break;
+            case Drag.TextPathStart: break;
             case Drag.TextResize: DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Guide: DragGuide(); break;
             case Drag.None when session.Tool == Tool.Move:
                 UpdateMoveCursor(position);
                 UpdateLayoutHover(position);
                 break;
-            case Drag.None when session.Tool == Tool.Text:
+            case Drag.None when session.Tool is Tool.Text or Tool.TextOnPath or Tool.VerticalText:
                 UpdateTextCursor(position);
                 break;
         }
@@ -586,6 +587,7 @@ public sealed partial class CanvasView
                 if (!moved) ZoomTo(alt ? zoom / 1.5 : zoom * 1.5, pressScreen);
                 break;
             case Drag.TextBox: FinishTextBoxDrag(moved); break;
+            case Drag.TextPathStart: SetTextPathStart(ToDocument(e.GetPosition(this))); break;
             case Drag.TextResize: guides.Clear(); break;
             case Drag.Guide: FinishGuideDrag(e.GetPosition(this)); break;
         }

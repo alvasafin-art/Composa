@@ -67,7 +67,7 @@ public class PsdDesignCompatibilityTests
         using var edited = DocumentRenderer.Flatten(document);
         using var loaded = DocumentRenderer.Flatten(reopened);
         Assert.Equal(edited.GetPixelSpan().ToArray(), loaded.GetPixelSpan().ToArray());
-        Assert.Contains(PsdExport.Conversions(reopened), c => c.LayerName == layer.Name && c.Message.Contains("saved as pixels"));
+        Assert.Empty(PsdExport.Conversions(reopened));
 
         static SKPoint LayoutStart(Layer layer, TextLayout layout)
         {
@@ -75,6 +75,65 @@ public class PsdDesignCompatibilityTests
             using var measure = new SKPathMeasure(curve);
             Assert.True(measure.GetPositionAndTangent(0, out var point, out _));
             return layer.Matrix.MapPoint(point);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, TextAlignment.Left, ColorDepth.Eight)]
+    [InlineData(false, TextAlignment.Center, ColorDepth.Sixteen)]
+    [InlineData(true, TextAlignment.Right, ColorDepth.Eight)]
+    public void Path_type_survives_project_and_native_PSD_with_mixed_runs_and_affine_geometry(bool closed, TextAlignment align, ColorDepth depth)
+    {
+        var session = new EditorSession(new Document(560, 420) { Depth = depth });
+        session.AddText(new(10, 10), new TextStyle { Text = "Point type", Size = 20 });
+        var shape = session.AddPath(new VectorPath
+        {
+            Closed = closed,
+            Nodes = [BezierNode.Corner(60, 100) with { OutX = 140, OutY = 70 },
+                BezierNode.Corner(470, 90) with { InX = 400, InY = 30 },
+                BezierNode.Corner(240, 300) with { InX = 430, InY = 275 }]
+        });
+        shape.Visible = false;
+        var layer = session.BeginTextOnPath(shape, .375)!;
+        session.TextEdit!.Insert("Mixed sizes and colors");
+        session.ChangeTextStyle(s => (s with { Alignment = align }).WithSize(28, 0, 0)
+            .WithSize(37, 5, 10).WithColor(0xffd5348c, 5, 10).WithFace(f => f with { Bold = true }, 5, 10));
+        session.FinishText();
+        layer.Transform = layer.Transform with { Rotation = 12, Width = layer.Transform.Width * .83 };
+        using var cmps = new MemoryStream();
+        ProjectFile.Write(session.Document, cmps);
+        cmps.Position = 0;
+        var project = ProjectFile.Read(cmps);
+        var saved = project.Find(layer.Id)!;
+        Assert.Equal(layer.Text, saved.Text);
+        Assert.Equal(layer.Transform, saved.Transform);
+        Assert.DoesNotContain(PsdExport.Conversions(project), c => c.LayerName == layer.Name);
+
+        using var psd = new MemoryStream();
+        PsdExport.Write(project, psd);
+        var file = PsdReader.Read(psd.ToArray(), DocumentLimits.DocumentPixelBudget);
+        Assert.Contains("Txt2", file.Extra.Keys);
+        Assert.Contains(file.Layers, l => l.Name == layer.Name && l.Extra.ContainsKey("TySh"));
+
+        var reopened = PsdImport.Load(psd.ToArray()).ToDocument();
+        Assert.Equal("Point type", reopened.Layers[0].Text!.Text);
+        var imported = Assert.Single(reopened.Layers, l => l.Name == layer.Name);
+        var style = Assert.IsType<TextStyle>(imported.Text);
+        Assert.Equal(saved.Text!.Text, style.Text);
+        Assert.Equal(closed, style.Path!.Outline.Closed);
+        Assert.Equal(.375, style.Path.Start, 5);
+        Assert.Equal(align, style.Alignment);
+        Assert.Equal(37, style.SizeAt(7));
+        Assert.Equal(0xffd5348cu, style.ColorAt(7));
+        Assert.True(style.FaceAt(7).Bold);
+        var a = DocumentPoint(saved, saved.Text.Path!.StartPoint());
+        var b = DocumentPoint(imported, style.Path.StartPoint());
+        Assert.InRange(SKPoint.Distance(a, b), 0, .01f);
+
+        static SKPoint DocumentPoint(Layer layer, SKPoint point)
+        {
+            var layout = new TextLayout(layer.Text!);
+            return layer.Matrix.MapPoint(point - layout.PathOrigin);
         }
     }
 
