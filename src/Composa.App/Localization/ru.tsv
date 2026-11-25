@@ -351,7 +351,7 @@ Ctrl+Enter finishes	Ctrl+Enter завершает ввод
 Ctrl+Z undoes a point	Ctrl+Z отменяет изменение узла
 Ctrl+wheel zooms	Ctrl + колесо меняет масштаб
 Ctrl-click picks a layer	Ctrl + щелчок выбирает слой
-Ctrl-drag a corner distorts	Ctrl + перетаскивание угла искажает форму
+Ctrl-drag a handle distorts	Ctrl + перетаскивание ручки искажает форму
 Ctrl-drag moves the layer	Ctrl + перетаскивание перемещает слой
 Current operations	Текущие операции
 Current operations · 00:00	Текущие операции · 00:00
