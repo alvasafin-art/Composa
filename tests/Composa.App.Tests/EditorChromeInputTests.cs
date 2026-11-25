@@ -87,6 +87,43 @@ public sealed class EditorChromeInputTests
     }
 
     [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_visible_tooltip_allows_a_click_on_its_own_button(bool icon)
+    {
+        const string caption = "A tooltip over its own button";
+        int clicks = 0;
+        var button = icon ? Ui.IconButton(Icons.Plus, caption, () => clicks++) : Ui.TextButton("Add", () => clicks++);
+        if (!icon) Locale.Tip(button, caption);
+        button.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        button.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        ToolTip.SetPlacement(button, PlacementMode.Center);
+        ToolTip.SetVerticalOffset(button, 0);
+        var window = new Window { Width = 360, Height = 240, Content = button };
+        window.Show();
+        try
+        {
+            Pump();
+            var at = Center(button, window);
+            window.MouseMove(at);
+            ToolTip.SetIsOpen(button, true);
+            Pump();
+
+            var tip = Assert.Single(window.GetVisualDescendants().OfType<ToolTip>());
+            Assert.Equal(caption, tip.Content);
+            var host = Assert.IsType<OverlayPopupHost>(tip.FindAncestorOfType<OverlayPopupHost>());
+            Assert.False(host.IsHitTestVisible);
+            Assert.True(new Rect(host.Bounds.Size).Contains(window.TranslatePoint(at, host)!.Value));
+            var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(at));
+            Assert.Contains(button, hit.GetSelfAndVisualAncestors());
+
+            Click(window, at);
+            Assert.Equal(1, clicks);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaTheory]
     [InlineData(false, 1.0)]
     [InlineData(false, 1.25)]
     [InlineData(true, 1.0)]
@@ -102,7 +139,7 @@ public sealed class EditorChromeInputTests
             window.AddSession(session);
             window.ApplyEditorArrangement(bottomRail ? EditorLayoutPreset.Modern : EditorLayoutPreset.Classic, AiPanelPlacement.UnderSelection);
             Pump();
-            foreach (var (from, to) in new[] { (Tool.Brush, Tool.Eraser), (Tool.Marquee, Tool.Lasso) })
+            foreach (var (from, to) in new[] { (Tool.Brush, Tool.Eraser), (Tool.Lasso, Tool.Marquee) })
             {
                 window.SelectTool(from);
                 Pump();

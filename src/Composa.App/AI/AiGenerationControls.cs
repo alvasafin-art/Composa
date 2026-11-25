@@ -16,9 +16,9 @@ internal static class AiGenerationControls
     internal const int EditorSpacing = 8;
     internal const int ModelPickerWidth = 166;
 
-    internal static TextBox PromptField(string placeholder)
+    internal static AiPromptField PromptField(string placeholder)
     {
-        var field = new TextBox
+        var field = new AiPromptField
         {
             AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinLines = 2, MinHeight = 50, MaxHeight = 104,
             Padding = new Thickness(9, 5), CornerRadius = new CornerRadius(4), PlaceholderText = placeholder

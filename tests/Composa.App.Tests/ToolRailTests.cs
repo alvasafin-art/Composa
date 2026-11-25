@@ -46,20 +46,21 @@ public class ToolRailTests
     public void Selection_brush_shares_magic_wand_button_and_keeps_a_distinct_selection_icon()
     {
         window.SelectTool(Tool.SelectionBrush);
-        var lasso=window.RailButton(Tool.Wand);
-        Assert.Same(lasso,window.RailButton(Tool.SelectionBrush)); Assert.True(lasso.IsChecked);
-        Assert.Equal("Selection Brush",lasso.Current!.Name); Assert.Equal(Icons.SelectionBrush,lasso.Current.Icon);
-        Assert.NotEqual(Icons.Brush,lasso.Current.Icon); Assert.True(lasso.Current.Icon.Dashed);
-        Assert.StartsWith("Selection Brush (Q)",(ToolTip.GetTip(lasso) as ToolTip)?.Content as string);
-        window.MouseDown(Center(lasso),MouseButton.Right); window.MouseUp(Center(lasso),MouseButton.Right); Dispatcher.UIThread.RunJobs();
-        Assert.Equal(["Freehand Lasso", "Polygonal Lasso", "Magic Wand", "Object Selection", "Selection Brush"],lasso.GroupItems.Select(item=>item.Header!.ToString()));
-        Assert.True(lasso.GroupItems[3].IsEnabled); // Bundled models work without a ComfyUI connection.
-        var popup=TopLevel.GetTopLevel(lasso.GroupItems[4])!;
-        var selected=lasso.GroupItems[4].TranslatePoint(new Point(40,10),popup)!.Value;
+        var wand=window.RailButton(Tool.Wand);
+        Assert.NotSame(wand, window.RailButton(Tool.Lasso));
+        Assert.Same(wand,window.RailButton(Tool.SelectionBrush)); Assert.True(wand.IsChecked);
+        Assert.Equal("Selection Brush",wand.Current!.Name); Assert.Equal(Icons.SelectionBrush,wand.Current.Icon);
+        Assert.NotEqual(Icons.Brush,wand.Current.Icon); Assert.True(wand.Current.Icon.Dashed);
+        Assert.StartsWith("Selection Brush (Q)",(ToolTip.GetTip(wand) as ToolTip)?.Content as string);
+        window.MouseDown(Center(wand),MouseButton.Right); window.MouseUp(Center(wand),MouseButton.Right); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["Magic Wand", "Object Selection", "Selection Brush"],wand.GroupItems.Select(item=>item.Header!.ToString()));
+        Assert.True(wand.GroupItems[1].IsEnabled); // Bundled models work without a ComfyUI connection.
+        var popup=TopLevel.GetTopLevel(wand.GroupItems[2])!;
+        var selected=wand.GroupItems[2].TranslatePoint(new Point(40,10),popup)!.Value;
         popup.MouseDown(selected,MouseButton.Left); popup.MouseUp(selected,MouseButton.Left);
         Screenshots.Save(window,"selection-brush-icon-in-wand");
         window.SelectTool(Tool.Move);
-        window.MouseDown(Center(lasso),MouseButton.Left); window.MouseUp(Center(lasso),MouseButton.Left);
+        window.MouseDown(Center(wand),MouseButton.Left); window.MouseUp(Center(wand),MouseButton.Left);
         Assert.Equal(Tool.SelectionBrush,session.Tool);
     }
 
@@ -73,10 +74,10 @@ public class ToolRailTests
 
         Assert.True(lasso.IsGroupOpen);
         var items = lasso.GroupItems;
-        Assert.Equal(["Freehand Lasso", "Polygonal Lasso", "Magic Wand", "Object Selection", "Selection Brush"], items.Select(i => (string)i.Header!));
-        Assert.Equal([new KeyGesture(Key.L), new KeyGesture(Key.L), new KeyGesture(Key.W), new KeyGesture(Key.W), new KeyGesture(Key.Q)], items.Select(i => i.InputGesture));
+        Assert.Equal(["Freehand Lasso", "Polygonal Lasso"], items.Select(i => (string)i.Header!));
+        Assert.Equal([new KeyGesture(Key.L), new KeyGesture(Key.L)], items.Select(i => i.InputGesture));
         Assert.All(items, i => Assert.NotNull(i.Icon));
-        Assert.Equal([true, false, false, false, false], items.Select(i => i.IsChecked));
+        Assert.Equal([true, false], items.Select(i => i.IsChecked));
         // Nothing is highlighted until the pointer is over a tool.
         Assert.All(items, i => Assert.False(i.IsSelected));
         // The group opens on the button's right, level with it, as Photoshop's does.

@@ -34,6 +34,8 @@ public sealed partial class MainWindow : Window
     private readonly SideDock dock;
     private readonly List<Control> canvasChrome = [];
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
+    private readonly TextBlock documentInfo = new() { Name = "DocumentInfo", FontSize = 11, Foreground = Palette.Secondary,
+        VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly Border optionsHost = new() { Height = 40, Background = Palette.Panel, Padding = new Thickness(12, 0) };
     private readonly Border toolOptionsHost = new();
     private readonly Grid combinedOptions = new() { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
@@ -70,7 +72,7 @@ public sealed partial class MainWindow : Window
         string? installationScripts = null)
     {
         (Application.Current as App)?.ApplyTheme(settings.Theme);
-        selectionTool = settings.ToolPalette?.SelectionTool;
+        selectionTool = settings.ToolPalette?.SelectionTool is Tool.SelectionBrush ? Tool.SelectionBrush : Tool.Wand;
         stampUsesPatch = settings.ToolPalette?.Patch ?? false;
         stampGroupTool = SavedStampTool(settings.ToolPalette);
         gradientShowsBucket = settings.ToolPalette?.Bucket ?? false;
@@ -112,6 +114,8 @@ public sealed partial class MainWindow : Window
 
         welcome = BuildWelcome();
         aiFloatingHost.Child = BuildAiFloatingMenu();
+        layers.CanDragReference = layer => !settings.CanvasOnly && (DockEditorVisible || aiFloatingHost.IsVisible)
+            && aiReferences.Count < MaxAiReferences && Document.Flatten([layer]).Any(item => item.Pixels != null);
         EnableAiReferenceDrop(aiFloatingHost);
         aiFloatingHost.SizeChanged += (_, _) => RefreshAiFloatingPosition();
         aiFloatingLayer.Children.Add(aiFloatingHost);
@@ -134,9 +138,15 @@ public sealed partial class MainWindow : Window
         var navigatorSection = new DockSection("Navigator", navigator, new(Visible: false, Height: 220));
         generationSection = new DockSection("AI Generation", BuildGenerationDock(), new(Visible: false, Height: 164));
         var properties = new DockSection("Properties", propertiesView, new(Height: 232));
+        var documentInfoPanel = new Border
+        {
+            Name = "DocumentInfoPanel", Height = 26, Background = Palette.Panel, BorderBrush = Palette.Divider,
+            BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(10, 0), Child = documentInfo
+        };
         dock = new SideDock((header, title) => AttachPanelDrag(header, title), new DockSection("Layers", layers, new(Height: 285)),
             properties, navigatorSection, channelsSection, generationSection, historySection,
-            new DockSection("Resources", libraryPanel, DefaultResourcePlacement));
+            new DockSection("Resources", libraryPanel, DefaultResourcePlacement),
+            new DockSection("Document Info", documentInfoPanel, new(Height: 26, Order: int.MaxValue, Standalone: true), compactHeight: 26));
         dock.RestoreLayout(settings.Dock, persist: false);
         dock.LayoutChanged += () => { settings.Dock = dock.CaptureLayout(); settings.Save(); };
         AddAt(center, Chrome(dock.LeftHost), 1);
@@ -322,7 +332,7 @@ public sealed partial class MainWindow : Window
 
     private static Tool RailTool(Tool tool) => tool switch
     {
-        Tool.Wand or Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Lasso,
+        Tool.SelectionBrush or Tool.ObjectSelectionAi => Tool.Wand,
         Tool.Bucket => Tool.Gradient,
         Tool.Patch or Tool.HealingBrush or Tool.SpotHealing => Tool.CloneStamp,
         _ => tool
@@ -346,10 +356,9 @@ public sealed partial class MainWindow : Window
                 if (Enum.IsDefined(palette.Shape)) added.ShapeKind = palette.Shape;
                 selectionTool = palette.SelectionTool switch
                 {
-                    Tool.Lasso or Tool.Wand or Tool.SelectionBrush => palette.SelectionTool,
+                    Tool.Wand or Tool.SelectionBrush => palette.SelectionTool,
                     _ when palette.SelectionBrush => Tool.SelectionBrush,
-                    _ when palette.ObjectAi || palette.Wand == WandMode.Object => Tool.Wand,
-                    _ => null
+                    _ => Tool.Wand
                 };
                 if (palette.ObjectAi || palette.Active == Tool.ObjectSelectionAi) added.WandMode = WandMode.Object;
                 if (added.Tool == Tool.Brush && palette.Eraser) added.Tool = Tool.Eraser;
@@ -437,6 +446,13 @@ public sealed partial class MainWindow : Window
 
     private readonly List<(EditorSession Document, TextBlock Title, TextBlock Mode, MenuItem Folder)> tabTitles = [];
 
+    private void UpdateDocumentInfo()
+    {
+        documentInfo.Text = session?.Document is { } document
+            ? $"{document.Width} × {document.Height} px · {document.Resolution:0.##} PPI" : "";
+        ToolTip.SetTip(documentInfo, documentInfo.Text);
+    }
+
     private void UpdateTabTitles()
     {
         foreach (var (item, title, mode, folder) in tabTitles)
@@ -446,6 +462,7 @@ public sealed partial class MainWindow : Window
             ToolTip.SetTip(mode, item.Document.Profile.Name);
             folder.IsEnabled = item.FilePath != null;
         }
+        UpdateDocumentInfo();
         Title = session == null ? "Composa" : $"{session.Title}{(session.IsModified ? " •" : "")} - Composa";
     }
 
@@ -479,6 +496,8 @@ public sealed partial class MainWindow : Window
             tab.ContextMenu = TabMenu(item, out var folder);
             tabTitles.Add((item, label, mode, folder));
             tabs.Children.Add(tab);
+            if (item == session)
+                Dispatcher.UIThread.Post(() => { if (ReferenceEquals(tab.Parent, tabs)) tab.BringIntoView(); }, DispatcherPriority.Loaded);
         }
         UpdateTabTitles();
     }
@@ -691,7 +710,36 @@ public sealed partial class MainWindow : Window
         foreach (var button in zoomControls.Children.OfType<Button>()) { button.MinWidth = 0; button.Classes.Add("flat"); }
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Background = Palette.Window, Margin = new Thickness(6, 2) };
         grid.Children.Add(newButton);
-        AddAt(grid, scroll, 1).Margin = new Thickness(6, 0);
+        var strip = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(6, 0) };
+        Button Arrow(int direction, Icons.Icon icon, string tooltip, string name)
+        {
+            var button = Ui.IconButton(icon, tooltip, () =>
+            {
+                var step = Math.Max(32, scroll.Viewport.Width * .75);
+                var end = Math.Max(0, scroll.Extent.Width - scroll.Viewport.Width);
+                scroll.Offset = new Vector(Math.Clamp(scroll.Offset.X + direction * step, 0, end), 0);
+            }, 14);
+            button.Name = name;
+            button.Classes.Add("flat");
+            button.Width = 24;
+            button.MinWidth = 0;
+            button.Padding = new Thickness(0);
+            button.IsVisible = false;
+            return button;
+        }
+        var before = Arrow(-1, Icons.ChevronLeft, "Scroll document tabs left", "DocumentTabsLeft");
+        var after = Arrow(1, Icons.ChevronRight, "Scroll document tabs right", "DocumentTabsRight");
+        strip.Children.Add(before);
+        AddAt(strip, scroll, 1);
+        AddAt(strip, after, 2);
+        scroll.ScrollChanged += (_, _) =>
+        {
+            var overflow = scroll.Extent.Width > strip.Bounds.Width + .5;
+            before.IsVisible = after.IsVisible = overflow;
+            before.IsEnabled = scroll.Offset.X > .5;
+            after.IsEnabled = scroll.Offset.X + scroll.Viewport.Width < scroll.Extent.Width - .5;
+        };
+        AddAt(grid, strip, 1);
         AddAt(grid, zoomControls, 2);
         grid.Name = "DocumentTabBar";
         DragDrop.SetAllowDrop(grid, true);
@@ -707,7 +755,8 @@ public sealed partial class MainWindow : Window
 
     private static readonly (Tool Tool, Icons.Icon Icon, string Tip)[] ToolList =
     [
-        (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"), (Tool.Lasso, Icons.Lasso, "Lasso (L)"),
+        (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Wand, Icons.Wand, "Magic Wand (W)"),
+        (Tool.Lasso, Icons.Lasso, "Lasso (L)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"),
         (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
@@ -750,10 +799,10 @@ public sealed partial class MainWindow : Window
         {
             Tool.Marquee => Kinds(MarqueeKey, s => s.MarqueeKind, (s, v) => s.MarqueeKind = v,
                 (MarqueeKind.Rectangle, "Rectangle Marquee", Icons.Marquee), (MarqueeKind.Ellipse, "Ellipse Marquee", Icons.MarqueeEllipse)),
-            Tool.Lasso =>
+            Tool.Lasso => Kinds(LassoKey, s => s.LassoKind, (s, v) => s.LassoKind = v,
+                (LassoKind.Freehand, "Freehand Lasso", Icons.Lasso), (LassoKind.Polygonal, "Polygonal Lasso", Icons.PolygonLasso)),
+            Tool.Wand =>
             [
-                Choice("Freehand Lasso", Icons.Lasso, LassoKey, s => (selectionTool ?? Tool.Lasso) == Tool.Lasso && s.LassoKind == LassoKind.Freehand, s => s.LassoKind = LassoKind.Freehand),
-                Choice("Polygonal Lasso", Icons.PolygonLasso, LassoKey, s => (selectionTool ?? Tool.Lasso) == Tool.Lasso && s.LassoKind == LassoKind.Polygonal, s => s.LassoKind = LassoKind.Polygonal),
                 Choice("Magic Wand", Icons.Wand, MagicKey, s => selectionTool == Tool.Wand && s.WandMode == WandMode.Wand, s => s.WandMode = WandMode.Wand, Tool.Wand),
                 Choice("Object Selection", Icons.ObjectSelect, MagicKey, s => selectionTool == Tool.Wand && s.WandMode == WandMode.Object, s => s.WandMode = WandMode.Object, Tool.Wand),
                 Choice("Selection Brush", Icons.SelectionBrush, "Selection Brush", s => selectionTool == Tool.SelectionBrush, _ => { }, Tool.SelectionBrush)
@@ -925,7 +974,7 @@ public sealed partial class MainWindow : Window
     private void ShowTool(Tool tool)
     {
         if (session == null) return;
-        if (tool is Tool.Lasso or Tool.Wand or Tool.SelectionBrush) selectionTool = tool;
+        if (RailTool(tool) == Tool.Wand) selectionTool = tool == Tool.SelectionBrush ? tool : Tool.Wand;
         if (tool is Tool.CloneStamp or Tool.Patch) stampUsesPatch = tool == Tool.Patch;
         if (RailTool(tool) == Tool.CloneStamp) stampGroupTool = tool == Tool.Patch ? Tool.CloneStamp : tool;
         if (tool is Tool.Gradient or Tool.Bucket) gradientShowsBucket = tool == Tool.Bucket;

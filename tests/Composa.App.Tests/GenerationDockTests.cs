@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -20,6 +21,44 @@ namespace Composa.App.Tests;
 
 public class GenerationDockTests
 {
+    [AvaloniaFact]
+    public void Reference_suggestions_overlay_the_dock_without_moving_its_controls()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 };
+        window.Settings.CheckForUpdates = false;
+        window.Show();
+        try
+        {
+            window.AddSession(EditorSession.NewCanvas(400, 300));
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var generation = dock.Section("AI Generation");
+            dock.SetVisible(generation, true);
+            var reference = new SKBitmap(20, 15);
+            reference.Erase(SKColors.Coral);
+            window.AddAiReferenceForTests(reference);
+            Pump();
+
+            var prompt = generation.Content.GetVisualDescendants().OfType<AiPromptField>().Single();
+            var run = generation.Content.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiRun");
+            prompt.Focus();
+            window.KeyTextInput("Use ");
+            Pump();
+            var panelSize = generation.Content.Bounds.Size;
+            var runPosition = run.TranslatePoint(default, window);
+            Assert.NotNull(runPosition);
+
+            window.KeyTextInput("@");
+            Pump();
+
+            var popup = Assert.Single(window.GetVisualDescendants().OfType<OverlayPopupHost>());
+            var suggestion = Assert.Single(popup.GetVisualDescendants().OfType<TextBlock>());
+            Assert.Equal("image 1", suggestion.Text);
+            Assert.Equal(panelSize, generation.Content.Bounds.Size);
+            Assert.Equal(runPosition, run.TranslatePoint(default, window));
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task Floating_selection_selects_fill_and_submits_a_native_mask_until_image_edit_is_chosen()
     {

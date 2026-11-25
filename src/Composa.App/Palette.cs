@@ -60,6 +60,13 @@ public static class Palette
     private static readonly SolidColorBrush Action = Brush("#30649B", "#BEBEBE", "#121315");
     internal static readonly SolidColorBrush ActionHover = Brush("#386FA8", "#B1B1B1", "#1C1D1F");
 
+    internal static readonly SolidColorBrush[] AiImageColors =
+    [
+        Brush("#7AB8FF", "#175694"), Brush("#F1B369", "#874300"), Brush("#7CD9AD", "#006044"),
+        Brush("#D2A7FF", "#6A3C9E"), Brush("#F594AB", "#98244D"), Brush("#70DCEB", "#00636D"),
+        Brush("#E1D879", "#6B5900")
+    ];
+
     internal static void Use(EditorTheme theme)
     {
         foreach (var color in colors)
@@ -104,6 +111,8 @@ public static class Palette
         styles.Resources["ComposaForeground"] = Foreground;
         styles.Add(new Style(x => x.OfType<Window>()) { Setters = { new Setter(TemplatedControl.BackgroundProperty, Window), new Setter(TemplatedControl.FontSizeProperty, 12.5) } });
         styles.Add(new Style(x => x.OfType<TextBlock>()) { Setters = { new Setter(Layoutable.VerticalAlignmentProperty, VerticalAlignment.Center) } });
+        // In-window tooltips let pointer events reach the control underneath.
+        styles.Add(new Style(x => x.Is<Control>()) { Setters = { new Setter(ToolTip.ShouldUseOverlayLayerProperty, true) } });
         // Animate the existing content so the action remains recognizable throughout the request.
         var busy = new Style(x => x.OfType<Button>().Class("ai-busy").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>());
         var pulse = new Avalonia.Animation.Animation { Duration = TimeSpan.FromMilliseconds(900),
