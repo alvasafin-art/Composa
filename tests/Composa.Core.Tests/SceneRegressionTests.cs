@@ -70,6 +70,105 @@ public class SceneRegressionTests
         using var third=SceneEditInput.Prepare(session.Document.Clone(),request);Assert.Equal(moved.Foreground.Bytes,third.Foreground.Bytes);
     }
     [Fact]
+    public void Result_with_a_missing_source_uses_the_hidden_fallback_rasters_placement()
+    {
+        var session = Scene();
+        var original = session.ActiveLayer!;
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize };
+        using var first = SceneEditInput.Prepare(session.Document.Clone(),request);
+        var result = SceneEditResult.Extract(first,first.Before,request);
+        session.InsertSceneEdit(request.Task,original.Id,[result],true,false,first.PreviousResultIds,first.SourceFrame);
+        var subject = session.Document.AllLayers().Single(layer => layer.Tags.Contains("scene-object"));
+        subject.Tags.Remove(SceneSource.Tag(original.Id));
+        subject.Tags.RemoveWhere(tag => tag.StartsWith("scene-frame-",StringComparison.Ordinal));
+        subject.Tags.UnionWith(SceneSource.FrameTags(SKMatrix.Identity));
+        subject.Tags.Add(SceneSource.Tag(Guid.NewGuid()));
+        subject.Transform = subject.Transform with { X = 12, Y = 5 };
+
+        using var retried = SceneEditInput.Prepare(session.Document.Clone(),request);
+        Assert.Equal(original.Id,retried.SourceLayerId);
+        Assert.Equal(first.SubjectBounds.Left+12,retried.SubjectBounds.Left);
+        Assert.Equal(first.SubjectBounds.Top+5,retried.SubjectBounds.Top);
+    }
+
+    [Fact]
+    public void Material_aware_lighting_preserves_coherent_colored_light()
+    {
+        var session = Scene();
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize, Scene = new() { AddShadows = false } };
+        using var input = SceneEditInput.Prepare(session.Document.Clone(),request);
+        using var generated = Pixels.Clone(input.Before);
+        var illuminated = new SKColor(105,145,90);
+        for (var y = input.SubjectBounds.Top; y < input.SubjectBounds.Bottom; y++)
+            for (var x = input.SubjectBounds.Left; x < input.SubjectBounds.Right; x++)
+                if (input.ObjectAlpha.GetPixel(x,y).Alpha == 255)
+                    generated.SetPixel(x,y,illuminated);
+        Pixels.Invalidate(generated);
+
+        var result = SceneEditResult.Extract(input,generated,request,useMaterialAwareLighting:true);
+        using var lighting = Assert.Single(result.Layers).Pixels;
+        var color = lighting.GetPixel(100,80);
+        Assert.InRange(color.Red,103,107);
+        Assert.InRange(color.Green,143,147);
+        Assert.InRange(color.Blue,88,92);
+    }
+
+    [Fact]
+    public void Bright_trim_does_not_create_a_dark_band_on_the_nearby_panel()
+    {
+        var session = EditorSession.NewCanvas(128,96,SKColors.LightGray);
+        var original = Pixels.NewColor(128,96);
+        DrawPanel(original,new(32,32,32),new(208,208,208));
+        var layer = Layer.Raster("Black panel",original);
+        session.Document.Layers.Add(layer);
+        session.Document.SetActive(layer.Id);
+        var request = new AiTaskRequest { Task = AiTaskKind.Harmonize, Scene = new() { AddShadows = false } };
+        using var input = SceneEditInput.Prepare(session.Document.Clone(),request);
+        using var generated = Pixels.Clone(input.Before);
+        DrawPanel(generated,new(43,38,33),new(190,190,190));
+
+        var result = SceneEditResult.Extract(input,generated,request,useMaterialAwareLighting:true);
+        using var lighting = Assert.Single(result.Layers).Pixels;
+        var near = lighting.GetPixel(60,43);
+        var far = lighting.GetPixel(60,30);
+        static double Luma(SKColor color) => .2126*color.Red+.7152*color.Green+.0722*color.Blue;
+        Assert.InRange(Luma(near),32,42);
+        Assert.InRange(Math.Abs(Luma(near)-Luma(far)),0,4);
+
+        static void DrawPanel(SKBitmap bitmap,SKColor panel,SKColor trim)
+        {
+            using var draw = new SKCanvas(bitmap);
+            using var paint = new SKPaint { Color = panel };
+            draw.DrawRect(16,14,96,68,paint);
+            paint.Color = trim;
+            draw.DrawRect(16,47,96,6,paint);
+            Pixels.Invalidate(bitmap);
+        }
+    }
+
+    [Fact]
+    public void A_neutral_light_gradient_keeps_the_same_gain_in_all_channels()
+    {
+        using var foreground = Pixels.NewColor(9,9);
+        foreground.Erase(new SKColor(130,108,81));
+        var map = new SceneMaterialLighting(9,9,foreground.Info.Rect,1,2,foreground);
+        var warm = new System.Numerics.Vector3(.25f,.14f,.09f);
+        var beige = new System.Numerics.Vector3(.20f,.16f,.07f);
+        for (var y=0; y<9; y++)
+            for (var x=0; x<9; x++)
+            {
+                var material = x<5 ? warm : beige;
+                var light = .6f + x*.13f;
+                map.Add(x,y,material,material*light,1);
+            }
+
+        var lighting = map.Fit(CancellationToken.None);
+        var index = (4*9+4)*4;
+        Assert.InRange(Math.Abs(lighting[index]-lighting[index+1]),0,.000001);
+        Assert.InRange(Math.Abs(lighting[index]-lighting[index+2]),0,.000001);
+    }
+
+    [Fact]
     public void Legacy_nested_results_do_not_leave_ancestor_shadows_in_the_next_input()
     {
         var session=Scene();var source=session.ActiveLayer!;using var initial=SceneEditInput.Prepare(session.Document.Clone(),new() {Task=AiTaskKind.MatchToScene});
