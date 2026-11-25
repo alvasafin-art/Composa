@@ -819,7 +819,7 @@ public sealed partial class MainWindow : Window
             ],
             Tool.CloneStamp =>
             [
-                new ToolChoice("Clone Stamp", Icons.Stamp, () => toolKeys.FirstOrDefault(k => k.Id == "Clone Stamp")?.Gesture,
+                new ToolChoice("Clone Stamp", stampUsesPatch ? Icons.Patch : Icons.Stamp, () => toolKeys.FirstOrDefault(k => k.Id == "Clone Stamp")?.Gesture,
                     () => stampGroupTool == Tool.CloneStamp, () => { SelectTool(StampPaintingTool); canvas.Focus(); }),
                 Choice("Healing Brush", Icons.HealingBrush, "Clone Stamp", _ => stampGroupTool == Tool.HealingBrush, _ => { }, Tool.HealingBrush),
                 Choice("Spot Healing Brush", Icons.Heal, "Spot Healing Brush", _ => stampGroupTool == Tool.SpotHealing, _ => { }, Tool.SpotHealing)
@@ -842,8 +842,8 @@ public sealed partial class MainWindow : Window
                 (SmearMode.Dodge, "Dodge", Icons.Dodge), (SmearMode.Burn, "Burn", Icons.Burn)),
             Tool.Shape => Kinds(ShapeKey, s => s.ShapeKind == ShapeKind.RoundedRectangle ? ShapeKind.Rectangle : s.ShapeKind, (s, v) => s.ShapeKind = v,
                 (ShapeKind.Rectangle, ShapeStyle.DisplayName(ShapeKind.Rectangle), Icons.Rectangle),
-                (ShapeKind.Polygon, "Polygon", new Icons.Icon("M12 3 L21 10 L18 21 H6 L3 10 Z")),
-                (ShapeKind.Star, "Star", new Icons.Icon("M12 2 L15 9 L22 10 L17 15 L18 22 L12 18 L6 22 L7 15 L2 10 L9 9 Z")),
+                (ShapeKind.Polygon, "Polygon", Icons.Packed("polygon")),
+                (ShapeKind.Star, "Star", Icons.Packed("star")),
                 (ShapeKind.Ellipse, ShapeStyle.DisplayName(ShapeKind.Ellipse), Icons.Ellipse), (ShapeKind.Line, ShapeStyle.DisplayName(ShapeKind.Line), Icons.Line)),
             _ => []
         };

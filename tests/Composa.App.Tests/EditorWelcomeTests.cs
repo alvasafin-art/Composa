@@ -83,6 +83,7 @@ public sealed class EditorWelcomeTests
 
             await window.ShowEditorWelcome().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Empty(window.OwnedWindows);
+            Assert.Equal(IconStyle.Outline, window.Settings.IconStyle);
             Assert.Equal(EditorLayoutPreset.Modern, window.ReadEditorSetup().Layout);
         }
         finally
@@ -127,17 +128,56 @@ public sealed class EditorWelcomeTests
             if (pending.IsFaulted) await pending;
             var dialog = Assert.Single(window.OwnedWindows);
             var pickers = dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
+            ComboBox Picker(string name) => pickers.Single(box => box.Name == name);
+            double Left(string name) => Picker(name).TranslatePoint(default, dialog)!.Value.X;
+            Assert.Equal(Left("EditorLanguagePicker"), Left("EditorLayoutPicker"), 1);
+            Assert.Equal(Left("EditorThemePicker"), Left("EditorAiPanelPicker"), 1);
+            Assert.True(Left("EditorIconStylePicker") > Left("EditorThemePicker"));
+            Assert.Equal((int)IconStyle.Outline, Picker("EditorIconStylePicker").SelectedIndex);
+            Assert.True(Screenshots.Save(dialog, "editor-icon-style-settings"));
+            Picker("EditorIconStylePicker").SelectedIndex = (int)IconStyle.Filled;
             pickers.Single(box => box.Name == "EditorLayoutPicker").SelectedIndex = (int)EditorLayoutPreset.Modern;
             pickers.Single(box => box.Name == "EditorAiPanelPicker").SelectedIndex = (int)AiPanelPlacement.Sidebar;
             dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, Locale.T("Save settings")))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.True(await pending.WaitAsync(TimeSpan.FromSeconds(5)));
             Assert.Equal(EditorLayoutPreset.Modern, window.ReadEditorSetup().Layout);
+            Assert.Equal(IconStyle.Filled, Settings.FromJson(JsonSerializer.Serialize(window.Settings)).IconStyle);
             Assert.Equal(AiPanelPlacement.Sidebar, window.ReadEditorSetup().AiPanel);
             Assert.False(window.Settings.Dock["AI Generation"].Left);
             Assert.Equal(window.Settings.Dock["Layers"].TabGroup, window.Settings.Dock["Resources"].TabGroup);
         }
-        finally { window.Close(); }
+        finally
+        {
+            (Application.Current as App)?.ApplyIconStyle(IconStyle.Outline);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Both_icon_packs_render_and_switch_on_attached_controls()
+    {
+        var app = (App)Application.Current!;
+        var assets = Avalonia.Platform.AssetLoader.GetAssets(new Uri("avares://composa/Assets/Icons/outline/"), null)
+            .Select(uri => Path.GetFileNameWithoutExtension(uri.AbsolutePath)).ToArray();
+        Assert.Equal(101, assets.Length);
+        var icons = assets.Select(name => (Viewbox)Icons.Create(Icons.Packed(name))).ToArray();
+        var window = new Window { Content = new WrapPanel(), Width = 360, Height = 240 };
+        ((WrapPanel)window.Content).Children.AddRange(icons);
+        window.Show();
+        try
+        {
+            var brush = Assert.IsAssignableFrom<Panel>(icons[Array.IndexOf(assets, "brush")].Child);
+            var outline = Assert.IsType<Avalonia.Controls.Shapes.Path>(Assert.Single(brush.Children));
+            Assert.True(outline.StrokeThickness > 0);
+            app.ApplyIconStyle(IconStyle.Filled);
+            Pump();
+            var filled = Assert.IsType<Avalonia.Controls.Shapes.Path>(Assert.Single(brush.Children));
+            Assert.NotNull(filled.Fill);
+            Assert.NotSame(outline.Data, filled.Data);
+            Assert.All(icons, icon => Assert.NotEmpty(Assert.IsAssignableFrom<Panel>(icon.Child).Children));
+        }
+        finally { app.ApplyIconStyle(IconStyle.Outline); window.Close(); }
     }
 
     [AvaloniaFact]

@@ -661,6 +661,9 @@ Inside	Внутри
 Install Plugin…	Установить плагин…
 Installed Plugins	Установленные плагины
 Interface theme	Тема интерфейса
+Icon style	Стиль иконок
+Outline icons	Линейные
+Filled icons	С заливкой
 Invalid JPEG ICC segments.	Повреждены сегменты ICC в JPEG.
 Invalid LUT dimensions.	Недопустимые размеры LUT.
 Invalid LUT sample.	Недопустимое значение LUT.
@@ -1149,6 +1152,7 @@ Show	Показать
 Show AI context bounds after selection	Показывать область контекста ИИ после выделения
 Generations	Генерации
 Selection context padding (%)	Отступ контекста вокруг выделения (%)
+Selection context settings…	Настройки контекста выделения…
 100% uses the automatic margin around the selection.	При 100% отступ вокруг выделения рассчитывается автоматически.
 Reset to factory default	Сбросить до заводского значения
 Show Transform Controls	Показать рамку трансформации

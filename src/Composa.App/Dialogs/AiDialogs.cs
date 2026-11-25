@@ -129,10 +129,11 @@ public static partial class AiDialogs
         return button;
     }
 
+    internal const int GenerationsPageIndex = 12;
+
     public static async Task<bool> SettingsDialog(Window owner, Settings settings, AiTaskService service, int page = 0,
         string? focusField = null, AiTaskKind? initialOperation = null, bool firstRun = false, Action? firstRunBack = null)
     {
-        const int generationsPageIndex = 12;
         const string contextPaddingLabel = "Selection context padding (%)";
         var live = service;
         service = live.SettingsPreview();
@@ -687,22 +688,30 @@ public static partial class AiDialogs
         var app = Application.Current as App;
         var previousTheme = app?.CurrentTheme ?? settings.Theme;
         var chosenTheme = settings.Theme;
+        var chosenIconStyle = settings.IconStyle;
         string previousLanguage = Locale.Language;
         string language = settings.Language;
         var languagePicker = Ui.Combo(new[] { "en", "ru" }, language, code => code == "ru" ? "Русский" : "English", value => { language = value; Locale.Apply(value,owner,settingsDialog); }, 190);
+        languagePicker.Width = double.NaN;
         languagePicker.Name = "EditorLanguagePicker";
         var themePicker = Ui.Combo(Enum.GetValues<EditorTheme>(), chosenTheme, EditorSetup.ThemeLabel,
             theme => { chosenTheme = theme; app?.ApplyTheme(theme); }, 190);
+        themePicker.Width = double.NaN;
         themePicker.Name = "EditorThemePicker";
+        var iconPicker = Ui.Combo(Enum.GetValues<IconStyle>(), chosenIconStyle,
+            style => style == IconStyle.Filled ? "Filled icons" : "Outline icons", style => chosenIconStyle = style, double.NaN);
+        iconPicker.Name = "EditorIconStylePicker";
         Avalonia.Automation.AutomationProperties.SetName(themePicker, "Interface theme");
         var editor = owner as MainWindow;
         var initialSetup = editor?.ReadEditorSetup() ?? new(settings.Theme, EditorLayoutPreset.Classic, AiPanelPlacement.UnderSelection);
         var chosenLayout = initialSetup.Layout;
         var chosenAiPanel = initialSetup.AiPanel;
         var layoutPicker = Ui.Combo(Enum.GetValues<EditorLayoutPreset>(), chosenLayout, EditorSetup.LayoutLabel, value => chosenLayout = value, 190);
+        layoutPicker.Width = double.NaN;
         layoutPicker.Name = "EditorLayoutPicker";
         Avalonia.Automation.AutomationProperties.SetName(layoutPicker, "Workspace layout");
         var aiPanelPicker = Ui.Combo(Enum.GetValues<AiPanelPlacement>(), chosenAiPanel, EditorSetup.AiPanelLabel, value => chosenAiPanel = value, 190);
+        aiPanelPicker.Width = double.NaN;
         aiPanelPicker.Name = "EditorAiPanelPicker";
         Avalonia.Automation.AutomationProperties.SetName(aiPanelPicker, "AI panel placement");
         const string rememberPromptsLabel = "Remember prompts for each AI operation";
@@ -796,9 +805,9 @@ public static partial class AiDialogs
                 foreach (var slot in slots) slot.Child = light();
         }
         var serverConnectionPage = firstRun ? new ContentControl() : ConnectionPage(0, serverPanel);
-        var editorPage = Page("Editor",
-            Card(Columns("*,*", Field("Language", languagePicker), Field("Interface theme", themePicker))),
-            Card(Columns("*,*", Field("Workspace layout", layoutPicker), Field("AI panel placement", aiPanelPicker))),
+        var editorPage = firstRun ? new ContentControl() : Page("Editor",
+            Card(Columns("*,*,*", Field("Language", languagePicker), Field("Interface theme", themePicker), Field("Icon style", iconPicker))),
+            Card(Columns("*,*,*", Field("Workspace layout", layoutPicker), Field("AI panel placement", aiPanelPicker))),
             Card(Ui.Column(5, rememberPrompts, showContext, groupedPanels, linkedSources, updates)));
         var contextNote = Caption("100% uses the automatic margin around the selection.");
         contextNote.VerticalAlignment = VerticalAlignment.Center;
@@ -941,7 +950,7 @@ public static partial class AiDialogs
         var body = new StudioSettingsPages(
             [serverConnectionPage, modelPage, promptPage, editorPage, workflowPage, imagePage, operationsPage, performancePage,
                 new ContentControl(), setupPage, new ContentControl(), cliConnectionPage, generationsPage],
-            firstRun ? 9 : page == 10 ? 5 : page == 11 ? 11 : page == 8 ? 6 : Math.Clamp(page, 0, 7));
+            firstRun ? 9 : page == GenerationsPageIndex ? GenerationsPageIndex : page == 10 ? 5 : page == 11 ? 11 : page == 8 ? 6 : Math.Clamp(page, 0, 7));
         void ScheduleComfyCheck() => comfyCheck.Schedule(() => body.SelectedIndex is 0 or 1 or 6 && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
         void ScheduleTextCheck()
         {
@@ -1048,7 +1057,7 @@ public static partial class AiDialogs
             ("Workflows", "graph JSON prompt binding граф привязки импорт", 4, workflows.Content, null, null),
             ("Model files", "checkpoint vae encoder файлы веса", 1, models, null, null),
             ("Show AI context bounds", "output selection выделение контекст", 3, showContext, null, null),
-            (contextPaddingLabel, "generations margin area выделение контекст отступ генерация", generationsPageIndex, contextPercent, null, null),
+            (contextPaddingLabel, "generations margin area выделение контекст отступ генерация", GenerationsPageIndex, contextPercent, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
             ("Text model", "chatgpt luna comfy credits", 2, provider, null, null),
             ("Direct text API", "connection endpoint key catalog URL каталог прямое подключение", 5, apiUrl, null, null),
@@ -1058,6 +1067,7 @@ public static partial class AiDialogs
             ("Image generation", "api cli подключение генерация изображений", 5, imageConnection.ApiUrl, null, null),
             ("Language", "language russian english русский английский язык", 3, languagePicker, null, null),
             ("Interface theme", "appearance light dark neutral classic blue оформление тема светлая тёмная", 3, themePicker, null, null),
+            ("Icon style", "appearance outline filled иконки линейные заливка", 3, iconPicker, null, null),
             ("Workspace layout", "classic modern tools panels классическая новая панели раскладка", 3, layoutPicker, null, null),
             ("AI panel placement", "sidebar selection положение ии выделение", 3, aiPanelPicker, null, null),
             (rememberPromptsLabel, "remember save drafts prompt промпт промт черновики сохранение", 3, rememberPrompts, null, null),
@@ -1336,7 +1346,7 @@ public static partial class AiDialogs
             (6, NavButton("Operations", Icons.Layers, 6)),
             (1, NavButton("Model files", Icons.Image, 1)),
             (0, NavButton("Connections", Icons.Link, 0)),
-            (generationsPageIndex, NavButton("Generations", Icons.Marquee, generationsPageIndex)),
+            (GenerationsPageIndex, NavButton("Generations", Icons.Marquee, GenerationsPageIndex)),
             (3, NavButton("Editor", Icons.Sliders, 3, Palette.Secondary)),
             (7, NavButton("Performance", Icons.Cpu, 7, Palette.Secondary))
         };
@@ -1520,6 +1530,11 @@ public static partial class AiDialogs
         if (!accepted) return false;
         settings.Language = language;
         settings.Theme = chosenTheme;
+        if (!firstRun)
+        {
+            settings.IconStyle = chosenIconStyle;
+            app?.ApplyIconStyle(chosenIconStyle);
+        }
         settings.ComfyServerUrl = ComfyServerAddress.Parse(url.Text ?? "").ToString();
         settings.ComfyConnectionTimeoutSeconds = (int)(timeout.Value ?? 5);
         service.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;

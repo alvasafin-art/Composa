@@ -19,17 +19,14 @@ public sealed partial class MainWindow
         row.Children.Add(reference);
         var alignButtons = new List<Button>();
         var distributeButtons = new List<Button>();
-        foreach (var (alignment, line, fill) in new[]
+        foreach (var (alignment, glyph) in new[]
         {
-            (ObjectAlignment.Left, "M5 3 V21", "M8 7 H19 V11 H8 Z M8 14 H15 V18 H8 Z"),
-            (ObjectAlignment.Center, "M12 3 V21", "M5 7 H19 V11 H5 Z M8 14 H16 V18 H8 Z"),
-            (ObjectAlignment.Right, "M19 3 V21", "M5 7 H16 V11 H5 Z M9 14 H16 V18 H9 Z"),
-            (ObjectAlignment.Top, "M3 5 H21", "M7 8 H11 V19 H7 Z M14 8 H18 V15 H14 Z"),
-            (ObjectAlignment.Middle, "M3 12 H21", "M7 5 H11 V19 H7 Z M14 8 H18 V16 H14 Z"),
-            (ObjectAlignment.Bottom, "M3 19 H21", "M7 5 H11 V16 H7 Z M14 9 H18 V16 H14 Z")
+            (ObjectAlignment.Left, "align-object-left"), (ObjectAlignment.Center, "align-object-center"),
+            (ObjectAlignment.Right, "align-object-right"), (ObjectAlignment.Top, "align-object-top"),
+            (ObjectAlignment.Middle, "align-object-middle"), (ObjectAlignment.Bottom, "align-object-bottom")
         })
         {
-            var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(new Icons.Icon(line, fill), 16), Name = "Align" + alignment };
+            var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(Icons.Packed(glyph), 16), Name = "Align" + alignment };
             Locale.Tip(button, Locale.T("Align " + alignment.ToString().ToLowerInvariant()));
             button.Click += (_, _) => { s.AlignObjects(alignment, alignmentReference); refreshOptions?.Invoke(); };
             alignButtons.Add(button);
@@ -37,11 +34,7 @@ public sealed partial class MainWindow
         }
         foreach (var horizontal in new[] { true, false })
         {
-            var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(new Icons.Icon(horizontal
-                ? "M3 4 V20 M21 4 V20 M4 12 H7 M11 12 H13 M17 12 H20"
-                : "M4 3 H20 M4 21 H20 M12 4 V7 M12 11 V13 M12 17 V20", horizontal
-                ? "M8 7 H10 V17 H8 Z M14 7 H16 V17 H14 Z"
-                : "M7 8 H17 V10 H7 Z M7 14 H17 V16 H7 Z"), 16), Name = horizontal ? "DistributeHorizontal" : "DistributeVertical" };
+            var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 26, Content = Icons.Create(Icons.Packed(horizontal ? "distribute-x" : "distribute-y"), 16), Name = horizontal ? "DistributeHorizontal" : "DistributeVertical" };
             Locale.Tip(button, Locale.T(horizontal ? "Equal horizontal gaps (3+ objects)" : "Equal vertical gaps (3+ objects)"));
             button.Click += (_, _) => { s.DistributeObjectGaps(horizontal); refreshOptions?.Invoke(); };
             distributeButtons.Add(button);
@@ -58,7 +51,7 @@ public sealed partial class MainWindow
         foreach (var horizontal in new[] { true, false })
         {
             var button = new Button { Classes = { "flat", "alignment" }, Padding = new Avalonia.Thickness(4, 0), HorizontalContentAlignment = HorizontalAlignment.Center, Width = 28, Name = horizontal ? "FlipHorizontal" : "FlipVertical",
-                Content = Icons.Create(new Icons.Icon(horizontal ? "M12 3 V21" : "M3 12 H21", horizontal ? "M3 7 L9 12 L3 17 Z M21 7 L15 12 L21 17 Z" : "M7 3 L12 9 L17 3 Z M7 21 L12 15 L17 21 Z"), 16) };
+                Content = Icons.Create(Icons.Packed(horizontal ? "flip-x" : "flip-y"), 16) };
             Locale.Tip(button, Locale.T(horizontal ? "Flip Layer Horizontal" : "Flip Layer Vertical"));
             button.Click += (_, _) => { s.FlipLayers(horizontal); refreshOptions?.Invoke(); };
             refreshOptions += () => button.IsEnabled = s.ActiveLayer != null && !s.IsInteracting;
@@ -67,13 +60,13 @@ public sealed partial class MainWindow
         row.Children.Add(flips);
         var turns = Ui.Row(2);
         turns.Margin = new Avalonia.Thickness(8, 0, 0, 0);
-        foreach (var (angle, name, tip, path) in new[]
+        foreach (var (angle, name, tip, glyph) in new[]
         {
-            (-90, "RotateLeft", "Rotate Layer 90° Counterclockwise", "M4 4 V10 H10 M4.5 9.5 A8 8 0 1 1 5.5 18"),
-            (90, "RotateRight", "Rotate Layer 90° Clockwise", "M20 4 V10 H14 M19.5 9.5 A8 8 0 1 0 18.5 18")
+            (-90, "RotateLeft", "Rotate Layer 90° Counterclockwise", "rotate-left"),
+            (90, "RotateRight", "Rotate Layer 90° Clockwise", "rotate-right")
         })
         {
-            var button = Ui.IconButton(new Icons.Icon(path), tip, () => s.RotateLayers(angle));
+            var button = Ui.IconButton(Icons.Packed(glyph), tip, () => s.RotateLayers(angle));
             button.Classes.Add("flat");
             button.Classes.Add("alignment");
             button.Name = name;

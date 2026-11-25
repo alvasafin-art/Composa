@@ -116,10 +116,10 @@ public sealed partial class MainWindow
                 manualDockTask = null;
             }
         }
-        if (useDock || session?.Selection == null || !ReferenceEquals(floatingTaskSession, session))
+        if (session?.Selection == null || !ReferenceEquals(floatingTaskSession, session))
         {
             manualFloatingTask = null;
-            floatingTaskSession = useDock || session?.Selection == null ? null : session;
+            floatingTaskSession = session?.Selection == null ? null : session;
         }
         var task = EditorTask;
         if (presentedTask == task)
@@ -175,5 +175,8 @@ public sealed partial class MainWindow
         var configure = new MenuItem { Header = Locale.T("Connection settings…") };
         configure.Click += (_, _) => _ = ShowAiSettings(AiDialogs.ConnectionPageFor(PanelRoute(EditorTask)));
         menu.Items.Add(configure);
+        var context = new MenuItem { Header = Locale.T("Selection context settings…") };
+        context.Click += (_, _) => _ = ShowAiSettings(AiDialogs.GenerationsPageIndex);
+        menu.Items.Add(context);
     }
 }

@@ -47,10 +47,13 @@ public sealed class App : Application
         RequestedThemeVariant = variant;
     }
 
+    internal void ApplyIconStyle(IconStyle style) => Resources[Icons.StyleResource] = style;
+
     public override void Initialize()
     {
         var settings = Settings.Load();
         Locale.Language = settings.Language;
+        ApplyIconStyle(settings.IconStyle);
         Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;
         Composa.Rendering.GpuAcceleration.Configure(settings.UseRasterFilterGpu, settings.UseEditorGpu);
         Palette.Use(EditorTheme.Classic);

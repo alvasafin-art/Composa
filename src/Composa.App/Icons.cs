@@ -6,101 +6,106 @@ using Path = Avalonia.Controls.Shapes.Path;
 
 namespace Composa.App;
 
-/// <summary>Line icons on a 24-unit grid, drawn with the current foreground.</summary>
-public static class Icons
+/// <summary>Interface icons on a 24-unit grid, drawn with the current foreground.</summary>
+public static partial class Icons
 {
-    public sealed record Icon(string? Stroke, string? Fill = null, bool Dashed = false);
+    public sealed record Icon(string? Stroke, string? Fill = null, bool Dashed = false)
+    {
+        internal string? Asset { get; init; }
+    }
 
-    public static readonly Icon Move = new(null, "M12 2 L15.5 6 H13 V11 H18 V8.5 L22 12 L18 15.5 V13 H13 V18 H15.5 L12 22 L8.5 18 H11 V13 H6 V15.5 L2 12 L6 8.5 V11 H11 V6 H8.5 Z");
-    public static readonly Icon Link = new("M10 8 H8 A4 4 0 0 0 8 16 H10 M14 8 H16 A4 4 0 0 1 16 16 H14 M8 12 H16");
-    public static readonly Icon LayoutColumns = new("M3 4 H8 V20 H3 Z M10 4 H14 V20 H10 Z M16 4 H21 V20 H16 Z");
-    public static readonly Icon LayoutRows = new("M4 3 H20 V8 H4 Z M4 10 H20 V14 H4 Z M4 16 H20 V21 H4 Z");
-    public static readonly Icon LayoutSquares = new("M3 3 H21 V21 H3 Z M9 3 V21 M15 3 V21 M3 9 H21 M3 15 H21");
-    public static readonly Icon Magnet = new("M4 5 H9 V13 A3 3 0 0 0 15 13 V5 H20 V13 A8 8 0 0 1 4 13 Z M4 9 H9 M15 9 H20");
-    public static readonly Icon Unlink = new("M9 8 H7 A4 4 0 0 0 7 16 H9 M15 8 H17 A4 4 0 0 1 17 16 H15 M10 4 L14 20");
-    public static readonly Icon Marquee = new("M4 4 H20 V20 H4 Z", null, true);
-    public static readonly Icon MarqueeEllipse = new("M12 4 A8 8 0 1 1 12 20 A8 8 0 1 1 12 4 Z", null, true);
-    public static readonly Icon Lasso = new("M12 4 C6 4 3 7 3 10 C3 13 6 15 11 15 C17 15 21 13 21 9.5 C21 6 17 4 12 4 M9 15 C6.5 16 6.5 19 8.5 19 C10 21 8 22.5 5.5 22");
-    public static readonly Icon PolygonLasso = new("M4 6 L14 3 L21 10 L15 16 L6 14 Z M6 14 C5 17 8 18 7 22");
-    public static readonly Icon Wand = new("M4 20 L13.5 10.5", "M17 2 L18.3 5.7 L22 7 L18.3 8.3 L17 12 L15.7 8.3 L12 7 L15.7 5.7 Z M7 3 L7.7 5.3 L10 6 L7.7 6.7 L7 9 L6.3 6.7 L4 6 L6.3 5.3 Z");
-    public static readonly Icon Crop = new("M6.5 2 V17.5 H22 M2 6.5 H17.5 V22");
-    public static readonly Icon RemoveObject = new("M3 8 V3 H8 M11 3 H14 M18 3 H20 V7 M3 11 V14 M3 17 V20 H7 M10 11 H22 M14 11 V9 H18 V11 M12 13 L13 21 H19 L20 13 M15 14 V18 M17 14 V18");
-    public static readonly Icon Bucket = new("M3 12 L11 4 L19 12 L11 20 Z M6 9 H16 M7 8 V3 H11 V6 M3 12 H19", "M20 14 C20 14 17 18 17 20 A3 3 0 0 0 23 20 C23 18 20 14 20 14 Z");
-    public static readonly Icon Brush = new(null, "M20.5 2.5 C21.5 3.5 21.5 4.5 20.5 5.5 L11.5 15.5 L8.5 12.5 L18.5 3.5 C19.2 2.2 19.8 1.8 20.5 2.5 Z M7.5 13.8 L10.2 16.5 C10.5 20 7 21.5 2.5 21 C4.5 19.5 4 17.5 4.8 15.8 C5.4 14.5 6.4 13.9 7.5 13.8 Z");
-    // A dashed selection contour around the brush tip, not the painting brush silhouette alone.
-    public static readonly Icon SelectionBrush = new("M8 10 A6 6 0 1 1 8 22 A6 6 0 1 1 8 10 Z", "M20 2 L22 4 L12 15 L9 12 Z M8 13 L11 16 C10 19 7 19 5 19 C7 17 6 15 8 13 Z", true);
-    public static readonly Icon Eraser = new("M9 20 L3.5 14.5 L13.5 4.5 L20.5 11.5 L12 20 Z M9 20 H21 M8 10 L15 17");
-    public static readonly Icon Heal = new("M3.8 14.2 L14.2 3.8 A4.2 4.2 0 0 1 20.2 9.8 L9.8 20.2 A4.2 4.2 0 0 1 3.8 14.2 Z M8.5 9.5 L14.5 15.5 M9.5 8.5 L15.5 14.5", "M11.2 12 A0.8 0.8 0 1 1 12.8 12 A0.8 0.8 0 1 1 11.2 12 Z");
-    public static readonly Icon HealingBrush = new("M6 3 V9 M3 6 H9", Brush.Fill);
-    public static readonly Icon Stamp = new(null, "M9.5 2.5 H14.5 C15.5 5 14 7.5 14 10.5 H19 C20 10.5 20.5 11 20.5 12 V15.5 H3.5 V12 C3.5 11 4 10.5 5 10.5 H10 C10 7.5 8.5 5 9.5 2.5 Z M4 17.5 H20 V21 H4 Z");
-    public static readonly Icon Drop = new("M12 3 C12 3 5.5 10.5 5.5 15 A6.5 6.5 0 0 0 18.5 15 C18.5 10.5 12 3 12 3 Z");
-    public static readonly Icon Liquify = new("M12 12 C12 10.5 14 10.5 14 12 C14 14 11 14.5 10 12.5 C8.5 10 11 7.5 13.5 8 C17 8.5 18 12.5 16.5 15 C14.5 18.5 9 18.5 7 15.5 C4.5 12 6 6.5 10 5 C13 4 17 4.5 19.5 7");
-    // Smudge and Burn are hands, as in Photoshop: a finger pointing down to smear, and fingers closed in a ring to burn through.
-    public static readonly Icon Smudge = new("M14.9 14.9 L9.5 20.3 A1.5 1.5 0 0 1 7.3 18.1 L12 13.4 M11.5 13.9 A1.3 1.3 0 0 1 9.7 12.1 L10.8 11.1 M10.1 11.8 A1.3 1.3 0 0 1 8.2 10 L9.3 8.9 M8.8 9.4 A1.3 1.3 0 0 1 7 7.6 L9.8 4.8 C12.4 2.3 15.8 2.5 17.9 4.6 L18.5 5.2 C20.2 7 20.7 8.7 20.5 11 L20.2 15 A1.3 1.3 0 0 1 17.6 14.7 L17.5 12.3 L14.9 14.9");
-    public static readonly Icon Dodge = new("M14.5 3.5 A5 5 0 1 1 14.5 13.5 A5 5 0 1 1 14.5 3.5 Z M11 12.5 L4 21");
-    public static readonly Icon Burn = new("M8 5.6 A3.6 3.6 0 1 1 8 12.8 A3.6 3.6 0 1 1 8 5.6 Z M11.6 9.6 V3.3 A1.3 1.3 0 0 1 14.2 3.3 V9.2 M14.2 9 V4.3 A1.3 1.3 0 0 1 16.8 4.3 V9.6 M16.8 9.4 V6.6 A1.3 1.3 0 0 1 19.4 6.6 V14.8 C19.4 18.8 16.8 21.4 13.4 21.4 H12.2 C8.9 21.4 6.6 19.2 6.4 15.8 L6.4 12.5");
-    public static readonly Icon Gradient = new("M3.5 3.5 H20.5 V20.5 H3.5 Z", "M3.5 12 H20.5 V20.5 H3.5 Z");
-    public static readonly Icon Shape = new("M3 3 H14 V14 H3 Z M21.5 15.5 A6 6 0 1 1 9.5 15.5 A6 6 0 1 1 21.5 15.5 Z");
-    public static readonly Icon Text = new("M5 7 V4.5 H19 V7 M12 4.5 V19.5 M9 19.5 H15");
-    public static readonly Icon Eyedropper = new("M13.5 8.5 L4.5 17.5 L3 21 L6.5 19.5 L15.5 10.5", "M15.5 3.5 C17 2 19 2 20.5 3.5 C22 5 22 7 20.5 8.5 L18 11 L19 12 L17.5 13.5 L10.5 6.5 L12 5 L13 6 Z");
-    public static readonly Icon Hand = new("M8 12 V5.5 A1.5 1.5 0 0 1 11 5.5 V11 V4 A1.5 1.5 0 0 1 14 4 V11 V5 A1.5 1.5 0 0 1 17 5 V11.5 V8 A1.5 1.5 0 0 1 20 8 V15 C20 19 17 22 13 22 C10 22 8.2 20.5 6.5 18 L3.6 13.6 A1.5 1.5 0 0 1 6 11.8 L8 14.5 Z");
-    public static readonly Icon Zoom = new("M10 3 A7 7 0 1 1 10 17 A7 7 0 1 1 10 3 Z M15 15 L21 21");
-    public static readonly Icon ZoomIn = new("M10 3 A7 7 0 1 1 10 17 A7 7 0 1 1 10 3 Z M15 15 L21 21 M7 10 H13 M10 7 V13");
-    public static readonly Icon ZoomOut = new("M10 3 A7 7 0 1 1 10 17 A7 7 0 1 1 10 3 Z M15 15 L21 21 M7 10 H13");
-    public static readonly Icon Eye = new("M2 12 C5 6.5 8.5 5 12 5 C15.5 5 19 6.5 22 12 C19 17.5 15.5 19 12 19 C8.5 19 5 17.5 2 12 Z M12 9 A3 3 0 1 1 12 15 A3 3 0 1 1 12 9 Z");
-    public static readonly Icon Folder = new("M3 6 H9.5 L11.5 8.5 H21 V19 H3 Z");
-    public static readonly Icon Plus = new("M12 5 V19 M5 12 H19");
-    public static readonly Icon Image = new("M5 4 H19 Q21 4 21 6 V18 Q21 20 19 20 H5 Q3 20 3 18 V6 Q3 4 5 4 Z M3 17 L9 11 L14 16 L17 13 L21 17 M16 7 A2 2 0 1 1 16 11 A2 2 0 1 1 16 7 Z");
-    public static readonly Icon Close = new("M6 6 L18 18 M18 6 L6 18");
-    public static readonly Icon Trash = new("M4 7 H20 M9 7 V4 H15 V7 M6 7 L7 21 H17 L18 7 M10 11 V17 M14 11 V17");
-    public static readonly Icon Mask = new("M3 5 H21 V19 H3 Z", "M12 8 A4 4 0 1 1 12 16 A4 4 0 1 1 12 8 Z");
-    public static readonly Icon Adjust = new("M12 3 A9 9 0 1 1 12 21 A9 9 0 1 1 12 3 Z", "M12 3 A9 9 0 0 1 12 21 Z");
-    public static readonly Icon ChevronRight = new("M9 6 L15 12 L9 18");
-    public static readonly Icon ChevronDown = new("M6 9 L12 15 L18 9");
+    public static readonly Icon Move = Packed("move");
+    public static readonly Icon Link = Packed("link");
+    public static readonly Icon LayoutColumns = Packed("layout-columns");
+    public static readonly Icon LayoutRows = Packed("layout-rows");
+    public static readonly Icon LayoutSquares = Packed("layout-squares");
+    public static readonly Icon Magnet = Packed("magnet");
+    public static readonly Icon Unlink = Packed("unlink");
+    public static readonly Icon Marquee = Packed("marquee");
+    public static readonly Icon MarqueeEllipse = Packed("marquee-ellipse");
+    public static readonly Icon Lasso = Packed("lasso");
+    public static readonly Icon PolygonLasso = Packed("polygon-lasso");
+    public static readonly Icon Wand = Packed("wand");
+    public static readonly Icon Crop = Packed("crop");
+    public static readonly Icon RemoveObject = Packed("remove-object");
+    public static readonly Icon Bucket = Packed("bucket");
+    public static readonly Icon Brush = Packed("brush");
+    public static readonly Icon SelectionBrush = Packed("selection-brush");
+    public static readonly Icon Eraser = Packed("eraser");
+    public static readonly Icon Heal = Packed("heal");
+    public static readonly Icon HealingBrush = Packed("healing-brush");
+    public static readonly Icon Stamp = Packed("stamp");
+    public static readonly Icon Drop = Packed("drop");
+    public static readonly Icon Liquify = Packed("liquify");
+    public static readonly Icon Smudge = Packed("smudge");
+    public static readonly Icon Dodge = Packed("dodge");
+    public static readonly Icon Burn = Packed("burn");
+    public static readonly Icon Gradient = Packed("gradient");
+    public static readonly Icon Shape = Packed("shape");
+    public static readonly Icon Text = Packed("text");
+    public static readonly Icon Eyedropper = Packed("eyedropper");
+    public static readonly Icon Hand = Packed("hand");
+    public static readonly Icon Zoom = Packed("zoom");
+    public static readonly Icon ZoomIn = Packed("zoom-in");
+    public static readonly Icon ZoomOut = Packed("zoom-out");
+    public static readonly Icon Eye = Packed("eye");
+    public static readonly Icon Folder = Packed("folder");
+    public static readonly Icon Plus = Packed("plus");
+    public static readonly Icon Image = Packed("image");
+    public static readonly Icon Close = Packed("close");
+    public static readonly Icon Trash = Packed("trash");
+    public static readonly Icon Mask = Packed("mask");
+    public static readonly Icon Adjust = Packed("adjust");
+    public static readonly Icon ChevronRight = Packed("chevron-right");
+    public static readonly Icon ChevronDown = Packed("chevron-down");
     public static readonly Icon ChevronUp = new("M6 15 L12 9 L18 15");
     public static readonly Icon ChevronLeft = new("M15 6 L9 12 L15 18");
     public static readonly Icon Sliders = new("M4 6h16M4 12h16M4 18h16 M6 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z " +
         "M14 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z M8 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z");
     public static readonly Icon Cpu = new("M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2H7a2 2 0 0 1 -2 -2V7a2 2 0 0 1 2 -2Z " +
         "M9 9h6v6H9Z M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4");
-    public static readonly Icon Coin = new("M21 12 A9 9 0 1 1 3 12 A9 9 0 1 1 21 12 Z M15 7 A6 6 0 1 1 7 15");
-    public static readonly Icon ClipArrow = new("M7 5 V14 H16 M13 10.5 L16.5 14 L13 17.5");
-    public static readonly Icon Effects = new(null, "M12 2 L14.2 8.8 L21 11 L14.2 13.2 L12 20 L9.8 13.2 L3 11 L9.8 8.8 Z M19.5 16 L20.4 18.6 L23 19.5 L20.4 20.4 L19.5 23 L18.6 20.4 L16 19.5 L18.6 18.6 Z");
-    public static readonly Icon EyeOff = new("M3 3 L21 21 M10.6 5.3 C11 5.1 11.5 5 12 5 C15.5 5 19 6.5 22 12 C21.2 13.5 20.3 14.7 19.3 15.6 M6.6 6.6 C4.8 7.8 3.3 9.6 2 12 C5 17.5 8.5 19 12 19 C13.9 19 15.7 18.6 17.4 17.4 M9.9 9.9 A3 3 0 0 0 14.1 14.1");
-    public static readonly Icon ObjectSelect = new("M3 8 V3 H8 M16 3 H21 V8 M21 16 V21 H16 M8 21 H3 V16", "M10 7 L10 17 L12.7 14.4 L14.5 18.2 L16.4 17.3 L14.6 13.5 L18 13.5 Z");
-    public static readonly Icon Line = new("M4 20 L20 4");
-    public static readonly Icon Pen = new("M12 3 L20 13 L16 20 L8 20 L4 13 Z M12 3 V11 M12 15 V20", "M12 10 A2 2 0 1 0 12 14 A2 2 0 1 0 12 10 Z");
-    public static readonly Icon Rectangle = new("M3.5 6 H20.5 V18 H3.5 Z");
-    public static readonly Icon RoundedRectangle = new("M8 6 H16 A4.5 4.5 0 0 1 20.5 10.5 V13.5 A4.5 4.5 0 0 1 16 18 H8 A4.5 4.5 0 0 1 3.5 13.5 V10.5 A4.5 4.5 0 0 1 8 6 Z");
-    public static readonly Icon Ellipse = new("M12 6 A8.5 6 0 1 1 12 18 A8.5 6 0 1 1 12 6 Z");
-    public static readonly Icon FontSize = new("M4.5 6 V4.5 H19.5 V6 M12 4.5 V19 M8.5 19 H15.5");
-    public static readonly Icon TextTop = new("M4 4H20 M12 20V8 M8 12L12 8L16 12");
-    public static readonly Icon TextBottom = new("M4 20H20 M12 4V16 M8 12L12 16L16 12");
-    public static readonly Icon TextMiddle = new("M4 12H20 M12 2V8 M9 5L12 8L15 5 M12 22V16 M9 19L12 16L15 19");
-    public static readonly Icon LineHeight = new("M4 3 H20 M4 21 H20 M8 16.5 L12 7.5 L16 16.5 M9.5 13.5 H14.5");
-    public static readonly Icon LetterSpacing = new("M3 4 V20 M21 4 V20 M8 16.5 L12 7.5 L16 16.5 M9.5 13.5 H14.5");
-    public static readonly Icon AlignLeft = new("M4 6 H20 M4 10 H14 M4 14 H20 M4 18 H12");
-    public static readonly Icon AlignCenter = new("M4 6 H20 M7 10 H17 M4 14 H20 M8 18 H16");
-    public static readonly Icon AlignRight = new("M4 6 H20 M10 10 H20 M4 14 H20 M12 18 H20");
+    public static readonly Icon Coin = Packed("coin");
+    public static readonly Icon ClipArrow = Packed("clip-arrow");
+    public static readonly Icon Effects = Packed("effects");
+    public static readonly Icon EyeOff = Packed("eye-off");
+    public static readonly Icon ObjectSelect = Packed("object-select");
+    public static readonly Icon Line = Packed("line");
+    public static readonly Icon Pen = Packed("pen");
+    public static readonly Icon Rectangle = Packed("rectangle");
+    public static readonly Icon RoundedRectangle = Packed("rounded-rectangle");
+    public static readonly Icon Ellipse = Packed("ellipse");
+    public static readonly Icon FontSize = Packed("font-size");
+    public static readonly Icon TextTop = Packed("text-top");
+    public static readonly Icon TextBottom = Packed("text-bottom");
+    public static readonly Icon TextMiddle = Packed("text-middle");
+    public static readonly Icon LineHeight = Packed("line-height");
+    public static readonly Icon LetterSpacing = Packed("letter-spacing");
+    public static readonly Icon AlignLeft = Packed("align-left");
+    public static readonly Icon AlignCenter = Packed("align-center");
+    public static readonly Icon AlignRight = Packed("align-right");
     private const string PathTypeLetters = "M5 16 L8.5 6 L12 16 M6.5 12 H10.5 M15 20 V10 M15 10 H17 A3 3 0 0 1 17 16 H15";
     public static readonly Icon PathAscender = new(PathTypeLetters + " M2 6 Q12 2 22 6");
     public static readonly Icon PathCenter = new(PathTypeLetters + " M2 13 Q12 9 22 13");
     public static readonly Icon PathBaseline = new(PathTypeLetters + " M2 17 Q12 15 22 17");
     public static readonly Icon PathDescender = new(PathTypeLetters + " M2 21 Q12 19 22 21");
-    public static readonly Icon Ruler = new("M3 8 H21 V16 H3 Z M7 8 V12 M11 8 V14 M15 8 V12 M19 8 V14");
-    // Letterforms use the same rounded monoline geometry as the other toolbar icons.
-    public static readonly Icon EnhancePrompt = new("M2 18 L5.8 7 L9.6 18 M3.4 14 H8.2 M12 11.3 C15.4 9.5 17.5 11 17.5 13.2 V18 M17.4 13.5 H15 C10.7 13.5 11.3 18.4 14.5 18 C15.9 18 17 17 17.5 16", "M20 2 L21 5 L24 6 L21 7 L20 10 L19 7 L16 6 L19 5 Z");
-    public static readonly Icon PixelAlignment = new("M3 7 V3 H7 M9.5 3 H11 V6 M3 9.5 V11 H6 M14 14 H21 V21 H14 Z M8 8 L16 16 M12 16 H16 V12");
-    public static readonly Icon Gear = new("M10 3 H14 L14.6 5.6 L16.2 6.5 L18.7 5.7 L20.7 9.2 L18.8 11 V13 L20.7 14.8 L18.7 18.3 L16.2 17.5 L14.6 18.4 L14 21 H10 L9.4 18.4 L7.8 17.5 L5.3 18.3 L3.3 14.8 L5.2 13 V11 L3.3 9.2 L5.3 5.7 L7.8 6.5 L9.4 5.6 Z M15.2 12 A3.2 3.2 0 1 1 8.8 12 A3.2 3.2 0 1 1 15.2 12 Z");
-    public static readonly Icon Run = new(null, "M7 4 L20 12 L7 20 Z");
-    public static readonly Icon MoreActions = new(null, "M5 10 A2 2 0 1 1 5 14 A2 2 0 1 1 5 10 Z M12 10 A2 2 0 1 1 12 14 A2 2 0 1 1 12 10 Z M19 10 A2 2 0 1 1 19 14 A2 2 0 1 1 19 10 Z");
-    public static readonly Icon Layers = new("M12 3.5 L21 8 L12 12.5 L3 8 Z M3 12 L12 16.5 L21 12 M3 16 L12 20.5 L21 16");
-    public static readonly Icon Document = new("M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19");
-    public static readonly Icon Disk = new("M5 3.5 H16.5 L20.5 7.5 V20.5 H5 Z M8.5 3.5 V8.5 H15.5 V3.5 M8.5 20.5 V14 H16 V20.5");
-    public static readonly Icon Swap = new("M5 9 C5 6 7 5 10 5 H17 M14 2 L17 5 L14 8 M19 15 C19 18 17 19 14 19 H7 M10 16 L7 19 L10 22");
+    public static readonly Icon Ruler = Packed("ruler");
+    public static readonly Icon EnhancePrompt = Packed("enhance-prompt");
+    public static readonly Icon PixelAlignment = Packed("pixel-alignment");
+    public static readonly Icon Gear = Packed("gear");
+    public static readonly Icon Run = Packed("run");
+    public static readonly Icon MoreActions = Packed("more-actions");
+    public static readonly Icon Layers = Packed("layers");
+    public static readonly Icon Document = Packed("document");
+    public static readonly Icon Disk = Packed("disk");
+    public static readonly Icon Swap = Packed("swap");
+
+    public static readonly Icon Patch = Packed("patch");
 
     public static Control Create(Icon icon, double size = 18, IBrush? brush = null)
     {
+        if (icon.Asset is { } asset)
+            return new Viewbox { Width = size, Height = size, Child = new PackIcon(asset, brush), IsHitTestVisible = false };
+
         var panel = new Panel { Width = 24, Height = 24 };
         if (icon.Fill != null)
         {

@@ -158,14 +158,21 @@ public sealed partial class MainWindow
     {
         if (!CanRunAi(task)) return;
         bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
-        bool sceneInDock = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
-        if (sceneInDock && !DockEditorVisible)
+        bool sceneEdit = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
+        if (IsPanelEdit(task) && ShowSelectionPanel)
+        {
+            manualFloatingTask = task;
+            SetFloatingCollapsed(false);
+            aiFloatingPrompt.Focus();
+            return;
+        }
+        if (sceneEdit && !DockEditorVisible)
         {
             SetCanvasOnly(false);
             dock.SetVisible(generationSection, true);
             dock.Activate(generationSection);
         }
-        if (DockEditorVisible && (sceneInDock || immediate || task is AiTaskKind.GenerateImage or AiTaskKind.ImageEdit or AiTaskKind.GenerativeFill))
+        if (DockEditorVisible && (IsPanelEdit(task) || immediate || task == AiTaskKind.GenerateImage))
         {
             manualDockTask = task;
             RefreshAiUi();
@@ -175,6 +182,9 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.RemoveObject && session?.Selection == null) { SelectTool(Tool.RemoveObject); return; }
         _ = RunAi(task);
     }
+
+    private static bool IsPanelEdit(AiTaskKind task) => task is AiTaskKind.GenerativeFill or AiTaskKind.ImageEdit
+        or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SKBitmap, Bitmap> variantPreviews = new();
     private Composa.ColorManagement.RgbProfile? variantDisplay;
@@ -319,7 +329,7 @@ public sealed partial class MainWindow
     {
         if (previewContext is { } preview) { canvas.AiContextBounds = preview; return; }
         SKRectI? context = null;
-        if ((EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand) && settings.AiShowContextBounds
+        if ((EditorTask is AiTaskKind.GenerativeFill or AiTaskKind.RemoveObject || EditorTask == AiTaskKind.GenerativeExpand && session?.Tool != Tool.Crop) && settings.AiShowContextBounds
             && (DirectImageFor(EditorTask) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected)
             && session is { Selection: { } selection, IsPaintingSelection: false } && !canvas.IsDragging)
         {
@@ -395,12 +405,7 @@ public sealed partial class MainWindow
         aiWorkflowLink.Classes.Add("flat");
         aiWorkflowLink.HorizontalAlignment = HorizontalAlignment.Stretch;
         aiWorkflowLink.IsVisible = false;
-        void ToggleCollapsed()
-        {
-            settings.AiFloatingCollapsed = !settings.AiFloatingCollapsed;
-            settings.Save();
-            RefreshAiUi();
-        }
+        void ToggleCollapsed() => SetFloatingCollapsed(!settings.AiFloatingCollapsed);
         var close = aiFloatingCollapse = Ui.TextButton("Edit selection", ToggleCollapsed);
         close.Classes.Add("flat");
         close.Name = "AiFloatingExpand";
@@ -489,7 +494,7 @@ public sealed partial class MainWindow
             var item = new MenuItem
             {
                 Header = Locale.T(task.DisplayName()),
-                ToggleType = task is AiTaskKind.GenerativeFill or AiTaskKind.ImageEdit ? MenuItemToggleType.Radio : MenuItemToggleType.None
+                ToggleType = IsPanelEdit(task) ? MenuItemToggleType.Radio : MenuItemToggleType.None
             };
             flyout.Opening += (_, _) =>
             {
@@ -497,23 +502,29 @@ public sealed partial class MainWindow
                 item.IsEnabled = CanRunAi(task);
                 Locale.Tip(item, AiAvailability(task).Reason);
             };
-            item.Click += (_, _) =>
-            {
-                if (task is AiTaskKind.GenerativeFill or AiTaskKind.ImageEdit && ShowSelectionPanel && CanRunAi(task))
-                {
-                    manualFloatingTask = task;
-                    RefreshAiUi();
-                    aiFloatingPrompt.Focus();
-                }
-                else ChooseAiOperation(task);
-            };
+            ToolTip.SetShowOnDisabled(item, true);
+            item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
+        flyout.Items.Add(new Separator());
         AddGenerationConnectionMenu(flyout);
+        var collapse = new MenuItem { Header = Locale.T("Collapse panel") };
+        collapse.Click += (_, _) => SetFloatingCollapsed(true);
+        flyout.Items.Add(collapse);
         return flyout;
     }
 
-    private bool ShowSelectionPanel => !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
+    private void SetFloatingCollapsed(bool collapsed)
+    {
+        if (settings.AiFloatingCollapsed != collapsed)
+        {
+            settings.AiFloatingCollapsed = collapsed;
+            settings.Save();
+        }
+        RefreshAiUi();
+    }
+
+    private bool ShowSelectionPanel => !settings.CanvasOnly && !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
         && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.Wand && session.WandMode == WandMode.Object && canvas.IsDragging)
         && (DirectImageFor(EditorTask) != null || DirectImageFor(AiTaskKind.GenerativeFill) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected);
 
@@ -563,7 +574,7 @@ public sealed partial class MainWindow
         if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
         var workflowId = settings.Workflows.ActiveId(task, fillEngine?.Id, PanelUsesAssignedWorkflow(task));
         var activeWorkflow = workflowId == null ? null : settings.Workflows.Workflows.GetValueOrDefault(workflowId);
-        aiWorkflowLink.IsVisible = direct == null && activeWorkflow != null;
+        aiWorkflowLink.IsVisible = expanded && direct == null && activeWorkflow != null;
         if (aiWorkflowLink.Content is TextBlock workflowName) workflowName.Text = activeWorkflow?.Name;
         Locale.Tip(aiWorkflowLink, "Workflow bindings");
         var operation = aiTasks.Operation;
@@ -931,7 +942,7 @@ public sealed partial class MainWindow
         var task = DockEditorVisible || session?.Selection != null ? EditorTask : AiTaskKind.ImageEdit;
         if (DirectImageFor(task) is { } direct)
         {
-            await AiDialogs.Advanced(this, settings, task: task, initialProfile: AiOptions(task),
+            await AiDialogs.Advanced(this, settings, task: task, initialProfile: AiOptions(task) with { AlignPixels = settings.AiAlignMaskedEdits },
                 acceptDraft: profile =>
                 {
                     settings.SetOperation(direct.Id, task, profile);

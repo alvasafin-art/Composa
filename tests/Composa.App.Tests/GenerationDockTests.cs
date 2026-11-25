@@ -287,6 +287,7 @@ public class GenerationDockTests
     [InlineData(AiTaskKind.MatchToScene, "Match to Scene", "quick")]
     [InlineData(AiTaskKind.ChangeBackground, "Change Background", "hidden")]
     [InlineData(AiTaskKind.Harmonize, "Harmonize", "collapsed")]
+    [InlineData(AiTaskKind.Harmonize, "Harmonize", "floating")]
     public void Choosing_a_scene_edit_switches_the_shared_editor_without_opening_a_window(AiTaskKind task, string label, string entry)
     {
         var window = new MainWindow { Width = 1100, Height = 800 };
@@ -301,13 +302,14 @@ public class GenerationDockTests
             var section = dock.Section("AI Generation");
             var prompt = window.AiFloatingPanel.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
             prompt.Text = "A prompt for the previous operation.";
-            if (entry != "hidden") dock.SetVisible(section, true);
+            if (entry == "floating") session.SelectRect(new(30, 25, 90, 70));
+            if (entry is not ("hidden" or "floating")) dock.SetVisible(section, true);
             if (entry == "collapsed") dock.SetCollapsed(section, true);
             Pump();
 
-            if (entry is "dock" or "quick")
+            if (entry is "dock" or "quick" or "floating")
             {
-                var selector = entry == "dock" ? "AiDockOperation" : "AiTaskMenu";
+                var selector = entry switch { "dock" => "AiDockOperation", "floating" => "AiMore", _ => "AiTaskMenu" };
                 var button = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == selector);
                 var menu = Assert.IsType<MenuFlyout>(button.Flyout);
                 menu.ShowAt(button);
@@ -320,6 +322,16 @@ public class GenerationDockTests
             Pump();
             Assert.Empty(window.OwnedWindows);
             Assert.Null(window.AiTasks.Operation);
+            if (entry == "floating")
+            {
+                Assert.True(window.AiFloatingVisible);
+                Assert.False(dock.Presents(section));
+                Assert.Equal(Locale.T(label), window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>()
+                    .Single(text => text.Name == "AiFloatingOperation").Text);
+                Assert.Equal("chatgpt-image-2.5", Assert.IsType<ImageModelChoice>(window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>()
+                    .Single(combo => combo.IsEffectivelyVisible).SelectedItem).Engine.Id);
+                return;
+            }
             Assert.True(dock.Presents(section));
             Assert.Equal("Choose AI operation · " + label, Operation(section.Content));
             Assert.Same(prompt, section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn));

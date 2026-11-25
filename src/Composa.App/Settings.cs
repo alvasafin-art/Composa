@@ -31,6 +31,7 @@ public sealed class Settings
     public bool Maximized { get; set; }
     public string Language { get; set; } = "en";
     public EditorTheme Theme { get; set; } = EditorTheme.Classic;
+    public IconStyle IconStyle { get; set; }
     public bool EditorWelcomeSeen { get; set; }
     public bool CanvasOnly { get; set; }
     public Dictionary<string, WorkspaceLayout> Workspaces { get; set; } = [];
