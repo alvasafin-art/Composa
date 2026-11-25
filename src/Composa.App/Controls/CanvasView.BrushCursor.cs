@@ -16,7 +16,6 @@ public sealed partial class CanvasView
     private const int MaxNativeCursorSide = 64;
     private PointerType brushCursorPointer;
     private StandardCursorType canvasCursorType = StandardCursorType.Arrow;
-    private StandardCursorType? appliedCanvasCursorType;
     private Cursor? nativeBrushCursor;
     private NativeBrushShape? nativeBrushShape;
     private bool nativeBrushCursorActive;
@@ -56,7 +55,7 @@ public sealed partial class CanvasView
         if (!nativeBrushCursorActive) Child?.InvalidateVisual();
     }
 
-    private void ApplyCanvasCursor()
+    private void ApplyCanvasCursor(bool updateStandard = false)
     {
         if (CurrentNativeBrushShape() is { } shape && TryApplyNativeBrushShape(shape))
         {
@@ -68,11 +67,9 @@ public sealed partial class CanvasView
             return;
         }
 
-        if (nativeBrushCursorActive || canvasCursorType != appliedCanvasCursorType)
-        {
+        // Guides, text and transform handles can set their own cursor directly.
+        if (updateStandard || (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor)))
             Cursor = new Cursor(canvasCursorType);
-            appliedCanvasCursorType = canvasCursorType;
-        }
         if (nativeBrushCursorActive)
         {
             nativeBrushCursorActive = false;
@@ -100,7 +97,8 @@ public sealed partial class CanvasView
 
     private void ReleaseNativeBrushCursor()
     {
-        if (nativeBrushCursorActive) Cursor = new Cursor(canvasCursorType);
+        if (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor))
+            Cursor = new Cursor(canvasCursorType);
         nativeBrushCursorActive = false;
         nativeBrushCursor?.Dispose();
         nativeBrushCursor = null;
