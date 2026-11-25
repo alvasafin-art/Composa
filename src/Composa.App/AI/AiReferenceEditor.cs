@@ -5,6 +5,8 @@ namespace Composa.App.AI;
 /// <summary>A view over the window's shared reference list, not a second owner of its bitmaps.</summary>
 public sealed class AiReferenceEditor
 {
+    internal const int Capacity = 6;
+
     private readonly Func<int> count;
     private readonly Func<TextBox?, Task> paste;
     private readonly Func<Task> pick;

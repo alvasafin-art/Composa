@@ -8,6 +8,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 - Reduce latency in menus, brush strokes, selection moves, and canvas rendering. Show supported GPU features in Performance settings.
 - Set the amount of surrounding context used for AI edits from Generations settings. Open those settings from either AI panel, and keep scene edits in the panel under the selection when it is active.
+- Keep a compact Add Reference Image button in the AI toolbar. The row below shows the added images.
 - Choose outline or filled interface icons in Editor settings. Outline is the default, and the choice is saved across launches.
 
 ## [1.3.0-preview.4.studio.17.12] - 2026-11-25

@@ -83,7 +83,6 @@ public sealed partial class MainWindow
         BoxShadow = BoxShadows.Parse("0 3 12 0 #44000000"),
         BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
     };
-    private const int MaxAiReferences = 6;
     private readonly AiPromptField aiFloatingPrompt = AiGenerationControls.PromptField("Describe the edit…");
     private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
     private Button aiWorkflowLink = null!;
@@ -91,7 +90,7 @@ public sealed partial class MainWindow
     private AiReferenceEditor? aiDialogReferences;
     private bool refreshingAiEngine;
     private WrapPanel? aiFloatingTools;
-    private Button? aiFloatingCollapse, aiHeaderReference, aiInlineAddReference;
+    private Button? aiFloatingCollapse, aiHeaderReference;
     private AiTaskKind aiDialogReferenceTask;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingMore;
@@ -533,11 +532,10 @@ public sealed partial class MainWindow
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
         var expanded = DockEditorVisible || !settings.AiFloatingCollapsed;
-        if (aiInlineAddReference != null) aiInlineAddReference.IsVisible = !DockEditorVisible;
         if (aiHeaderReference != null)
         {
-            aiHeaderReference.IsVisible = expanded && (DockEditorVisible || aiReferences.Count == 0);
-            aiHeaderReference.IsEnabled = aiReferences.Count < MaxAiReferences;
+            aiHeaderReference.IsVisible = expanded;
+            aiHeaderReference.IsEnabled = aiReferences.Count < AiReferenceEditor.Capacity;
         }
         aiReferenceHost.IsVisible = expanded && aiReferences.Count > 0;
         aiFloatingOperation.IsVisible = visible && expanded;
@@ -709,7 +707,7 @@ public sealed partial class MainWindow
     private void BuildAiReferenceUi(StackPanel host, AiTaskKind task)
     {
         host.Children.Clear();
-        Avalonia.Automation.AutomationProperties.SetName(host, $"Reference images ({aiReferences.Count}/{MaxAiReferences})");
+        Avalonia.Automation.AutomationProperties.SetName(host, $"Reference images ({aiReferences.Count}/{AiReferenceEditor.Capacity})");
         var items = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
             ItemSpacing = AiGenerationControls.EditorSpacing, LineSpacing = AiGenerationControls.EditorSpacing,
             IsVisible = aiReferences.Count > 0 };
@@ -750,23 +748,6 @@ public sealed partial class MainWindow
                 Child = new Grid { Children = { show, remove } } };
             items.Children.Add(cell);
         }
-        if (host == aiReferenceHost) aiInlineAddReference = null;
-        if (aiReferences.Count is > 0 and < MaxAiReferences)
-        {
-            var add = Ui.IconButton(Icons.Image, "Add another reference image", () => _ = PickAiReferences(), 23);
-            add.Width = add.Height = ReferenceTileSize;
-            add.MinWidth = 0;
-            add.CornerRadius = new CornerRadius(6);
-            add.BorderBrush = Palette.Secondary;
-            add.BorderThickness = new Thickness(1);
-            add.Background = Palette.Panel;
-            add.Padding = default;
-            add.HorizontalContentAlignment = HorizontalAlignment.Center;
-            add.VerticalContentAlignment = VerticalAlignment.Center;
-            Avalonia.Automation.AutomationProperties.SetName(add, Locale.T("Add reference image"));
-            if (host == aiReferenceHost) aiInlineAddReference = add;
-            items.Children.Add(add);
-        }
         host.Children.Add(items);
     }
 
@@ -802,7 +783,7 @@ public sealed partial class MainWindow
     {
         foreach (var path in paths)
         {
-            if (aiReferences.Count >= MaxAiReferences) break;
+            if (aiReferences.Count >= AiReferenceEditor.Capacity) break;
             try { AddAiReference(ImageFiles.Load(path), Path.GetFileName(path)); }
             catch (Exception error) { ShowProblem($"Couldn't add {Path.GetFileName(path)}: {error.Message}"); }
         }
@@ -811,7 +792,7 @@ public sealed partial class MainWindow
 
     private void AddAiReference(SKBitmap pixels, string name)
     {
-        if (aiReferences.Count >= MaxAiReferences) { pixels.Dispose(); return; }
+        if (aiReferences.Count >= AiReferenceEditor.Capacity) { pixels.Dispose(); return; }
         try
         {
             aiReferences.Add(new AiReferenceItem(pixels, Ui.ToAvaloniaBitmap(pixels, 512, DisplayProfile), name));
@@ -827,7 +808,7 @@ public sealed partial class MainWindow
 
     private async Task<bool> PasteAiReference()
     {
-        if (aiReferences.Count >= MaxAiReferences) return false;
+        if (aiReferences.Count >= AiReferenceEditor.Capacity) return false;
         try
         {
             if (await ExternalClipboardBitmap() is { } bitmap)
@@ -872,7 +853,7 @@ public sealed partial class MainWindow
         {
             var supported = e.DataTransfer.TryGetValue(LayersPanel.ReferenceDragFormat) != null || e.DataTransfer.TryGetFiles()?.Any() == true;
             if (!supported) return;
-            e.DragEffects = aiReferences.Count < MaxAiReferences ? e.DragEffects & DragDropEffects.Copy : DragDropEffects.None;
+            e.DragEffects = aiReferences.Count < AiReferenceEditor.Capacity ? e.DragEffects & DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
         });
     }
@@ -883,7 +864,7 @@ public sealed partial class MainWindow
         {
             e.Handled = true;
             if (layers.GetDraggedReference(id, session) is { } layer && session is { } source && !IsDragging &&
-                !source.IsStroking && aiReferences.Count < MaxAiReferences)
+                !source.IsStroking && aiReferences.Count < AiReferenceEditor.Capacity)
                 _ = AddAiLayerReference(source.Document, layer);
             return;
         }

@@ -97,7 +97,14 @@ public class AiUiTests
         var session = EditorSession.NewCanvas(640, 420); window.AddSession(session); session.SelectRect(new SKRect(100, 60, 200, 130));
         var reference = new SKBitmap(80, 40); reference.Erase(SKColors.CornflowerBlue); window.AddAiReferenceForTests(reference);
         Assert.True(Screenshots.Save(window, "ai-reference-thumbnails"));
-        var add = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString()?.StartsWith("Add another reference image") == true);
+        var panel = window.AiFloatingPanel;
+        var add = Assert.Single(panel.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiAddReference" && button.IsEffectivelyVisible);
+        Assert.Equal(30, add.Width);
+        Assert.Equal(28, add.Height);
+        var model = Assert.Single(panel.GetVisualDescendants().OfType<ComboBox>(), combo => combo.IsEffectivelyVisible);
+        Assert.Equal(model.TranslatePoint(new Point(0, model.Bounds.Height / 2), panel)!.Value.Y,
+            add.TranslatePoint(new Point(0, add.Bounds.Height / 2), panel)!.Value.Y, 1);
+        Assert.DoesNotContain(panel.GetVisualDescendants().OfType<Button>(), button => Equals(ToolTip.GetTip(button), "Add another reference image"));
         Assert.Equal(0, add.MinWidth); Assert.Equal(HorizontalAlignment.Center, add.HorizontalContentAlignment); Assert.Equal(VerticalAlignment.Center, add.VerticalContentAlignment);
         var previewButton = window.GetVisualDescendants().OfType<Button>().Single(button => ToolTip.GetTip(button)?.ToString() == "image 2 · Test reference");
         previewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.UIThread.RunJobs();

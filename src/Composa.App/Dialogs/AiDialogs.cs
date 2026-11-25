@@ -1939,7 +1939,7 @@ public static partial class AiDialogs
             if (references != null)
             {
                 references.View.IsVisible = references.Count > 0;
-                if (addReference != null) addReference.IsVisible = references.Count == 0;
+                if (addReference != null) addReference.IsEnabled = references.Count < AiReferenceEditor.Capacity;
                 prompt.SetImages(references.Images);
             }
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];

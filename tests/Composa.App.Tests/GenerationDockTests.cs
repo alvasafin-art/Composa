@@ -698,8 +698,7 @@ public class GenerationDockTests
     {
         var model = host.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible);
         var thumbnails = host.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible &&
-            (ToolTip.GetTip(b)?.ToString()?.StartsWith("image ", StringComparison.Ordinal) == true ||
-             Equals(ToolTip.GetTip(b), "Add another reference image"))).ToArray();
+            ToolTip.GetTip(b)?.ToString()?.StartsWith("image ", StringComparison.Ordinal) == true).ToArray();
         var first = thumbnails.First().TranslatePoint(default, window)!.Value;
         var modelBottom = model.TranslatePoint(new Point(0, model.Bounds.Height), window)!.Value;
         Assert.Equal(8, first.Y - modelBottom.Y, 2);

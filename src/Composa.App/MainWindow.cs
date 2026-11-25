@@ -116,7 +116,7 @@ public sealed partial class MainWindow : Window
         welcome = BuildWelcome();
         aiFloatingHost.Child = BuildAiFloatingMenu();
         layers.CanDragReference = layer => !settings.CanvasOnly && (DockEditorVisible || aiFloatingHost.IsVisible)
-            && aiReferences.Count < MaxAiReferences && Document.Flatten([layer]).Any(item => item.Pixels != null);
+            && aiReferences.Count < AiReferenceEditor.Capacity && Document.Flatten([layer]).Any(item => item.Pixels != null);
         EnableAiReferenceDrop(aiFloatingHost);
         aiFloatingHost.SizeChanged += (_, _) => RefreshAiFloatingPosition();
         aiFloatingLayer.Children.Add(aiFloatingHost);

@@ -128,6 +128,9 @@ public class AiInteractionTests
             Assert.Equal("Reference images (0/6)", Avalonia.Automation.AutomationProperties.GetName(host));
             for(var i=0;i<6;i++){var bitmap=Pixels.NewColor(16,16);bitmap.Erase(SKColors.Blue);w.AddAiReferenceForTests(bitmap);}
             Dispatcher.UIThread.RunJobs();
+            var add = Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), b => b.Name == "AiAddReference");
+            Assert.True(add.IsEffectivelyVisible);
+            Assert.False(add.IsEffectivelyEnabled);
             Assert.Equal("Reference images (6/6)", Avalonia.Automation.AutomationProperties.GetName(host));
             Assert.Equal(6,host.GetVisualDescendants().OfType<Image>().Count());
             Assert.DoesNotContain(host.GetVisualDescendants().OfType<Button>(),b=>ToolTip.GetTip(b)?.ToString()?.StartsWith("Add reference")==true);
@@ -143,6 +146,7 @@ public class AiInteractionTests
                 remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Dispatcher.UIThread.RunJobs();
             }
+            Assert.True(add.IsEffectivelyEnabled);
             Assert.Equal(0,w.AiReferenceCount); dialog.Close(false); await pending;
         }
         w.Close();
