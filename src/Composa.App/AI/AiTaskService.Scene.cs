@@ -75,7 +75,7 @@ public sealed partial class AiTaskService
                 var files = await Task.Run(() => frame.Encode(source, mask, native, token), token);
                 var prompt = mask == null || native ? source.Prompt : "The final image is the mask. Edit only its white area. " + source.Prompt;
                 ensureUnchanged();
-                var image = await generator.GenerateAsync(prompt, frame.Width, frame.Height, token, files: files, onCharge: onCharge);
+                var image = await generator.GenerateAsync(prompt, frame.Width, frame.Height, token, files: files, onCharge: onCharge, edit: true);
                 return await Task.Run(() => frame.Finish(image));
             }
         }

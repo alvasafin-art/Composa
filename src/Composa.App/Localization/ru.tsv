@@ -2134,6 +2134,15 @@ API catalog price per image or request	Цена из каталога API за �
 The image API has not provided a price.	API изображений не передал цену.
 Add the image API key in Connections.	Добавьте ключ API изображений в разделе «Подключения».
 Connect Codex CLI to load models.	Подключите Codex CLI, чтобы загрузить модели.
+CLI on ComfyUI server	CLI на сервере ComfyUI
+Codex CLI · ComfyUI server	Codex CLI · сервер ComfyUI
+Codex image generation	Генерация изображений Codex
+Connect to load server models.	Подключитесь, чтобы загрузить модели сервера.
+Server CLI is signed in. Image generation is available.	Серверный CLI авторизован. Генерация изображений доступна.
+Choose an available ComfyUI server language model in AI Settings → CLI.	Выберите доступную языковую модель сервера ComfyUI в настройках ИИ → CLI.
+Update AVS Prompt Helper on the ComfyUI server to use CLI image generation.	Обновите AVS Prompt Helper на сервере ComfyUI для генерации изображений через CLI.
+Install AVS Prompt Helper on the ComfyUI server to use CLI image generation.	Установите AVS Prompt Helper на сервере ComfyUI для генерации изображений через CLI.
+Generating through Codex CLI on the ComfyUI server…	Генерация через Codex CLI на сервере ComfyUI…
 The selected model does not support this scene operation.	Выбранная модель не поддерживает эту операцию со сценой.
 Composa — Settings	Composa — Настройки
 Composa — Initial setup	Composa — Первичная настройка

@@ -289,7 +289,7 @@ public static partial class AiDialogs
     internal static int ConnectionPageFor(ImageGenerationRoute route) => route switch
     {
         ImageGenerationRoute.DirectApi => 5,
-        ImageGenerationRoute.LocalCodex => 11,
+        ImageGenerationRoute.LocalCodex or ImageGenerationRoute.RemoteCodex => 11,
         _ => 0
     };
 
@@ -303,7 +303,9 @@ public static partial class AiDialogs
     {
         private ImageGenerationRoute route;
         private readonly TextBox path, url, key, displayName, codexName;
+        private readonly TextBox comfyServer;
         private string codexLanguageModel, codexReasoningEffort;
+        private string remoteLanguageModel, remoteReasoningEffort;
         private readonly string upscalePath, segmentationPath, segmentationModel;
         private readonly Dictionary<AiTaskKind, ImageGenerationRoute> routes;
         private readonly Dictionary<AiTaskKind, string> modelOverrides;
@@ -313,6 +315,9 @@ public static partial class AiDialogs
         internal Control ApiUrl => url;
         internal Control CliSettings { get; }
         internal ConnectionCheck CliCheck { get; }
+        internal Control RemoteCliSettings { get; }
+        internal ConnectionCheck RemoteCliCheck { get; }
+        internal Action ResetRemoteCli { get; }
         internal bool? ApiConnected => catalog.Connected;
         internal string ApiCheckMessage => catalog.CheckMessage;
         internal event Action? ApiCheckChanged;
@@ -375,13 +380,19 @@ public static partial class AiDialogs
             var direct = catalog.Models.Select(item => item.Id).Concat(modelOverrides.Values).Append(configured.ApiModel)
                 .Where(id => id.Length > 0).Distinct(StringComparer.Ordinal)
                 .Select(id => (configured with { Route = ImageGenerationRoute.DirectApi, ApiModel = id }).PromptProfile());
-            return (LocalCodex.FindExecutable(path.Text) != null || routes.ContainsValue(ImageGenerationRoute.LocalCodex)
-                ? direct.Prepend((configured with { Route = ImageGenerationRoute.LocalCodex }).PromptProfile()) : direct).ToArray();
+            if (LocalCodex.FindExecutable(path.Text) != null || routes.ContainsValue(ImageGenerationRoute.LocalCodex))
+                direct = direct.Prepend((configured with { Route = ImageGenerationRoute.LocalCodex }).PromptProfile());
+            if ((configured with { Route = ImageGenerationRoute.RemoteCodex }).Availability(AiTaskKind.GenerateImage) == null)
+                direct = direct.Prepend((configured with { Route = ImageGenerationRoute.RemoteCodex }).PromptProfile());
+            return direct.ToArray();
         }
 
         internal ImageConnectionFields(Settings settings, AiTaskService service, TextBox server, CancellationToken lifetime, bool firstRun)
         {
             routes = DirectImageGenerator.Operations.ToDictionary(task => task, settings.ImageRouteFor);
+            comfyServer = server;
+            remoteLanguageModel = settings.ImageRemoteCodexModel;
+            remoteReasoningEffort = settings.ImageRemoteCodexEffort;
             modelOverrides = new(settings.ImageOperationApiModels);
             route = routes[AiTaskKind.GenerateImage];
             var codex = new CodexConnectionFields(settings.ImageGenerationCodexPath, "gpt-image-2", showModel: false, firstRun: firstRun);
@@ -489,6 +500,73 @@ public static partial class AiDialogs
             };
             PresentModels([]);
 
+            var remoteModel = StudioSettingsLayout.SetupInput(new ComboBox
+            {
+                Name = "RemoteImageCodexLanguageModel", IsEnabled = false,
+                PlaceholderText = Locale.T("Connect to load server models.")
+            });
+            var remoteEffort = StudioSettingsLayout.SetupInput(new ComboBox { Name = "RemoteImageCodexReasoningEffort", IsEnabled = false });
+            remoteEffort.ItemTemplate = reasoning.ItemTemplate;
+            remoteEffort.SelectionBoxItemTemplate = remoteEffort.ItemTemplate;
+            var remoteStatus = ConnectionNote("");
+            bool fillingRemote = false;
+
+            void PresentRemoteEffort(RemoteCodexImage.Model? selected)
+            {
+                var choices = selected == null ? [] : selected.Reasoning.Prepend("default").Distinct().ToArray();
+                remoteEffort.ItemsSource = choices;
+                remoteEffort.SelectedItem = choices.Contains(remoteReasoningEffort) ? remoteReasoningEffort : choices.FirstOrDefault();
+                remoteEffort.IsEnabled = choices.Length > 1;
+                if (selected != null) remoteReasoningEffort = (string)remoteEffort.SelectedItem!;
+            }
+            void PresentRemoteModels(RemoteCodexImage.Model[] entries)
+            {
+                fillingRemote = true;
+                var selected = string.IsNullOrWhiteSpace(remoteLanguageModel) ? entries.FirstOrDefault(item => item.IsDefault)
+                    : entries.FirstOrDefault(item => item.Id == remoteLanguageModel);
+                remoteModel.ItemsSource = entries;
+                remoteModel.SelectedItem = selected;
+                remoteModel.IsEnabled = entries.Length > 0;
+                if (selected != null) remoteLanguageModel = selected.Id;
+                PresentRemoteEffort(selected);
+                fillingRemote = false;
+            }
+            remoteModel.SelectionChanged += (_, _) =>
+            {
+                if (fillingRemote || remoteModel.SelectedItem is not RemoteCodexImage.Model selected) return;
+                remoteLanguageModel = selected.Id;
+                fillingRemote = true;
+                PresentRemoteEffort(selected);
+                fillingRemote = false;
+                RouteChanged?.Invoke();
+            };
+            remoteEffort.SelectionChanged += (_, _) =>
+            {
+                if (!fillingRemote && remoteEffort.SelectedItem is string effort) remoteReasoningEffort = effort;
+            };
+            async Task<string> DiscoverRemoteImageModels(CancellationToken token)
+            {
+                PresentRemoteModels([]);
+                var result = await RemoteCodexImage.DiscoverAsync(server.Text ?? "", token);
+                token.ThrowIfCancellationRequested();
+                PresentRemoteModels(result.Models);
+                remoteStatus.Text = Locale.T("Codex CLI · AVS Prompt Helper") + " " + result.Version;
+                if (remoteModel.SelectedItem == null)
+                    throw new InvalidOperationException("Choose an available ComfyUI server language model in AI Settings → CLI.");
+                return "Server CLI is signed in. Image generation is available.";
+            }
+            RemoteCliCheck = new ConnectionCheck(lifetime, DiscoverRemoteImageModels, "", buttonText: "Check connection");
+            RemoteCliSettings = Ui.Column(10, ConnectionNote("Codex CLI · ComfyUI server"), remoteStatus,
+                StudioSettingsLayout.SetupColumns(StudioSettingsLayout.SetupField("Language model", remoteModel),
+                    StudioSettingsLayout.SetupField("Reasoning effort", remoteEffort)),
+                firstRun ? new Border() : RemoteCliCheck.View);
+            ResetRemoteCli = () =>
+            {
+                RemoteCliCheck.Reset();
+                PresentRemoteModels([]);
+                remoteStatus.Text = "";
+            };
+
             async Task<string> DiscoverImageModels(CancellationToken token)
             {
                 var models = await LocalCodex.DiscoverModelsAsync(path.Text ?? "", token, forImageGeneration: true);
@@ -506,6 +584,8 @@ public static partial class AiDialogs
                 }
                 if (route == ImageGenerationRoute.LocalCodex)
                     return await DiscoverImageModels(token);
+                if (route == ImageGenerationRoute.RemoteCodex)
+                    return await DiscoverRemoteImageModels(token);
                 var count = await catalog.FetchAsync(token);
                 return count > 0 ? "The API responded. Models are available below." : "The API reported no models.";
             }, "", buttonText: "Check connection");
@@ -515,7 +595,8 @@ public static partial class AiDialogs
             void Refresh()
             {
                 check.Reset();
-                workflow.IsVisible = route == ImageGenerationRoute.ComfyWorkflow;
+                workflow.IsVisible = route is ImageGenerationRoute.ComfyWorkflow or ImageGenerationRoute.RemoteCodex;
+                RemoteCliSettings.IsVisible = !firstRun || route == ImageGenerationRoute.RemoteCodex;
                 if (nameField != null) api.IsVisible = nameField.IsVisible = route == ImageGenerationRoute.DirectApi;
                 check.View.IsVisible = !firstRun || route != ImageGenerationRoute.DirectApi;
                 codex.View.IsVisible = !firstRun || route == ImageGenerationRoute.LocalCodex;
@@ -534,7 +615,7 @@ public static partial class AiDialogs
             methodField = firstRun ? StudioSettingsLayout.SetupField("Method", StudioSettingsLayout.SetupInput(connectionPicker))
                 : StudioSettingsLayout.Field("Connection method", connectionPicker);
             View = firstRun
-                ? Ui.Column(12, StudioSettingsLayout.SetupColumns(methodField, nameField!), workflow, codex.View, check.View, api)
+                ? Ui.Column(12, StudioSettingsLayout.SetupColumns(methodField, nameField!), workflow, codex.View, RemoteCliSettings, check.View, api)
                 : Ui.Column(0, api);
             CliSettings = firstRun ? new Border() : Ui.Column(10, codex.View,
                 StudioSettingsLayout.SetupColumns(
@@ -557,7 +638,7 @@ public static partial class AiDialogs
                 catalog.CheckChanged += RefreshIndicator;
             }
             foreach (var input in new[] { model, url, key, path }) input.TextChanged += (_, _) => Refresh();
-            server.TextChanged += (_, _) => check.Reset();
+            server.TextChanged += (_, _) => { check.Reset(); ResetRemoteCli(); };
             forget.Click += (_, _) => Refresh();
             View.AttachedToVisualTree += (_, _) => Refresh();
             Refresh();
@@ -565,7 +646,8 @@ public static partial class AiDialogs
 
         private DirectImageGenerator Draft() => new(route, path.Text?.Trim() ?? "", url.Text?.Trim() ?? "", catalog.LegacySelection)
         { CodexDisplayName = codexName.Text?.Trim() ?? "", CodexLanguageModel = codexLanguageModel,
-            CodexReasoningEffort = codexReasoningEffort };
+            CodexReasoningEffort = codexReasoningEffort, ComfyServer = comfyServer.Text?.Trim() ?? "",
+            RemoteLanguageModel = remoteLanguageModel, RemoteReasoningEffort = remoteReasoningEffort };
 
         internal void Validate(out Control field, Dictionary<string, string?> changes)
         {
@@ -598,6 +680,8 @@ public static partial class AiDialogs
             settings.ImageCodexDisplayName = draft.CodexDisplayName;
             settings.ImageCodexLanguageModel = draft.CodexLanguageModel;
             settings.ImageCodexReasoningEffort = draft.CodexReasoningEffort;
+            settings.ImageRemoteCodexModel = draft.RemoteLanguageModel;
+            settings.ImageRemoteCodexEffort = draft.RemoteReasoningEffort;
             settings.ImageOperationApiModels = new(modelOverrides);
             settings.ImageApiCatalogs = catalog.Save();
             settings.ImageApiGenerationOnly = catalog.SaveImageCapabilities();

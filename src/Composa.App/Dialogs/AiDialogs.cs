@@ -841,14 +841,16 @@ public static partial class AiDialogs
         var imagePage = firstRun ? new ContentControl() : ConnectionPage(5, Ui.Column(16,
             ConnectionCard("Language model", textConnectionHost, apiTextLight),
             ConnectionCard("Image operations", imageConnection.View, apiImageLight)));
-        var cliLocation = SetupInput(Ui.Combo(new[] { "local", "remote" }, remoteHelp.IsVisible ? "remote" : "local",
+        var cliLocation = SetupInput(Ui.Combo(new[] { "local", "remote" }, remoteHelp.IsVisible ||
+            initialOperation is { } op && settings.ImageRouteFor(op) == ImageGenerationRoute.RemoteCodex ||
+            initialOperation == null && settings.ImageRouteFor(AiTaskKind.GenerateImage) == ImageGenerationRoute.RemoteCodex ? "remote" : "local",
             value => Locale.T(value == "local" ? "This computer" : "ComfyUI server"), _ => { }, double.NaN));
         var cliTextLight = new Border();
         var cliImageLight = new Border();
         var cliLocalText = new Border();
         var cliRemoteText = Ui.Column(10);
         var cliLocalImage = Ui.Column(10, imageConnection.CliSettings);
-        var cliRemoteImage = Caption("The installed AVS Prompt Helper supports language models only.");
+        var cliRemoteImage = imageConnection.RemoteCliSettings;
         var cliAdapter = SetupInput(Ui.Combo(remoteAdapters, remoteCli, CliLabel, _ => { }, double.NaN));
         var cliModels = settings.EnhancerCliModels.ToDictionary(pair => pair.Key, pair => pair.Value.ToList());
         var discoveredCliModels = new Dictionary<string, string[]>();
@@ -933,7 +935,7 @@ public static partial class AiDialogs
         if (firstRun)
         {
             void RefreshSetupServer() => setupServer.IsVisible = selectedProvider is not ("direct" or "local-codex")
-                || imageConnection.RouteFor(AiTaskKind.GenerateImage) == ImageGenerationRoute.ComfyWorkflow;
+                || imageConnection.RouteFor(AiTaskKind.GenerateImage) is ImageGenerationRoute.ComfyWorkflow or ImageGenerationRoute.RemoteCodex;
             provider.SelectionChanged += (_, _) => RefreshSetupServer();
             imageConnection.RouteChanged += RefreshSetupServer;
             RefreshSetupServer();
@@ -967,12 +969,15 @@ public static partial class AiDialogs
         {
             var remote = CliIsRemote();
             cliLocalText.IsVisible = cliLocalImage.IsVisible = !remote;
-            cliRemoteText.IsVisible = cliRemoteImage.IsVisible = remote;
+            cliRemoteText.IsVisible = remote;
+            if (!firstRun) cliRemoteImage.IsVisible = remote;
             if (remote) imageConnection.CliCheck.Reset();
             if (body.SelectedIndex == 11)
             {
                 cliCheck.Schedule(() => body.SelectedIndex == 11 && (!remote || !url.IsFocused));
                 if (!remote) imageConnection.CliCheck.Schedule(() => body.SelectedIndex == 11 && !CliIsRemote());
+                else if (!imageConnection.RemoteCliCheck.Passed) imageConnection.RemoteCliCheck.Schedule(
+                    () => body.SelectedIndex == 11 && CliIsRemote() && !url.IsFocused && !string.IsNullOrWhiteSpace(url.Text));
             }
             RefreshCliModels();
             RefreshCliLights();
@@ -981,9 +986,10 @@ public static partial class AiDialogs
         {
             cliTextLight.Child = cliCheck.Light();
             cliImageLight.Child = CliIsRemote()
-                ? ConnectionLight("The installed AVS Prompt Helper supports language models only.", null)
+                ? imageConnection.RemoteCliCheck.Light()
                 : imageConnection.CliCheck.Light();
-            RefreshConnectionLights(11, cliCheck.Light);
+            RefreshConnectionLights(11, () => CliIsRemote() && imageConnection.RemoteCliCheck.Failed
+                ? imageConnection.RemoteCliCheck.Light() : cliCheck.Light());
         }
         void RefreshApiLights()
         {
@@ -1006,6 +1012,7 @@ public static partial class AiDialogs
             };
             cliCheck.Changed += RefreshCliLights;
             imageConnection.CliCheck.Changed += RefreshCliLights;
+            imageConnection.RemoteCliCheck.Changed += RefreshCliLights;
             cliLocation.SelectionChanged += (_, _) => { cliCheck.Reset(); RefreshCliLocation(); };
             cliAdapter.SelectionChanged += (_, _) =>
             {
@@ -1026,7 +1033,7 @@ public static partial class AiDialogs
                 if (!url.IsFocused) ScheduleComfyCheck();
                 if (CliIsRemote()) cliCheck.Reset();
             };
-            url.LostFocus += (_, _) => { ScheduleComfyCheck(); ScheduleTextCheck(); };
+            url.LostFocus += (_, _) => { ScheduleComfyCheck(); ScheduleTextCheck(); if (CliIsRemote()) RefreshCliLocation(); };
             timeout.ValueChanged += (_, _) => { comfyCheck.Reset(); ScheduleComfyCheck(); };
             RefreshApiLights();
             RefreshCliLights();
@@ -1187,6 +1194,7 @@ public static partial class AiDialogs
             {
                 if (direct.Route == ImageGenerationRoute.DirectApi && (!ImageOperationModels.IsUtility(direct.Task) || direct.UsesConfiguredUpscaler))
                     return ConnectionLight(imageConnection.ApiCheckMessage, imageConnection.ApiConnected);
+                if (direct.Route == ImageGenerationRoute.RemoteCodex) return imageConnection.RemoteCliCheck.Light();
                 var problem = direct.Availability(direct.Task);
                 return ConnectionLight(problem ?? (direct.Route == ImageGenerationRoute.LocalCodex
                     ? "CLI executable found." : "Connection has not been checked"),
@@ -1327,6 +1335,7 @@ public static partial class AiDialogs
         textCatalog.CheckChanged += QueueRefresh;
         imageConnection.ApiCheckChanged += QueueRefresh;
         imageConnection.CliCheck.Changed += QueueRefresh;
+        imageConnection.RemoteCliCheck.Changed += QueueRefresh;
         cliCheck.Changed += QueueRefresh;
         comfyCheck.Changed += QueueRefresh;
         workflows.Changed += QueueRefresh;
