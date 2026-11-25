@@ -63,7 +63,6 @@ public sealed class TransformEdit
         Rotation = StartRotation;
     }
 
-    /// <summary>The frame's corners in document space: top-left, top-right, bottom-right, bottom-left.</summary>
     /// <summary>
     /// The frame's document-space corners, top-left first. A distorted layer's frame is the distorted shape itself, so
     /// the handles sit where the corners were dragged to rather than on the rectangle they started from.
@@ -71,11 +70,13 @@ public sealed class TransformEdit
     public SKPoint[] Corners()
     {
         if (overrideCorners != null) return overrideCorners;
-        if (!hasFrameOverride && layers.Count == 1 && layers[0].Layer is { Pixels: { } pixels, Transform.Distort: not null } distorted)
-            return (maskTarget != null ? distorted.Transform : distorted.ControlTransform).Corners(pixels.Width, pixels.Height);
-        var rotate = SKMatrix.CreateRotationDegrees((float)Rotation, Frame.MidX, Frame.MidY);
-        return [rotate.MapPoint(Frame.Left, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Top), rotate.MapPoint(Frame.Right, Frame.Bottom), rotate.MapPoint(Frame.Left, Frame.Bottom)];
+        if (!hasFrameOverride && layers.Count == 1 && layers[0].Layer is { Transform.Distort: not null } distorted)
+            return (maskTarget != null ? distorted.Transform : distorted.ControlTransform).FrameCorners();
+        return FrameCorners(Frame, Rotation);
     }
+
+    private static SKPoint[] FrameCorners(SKRect frame, double rotation) =>
+        new LayerTransform { X = frame.Left, Y = frame.Top, Width = frame.Width, Height = frame.Height, Rotation = rotation }.FrameCorners();
 
     public void Set(SKRect frame, double rotation) => Set(frame, rotation, null);
 
@@ -419,58 +420,127 @@ public sealed class TransformEdit
     public void DistortCorner(int corner, SKPoint point)
     {
         if (layers.Count != 1 || session.Transform != this) return;
-        if (hasFrameOverride)
+        var original = DistortionStartCorners();
+        var target = (SKPoint[])original.Clone();
+        target[corner] = point;
+        ApplyDistortion(original, target);
+    }
+
+    /// <summary>Moves both corners of an edge by the same document-space offset.</summary>
+    public (float? SnapX, float? SnapY) DistortEdge(TransformHandle handle, SKPoint offset, bool skew, bool fromCenter, float snapTolerance)
+    {
+        if (session.Transform != this) return default;
+        var first = handle switch
         {
-            var quad = new[] { new SKPoint(StartFrame.Left, StartFrame.Top), new SKPoint(StartFrame.Right, StartFrame.Top), new SKPoint(StartFrame.Right, StartFrame.Bottom), new SKPoint(StartFrame.Left, StartFrame.Bottom) };
-            var beforeOverride = Area(); var (proxy, initial) = layers[0]; var originalPoint = quad[corner]; quad[corner] = point;
-            if (point == originalPoint) { proxy.Transform = initial; overrideCorners = null; }
-            else
-            {
-                var delta = SKMatrix.CreateTranslation(-StartFrame.Left, -StartFrame.Top).PostConcat(Geometry.RectToQuad(StartFrame.Width, StartFrame.Height, quad));
-                proxy.Transform = LayerTransform.FromMatrix(initial.Matrix(proxy.Pixels!.Width, proxy.Pixels.Height).PostConcat(delta), proxy.Pixels.Width, proxy.Pixels.Height);
-                overrideCorners = quad;
-            }
-            SyncMask(); session.Invalidate(Geometry.Union(beforeOverride, Area())); return;
+            TransformHandle.Top => 0, TransformHandle.Right => 1, TransformHandle.Bottom => 2, TransformHandle.Left => 3,
+            _ => throw new ArgumentOutOfRangeException(nameof(handle))
+        };
+        var second = (first + 1) % 4;
+        var original = DistortionStartCorners();
+        var edge = original[second] - original[first];
+        var midpoint = original[first] + new SKPoint(edge.X / 2, edge.Y / 2);
+        if (skew)
+        {
+            var lengthSquared = edge.X * edge.X + edge.Y * edge.Y;
+            var along = lengthSquared > 0 ? (offset.X * edge.X + offset.Y * edge.Y) / lengthSquared : 0;
+            offset = new SKPoint(along * edge.X, along * edge.Y);
         }
-        var before = Area();
+        var (snapped, x, y) = session.SnapLayoutPoint(midpoint + offset, snapTolerance, skew ? edge : null);
+        var target = (SKPoint[])original.Clone();
+        offset = snapped - midpoint;
+        target[first] += offset;
+        target[second] += offset;
+        if (fromCenter)
+        {
+            target[(first + 2) % 4] -= offset;
+            target[(first + 3) % 4] -= offset;
+        }
+        ApplyDistortion(original, target);
+        return (x, y);
+    }
+
+    private SKPoint[] DistortionStartCorners()
+    {
+        if (hasFrameOverride || layers.Count != 1) return FrameCorners(StartFrame, StartRotation);
         var (layer, start) = layers[0];
         var pixels = layer.Pixels!;
-        var source = maskTarget != null ? new SKRectI(0, 0, pixels.Width, pixels.Height) : layer.ControlSourceBounds;
+        return DistortionSourceCorners(SourceBounds(layer, pixels), start).Select(start.Matrix(pixels.Width, pixels.Height).MapPoint).ToArray();
+    }
+
+    private SKRectI SourceBounds(Layer layer, SKBitmap pixels) =>
+        maskTarget != null ? new(0, 0, pixels.Width, pixels.Height) : layer.ControlSourceBounds;
+
+    private static SKPoint[] DistortionSourceCorners(SKRectI source, LayerTransform start)
+    {
+        // Controls stay in geometric order when the source has been flipped.
+        float l = start.FlipHorizontal ? source.Right : source.Left, r = start.FlipHorizontal ? source.Left : source.Right;
+        float t = start.FlipVertical ? source.Bottom : source.Top, b = start.FlipVertical ? source.Top : source.Bottom;
+        return [new(l, t), new(r, t), new(r, b), new(l, b)];
+    }
+
+    private void ApplyDistortion(SKPoint[] original, SKPoint[] target)
+    {
+        var before = Area();
+        var unchanged = original.AsSpan().SequenceEqual(target);
+        if (hasFrameOverride || layers.Count != 1 || masks.Count > 0)
+        {
+            var from = Geometry.RectToQuad(1, 1, original);
+            if (!from.TryInvert(out var inverse)) return;
+            var delta = inverse.PostConcat(Geometry.RectToQuad(1, 1, target));
+            if (hasFrameOverride || layers.Count != 1)
+            {
+                foreach (var (item, initial) in layers)
+                {
+                    var pixels = item.Pixels!;
+                    item.Transform = unchanged ? initial
+                        : LayerTransform.FromMatrix(initial.Matrix(pixels.Width, pixels.Height).PostConcat(delta), pixels.Width, pixels.Height);
+                }
+                overrideCorners = unchanged ? null : target;
+            }
+            foreach (var (owner, initial) in masks)
+            {
+                var mask = owner.Mask!;
+                var placement = initial.Matrix(mask.Width, mask.Height);
+                owner.PlaceMask(unchanged ? placement : placement.PostConcat(delta));
+            }
+        }
+        if (!hasFrameOverride && layers.Count == 1) ApplyLayerDistortion(original, target, unchanged);
+        SyncMask();
+        session.Invalidate(Geometry.Union(before, Area()));
+    }
+
+    private void ApplyLayerDistortion(SKPoint[] original, SKPoint[] target, bool unchanged)
+    {
+        var (layer, start) = layers[0];
+        if (unchanged) { layer.Transform = start; return; }
+        var pixels = layer.Pixels!;
+        var source = SourceBounds(layer, pixels);
+        var unrotate = SKMatrix.CreateRotationDegrees((float)-start.Rotation, start.Center.X, start.Center.Y);
         if (source == new SKRectI(0, 0, pixels.Width, pixels.Height))
         {
             // Preserve exact offsets of untouched corners when the source already fills its controls.
-            var p = SKMatrix.CreateRotationDegrees((float)-start.Rotation, start.Center.X, start.Center.Y).MapPoint(point);
             var offsets = (float[])(start.Distort ?? new float[8]).Clone();
-            offsets[corner * 2] = p.X - (float)start.X - (corner is 1 or 2 ? (float)start.Width : 0);
-            offsets[corner * 2 + 1] = p.Y - (float)start.Y - (corner is 2 or 3 ? (float)start.Height : 0);
+            for (var i = 0; i < 4; i++)
+            {
+                if (target[i] == original[i]) continue;
+                SetOffset(offsets, i, unrotate.MapPoint(target[i]));
+            }
             layer.Transform = start with { Distort = offsets.All(v => Math.Abs(v) < .01f) ? null : offsets };
-            SyncMask();
-            session.Invalidate(Geometry.Union(before, Area()));
             return;
         }
-        // Corner order is geometric (TL first), even when the source has been flipped.
-        float left = start.FlipHorizontal ? source.Right : source.Left, right = start.FlipHorizontal ? source.Left : source.Right;
-        float top = start.FlipVertical ? source.Bottom : source.Top, bottom = start.FlipVertical ? source.Top : source.Bottom;
-        var corners = new[] { new SKPoint(left, top), new SKPoint(right, top), new SKPoint(right, bottom), new SKPoint(left, bottom) };
-        var originalMatrix = start.Matrix(pixels.Width, pixels.Height);
-        var target = corners.Select(originalMatrix.MapPoint).ToArray();
-        target[corner] = point;
-        var matrix = SKMatrix.CreateTranslation(-left, -top).PostConcat(Geometry.RectToQuad(right - left, bottom - top, target));
-        var unrotate = SKMatrix.CreateRotationDegrees((float)-start.Rotation, start.Center.X, start.Center.Y);
-        var full = new[] { new SKPoint(start.FlipHorizontal ? pixels.Width : 0, start.FlipVertical ? pixels.Height : 0),
-            new SKPoint(start.FlipHorizontal ? 0 : pixels.Width, start.FlipVertical ? pixels.Height : 0),
-            new SKPoint(start.FlipHorizontal ? 0 : pixels.Width, start.FlipVertical ? 0 : pixels.Height),
-            new SKPoint(start.FlipHorizontal ? pixels.Width : 0, start.FlipVertical ? 0 : pixels.Height) };
+        var corners = DistortionSourceCorners(source, start);
+        var matrix = SKMatrix.CreateTranslation(-corners[0].X, -corners[0].Y)
+            .PostConcat(Geometry.RectToQuad(corners[2].X - corners[0].X, corners[2].Y - corners[0].Y, target));
+        var full = DistortionSourceCorners(new SKRectI(0, 0, pixels.Width, pixels.Height), start);
         var distort = new float[8];
-        for (var i = 0; i < 4; i++)
-        {
-            var p = unrotate.MapPoint(matrix.MapPoint(full[i]));
-            distort[i * 2] = p.X - (float)(start.X + (i is 1 or 2 ? start.Width : 0));
-            distort[i * 2 + 1] = p.Y - (float)(start.Y + (i is 2 or 3 ? start.Height : 0));
-        }
+        for (var i = 0; i < 4; i++) SetOffset(distort, i, unrotate.MapPoint(matrix.MapPoint(full[i])));
         layer.Transform = start with { Distort = distort.All(v => Math.Abs(v) < 0.01f) ? null : distort };
-        SyncMask();
-        session.Invalidate(Geometry.Union(before, Area()));
+
+        void SetOffset(float[] offsets, int i, SKPoint p)
+        {
+            offsets[i * 2] = p.X - (float)(start.X + (i is 1 or 2 ? start.Width : 0));
+            offsets[i * 2 + 1] = p.Y - (float)(start.Y + (i is 2 or 3 ? start.Height : 0));
+        }
     }
 }
 
