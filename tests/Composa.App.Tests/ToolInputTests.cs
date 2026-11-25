@@ -71,6 +71,38 @@ public class ToolInputTests
     }
 
     [AvaloniaFact]
+    public void Large_brush_outline_follows_hover_and_clears_its_previous_position()
+    {
+        window.SelectTool(Tool.Brush);
+        session.Brush = session.Brush with { Size = 180, Hardness = .4, FullCursor = false };
+        window.Canvas.ZoomTo(1);
+        Dispatcher.UIThread.RunJobs();
+        var before = At(140, 205);
+        var after = At(420, 205);
+        var revision = session.Revision;
+        window.MouseMove(before);
+        Assert.True(Screenshots.Save(window, "large-brush-outline-before"));
+        window.MouseMove(after);
+        Assert.True(Screenshots.Save(window, "large-brush-outline-after"));
+        using var first = SKBitmap.Decode(Path.Combine(Screenshots.Folder, "large-brush-outline-before.png"));
+        using var second = SKBitmap.Decode(Path.Combine(Screenshots.Folder, "large-brush-outline-after.png"));
+        Assert.True(HasRing(first, before, 63));
+        Assert.False(HasRing(second, before, 63));
+        Assert.True(HasRing(second, after, 63));
+        Assert.False(HasRing(second, after, 90));
+        session.Brush = session.Brush with { FullCursor = true };
+        window.Canvas.InvalidateBrushCursor();
+        Assert.True(Screenshots.Save(window, "large-brush-outline-full"));
+        using var full = SKBitmap.Decode(Path.Combine(Screenshots.Folder, "large-brush-outline-full.png"));
+        Assert.True(HasRing(full, after, 90));
+        Assert.False(HasRing(full, after, 63));
+        Assert.Equal(revision, session.Revision);
+
+        static bool HasRing(SKBitmap bitmap, Point center, int radius) => Enumerable.Range(radius - 2, 5)
+            .Any(dx => bitmap.GetPixel((int)Math.Round(center.X) + dx, (int)Math.Round(center.Y)).Red < 200);
+    }
+
+    [AvaloniaFact]
     public void Fast_brush_release_extends_the_existing_stroke()
     {
         window.SelectTool(Tool.Brush);

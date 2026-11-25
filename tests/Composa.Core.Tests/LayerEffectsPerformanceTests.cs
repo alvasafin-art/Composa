@@ -9,16 +9,17 @@ namespace Composa.Core.Tests;
 public sealed class LayerEffectsPerformanceTests
 {
     [Theory]
-    [InlineData(false, false, 1f)]
-    [InlineData(true, false, 1f)]
-    [InlineData(false, true, 1f)]
-    [InlineData(true, true, 1f)]
-    [InlineData(false, false, .5f)]
-    [InlineData(false, false, .71f)]
-    [InlineData(true, false, .33f)]
-    [InlineData(false, false, .19f)]
-    [InlineData(true, true, .19f)]
-    public void View_shows_the_current_mask_or_paint_with_exact_effect_pixels(bool editMask, bool cancel, float zoom)
+    [InlineData(false, false, 1f, 76)]
+    [InlineData(true, false, 1f, 76)]
+    [InlineData(false, true, 1f, 76)]
+    [InlineData(true, true, 1f, 76)]
+    [InlineData(false, false, .5f, 76)]
+    [InlineData(false, false, .71f, 76)]
+    [InlineData(true, false, .33f, 76)]
+    [InlineData(false, false, .19f, 76)]
+    [InlineData(true, true, .19f, 76)]
+    [InlineData(false, false, .19f, 500)]
+    public void View_shows_the_current_mask_or_paint_with_exact_effect_pixels(bool editMask, bool cancel, float zoom, int brushSize)
     {
         var session = EditorSession.NewCanvas(2000, 1300, SKColors.White);
         var pixels = Pixels.NewLayerColor(1989, 1297, ColorDepth.Eight, Composa.ColorManagement.RgbProfile.Srgb);
@@ -42,7 +43,7 @@ public sealed class LayerEffectsPerformanceTests
         session.SelectLayer(layer.Id);
         session.EditingMask = editMask;
         session.ViewZoom = zoom;
-        session.Brush = new BrushSettings { Size = 76, Hardness = .6, Opacity = .73 };
+        session.Brush = new BrushSettings { Size = brushSize, Hardness = .6, Opacity = .73 };
         session.Foreground = editMask ? SKColors.Black : SKColors.OrangeRed;
         var view = new RenderView(zoom, zoom == 1 ? new SKPoint(970, 495) : new SKPoint(913.25f, 481.75f));
         var area = SKRectI.Create((int)(280 * zoom), (int)(250 * zoom));

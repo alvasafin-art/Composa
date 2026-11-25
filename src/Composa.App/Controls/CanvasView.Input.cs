@@ -614,7 +614,8 @@ public sealed partial class CanvasView
         base.OnPointerExited(e);
         cursorInside = false;
         PointerAt?.Invoke(null);
-        InvalidateCanvas();
+        if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
+        else InvalidateCanvas();
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -1188,7 +1189,7 @@ public sealed partial class CanvasView
                 else if (shift) session.Brush = session.Brush with { Hardness = Math.Clamp(session.Brush.Hardness + (grow ? 0.25 : -0.25), 0, 1) };
                 else session.Brush = session.Brush with { Size = NextBrushSize(session.Brush.Size, grow) };
                 ToolStateChanged?.Invoke();
-                InvalidateCanvas();
+                InvalidateBrushCursor();
                 return true;
             case Key.Left or Key.Right or Key.Up or Key.Down:
                 var step = shift ? 10 : 1;
