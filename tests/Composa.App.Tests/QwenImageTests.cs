@@ -387,6 +387,58 @@ public class QwenImageTests
         Assert.Empty(connection.Uploads);
     }
 
+    [Fact]
+    public async Task Enhancer_sends_distinct_guidance_for_each_bundled_model_and_operation()
+    {
+        var connection = new Connection();
+        var service = Service(connection);
+        service.SessionApiKey = "test-only";
+        var settings = new Settings();
+        var guidance = new HashSet<string>();
+        var engines = service.Engines.Profiles.Where(engine =>
+            engine.Binding(AiTaskKind.GenerateImage) != null && engine.Binding(AiTaskKind.ImageEdit) != null);
+
+        foreach (var engine in engines)
+        foreach (var task in new[] { AiTaskKind.GenerateImage, AiTaskKind.ImageEdit })
+        {
+            const string draft = "Use the cup with the exact lettering \"Night Ride\".";
+            var file = task == AiTaskKind.GenerateImage ? "enhancer-generate.txt" : "enhancer.txt";
+            var expected = File.ReadAllText(Path.Combine(Engines, engine.Id, file)).Trim();
+            var result = await service.EnhanceAsync(settings, engine, task, draft, referenceCount: 1);
+            Assert.Equal("Rewritten prompt", result);
+            var graph = connection.Graphs.Last();
+            Assert.Equal(expected, (string?)graph["config"]!["inputs"]!["instructions"]);
+            Assert.True(guidance.Add(expected), $"Duplicate instructions for {engine.Id} / {task}.");
+            var message = (string?)graph["chat"]!["inputs"]!["prompt"];
+            Assert.Contains("Added reference images: 1", message);
+            Assert.Contains(draft, message);
+        }
+
+        Assert.NotEmpty(guidance);
+        Assert.Empty(connection.Uploads);
+    }
+
+    [Theory]
+    [InlineData(ImageGenerationRoute.LocalCodex, "", "direct-codex-image")]
+    [InlineData(ImageGenerationRoute.RemoteCodex, "", "direct-codex-image")]
+    [InlineData(ImageGenerationRoute.DirectApi, "openai/gpt-image-2", "direct-gpt-image-2")]
+    [InlineData(ImageGenerationRoute.DirectApi, "openai/gpt-image-2.5-sunburst-2026-09-08", "chatgpt-image-2.5")]
+    [InlineData(ImageGenerationRoute.DirectApi, "gpt-image-2.6-sunburst", "chatgpt-image-2.6")]
+    public void Enhancer_resolves_guidance_for_direct_image_routes(ImageGenerationRoute route, string model, string folder)
+    {
+        var service = Service(new Connection());
+        var engine = new DirectImageGenerator(route, "", "", model).PromptProfile();
+        foreach (var task in new[] { AiTaskKind.GenerateImage, AiTaskKind.ImageEdit })
+        {
+            var file = task == AiTaskKind.GenerateImage ? "enhancer-generate.txt" : "enhancer.txt";
+            var expected = File.ReadAllText(Path.Combine(Engines, folder, file)).Trim();
+            var overrides = new Dictionary<string, string>();
+            Assert.Equal(expected, service.InstructionsFor(overrides, engine, task));
+            overrides[AiTaskService.InstructionKey(AiTaskService.InstructionScope(engine), task)] = "My override";
+            Assert.Equal("My override", service.InstructionsFor(overrides, engine, task));
+        }
+    }
+
     [Theory]
     [InlineData("codex")]
     [InlineData("claude")]

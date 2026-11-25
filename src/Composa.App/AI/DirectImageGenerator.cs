@@ -35,12 +35,14 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
         ImageGenerationRoute.RemoteCodex => "server-codex-image",
         _ => "direct-api-image"
     };
+    internal const string CodexImageName = "GPT Image CLI";
     internal string Label => Task switch
     {
         AiTaskKind.Upscale => Route == ImageGenerationRoute.LocalCodex ? "Real-ESRGAN · CLI" : UsesConfiguredUpscaler ? Model : "Polza AI · Topaz Upscale",
         AiTaskKind.ObjectSelection => Route == ImageGenerationRoute.LocalCodex ? "rembg · CLI" : "BiRefNet · fal API",
-        _ when Route == ImageGenerationRoute.RemoteCodex => "Codex image generation",
-        _ => Route == ImageGenerationRoute.LocalCodex ? $"{Model} · Codex CLI" : Model.Length > 0 ? $"{Model} · API" : "Direct image API"
+        _ when Route == ImageGenerationRoute.LocalCodex => string.IsNullOrWhiteSpace(CodexDisplayName) ? CodexImageName : CodexDisplayName,
+        _ when Route == ImageGenerationRoute.RemoteCodex => CodexImageName,
+        _ => Model.Length > 0 ? $"{Model} · API" : "Direct image API"
     };
 
     internal static DirectImageGenerator From(Settings settings) =>
