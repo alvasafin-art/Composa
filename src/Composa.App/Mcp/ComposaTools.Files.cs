@@ -20,6 +20,15 @@ public sealed partial class ComposaTools
     {
         path = Absolute(path);
         if (!File.Exists(path)) throw new McpException($"There is no file at {path}.");
+        if (imageExchange && PsdImport.IsPsd(path))
+            return await OnUi(() =>
+            {
+                if (window.IsDragging) throw new McpException("The person is dragging on the canvas; try again in a moment.");
+                WindowActivation.Show(window);
+                // Acknowledge receipt before a conversion dialog can wait for the user.
+                _ = window.OpenPhotoshopTransfer(path);
+                return $"Accepted Photoshop transfer: {Path.GetFileName(path)}.";
+            });
         if (PsdImport.IsPsd(path) || RawImporter.IsRaw(path)) throw new McpException("Photoshop and camera RAW files need a dialog; open them from the File menu.");
         return await OnUi(async () =>
         {

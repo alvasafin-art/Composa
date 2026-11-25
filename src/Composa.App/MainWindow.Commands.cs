@@ -608,13 +608,29 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, Task<EditorSession?>> opening = new(FileNames);
     private EditorSession? DocumentAt(string path) => sessions.FirstOrDefault(s => s.FilePath != null && FileNames.Equals(Path.GetFullPath(s.FilePath), path));
 
-    public async Task<EditorSession?> OpenPath(string path)
+    private readonly SemaphoreSlim photoshopTransfers = new(1);
+
+    internal async Task OpenPhotoshopTransfer(string path)
+    {
+        await photoshopTransfers.WaitAsync();
+        try
+        {
+            if (!PsdImport.IsPsd(path)) throw new InvalidDataException("The Photoshop exchange copy must be a PSD or PSB.");
+            await OpenPath(path, photoshopTransfer: true);
+        }
+        catch (Exception error) { await Prompts.Alert(this, "Couldn't open " + Path.GetFileName(path), error.Message); }
+        finally { photoshopTransfers.Release(); }
+    }
+
+    public Task<EditorSession?> OpenPath(string path) => OpenPath(path, photoshopTransfer: false);
+
+    private async Task<EditorSession?> OpenPath(string path, bool photoshopTransfer)
     {
         path = Path.GetFullPath(path);
         if (DocumentAt(path) is { } open) { SetSession(open); return open; }
         if (opening.TryGetValue(path, out var pending)) return await pending;
         ShowNote("Opening " + Path.GetFileName(path) + "…");
-        var load = LoadDocument(path);
+        var load = LoadDocument(path, photoshopTransfer);
         opening[path] = load;
         try
         {
@@ -629,7 +645,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task<EditorSession?> LoadDocument(string path)
+    private async Task<EditorSession?> LoadDocument(string path, bool photoshopTransfer)
     {
         EditorSession opened;
         if (PsdImport.IsPsd(path))
@@ -637,6 +653,8 @@ public sealed partial class MainWindow
             // Photoshop files open as unsaved documents; what had to be converted is shown before anything is applied.
             if (await ImportPhotoshop(path, DocumentLimits.DocumentPixelBudget) is not { } import) return null;
             AddSession(opened = EditorSession.OpenPhotoshop(import, Path.GetFileNameWithoutExtension(path)));
+            // The exchange copy is temporary. Save the resulting document to a user-chosen location.
+            if (photoshopTransfer) return opened;
             if (import.Conversions.Count == 0 && Path.GetExtension(path).Equals(PsdExport.Extension, StringComparison.OrdinalIgnoreCase)) opened.MarkSaved(path);
         }
         else if (Path.GetExtension(path).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase))
