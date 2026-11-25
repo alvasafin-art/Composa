@@ -1811,7 +1811,7 @@ public static partial class AiDialogs
         qualityHost.Children.Add(Ui.Row(8, Ui.Label(Locale.T("Quality"), Palette.Secondary), qualityCombo));
         var size = new ComboBox { Width = 115, ItemsSource = sizeOptions, SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp) };
         var expandSize = new ComboBox { Width = 245 };
-
+        Button? addReference = null;
         var more = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "Image size and quality", () => { });
         var actions = Ui.Row(3, more);
         var alignPixels = settings.AiAlignMaskedEdits;
@@ -1887,7 +1887,6 @@ public static partial class AiDialogs
             if (e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed) dialog?.BeginMoveDrag(e);
         };
         var controls = Ui.Row(2, grip);
-        Button? addReference = null;
         if (references != null)
         {
             addReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image", () => _ = references.Pick());
