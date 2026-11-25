@@ -113,6 +113,7 @@ public sealed class EditorWelcomeTests
         var defaults = Settings.FromJson("{}");
         Assert.Equal(GpuAcceleration.CanEnable, defaults.UseEditorGpu);
         Assert.Equal(GpuAcceleration.CanEnable, defaults.UseRasterFilterGpu);
+        Assert.True(defaults.UseSelectionGpu);
         var disabled = Settings.FromJson("""{"UseEditorGpu":false,"UseRasterFilterGpu":false}""");
         Assert.False(disabled.UseEditorGpu);
         Assert.False(disabled.UseRasterFilterGpu);
@@ -135,6 +136,51 @@ public sealed class EditorWelcomeTests
             Assert.Equal(AiPanelPlacement.Sidebar, window.ReadEditorSetup().AiPanel);
             Assert.False(window.Settings.Dock["AI Generation"].Left);
             Assert.Equal(window.Settings.Dock["Layers"].TabGroup, window.Settings.Dock["Resources"].TabGroup);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Performance_preferences_show_devices_and_keep_the_master_switch_in_sync()
+    {
+        var window = new MainWindow { Width = 1280, Height = 820 };
+        var defaults = Settings.FromJson("{}");
+        window.Show();
+        try
+        {
+            var pending = AiDialogs.SettingsDialog(window, defaults, window.AiTasks, page: 7);
+            Pump();
+            if (pending.IsFaulted) await pending;
+            var dialog = Assert.Single(window.OwnedWindows);
+            var elements = dialog.GetVisualDescendants().ToArray();
+            var master = elements.OfType<ToggleSwitch>().Single(control => control.Name == "UseHardwareAcceleration");
+            var options = elements.OfType<CheckBox>().Where(control => control.Name is "UseEditorGpu" or "UseRasterFilterGpu" or "UseSelectionGpu").ToArray();
+            Assert.Equal(3, options.Length);
+            var supported = options.Where(control => control.IsEnabled).ToArray();
+            Assert.Equal(supported.Length != 0, master.IsChecked);
+            Assert.All(supported, option => Assert.True(option.IsChecked));
+
+            var devices = elements.OfType<TextBlock>().Where(control => control.Name is "CanvasPreviewDevice" or "CanvasCompositeDevice"
+                or "BrushCoverageDevice" or "BrushBlendingDevice" or "LayerBlurDevice" or "LayerStrokeDevice" or "Rgb16BlurDevice"
+                or "SelectionModelDevice" or "MattingModelDevice").ToArray();
+            Assert.Equal(9, devices.Length);
+            Assert.All(devices, device => Assert.False(string.IsNullOrWhiteSpace(device.Text)));
+
+            if (supported.Length > 0)
+            {
+                master.IsChecked = false;
+                Assert.All(supported, option => Assert.False(option.IsChecked));
+                supported[0].IsChecked = true;
+                Assert.True(master.IsChecked);
+                Assert.All(supported.Skip(1), option => Assert.False(option.IsChecked));
+                supported[0].IsChecked = false;
+                Assert.False(master.IsChecked);
+            }
+            dialog.Close();
+            Assert.False(await pending.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(GpuAcceleration.CanEnable, defaults.UseEditorGpu);
+            Assert.Equal(GpuAcceleration.CanEnable, defaults.UseRasterFilterGpu);
+            Assert.True(defaults.UseSelectionGpu);
         }
         finally { window.Close(); }
     }

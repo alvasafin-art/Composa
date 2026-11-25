@@ -442,7 +442,11 @@ public sealed partial class CanvasView : Decorator
         var size = Bounds.Size;
         if (session == null)
         {
-            context.Custom(new DrawOperation(new Rect(size), canvas => canvas.Clear(backdrop)));
+            context.Custom(new DrawOperation(new Rect(size), (canvas, graphics) =>
+            {
+                DetectViewportGraphics(graphics);
+                canvas.Clear(backdrop);
+            }));
             return;
         }
         if (outlineStale || !ReferenceEquals(outlinedSelection, session.Selection))
@@ -477,8 +481,7 @@ public sealed partial class CanvasView : Decorator
 
         context.Custom(new DrawOperation(new Rect(size), (canvas, graphics) =>
         {
-            var canDrawTexture = graphics is { IsAbandoned: false } && !ReferenceEquals(graphics, rejectedViewportGraphics);
-            Volatile.Write(ref hardwareViewport, canDrawTexture);
+            var canDrawTexture = DetectViewportGraphics(graphics);
 #if CANVAS_PERFORMANCE
             var backdropStarted = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
@@ -496,7 +499,7 @@ public sealed partial class CanvasView : Decorator
                 if (!accelerated.Draw(canvas, canDrawTexture ? graphics : null, screenRect) && canDrawTexture)
                 {
                     rejectedViewportGraphics = graphics;
-                    Volatile.Write(ref hardwareViewport, false);
+                    Volatile.Write(ref viewportGraphics, (int)ViewportGraphics.Software);
                 }
             }
             else if (presentation != null)
