@@ -3,6 +3,8 @@ param(
     [Parameter(Mandatory)][string]$DataDirectory,
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9-]+$')][string]$Label,
     [ValidateRange(1, 50)][int]$Repeat = 10,
+    [ValidateRange(1, 1500)][int]$BrushSize = 150,
+    [ValidateSet('fit', '100')][string]$Zoom = 'fit',
     [switch]$NoBuild,
     [string]$Runner
 )
@@ -23,7 +25,7 @@ foreach ($i in 1..$Repeat) {
         $output = Join-Path $results "$case-$i.json"
         if (Test-Path -LiteralPath $output) { continue }
         Write-Host "$Label $case $i/$Repeat"
-        & dotnet $Runner $case $output
+        & dotnet $Runner $case $output $BrushSize $Zoom
         if ($LASTEXITCODE -ne 0) { throw "Replay failed for $case." }
     }
 }
