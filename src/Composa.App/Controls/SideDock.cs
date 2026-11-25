@@ -7,11 +7,12 @@ using Avalonia.Media;
 namespace Composa.App.Controls;
 
 /// <summary>A live panel and its placement in a stack, a column, or a group of tabs.</summary>
-public sealed class DockSection(string title, Control content, DockPanelState state)
+public sealed class DockSection(string title, Control content, DockPanelState state, double? compactHeight = null)
 {
     public const double MinHeight = 90;
     public string Title { get; } = title;
     public Control Content { get; } = content;
+    internal double? CompactHeight { get; } = compactHeight;
     public DockPanelState State { get; set; } = state;
     internal double ExtraHeight { get; set; }
     internal Control? Frame { get; set; }
@@ -101,8 +102,17 @@ public sealed class SideDock : UserControl
     public void RestoreLayout(IReadOnlyDictionary<string, DockPanelState> states, bool persist = true)
     {
         foreach (var section in sections)
+        {
             if (states.TryGetValue(section.Title, out var state) && state != null)
-                section.State = state with { Height = double.IsFinite(state.Height) ? Math.Clamp(state.Height, 90, 600) : 220 };
+                section.State = state with { Height = section.CompactHeight ??
+                    (double.IsFinite(state.Height) ? Math.Clamp(state.Height, DockSection.MinHeight, 600) : 220) };
+            else if (section.Title == "Document Info")
+            {
+                // Older workspaces place the new panel at the foot of the default right column.
+                section.State = new DockPanelState(Height: section.CompactHeight ?? DockSection.MinHeight,
+                    Order: int.MaxValue, Standalone: true);
+            }
+        }
         Rebuild();
         if (persist) LayoutChanged?.Invoke();
     }

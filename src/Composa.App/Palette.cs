@@ -60,6 +60,13 @@ public static class Palette
     private static readonly SolidColorBrush Action = Brush("#30649B", "#BEBEBE", "#121315");
     internal static readonly SolidColorBrush ActionHover = Brush("#386FA8", "#B1B1B1", "#1C1D1F");
 
+    internal static readonly SolidColorBrush[] AiImageColors =
+    [
+        Brush("#7AB8FF", "#175694"), Brush("#F1B369", "#874300"), Brush("#7CD9AD", "#006044"),
+        Brush("#D2A7FF", "#6A3C9E"), Brush("#F594AB", "#98244D"), Brush("#70DCEB", "#00636D"),
+        Brush("#E1D879", "#6B5900")
+    ];
+
     internal static void Use(EditorTheme theme)
     {
         foreach (var color in colors)

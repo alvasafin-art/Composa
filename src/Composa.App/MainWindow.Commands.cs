@@ -5,6 +5,7 @@ using Avalonia.VisualTree;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using Composa.App.AI;
 using Composa.App.Dialogs;
 using Composa.Editing;
 using Composa.Filters;
@@ -313,7 +314,7 @@ public sealed partial class MainWindow
             settings.TabbedPanels = dock.Tabbed; settings.Save();
         }, needsDocument: false, viewOnly: true);
         tabbedPanelItem.ToggleType = MenuItemToggleType.CheckBox;
-        Top("_Window", PanelToggle("Layers"), PanelToggle("Resources"), PanelToggle("Properties"), PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
+        Top("_Window", PanelToggle("Layers"), PanelToggle("Document Info"), PanelToggle("Resources"), PanelToggle("Properties"), PanelToggle("Navigator"), PanelToggle("Channels"), PanelToggle("AI Generation"), PanelToggle("History"), Line(), tabbedPanelItem,
             Item("Workspaces…", () => _ = new WorkspacesWindow(settings, CaptureWorkspace, ApplyWorkspace).ShowDialog(this), needsDocument: false, viewOnly: true));
 
         Top("_Help", Item("Keyboard Shortcuts…", () => _ = ShowShortcuts(), Key.F1, needsDocument: false),
@@ -343,9 +344,9 @@ public sealed partial class MainWindow
         Key("Move tool", Avalonia.Input.Key.V, () => SelectTool(Tool.Move));
         Key("Pen tool", Avalonia.Input.Key.P, () => SelectTool(Tool.Pen));
         Key(MarqueeKey, Avalonia.Input.Key.M, () => SelectTool(Tool.Marquee), label: "Marquee tool");
-        Key(LassoKey, Avalonia.Input.Key.L, () => SelectTool(selectionTool ?? Tool.Lasso), label: "Lasso group");
+        Key(LassoKey, Avalonia.Input.Key.L, () => SelectTool(Tool.Lasso), label: "Lasso group");
         Key(MagicKey, Avalonia.Input.Key.W, () => SelectTool(selectionTool ?? Tool.Wand));
-        Key("Selection Brush", Avalonia.Input.Key.Q, () => SelectTool(selectionTool ?? Tool.SelectionBrush));
+        Key("Selection Brush", Avalonia.Input.Key.Q, () => SelectTool(Tool.SelectionBrush));
         Key("Crop tool", Avalonia.Input.Key.C, () => SelectTool(Tool.Crop));
         Key(BrushKey, Avalonia.Input.Key.B, () => SelectTool(Tool.Brush));
         Key(EraserKey, Avalonia.Input.Key.E, () => SelectTool(Tool.Eraser));
@@ -505,6 +506,7 @@ public sealed partial class MainWindow
             _ = PasteAiReferenceOrText(focused as TextBox);
             return;
         }
+        if (focused is AiPromptField prompt && prompt.HandleSuggestionKey(e)) { e.Handled = true; return; }
         if (focused is TextBox)
         {
             // Text fields keep their own editing keys; Enter or Escape hands the keyboard back to the canvas.

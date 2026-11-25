@@ -20,10 +20,11 @@ internal sealed class DockGroup : UserControl
     public DockSection Active { get; private set; }
     public Grid Header { get; } = new() { Name = "DockTabStrip", ColumnDefinitions = new ColumnDefinitions("*,Auto"),
         Height = 40, Margin = new Thickness(8, 0), Background = Brushes.Transparent };
-    public bool Collapsed => Active.State.Collapsed;
+    public bool IsCompact => visible.Length == 1 && Active.CompactHeight.HasValue;
+    public bool Collapsed => !IsCompact && Active.State.Collapsed;
     public bool ContainsLayers => visible.Any(section => section.Title == "Layers");
-    public double PreferredHeight => Math.Max(MinimumHeight, visible.Max(section => section.State.Height) + Active.ExtraHeight);
-    public double MinimumHeight => ContainsLayers ? 252 : DockSection.MinHeight;
+    public double PreferredHeight => IsCompact ? MinimumHeight : Math.Max(MinimumHeight, visible.Max(section => section.State.Height) + Active.ExtraHeight);
+    public double MinimumHeight => IsCompact ? Active.CompactHeight!.Value : ContainsLayers ? 252 : DockSection.MinHeight;
 
     public DockGroup(SideDock dock, DockSection[] members, Action<Control, string> dragHeader)
     {
@@ -31,6 +32,19 @@ internal sealed class DockGroup : UserControl
         Members = members;
         visible = members.Where(section => section.State.Visible).ToArray();
         Active = visible.FirstOrDefault(section => section.State.ActiveTab) ?? visible[0];
+        if (IsCompact)
+        {
+            Header.Height = MinimumHeight;
+            Header.Margin = default;
+            Header.Children.Add(body);
+            Header.Background = Palette.Panel;
+            Content = Header;
+            Active.Frame = this;
+            AutomationProperties.SetName(Header, Locale.T(Active.Title));
+            dragHeader(Header, Active.Title);
+            Display(Active);
+            return;
+        }
         var strip = new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center
@@ -86,7 +100,7 @@ internal sealed class DockGroup : UserControl
     internal void Display(DockSection section)
     {
         Active = section;
-        body.IsVisible = !section.State.Collapsed;
+        body.IsVisible = !Collapsed;
         body.Child = body.IsVisible ? section.Content : null;
         foreach (var (item, tab) in tabs)
         {
@@ -166,6 +180,7 @@ internal sealed class DockColumn : UserControl
     };
     private readonly RowDefinition[] rows;
     private readonly GridSplitter[] splitters;
+    private readonly DockGroup? footer;
     private bool fitting;
 
     public IReadOnlyList<DockGroup> Groups => groups;
@@ -173,13 +188,14 @@ internal sealed class DockColumn : UserControl
     public DockColumn(DockGroup[] groups, Action resized)
     {
         this.groups = groups;
+        footer = groups[^1].IsCompact ? groups[^1] : null;
         rows = new RowDefinition[groups.Length];
-        splitters = new GridSplitter[groups.Length - 1];
+        splitters = new GridSplitter[Math.Max(0, groups.Length - 1 - (footer == null ? 0 : 1))];
         for (int i = 0; i < groups.Length; i++)
         {
             var group = groups[i];
             var row = new RowDefinition();
-            if (i > 0)
+            if (i > 0 && group != footer)
             {
                 var splitter = new GridSplitter
                 {
@@ -202,8 +218,16 @@ internal sealed class DockColumn : UserControl
             }
             rows[i] = row;
             grid.RowDefinitions.Add(row);
-            Grid.SetRow(group, grid.RowDefinitions.Count - 1);
-            grid.Children.Add(group);
+            if (group == footer)
+            {
+                DockPanel.SetDock(group, Dock.Bottom);
+                frame.Children.Add(group);
+            }
+            else
+            {
+                Grid.SetRow(group, grid.RowDefinitions.Count - 1);
+                grid.Children.Add(group);
+            }
         }
         scroll.Content = grid;
         frame.Children.Add(scroll);
@@ -214,7 +238,7 @@ internal sealed class DockColumn : UserControl
 
     private static void RememberHeight(DockGroup group, RowDefinition row)
     {
-        if (!row.Height.IsAbsolute || row.ActualHeight <= 0) return;
+        if (group.IsCompact || !row.Height.IsAbsolute || row.ActualHeight <= 0) return;
         var height = Math.Clamp(Math.Round(row.ActualHeight) - group.Active.ExtraHeight, DockSection.MinHeight, 600);
         foreach (var panel in group.Members) panel.State = panel.State with { Height = height };
     }
@@ -225,10 +249,10 @@ internal sealed class DockColumn : UserControl
         fitting = true;
         try
         {
-            int primary = Array.FindIndex(groups, group => !group.Collapsed);
+            int primary = Array.FindIndex(groups, group => !group.Collapsed && !group.IsCompact);
             var top = groups[0];
-            double height = Bounds.Height;
-            double minimum = groups.Select((group, i) => group.Collapsed ? group.Header.Height :
+            double height = Math.Max(0, Bounds.Height - (footer?.MinimumHeight ?? 0));
+            double minimum = groups.Select((group, i) => group == footer ? 0 : group.Collapsed ? group.Header.Height :
                 i == primary ? group.MinimumHeight : group.PreferredHeight).Sum() + splitters.Length * 5;
             bool pinned = primary == 0 && top.ContainsLayers && height > 0 && minimum > height;
             if (pinned && top.Parent == grid)
@@ -247,7 +271,9 @@ internal sealed class DockColumn : UserControl
             {
                 var group = groups[i];
                 var row = rows[i];
-                if (i > 0) splitters[i - 1].IsEnabled = !group.Collapsed && !groups[i - 1].Collapsed && !(pinned && i == 1);
+                if (group == footer) { row.Height = new GridLength(0); continue; }
+                if (i > 0) splitters[i - 1].IsEnabled = !group.Collapsed && !groups[i - 1].Collapsed &&
+                    !group.IsCompact && !groups[i - 1].IsCompact && !(pinned && i == 1);
                 row.MinHeight = group.Collapsed || pinned && i == 0 ? 0 : group.MinimumHeight;
                 row.Height = (pinned && i == 0) ? new GridLength(0)
                     : group.Collapsed ? GridLength.Auto
