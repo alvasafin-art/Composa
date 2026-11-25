@@ -81,7 +81,12 @@ public sealed partial class CanvasView : Decorator
             InvalidateCanvas();
         };
         AttachedToVisualTree += (_, _) => antsTimer.Start();
-        DetachedFromVisualTree += (_, _) => { antsTimer.Stop(); antsRedrawPending = false; };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            antsTimer.Stop();
+            antsRedrawPending = false;
+            ReleaseNativeBrushCursor();
+        };
         // The Space key-up that ends panning goes wherever focus went, so panning ends with the focus.
         LostFocus += (_, _) =>
         {
@@ -94,7 +99,7 @@ public sealed partial class CanvasView : Decorator
     internal void InvalidateCanvas()
     {
         InvalidateVisual();
-        Child?.InvalidateVisual();
+        InvalidateBrushCursor();
     }
 
     public event Action? ViewChanged;
@@ -355,10 +360,10 @@ public sealed partial class CanvasView : Decorator
 
     // ---- Rendering ----------------------------------------------------------------------------------------------
 
-    internal sealed class DrawOperation(Rect bounds, Action<SKCanvas> draw) : ICustomDrawOperation
+    internal sealed class DrawOperation(Rect bounds, Action<SKCanvas> draw, Action? release = null) : ICustomDrawOperation
     {
         public Rect Bounds { get; } = bounds;
-        public void Dispose() { }
+        public void Dispose() => release?.Invoke();
         public bool Equals(ICustomDrawOperation? other) => false;
         public bool HitTest(Point p) => true;
 
@@ -372,6 +377,26 @@ public sealed partial class CanvasView : Decorator
             draw(canvas);
             canvas.Restore();
         }
+    }
+
+    // Overlay damage can draw the retained document operation many times. Keep
+    // the same image (and texture identity) until the canvas publishes new pixels.
+    private sealed class ViewportImage(SKBitmap pixels) : IDisposable
+    {
+        private SKImage? image;
+
+        public SKImage Image
+        {
+            get
+            {
+                if (image != null) return image;
+                // The pixels already contain the display's RGB values.
+                using var raw = new SKPixmap(pixels.Info.WithColorSpace(null), pixels.GetPixels(), pixels.RowBytes);
+                return image = SKImage.FromPixels(raw);
+            }
+        }
+
+        public void Dispose() => image?.Dispose();
     }
 
     private static readonly Lazy<SKBitmap> CheckerTile = new(CreateCheckerTile);
@@ -402,6 +427,7 @@ public sealed partial class CanvasView : Decorator
         var view = SKMatrix.CreateScale(units, units).PostConcat(SKMatrix.CreateTranslation((float)displayOrigin.X, (float)displayOrigin.Y));
         var documentRect = new SKRect(0, 0, session.Document.Width, session.Document.Height);
         var (cache, cacheSource, cacheTarget) = UpdateViewCache(view, size);
+        var presentation = cache == null ? null : new ViewportImage(cache);
         var overlay = CaptureOverlay(view);
         var rulers = CaptureRulers((float)Scaling);
         var grid = ShowPixelGrid && zoom >= 8;
@@ -427,15 +453,12 @@ public sealed partial class CanvasView : Decorator
             var displaying = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
 
-            if (cache != null)
+            if (presentation != null)
             {
                 canvas.Save();
                 canvas.ClipRect(screenRect);
-                // The cache already contains display-device RGB. An untagged presentation prevents
-                // Skia converting those values back to the UI surface's nominal sRGB space.
-                using var raw = new SKPixmap(cache.Info.WithColorSpace(null), cache.GetPixels(), cache.RowBytes);
-                using var image = SKImage.FromPixels(raw);
-                canvas.DrawImage(image, cacheSource, cacheTarget, new SKSamplingOptions(nearest ? SKFilterMode.Nearest : SKFilterMode.Linear));
+                canvas.DrawImage(presentation.Image, cacheSource, cacheTarget,
+                    new SKSamplingOptions(nearest ? SKFilterMode.Nearest : SKFilterMode.Linear));
                 canvas.Restore();
             }
 
@@ -449,7 +472,7 @@ public sealed partial class CanvasView : Decorator
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.FrameCompleted();
 #endif
-        }));
+        }, presentation == null ? null : presentation.Dispose));
     }
 
     /// <summary>What the ants stroke: the selection's outline, or when zoomed out on a complex one, the outline traced at screen resolution.</summary>
