@@ -134,13 +134,14 @@ public sealed partial class CanvasView
         using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, IsAntialias = true };
         canvas.Save();
         if (shape.Roundness != 1) canvas.RotateDegrees(-shape.Angle);
-        // Draw both colors on one centerline so there is one outline on any background.
+        // A light edge on the outside keeps the dark ring visible on any background
+        // without a stripe running between two dark lines on a white canvas.
         stroke.Color = SKColors.Black;
-        stroke.StrokeWidth = 3;
+        stroke.StrokeWidth = 2;
         canvas.DrawOval(0, 0, shape.Radius, shape.Radius * shape.Roundness, stroke);
         stroke.Color = SKColors.White;
-        stroke.StrokeWidth = 1;
-        canvas.DrawOval(0, 0, shape.Radius, shape.Radius * shape.Roundness, stroke);
+        stroke.StrokeWidth = 1.25f;
+        canvas.DrawOval(0, 0, shape.Radius + .9f, shape.Radius * shape.Roundness + .9f, stroke);
         canvas.Restore();
     }
 

@@ -198,7 +198,7 @@ public sealed partial class CanvasView
     private sealed partial class BrushCursorOverlay(CanvasView view) : Avalonia.Controls.Control
     {
         private double penWidth;
-        private Avalonia.Media.IPen dark = null!, light = null!, faint = null!, contrast = null!;
+        private Avalonia.Media.IPen dark = null!, light = null!, faint = null!, contrast = null!, ring = null!, rim = null!;
 
         public override void Render(Avalonia.Media.DrawingContext context)
         {
@@ -212,6 +212,8 @@ public sealed partial class CanvasView
                 faint = new Avalonia.Media.Immutable.ImmutablePen(
                     new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Avalonia.Media.Color.FromArgb(92, 255, 255, 255)), hair);
                 contrast = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, 3 * hair);
+                ring = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.Black, 2 * hair);
+                rim = new Avalonia.Media.Immutable.ImmutablePen(Avalonia.Media.Brushes.White, 1.25 * hair);
             }
             void Cross(Avalonia.Point p)
             {
@@ -234,10 +236,14 @@ public sealed partial class CanvasView
             void Outline()
             {
                 if (radius < 3) return;
-                if (selection) context.DrawEllipse(null, dark, center, radius + hair, radius + hair);
-                else context.DrawEllipse(null, contrast, center, radius, radius * roundness);
-                context.DrawEllipse(null, light, center, radius, radius * roundness);
-                if (!selection) return;
+                if (!selection)
+                {
+                    context.DrawEllipse(null, ring, center, radius, radius * roundness);
+                    context.DrawEllipse(null, rim, center, radius + .9 * hair, radius * roundness + .9 * hair);
+                    return;
+                }
+                context.DrawEllipse(null, dark, center, radius + hair, radius + hair);
+                context.DrawEllipse(null, light, center, radius, radius);
                 var inner = radius - session.SelectionBrushFeather * view.UnitsPerPixel;
                 if (inner > 2 && inner < radius - 2)
                     context.DrawEllipse(null, faint, center, inner, inner * roundness);

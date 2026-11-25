@@ -73,8 +73,8 @@ public class ToolInputTests
     [AvaloniaFact]
     public void Large_brush_outline_follows_hover_and_clears_its_previous_position()
     {
-        window.SelectTool(Tool.Brush);
         session.Brush = session.Brush with { Size = 180, Hardness = .4, FullCursor = false };
+        window.SelectTool(Tool.Brush);
         window.Canvas.ZoomTo(1);
         Dispatcher.UIThread.RunJobs();
         var before = At(140, 205);
