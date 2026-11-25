@@ -366,10 +366,35 @@ public static unsafe class PromptSegmentation
             if (whole < 0 || guided[1].Data[whole] < scores[candidate]) return null;
             return guided[0].Data.AsSpan(whole * mw * mh, mw * mh).ToArray();
         }
+        float[]? Reframe(SKRectI extent)
+        {
+            float x = (float)image.Width / mw, y = (float)image.Height / mh;
+            var prediction = Predict([extent.Left * x, extent.Top * y, extent.Right * x, extent.Bottom * y,
+                (extent.MidX + .5f) * x, (extent.MidY + .5f) * y], [2, 3, 1]);
+            int i = PromptCandidate(prediction[0].Data, prediction[1].Data, mw, mh,
+                SKRectI.Create(extent.MidX, extent.MidY, 1, 1), cancellation);
+            return i < 0 || prediction[1].Data[i] < .65f ? null : prediction[0].Data.AsSpan(i * mw * mh, mw * mh).ToArray();
+        }
         var plane = box != null
             ? BoxMaskCandidates.Resolve(masks.Data, scores, candidate, mw, mh, probeGrid, cancellation,
-                mobile ? null : InteriorCandidate, mobile ? null : GuidedCandidate)
+                mobile ? null : InteriorCandidate, mobile ? null : GuidedCandidate, mobile ? null : Reframe)
             : masks.Data.AsSpan(candidate * mw * mh, mw * mh).ToArray();
+        if (!mobile && Math.Min(mw, mh) >= 48)
+        {
+            var full = box == SKRectI.Create(width, height);
+            var bounds = BackdropMaskCandidates.Bounds(plane, mw, mh, cancellation);
+            if (full || bounds.Width >= .30 * mw && bounds.Height >= .36 * mh && bounds.Width * (long)bounds.Height < .65 * mw * mh)
+            {
+                var backdrop = full ? outputs : Predict([0, 0, image.Width, image.Height], [2, 3]);
+                var repaired = BackdropMaskCandidates.Recover(backdrop[0].Data, backdrop[1].Data, mw, mh,
+                    full ? null : plane, !full && box != null ? probeGrid : null, grid =>
+                    {
+                        var confirmed = Predict([(grid.X + .5f) * image.Width / mw, (grid.Y + .5f) * image.Height / mh, 0, 0], [1, -1]);
+                        return (confirmed[0].Data, confirmed[1].Data);
+                    }, cancellation);
+                if (repaired != null) plane = repaired;
+            }
+        }
         return Reconstruct(plane, mw, mh,
             image.Width, image.Height, width, height, mobile, cancellation);
     }
