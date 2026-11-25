@@ -400,7 +400,7 @@ public static partial class AiDialogs
             url = new TextBox { Text = settings.ImageGenerationApiUrl, Name = "ImageGenerationApiUrl" };
             var model = new TextBox { Text = settings.ImageGenerationApiModel };
             displayName = new TextBox { Text = settings.ImageApiDisplayName, PlaceholderText = Locale.T("Direct image API") };
-            codexName = new TextBox { Text = settings.ImageCodexDisplayName, PlaceholderText = "GPT Image 2" };
+            codexName = new TextBox { Text = settings.ImageCodexDisplayName, PlaceholderText = DirectImageGenerator.CodexImageName };
             codexLanguageModel = settings.ImageCodexLanguageModel?.Trim() ?? "";
             codexReasoningEffort = settings.ImageCodexReasoningEffort?.Trim() ?? "default";
             key = new TextBox { Name = "ImageApiKey", PasswordChar = '●', PlaceholderText = Locale.T("Enter a new key to save or replace it") };

@@ -1,7 +1,7 @@
 {
   "id": "chatgpt-image-2.5",
-  "modelName": "GPT Image 2.5",
-  "displayName": "CHAT GPT 2.5",
+  "modelName": "GPT Image 2.5 Sunburst",
+  "displayName": "GPT Image 2.5 Sunburst",
   "manifestVersion": 1,
   "paidApi": true,
   "apiModel": "gpt-image-2.5-sunburst",

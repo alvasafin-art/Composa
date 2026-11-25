@@ -39,8 +39,7 @@ internal static class ImageOperationModels
             {
                 AiTaskKind.Upscale => local ? "Real-ESRGAN" : direct.UsesConfiguredUpscaler ? direct.Model : "Topaz Upscale",
                 AiTaskKind.ObjectSelection => local ? (string.IsNullOrWhiteSpace(direct.UtilityModel) ? "rembg" : direct.UtilityModel) : "BiRefNet",
-                _ when remote => direct.Label,
-                _ => local ? string.IsNullOrWhiteSpace(direct.CodexDisplayName) ? "GPT Image 2" : direct.CodexDisplayName : direct.Model
+                _ => local || remote ? direct.Label : direct.Model
             };
         if (name.Length == 0) name = "Choose a model";
         var connection = remote || local ? DirectImageGenerator.RouteLabel(direct.Route) : utility && !direct.UsesConfiguredUpscaler

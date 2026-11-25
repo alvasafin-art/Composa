@@ -57,18 +57,39 @@ public sealed partial class AiTaskService
         }
     }
 
-    internal string DefaultInstructions(EngineProfile? engine)
+    private static string GuidanceId(EngineProfile engine)
+    {
+        if (engine.Id == "server-codex-image") return "direct-codex-image";
+        if (engine.Id != "direct-api-image" || engine.ApiModel is not { } apiModel) return engine.Id;
+
+        // The API catalog can qualify a model with its provider (for example openai/gpt-image-2).
+        var model = apiModel[(apiModel.LastIndexOf('/') + 1)..].ToLowerInvariant();
+        return model switch
+        {
+            "gpt-image-2" => "direct-gpt-image-2",
+            "gpt-image-2.5-sunburst" => "chatgpt-image-2.5",
+            "gpt-image-2.6-sunburst" => "chatgpt-image-2.6",
+            _ when model.StartsWith("gpt-image-2.5-sunburst-", StringComparison.Ordinal) => "chatgpt-image-2.5",
+            _ when model.StartsWith("gpt-image-2.6-sunburst-", StringComparison.Ordinal) => "chatgpt-image-2.6",
+            "gemini-3.1-flash-image" or "gemini-3.1-flash-image-preview" => "nano-banana-2",
+            "doubao-seedream-5-5-261028" or "seedream-5.5" => "seedream-5.5",
+            _ => engine.Id
+        };
+    }
+
+    private string DefaultInstructions(EngineProfile? engine, AiTaskKind task)
     {
         if (engine != null)
         {
-            var file = Path.Combine(Engines.DirectoryOf(engine), "enhancer.txt");
+            var filename = task == AiTaskKind.GenerateImage ? "enhancer-generate.txt" : "enhancer.txt";
+            var file = Path.Combine(Engines.Root, GuidanceId(engine), filename);
             if (File.Exists(file)) return File.ReadAllText(file).Trim();
         }
-        if (NanoBanana.IsModel(engine?.ApiModel))
-            return "Write one natural-language prompt for Nano Banana. Identify the base image and role of each referenced image when specified. Describe the desired subject, placement, lighting and interactions. For edits, name the requested change and preserve unrelated details. Keep quoted text exact. Return only the prompt.";
-        if (engine?.ApiModel?.StartsWith("gpt-image-", StringComparison.Ordinal) == true)
-            return "Write one precise GPT Image prompt. State the intended result first. Describe composition and visual constraints in plain language. For edits, identify the target, requested change and details to preserve. Keep all required visible text verbatim. Return only the prompt.";
-        return $"Rewrite the user's request as a concise image prompt for {engine?.DisplayName ?? "the selected model"}. " +
+
+        var name = engine?.ModelName ?? engine?.DisplayName ?? "the selected model";
+        if (task == AiTaskKind.GenerateImage)
+            return $"Write a concise prompt to create a new image with {name}. Describe the requested subject, composition, lighting and style. Preserve quoted text and reference roles. Return only the prompt.";
+        return $"Rewrite the user's request as a concise image-editing prompt for {name}. " +
             "Preserve explicit requirements, quoted text and reference order. Describe the intended change, placement and appearance. Return only the final prompt.";
     }
 
@@ -92,15 +113,9 @@ public sealed partial class AiTaskService
         var scope = InstructionScope(pack);
         if (overrides.TryGetValue(InstructionKey(scope, task), out var saved)) return saved;
         if (scope != id && overrides.TryGetValue(InstructionKey(id, task), out saved)) return saved;
-        if (task == AiTaskKind.GenerateImage && pack != null)
-        {
-            var file = Path.Combine(Engines.DirectoryOf(pack), "enhancer-generate.txt");
-            if (File.Exists(file)) return File.ReadAllText(file).Trim();
-        }
-        if (task == AiTaskKind.GenerateImage)
-            return $"Write a concise prompt to create a new image with {pack?.ModelName ?? pack?.DisplayName}. Describe the requested subject, composition, lighting and style. Preserve quoted text and reference roles. Return only the prompt.";
+        if (task == AiTaskKind.GenerateImage) return DefaultInstructions(pack, task);
         return overrides.GetValueOrDefault(InstructionKey(scope, AiTaskKind.ImageEdit))
-            ?? overrides.GetValueOrDefault(id + "/edit") ?? overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack);
+            ?? overrides.GetValueOrDefault(id + "/edit") ?? overrides.GetValueOrDefault(id) ?? DefaultInstructions(pack, task);
     }
 
     internal static string? EnhancedText(JsonElement root, string id)
@@ -177,7 +192,7 @@ public sealed partial class AiTaskService
             var prompt = string.IsNullOrWhiteSpace(input) ? "a cobalt-blue ceramic cup on a pale gray background" : input.Trim();
             var instructions = engine == null ? "Improve the image prompt in one short sentence. Return only the improved prompt."
                 : InstructionsFor(settings.EnhancerInstructions, engine, task);
-            var message = engine == null ? prompt : $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}\nUser request: {prompt}";
+            var message = engine == null ? prompt : EnhancerMessage(engine, task, prompt, referenceCount: null);
             return await SendEnhancerAsync(settings, instructions, message, deadline.Token, directKey, promptForComfyKey: false);
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -192,11 +207,19 @@ public sealed partial class AiTaskService
 
     internal sealed class PromptHelperMissingException() : InvalidOperationException("AVS Prompt Helper is unavailable on this ComfyUI server.");
 
-    internal Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft, CancellationToken token = default, string? directKey = null)
+    internal Task<string> EnhanceAsync(Settings settings, EngineProfile engine, AiTaskKind task, string draft,
+        CancellationToken token = default, string? directKey = null, int? referenceCount = null)
     {
         var instructions = InstructionsFor(settings.EnhancerInstructions, engine, task);
-        var message = $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}\nUser request: {draft}";
+        var message = EnhancerMessage(engine, task, draft, referenceCount);
         return SendEnhancerAsync(settings, instructions, message, token, directKey, promptForComfyKey: true);
+    }
+
+    private static string EnhancerMessage(EngineProfile engine, AiTaskKind task, string draft, int? referenceCount)
+    {
+        var references = referenceCount is int count ? $"\nAdded reference images: {count}" : "";
+        return $"Target model: {engine.DisplayName}\nOperation: {task.DisplayName()}{references}\n" +
+            $"Only the request text is available to the prompt enhancer. Use image roles stated in it or specified by the workflow and avoid inventing details about input images.\nUser request: {draft}";
     }
 
     private async Task<string> SendEnhancerAsync(Settings settings, string instructions, string message, CancellationToken token,

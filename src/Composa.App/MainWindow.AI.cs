@@ -368,7 +368,8 @@ public sealed partial class MainWindow
         { if (aiFloatingDragStart == null) return; aiFloatingDragStart = null; e.Pointer.Capture(null); e.Handled = true; };
         grip.PointerCaptureLost += (_, _) => aiFloatingDragStart = null;
         aiHeaderReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image · paste with Ctrl+V or drag files here", () => _ = PickAiReferences());
-        aiEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, () => EditorTask, () => PanelEngine(EditorTask));
+        aiEnhance = AiDialogs.EnhanceButton(aiFloatingPrompt, settings, aiTasks, () => EditorTask, () => PanelEngine(EditorTask),
+            () => aiReferences.Count);
         aiAdvanced = AiGenerationControls.IconAction(Icons.Gear, "AiAdvanced", "Generation settings", () => _ = ShowAiAdvanced());
         aiAdvanced.MinWidth = 0;
         aiPixelAlignment = AiGenerationControls.AlignmentToggle(settings.AiAlignMaskedEdits, align =>

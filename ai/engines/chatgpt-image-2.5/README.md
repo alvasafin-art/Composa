@@ -1,6 +1,6 @@
 TEST: context and insertion edges are automatic; manual mask and padding controls described by earlier versions are unavailable and ignored. Selection softness does not control generation. See [automatic-seams research](../../../docs/automatic-seams-research.md).
 
-# CHAT GPT 2.5 · Comfy.org Partner Node
+# GPT Image 2.5 Sunburst · Comfy.org Partner Node
 
 Uses the official `OpenAIGPTImageNodeV2` with **`gpt-image-2.5-sunburst`**, as in the supplied example. The pack contains no model weights and needs no local diffusion model, encoder, VAE or LoRA. Update ComfyUI until this exact model appears in the node; Composa does not silently substitute GPT Image 2 or another model.
 
@@ -9,7 +9,7 @@ Uses the official `OpenAIGPTImageNodeV2` with **`gpt-image-2.5-sunburst`**, as i
 1. Set your ComfyUI server URL under **AI → ComfyUI Settings**, and refresh/test it. This works across a trusted LAN too.
 2. Create a **Comfy.org API key** at [platform.comfy.org](https://platform.comfy.org/). This is not an OpenAI API key. A ComfyUI browser login is not shared with external applications.
 3. Paste the key into **Session API key** (memory only, discarded when Composa exits), or set `COMPOSA_COMFY_API_KEY` on the computer running Composa. If it is missing when generating, Composa opens an inline key-entry dialog before any upload or paid request. Cancelling submits nothing. You can change the environment variable's name in settings. The secret is never written to preferences or workflow JSON. Use HTTPS outside a trusted LAN.
-4. Select **CHAT GPT 2.5** in the floating panel or any generation window. `low` is the initial quality, matching the supplied workflow; quality is available in the generation window and Advanced. There is no separate reasoning/effort parameter in this image node. LoRA and local model controls are hidden for this pack. Select FLUX to use local upscaling/subject-selection models.
+4. Select **GPT Image 2.5 Sunburst** in the floating panel or any generation window. `low` is the initial quality, matching the supplied workflow; quality is available in the generation window and Advanced. There is no separate reasoning/effort parameter in this image node. LoRA and local model controls are hidden for this pack. Select FLUX to use local upscaling/subject-selection models.
 
 ## Images and masks
 

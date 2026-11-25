@@ -54,12 +54,8 @@ public static partial class AiDialogs
         return tags;
     }
 
-    internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, AiTaskKind task, Func<EngineProfile?> engine)
-    {
-        return EnhanceButton(prompt, settings, service, () => task, engine);
-    }
-
-    internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, Func<AiTaskKind> operation, Func<EngineProfile?> engine)
+    internal static Button EnhanceButton(TextBox prompt, Settings settings, AiTaskService service, Func<AiTaskKind> operation,
+        Func<EngineProfile?> engine, Func<int> referenceCount)
     {
         var button = AiGenerationControls.IconAction(Icons.EnhancePrompt, "AiEnhancePrompt", "Enhance prompt", () => { });
         string ProviderHint() => "Enhance prompt · " + AiTaskService.Providers.GetValueOrDefault(settings.EffectiveEnhancerProvider());
@@ -93,6 +89,7 @@ public static partial class AiDialogs
             if (string.IsNullOrWhiteSpace(prompt.Text)) { prompt.Focus(); return; }
             if (engine() is not { } selected || prompt.Text is not { Length: > 0 } original) return;
             var task = operation();
+            var references = referenceCount();
             using var request = new CancellationTokenSource();
             running = request;
             var started = System.Diagnostics.Stopwatch.StartNew();
@@ -107,9 +104,10 @@ public static partial class AiDialogs
             AiGenerationControls.ShowBusy(button, true); Progress(); timer.Start(); RefreshButton();
             try
             {
-                var enhanced = await service.EnhanceAsync(settings, selected, task, original, request.Token);
+                var enhanced = await service.EnhanceAsync(settings, selected, task, original, request.Token, referenceCount: references);
                 request.Token.ThrowIfCancellationRequested();
-                if (TopLevel.GetTopLevel(button) != null && prompt.Text == original && engine()?.Id == selected.Id && operation() == task)
+                if (TopLevel.GetTopLevel(button) != null && prompt.Text == original && engine() is { } current &&
+                    current.Id == selected.Id && current.ApiModel == selected.ApiModel && operation() == task && referenceCount() == references)
                 {
                     prompt.SelectAll();
                     prompt.SelectedText = enhanced;
@@ -1895,7 +1893,8 @@ public static partial class AiDialogs
             controls.Children.Add(addReference);
         }
         if (service != null && task != AiTaskKind.GenerativeExpand)
-            controls.Children.Add(EnhanceButton(prompt, settings, service, task, () => service.SelectedEngine));
+            controls.Children.Add(EnhanceButton(prompt, settings, service, () => task, () => service.SelectedEngine,
+                () => references?.Count ?? referenceCount));
         if (directEngine != null) controls.Children.Add(Ui.Label(directEngine.DisplayName, Palette.Secondary));
         else controls.Children.Add(advanced);
         if (directEngine == null && service != null && service.Engines.Profiles.Where(pack => pack.Binding(task==AiTaskKind.MatchToScene ? AiTaskKind.Harmonize : task) != null).ToArray() is { Length: > 0 } packs)

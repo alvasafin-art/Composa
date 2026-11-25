@@ -183,7 +183,7 @@ public sealed class DirectImageEditTests
             var center = document.Composite().GetPixel(128, 128);
             Assert.True(center.Red > center.Blue, $"Edited pixel was {center}.");
             Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(),
-                picker => picker.SelectedItem is ImageModelChoice choice && choice.Name == "gpt-image-2 · Codex CLI");
+                picker => picker.SelectedItem is ImageModelChoice choice && choice.Name == "GPT Image CLI");
             Assert.True(Screenshots.Save(window, "direct-codex-mask-edit"));
             AssertSelectionAndUndo(document, before, SKColors.CornflowerBlue);
         }
