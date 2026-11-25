@@ -139,7 +139,7 @@ public sealed class EditorChromeInputTests
             window.AddSession(session);
             window.ApplyEditorArrangement(bottomRail ? EditorLayoutPreset.Modern : EditorLayoutPreset.Classic, AiPanelPlacement.UnderSelection);
             Pump();
-            foreach (var (from, to) in new[] { (Tool.Brush, Tool.Eraser), (Tool.Lasso, Tool.Marquee) })
+            foreach (var (from, to) in new[] { (Tool.Brush, Tool.Eraser), (Tool.Marquee, Tool.Lasso) })
             {
                 window.SelectTool(from);
                 Pump();
