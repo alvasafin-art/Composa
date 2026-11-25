@@ -222,8 +222,9 @@ public sealed partial class LayersPanel
             shown with { Visible = state.Visible, ParentVisible = state.ParentVisible } == state)
         {
             if (row.ContextMenu?.IsOpen == true) row.ContextMenu.Close();
-            if (shown.Visible != state.Visible) eye.Content = EyeIcon(state.Visible);
-            var opacity = state.ParentVisible && state.Visible ? 1 : 0.45;
+            var visible = state.Visible && state.ParentVisible;
+            if ((shown.Visible && shown.ParentVisible) != visible) eye.Content = EyeIcon(visible);
+            var opacity = visible ? 1 : 0.45;
             content.Opacity = opacity;
             if (host.Child is StackPanel subRows)
                 foreach (var child in subRows.Children)

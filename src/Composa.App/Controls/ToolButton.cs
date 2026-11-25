@@ -72,15 +72,7 @@ public sealed class ToolButton : ToggleButton
             return;
         }
 
-        var tip = new ToolTip { Content = Locale.Message(caption) };
-        tip.AttachedToLogicalTree += (_, _) =>
-        {
-            // Let the pointer reach the toolbar when the tooltip overlaps a neighboring button.
-            if (tip.Parent is Popup popup) popup.IsHitTestVisible = false;
-        };
-        // Keep tooltip show and hide events in the editor window.
-        ToolTip.SetShouldUseOverlayLayer(target, true);
-        ToolTip.SetTip(target, tip);
+        ToolTip.SetTip(target, new ToolTip { Content = Locale.Message(caption) });
     }
 
     protected override Type StyleKeyOverride => typeof(ToggleButton);

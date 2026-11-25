@@ -46,11 +46,20 @@ public sealed partial class LayersPanel : UserControl
     // Drag state.
     private Layer? pressed;
     private Point pressPoint;
+    private PointerPressedEventArgs? dragPress;
+    private (EditorSession Session, Guid Layer)? externalReferenceDrag;
+    internal Func<Layer, bool>? CanDragReference { get; set; }
+    internal static readonly DataFormat<string> ReferenceDragFormat = DataFormat.CreateStringApplicationFormat("composa-layer-reference");
     private bool dragging;
     private (Layer Target, LayerDrop Drop)? dropTarget;
     private bool? eyeSwipe;
     private bool? thumbnailTarget;
     private bool rebuilding, rebuildAgain;
+
+    internal Layer? GetDraggedReference(string id, EditorSession? current) =>
+        externalReferenceDrag is { } drag && ReferenceEquals(drag.Session, current) &&
+        Guid.TryParseExact(id, "N", out var layerId) && layerId == drag.Layer
+            ? drag.Session.Document.Find(layerId) : null;
 
     public event Action<Layer>? EditAdjustmentRequested;
     public event Action<Layer>? EditTextRequested;
@@ -219,7 +228,7 @@ public sealed partial class LayersPanel : UserControl
             if (session != null) session.LayersChanged -= ModelChanged;
             ClearDropHighlight();
             ClearEffectDrop();
-            pressed = null; dragging = false; effectDrag = null; dropTarget = null; eyeSwipe = null;
+            pressed = null; dragPress = null; dragging = false; effectDrag = null; dropTarget = null; eyeSwipe = null;
             dropLine.IsVisible = false;
             finishRename?.Invoke(true);
             renaming = null;
@@ -293,7 +302,7 @@ public sealed partial class LayersPanel : UserControl
     }
 
     private static Control EyeIcon(bool visible) =>
-        Icons.Create(Icons.Eye, 15, visible ? null : new SolidColorBrush(Color.Parse("#555555")));
+        Icons.Create(visible ? Icons.Eye : Icons.EyeOff, 15, visible ? null : Palette.Secondary);
 
     private Border BuildRow(Entry entry, Appearance state, RowHost host)
     {
@@ -302,7 +311,7 @@ public sealed partial class LayersPanel : UserControl
         var selected = state.Selected;
         var dim = !layer.Visible || !entry.ParentVisible;
 
-        var eye = new Button { Classes = { "flat" }, Width = 28, Height = 28, Padding = new Thickness(0), Content = EyeIcon(layer.Visible) };
+        var eye = new Button { Classes = { "flat" }, Width = 28, Height = 28, Padding = new Thickness(0), Content = EyeIcon(!dim) };
         host.Eye = eye;
         Locale.Tip(eye, "Show or hide (drag down the column to swipe, Alt-click to show only this layer)");
         eye.AddHandler(PointerPressedEvent, (_, e) =>
@@ -749,6 +758,7 @@ public sealed partial class LayersPanel : UserControl
         var range = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         pressed = layer;
         pressPoint = e.GetPosition(rows);
+        dragPress = e;
         dragging = false;
         if (session.SelectedEffect != null) { session.SelectedEffect = null; session.NotifyLayersChanged(); }
         var target = thumbnailTarget;
@@ -765,11 +775,25 @@ public sealed partial class LayersPanel : UserControl
         if (rowFor.TryGetValue(layer.Id, out var rebuilt)) e.Pointer.Capture(rebuilt);
     }
 
-    private void RowMoved(PointerEventArgs e)
+    private async void RowMoved(PointerEventArgs e)
     {
-        if (pressed == null || session == null || IsFiltering) return;
+        if (pressed is not { } layer || session == null) return;
         if (!e.GetCurrentPoint(rows).Properties.IsLeftButtonPressed) { EndRowDrag(); return; }
         var position = e.GetPosition(rows);
+        if (dragPress is { } start && !new Rect(Bounds.Size).Contains(e.GetPosition(this)) &&
+            Math.Abs(position.X - pressPoint.X) + Math.Abs(position.Y - pressPoint.Y) >= 7 &&
+            CanDragReference?.Invoke(layer) == true)
+        {
+            EndRowDrag();
+            e.Pointer.Capture(null);
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.Create(ReferenceDragFormat, layer.Id.ToString("N")));
+            externalReferenceDrag = (session, layer.Id);
+            try { await DragDrop.DoDragDropAsync(start, data, DragDropEffects.Copy); }
+            finally { externalReferenceDrag = null; }
+            return;
+        }
+        if (IsFiltering) return;
         if (!dragging && Math.Abs(position.Y - pressPoint.Y) < 6) return;
         dragging = true;
         dropTarget = null;
@@ -804,6 +828,7 @@ public sealed partial class LayersPanel : UserControl
     private void EndRowDrag()
     {
         ClearDropHighlight();
+        dragPress = null;
         pressed = null;
         dragging = false;
         dropTarget = null;
@@ -815,6 +840,7 @@ public sealed partial class LayersPanel : UserControl
         // Taken before the capture is released: releasing it raises capture-lost, which ends an abandoned drag.
         ClearDropHighlight();
         var layer = pressed;
+        dragPress = null;
         pressed = null;
         var wasDragging = dragging;
         dragging = false;

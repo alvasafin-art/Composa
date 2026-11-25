@@ -1811,7 +1811,7 @@ public static partial class AiDialogs
         qualityHost.Children.Add(Ui.Row(8, Ui.Label(Locale.T("Quality"), Palette.Secondary), qualityCombo));
         var size = new ComboBox { Width = 115, ItemsSource = sizeOptions, SelectedItem = originalSize ? sizeOptions[0] : AiDimensions.Label(mp) };
         var expandSize = new ComboBox { Width = 245 };
-        Button? addReference = null;
+
         var more = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "Image size and quality", () => { });
         var actions = Ui.Row(3, more);
         var alignPixels = settings.AiAlignMaskedEdits;
@@ -1887,11 +1887,13 @@ public static partial class AiDialogs
             if (e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed) dialog?.BeginMoveDrag(e);
         };
         var controls = Ui.Row(2, grip);
+        Button? addReference = null;
         if (references != null)
         {
             addReference = AiGenerationControls.IconAction(Icons.Image, "AiAddReference", "Add reference image", () => _ = references.Pick());
             controls.Children.Add(addReference);
         }
+
         if (service != null && task != AiTaskKind.GenerativeExpand)
             controls.Children.Add(EnhanceButton(prompt, settings, service, () => task, () => service.SelectedEngine,
                 () => references?.Count ?? referenceCount));
@@ -1929,6 +1931,7 @@ public static partial class AiDialogs
             {
                 references.View.IsVisible = references.Count > 0;
                 if (addReference != null) addReference.IsVisible = references.Count == 0;
+                prompt.SetImages(references.Images);
             }
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];
@@ -1973,6 +1976,7 @@ public static partial class AiDialogs
         content.Width = Math.Clamp(owner.Bounds.Width > 0 ? owner.Bounds.Width - 32 : 532, 285, 532);
         if(task==AiTaskKind.Relight) content.Children.Add(Section("Lighting",CanvasDialogs.Form(("Lighting preset",lighting),("Target",scope))));
         if(task==AiTaskKind.ChangeBackground) prompt.PlaceholderText=Locale.T("Describe the background, surface and lighting");
+
         if (references != null) content.Children.Add(references.View);
         if (task == AiTaskKind.GenerativeExpand) content.Children.Add(resolution);
         content.Children.Add(cost);
@@ -1984,11 +1988,18 @@ public static partial class AiDialogs
             references.Owner = dialog;
             if (owner is MainWindow mainWindow) mainWindow.EnableAiReferenceDrop(dialog);
             references.Changed += Refresh;
+            references.Removed += ReferenceRemoved;
             dialog.AddHandler(InputElement.KeyDownEvent, async (_, e) =>
             {
                 if (e.Key == Key.V && e.KeyModifiers.HasFlag(KeyModifiers.Control))
                 { e.Handled = true; await references.Paste(dialog.FocusManager?.GetFocusedElement() as TextBox); }
             }, RoutingStrategies.Tunnel);
+        }
+        void ReferenceRemoved(int index)
+        {
+            var text = prompt.Text ?? "";
+            var updated = AiPromptField.AfterRemoval(text, AiImageMention.FirstReference(task) + index);
+            if (updated != text) prompt.Text = updated;
         }
         RefreshExpandChoices(); Refresh(); dialog.Opened += (_, _) => { if (prompt.IsVisible) prompt.Focus(); };
         bool accepted;
@@ -1996,7 +2007,7 @@ public static partial class AiDialogs
         try { accepted = await dialog.Ask(owner); chosenEngine = service?.SelectedEngine; }
         finally
         {
-            if (references != null) { references.Changed -= Refresh; references.Owner = null; }
+            if (references != null) { references.Changed -= Refresh; references.Removed -= ReferenceRemoved; references.Owner = null; }
             if (service != null) service.SelectedEngine = previousEngine;
         }
         var finalPrompt = prompt.Text ?? "";

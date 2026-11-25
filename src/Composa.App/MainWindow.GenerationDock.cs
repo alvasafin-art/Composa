@@ -70,8 +70,8 @@ public sealed partial class MainWindow
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiPriceBadge), 1);
         AddAt(actions, DockSlot(aiFloatingActions!), 3);
-        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiWorkflowLink), DockSlot(aiReferenceHost),
-            DockSlot(aiFloatingVariants));
+        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiWorkflowLink),
+            DockSlot(aiReferenceHost), DockSlot(aiFloatingVariants));
         body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -128,6 +128,7 @@ public sealed partial class MainWindow
             return;
         }
         presentedTask = task;
+        RefreshPanelReferences();
         aiFloatingPrompt.Text = settings.AiPromptFor(task);
         dockOperationName.Text = DockTaskName(task);
         aiFloatingOperation.Text = Locale.T(task.DisplayName());
