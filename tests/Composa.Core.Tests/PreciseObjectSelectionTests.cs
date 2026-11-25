@@ -10,6 +10,30 @@ namespace Composa.Core.Tests;
 
 public class PreciseObjectSelectionTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Bright_fine_gaps_must_connect_to_the_exterior(bool open)
+    {
+        using var image = Pixels.NewColor(160, 110);
+        using var matte = SelectionMask.FromRect(160, 110, new(24, 30, 110, 83));
+        var pixels = new PixelBuffer(image);
+        for (int y = 0; y < image.Height; y++)
+            for (int x = 0; x < image.Width; x++)
+            {
+                var background = new PixelValue(.91f + .05f * x / image.Width, .74f, .54f, 1);
+                bool inMatte = x is >= 24 and < 110 && y is >= 30 and < 83;
+                bool stripe = x < 31 || y is < 34 or >= 78 || (y - 34) % 6 < 2 || !open && x >= 104;
+                pixels.Write(x, y, inMatte && stripe ? new(.24f, .29f, .14f, 1) : background);
+            }
+
+        FineStrandGaps.Refine(image, matte, default);
+
+        Assert.Equal(open ? 0 : 255, matte.GetPixel(97, 50).Alpha);
+        Assert.Equal(255, matte.GetPixel(97, 47).Alpha);
+        Assert.Equal(255, matte.GetPixel(28, 50).Alpha);
+    }
+
     [Fact]
     public void Opaque_gaps_between_strands_can_use_local_backdrop_samples_on_a_mixed_background()
     {

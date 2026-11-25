@@ -182,8 +182,12 @@ public static unsafe class PromptSegmentation
             using var anchored = TrimapMatting.Refine(guide, silhouette, narrow, cancellation: cancellation, fineDetail: true);
             ForegroundCoverage.Refine(guide, anchored, box, narrow, cancellation);
             if (!MissingSilhouette(silhouette, anchored, .80, cancellation))
+            {
+                FineStrandGaps.Refine(guide, anchored, cancellation);
                 return Place(anchored, area, canvas);
+            }
         }
+        FineStrandGaps.Refine(guide, alpha, cancellation);
         return Place(alpha, area, canvas);
     }
 
