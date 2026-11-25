@@ -27,10 +27,7 @@ public static partial class AiDialogs
             angle.IsEnabled = scene.LightAngle != null;
             if (task == AiTaskKind.MatchToScene) controls.Children.Add(CanvasDialogs.Form(("Mode", mode)));
             controls.Children.Add(CanvasDialogs.Form(("Effect", strength)));
-            controls.Children.Add(preserve); controls.Children.Add(shadows);
-            if (task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene)
-                controls.Children.Add(Ui.Check("Subject is suspended", scene.SuspendedSubject, value => Update(scene with { SuspendedSubject = value })));
-            controls.Children.Add(autoAngle);
+            controls.Children.Add(preserve); controls.Children.Add(shadows); controls.Children.Add(autoAngle);
             controls.Children.Add(CanvasDialogs.Form(("Direction", angle), ("Shadow area", reach)));
         }
         if (!paid && !qwen)

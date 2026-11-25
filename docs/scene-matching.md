@@ -22,8 +22,6 @@ The separate **Contact and Cast Shadow** layer extracts ground darkening against
 
 Repeated subject editing uses its original PNG and excludes that subject's previous lighting and shadow layers from the inputs. It retains the current placement and the current visible background (including a chosen replacement background). Previous results remain recoverable through Undo; they are hidden together when the new result is committed. Hidden layers and hidden variants are excluded. Source and placement links travel with the project in layer tags. Older releases' nested results also retire their ancestor shadows when the source can be recovered.
 
-In **Advanced**, enable **Subject is suspended** for a hanging or wall-mounted object. Harmonize keeps its clearance and asks the model to shade the visible faces and cast onto real receiving surfaces. The extracted **Cast Shadow** stays in the model's position, with no registration or gap filling at the lower silhouette. Keep the option off for subjects resting on a surface.
-
 With **Preserve source detail** enabled, GPT Image 2.5 Harmonize limits large chromatic changes in the subject lighting while allowing exposure changes and subtle environmental tint.
 
 **Match light only** disables the shadow area. **Local tone and color · no AI** keeps the previous offline operation: two editable clipped Curves layers, Match Light and Match Color. This mode cannot create directional lighting or shadows.

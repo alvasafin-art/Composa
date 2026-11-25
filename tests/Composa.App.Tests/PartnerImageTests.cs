@@ -275,10 +275,8 @@ public class PartnerImageTests
         Assert.DoesNotContain("masked", prompt); Assert.Equal(new[] { "apiSource" }, connection.Uploads);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Gpt_harmonize_preserves_material_color_and_respects_subject_support(bool suspended)
+    [Fact]
+    public async Task Gpt_harmonize_preserves_material_color_and_grounded_contact()
     {
         var ground = new SKColor(190,183,173);
         var ceramic = new SKColor(169,163,155);
@@ -306,7 +304,7 @@ public class PartnerImageTests
             using var draw = new SKCanvas(bitmap);
             using var paint = new SKPaint { Color = new SKColor(141,133,126) };
             draw.Scale(bitmap.Width/200f,bitmap.Height/140f);
-            draw.DrawRect(suspended ? 127 : 63,suspended ? 91 : 74,40,16,paint);
+            draw.DrawRect(63,74,40,16,paint);
             paint.Color = ceramic;
             draw.DrawRect(52,24,72,50,paint);
             paint.Color = new SKColor(80,175,78);
@@ -317,7 +315,7 @@ public class PartnerImageTests
             draw.DrawRect(109,30,5,12,paint);
         }};
         var request = new AiTaskRequest { Task = AiTaskKind.Harmonize, AlignMaskedEdits = false,
-            Scene = new() { SuspendedSubject = suspended, LightAngle = 135 } };
+            Scene = new() { LightAngle = 135 } };
         var state = session.History.CurrentId;
         await Service(connection).RunAsync(new EditorCommandService(session),request,TestContext.Current.CancellationToken);
 
@@ -326,14 +324,7 @@ public class PartnerImageTests
         Assert.Contains("original material colors",prompt);
         Assert.Null(connection.Graphs[0]["gpt"]!["inputs"]!["model.mask"]);
         Assert.Equal(new[] { "apiSource" },connection.Uploads);
-        if (suspended)
-        {
-            Assert.Contains("receiving surface such as a wall",prompt);
-            Assert.Contains("visible faces and underside",prompt);
-            Assert.DoesNotContain("support is at",prompt);
-        }
-        else
-            Assert.Contains("support is at",prompt);
+        Assert.Contains("support is at",prompt);
 
         var group = Assert.Single(session.Document.Layers,layer => layer.IsGroup);
         var lighting = Assert.Single(group.Children,layer => layer.Tags.Contains("scene-object")).Pixels!;
@@ -350,16 +341,8 @@ public class PartnerImageTests
         Assert.Equal((byte)0,shadow.GetPixel(90,47).Alpha);
         var composite = session.Flatten();
         Assert.Equal(ground,composite.GetPixel(12,130));
-        if (suspended)
-        {
-            Assert.Equal(ground,composite.GetPixel(110,80));
-            Assert.True(shadow.GetPixel(144,98).Alpha > 20);
-        }
-        else
-        {
-            Assert.True(shadow.GetPixel(90,75).Alpha > 20);
-            Assert.Equal(ground,composite.GetPixel(144,98));
-        }
+        Assert.True(shadow.GetPixel(90,75).Alpha > 20);
+        Assert.Equal(ground,composite.GetPixel(144,98));
         session.Undo();
         Assert.Equal(state,session.History.CurrentId);
         Assert.Same(original,session.ActiveLayer!.Pixels);

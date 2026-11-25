@@ -92,7 +92,7 @@ public sealed record SceneEditResult(IReadOnlyList<AiOutput> Layers, int ShadowP
             var harmonize=request.Task is AiTaskKind.Harmonize or AiTaskKind.MatchToScene;
             using var rawShadow=ExtractShadow(input,generated,baseline,settings,ratios,modelToDocument,harmonize,token,out var count);
             var shadow=SceneShadowContact.Anchor(rawShadow,input,modelToDocument,token,out count,out var correction,preserveConnectedContact:harmonize);
-            if(count>0) layers.Insert(0,new(input.SuspendedSubject ? "Cast Shadow" : "Contact and Cast Shadow",shadow,Tags:["scene-shadow","editable"]));
+            if(count>0) layers.Insert(0,new("Contact and Cast Shadow",shadow,Tags:["scene-shadow","editable"]));
             else shadow.Dispose();
             return new(layers,count,correction.X,correction.Y);
         }

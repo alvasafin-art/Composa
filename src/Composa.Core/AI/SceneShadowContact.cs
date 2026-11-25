@@ -42,12 +42,6 @@ internal static class SceneShadowContact
         for(var index=0;index<components.Count;index++)
         {
             var component=components[index];if(component.Pixels.Count<9)continue;
-            if (input.SuspendedSubject)
-            {
-                // A wall or counter can receive a detached cast. Keep the model's projection in place.
-                if (component.Peak >= 8) shifts[index] = default(SKPointI);
-                continue;
-            }
             long contactMass=0;
             var contactColumns=preserveConnectedContact?new HashSet<int>():null;
             foreach(var p in component.Pixels)
@@ -110,7 +104,7 @@ internal static class SceneShadowContact
                     if(coverage>result.GetPixel(tx,ty).Alpha)result.SetPixel(tx,ty,shadow.GetPixel(x,y).WithAlpha(coverage));
                 }
             }
-            if(preserveConnectedContact && !input.SuspendedSubject)BridgeContact(result,input,modelToDocument,token);
+            if(preserveConnectedContact)BridgeContact(result,input,modelToDocument,token);
             for(var y=0;y<h;y++)for(var x=0;x<w;x++)if(result.GetPixel(x,y).Alpha>0)count++;
             Pixels.Invalidate(result);return result;
         }
