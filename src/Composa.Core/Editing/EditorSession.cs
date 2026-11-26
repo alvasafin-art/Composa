@@ -499,8 +499,12 @@ public sealed partial class EditorSession
 
     public void RenderView(SKBitmap target, SKRectI area, RenderView view) => RenderViewportFrame(target, area, view);
 
+    /// <summary>Renders newly exposed pixels on a stable viewport grid during panning.</summary>
+    public void RenderPanStrip(SKBitmap target, SKRectI area, RenderView view) =>
+        DocumentRenderer.RenderViewport(document, target, area, view, DisplayOptions(), parallelizeLayerStrips: true);
+
     /// <summary>Renders the viewport and reports whether a full frame can be refreshed in CPU bands.</summary>
-    public bool RenderViewportFrame(SKBitmap target, SKRectI area, RenderView view, bool interactiveWarp = false)
+    public bool RenderViewportFrame(SKBitmap target, SKRectI area, RenderView view, bool interactiveWarp = false, SKRectI? bandExtent = null)
     {
         if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All)
         {
@@ -526,7 +530,7 @@ public sealed partial class EditorSession
         }
         else if (patch != null)
             options = new RenderOptions { EffectPatch = patch };
-        return DocumentRenderer.RenderViewport(document, target, area, view, options) && CanRetainVisibilityBands(view);
+        return DocumentRenderer.RenderViewport(document, target, area, view, options, bandExtent) && CanRetainVisibilityBands(view);
     }
 
     public bool TryRenderLayerMove(SKBitmap target, SKRectI viewport, SKRectI area, RenderView view) =>

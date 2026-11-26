@@ -359,7 +359,8 @@ public sealed partial class CanvasView
         }
         // The outline does not change while it is dragged, so its bounds are found once for snapping.
         if (drag == Drag.MoveSelection && session.Selection is { } outline) selectionBox = (SKRect)SelectionMask.Bounds(outline);
-        InvalidateCanvas();
+        if (drag == Drag.Stroke) InvalidateBrushCursor();
+        else InvalidateCanvas();
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -413,7 +414,8 @@ public sealed partial class CanvasView
                 break;
             case Drag.Eyedropper: PickColor(alt && session.Tool == Tool.Eyedropper); break;
             case Drag.ZoomScrub:
-                if (Math.Abs(position.X - pressScreen.X) > 4) ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen);
+                if (Math.Abs(position.X - pressScreen.X) > 4)
+                    ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen, rescale: true);
                 break;
             case Drag.TextSelect: DragTextSelection(); break;
             case Drag.TextPathStart: DragTextPathStart(currentDocument); break;
@@ -638,7 +640,8 @@ public sealed partial class CanvasView
 
     private void QueueBrushPreparation()
     {
-        if (!cursorInside || drag != Drag.None || brushPreparationRequested || session?.Tool is not (Tool.Brush or Tool.Eraser)) return;
+        if (!cursorInside || drag != Drag.None || brushPreparationRequested
+            || session?.Tool is not (Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp)) return;
         brushPreparationRequested = true;
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
@@ -651,7 +654,7 @@ public sealed partial class CanvasView
         base.OnPointerWheelChanged(e);
         if (session == null) return;
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Alt))
-            ZoomTo(zoom * Math.Pow(1.2, e.Delta.Y), e.GetPosition(this));
+            ZoomTo(zoom * Math.Pow(1.2, e.Delta.Y), e.GetPosition(this), rescale: true);
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) PanBy(new Vector(e.Delta.Y * 60, 0));
         else PanBy(new Vector(e.Delta.X * 60, e.Delta.Y * 60));
         currentDocument = ToDocument(e.GetPosition(this));

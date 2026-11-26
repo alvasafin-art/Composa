@@ -80,7 +80,7 @@ public sealed partial class CanvasView
                 SetCanvasStandardCursor(canvasCursorType);
             nativeBrushCursorActive = false;
         }
-        if (Child is BrushCursorOverlay overlay) overlay.Refresh();
+        brushCursorOverlay.Refresh();
     }
 
     private bool TryApplyNativeBrushShape(BrushOutlineShape shape)

@@ -15,6 +15,8 @@ public sealed partial class CanvasView
     private GRContext? rejectedViewportGraphics;
     private static readonly SKColorSpace ViewportSrgb = SKColorSpace.CreateSrgb();
     private DispatcherTimer? navigationPreview;
+    private bool rescaleDuringNavigation, rescaledViewportVisible, scrolledReducedViewport;
+    internal bool IsNavigating => drag is Drag.Pan or Drag.ZoomScrub || navigationPreview?.IsEnabled == true;
 
     internal bool? HardwareViewportAvailable => (ViewportGraphics)Volatile.Read(ref viewportGraphics) switch
     {
@@ -30,9 +32,14 @@ public sealed partial class CanvasView
         return available;
     }
 
-    private void PreviewDuringNavigation()
+    private void PreviewDuringNavigation(bool rescale = false)
     {
-        if (HardwareViewportAvailable != true || zoom >= 1) return;
+        rescaleDuringNavigation = rescale;
+        if (!rescale && zoom >= 1)
+        {
+            navigationPreview?.Stop();
+            return;
+        }
         if (navigationPreview == null)
         {
             navigationPreview = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
@@ -47,7 +54,37 @@ public sealed partial class CanvasView
     private void FinishNavigationPreview(object? sender, EventArgs args)
     {
         navigationPreview!.Stop();
-        if (acceleratedViewportVisible) InvalidateVisual();
+        rescaleDuringNavigation = false;
+        if (scrolledReducedViewport)
+        {
+            scrolledReducedViewport = false;
+            viewStale = true;
+            InvalidateCanvas();
+            return;
+        }
+        if (acceleratedViewportVisible || rescaledViewportVisible) InvalidateCanvas();
+    }
+
+    private bool TryRescaleViewport(SKMatrix view, SKRect document, Size size, out SKRect source, out SKRect target)
+    {
+        source = target = default;
+        if (!rescaleDuringNavigation || navigationPreview?.IsEnabled != true || session == null
+            || viewCache == null || viewStale || !viewDirty.IsEmpty || pendingVisibility != null
+            || !session.CanRetainVisibilityBands(new RenderView(viewKey.Scale, viewKey.Origin))
+            || zoom == viewKey.Scale || viewKey.Scale < 1 && zoom > viewKey.Scale * 2
+            || !view.TryInvert(out var inverse)) return false;
+        var visible = SKRect.Intersect(document, inverse.MapRect(SKRect.Create((float)size.Width, (float)size.Height)));
+        if (visible.IsEmpty) return false;
+
+        var oldScale = viewKey.Scale;
+        var oldOffset = reducedCacheOffset is { } offset
+            ? new SKPoint((float)-offset.X, (float)-offset.Y) : new SKPoint(-viewKey.Origin.X * oldScale, -viewKey.Origin.Y * oldScale);
+        var oldView = SKMatrix.CreateScale(oldScale, oldScale).PostConcat(SKMatrix.CreateTranslation(oldOffset.X, oldOffset.Y));
+        var oldPixels = oldView.MapRect(visible);
+        if (!SKRect.Create(viewKey.Width, viewKey.Height).Contains(oldPixels)) return false;
+        source = oldPixels;
+        target = view.MapRect(visible);
+        return true;
     }
 
     private AcceleratedViewport? CaptureAcceleratedViewport(Size size, Point displayOrigin)

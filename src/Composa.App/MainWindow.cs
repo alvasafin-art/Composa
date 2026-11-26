@@ -184,7 +184,7 @@ public sealed partial class MainWindow : Window
 
         StartUpdateCheck();
 
-        canvas.ViewChanged += () => { UpdateStatus(); RefreshAiFloatingPosition(); };
+        canvas.ViewChanged += () => { UpdateZoomStatus(); RefreshAiFloatingPosition(); };
         canvas.CreateShapeRequested += at => _ = CreateShapeAt(at);
         canvas.Problem += message => { problem = message; UpdateStatus(); };
         canvas.TransformPreviewChanged += QueueTransformFields;
@@ -1048,13 +1048,11 @@ public sealed partial class MainWindow : Window
             ? "Saving " + string.Join(", ", saving.Values.Select(w => Path.GetFileName(w.Path))) + "…" : note) ?? "");
         commandNotice.IsVisible = !string.IsNullOrEmpty(hintText.Text);
         hintText.Foreground = problem != null ? new SolidColorBrush(Color.Parse("#FFB454")) : Palette.Secondary;
-        if (session == null)
-        {
-            zoomText.Text = "";
-            return;
-        }
-        zoomText.Text = canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
+        UpdateZoomStatus();
     }
+
+    private void UpdateZoomStatus() => zoomText.Text = session == null ? ""
+        : canvas.Zoom >= 0.1 ? $"{canvas.Zoom * 100:0.#}%" : $"{canvas.Zoom * 100:0.##}%";
 
     private static string Hint(EditorSession s) => s.WarpEdit != null ? "Drag Warp nodes · Shift locks direction · Arrows nudge selected node · Ctrl+Z undoes a point · Enter applies · Esc cancels"
         : s.IsEditingAlphaChannel || s.IsEditingComponent

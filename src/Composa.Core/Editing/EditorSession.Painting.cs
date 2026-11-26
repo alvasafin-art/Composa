@@ -12,12 +12,19 @@ public sealed partial class EditorSession
     private SKBitmap? preparedBrushCopy;
     private static int warmedBrushInput;
 
+    /// <summary>Compiles the first-dab path off the input thread when a canvas is opened.</summary>
+    public static void WarmBrushInputInBackground()
+    {
+        if (Interlocked.Exchange(ref warmedBrushInput, 1) == 0)
+            _ = Task.Run(WarmBrushInput);
+    }
+
     /// <summary>Reserves a private copy-on-write view while the brush is idle. No document pixels are changed.</summary>
     public void PrepareFirstBrushDab()
     {
-        if (IsInteracting || Tool is not (Tool.Brush or Tool.Eraser) || EditableLayer is not { } layer) return;
-        if (Interlocked.Exchange(ref warmedBrushInput, 1) == 0)
-            _ = Task.Run(WarmBrushInput);
+        if (IsInteracting || Tool is not (Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp)
+            || EditableLayer is not { } layer) return;
+        WarmBrushInputInBackground();
         var source = IsEditingMask ? MaskTarget(layer) : layer.Pixels;
         if (source == null || ReferenceEquals(source, checkedBrushTarget)) return;
         DiscardPreparedBrushDab();
@@ -29,11 +36,12 @@ public sealed partial class EditorSession
     {
         // Run the same cold path on a small, private raster so the first real press does not compile it.
         var sample = NewCanvas(384, 384);
-        sample.Brush = new BrushSettings { Size = 500, Hardness = .5 };
         try
         {
-            if (sample.BeginStroke(new SKPoint(192, 192), out _, mode: BrushMode.Paint))
+            foreach (var hardness in new[] { .5, 1d })
             {
+                sample.Brush = new BrushSettings { Size = 420, Hardness = hardness, Flow = .65, Opacity = .82 };
+                if (!sample.BeginStroke(new SKPoint(192, 192), out _, mode: BrushMode.Paint)) continue;
                 var working = sample.stroke!.Working;
                 sample.CancelStroke();
                 working.Dispose();
@@ -63,8 +71,9 @@ public sealed partial class EditorSession
     }
     private Layer? strokeLayer;
     private SKBitmap? strokeOriginal;
-    private SKBitmap? strokeHealingSample;
+    private (Document Document, RenderOptions? Options)? spotHealingDonor;
     private LayerEffectsRenderer.StrokeBase? strokeEffectBase;
+    private LayerEffectsRenderer.PatchGrid? strokeEffectGrid;
     private Guid? finishingStrokeEffect;
     private SKMatrix strokeToLayer;
     private BrushMode strokeMode;
@@ -165,7 +174,9 @@ public sealed partial class EditorSession
         if (mode is BrushMode.Clone or BrushMode.Healing && cloneSource == null) { problem = "Alt-click to set the source first."; return false; }
         if (mode is BrushMode.Heal or BrushMode.Healing && IsEditingMask) { problem = "Healing brushes work on pixels, not masks."; return false; }
 
-        var effectBase = ViewZoom < 1 && document.WorkingDepth == ColorDepth.Eight && mode is BrushMode.Paint or BrushMode.Erase
+        // The retouch veil needs live styles, but its effect cache cannot be reused
+        // for the healed pixels installed at the end of the stroke.
+        var effectBase = ViewZoom < 1 && document.WorkingDepth == ColorDepth.Eight && mode is (BrushMode.Paint or BrushMode.Erase)
             ? LayerEffectsRenderer.CaptureStrokeBase(layer) : null;
         Begin(channelErase ? "Eraser" : mode.Value switch
         {
@@ -243,9 +254,9 @@ public sealed partial class EditorSession
         strokeEffectBase = effectBase;
         if (mode == BrushMode.Heal && SampleAllLayers)
         {
-            // Snapshot before the dark drag overlay, mapping the visible document into
-            // the active layer's local grid (including transformed retouch layers).
-            strokeHealingSample = CompositeInStrokeSpace(target, SKPoint.Empty);
+            // The drag veil needs no donor pixels. Retain the pre-stroke scene now
+            // and composite it on release, after the first visible dab has landed.
+            spotHealingDonor = (document.Clone(), CurrentOptions());
         }
         strokeMode = mode.Value;
         SetTarget(layer, stroke.Working, constrainChannels: false);
@@ -268,7 +279,11 @@ public sealed partial class EditorSession
         // This synchronous draw owns its destination and does not retain the display composite.
         var useDisplay = document.WorkingDepth == ColorDepth.Eight && document.Profile.Equals(Composa.ColorManagement.RgbProfile.Srgb);
         using var working = useDisplay ? null : DocumentRenderer.Flatten(document, CurrentOptions());
-        var visible = working ?? Composite();
+        return MapStrokeSample(working ?? Composite(), target, documentOffset);
+    }
+
+    private SKBitmap MapStrokeSample(SKBitmap visible, SKBitmap target, SKPoint documentOffset)
+    {
         var sample = Pixels.NewLike(target);
         using var canvas = new SKCanvas(sample);
         canvas.SetMatrix(strokeToLayer);
@@ -378,8 +393,10 @@ public sealed partial class EditorSession
         Invalidate(area);
     }
 
+    private static bool CanPatchStroke(BrushMode mode) => mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Heal;
+
     private LayerEffects? StrokeCanUsePatch(Layer layer) =>
-        strokeMode is BrushMode.Paint or BrushMode.Erase ? LayerEffectsRenderer.PatchEffects(layer) : null;
+        CanPatchStroke(strokeMode) ? LayerEffectsRenderer.PatchEffects(layer) : null;
 
     private LayerEffectsRenderer.Patch? StrokeEffectPatch(SKRectI targetArea, RenderView view)
     {
@@ -398,7 +415,8 @@ public sealed partial class EditorSession
             x + targetArea.Left / view.Scale, y + targetArea.Top / view.Scale,
             x + targetArea.Right / view.Scale, y + targetArea.Bottom / view.Scale));
         var nativeGrid = view.Scale == 1 && x == MathF.Round(x) && y == MathF.Round(y);
-        return LayerEffectsRenderer.RenderPatch(layer, localArea, effects, view.Scale, nativeGrid, strokeEffectBase);
+        var grid = !nativeGrid && stroke != null ? strokeEffectGrid ??= new() : null;
+        return LayerEffectsRenderer.RenderPatch(layer, localArea, effects, view.Scale, nativeGrid, strokeEffectBase, grid);
     }
 
     public void EndStroke()
@@ -454,8 +472,10 @@ public sealed partial class EditorSession
             bool singleDab = Math.Max(touched.Width, touched.Height) <= Brush.Size * 2;
             SKBitmap repair;
             if (strokeMode == BrushMode.Healing) repair = PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset);
-            else if (strokeHealingSample is { } sample)
+            else if (spotHealingDonor is { } donor)
             {
+                using var visible = DocumentRenderer.Flatten(donor.Document, donor.Options);
+                using var sample = MapStrokeSample(visible, strokeOriginal!, SKPoint.Empty);
                 using var hard = Pixels.Clone(mask);
                 var coverage = hard.GetPixelSpan();
                 var stride = hard.RowBytes;
@@ -483,7 +503,7 @@ public sealed partial class EditorSession
         using var effectBase = strokeEffectBase;
         strokeEffectBase = null;
         CloseStroke();
-        if (document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null
+        if (strokeMode != BrushMode.Heal && document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null
             && (effectBase == null || !LayerEffectsRenderer.CacheStroke(layer, effectBase)))
             finishingStrokeEffect = layer.Id;
         Commit();
@@ -508,7 +528,9 @@ public sealed partial class EditorSession
         strokeOriginal = null;
         strokeEffectBase?.Dispose();
         strokeEffectBase = null;
-        strokeHealingSample?.Dispose(); strokeHealingSample = null;
+        strokeEffectGrid?.Dispose();
+        strokeEffectGrid = null;
+        spotHealingDonor = null;
         smoothingAnchor = smoothingPointer = null;
     }
 }

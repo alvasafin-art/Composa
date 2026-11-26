@@ -188,6 +188,30 @@ public sealed class CanvasPerformanceBench
         }
         EndPhase("pan 62.5%", times);
 
+        times = [];
+        StartPhase();
+        for (var i = 1; i <= 36; i++)
+        {
+            var offset = i <= 18 ? i : 36 - i;
+            Measure("pan", () => window.Canvas.CenterOn(new(1020 + 50 * offset, 710 + 20 * offset)), times, measureInput: true);
+        }
+        EndPhase("pan across viewport padding", times);
+        window.Canvas.CenterOn(new(1510, 1000));
+        Pump();
+
+        var zoomAnchor = window.Canvas.TranslatePoint(new Rect(window.Canvas.Bounds.Size).Center, window)!.Value;
+        times = [];
+        StartPhase();
+        for (var i = 0; i < 18; i++)
+        {
+            var direction = i % 6 < 3 ? 1 : -1;
+            Measure("zoom", () => window.MouseWheel(zoomAnchor, new Vector(0, direction), RawInputModifiers.Control), times, measureInput: true);
+        }
+        EndPhase("wheel zoom", times);
+        window.Canvas.ZoomTo(.625);
+        window.Canvas.CenterOn(new(1510, 1000));
+        Pump();
+
         window.SelectTool(Tool.Move);
         Pump();
         var pointer = window.Canvas.TranslatePoint(window.Canvas.ToScreen(new(1350, 1050)), window)!.Value;
@@ -277,6 +301,14 @@ public sealed class CanvasPerformanceBench
             .Select(button => (Button: button, Position: button.TranslatePoint(new Rect(button.Bounds.Size).Center, window)))
             .Where(button => button.Position != null).Take(8).ToArray();
         Assert.True(buttons.Length >= 2);
+        var platform = window.PlatformImpl!;
+        // The headless MouseMove helper pumps before and after input. Dispatch the raw
+        // event so InputMs measures routing and control updates without that extra work.
+        var headless = platform.GetType().GetInterface("Avalonia.Headless.IHeadlessWindow");
+        Assert.NotNull(headless);
+        var movePointer = headless.GetMethod("MouseMove")!.CreateDelegate<Action<Point, RawInputModifiers>>(platform);
+        var pressPointer = headless.GetMethod("MouseDown")!.CreateDelegate<Action<Point, MouseButton, RawInputModifiers>>(platform);
+        void MovePointer(Point position) => movePointer(position, RawInputModifiers.None);
         window.SelectTool(Tool.Move);
         var center = window.Canvas.TranslatePoint(new Rect(window.Canvas.Bounds.Size).Center, window)!.Value;
         Pump();
@@ -285,33 +317,89 @@ public sealed class CanvasPerformanceBench
         for (var i = 0; i < 4; i++)
         foreach (var (button, position) in buttons)
         {
-            Measure("canvas hover", () => window.MouseMove(center + new Vector(i + button.Bounds.Y % 5, i)), hoverTimes, measureInput: true);
-            Measure("panel hover", () => window.MouseMove(position!.Value), hoverTimes, measureInput: true);
+            Measure("canvas hover", () => MovePointer(center + new Vector(i + button.Bounds.Y % 5, i)), hoverTimes, measureInput: true);
+            Measure("panel hover", () => MovePointer(position!.Value), hoverTimes, measureInput: true);
             Assert.True(button.IsPointerOver);
         }
         EndPhase("Canvas to tool panel hover", hoverTimes);
+        hoverTimes = [];
+        StartPhase();
+        for (var i = 0; i < 4; i++)
+        foreach (var (button, position) in buttons)
+        {
+            Measure("panel hover", () => MovePointer(position!.Value), hoverTimes, measureInput: true);
+            Assert.True(button.IsPointerOver);
+        }
+        EndPhase("Tool panel hover", hoverTimes);
 
         var path = Path(new SKPoint(2160, 1430), 300, 118, 18);
+        Point StrokeStart() => window.Canvas.TranslatePoint(window.Canvas.ToScreen(path[0]), window)!.Value;
         session.Brush = new BrushSettings { Size = 500, Hardness = .995, Flow = .65, Opacity = .82 };
         var samples = path.Skip(1).Select(p => (p, 1f)).ToArray();
         session.SetCloneSource(new SKPoint(2115, 1300));
         foreach (var mode in new[] { BrushMode.Paint, BrushMode.Erase, BrushMode.Heal, BrushMode.Healing, BrushMode.Clone })
         {
-            Assert.True(session.BeginStroke(path[0], out _, mode: mode));
+            window.SelectTool(mode switch
+            {
+                BrushMode.Erase => Tool.Eraser,
+                BrushMode.Heal => Tool.SpotHealing,
+                BrushMode.Healing => Tool.HealingBrush,
+                BrushMode.Clone => Tool.CloneStamp,
+                _ => Tool.Brush
+            });
+            session.Brush = new BrushSettings { Size = 500, Hardness = .995, Flow = .65, Opacity = .82 };
+            session.ViewZoom = window.Canvas.Zoom / window.RenderScaling;
+            var start = StrokeStart();
+            MovePointer(start);
             Pump();
             StartPhase();
             var times = new List<InputFrame>();
+            Measure("press", () => pressPointer(start, MouseButton.Left, RawInputModifiers.None), times, measureInput: true, awaitFrame: true);
+            Assert.True(session.IsStroking);
             for (var i = 0; i < samples.Length; i += 3)
             {
                 var from = i;
-                Measure("move", () => session.ContinueStrokeSamples(samples.AsSpan(from, 3)), times, measureInput: true);
+                Measure("move", () => session.ContinueStrokeSamples(samples.AsSpan(from, 3)), times, measureInput: true, awaitFrame: true);
             }
             EndPhase($"{mode} batched samples", times);
             checks[$"{mode} live"] = Hash(layer.Pixels!);
-            session.CancelStroke();
+            window.Canvas.CancelInteraction();
+            window.MouseUp(start, MouseButton.Left);
             layer = session.ActiveLayer!;
             Pump();
         }
+
+        window.SelectTool(Tool.SpotHealing);
+        session.SampleAllLayers = true;
+        session.Brush = new BrushSettings { Size = 170, Hardness = .7 };
+        for (var i = 0; i < 5; i++)
+        {
+            var raster = Pixels.NewColor(2750, 2100);
+            raster.Erase(new SKColor((byte)(50 + 20 * i), 120, 183, 75));
+            session.Document.Layers.Insert(0, Layer.Raster($"Underlay {i}", raster, 480 + i * 27, 360 + i * 21));
+        }
+        layer.Effects = new LayerEffects
+        {
+            Stroke = new StrokeEffect { Size = 5 },
+            Shadow = new ShadowEffect { Blur = 22, Distance = 12 }
+        };
+        session.InvalidateAll();
+        Pump();
+        StartPhase();
+        var retouch = new List<InputFrame>();
+        Measure("press", () => Assert.True(session.BeginStroke(path[0], out _, mode: BrushMode.Heal)),
+            retouch, measureInput: true, awaitFrame: true);
+        foreach (var point in path.Skip(1).Take(9))
+            Measure("move", () => session.ContinueStroke(point), retouch, measureInput: true, awaitFrame: true);
+        EndPhase("Spot Healing with all layers and effects", retouch);
+        checks["styled Spot Healing live"] = Hash(layer.Pixels!);
+        session.CancelStroke();
+        layer = session.ActiveLayer!;
+        layer.Effects = null;
+        session.Document.Layers.RemoveRange(0, 5);
+        session.SampleAllLayers = false;
+        session.InvalidateAll();
+        Pump();
 
         session.SelectRect(new SKRect(500, 420, 2500, 1820));
         session.SelectionBrushSize = 90;
@@ -653,7 +741,7 @@ public sealed class CanvasPerformanceBench
         Measure("release", () => window.MouseUp(At(points[^1]), MouseButton.Left), times);
     }
 
-    private static void Measure(string input, Action action, List<InputFrame> times, bool measureInput = false)
+    private static void Measure(string input, Action action, List<InputFrame> times, bool measureInput = false, bool awaitFrame = false)
     {
         var traceStages = input == "press" && Environment.GetEnvironmentVariable("COMPOSA_PERF_STAGE") == "1";
         var before = traceStages ? CanvasPerformanceTrace.Snapshot().Stages : null;
@@ -661,6 +749,8 @@ public sealed class CanvasPerformanceBench
         action();
         var afterInput = Stopwatch.GetTimestamp();
         Pump();
+        if (awaitFrame)
+            for (var i = 0; i < 3 && CanvasPerformanceTrace.FrameAt < begin; i++) Pump();
         var frame = CanvasPerformanceTrace.FrameAt;
         var stages = before == null ? null : CanvasPerformanceTrace.Snapshot().Stages.Select(stage =>
         {

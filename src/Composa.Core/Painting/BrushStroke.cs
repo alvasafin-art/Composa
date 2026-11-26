@@ -375,6 +375,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
         if (saturated == 0) return false;
         var tip = ellipse;
         var vectorize = tip == null && CanVectorizeCoverage(buildsUp, radius);
+        var hardInterior = tip == null && hardness >= .995f && radius > 2 ? (radius - 1) * (radius - 1) : 0;
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             var dy = y + .5f - center.Y;
@@ -388,6 +389,15 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 if (tip == null && closest * closest + dy * dy >= outer * outer) continue;
 
                 var row = coverage.WritableRowSegment(left, y, end - left);
+                if (hardInterior > 0)
+                {
+                    var farthest = Math.Max(MathF.Abs(left + .5f - center.X), MathF.Abs(end - .5f - center.X));
+                    if (farthest * farthest + dy * dy <= hardInterior)
+                    {
+                        changed |= AccumulateHardInterior(row, flow, buildsUp, saturated);
+                        continue;
+                    }
+                }
                 var offset = 0;
                 if (vectorize && row.Length >= 16)
                     changed |= AccumulateVectors(row, left, center.X, dy, radius, flow, saturated, out offset);
