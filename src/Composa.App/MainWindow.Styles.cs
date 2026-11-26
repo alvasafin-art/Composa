@@ -58,8 +58,10 @@ public sealed partial class MainWindow
             {
                 Add("Edit Only This Object", () => Dispatcher.UIThread.Post(() =>
                 {
-                    var name = kind == LayerStyleKind.Text ? "TextSize" : "LayerPropertyOpacity";
-                    body.GetVisualDescendants().OfType<NumericUpDown>().FirstOrDefault(number => number.Name == name)?.Focus();
+                    if (kind == LayerStyleKind.Text)
+                        body.GetVisualDescendants().OfType<NumericUpDown>().FirstOrDefault(number => number.Name == "TextSize")?.Focus();
+                    else
+                        layers.GetVisualDescendants().OfType<NumericUpDown>().FirstOrDefault(number => number.Name == "LayerOpacity")?.Focus();
                 }));
                 Add("Edit Style…", () => _ = EditSharedStyle(target, layer, style));
                 var overrides = target.StyleOverrides(layer, kind);
@@ -264,6 +266,8 @@ public sealed partial class MainWindow
         sample.TextTrimming = TextTrimming.CharacterEllipsis;
         var sampleFrame = new Border { Background = Palette.Field, Padding = new Thickness(10, 5), Height = 64, CornerRadius = new CornerRadius(5), Child = sample };
         var swatch = LayoutButton("Text Color", () => { });
+        var colorSample = new Controls.ColorSwatch { Width = 17, Height = 17, CornerRadius = new CornerRadius(3) };
+        swatch.Content = Ui.Row(6, colorSample, Ui.Label(Locale.T("Text Color")));
         swatch.Click += (_, _) => _ = PickColor();
         async Task PickColor()
         {
@@ -279,8 +283,7 @@ public sealed partial class MainWindow
             var ink = StyleBrush(target, draft.Color);
             sample.Foreground = ink;
             sampleFrame.Background = SampleBackground(ink.Color);
-            swatch.BorderBrush = ink;
-            swatch.BorderThickness = new Thickness(1);
+            colorSample.Background = ink;
         }
         void Change(TextStyleDefinition value) { draft = value; changed(value); UpdateSample(); }
         void PopulateFaces()

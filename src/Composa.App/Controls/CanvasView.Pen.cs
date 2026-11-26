@@ -23,7 +23,12 @@ public sealed partial class CanvasView
     public bool EditVectorMask
     {
         get => session?.Tool == Composa.Editing.Tool.Pen && session.ActiveLayer is { VectorMask: not null } layer && penMaskLayer == layer.Id;
-        set => penMaskLayer = value ? session?.ActiveLayer?.Id : null;
+        set
+        {
+            var next = value ? session?.ActiveLayer?.Id : null;
+            if (next != penMaskLayer) ClearPenSelection();
+            penMaskLayer = next;
+        }
     }
     private (SKMatrix Matrix, int Width, int Height, SKPoint Origin)? penTextFrame;
 
@@ -33,10 +38,12 @@ public sealed partial class CanvasView
     public void FinishPen(bool closed = false)
     {
         if (penDraft.Count >= 2 && session != null) session.AddPath(new VectorPath { Nodes = penDraft.ToArray(), Closed = closed && penDraft.Count >= 3 });
-        penDraft.Clear(); draftSelection = -1; InvalidateCanvas(); ToolStateChanged?.Invoke();
+        penDraft.Clear(); draftSelection = -1; penNodes.Clear(); InvalidateCanvas(); ToolStateChanged?.Invoke();
     }
     private void PenPress(bool alt, bool editPoints, bool insert, int clicks)
     {
+        if (PenMode != PenEditMode.Draw) { PenModePress(alt, insert); return; }
+        penNodes.Clear();
         penDraftEditing = false;
         penConverted = false; endpointCorner = false;
         if (insert && penDraft.Count >= 2)
@@ -90,7 +97,7 @@ public sealed partial class CanvasView
         var point = SnapLayoutHandle(pressDocument);
         penDraft.Add(BezierNode.Corner(point.X, point.Y)); penDraftDrag = true; drag = Drag.PenNode;
     }
-    private bool TryEditSelectedPath(bool alt, bool insert, int clicks)
+    private bool TryEditSelectedPath(bool alt, bool insert, int clicks, bool nodesOnly = false, bool segmentsOnly = false)
     {
         penConverted = endpointCorner = false;
         if (session?.ActiveLayer is not { Pixels: { } pixels } layer || session.PixelsLocked(layer) || CurrentPenPath is not { } path)
@@ -99,7 +106,7 @@ public sealed partial class CanvasView
             ? (layer.Matrix, pixels.Width, pixels.Height, Composa.Text.TextLayout.PathOriginFor(text))
             : null;
         var nearest = 9.0; var found = -1; var which = 0;
-        for (var i = 0; i < path.Nodes.Length; i++)
+        for (var i = 0; !segmentsOnly && i < path.Nodes.Length; i++)
         {
             var n = path.Nodes[i]; var handles = new[] { new SKPoint((float)n.X * pixels.Width, (float)n.Y * pixels.Height), new SKPoint((float)n.InX * pixels.Width, (float)n.InY * pixels.Height), new SKPoint((float)n.OutX * pixels.Width, (float)n.OutY * pixels.Height) };
             for (var h = 0; h < handles.Length; h++)
@@ -111,6 +118,7 @@ public sealed partial class CanvasView
         }
         if (found >= 0)
         {
+            if (penSelectedLayer != layer.Id || !penNodes.Contains(found)) penNodes.Clear();
             penSelectedSegment = -1; penSelectedLayer = layer.Id; penSelectedNode = found;
             session.Begin(penTextFrame != null ? "Edit Text Curve" : "Edit Path"); penLayer = layer; penOriginal = path; penNode = found; penHandle = alt && which == 0 ? 2 : which;
             if (alt && which == 0)
@@ -120,6 +128,7 @@ public sealed partial class CanvasView
             }
             penDraftDrag = false; drag = Drag.PenNode; return true;
         }
+        if (nodesOnly) return false;
         var transform = SKMatrix.Concat(layer.Matrix, SKMatrix.CreateScale(pixels.Width, pixels.Height));
         var (segment, t) = path.NearestSegment(transform, pressDocument, 9 / UnitsPerPixel);
         if (segment >= 0)
@@ -134,7 +143,7 @@ public sealed partial class CanvasView
             }
             else
             {
-                penLayer=layer; penOriginal=path; penNode=segment; penHandle=3; bendParameter=t;
+                penLayer=layer; penOriginal=path; penNode=segment; penHandle=3; bendParameter=Math.Clamp(t, .02, .98);
                 penDraftDrag=false; session.Begin(penTextFrame != null ? "Edit Text Curve" : "Bend Path"); drag=Drag.PenNode;
             }
             return true;
@@ -143,6 +152,12 @@ public sealed partial class CanvasView
     }
     private void DeleteDraftPoint()
     {
+        if (penNodes.Count > 0)
+        {
+            ReplaceDraft(new VectorPath { Nodes = penDraft.ToArray() }.RemoveNodes(penNodes));
+            ClearPenSelection();
+            return;
+        }
         int index = (uint)draftSelection < penDraft.Count ? draftSelection : penDraft.Count-1;
         var path = new VectorPath { Nodes=penDraft.ToArray() }.RemoveNode(index);
         penDraft.Clear(); penDraft.AddRange(path.Nodes); draftSelection=-1;
@@ -151,12 +166,14 @@ public sealed partial class CanvasView
 
     private bool DeletePenNode()
     {
-        if ((penSelectedSegment < 0 && penSelectedNode < 0) || session?.ActiveLayer is not { } layer || penSelectedLayer != layer.Id || CurrentPenPath is not { } path || session.PixelsLocked(layer)) return false;
+        if ((penSelectedSegment < 0 && penSelectedNode < 0 && penNodes.Count == 0) || session?.ActiveLayer is not { } layer || penSelectedLayer != layer.Id || CurrentPenPath is not { } path || session.PixelsLocked(layer)) return false;
         if (!EditVectorMask && layer.Text?.Path != null) return false;
-        var next = penSelectedSegment >= 0 ? path.RemoveSegment(penSelectedSegment)
-            : path.RemoveNode(penSelectedNode, layer.Pixels!.Width, layer.Pixels.Height); if (ReferenceEquals(path, next)) return true;
+        var next = penSelectedSegment >= 0 ? path.RemoveSegment(penSelectedSegment) : penNodes.Count > 0
+            ? path.RemoveNodes(penNodes)
+            : path.RemoveNode(penSelectedNode, layer.Pixels!.Width, layer.Pixels.Height);
+        if (ReferenceEquals(path, next)) return true;
         session.Begin("Edit Path"); session.PreviewVectorPath(layer, next, EditVectorMask);
-        if (!EditVectorMask) session.CompletePathEdit(layer); session.Commit(); penSelectedNode = penSelectedSegment = -1; InvalidateCanvas(); return true;
+        if (!EditVectorMask) session.CompletePathEdit(layer); session.Commit(); penNodes.Clear(); penSelectedNode = penSelectedSegment = -1; InvalidateCanvas(); return true;
     }
     private void PenMove(bool alt)
     {
@@ -167,7 +184,17 @@ public sealed partial class CanvasView
             if (penDraftEditing && penOriginal != null)
             {
                 var point = penHandle == 0 ? SnapLayoutHandle(currentDocument) : currentDocument;
-                penDraft[penNode] = MovedNode(penOriginal.Nodes[penNode], point.X, point.Y, penHandle, alt);
+                if (penHandle == 3)
+                {
+                    var bent = penOriginal.BendSegment(penNode, bendParameter, point.X - pressDocument.X, point.Y - pressDocument.Y);
+                    penDraft.Clear(); penDraft.AddRange(bent.Nodes);
+                }
+                else if (penHandle == 0 && penNodes.Count > 1)
+                {
+                    var moved = TranslatePenNodes(penOriginal, point - pressDocument, 1, 1);
+                    penDraft.Clear(); penDraft.AddRange(moved.Nodes);
+                }
+                else penDraft[penNode] = MovedNode(penOriginal.Nodes[penNode], point.X, point.Y, penHandle, alt);
                 return;
             }
             if (penDraft.Count == 0) return; var n = penDraft[^1];
@@ -176,6 +203,11 @@ public sealed partial class CanvasView
         if (penLayer?.Pixels == null || penOriginal == null || !(penTextFrame?.Matrix ?? penLayer.Matrix).TryInvert(out var inverse)) return;
         double width = penTextFrame?.Width ?? penLayer.Pixels.Width, height = penTextFrame?.Height ?? penLayer.Pixels.Height;
         var p = inverse.MapPoint(penHandle == 0 ? SnapLayoutHandle(currentDocument) : currentDocument);
+        if (penHandle == 0 && penNodes.Count > 1)
+        {
+            PreviewPenOutline(penLayer, TranslatePenNodes(penOriginal, p - inverse.MapPoint(pressDocument), width, height));
+            return;
+        }
         if (penHandle == 3)
         {
             var start = inverse.MapPoint(pressDocument);
@@ -201,7 +233,8 @@ public sealed partial class CanvasView
     private static BezierNode ConvertedNode(BezierNode[] nodes, int index, bool closed, double width, double height)
     {
         var node = nodes[index];
-        if (node.InX != node.X || node.InY != node.Y || node.OutX != node.X || node.OutY != node.Y) return BezierNode.Corner(node.X, node.Y) with { StartsContour = node.StartsContour, StartsUnion = node.StartsUnion };
+        if (node.InX != node.X || node.InY != node.Y || node.OutX != node.X || node.OutY != node.Y)
+            return node with { InX = node.X, InY = node.Y, OutX = node.X, OutY = node.Y };
         var before = nodes[index > 0 && !node.StartsContour ? index - 1 : closed ? nodes.Length - 1 : index];
         var after = nodes[index < nodes.Length - 1 && !nodes[index+1].StartsContour ? index + 1 : closed ? 0 : index];
         var dx = (after.X - before.X) * width; var dy = (after.Y - before.Y) * height;
@@ -242,6 +275,7 @@ public sealed partial class CanvasView
         var matrix = draft ? view : SKMatrix.Concat(view, session.ActiveLayer!.Matrix);
         bool selectedLayer = !draft && penSelectedLayer == session.ActiveLayer?.Id;
         int selectedSegment = selectedLayer ? penSelectedSegment : -1, selectedNode = draft ? draftSelection : selectedLayer ? penSelectedNode : -1;
+        var multiSelection = draft || selectedLayer ? penNodes.ToHashSet() : [];
         steps.Add(canvas =>
         {
             using var path = geometry.Build(width, height); path.Transform(matrix);
@@ -261,7 +295,7 @@ public sealed partial class CanvasView
                 var anchor = matrix.MapPoint((float)n.X * width, (float)n.Y * height);
                 foreach (var point in new[] { matrix.MapPoint((float)n.InX * width, (float)n.InY * height), matrix.MapPoint((float)n.OutX * width, (float)n.OutY * height) })
                 { if (point == anchor) continue; canvas.DrawLine(anchor, point, stroke); canvas.DrawCircle(point, 3 * hair, fill); canvas.DrawCircle(point, 3 * hair, stroke); }
-                var rect = SKRect.Create(anchor.X - 4 * hair, anchor.Y - 4 * hair, 8 * hair, 8 * hair); canvas.DrawRect(rect, selectedNode == i ? selected : fill); canvas.DrawRect(rect, stroke);
+                var rect = SKRect.Create(anchor.X - 4 * hair, anchor.Y - 4 * hair, 8 * hair, 8 * hair); canvas.DrawRect(rect, selectedNode == i || multiSelection.Contains(i) ? selected : fill); canvas.DrawRect(rect, stroke);
             }
         });
     }

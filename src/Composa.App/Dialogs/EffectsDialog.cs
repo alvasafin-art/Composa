@@ -33,7 +33,7 @@ public static class EffectsDialog
         {
             get ??= () => effects.ColorOf(kind) ?? 0xFF000000;
             set ??= color => Set(effects.WithColor(kind, color));
-            var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
+            var swatch = new Controls.ColorSwatch { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
             void Paint() => swatch.Background = new SolidColorBrush(new SKColor(get()).ToDisplay(profile, Ui.DisplayProfile(owner)));
             Paint();
             Locale.Tip(swatch, LayerEffects.DisplayName(kind) + " " + label.ToLowerInvariant());

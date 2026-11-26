@@ -60,6 +60,8 @@ public sealed partial class MainWindow
             LayoutInspector.Child when session?.ActiveLayer?.SupportsLayoutImageFrame == true => 304,
             _ when session?.ActiveLayer?.Text?.Path != null => 342,
             _ when session?.ActiveLayer?.Text != null => 306,
+            _ when session is { IsEditingMask: false, ActiveLayer.Shape.Kind: ShapeKind.Path } => 520,
+            _ when session is { IsEditingMask: false, ActiveLayer.Shape.Kind: ShapeKind.Line } => 474,
             _ when session is { ActiveLayer: null, IsEditingAlphaChannel: false } => 455,
             _ => 0
         };
@@ -209,7 +211,6 @@ public sealed partial class MainWindow
                 Add(Title("Clone Stamp"), StampMode(), Ui.Label(Locale.T("Select with a marquee or lasso, then drag the selected area to a clean donor · Esc cancels"), Palette.Secondary));
                 break;
             case Tool.Pen:
-                var penTitle = Title("Pen");
                 var maskToggle = Ui.Check("Edit vector mask", canvas.EditVectorMask, v => { canvas.EditVectorMask = v; canvas.InvalidateCanvas(); });
                 void RefreshMaskToggle()
                 {
@@ -218,8 +219,7 @@ public sealed partial class MainWindow
                 }
                 refreshOptions += RefreshMaskToggle;
                 RefreshMaskToggle();
-                Locale.Tip(penTitle, "Drag a point to move it · Shift-click or double-click a curve to add a point · Click a point or segment, then Delete · Alt on the last point continues straight");
-                Add(penTitle, Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
+                Add(BuildPenModes(), Ui.Separator(true), Flat("Finish path", () => canvas.FinishPen()), Flat("Close path", () => canvas.FinishPen(closed: true)),
                     maskToggle,
                     Flat("Path to selection", () => { if (s.ActiveLayer is { } path) s.PathToSelection(path); }));
                 if (s.ActiveLayer?.Shape != null && !dock.Section("Properties").State.Visible) BuildShapeFields(row);
@@ -352,7 +352,7 @@ public sealed partial class MainWindow
     }
 
     /// <summary>The selected live shape's properties, alongside the tool's controls.</summary>
-    private void BuildShapeFields(StackPanel row, StackPanel? quick = null, ShapeStyle? initial = null, Action<ShapeStyle>? draftChanged = null, Func<Window>? owner = null)
+    private void BuildShapeFields(StackPanel row, StackPanel? quick = null, ShapeStyle? initial = null, Action<ShapeStyle>? draftChanged = null, Func<Window>? owner = null, bool includeStrokeControls = false)
     {
         var s = session!;
         var id = s.ActiveLayer?.Id;
@@ -362,15 +362,15 @@ public sealed partial class MainWindow
         var updating = false;
         Layer? Current() => draft == null && id is { } selected ? s.Document.Find(selected) : null;
         ShapeStyle? ReadStyle() => draft ?? Current()?.Shape;
-        void Change(Func<ShapeStyle, ShapeStyle> change)
+        void Change(Func<ShapeStyle, ShapeStyle> change, bool merge = true)
         {
             if (updating || canvas.IsDragging || ReadStyle() is not {} live) return;
-            if (draft == null && Current() is {} layer) s.ChangeShapeStyle(layer, change(live), merge: true);
+            if (draft == null && Current() is {} layer) s.ChangeShapeStyle(layer, change(live), merge: merge);
             else { draft = change(live).Clamped(); draftChanged?.Invoke(draft); Sync(); }
         }
-        Border Swatch(string label, Func<ShapeStyle, uint> get, Func<ShapeStyle, uint, ShapeStyle> set)
+        Controls.ColorSwatch Swatch(string label, Func<ShapeStyle, uint> get, Func<ShapeStyle, uint, ShapeStyle> set)
         {
-            var swatch = new Border { Width = 28, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Cursor(StandardCursorType.Hand) };
+            var swatch = new Controls.ColorSwatch { Width = 28, CornerRadius = new CornerRadius(3), Cursor = new Cursor(StandardCursorType.Hand) };
             Locale.Tip(swatch, label + " color");
             swatch.PointerPressed += async (_, e) =>
             {
@@ -419,7 +419,7 @@ public sealed partial class MainWindow
                 ? st with { Stroke=color, StrokeEnabled=Visible(st) } : st with { Fill=color };
             VectorGradient? Gradient(ShapeStyle st) => stroke ? st.StrokeGradient : st.FillGradient;
             var swatch=Swatch(stroke ? "Stroke" : style.Kind==ShapeKind.Line ? "Line" : "Fill",Color,SetColor);
-            swatch.Width=18; swatch.Height=18; swatch.BorderThickness=new Thickness(1); swatch.BorderBrush=Palette.Edge;
+            swatch.Width=18; swatch.Height=18;
             var hex=new Controls.PaintValueField(label+"Hex",65,text=>
             {
                 if(!Controls.PaintValueField.TryRgb(text,out var rgb)) return;
@@ -464,7 +464,11 @@ public sealed partial class MainWindow
         var paints=quick ?? row;
         if (style.Kind!=ShapeKind.Line) paints.Children.Add(PaintRow("Fill",false));
         paints.Children.Add(PaintRow("Stroke",style.Kind!=ShapeKind.Line));
-        if (style.Kind == ShapeKind.Line)
+        if (includeStrokeControls && style.Kind is ShapeKind.Line or ShapeKind.Path)
+        {
+            refresh += AddStrokeProperties(row, style, ReadStyle, Change);
+        }
+        else if (style.Kind == ShapeKind.Line)
         {
             var width = Ui.SliderField("Width", style.LineWidth, 1, 500, v => Change(st => st with { LineWidth = v }), width: 115);
             row.Children.Add(width);
@@ -568,7 +572,7 @@ public sealed partial class MainWindow
                 ChangeFace(face => face with { Bold = selected.Bold, Italic = selected.Italic, FontStyle = selected.FontStyle });
             }
         };
-        var swatch = new Border { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Avalonia.Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
+        var swatch = new Controls.ColorSwatch { Width = 34, Height = 22, CornerRadius = new Avalonia.CornerRadius(3), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
         Locale.Tip(swatch, Locale.T("Text color"));
         swatch.PointerPressed += async (_, _) =>
         {

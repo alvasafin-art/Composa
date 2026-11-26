@@ -134,7 +134,7 @@ internal sealed class NewCanvasView : Grid
     private readonly TextBlock cmykNote;
     private readonly NumericUpDown width, height, resolution;
     private readonly ComboBox colorMode, precision;
-    private readonly Border swatch = new() { Width = 13, Height = 13, CornerRadius = new CornerRadius(2) };
+    private readonly Controls.ColorSwatch swatch = new() { Width = 13, Height = 13, CornerRadius = new CornerRadius(2) };
     private readonly TextBlock backgroundText = Ui.Label("", size: 12);
     private readonly Dictionary<string, Control> legend = [];
     private CanvasPreset? selectedPreset;

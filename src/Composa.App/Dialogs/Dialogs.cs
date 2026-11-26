@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
@@ -109,10 +110,10 @@ public static class Prompts
         if (!profile.Equals(Composa.ColorManagement.RgbProfile.Srgb) || !display.Equals(Composa.ColorManagement.RgbProfile.Srgb))
         {
             var picker = new Controls.WorkingColorPicker(initial, profile, display);
-            var after = new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) };
+            var after = new Controls.ColorSwatch { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) };
             picker.Changed += color => { after.Background = new SolidColorBrush(color.ToDisplay(profile, display)); preview?.Invoke(color); };
             var rows = Ui.Column(10, picker, Ui.Row(10, Ui.Label(Locale.T("Before / After"), Palette.Secondary),
-                new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) }, after));
+                new Controls.ColorSwatch { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToDisplay(profile, display)) }, after));
             return await new DialogWindow(title, rows).Ask(owner) ? picker.Color : null;
         }
         // Saturation across and brightness up in the square, hue on the strip, as Photoshop lays it out. The control's
@@ -123,10 +124,29 @@ public static class Prompts
             Color = initial.ToAvalonia(), IsAlphaEnabled = false, IsAlphaVisible = false, IsColorPaletteVisible = true,
             IsColorModelVisible = true, IsHexInputVisible = true, Width = 360, ColorSpectrumComponents = ColorSpectrumComponents.SaturationValue
         };
+        view.TemplateApplied += (_, e) =>
+        {
+            var tabs = e.NameScope.Find("PART_TabControl") as TabControl;
+            var palette = tabs?.Items.OfType<TabItem>().Select(tab => tab.Content).OfType<ListBox>().FirstOrDefault();
+            if (palette == null) return;
+            palette.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<Color>((color, _) =>
+            {
+                var sample = new Controls.ColorSwatch { Background = new SolidColorBrush(color) };
+                Avalonia.Automation.AutomationProperties.SetName(sample, color.ToString());
+                ToolTip.SetTip(sample, color.ToString());
+                return sample;
+            });
+        };
+        view.Loaded += (_, _) =>
+        {
+            foreach (var sample in view.GetVisualDescendants().OfType<ColorPreviewer>().SelectMany(previewer => previewer.GetVisualDescendants()).OfType<Border>()
+                .Where(border => border.Name is "PART_AccentDecrement1Border" or "PART_AccentDecrement2Border" or "PART_AccentIncrement1Border" or "PART_AccentIncrement2Border"))
+                Controls.ColorSwatch.OutlineNativeSample(sample);
+        };
         if (preview != null) view.ColorChanged += (_, e) => preview(e.NewColor.ToSkia().WithAlpha(255));
         var swatches = Ui.Row(0,
-            new Border { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToAvalonia()) },
-            new Border { Width = 60, Height = 28, [!Border.BackgroundProperty] = view.GetObservable(ColorView.ColorProperty).Select(c => (IBrush)new SolidColorBrush(c)).ToBinding() });
+            new Controls.ColorSwatch { Width = 60, Height = 28, Background = new SolidColorBrush(initial.ToAvalonia()) },
+            new Controls.ColorSwatch { Width = 60, Height = 28, [!Controls.ColorSwatch.BackgroundProperty] = view.GetObservable(ColorView.ColorProperty).Select(c => (IBrush)new SolidColorBrush(c)).ToBinding() });
         var body = Ui.Column(10, view, Ui.Row(10, Ui.Label(Locale.T("Before / After"), Palette.Secondary), swatches));
         return await new DialogWindow(title, body).Ask(owner) ? view.Color.ToSkia().WithAlpha(255) : null;
     }

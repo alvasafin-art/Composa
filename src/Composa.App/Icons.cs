@@ -32,6 +32,8 @@ public static partial class Icons
     public static readonly Icon Brush = Packed("brush");
     public static readonly Icon SelectionBrush = Packed("selection-brush");
     public static readonly Icon Eraser = Packed("eraser");
+    public static readonly Icon VectorBend = Packed("vector-bend");
+    public static readonly Icon VectorCut = Packed("vector-cut");
     public static readonly Icon Heal = Packed("heal");
     public static readonly Icon HealingBrush = Packed("healing-brush");
     public static readonly Icon Stamp = Packed("stamp");

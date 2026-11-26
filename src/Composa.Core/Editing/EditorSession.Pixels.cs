@@ -621,7 +621,14 @@ public sealed partial class EditorSession
             var inset = new SKPoint(Math.Min(thickness, width) / 2, Math.Min(thickness, height) / 2);
             var from = style.StartX is { } sx && style.StartY is { } sy ? new SKPoint((float)(sx * width), (float)(sy * height)) : inset;
             var to = style.EndX is { } ex && style.EndY is { } ey ? new SKPoint((float)(ex * width), (float)(ey * height)) : new SKPoint(width - inset.X, height - inset.Y);
-            if (style.StrokeEnabled) canvas.DrawLine(from, to, paint);
+            if (style.StrokeEnabled && style.StrokeOptions != null)
+            {
+                using var centerline = VectorStrokeGeometry.Line(style, width, height);
+                using var ink = VectorStrokeGeometry.Build(centerline, style, thickness);
+                paint.Style = SKPaintStyle.Fill; paint.PathEffect = null;
+                canvas.DrawPath(ink, paint);
+            }
+            else if (style.StrokeEnabled) canvas.DrawLine(from, to, paint);
         }
         else
         {
@@ -642,7 +649,12 @@ public sealed partial class EditorSession
                 }
                 else canvas.DrawRect(rect, paint);
             }
-            if (style.FillEnabled) Draw();
+            if (style.FillEnabled && style.Path is { Closed: true, IsFullyClosed: false } mixed)
+            {
+                using var closedContours = mixed.Build(width, height, closedOnly: true);
+                canvas.DrawPath(closedContours, paint);
+            }
+            else if (style.FillEnabled) Draw();
             if (style.StrokeEnabled && style.Stroke is { } stroke && strokeWidth > 0)
             {
                 paint.Shader = strokeShader;
@@ -651,7 +663,14 @@ public sealed partial class EditorSession
                 paint.StrokeWidth = strokeWidth;
                 paint.PathEffect = dash;
                 if (style.RoundCaps) paint.StrokeCap = SKStrokeCap.Round;
-                Draw();
+                if (style.StrokeOptions != null && style.Path is { } path)
+                {
+                    using var centerline = path.Build(width, height);
+                    using var ink = VectorStrokeGeometry.Build(centerline, style, (float)style.StrokeWidth);
+                    paint.Style = SKPaintStyle.Fill; paint.PathEffect = null;
+                    canvas.DrawPath(ink, paint);
+                }
+                else Draw();
             }
         }
         return pixels;
@@ -685,7 +704,8 @@ public sealed partial class EditorSession
         var thickness = Math.Clamp(width, 1, 5000);
         if (!float.IsFinite(from.X) || !float.IsFinite(from.Y) || !float.IsFinite(to.X) || !float.IsFinite(to.Y)) return null;
         // The layer is the box around the two ends with room for the stroke's thickness (and its round ends).
-        var half = (float)(thickness / 2);
+        var half = (float)(thickness * (appearance.StrokeOptions is { } options &&
+            (options.Start != StrokeMarker.None || options.End != StrokeMarker.None) ? 4 : 0.5));
         var box = new SKRect(Math.Min(from.X, to.X) - half, Math.Min(from.Y, to.Y) - half, Math.Max(from.X, to.X) + half, Math.Max(from.Y, to.Y) + half);
         box = SKRect.Create(MathF.Floor(box.Left), MathF.Floor(box.Top), MathF.Ceiling(box.Width), MathF.Ceiling(box.Height));
         if (box.Width < 1 || box.Height < 1 || (from.X == to.X && from.Y == to.Y)) return null;
@@ -736,13 +756,23 @@ public sealed partial class EditorSession
             var to = new SKPoint((float)(style.EndX * width ?? width - Math.Min(oldThickness, width) / 2), (float)(style.EndY * height ?? height - Math.Min(oldThickness, height) / 2));
             var gap = Math.Min(Math.Min(from.X, to.X), Math.Min(width - Math.Max(from.X, to.X), Math.Min(Math.Min(from.Y, to.Y), height - Math.Max(from.Y, to.Y))));
             pad = Math.Max(0, (int)Math.Ceiling(style.LineWidth / 2 - gap));
-            if (pad > 0)
-            {
-                width += pad * 2; height += pad * 2;
-                if (width > DocumentLimits.MaxSide || height > DocumentLimits.MaxSide || (long)width * height > DocumentLimits.MaxSurfacePixels)
-                { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return; }
-                style = style with { StartX = (from.X + pad) / width, StartY = (from.Y + pad) / height, EndX = (to.X + pad) / width, EndY = (to.Y + pad) / height };
-            }
+            if (pad > 0 || style.StrokeOptions != null)
+                style = style with { StartX = from.X / width, StartY = from.Y / height, EndX = to.X / width, EndY = to.Y / height };
+        }
+        if (style.StrokeOptions != null)
+        {
+            var ink = VectorStrokeGeometry.InkBounds(style, width, height);
+            pad = Math.Max(pad, (int)Math.Ceiling(Math.Max(Math.Max(-ink.Left, ink.Right - width), Math.Max(-ink.Top, ink.Bottom - height))));
+        }
+        if (pad > 0)
+        {
+            width += pad * 2; height += pad * 2;
+            if (!DocumentLimits.FitsSurface(width, height, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4))
+            { Problem?.Invoke($"That shape is too large. A shape can cover up to {DocumentLimits.MaxSurfaceMegapixels} megapixels."); return; }
+            if (style.Kind == ShapeKind.Line)
+                style = style with { StartX = (style.StartX * pixels.Width + pad) / width, StartY = (style.StartY * pixels.Height + pad) / height,
+                    EndX = (style.EndX * pixels.Width + pad) / width, EndY = (style.EndY * pixels.Height + pad) / height };
+            if (style.Path is { } path) style = style with { Path = RemapVectorGrid(path, pixels.Width, pixels.Height, -pad, -pad, width, height) };
         }
         void Change()
         {
@@ -766,6 +796,8 @@ public sealed partial class EditorSession
                     canvas.DrawBitmap(mask, pad, pad);
                     layer.Mask = expanded;
                 }
+                if (layer.VectorMask is { } vectorMask)
+                    layer.VectorMask = RemapVectorGrid(vectorMask, pixels.Width, pixels.Height, -pad, -pad, width, height);
             }
             layer.Pixels = RenderWorkingShape(style, width, height); layer.Shape = style;
             if (layer.MaskLinked && maskPlacement is { } placement) layer.PlaceMask(placement);

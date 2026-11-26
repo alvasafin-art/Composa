@@ -339,7 +339,7 @@ public static partial class AdjustmentDialogs
                 panel.Children.Add(Ui.Check("Monochromatic", initial.Monochrome, v => Update(current with { Monochrome = v })));
                 break;
             case FilterKind.Vignette:
-                var swatch = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
+                var swatch = new Controls.ColorSwatch { Width = 44, Height = 24, CornerRadius = new CornerRadius(3), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
                 void PaintSwatch() => swatch.Background = new SolidColorBrush(new SKColor(current.VignetteColor).ToDisplay(Ui.WorkingProfile(owner), Ui.DisplayProfile(owner)));
                 PaintSwatch();
                 Locale.Tip(swatch, "Choose the vignette color");

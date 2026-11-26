@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, TextPathStart, Guide, AiRectangle, Patch, PenNode, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, TextPathStart, Guide, AiRectangle, Patch, PenNode, PenLasso, PenErase, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
     private bool brushPreparationRequested;
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
@@ -138,6 +138,7 @@ public sealed partial class CanvasView
             case Drag.Stroke: session.CancelStroke(); break;
             case Drag.Patch: session.CancelPreview(); break;
             case Drag.PenNode: if (!penDraftDrag) session.Cancel(); penLayer = null; penOriginal = null; penDraft.Clear(); break;
+            case Drag.PenErase: EndPenErase(keep: false); break;
             case Drag.SelectionBrush: session.CancelSelectionBrush(); break;
             case Drag.Transform: session.CancelTransform(); break;
             case Drag.MovePixels: session.EndMovePixels(keep: false); break;
@@ -386,6 +387,7 @@ public sealed partial class CanvasView
             case Drag.Pan: PanBy(delta); break;
             case Drag.Patch: session.PreviewPatch(currentDocument - pressDocument); break;
             case Drag.PenNode: PenMove(alt); break;
+            case Drag.PenErase: ErasePenTo(currentDocument); break;
             case Drag.Marquee or Drag.Shape or Drag.AiRectangle: snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.MoveSelection: selectionOffset = SnappedSelectionOffset(shift, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.Stroke:
@@ -396,6 +398,7 @@ public sealed partial class CanvasView
                 foreach (var p in e.GetIntermediatePoints(this)) session.ContinueSelectionBrush(ToDocument(p.Position));
                 break;
             case Drag.Lasso when session.LassoKind == LassoKind.Freehand:
+            case Drag.PenLasso:
                 if (polygon.Count == 0 || Distance(ToScreen(polygon[^1]), position) >= 2) polygon.Add(currentDocument);
                 break;
             case Drag.Crop: DragCrop(shift, alt); break;
@@ -513,6 +516,8 @@ public sealed partial class CanvasView
             session.ContinueStroke(currentDocument, session.BrushPressure);
         }
         if (drag is Drag.LayoutGap or Drag.LayoutReorder) UpdateLayoutGesture(e.GetPosition(this));
+        if (drag == Drag.PenErase) ErasePenTo(ToDocument(releasePosition));
+        if (drag == Drag.PenLasso) polygon.Add(ToDocument(releasePosition));
         var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
         if (!(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) drag = Drag.None;
@@ -533,6 +538,8 @@ public sealed partial class CanvasView
                 guides.Clear();
                 if (!penDraftDrag && penLayer != null) { if (moved || penConverted) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
                 penLayer = null; penOriginal = null; break;
+            case Drag.PenLasso: EndPenLasso(shift, alt); break;
+            case Drag.PenErase: EndPenErase(keep: true); break;
             case Drag.Patch:
                 if (moved) { session.PreviewPatch(currentDocument - pressDocument, final: true); session.CommitPreview(); }
                 else session.CancelPreview();
@@ -1169,7 +1176,7 @@ public sealed partial class CanvasView
         if (session.TextEdit is { } editor) return HandleTextKey(editor, e);
         if (session.Tool == Tool.Pen)
         {
-            if (e.Key == Key.Escape) { CancelInteraction(); penDraft.Clear(); InvalidateCanvas(); return true; }
+            if (e.Key == Key.Escape) { CancelInteraction(); penDraft.Clear(); ClearPenSelection(); InvalidateCanvas(); return true; }
             if (e.Key is Key.LeftAlt or Key.RightAlt && drag == Drag.None && penDraft.Count > 0 && cursorInside)
             {
                 var last = penDraft[^1];

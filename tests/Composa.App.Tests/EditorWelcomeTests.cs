@@ -160,7 +160,11 @@ public sealed class EditorWelcomeTests
         var app = (App)Application.Current!;
         var assets = Avalonia.Platform.AssetLoader.GetAssets(new Uri("avares://composa/Assets/Icons/outline/"), null)
             .Select(uri => Path.GetFileNameWithoutExtension(uri.AbsolutePath)).ToArray();
-        Assert.Equal(101, assets.Length);
+        var filledAssets = Avalonia.Platform.AssetLoader.GetAssets(new Uri("avares://composa/Assets/Icons/filled/"), null)
+            .Select(uri => Path.GetFileNameWithoutExtension(uri.AbsolutePath));
+        Assert.Equal(assets.Order(), filledAssets.Order());
+        Assert.Contains("vector-bend", assets);
+        Assert.Contains("vector-cut", assets);
         var icons = assets.Select(name => (Viewbox)Icons.Create(Icons.Packed(name))).ToArray();
         var window = new Window { Content = new WrapPanel(), Width = 360, Height = 240 };
         ((WrapPanel)window.Content).Children.AddRange(icons);
