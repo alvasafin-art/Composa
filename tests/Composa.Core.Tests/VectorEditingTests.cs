@@ -10,6 +10,78 @@ public class VectorEditingTests
     private static readonly BezierNode A = new(.05, .7, .05, .7, .11, -.22);
     private static readonly BezierNode B = new(.94, .19, .84, 1.18, .94, .19);
 
+    [Fact]
+    public void Cutting_a_cubic_retains_both_halves_and_keeps_other_contours_closed()
+    {
+        var curve = new VectorPath { Nodes = [A, B] };
+        var cut = curve.CutSegment(0, .5);
+        Assert.Equal(4, cut.Nodes.Length);
+        Assert.True(cut.Nodes[2].StartsContour);
+        Assert.Equal(cut.Nodes[1].X, cut.Nodes[2].X);
+        Assert.Equal(cut.Nodes[1].Y, cut.Nodes[2].Y);
+        Assert.Equal(-1, cut.SegmentEnd(1));
+        Assert.Equal(3, cut.SegmentEnd(2));
+        using var full = curve.Build(240, 120);
+        using var split = cut.Build(240, 120);
+        Assert.Equal(full.TightBounds.Top, split.TightBounds.Top, 3);
+        Assert.Equal(full.TightBounds.Bottom, split.TightBounds.Bottom, 3);
+
+        var compound = new VectorPath { Closed = true, Nodes = [BezierNode.Corner(0, 0), BezierNode.Corner(.3, 0), BezierNode.Corner(.15, .5),
+            BezierNode.Corner(.6, 0) with { StartsContour = true, StartsUnion = true }, BezierNode.Corner(.9, 0), BezierNode.Corner(.75, .5)] };
+        var opened = compound.CutSegment(0, .5);
+        Assert.True(opened.Closed);
+        Assert.False(opened.IsFullyClosed);
+        Assert.Equal(-1, opened.SegmentEnd(4));
+        Assert.Equal(5, opened.SegmentEnd(7));
+        using var fill = opened.Build(240, 120, closedOnly: true);
+        Assert.False(fill.Contains(36, 12));
+        Assert.True(fill.Contains(180, 12));
+    }
+
+    [Fact]
+    public void Stroke_expands_for_hollow_marker_and_survives_undo_redo_and_project_roundtrip()
+    {
+        var session = EditorSession.NewCanvas(300, 180);
+        var line = session.AddLine(new SKPoint(50, 80), new SKPoint(220, 80), SKColors.Black, 8)!;
+        var before = line.Pixels;
+        var options = new VectorStroke { Cap = StrokeCap.Round, End = StrokeMarker.HollowCircle, Start = StrokeMarker.SlimArrow };
+        session.ChangeShapeStyle(line, line.Shape! with { StrokeOptions = options, Dash = new StrokeDash([14, 10], 3) });
+        Assert.True(line.Pixels!.Width > before!.Width);
+        var visible = session.Composite();
+        Assert.Equal(0, visible.GetPixel(235, 80).Alpha);
+        Assert.True(visible.GetPixel(235, 69).Alpha > 200);
+        Assert.True(visible.GetPixel(57, 80).Alpha > 200);
+        Assert.Equal(0, visible.GetPixel(66, 80).Alpha);
+        session.Undo();
+        Assert.Same(before, session.ActiveLayer!.Pixels);
+        session.Redo();
+        Assert.Equal(options, session.ActiveLayer!.Shape!.StrokeOptions);
+        using var stream = new MemoryStream();
+        ProjectFile.Write(session.Document, stream); stream.Position = 0;
+        Assert.Equal(session.ActiveLayer.Shape, ProjectFile.Read(stream).Find(line.Id)!.Shape);
+    }
+
+    [Fact]
+    public void Stroke_width_profiles_change_the_ink_and_closed_strokes_align_to_the_outline()
+    {
+        var line = new ShapeStyle(ShapeKind.Line, (uint)SKColors.Black, 0) { LineWidth = 12,
+            StartX = .1, StartY = .5, EndX = .9, EndY = .5, StrokeOptions = new() { Profile = StrokeProfile.TaperStart, Cap = StrokeCap.Butt } };
+        using var tapered = EditorSession.RenderShape(line, 220, 100);
+        Assert.Equal(0, tapered.GetPixel(40, 46).Alpha);
+        Assert.True(tapered.GetPixel(185, 46).Alpha > 200);
+
+        var outline = new VectorPath { Closed = true, Nodes = [BezierNode.Corner(.2, .2), BezierNode.Corner(.8, .2),
+            BezierNode.Corner(.8, .8), BezierNode.Corner(.2, .8)] };
+        var square = new ShapeStyle(ShapeKind.Path, 0, 0) { Path = outline, FillEnabled = false, Stroke = (uint)SKColors.Black,
+            StrokeWidth = 10, StrokeOptions = new() { Position = StrokePosition.Inside, Join = StrokeJoin.Round } };
+        using var inner = EditorSession.RenderShape(square, 100, 100);
+        using var outer = EditorSession.RenderShape(square with { StrokeOptions = square.StrokeOptions with { Position = StrokePosition.Outside } }, 100, 100);
+        Assert.True(inner.GetPixel(50, 25).Alpha > 200);
+        Assert.Equal(0, inner.GetPixel(50, 15).Alpha);
+        Assert.True(outer.GetPixel(50, 15).Alpha > 200);
+        Assert.Equal(0, outer.GetPixel(50, 25).Alpha);
+    }
+
     [Theory]
     [InlineData(.03, false)]
     [InlineData(.37, false)]

@@ -10,41 +10,32 @@ using Composa.App.Dialogs;
 using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
-using System.Runtime.CompilerServices;
 
 namespace Composa.App.Tests;
 
 public class ObjectPropertiesUiTests
 {
     [AvaloniaFact]
-    public void A_detached_opacity_control_does_not_keep_the_closed_layer_alive()
+    public void Layer_opacity_is_available_in_layers_and_absent_from_properties()
     {
         var window = new MainWindow { Width = 1280, Height = 800 };
         window.Show();
         try
         {
-            var (opacity, formerLayer) = CloseProjectWithInspector(window);
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            Assert.False(formerLayer.TryGetTarget(out _));
-            GC.KeepAlive(opacity);
+            var session = EditorSession.NewCanvas(200, 100, SKColors.LightBlue);
+            window.AddSession(session);
+            Check();
+            session.AddLine(new SKPoint(10, 25), new SKPoint(180, 70), SKColors.Red, 3);
+            Check();
+            void Check()
+            {
+                Dispatcher.UIThread.RunJobs();
+                var controls = window.GetVisualDescendants().OfType<NumericUpDown>().ToArray();
+                Assert.DoesNotContain(controls, field => field.Name == "LayerPropertyOpacity");
+                Assert.Single(controls, field => field.Name == "LayerOpacity");
+            }
         }
         finally { window.Close(); }
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static (NumericUpDown Opacity, WeakReference<Layer> Layer) CloseProjectWithInspector(MainWindow window)
-    {
-        var session = EditorSession.NewCanvas(200, 100, SKColors.LightBlue);
-        window.AddSession(session);
-        Dispatcher.UIThread.RunJobs();
-        var opacity = window.GetVisualDescendants().OfType<NumericUpDown>().Single(field => field.Name == "LayerPropertyOpacity");
-        var formerLayer = new WeakReference<Layer>(session.ActiveLayer!);
-        window.KeyPressQwerty(PhysicalKey.W, RawInputModifiers.Control);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Empty(window.Sessions);
-        return (opacity, formerLayer);
     }
 
     private static void Click(Window window, Control control)
@@ -98,7 +89,7 @@ public class ObjectPropertiesUiTests
         var layer = session.AddShape(new ShapeStyle(ShapeKind.Rectangle, (uint)SKColors.Red, 0), new SKRect(150, 100, 450, 300))!;
         window.SelectTool(Tool.Move); Dispatcher.UIThread.RunJobs();
         var pixels = layer.Pixels;
-        var swatch = window.GetVisualDescendants().OfType<Border>().Single(b => ToolTip.GetTip(b) as string == "Fill color");
+        var swatch = window.GetVisualDescendants().OfType<ColorSwatch>().Single(b => ToolTip.GetTip(b) as string == "Fill color");
         Click(window, swatch); var dialog = window.OwnedWindows.Last();
         Assert.Equal("Fill Color", dialog.Title);
         var picker = dialog.GetVisualDescendants().OfType<TextBox>().Single(c=>c.Name=="PaintHex");
@@ -118,7 +109,7 @@ public class ObjectPropertiesUiTests
         var session=EditorSession.NewCanvas(600,400,SKColors.White); window.AddSession(session);
         var layer=session.AddShape(new ShapeStyle(ShapeKind.Ellipse,0xffa04025,0) { Stroke=0xff254086,StrokeWidth=12 },new SKRect(100,50,480,300))!;
         window.SelectTool(Tool.Shape); Dispatcher.UIThread.RunJobs();
-        void Open(string name) => Click(window,window.GetVisualDescendants().OfType<Border>().Single(b=>ToolTip.GetTip(b) as string==name+" color"));
+        void Open(string name) => Click(window,window.GetVisualDescendants().OfType<ColorSwatch>().Single(b=>ToolTip.GetTip(b) as string==name+" color"));
         void Mode(Window dialog,string mode)
         {
             dialog.GetVisualDescendants().OfType<ComboBox>().Single(c=>c.Items.Contains("Linear")).SelectedItem=mode;
@@ -165,7 +156,7 @@ public class ObjectPropertiesUiTests
         Assert.Contains(Field(w,"FillHex").GetVisualDescendants(),v=>v is Avalonia.Controls.Presenters.TextPresenter);
         Assert.Equal("204060",Field(w,"FillHex").Text); Enter(w,"FillHex","#f00"); Enter(w,"FillOpacity","50");
         Assert.Equal(0x80ff0000u,session.ActiveLayer.Shape.Fill);
-        Click(w,w.GetVisualDescendants().OfType<Border>().Single(b=>ToolTip.GetTip(b) as string=="Fill color"));
+        Click(w,w.GetVisualDescendants().OfType<ColorSwatch>().Single(b=>ToolTip.GetTip(b) as string=="Fill color"));
         var dialog=w.OwnedWindows.Last();Assert.Equal("255",Field(dialog,"PaintR").Text);
         Assert.Equal("50",Field(dialog,"PaintAlpha").Text);
         Enter(dialog,"PaintAlpha","25");

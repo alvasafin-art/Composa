@@ -53,8 +53,8 @@ public sealed partial class MainWindow : Window
     private readonly JavaScriptRuntime scriptRuntime = new();
     private Mcp.McpHost? aiControl;
     private Mcp.McpHost? imageExchange;
-    private readonly Border foregroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
-    private readonly Border backgroundSwatch = new() { Width = 26, Height = 26, BorderBrush = Palette.SwatchOutline, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(3) };
+    private readonly ColorSwatch foregroundSwatch = new() { Width = 26, Height = 26, CornerRadius = new CornerRadius(3) };
+    private readonly ColorSwatch backgroundSwatch = new() { Width = 26, Height = 26, CornerRadius = new CornerRadius(3) };
     private readonly Panel welcome;
     private readonly UpdateNotice updateNotice = new();
     private Action? refreshOptions;

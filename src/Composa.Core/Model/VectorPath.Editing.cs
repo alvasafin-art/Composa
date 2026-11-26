@@ -13,21 +13,97 @@ public sealed partial record VectorPath
         if (!Closed) return -1;
         var start = index;
         while (start > 0 && !Nodes[start].StartsContour) start--;
-        return start == index ? -1 : start;
+        return start == index || Nodes[start].OpensContour ? -1 : start;
     }
 
     public VectorPath RemoveSegment(int i)
     {
         if (!HasSegment(i)) return this;
-        if (Closed && Nodes.Skip(1).Any(node => node.StartsContour)) return this;
-        if (Closed)
-            return this with { Closed = false, Nodes = Nodes.Skip(i + 1).Concat(Nodes.Take(i + 1)).ToArray() };
-        var nodes = Nodes.ToArray();
-        nodes[i + 1] = nodes[i + 1] with { StartsContour = true };
-        var broken = this with { Nodes = nodes };
-        var retained = nodes.Where((_, n) => broken.HasSegment(n) || broken.HasSegment(n - 1)).ToArray();
-        if (retained.Length > 0) retained[0] = retained[0] with { StartsContour = false };
-        return broken with { Nodes = retained };
+        var (start, end) = ContourRange(i);
+        var nodes = Nodes[start..end];
+        var split = i - start + 1;
+        return Closed && !nodes[0].OpensContour
+            ? ReplaceContour(start, end, nodes[split..].Concat(nodes[..split]).ToArray())
+            : ReplaceContour(start, end, nodes[..split], nodes[split..]);
+    }
+
+    /// <summary>Breaks a contour at the exact Bézier parameter, retaining the original curve on both sides.</summary>
+    public VectorPath CutSegment(int segment, double t)
+    {
+        if (!HasSegment(segment) || !double.IsFinite(t) || Nodes.Length >= 4096) return this;
+        if (t <= .0001) return CutAtNode(segment);
+        if (t >= .9999) return CutAtNode(SegmentEnd(segment));
+        if (Nodes.Length > 4094) return this;
+        var splitPath = SplitSegment(segment, t);
+        return ReferenceEquals(this, splitPath) ? this : splitPath.CutAtNode(segment + 1);
+    }
+
+    private VectorPath CutAtNode(int cut)
+    {
+        var (start, end) = ContourRange(cut);
+        var nodes = Nodes[start..end];
+        int mid = cut - start;
+        if (Closed && !nodes[0].OpensContour)
+            return ReplaceContour(start, end, nodes[mid..].Concat(nodes[..(mid + 1)]).ToArray());
+        return cut == start || cut == end - 1 ? this : ReplaceContour(start, end, nodes[..(mid + 1)], nodes[mid..]);
+    }
+
+    private (int Start, int End) ContourRange(int node)
+    {
+        var start = node;
+        while (start > 0 && !Nodes[start].StartsContour) start--;
+        var end = node + 1;
+        while (end < Nodes.Length && !Nodes[end].StartsContour) end++;
+        return (start, end);
+    }
+
+    private VectorPath ReplaceContour(int start, int end, params BezierNode[][] contours)
+    {
+        var nodes = Nodes[..start].ToList();
+        var nextGroup = Nodes[start].StartsUnion;
+        foreach (var contour in contours.Where(contour => contour.Length >= 2))
+        {
+            nodes.Add(contour[0] with { StartsContour = nodes.Count > 0, OpensContour = Closed,
+                StartsUnion = nextGroup });
+            nodes.AddRange(contour.Skip(1).Select(node => node with { StartsContour = false, StartsUnion = false, OpensContour = false }));
+            nextGroup = false;
+        }
+        if (nextGroup && end < Nodes.Length)
+        {
+            nodes.Add(Nodes[end] with { StartsUnion = true });
+            end++;
+        }
+        nodes.AddRange(Nodes[end..]);
+        if (nodes.Count > 0) nodes[0] = nodes[0] with { StartsContour = false };
+        bool remainsClosed = Closed && nodes.Where((node, i) => i == 0 || node.StartsContour).Any(node => !node.OpensContour);
+        if (!remainsClosed)
+            for (int i = 0; i < nodes.Count; i++) nodes[i] = nodes[i] with { OpensContour = false };
+        return this with { Closed = remainsClosed, Nodes = nodes.ToArray() };
+    }
+
+    public VectorPath RemoveNodes(IReadOnlySet<int> selected)
+    {
+        if (!selected.Any(i => (uint)i < Nodes.Length)) return this;
+        var nodes = new List<BezierNode>();
+        bool remainsClosed = false, nextGroup = false;
+        for (int start = 0; start < Nodes.Length;)
+        {
+            var (_, end) = ContourRange(start);
+            var contour = Nodes[start..end].Where((_, i) => !selected.Contains(start + i)).ToArray();
+            nextGroup |= Nodes[start].StartsUnion;
+            if (contour.Length >= 2)
+            {
+                bool closed = Closed && !Nodes[start].OpensContour && contour.Length >= 3;
+                nodes.Add(contour[0] with { StartsContour = nodes.Count > 0, StartsUnion = nextGroup, OpensContour = !closed });
+                nodes.AddRange(contour.Skip(1));
+                remainsClosed |= closed;
+                nextGroup = false;
+            }
+            start = end;
+        }
+        if (!remainsClosed)
+            for (int i = 0; i < nodes.Count; i++) nodes[i] = nodes[i] with { OpensContour = false };
+        return this with { Closed = remainsClosed, Nodes = nodes.ToArray() };
     }
 
     public VectorPath BendSegment(int i, double t, double dx, double dy)
@@ -63,10 +139,12 @@ public sealed partial record VectorPath
     {
         if ((uint)index >= Nodes.Length) return this;
         if (Nodes.Length <= 2) return this with { Nodes = Nodes.Where((_, i) => i != index).ToArray(), Closed = false };
+        var (start, end) = ContourRange(index);
+        if (end - start <= 2) return ReplaceContour(start, end);
         var nodes = Nodes.ToList();
         int prev = (index + nodes.Count - 1) % nodes.Count, next = (index + 1) % nodes.Count;
         var middle = nodes[index];
-        if (Closed && (index == 0 || middle.StartsContour))
+        if (Closed && index == start && !middle.OpensContour)
         {
             prev = index;
             while (prev + 1 < nodes.Count && !nodes[prev + 1].StartsContour) prev++;
@@ -123,7 +201,7 @@ public sealed partial record VectorPath
             nodes[prev] = left with { OutX = first.X / width, OutY = first.Y / height };
             nodes[next] = right with { InX = last.X / width, InY = last.Y / height };
         }
-        if (middle.StartsContour && next > index && next < nodes.Count) nodes[next] = nodes[next] with { StartsContour = true, StartsUnion = middle.StartsUnion };
+        if (index == start && next > index && next < nodes.Count) nodes[next] = nodes[next] with { StartsContour = start > 0, StartsUnion = middle.StartsUnion, OpensContour = middle.OpensContour };
         nodes.RemoveAt(index);
         nodes[0] = nodes[0] with { StartsContour = false };
         return this with { Nodes = nodes.ToArray(), Closed = Closed };

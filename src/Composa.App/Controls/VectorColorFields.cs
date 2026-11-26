@@ -12,7 +12,7 @@ internal sealed class VectorColorFields : StackPanel
     private readonly List<PaintValueField> channels = [];
     private readonly Grid channelRow = new();
     private readonly PaintValueField alpha;
-    private readonly Border chip = new() { Width = 16, Height = 16, CornerRadius = new(3), Margin = new(7, 0, 0, 0) };
+    private readonly ColorSwatch chip = new() { Width = 16, Height = 16, CornerRadius = new(3), Margin = new(7, 0, 0, 0) };
     private readonly RgbProfile profile, display;
     public Control HexEntry { get; }
     private readonly Action<SKColor> changed;

@@ -70,11 +70,13 @@ public sealed class GradientEditor : StackPanel
         for (var index = 0; index < ramp.Colors.Length; index++)
         {
             var at = index; var stop = ramp.Colors[at];
-            var swatch = new Button { Content = Locale.T("Color"), Width = 80, Background = new SolidColorBrush(new SKColor(stop.Color).ToDisplay(Ui.WorkingProfile(profileOwner), Ui.DisplayProfile(profileOwner))) };
+            var sample = new ColorSwatch { Width = 18, Height = 16, CornerRadius = new CornerRadius(3),
+                Background = new SolidColorBrush(new SKColor(stop.Color).ToDisplay(Ui.WorkingProfile(profileOwner), Ui.DisplayProfile(profileOwner))) };
+            var swatch = new Button { Content = Ui.Row(5, sample, Ui.Label(Locale.T("Color"))), MinWidth = 80 };
             swatch.Click += async (_, _) =>
             {
                 if (await Prompts.Color(owner, "Gradient stop", new SKColor(ramp.Colors[at].Color)) is { } color)
-                { var stops = ramp.Colors.ToArray(); stops[at] = stops[at] with { Color = (uint)color }; Set(ramp with { Colors = stops }); swatch.Background = new SolidColorBrush(color.ToDisplay(Ui.WorkingProfile(profileOwner), Ui.DisplayProfile(profileOwner))); }
+                { var stops = ramp.Colors.ToArray(); stops[at] = stops[at] with { Color = (uint)color }; Set(ramp with { Colors = stops }); sample.Background = new SolidColorBrush(color.ToDisplay(Ui.WorkingProfile(profileOwner), Ui.DisplayProfile(profileOwner))); }
             };
             var position = Ui.Number(stop.Position * 100, 0, 100, v => { var stops = ramp.Colors.ToArray(); stops[at] = stops[at] with { Position = v / 100 }; Set(ramp with { Colors = stops }); }, width: 70);
             Children.Add(Ui.Row(8, swatch, position, Ui.TextButton("Remove", () => { if (ramp.Colors.Length > 2) { Set(ramp with { Colors = ramp.Colors.Where((_, i) => i != at).ToArray() }); Build(); } })));
@@ -126,10 +128,12 @@ public sealed class GradientEditor : StackPanel
                     context.DrawRectangle((((int)(x-bar.X)/8+(int)(y-bar.Y)/8)%2==0) ? dark : light,null,
                         new Rect(x,y,Math.Min(8,bar.Right-x),Math.Min(8,bar.Bottom-y)));
             if (bitmap != null) context.DrawImage(bitmap,bar);
-            var outline=new Pen(Brushes.White,1);
             foreach (var stop in stops.Colors)
-                context.DrawEllipse(new SolidColorBrush(new SKColor(stop.Color).ToDisplay(profile,displayProfile)),outline,
+            {
+                var color = new SKColor(stop.Color).ToDisplay(profile, displayProfile);
+                context.DrawEllipse(new SolidColorBrush(color), ColorSwatch.NeedsEdge(color, Palette.Window.Color) ? ColorSwatch.ContrastPen : null,
                     new Point(bar.X+stop.Position*bar.Width,8),5,5);
+            }
             if (PairedStops)
             {
                 if (SelectedPosition is {} selected)
@@ -139,7 +143,8 @@ public sealed class GradientEditor : StackPanel
             foreach (var stop in stops.Opacities)
             {
                 byte level=(byte)Math.Round(stop.Opacity*255);
-                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(level,level,level)),outline,
+                var color = Color.FromRgb(level, level, level);
+                context.DrawRectangle(new SolidColorBrush(color), ColorSwatch.NeedsEdge(color, Palette.Window.Color) ? ColorSwatch.ContrastPen : null,
                     new Rect(bar.X+stop.Position*bar.Width-4,34,8,8),1,1);
             }
         }

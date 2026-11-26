@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using SkiaSharp;
 namespace Composa.Model;
 
@@ -6,6 +7,7 @@ public sealed record BezierNode(double X, double Y, double InX, double InY, doub
 {
     public bool StartsContour { get; init; }
     public bool StartsUnion { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool OpensContour { get; init; }
     public static BezierNode Corner(double x, double y) => new(x, y, x, y, x, y);
 }
 public sealed partial record VectorPath
@@ -13,6 +15,7 @@ public sealed partial record VectorPath
     public BezierNode[] Nodes { get; init; } = [];
     public bool Closed { get; init; }
     public bool EvenOdd { get; init; }
+    [JsonIgnore] public bool IsFullyClosed => Closed && !Nodes.Any(node => node.OpensContour);
     public bool Equals(VectorPath? other) => other != null && Closed == other.Closed && EvenOdd == other.EvenOdd && Nodes.SequenceEqual(other.Nodes);
     public override int GetHashCode() { var hash = new HashCode(); hash.Add(Closed); hash.Add(EvenOdd); foreach (var node in Nodes) hash.Add(node); return hash.ToHashCode(); }
     public VectorPath Normalized() => this with { Nodes = Nodes.Take(4096).Where(n => new[] { n.X, n.Y, n.InX, n.InY, n.OutX, n.OutY }.All(double.IsFinite)).ToArray() };
@@ -26,19 +29,30 @@ public sealed partial record VectorPath
         var nodes = Nodes.ToList(); nodes[segment] = a with { OutX = p.X, OutY = p.Y }; nodes[end] = b with { InX = r.X, InY = r.Y };
         nodes.Insert(segment + 1, new(center.X, center.Y, u.X, u.Y, v.X, v.Y)); return this with { Nodes = nodes.ToArray() };
     }
-    public SKPath Build(float width, float height)
+    public SKPath Build(float width, float height, bool closedOnly = false)
     {
+        if (!closedOnly && Closed && !IsFullyClosed)
+        {
+            var combined = Build(width, height, closedOnly: true);
+            for (int contourStart = 0; contourStart < Nodes.Length;)
+            {
+                var (_, end) = ContourRange(contourStart);
+                if (Nodes[contourStart].OpensContour) BuildGroup(combined, contourStart, end, width, height, closedOnly: false);
+                contourStart = end;
+            }
+            return combined;
+        }
         var path = new SKPath { FillType = EvenOdd ? SKPathFillType.EvenOdd : SKPathFillType.Winding };
         var start = 0;
         for (var end = 1; end <= Nodes.Length; end++)
         {
             if (end != Nodes.Length && !Nodes[end].StartsUnion) continue;
             if (start == 0)
-                BuildGroup(path, start, end, width, height);
+                BuildGroup(path, start, end, width, height, closedOnly);
             else
             {
                 using var component = new SKPath { FillType = SKPathFillType.EvenOdd };
-                BuildGroup(component, start, end, width, height);
+                BuildGroup(component, start, end, width, height, closedOnly);
                 var combined = path.Op(component, SKPathOp.Union);
                 if (combined != null) { path.Dispose(); path = combined; }
             }
@@ -47,12 +61,18 @@ public sealed partial record VectorPath
         return path;
     }
 
-    private void BuildGroup(SKPath path, int start, int end, float width, float height)
+    private void BuildGroup(SKPath path, int start, int end, float width, float height, bool closedOnly)
     {
+        bool skip = false;
         for (int i = start; i < end; i++)
         {
             var from = Nodes[i];
-            if (i == 0 || from.StartsContour) path.MoveTo((float)from.X * width, (float)from.Y * height);
+            if (i == start || from.StartsContour)
+            {
+                skip = closedOnly && (!Closed || from.OpensContour);
+                if (!skip) path.MoveTo((float)from.X * width, (float)from.Y * height);
+            }
+            if (skip) continue;
             var next = SegmentEnd(i);
             if (next < 0) continue;
             var to = Nodes[next];

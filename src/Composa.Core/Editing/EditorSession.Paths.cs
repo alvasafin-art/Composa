@@ -16,7 +16,7 @@ public sealed partial class EditorSession
         var width = Math.Max(2, (int)Math.Ceiling(nodes.Max(n => Math.Max(n.X, Math.Max(n.InX, n.OutX))) - left + 2));
         var height = Math.Max(2, (int)Math.Ceiling(nodes.Max(n => Math.Max(n.Y, Math.Max(n.InY, n.OutY))) - top + 2));
         if (!DocumentLimits.FitsSurface(width, height)) throw new InvalidOperationException("The path exceeds the surface size limit.");
-        var local = documentPath with { Nodes = nodes.Select(n => new BezierNode((n.X - left) / width, (n.Y - top) / height, (n.InX - left) / width, (n.InY - top) / height, (n.OutX - left) / width, (n.OutY - top) / height) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
+        var local = RemapVectorGrid(documentPath, 1, 1, (int)left, (int)top, width, height);
         var style = new ShapeStyle(ShapeKind.Path, (uint)Foreground, 0) { Path = local, FillEnabled = documentPath.Closed, Stroke = (uint)Foreground, StrokeWidth = 2 };
         var layer = Layer.Raster(document.UniqueName("Path"), RenderWorkingShape(style, width, height), left, top); layer.Shape = style;
         Apply("New Path", () => document.InsertAboveActive(layer)); InvalidateAll(); LayersChanged?.Invoke(); return layer;
@@ -84,6 +84,8 @@ public sealed partial class EditorSession
     private static ShapeStyle WithEditedPath(ShapeStyle style, VectorPath path)
     {
         var converted=style with { Kind=ShapeKind.Path,Path=path };
+        if (!path.Closed && style.Kind != ShapeKind.Line && (style.Kind != ShapeKind.Path || style.Path?.Closed == true))
+            converted = converted with { FillEnabled = false };
         if(style.Kind==ShapeKind.Line) converted=converted with { FillEnabled=false, Stroke=style.Fill, StrokeGradient=style.FillGradient,
             FillGradient=null, StrokeWidth=style.LineWidth, StrokeEnabled=style.StrokeEnabled, RoundCaps=true };
         return converted;
@@ -122,13 +124,18 @@ public sealed partial class EditorSession
         var bounds = outline.TightBounds;
         if (outline.IsEmpty) return;
         var pad = layer.Shape.Stroke == null ? 0 : layer.Shape.StrokeWidth / 2;
+        if (layer.Shape.StrokeOptions != null)
+        {
+            var ink = VectorStrokeGeometry.InkBounds(layer.Shape, old.Width, old.Height);
+            if (!ink.IsEmpty) bounds.Union(ink);
+            pad = 0;
+        }
         int left=Math.Min(0,(int)Math.Floor(bounds.Left-pad)), top=Math.Min(0,(int)Math.Floor(bounds.Top-pad));
         int right=Math.Max(old.Width,(int)Math.Ceiling(bounds.Right+pad)), bottom=Math.Max(old.Height,(int)Math.Ceiling(bounds.Bottom+pad));
         if (left==0 && top==0 && right==old.Width && bottom==old.Height) return;
         var w=right-left; var h=bottom-top;
-        if (!DocumentLimits.FitsSurface(w, h)) throw new InvalidOperationException("The edited path exceeds the surface size limit.");
-        VectorPath Remap(VectorPath path) => path with { Nodes = path.Nodes.Select(n => new BezierNode((n.X * old.Width - left) / w, (n.Y * old.Height - top) / h,
-            (n.InX * old.Width - left) / w, (n.InY * old.Height - top) / h, (n.OutX * old.Width - left) / w, (n.OutY * old.Height - top) / h) { StartsContour = n.StartsContour, StartsUnion = n.StartsUnion }).ToArray() };
+        if (!DocumentLimits.FitsSurface(w, h, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4)) throw new InvalidOperationException("The edited path exceeds the surface size limit.");
+        VectorPath Remap(VectorPath path) => RemapVectorGrid(path, old.Width, old.Height, left, top, w, h);
         var matrix = layer.Matrix;
         var maskPlacement = layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
         if (layer.VectorMask != null) layer.VectorMask = Remap(layer.VectorMask);
@@ -138,6 +145,11 @@ public sealed partial class EditorSession
         if (maskPlacement is {} placement) layer.PlaceMask(placement);
         InvalidateAll(); LayersChanged?.Invoke();
     }
+    private static VectorPath RemapVectorGrid(VectorPath path, int oldWidth, int oldHeight, int left, int top, int width, int height) =>
+        path with { Nodes = path.Nodes.Select(n => n with { X = (n.X * oldWidth - left) / width, Y = (n.Y * oldHeight - top) / height,
+            InX = (n.InX * oldWidth - left) / width, InY = (n.InY * oldHeight - top) / height,
+            OutX = (n.OutX * oldWidth - left) / width, OutY = (n.OutY * oldHeight - top) / height }).ToArray() };
+
     public void PathToSelection(Layer layer)
     {
         var geometry = layer.VectorMask ?? EditableShapePath(layer);
@@ -148,7 +160,7 @@ public sealed partial class EditorSession
     public void ApplyPathAsVectorMask(Layer source, Layer target)
     {
         var geometry = source.Shape?.Path;
-        if (geometry == null || !geometry.Closed || source.Pixels == null || target.Pixels == null || PixelsLocked(target) || !target.Matrix.TryInvert(out var inverse)) return;
+        if (geometry == null || !geometry.IsFullyClosed || source.Pixels == null || target.Pixels == null || PixelsLocked(target) || !target.Matrix.TryInvert(out var inverse)) return;
         var matrix = SKMatrix.Concat(inverse, source.Matrix);
         BezierNode Convert(BezierNode n)
         {

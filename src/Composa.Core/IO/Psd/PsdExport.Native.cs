@@ -38,6 +38,10 @@ public static partial class PsdExport
         {
             if (shape.StrokeEnabled && shape.Dash != null)
                 return "This dashed vector stroke is exported with its rendered appearance.";
+            if (shape.StrokeEnabled && shape.StrokeOptions != null)
+                return "This live vector stroke uses custom geometry and is exported with its rendered appearance.";
+            if (shape.Path is { Closed: true, IsFullyClosed: false })
+                return "This vector contains both open and closed contours and is exported with its rendered appearance.";
             if (shape.FillEnabled && shape.FillGradient != null || shape.Kind == ShapeKind.Line && shape.FillGradient != null || shape.Stroke != null && shape.StrokeGradient != null)
                 return "This vector gradient is exported with its rendered appearance.";
             var corners = layer.Transform.Corners(layer.Pixels.Width, layer.Pixels.Height);

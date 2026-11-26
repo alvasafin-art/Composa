@@ -97,7 +97,8 @@ internal sealed class VectorStopsEditor : StackPanel
             var position = new PaintValueField("StopPosition", 38, text => { if (PaintValueField.TryNumber(text, 100, out var value)) { stop.Position = value / 100; Publish(); } });
             var hex = new PaintValueField("StopHex", 65, text => { if (PaintValueField.TryRgb(text, out var value)) { stop.Color = new SKColor(value | 0xff000000).WithAlpha(stop.Color.Alpha); Publish(); SelectedColorChanged?.Invoke(selected.Color); } });
             var opacity = new PaintValueField("StopOpacity", 32, text => { if (PaintValueField.TryNumber(text, 100, out var value)) { stop.Color = stop.Color.WithAlpha((byte)Math.Round(value * 255 / 100)); Publish(); SelectedColorChanged?.Invoke(selected.Color); } });
-            var chip = new Button { Width = 21, Height = 19, Padding = new Thickness(0), MinHeight = 0 };
+            var sample = new ColorSwatch { Width = 21, Height = 19, CornerRadius = new CornerRadius(3) };
+            var chip = new Button { Classes = { "flat" }, Width = 21, Height = 19, Padding = new Thickness(0), MinHeight = 0, Content = sample };
             chip.Click += (_, _) => Select(stop);
             var remove = Ui.TextButton("−", () =>
             {
@@ -117,7 +118,7 @@ internal sealed class VectorStopsEditor : StackPanel
             {
                 position.Show((stop.Position * 100).ToString("0.#")); hex.Show($"{(uint)stop.Color & 0xffffff:X6}");
                 opacity.Show(Math.Round(stop.Color.Alpha * 100d / 255).ToString("0"));
-                chip.Background = new SolidColorBrush(stop.Color.ToDisplay(profile, display));
+                sample.Background = new SolidColorBrush(stop.Color.ToDisplay(profile, display));
                 row.Background = stop == selected ? Palette.StopSelection : Palette.PanelRaised;
             }
             syncRows.Add(Sync); Sync();

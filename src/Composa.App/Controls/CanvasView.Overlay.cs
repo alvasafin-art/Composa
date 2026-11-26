@@ -99,7 +99,7 @@ public sealed partial class CanvasView
         if (polygon.Count > 0)
         {
             var points = polygon.ToArray();
-            var rubberBand = session.LassoKind == LassoKind.Polygonal ? currentDocument : (SKPoint?)null;
+            var rubberBand = drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal ? currentDocument : (SKPoint?)null;
             steps.Add(canvas =>
             {
                 using var path = new SKPath();

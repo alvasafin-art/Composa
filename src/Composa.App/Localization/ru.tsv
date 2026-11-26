@@ -2169,3 +2169,47 @@ Align to Path	Выравнивание относительно контура
 Ascender	Верхний выносной элемент
 Descender	Нижний выносной элемент
 Path Baseline	Базовая линия
+Bend	Изгиб
+Cut path	Разрез
+Draw or continue a vector path	Рисовать или продолжить векторный контур
+Move selected vector points or handles	Переместить выбранные узлы или ручки
+Lasso vector points · Shift adds · Alt removes	Выделить узлы лассо · Shift добавляет · Alt исключает
+Drag a vector segment to bend it	Перетащите сегмент, чтобы изогнуть его
+Click a vector segment to split the contour	Щёлкните по сегменту, чтобы разрезать контур
+Erase vector points or segments	Стереть узлы или сегменты контура
+Cut Path	Разрезать контур
+Erase Path	Стереть часть контура
+Stroke position	Положение
+Stroke pattern	Тип линии
+Solid	Сплошная
+Dashed	Пунктир
+Dash length	Штрих
+Dash gap	Пробел
+Dash offset	Сдвиг
+Width profile	Профиль ширины
+Uniform width	Равномерный
+Taper at start	Сужение к началу
+Taper at end	Сужение к концу
+Taper at both ends	Сужение к краям
+Start marker	Начало
+End marker	Конец
+No marker	Без маркера
+Open arrow	Стрелка
+Slim arrow	Узкая стрелка
+Triangle	Треугольник
+Circle	Круг
+Square marker	Квадрат
+Diamond	Ромб
+Hollow triangle	Полый треугольник
+Hollow circle	Полый круг
+Hollow square	Полый квадрат
+Hollow diamond	Полый ромб
+Stroke caps	Торцы
+Flat cap	Плоский
+Round cap	Круглый
+Square cap	Квадратный
+Stroke joins	Углы
+Miter join	Острый
+Round join	Скругление
+Bevel join	Фаска
+Miter angle	Предел угла

@@ -90,7 +90,9 @@ internal static class VectorPaintDialog
                     Height = 20,
                     MinHeight = 0,
                     Padding = new Avalonia.Thickness(0),
-                    Background = new Avalonia.Media.SolidColorBrush(colorValue.ToDisplay(profile, display))
+                    Classes = { "flat" },
+                    Content = new ColorSwatch { Width = 20, Height = 20, CornerRadius = new Avalonia.CornerRadius(3),
+                        Background = new Avalonia.Media.SolidColorBrush(colorValue.ToDisplay(profile, display)) }
                 };
                 Locale.Tip(chip, $"#{swatch & 0xffffff:X6}");
                 chip.Click += (_, _) =>

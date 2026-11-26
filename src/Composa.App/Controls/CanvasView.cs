@@ -146,7 +146,7 @@ public sealed partial class CanvasView : Decorator
             {
                 session.DiscardPreparedBrushDab();
                 CancelInteraction();
-                FinishPen(); penSelectedLayer = null; penSelectedNode = -1; EditVectorMask = false;
+                FinishPen(); ClearPenSelection(); PenMode = PenEditMode.Draw; EditVectorMask = false;
                 session.ViewportInvalidated -= OnCanvasChanged;
                 session.SelectionChanged -= OnSelectionChanged;
                 session.ColorRangeChanged -= OnColorRangeChanged;

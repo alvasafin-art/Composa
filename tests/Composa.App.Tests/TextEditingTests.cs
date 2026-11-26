@@ -241,7 +241,7 @@ public class TextEditingTests
 
     private void PressSwatch(string tip)
     {
-        var swatch = window.GetVisualDescendants().OfType<Border>().First(b => ToolTip.GetTip(b) as string == tip);
+        var swatch = window.GetVisualDescendants().OfType<ColorSwatch>().First(b => ToolTip.GetTip(b) as string == tip);
         var center = swatch.TranslatePoint(new Point(swatch.Bounds.Width / 2, swatch.Bounds.Height / 2), window)!.Value;
         window.MouseDown(center, MouseButton.Left);
         window.MouseUp(center, MouseButton.Left);
@@ -302,7 +302,7 @@ public class TextEditingTests
         Dispatcher.UIThread.RunJobs();
         var layer = session.TextEditLayer!;
         Assert.Equal("or", session.TextEdit!.SelectedText);
-        Avalonia.Media.Color Swatch() => ((Avalonia.Media.SolidColorBrush)window.GetVisualDescendants().OfType<Border>().First(b => ToolTip.GetTip(b) as string == "Text color").Background!).Color;
+        Avalonia.Media.Color Swatch() => ((Avalonia.Media.SolidColorBrush)window.GetVisualDescendants().OfType<ColorSwatch>().First(b => ToolTip.GetTip(b) as string == "Text color").Background!).Color;
 
         PressSwatch("Text color");
         await Pump(() => window.OwnedWindows.Count > 0);
