@@ -12,8 +12,11 @@ namespace Composa.App.Tests;
 
 public class AiOperationSettingsTests
 {
-    [AvaloniaFact]
-    public async Task Krea_enhancer_shows_only_the_generation_instructions()
+    [AvaloniaTheory]
+    [InlineData("Krea 2 Turbo", "one cohesive natural-language paragraph", "quotation marks")]
+    [InlineData("Z-Image", "Return only the positive prompt", "straight double quotes")]
+    [InlineData("Z-Image Turbo", "positive visual constraints", "straight double quotes")]
+    public async Task Text_to_image_enhancer_shows_only_the_generation_instructions(string model, string guidance, string lettering)
     {
         var window = new MainWindow(null, _ => new PartnerImageTests.Connection());
         window.Settings.CheckForUpdates = false;
@@ -32,10 +35,10 @@ public class AiOperationSettingsTests
             }
             var generate = Assert.Single(dialog.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "EnhancerInstructions");
             var edit = Assert.Single(dialog.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "EnhancerEditInstructions");
-            SelectModel("Krea 2 Turbo");
+            SelectModel(model);
             Assert.True(generate.IsEffectivelyVisible);
-            Assert.Contains("one cohesive natural-language paragraph", generate.Text);
-            Assert.Contains("quotation marks", generate.Text);
+            Assert.Contains(guidance, generate.Text);
+            Assert.Contains(lettering, generate.Text);
             Assert.False(edit.IsEffectivelyVisible);
             Assert.Equal("", edit.Text);
             SelectModel("FLUX 3 Image Klein");
