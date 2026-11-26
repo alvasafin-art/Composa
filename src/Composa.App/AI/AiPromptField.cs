@@ -98,6 +98,7 @@ internal sealed class AiPromptField : TextBox
 
     internal void SetImages(IReadOnlyList<AiImageMention> orderedImages)
     {
+        if (images.SequenceEqual(orderedImages)) return;
         images = orderedImages;
         presenter?.RefreshMentions();
         UpdateSuggestions();

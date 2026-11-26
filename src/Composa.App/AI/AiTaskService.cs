@@ -24,6 +24,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
     internal Func<int>? SelectionContextPercent { get; set; }
     internal SavedWorkflow? ActiveWorkflow(AiTaskKind task, EngineProfile? engine, bool? useAssigned = null) =>
         WorkflowSettings().Active(task, engine?.Id, useAssigned);
+    internal bool SupportsReferenceImages(AiTaskKind task, EngineProfile? engine, bool? useAssigned = null) =>
+        engine?.Binding(task)?.SupportsReferenceImages != false || ActiveWorkflow(task, engine, useAssigned) != null;
     public EngineProfile? EngineFor(AiTaskKind task, string? overrideId = null)
     {
         if(task==AiTaskKind.MatchToScene && overrideId==null && EngineIdForTask(task)==null) task=AiTaskKind.Harmonize;
@@ -232,6 +234,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
         var fullEdit = request.Task == AiTaskKind.ImageEdit || editor.Session.Selection == null && request.Task is AiTaskKind.RemoveObject or AiTaskKind.Harmonize or AiTaskKind.Relight or AiTaskKind.ChangeBackground
             || request.Task == AiTaskKind.GenerativeExpand && request.ExpansionMode == AiExpansionMode.WholeImage;
         if (saved == null && fullEdit) binding = engine.Binding(AiTaskKind.ImageEdit) ?? throw new InvalidOperationException("This pack has no full-image edit workflow.");
+        if (!binding.SupportsReferenceImages && (request.ReferenceImages.Count > 0 || request.ReferenceImage != null))
+            throw new InvalidOperationException(Locale.T("This model accepts a text prompt only."));
         var workflow = saved == null ? engine.Workflow(binding.Workflow) : new EngineWorkflow();
         var graph = saved != null ? (JsonObject)saved.Graph.DeepClone() : Engines.ReadWorkflow(engine, workflow);
         var qwen = saved == null && engine.Id == QwenImageWorkflow.EngineId;

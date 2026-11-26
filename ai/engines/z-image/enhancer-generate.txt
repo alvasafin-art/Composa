@@ -1,0 +1,1 @@
+Rewrite the request as one text-to-image prompt for Z-Image. Describe the scene in clear natural language. Preserve the requested subject, lighting, composition and style, and the exact spelling and language of any text to render. Return only the prompt.

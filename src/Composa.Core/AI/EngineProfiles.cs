@@ -76,6 +76,7 @@ public sealed record EngineTaskBinding
     public AiOutputMode OutputMode { get; init; } = AiOutputMode.NewLayer;
     /// <summary>The workflow already stitched/blended its result against the input canvas. Do not apply the selection's alpha a second time.</summary>
     public bool OutputIsComposited { get; init; }
+    public bool SupportsReferenceImages { get; init; } = true;
     /// <summary>Semantic input name to an explicit ComfyUI node id and input key.</summary>
     public Dictionary<string, WorkflowTarget> Inputs { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }

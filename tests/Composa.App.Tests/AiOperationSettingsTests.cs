@@ -2,6 +2,7 @@ using Composa.App.AI;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.AI;
@@ -11,6 +12,47 @@ namespace Composa.App.Tests;
 
 public class AiOperationSettingsTests
 {
+    [AvaloniaFact]
+    public async Task Text_to_image_packs_appear_in_model_files_and_the_generate_picker()
+    {
+        var window = new MainWindow();
+        window.Settings.CheckForUpdates = false;
+        window.Show();
+        try
+        {
+            string[] names = ["Krea 2 Turbo", "Z-Image", "Z-Image Turbo"];
+            var settings = window.ShowAiSettings(page: 1);
+            Dispatcher.UIThread.RunJobs();
+            var settingsDialog = Assert.Single(window.OwnedWindows);
+            var labels = settingsDialog.GetVisualDescendants().OfType<TextBlock>().Select(label => label.Text).ToArray();
+            foreach (var name in names) Assert.Contains(name, labels);
+            settingsDialog.Close(false);
+            await settings;
+
+            var referenceView = new StackPanel();
+            var references = new AiReferenceEditor(referenceView, () => 1, _ => Task.CompletedTask,
+                () => Task.CompletedTask, () => [new AiImageMention(1)]);
+            var pending = AiDialogs.Prompt(window, AiTaskKind.GenerateImage, window.Settings, 512, 512,
+                service: window.AiTasks, references: references, preferredEngine: "krea-2-turbo");
+            Dispatcher.UIThread.RunJobs();
+            var dialog = Assert.Single(window.OwnedWindows);
+            var picker = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>(),
+                control => control.Items.OfType<ImageModelChoice>().Any());
+            var choices = picker.Items.OfType<ImageModelChoice>().ToArray();
+            foreach (var name in names) Assert.Contains(choices, choice => choice.Name == name);
+            var attach = Assert.Single(dialog.GetLogicalDescendants().OfType<Button>(), button => button.Name == "AiAddReference");
+            Assert.False(attach.IsVisible);
+            Assert.False(referenceView.IsVisible);
+            picker.SelectedItem = choices.Single(choice => choice.Engine.Id == Flux);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(attach.IsVisible);
+            Assert.True(referenceView.IsVisible);
+            dialog.Close(false);
+            Assert.Null(await pending);
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task Fill_size_tooltip_reports_the_request_in_both_modes_without_a_permanent_output_section()
     {

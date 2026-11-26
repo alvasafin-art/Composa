@@ -1435,6 +1435,7 @@ This adjustment has no settings.	У этой коррекции нет пара�
 This alpha channel does not exist.	Такого альфа-канала нет.
 This alpha channel exceeds the document raster budget.	Альфа-канал превышает лимит растровых данных документа.
 This edit exceeds the document's raster memory budget.	Правка превышает лимит растровой памяти документа.
+This model accepts a text prompt only.	Эта модель принимает только текстовый запрос.
 This is not a Composa project.	Файл не является проектом Composa.
 This is not a Composa project: it has no manifest.	В файле отсутствует манифест проекта Composa.
 This is not a Photoshop file.	Файл не является документом Photoshop.

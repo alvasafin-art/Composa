@@ -12,6 +12,7 @@
     "KSampler",
     "LoadImage",
     "LoadImageMask",
+    "ModelSamplingFlux",
     "ReferenceMultiLatent",
     "SaveImage",
     "SetLatentNoiseMask",

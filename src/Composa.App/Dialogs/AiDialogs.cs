@@ -1938,9 +1938,14 @@ public static partial class AiDialogs
             more.IsVisible = imageSize.IsVisible || qualityHost.IsVisible;
             if (references != null)
             {
-                references.View.IsVisible = references.Count > 0;
-                if (addReference != null) addReference.IsEnabled = references.Count < AiReferenceEditor.Capacity;
-                prompt.SetImages(references.Images);
+                var acceptsReferences = service?.SupportsReferenceImages(task, service.SelectedEngine) != false;
+                references.View.IsVisible = acceptsReferences && references.Count > 0;
+                if (addReference != null)
+                {
+                    addReference.IsVisible = acceptsReferences;
+                    addReference.IsEnabled = acceptsReferences && references.Count < AiReferenceEditor.Capacity;
+                }
+                prompt.SetImages(acceptsReferences ? references.Images : []);
             }
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];

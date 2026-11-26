@@ -1,0 +1,72 @@
+{
+  "id": "z-image-turbo",
+  "modelName": "Z-Image Turbo",
+  "displayName": "Z-Image Turbo",
+  "manifestVersion": 1,
+  "minimumComfyVersion": "0.3.76",
+  "requiredNodeTypes": [
+    "CLIPLoader",
+    "CLIPTextEncode",
+    "ConditioningZeroOut",
+    "EmptySD3LatentImage",
+    "KSampler",
+    "ModelSamplingAuraFlow",
+    "SaveImage",
+    "UNETLoader",
+    "VAEDecode",
+    "VAELoader"
+  ],
+  "requiredAssets": [
+    {
+      "kind": "diffusionModel",
+      "name": "z_image_turbo_bf16.safetensors"
+    },
+    {
+      "kind": "textEncoder",
+      "name": "qwen_3_4b.safetensors"
+    },
+    {
+      "kind": "vae",
+      "name": "ae.safetensors"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "generate",
+      "file": "workflows/generate.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "generateImage",
+      "workflow": "generate",
+      "outputMode": "newLayer",
+      "supportsReferenceImages": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sample",
+          "input": "seed"
+        },
+        "width": {
+          "nodeId": "latent",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "latent",
+          "input": "height"
+        }
+      }
+    }
+  ],
+  "lora": {
+    "supported": true,
+    "maximum": 3
+  }
+}

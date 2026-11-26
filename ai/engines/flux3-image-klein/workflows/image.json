@@ -47,11 +47,22 @@
       "batch_size": 1
     }
   },
+  "sampling": {
+    "class_type": "ModelSamplingFlux",
+    "inputs": {
+      "model": ["unet", 0],
+      "base_shift": 2.772588722239781,
+      "max_shift": 2.772588722239781,
+      "width": 1024,
+      "height": 1024
+    },
+    "_meta": {"title": "FLUX.3 Klein reference timestep shift (ln(16))"}
+  },
   "sample": {
     "class_type": "KSampler",
     "inputs": {
       "model": [
-        "unet",
+        "sampling",
         0
       ],
       "positive": [

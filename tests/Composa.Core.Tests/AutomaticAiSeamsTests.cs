@@ -205,6 +205,33 @@ public class AutomaticAiSeamsTests
     }
 
     [Fact]
+    public void Editable_fill_keeps_the_color_correction_continuous_when_its_mask_is_disabled()
+    {
+        using var reference = Pixels.NewColor(128, 96);
+        using var generated = Pixels.NewColor(128, 96);
+        for (var y = 0; y < 96; y++)
+        for (var x = 0; x < 128; x++)
+        {
+            var tone = (byte)(90 + y / 3);
+            reference.SetPixel(x, y, new SKColor(tone, tone, tone));
+            generated.SetPixel(x, y, new SKColor((byte)(tone + 30), (byte)(tone - 20), (byte)(tone + 12)));
+        }
+        var area = new SKRectI(8, 8, 120, 88);
+        using var mask = SelectionMask.FromRect(128, 96, new SKRect(32, 24, 96, 72));
+        using var result = AiSeamlessFinisher.Match(generated, reference, mask, area, 4,
+            matchFlatBackground: false, alignPixels: false, keepGeneratedContext: true);
+        var outside = result.GetPixel(31, 48);
+        var inside = result.GetPixel(32, 48);
+        Assert.Equal(reference.GetPixel(31, 48), outside);
+        Assert.InRange(Math.Abs(outside.Red - inside.Red), 0, 3);
+        Assert.InRange(Math.Abs(outside.Green - inside.Green), 0, 3);
+        Assert.InRange(Math.Abs(outside.Blue - inside.Blue), 0, 3);
+        using var masked = AiResultPostprocessor.Constrain(result, reference, mask);
+        Assert.Equal(reference.GetPixel(31, 48), masked.GetPixel(31, 48));
+        Assert.Equal(0, result.GetPixel(7, 48).Alpha);
+    }
+
+    [Fact]
     public void Different_biases_on_opposite_sides_are_matched_locally_and_texture_survives()
     {
         using var source = Pixels.NewColor(128, 128); using var generated = Pixels.NewColor(128, 128);
