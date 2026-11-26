@@ -72,7 +72,7 @@ public sealed partial class AiTaskService
                 EnsureTargetAvailable(targetAvailable, token);
                 Operation = new() { Status = AiOperationStatus.Running, Stage = $"Variant {index + 1}/{request.Settings.Variants} · {stage}" };
                 StateChanged?.Invoke();
-                using var frame = await Task.Run(() => new DirectImageEdit(source, edit), token);
+                using var frame = await Task.Run(() => new DirectImageEdit(source, edit, generator), token);
                 var native = mask != null && generator.UsesNativeMask;
                 var files = await Task.Run(() => frame.Encode(source, mask, native, token), token);
                 var prompt = mask == null || native ? source.Prompt : "The final image is the mask. Edit only its white area. " + source.Prompt;

@@ -31,6 +31,7 @@ public sealed partial class CanvasView
         }
     }
     private (SKMatrix Matrix, int Width, int Height, SKPoint Origin)? penTextFrame;
+    private (SKMatrix Matrix, int Width, int Height) penPathFrame;
 
     private VectorPath? CurrentPenPath => session?.ActiveLayer is { } layer
         ? EditVectorMask ? layer.VectorMask : EditorSession.EditableTextCurve(layer) ?? EditorSession.EditableShapePath(layer)
@@ -105,6 +106,7 @@ public sealed partial class CanvasView
         penTextFrame = !EditVectorMask && layer.Text is { Path: not null } text
             ? (layer.Matrix, pixels.Width, pixels.Height, Composa.Text.TextLayout.PathOriginFor(text))
             : null;
+        penPathFrame = (layer.Matrix, pixels.Width, pixels.Height);
         var nearest = 9.0; var found = -1; var which = 0;
         for (var i = 0; !segmentsOnly && i < path.Nodes.Length; i++)
         {
@@ -200,8 +202,8 @@ public sealed partial class CanvasView
             if (penDraft.Count == 0) return; var n = penDraft[^1];
             penDraft[^1] = n with { OutX = currentDocument.X, OutY = currentDocument.Y, InX = 2 * n.X - currentDocument.X, InY = 2 * n.Y - currentDocument.Y }; return;
         }
-        if (penLayer?.Pixels == null || penOriginal == null || !(penTextFrame?.Matrix ?? penLayer.Matrix).TryInvert(out var inverse)) return;
-        double width = penTextFrame?.Width ?? penLayer.Pixels.Width, height = penTextFrame?.Height ?? penLayer.Pixels.Height;
+        if (penLayer?.Pixels == null || penOriginal == null || !penPathFrame.Matrix.TryInvert(out var inverse)) return;
+        double width = penPathFrame.Width, height = penPathFrame.Height;
         var p = inverse.MapPoint(penHandle == 0 ? SnapLayoutHandle(currentDocument) : currentDocument);
         if (penHandle == 0 && penNodes.Count > 1)
         {
@@ -228,7 +230,7 @@ public sealed partial class CanvasView
             var outline = new TextPath(path).MapOutline(frame.Width, frame.Height, frame.Origin.X, frame.Origin.Y);
             session!.PreviewTextCurve(layer, outline);
         }
-        else session!.PreviewVectorPath(layer, path, EditVectorMask);
+        else session!.PreviewVectorPath(layer, path, EditVectorMask, fitToPath: true);
     }
     private static BezierNode ConvertedNode(BezierNode[] nodes, int index, bool closed, double width, double height)
     {

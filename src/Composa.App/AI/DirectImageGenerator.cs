@@ -82,6 +82,26 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
     internal static Uri Endpoint(string value) => DirectImageApi.Parse(value).CredentialEndpoint;
     internal bool UsesNativeMask => Route == ImageGenerationRoute.DirectApi && DirectImageApi.Parse(ApiAddress).UsesNativeMask;
 
+    internal bool SupportsCustomSize => (Model is "gpt-image-2" or "gpt-image-2.5-sunburst" or "gpt-image-2.5-flare"
+        or "gpt-image-2.6-sunburst" or "gpt-image-2.6-flare" ||
+        Model.StartsWith("gpt-image-2-20", StringComparison.Ordinal) ||
+        Model.StartsWith("gpt-image-2.5-sunburst-20", StringComparison.Ordinal) ||
+        Model.StartsWith("gpt-image-2.5-flare-20", StringComparison.Ordinal)) &&
+        Route == ImageGenerationRoute.DirectApi && DirectImageApi.SupportsNativeImageRequest(ApiAddress);
+
+    internal (int Width, int Height) GenerationSize(int width, int height)
+    {
+        if (!SupportsCustomSize || width <= 0 || height <= 0) return RequestSize(width, height);
+        // Preserve the requested pixel budget when an extreme source aspect needs letterboxing.
+        if (width > 3L * height || height > 3L * width)
+        {
+            var longEdge = (int)Math.Round(Math.Sqrt(3.0 * width * height));
+            var shortEdge = (longEdge + 2) / 3;
+            (width, height) = width > height ? (longEdge, shortEdge) : (shortEdge, longEdge);
+        }
+        return PartnerImageSize.Plan(width, height, DocumentLimits.MinimumGenerationPixels);
+    }
+
     internal static (int Width, int Height) RequestSize(int width, int height) =>
         width > height * 1.2 ? (1536, 1024) : height > width * 1.2 ? (1024, 1536) : (1024, 1024);
 
@@ -123,7 +143,7 @@ internal sealed record DirectImageGenerator(ImageGenerationRoute Route, string C
         timeout.CancelAfter(TimeSpan.FromMinutes(5));
         try
         {
-            var (requestWidth, requestHeight) = RequestSize(width, height);
+            var (requestWidth, requestHeight) = edit ? (width, height) : GenerationSize(width, height);
             if (Route == ImageGenerationRoute.LocalCodex)
                 return await LocalCodex.GenerateAsync(CodexPath, prompt, requestWidth, requestHeight, timeout.Token,
                     files?.Images, CodexLanguageModel, CodexReasoningEffort);

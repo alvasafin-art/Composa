@@ -103,6 +103,17 @@ public sealed record LayerTransform
 
 public static class Geometry
 {
+    /// <summary>Checks that the perspective divide stays away from its horizon on the whole source rectangle.</summary>
+    internal static bool HasProjectiveCoverage(SKMatrix mapping, SKRect source)
+    {
+        var x = mapping.Persp0;
+        var y = mapping.Persp1;
+        var origin = mapping.Persp2;
+        var min = origin + x * (x < 0 ? source.Right : source.Left) + y * (y < 0 ? source.Bottom : source.Top);
+        var max = origin + x * (x < 0 ? source.Left : source.Right) + y * (y < 0 ? source.Top : source.Bottom);
+        return float.IsFinite(min) && float.IsFinite(max) && (min > Math.Abs(max) * .01f || max < -Math.Abs(min) * .01f);
+    }
+
     /// <summary>The perspective matrix carrying the rectangle (0,0,w,h) onto <paramref name="quad"/> (TL, TR, BR, BL).</summary>
     public static SKMatrix RectToQuad(float w, float h, SKPoint[] quad)
     {

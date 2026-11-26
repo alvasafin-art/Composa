@@ -57,7 +57,13 @@ public class PenModesUiTests
             Drag(At(100, 80), At(280, 80), At(280, 120), At(100, 120), At(100, 80));
             Assert.Null(session.Selection);
             Pick("Move");
-            Drag(At(130, 100), At(140, 128));
+            window.MouseDown(At(130, 100), MouseButton.Left);
+            window.MouseMove(At(140, 70), RawInputModifiers.LeftMouseButton);
+            Assert.Equal(70, Anchor(0).Y, 0);
+            Assert.NotEqual(SKColors.White, session.Composite().GetPixel(205, 70));
+            window.MouseMove(At(140, 128), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(At(140, 128), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
             Assert.Equal(128, Anchor(0).Y, 0);
             Assert.Equal(128, Anchor(1).Y, 0);
             Assert.Equal(155, Anchor(2).Y, 0);
@@ -82,6 +88,11 @@ public class PenModesUiTests
             session.Redo();
             Assert.True(Path().Nodes.Length < 5);
             Assert.False(session.IsInteracting);
+            window.SelectTool(Tool.Move);
+            window.SelectTool(Tool.Pen);
+            Assert.Equal(PenEditMode.Draw, window.Canvas.PenMode);
+            Dispatcher.UIThread.RunJobs();
+            Screenshots.Save(window, "pen-modes-studio-17-15");
         }
         finally { window.Close(); }
     }
@@ -109,6 +120,14 @@ public class PenModesUiTests
             Assert.Equal(11, end.ItemCount);
             end.SelectedIndex = (int)StrokeMarker.HollowSquare;
             Assert.Equal(StrokeMarker.HollowSquare, session.ActiveLayer!.Shape!.StrokeOptions!.End);
+            foreach (var cap in Enum.GetValues<StrokeCap>())
+            {
+                var button = Control<Button>("VectorStrokeCap" + cap);
+                button.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(cap, session.ActiveLayer.Shape!.StrokeOptions!.Cap);
+                Assert.Equal(StrokeMarker.HollowSquare, end.SelectedItem);
+            }
             end.IsDropDownOpen = true;
             Dispatcher.UIThread.RunJobs();
             Screenshots.Save(window, "vector-stroke-properties");

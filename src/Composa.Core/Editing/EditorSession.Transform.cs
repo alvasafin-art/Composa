@@ -485,7 +485,8 @@ public sealed class TransformEdit
     public void DistortCorner(int corner, SKPoint point) => DistortCorner(corner, point, perspective: false, snapTolerance: 0);
 
     /// <summary>In perspective mode the other end of the dragged edge moves by the opposite offset.</summary>
-    public (float? SnapX, float? SnapY) DistortCorner(int corner, SKPoint point, bool perspective, float snapTolerance)
+    public (float? SnapX, float? SnapY) DistortCorner(int corner, SKPoint point, bool perspective, float snapTolerance,
+        bool keepConvex = false)
     {
         if (layers.Count != 1 || session.Transform != this) return default;
         var original = DistortionStartCorners();
@@ -521,12 +522,12 @@ public sealed class TransformEdit
             target[corner] = snapped;
             guides = (x, y);
         }
-        ApplyDistortion(original, target);
-        return guides;
+        return ApplyDistortion(original, target, keepConvex) ? guides : default;
     }
 
     /// <summary>Moves both corners of an edge by the same document-space offset.</summary>
-    public (float? SnapX, float? SnapY) DistortEdge(TransformHandle handle, SKPoint offset, bool skew, bool fromCenter, float snapTolerance)
+    public (float? SnapX, float? SnapY) DistortEdge(TransformHandle handle, SKPoint offset, bool skew, bool fromCenter,
+        float snapTolerance, bool keepConvex = false)
     {
         if (session.Transform != this) return default;
         var first = handle switch
@@ -549,8 +550,7 @@ public sealed class TransformEdit
             target[(first + 2) % 4] -= offset;
             target[(first + 3) % 4] -= offset;
         }
-        ApplyDistortion(original, target);
-        return (x, y);
+        return ApplyDistortion(original, target, keepConvex) ? (x, y) : default;
     }
 
     private static SKPoint ProjectOnto(SKPoint offset, SKPoint edge)
@@ -578,14 +578,15 @@ public sealed class TransformEdit
         return [new(l, t), new(r, t), new(r, b), new(l, b)];
     }
 
-    private void ApplyDistortion(SKPoint[] original, SKPoint[] target)
+    private bool ApplyDistortion(SKPoint[] original, SKPoint[] target, bool keepConvex)
     {
         var before = Area();
         var unchanged = original.AsSpan().SequenceEqual(target);
+        if (!unchanged && keepConvex && !CanMapDistortion(original, target)) return false;
         if (hasFrameOverride || layers.Count != 1 || masks.Count > 0)
         {
             var from = Geometry.RectToQuad(1, 1, original);
-            if (!from.TryInvert(out var inverse)) return;
+            if (!from.TryInvert(out var inverse)) return false;
             var delta = inverse.PostConcat(Geometry.RectToQuad(1, 1, target));
             if (hasFrameOverride || layers.Count != 1)
             {
@@ -607,6 +608,36 @@ public sealed class TransformEdit
         if (!hasFrameOverride && layers.Count == 1) ApplyLayerDistortion(original, target, unchanged);
         SyncMask();
         session.Invalidate(Geometry.Union(before, Area()));
+        return true;
+    }
+
+    private bool CanMapDistortion(SKPoint[] original, SKPoint[] target)
+    {
+        // A crossed or collapsed edge gives a homography whose horizon cuts through the image.
+        // Keep the last valid preview, including when the transparent padding extends past the frame.
+        for (var i = 0; i < 4; i++)
+        {
+            var a = target[(i + 1) % 4] - target[i];
+            var b = target[(i + 2) % 4] - target[(i + 1) % 4];
+            if (!(a.LengthSquared >= 1 && a.X * b.Y - a.Y * b.X >= 1)) return false;
+        }
+        if (!Geometry.RectToQuad(1, 1, original).TryInvert(out var inverse)) return false;
+        var delta = inverse.PostConcat(Geometry.RectToQuad(1, 1, target));
+        foreach (var (layer, start) in layers)
+        {
+            var pixels = layer.Pixels!;
+            var size = layer.HasWarp ? layer.WarpBounds : SKRect.Create(pixels.Width, pixels.Height);
+            var margin = layer.EffectMargin;
+            size.Inflate(margin, margin);
+            if (!Geometry.HasProjectiveCoverage(start.Matrix(pixels.Width, pixels.Height).PostConcat(delta), size)) return false;
+        }
+        foreach (var (owner, initial) in masks)
+        {
+            var mask = owner.Mask!;
+            if (!Geometry.HasProjectiveCoverage(initial.Matrix(mask.Width, mask.Height).PostConcat(delta),
+                SKRect.Create(mask.Width, mask.Height))) return false;
+        }
+        return true;
     }
 
     private void ApplyLayerDistortion(SKPoint[] original, SKPoint[] target, bool unchanged)

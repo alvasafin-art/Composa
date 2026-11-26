@@ -109,41 +109,72 @@ public sealed partial class EditorSession
         TextChanged?.Invoke();
     }
 
-    public void PreviewVectorPath(Layer layer, VectorPath path, bool mask)
+    public void PreviewVectorPath(Layer layer, VectorPath path, bool mask, bool fitToPath = false)
     {
         if (!IsInteracting || PixelsLocked(layer) || layer.Pixels == null) return;
         if (mask) { if (layer.VectorMask == null) layer.VectorMaskFollowsWarp = !layer.HasWarp; layer.VectorMask = path; }
+        else if (fitToPath && pendingBefore?.Find(layer.Id) is { Shape: { } initial } basis)
+        {
+            var before = AffectedArea(layer);
+            // The pointer supplies nodes in the grid at mouse-down. Grow that grid afresh each frame.
+            if (FitEditedPath(layer, basis, WithEditedPath(initial, path)))
+                Invalidate(Geometry.Union(before, AffectedArea(layer)));
+            return;
+        }
         else if (layer.Shape is { } style) { layer.Shape = WithEditedPath(style, path); layer.Pixels = RenderWorkingShape(layer.Shape, layer.Pixels.Width, layer.Pixels.Height); }
         InvalidateAll(); LayersChanged?.Invoke();
     }
     public void CompletePathEdit(Layer layer)
     {
-        if (layer.Shape?.Path is not { Nodes.Length: >= 2 } geometry || layer.Pixels == null || PixelsLocked(layer)) return;
-        var old = layer.Pixels;
+        if (layer.Shape is not { Path.Nodes.Length: >= 2 } style || layer.Pixels == null || PixelsLocked(layer)) return;
+        if (FitEditedPath(layer, layer, style)) { InvalidateAll(); LayersChanged?.Invoke(); }
+    }
+
+    public void CommitPathPreview()
+    {
+        Commit();
+        LayersChanged?.Invoke();
+    }
+
+    private bool FitEditedPath(Layer layer, Layer basis, ShapeStyle style)
+    {
+        var isPreview = !ReferenceEquals(layer, basis);
+        var old = basis.Pixels!;
+        var geometry = style.Path!;
         using var outline = geometry.Build(old.Width, old.Height);
         var bounds = outline.TightBounds;
-        if (outline.IsEmpty) return;
-        var pad = layer.Shape.Stroke == null ? 0 : layer.Shape.StrokeWidth / 2;
-        if (layer.Shape.StrokeOptions != null)
+        if (outline.IsEmpty && !isPreview) return false;
+        var pad = style.Stroke == null ? 0 : style.StrokeWidth / 2;
+        if (style.StrokeOptions != null)
         {
-            var ink = VectorStrokeGeometry.InkBounds(layer.Shape, old.Width, old.Height);
+            var ink = VectorStrokeGeometry.InkBounds(style, old.Width, old.Height);
             if (!ink.IsEmpty) bounds.Union(ink);
             pad = 0;
         }
         int left=Math.Min(0,(int)Math.Floor(bounds.Left-pad)), top=Math.Min(0,(int)Math.Floor(bounds.Top-pad));
         int right=Math.Max(old.Width,(int)Math.Ceiling(bounds.Right+pad)), bottom=Math.Max(old.Height,(int)Math.Ceiling(bounds.Bottom+pad));
-        if (left==0 && top==0 && right==old.Width && bottom==old.Height) return;
         var w=right-left; var h=bottom-top;
-        if (!DocumentLimits.FitsSurface(w, h, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4)) throw new InvalidOperationException("The edited path exceeds the surface size limit.");
+        var grows = left != 0 || top != 0 || w != old.Width || h != old.Height;
+        if (!grows && !isPreview) return false;
+        if (!DocumentLimits.FitsSurface(w, h, document.WorkingDepth == ColorDepth.Sixteen ? 16 : 4))
+        {
+            if (isPreview) return false;
+            throw new InvalidOperationException("The edited path exceeds the surface size limit.");
+        }
         VectorPath Remap(VectorPath path) => RemapVectorGrid(path, old.Width, old.Height, left, top, w, h);
-        var matrix = layer.Matrix;
-        var maskPlacement = layer.Mask != null ? layer.MaskMatrix : (SKMatrix?)null;
-        if (layer.VectorMask != null) layer.VectorMask = Remap(layer.VectorMask);
-        layer.Shape = layer.Shape with { Path = Remap(geometry) };
-        layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
-        layer.Transform = LayerTransform.FromMatrix(SKMatrix.CreateTranslation(left,top).PostConcat(matrix),w,h);
-        if (maskPlacement is {} placement) layer.PlaceMask(placement);
-        InvalidateAll(); LayersChanged?.Invoke();
+        var placement = grows && basis.Mask != null ? basis.MaskMatrix : (SKMatrix?)null;
+        var transform = grows
+            ? LayerTransform.FromMatrix(SKMatrix.CreateTranslation(left, top).PostConcat(basis.Matrix), w, h)
+            : basis.Transform;
+        var next = grows ? style with { Path = Remap(geometry) } : style;
+        var rendered = RenderWorkingShape(next, w, h);
+        layer.VectorMask = grows && basis.VectorMask is { } vectorMask ? Remap(vectorMask) : basis.VectorMask;
+        layer.Shape = next;
+        layer.Pixels = rendered;
+        layer.Transform = transform;
+        layer.MaskTransform = basis.MaskTransform;
+        if (placement is { } maskPlacement) layer.PlaceMask(maskPlacement);
+        return true;
     }
     private static VectorPath RemapVectorGrid(VectorPath path, int oldWidth, int oldHeight, int left, int top, int width, int height) =>
         path with { Nodes = path.Nodes.Select(n => n with { X = (n.X * oldWidth - left) / width, Y = (n.Y * oldHeight - top) / height,

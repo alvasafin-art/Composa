@@ -5,8 +5,6 @@ using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Composa.Model;
-using Composa.Rendering;
-using SkiaSharp;
 using Geometry = Avalonia.Media.Geometry;
 
 namespace Composa.App;
@@ -25,27 +23,47 @@ public sealed partial class MainWindow
         StrokeMarker.HollowSquare => "Hollow square", _ => "Hollow diamond"
     };
 
-    private sealed record MarkerSample(StrokeMarker Marker, StrokeCap Cap, bool Start);
-
-    private static Control MarkerPreview(MarkerSample sample)
+    private sealed class StrokeSample(Geometry shape, Geometry? detail = null, bool mirrored = false, bool guide = false) : Control
     {
-        using var center = new SKPath();
-        center.MoveTo(1, 8); center.LineTo(23, 8);
-        var style = new ShapeStyle(ShapeKind.Line, 0, 0) { StrokeOptions = new() { Cap = sample.Cap, End = sample.Marker } };
-        using var ink = VectorStrokeGeometry.Build(center, style, 1.55f);
-        if (sample.Start) ink.Transform(SKMatrix.CreateScale(-1, 1).PostConcat(SKMatrix.CreateTranslation(31, 0)));
-        return Ui.Row(4, new Avalonia.Controls.Shapes.Path
+        public override void Render(DrawingContext context)
         {
-            Width = 25, Height = 15, Stretch = Stretch.Uniform, Fill = Palette.Foreground, Data = Geometry.Parse("F0 " + ink.ToSvgPathData()),
-            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center
-        }, Ui.Label(Locale.T(MarkerName(sample.Marker))));
+            using var transform = context.PushTransform(mirrored ? new Matrix(-1, 0, 0, 1, Bounds.Width, 0) : Matrix.Identity);
+            context.DrawGeometry(Palette.Foreground, null, shape);
+            if (detail != null) context.DrawGeometry(guide ? Palette.Secondary : Palette.Foreground, null, detail);
+        }
+    }
+
+    private static Control MarkerPreview(StrokeMarker marker, bool start)
+    {
+        var (length, tip) = marker switch
+        {
+            StrokeMarker.Arrow => (21, "M16 4 17 3 23 7 17 11 16 10 21 7Z"),
+            StrokeMarker.SlimArrow => (21, "M14 5 23 7 14 9 19 7Z"),
+            StrokeMarker.Triangle => (19, "M15 2.5 23 7 15 11.5Z"),
+            StrokeMarker.Circle => (20, "M23 7 A4 4 0 1 1 15 7 A4 4 0 1 1 23 7Z"),
+            StrokeMarker.Square => (19, "M15 3H23V11H15Z"),
+            StrokeMarker.Diamond => (19, "M14 7 19 2 24 7 19 12Z"),
+            StrokeMarker.HollowTriangle => (15, "M15 2.5 23 7 15 11.5Z M16.3 4.7 20.5 7 16.3 9.3Z"),
+            StrokeMarker.HollowCircle => (15, "M23 7 A4 4 0 1 1 15 7 A4 4 0 1 1 23 7Z M21.7 7 A2.7 2.7 0 1 1 16.3 7 A2.7 2.7 0 1 1 21.7 7Z"),
+            StrokeMarker.HollowSquare => (15, "M15 3H23V11H15Z M16.3 4.3H21.7V9.7H16.3Z"),
+            StrokeMarker.HollowDiamond => (14, "M14 7 19 2 24 7 19 12Z M15.8 7 19 3.8 22.2 7 19 10.2Z"),
+            _ => (22, "")
+        };
+        var shaft = Geometry.Parse(FormattableString.Invariant($"M2 6.4H{length}V7.6H2Z"));
+        var sample = new StrokeSample(shaft, tip.Length == 0 ? null : Geometry.Parse("F0 " + tip), mirrored: start)
+            { Width = 26, Height = 14, VerticalAlignment = VerticalAlignment.Center };
+        var title = Ui.Label(Locale.T(MarkerName(marker)));
+        title.TextTrimming = TextTrimming.CharacterEllipsis;
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 4 };
+        row.Children.Add(sample);
+        AddAt(row, title, 1);
+        return row;
     }
 
     private static Action AddStrokeProperties(StackPanel body, ShapeStyle initial, Func<ShapeStyle?> read,
         Action<Func<ShapeStyle, ShapeStyle>, bool> change)
     {
         var line = initial.Kind == ShapeKind.Line;
-        var sampleCap = StrokeCapOf(initial);
         var lastDash = initial.Dash ?? new StrokeDash([14, 10]);
         var update = false;
 
@@ -57,6 +75,9 @@ public sealed partial class MainWindow
         {
             var box = Ui.Number(value, min, max, v => { if (!update) set(v); }, .5, "0.##", double.NaN);
             box.Height = 27;
+            box.MinHeight = 0;
+            box.Padding = new Thickness(5, 0);
+            box.VerticalContentAlignment = VerticalAlignment.Center;
             AutomationProperties.SetName(box, Locale.T(name));
             return box;
         }
@@ -121,17 +142,18 @@ public sealed partial class MainWindow
 
         ComboBox MarkerControl(string name, bool start)
         {
-            var box = new ComboBox { MinWidth = 0, Height = 28, HorizontalAlignment = HorizontalAlignment.Stretch, MaxDropDownHeight = 350, ItemsSource = MarkerItems(start),
-                ItemTemplate = new FuncDataTemplate<MarkerSample>((item, _) => MarkerPreview(item)) };
+            var box = new ComboBox { MinWidth = 0, Height = 28, Padding = new Thickness(6, 0, 22, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                MaxDropDownHeight = 350, ItemsSource = Enum.GetValues<StrokeMarker>(),
+                ItemTemplate = new FuncDataTemplate<StrokeMarker>((item, _) => MarkerPreview(item, start)) };
             AutomationProperties.SetName(box, Locale.T(name));
             box.SelectionChanged += (_, _) =>
             {
-                if (!update && box.SelectedItem is MarkerSample item)
-                    ChangeOptions(s => start ? s with { Start = item.Marker } : s with { End = item.Marker });
+                if (!update && box.SelectedItem is StrokeMarker marker)
+                    ChangeOptions(s => start ? s with { Start = marker } : s with { End = marker });
             };
             return box;
         }
-        MarkerSample[] MarkerItems(bool start) => Enum.GetValues<StrokeMarker>().Select(m => new MarkerSample(m, sampleCap, start)).ToArray();
         var start = MarkerControl("Start marker", true);
         var end = MarkerControl("End marker", false);
         start.Name = "VectorStartMarker"; end.Name = "VectorEndMarker";
@@ -141,8 +163,8 @@ public sealed partial class MainWindow
         body.Children.Add(markers);
 
         var (capPanel, selectCap) = StrokeSegments("VectorStrokeCap",
-            ["Flat cap", "Round cap", "Square cap"], ["M2 6h12v8H2Z M14 3h1v14h-1Z", "M2 6h13a4 4 0 0 1 0 8H2Z", "M2 6h17v8H2Z"],
-            (StrokeCap cap) => ChangeOptions(s => s with { Cap = cap }));
+            ["Flat cap", "Round cap", "Square cap"], ["M2 5h11v6H2Z", "M2 5h11a3 3 0 0 1 0 6H2Z", "M2 5h14v6H2Z"],
+            (StrokeCap cap) => ChangeOptions(s => s with { Cap = cap }), showCapGuide: true);
         var capField = Field("Stroke caps", capPanel);
         body.Children.Add(capField);
 
@@ -178,7 +200,6 @@ public sealed partial class MainWindow
                 markers.IsVisible = !closed;
                 capField.IsVisible = !closed || style.Dash != null;
                 var cap = StrokeCapOf(style);
-                if (cap != sampleCap) { sampleCap = cap; start.ItemsSource = MarkerItems(true); end.ItemsSource = MarkerItems(false); }
                 start.SelectedIndex = (int)settings.Start; end.SelectedIndex = (int)settings.End;
                 ToolTip.SetTip(start, Locale.T(MarkerName(settings.Start)));
                 ToolTip.SetTip(end, Locale.T(MarkerName(settings.End)));
@@ -190,7 +211,8 @@ public sealed partial class MainWindow
         };
     }
 
-    private static (Border, Action<T>) StrokeSegments<T>(string name, string[] labels, string[] icons, Action<T> set) where T : struct, Enum
+    private static (Border, Action<T>) StrokeSegments<T>(string name, string[] labels, string[] icons, Action<T> set,
+        bool showCapGuide = false) where T : struct, Enum
     {
         var values = Enum.GetValues<T>();
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 2 };
@@ -200,7 +222,10 @@ public sealed partial class MainWindow
             T value = values[i];
             var button = new Button { Name = name + value, Classes = { "flat" }, MinHeight = 0, Padding = default,
                 HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center,
-                Content = new PathIcon { Data = Geometry.Parse(icons[i]), Width = 17, Height = 15, Foreground = Palette.Foreground } };
+                Content = showCapGuide
+                    ? new StrokeSample(Geometry.Parse(icons[i]), Geometry.Parse("M12.5 1H13.5V4H12.5Z M12.5 12H13.5V15H12.5Z"), guide: true)
+                        { Width = 18, Height = 16, VerticalAlignment = VerticalAlignment.Center }
+                    : new PathIcon { Data = Geometry.Parse(icons[i]), Width = 17, Height = 15, Foreground = Palette.Foreground } };
             AutomationProperties.SetName(button, Locale.T(labels[i]));
             Locale.Tip(button, labels[i]);
             button.Click += (_, _) => set(value);

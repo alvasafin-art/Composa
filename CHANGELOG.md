@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.15] - 2026-11-26
+
+- Keep vector strokes visible while dragging nodes. Fix cap changes, marker alignment and stroke controls. Reset the Pen mode when switching tools and update the scissors icon.
+- Keep the Free Transform image and frame aligned during interactive distortion and prevent folded previews.
+- Show one AI progress label and use the packaged AI and Assistant icons. Apply the selected image size to direct GPT image requests on supported models.
+
 ## [1.3.0-preview.4.studio.17.14] - 2026-11-26
 
 - Reduce latency when painting or panning large canvases, and improve interactive Warp and Liquify previews.

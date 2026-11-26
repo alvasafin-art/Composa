@@ -16,6 +16,12 @@ internal sealed class DirectImageApi
     private const string PngPrefix = "data:image/png;base64,";
     internal const int MaximumResponseBytes = 64 * 1024 * 1024;
     internal bool UsesNativeMask => format == Format.OpenAiImages;
+
+    internal static bool SupportsNativeImageRequest(string address)
+    {
+        try { return Parse(address).UsesNativeMask; }
+        catch (FormatException) { return false; }
+    }
     internal Uri CredentialEndpoint => Endpoint(edit: false);
     internal Uri CatalogEndpoint => new(baseAddress.AbsoluteUri.TrimEnd('/') + (format == Format.OpenRouter ? "/models?output_modalities=image" : "/models"));
     internal string Protocol => format switch

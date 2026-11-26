@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.15" date="2026-11-26" type="development">
+      <description><p>Fix vector stroke and distortion previews, restore AI and Assistant icons, and apply image sizing to supported direct GPT models.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.14" date="2026-11-26" type="development">
       <description><p>More responsive painting and deformation, new AI models, improved layer transforms, and editable vector strokes and paths.</p></description>
     </release>

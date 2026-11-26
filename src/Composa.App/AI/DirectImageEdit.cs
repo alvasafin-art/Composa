@@ -18,12 +18,12 @@ internal sealed class DirectImageEdit : IDisposable
 
     internal SKBitmap? OutputMask() => inputs.OutputMask();
 
-    internal DirectImageEdit(AiTaskInputs prepared, AiTaskRequest request)
+    internal DirectImageEdit(AiTaskInputs prepared, AiTaskRequest request, DirectImageGenerator? generator = null)
     {
-        var settings = request.Settings with { Values = new(request.Settings.Values) { ["imageOriginalSize"] = false } };
-        inputs = new PartnerImageInputs(prepared, request with { Settings = settings });
+        inputs = new PartnerImageInputs(prepared, request, planPartnerOutput: false);
         var source = inputs.Images["apiSource"];
-        var (width, height) = DirectImageGenerator.RequestSize(source.Width, source.Height);
+        var (width, height) = generator?.GenerationSize(inputs.DesiredSize.Width, inputs.DesiredSize.Height)
+            ?? DirectImageGenerator.RequestSize(source.Width, source.Height);
         frame = SKRectI.Create(width, height);
         var scale = Math.Min((double)width / source.Width, (double)height / source.Height);
         var w = Math.Max(1, (int)Math.Round(source.Width * scale));

@@ -1611,7 +1611,8 @@ public static partial class AiDialogs
     }
 
     public static async Task<bool> Advanced(Window owner, Settings settings, AiTaskService? service = null, AiTaskKind task = AiTaskKind.GenerativeFill,
-        AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null, bool deferSave = false, bool? useAssigned = null)
+        AiOperationSettings? initialProfile = null, Action<AiOperationSettings>? acceptDraft = null, bool deferSave = false,
+        bool? useAssigned = null, bool showImageSize = true)
     {
         var paid = service?.SelectedEngine?.PaidApi == true;
         var profile = initialProfile ?? settings.OperationFor(service?.SelectedEngine?.Id, task, paid);
@@ -1625,7 +1626,7 @@ public static partial class AiDialogs
         var modified = false;
         var editor = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         Func<AiOperationSettings> read;
-        editor.Content = GenerationFields(profile, service, task, paid, useAssigned, out read);
+        editor.Content = GenerationFields(profile, service, task, paid, useAssigned, showImageSize, out read);
         var list = new ComboBox { MinWidth = 165, PlaceholderText = Locale.T("Choose preset") };
         AiGenerationControls.StyleModelField(list, "Generation preset");
         var name = new TextBox { Width = 165, MaxLength = 70, PlaceholderText = Locale.T("Preset name") };
@@ -1653,7 +1654,7 @@ public static partial class AiDialogs
             delete.IsEnabled = list.SelectedItem is string;
             if (list.SelectedItem is not string key || !presets.TryGetValue(key, out var saved)) return;
             name.Text = key;
-            editor.Content = GenerationFields(saved with { AlignPixels = saved.AlignPixels ?? read().AlignPixels }, service, task, paid, useAssigned, out read);
+            editor.Content = GenerationFields(saved with { AlignPixels = saved.AlignPixels ?? read().AlignPixels }, service, task, paid, useAssigned, showImageSize, out read);
         };
         delete.IsEnabled = save.IsEnabled = false;
         name.TextChanged += (_, _) => save.IsEnabled = !string.IsNullOrWhiteSpace(name.Text);
@@ -1680,7 +1681,7 @@ public static partial class AiDialogs
         return true;
     }
 
-    private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, bool? useAssigned,
+    private static Control GenerationFields(AiOperationSettings profile, AiTaskService? service, AiTaskKind task, bool paid, bool? useAssigned, bool showImageSize,
         out Func<AiOperationSettings> read)
     {
         if (service?.ActiveWorkflow(task, service.SelectedEngine, useAssigned) is { } workflow)
@@ -1710,7 +1711,8 @@ public static partial class AiDialogs
             ("Memory use", Ui.Combo(new[] { "auto", "reduced", "standard" }, fluxMemory,
                 value => value == "auto" ? "Auto" : value == "reduced" ? "Lower VRAM" : "Standard", value => fluxMemory = value, 150)),
             ("Seed", Ui.Row(6, Ui.Number(seed, -1, long.MaxValue, value => seed = (long)value, 1, "0", 150), Ui.Label(Locale.T("-1 = random"))))];
-        var form = CanvasDialogs.Form(fields.Where(field => field.Item1 != "Memory use" || service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
+        var form = CanvasDialogs.Form(fields.Where(field => field.Item1 != "Image size" || showImageSize && !nano)
+            .Where(field => field.Item1 != "Memory use" || service?.SelectedEngine?.Id == "flux2-klein-intel-xpu")
             .Where(field => !paid || field.Item1 != "Seed").ToArray());
         var note = Ui.Label(task == AiTaskKind.GenerateImage
             ? "Generate a new image using the prompt and optional references. Image size preserves proportions. List runs variants separately; Batch groups them. Paid variants are billed individually."
@@ -1804,7 +1806,8 @@ public static partial class AiDialogs
     }
 
     public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null,
-        SKRectI? sourceCanvas = null, SKRectI? selectionBounds = null, string? preferredEngine = null, EngineProfile? directEngine = null)
+        SKRectI? sourceCanvas = null, SKRectI? selectionBounds = null, string? preferredEngine = null, EngineProfile? directEngine = null,
+        bool showImageSize = true)
     {
         var previousEngine = service?.SelectedEngine;
         if (service != null) service.SelectedEngine = directEngine ?? service.EngineFor(task, preferredEngine);
@@ -1947,7 +1950,7 @@ public static partial class AiDialogs
             qualityHost.IsVisible = paid && service?.SelectedEngine?.ApiModel != PartnerNodes.Seedream && !toneOnly;
             prompt.IsEnabled=!toneOnly;
             var nano=NanoBanana.IsModel(service?.SelectedEngine?.ApiModel);
-            imageSize.IsVisible = !toneOnly && task != AiTaskKind.GenerativeExpand;
+            imageSize.IsVisible = showImageSize && !nano && !toneOnly && task != AiTaskKind.GenerativeExpand;
             more.IsVisible = imageSize.IsVisible || qualityHost.IsVisible;
             if (references != null)
             {

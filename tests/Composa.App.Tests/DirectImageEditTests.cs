@@ -91,7 +91,7 @@ public sealed class DirectImageEditTests
         using var server = new TcpListener(IPAddress.Loopback, 0);
         server.Start();
         var endpoint = $"http://127.0.0.1:{((IPEndPoint)server.LocalEndpoint).Port}/v1";
-        var reply = ServeMaskedEditAsync(server, deadline.Token);
+        var reply = ServeMaskedEditAsync(server, deadline.Token, expectedSize: "2000x2000");
         var previous = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
         Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", "test-image-key");
         var window = new MainWindow();
@@ -104,6 +104,7 @@ public sealed class DirectImageEditTests
             window.Settings.ImageGenerationRoute = ImageGenerationRoute.DirectApi;
             window.Settings.ImageGenerationApiUrl = endpoint;
             window.Settings.ImageGenerationApiModel = "gpt-image-2";
+            window.Settings.SetOperation("direct-api-image", AiTaskKind.GenerativeFill, new() { OriginalSize = false, Megapixels = 4 });
             var before = document.History.CurrentId;
             await window.RunAiForTests(AiTaskKind.GenerativeFill, "Recolor the selected area orange.").WaitAsync(deadline.Token);
             await reply;
@@ -236,7 +237,8 @@ public sealed class DirectImageEditTests
         Assert.Equal(background, document.Composite().GetPixel(128, 128));
     }
 
-    private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true, Action? beforeReply = null)
+    private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true,
+        Action? beforeReply = null, string? expectedSize = null)
     {
         using var client = await server.AcceptTcpClientAsync(token);
         await using var stream = client.GetStream();
@@ -255,6 +257,7 @@ public sealed class DirectImageEditTests
         var body = new char[length];
         Assert.Equal(length, await reader.ReadBlockAsync(body.AsMemory(), token));
         var multipart = new string(body);
+        if (expectedSize != null) Assert.Contains($"name=size\r\n\r\n{expectedSize}\r\n", multipart.Replace("\"", ""));
         Assert.Contains("filename=image-1.png", multipart.Replace("\"", ""));
         Assert.Contains("filename=mask.png", multipart.Replace("\"", ""));
         var maskStart = multipart.IndexOf("\r\n\r\n", multipart.IndexOf("mask.png", StringComparison.Ordinal), StringComparison.Ordinal) + 4;

@@ -67,7 +67,7 @@ public sealed partial class AiTaskService
                 throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var modelMask = expand && request.ExpansionMode == AiExpansionMode.MaskedRegion ? prepared!.PreprocessedMask
                 : remove ? prepared!.PreprocessedMask : selection;
-            using var editInputs = edit ? await Task.Run(() => new DirectImageEdit(prepared!, request), linked.Token) : null;
+            using var editInputs = edit ? await Task.Run(() => new DirectImageEdit(prepared!, request, generator), linked.Token) : null;
             using var expansionMask = expand ? editInputs!.OutputMask() : null;
             var outputMask = expand ? expansionMask : remove ? prepared!.OutputMask : selection;
             DirectImageFiles? files = null;

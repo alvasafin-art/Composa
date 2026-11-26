@@ -15,6 +15,30 @@ namespace Composa.App.Tests;
 public class PartnerImageTests
 {
     [Fact]
+    public void Image_edit_sends_the_requested_output_size_and_resampled_reference_independently()
+    {
+        var session = EditorSession.NewCanvas(640, 480, SKColors.White);
+        using var reference = Pixels.NewColor(1600, 1000);
+        var request = new AiTaskRequest
+        {
+            Task = AiTaskKind.ImageEdit,
+            ReferenceImages = [reference],
+            ReferenceMegapixels = .5,
+            Settings = new() { Width = 1600, Height = 1200 }
+        };
+        using var inputs = AiTaskInputPreparer.Prepare(session, request);
+        var engine = Pack();
+        using var partner = new PartnerImageInputs(inputs, request, engine.ApiModel);
+        var uploaded = partner.Images["referenceImage1"];
+        Assert.Equal(AiDimensions.FromMegapixels(.5, 1600, 1000), (uploaded.Width, uploaded.Height));
+        var graph = partner.Bind(Catalog().ReadWorkflow(engine, engine.Workflows[0]), engine,
+            partner.Images.ToDictionary(image => image.Key, image => image.Key + ".png"), 42);
+        var model = graph["gpt"]!["inputs"]!;
+        Assert.Equal(1600, model["model.custom_width"]!.GetValue<int>());
+        Assert.Equal(1200, model["model.custom_height"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void Original_size_enlarges_the_API_context_image_and_generation_request_together()
     {
         var session=EditorSession.NewCanvas(320,240,SKColors.White); session.SelectRect(new SKRect(60,50,120,110));

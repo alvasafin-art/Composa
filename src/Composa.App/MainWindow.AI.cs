@@ -275,15 +275,14 @@ public sealed partial class MainWindow
             aiProgressHost.Children.Clear();
             if (operation != null && operation.Status != AiOperationStatus.Completed) AddProgress(operation, active);
         }
-        aiTaskText.IsVisible = active;
-        aiTaskText.Text = active ? "AI: " + (operation?.Stage ?? "Working") +
-            (operation is { Value: {} step, Maximum: > 0 } ? $" · {step}/{operation.Maximum}"
-             : operation?.ElapsedSeconds is {} seconds ? $" · {TimeSpan.FromSeconds(seconds):m\\:ss}" : "") : "";
     }
 
     private void AddProgress(AiOperationState operation, bool active)
     {
-        var label = Ui.Label(operation.Error ?? operation.Stage ?? operation.Status.ToString(), operation.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary);
+        var stage = operation.Error ?? operation.Stage ?? operation.Status.ToString();
+        var detail = operation is { Value: { } step, Maximum: > 0 } ? $" · {step}/{operation.Maximum}"
+            : operation.ElapsedSeconds is { } seconds ? $" · {TimeSpan.FromSeconds(seconds):m\\:ss}" : "";
+        var label = Ui.Label(stage + (active ? detail : ""), operation.Status == AiOperationStatus.Failed ? Brushes.Orange : Palette.Secondary);
         label.MaxWidth = 190;
         label.TextTrimming = TextTrimming.CharacterEllipsis;
         aiProgressHost.Children.Add(label);
@@ -350,7 +349,9 @@ public sealed partial class MainWindow
             item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
-        var button = new Button { Name = "AiTaskMenu", Content = Locale.T("AI ▾"), Flyout = flyout, MinWidth = 0 };
+        var button = new Button { Name = "AiTaskMenu",
+            Content = Ui.Row(4, Icons.Create(Icons.Ai, 15), Ui.Label(Locale.T("AI ▾"))), Flyout = flyout, MinWidth = 0 };
+        Avalonia.Automation.AutomationProperties.SetName(button, Locale.T("AI ▾"));
         Locale.Tip(button, "Choose AI operation");
         return button;
     }
@@ -917,7 +918,7 @@ public sealed partial class MainWindow
                     settings.SetOperation(direct.Id, task, profile);
                     if (profile.AlignPixels is { } align) settings.AiAlignMaskedEdits = align;
                     settings.Save();
-                });
+                }, showImageSize: direct.SupportsCustomSize);
             RefreshAiUi();
             return;
         }
@@ -964,7 +965,7 @@ public sealed partial class MainWindow
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
                 session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null,
-                modelDrafts.GetValueOrDefault(task)?.Engine.Id, direct?.PromptProfile()); }
+                modelDrafts.GetValueOrDefault(task)?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true); }
             finally { aiDialogReferences = null; }
             if (presentedTask == task && settings.RememberAiPrompts && settings.AiPromptFor(task) != (aiFloatingPrompt.Text ?? ""))
                 aiFloatingPrompt.Text = settings.AiPromptFor(task);

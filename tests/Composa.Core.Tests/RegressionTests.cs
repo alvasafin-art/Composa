@@ -338,4 +338,24 @@ public class QaRegressionTests
         session.Undo();
         TestImages.AssertColor(SKColors.Red, session.Composite().GetPixel(150, 150));
     }
+
+    [Fact]
+    public void Interactive_distortion_keeps_the_last_frame_when_padded_pixels_cross_the_horizon()
+    {
+        var session = EditorSession.NewCanvas(300, 300);
+        var pixels = Pixels.NewColor(200, 200);
+        using (var draw = new SKCanvas(pixels))
+        using (var paint = new SKPaint { Color = SKColors.Red })
+            draw.DrawRect(SKRect.Create(50, 50, 100, 100), paint);
+        var layer = session.AddImageLayer("padded", pixels, new SKPoint(150, 150), fit: false);
+        var edit = session.BeginTransform()!;
+        edit.DistortCorner(2, new(180, 200), perspective: true, snapTolerance: 0, keepConvex: true);
+        var valid = layer.Transform;
+        Assert.NotNull(valid.Distort);
+        var corners = edit.Corners();
+        edit.DistortCorner(2, new(151, 200), perspective: true, snapTolerance: 0, keepConvex: true);
+        Assert.Equal(valid, layer.Transform);
+        Assert.Equal(corners, edit.Corners());
+        Assert.Equal(SKColors.Red, session.Composite().GetPixel(150, 150));
+    }
 }

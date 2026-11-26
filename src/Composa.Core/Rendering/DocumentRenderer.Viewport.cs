@@ -84,8 +84,14 @@ public static partial class DocumentRenderer
                     }
                     continue;
                 }
-                if (layer.Kind != LayerKind.Raster || layer.HasWarp || layer.HasSmartFilterMask || layer.Transform.Distort != null) return false;
+                if (layer.Kind != LayerKind.Raster || layer.HasWarp || layer.HasSmartFilterMask) return false;
                 if (layer.Pixels is not { } pixels) continue;
+                if (layer.Transform.Distort != null)
+                {
+                    var source = SKRect.Create(pixels.Width, pixels.Height);
+                    source.Inflate(layer.EffectMargin, layer.EffectMargin);
+                    if (!Geometry.HasProjectiveCoverage(layer.Matrix, source)) return false;
+                }
                 if (!visibleBounds.IntersectsWith(layer.VisibleBounds)) continue;
                 if (pixels.ColorType != SKColorType.Rgba8888 || pixels.AlphaType != SKAlphaType.Premul
                     || !RgbProfile.SameSpace(pixels.ColorSpace, document.Profile.Space) || Pixels.IsLive(pixels)) return false;

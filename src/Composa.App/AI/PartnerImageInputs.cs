@@ -24,8 +24,10 @@ internal sealed class PartnerImageInputs : IDisposable
     internal const int MaximumContextPadding = 1024;
     internal SKBitmap SourceReference => original.ContextImage;
     internal SKRectI SourceBounds => crop;
+    internal (int Width, int Height) DesiredSize { get; }
 
-    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null, bool supportsNativeMask = false)
+    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null, bool supportsNativeMask = false,
+        bool planPartnerOutput = true)
     {
         original = inputs; this.request = request; nano = NanoBanana.IsModel(apiModel);
         var source = request.Task is AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.GenerativeExpand
@@ -67,9 +69,11 @@ internal sealed class PartnerImageInputs : IDisposable
         {
             desired = AiDimensions.OriginalGenerationSize(desired.Width, desired.Height);
             var keepNativeUpload = request.Task == AiTaskKind.ImageEdit && apiModel?.StartsWith("gpt-image-", StringComparison.Ordinal) == true;
-            if (!keepNativeUpload && Images.TryGetValue("apiSource", out var input) && (long)input.Width * input.Height < Composa.Model.DocumentLimits.MinimumGenerationPixels)
+            if (planPartnerOutput && !keepNativeUpload && Images.TryGetValue("apiSource", out var input) && (long)input.Width * input.Height < Composa.Model.DocumentLimits.MinimumGenerationPixels)
                 Images["apiSource"] = Own(Resize(input, desired.Width, desired.Height));
         }
+        DesiredSize = desired;
+        if (!planPartnerOutput) return;
         try
         {
             if(nano)

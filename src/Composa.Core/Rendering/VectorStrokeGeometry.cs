@@ -65,9 +65,22 @@ public static class VectorStrokeGeometry
         {
             if (marker == StrokeMarker.None || !measure.GetPositionAndTangent(distance, out var anchor, out var tangent)) return;
             if (tangent.Length <= 0 && !measure.GetPositionAndTangent(measure.Length * (direction < 0 ? .001f : .999f), out _, out tangent)) return;
-            using var mark = Marker(marker, width * ProfileScale(options.Profile, distance / measure.Length), cap);
+            var endpointWidth = width * ProfileScale(options.Profile, distance / measure.Length);
+            using var mark = Marker(marker, endpointWidth, cap);
             var angle = MathF.Atan2(tangent.Y * direction, tangent.X * direction);
-            mark.Transform(SKMatrix.CreateRotation(angle).PostConcat(SKMatrix.CreateTranslation(anchor.X, anchor.Y)));
+            var placement = SKMatrix.CreateRotation(angle).PostConcat(SKMatrix.CreateTranslation(anchor.X, anchor.Y));
+            mark.Transform(placement);
+            if (marker is StrokeMarker.Arrow or StrokeMarker.SlimArrow or StrokeMarker.Triangle)
+            {
+                // Hide the pointed marker's flat/round/square shaft end beneath the tip.
+                // A triangle needs more clearance because its sides converge to a point.
+                var cut = marker == StrokeMarker.Triangle ? -endpointWidth : 0;
+                using var capArea = new SKPath();
+                capArea.AddRect(new SKRect(cut, -endpointWidth * .62f, endpointWidth * .55f, endpointWidth * .62f));
+                capArea.Transform(placement);
+                var trimmed = ink.Op(capArea, SKPathOp.Difference);
+                if (trimmed != null) { ink.Dispose(); ink = trimmed; }
+            }
             var combined = ink.Op(mark, SKPathOp.Union);
             if (combined != null) { ink.Dispose(); ink = combined; }
             else ink.AddPath(mark);

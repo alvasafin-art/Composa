@@ -46,7 +46,6 @@ public sealed partial class MainWindow : Window
         Padding = new Thickness(12,6), Margin = new Thickness(10,8), IsVisible = false };
     private readonly TextBlock hintText = new() { Foreground = Palette.Secondary, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock aiText = new() { Foreground = Palette.Accent };
-    private readonly TextBlock aiTaskText = new() { Foreground = Palette.Accent };
     private readonly Border aiContextHost = new() { Background = Brushes.Transparent, Padding = new Thickness(8, 0, 0, 0), IsVisible = false };
     private readonly AiTaskService aiTasks;
     private readonly LlamaServerHost assistantServer;
@@ -163,14 +162,16 @@ public sealed partial class MainWindow : Window
         BuildAiContextBar();
         combinedOptions.Children.Add(toolOptionsHost);
         var assistantButton = Ui.TextButton("Assistant", ShowAssistant);
+        assistantButton.Content = Ui.Row(5, Icons.Create(Icons.Assistant, 15), Ui.Label(Locale.T("Assistant")));
+        Avalonia.Automation.AutomationProperties.SetName(assistantButton, Locale.T("Assistant"));
         assistantButton.Classes.Add("flat");
         assistantButton.MinWidth = 0;
         Locale.Tip(assistantButton, "Open the local editing Assistant");
         generativeExpandButton = Ui.TextButton("Generative expand", () => _ = RunAi(AiTaskKind.GenerativeExpand));
         generativeExpandButton.IsVisible = false;
         Locale.Tip(generativeExpandButton, "Generate image content inside the extended crop frame");
-        aiTaskText.IsVisible = aiText.IsVisible = false;
-        var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, aiTaskText, aiText, assistantButton);
+        aiText.IsVisible = false;
+        var intelligentTools = Ui.Row(8, generativeExpandButton, aiContextHost, aiText, assistantButton);
         AddAt(combinedOptions, intelligentTools, 1);
         optionsHost.Child = combinedOptions;
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*") };

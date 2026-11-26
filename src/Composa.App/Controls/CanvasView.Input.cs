@@ -88,7 +88,11 @@ public sealed partial class CanvasView
     public void ToolChanged()
     {
         transformSelection = null;
-        if (session?.Tool != Tool.Pen) FinishPen();
+        if (session?.Tool != Tool.Pen)
+        {
+            FinishPen();
+            PenMode = PenEditMode.Draw;
+        }
         CancelInteraction();
         if (session?.Tool != Tool.Crop) { cropRect = null; cropFramePristine = false; }
         // With a selection, the crop starts at its bounds, as Photoshop's does: C, then Enter, crops to it.
@@ -536,7 +540,11 @@ public sealed partial class CanvasView
             case Drag.Stroke: session.EndStroke(); QueueBrushPreparation(); break;
             case Drag.PenNode:
                 guides.Clear();
-                if (!penDraftDrag && penLayer != null) { if (moved || penConverted) { if (!EditVectorMask) session.CompletePathEdit(penLayer); session.Commit(); } else session.Cancel(); }
+                if (!penDraftDrag && penLayer != null)
+                {
+                    if (moved || penConverted) session.CommitPathPreview();
+                    else session.Cancel();
+                }
                 penLayer = null; penOriginal = null; break;
             case Drag.PenLasso: EndPenLasso(shift, alt); break;
             case Drag.PenErase: EndPenErase(keep: true); break;
@@ -1119,13 +1127,13 @@ public sealed partial class CanvasView
                 if (distortCorner >= 0)
                 {
                     var (x, y) = edit.DistortCorner(distortCorner, currentDocument, perspective: shift && alt,
-                        snapTolerance: (float)(6 / UnitsPerPixel));
+                        snapTolerance: (float)(6 / UnitsPerPixel), keepConvex: true);
                     DrawSnapLines(x, y);
                 }
                 else if (distortEdge)
                 {
                     var (x, y) = edit.DistortEdge(handle, currentDocument - pressDocument, skew: shift, fromCenter: alt,
-                        snapTolerance: (float)(6 / UnitsPerPixel));
+                        snapTolerance: (float)(6 / UnitsPerPixel), keepConvex: true);
                     DrawSnapLines(x, y);
                 }
                 else
