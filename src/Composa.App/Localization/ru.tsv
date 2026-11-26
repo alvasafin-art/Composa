@@ -2233,3 +2233,6 @@ Mark source image	Разметка на изображении
 Draw an AI region to preview the request.	Нарисуйте область для предпросмотра запроса.
 API and subscription	API и подписка
 Local models	Локальные модели
+New AI region	Новая AI-область
+Edit AI region	Изменение AI-области
+Delete AI region	Удаление AI-области
