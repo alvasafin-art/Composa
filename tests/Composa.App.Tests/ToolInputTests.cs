@@ -77,8 +77,8 @@ public class ToolInputTests
     [InlineData(Tool.SpotHealing)]
     public void Large_brush_outline_follows_hover_and_clears_its_previous_position(Tool tool)
     {
-        session.Brush = session.Brush with { Size = 180, Hardness = .4, FullCursor = false };
         window.SelectTool(tool);
+        session.Brush = session.Brush with { Size = 180, Hardness = .4, FullCursor = false };
         window.Canvas.ZoomTo(1);
         Dispatcher.UIThread.RunJobs();
         var before = At(140, 205);
