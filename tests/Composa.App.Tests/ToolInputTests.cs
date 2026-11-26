@@ -561,6 +561,35 @@ public class ToolInputTests
         Assert.Null(session.ActiveLayer);
     }
 
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Move_drags_an_off_canvas_layer_back_into_view(bool showTransformControls)
+    {
+        var pixels = Rendering.Pixels.NewColor(50, 50);
+        pixels.Erase(SKColors.Red);
+        if (showTransformControls)
+        {
+            // The center of the selected frame is draggable even where the layer is transparent.
+            using var canvas = new SKCanvas(pixels);
+            using var paint = new SKPaint { BlendMode = SKBlendMode.Clear };
+            canvas.DrawRect(15, 0, 20, 50, paint);
+        }
+        var layer = session.AddImageLayer("Off canvas", pixels, new SKPoint(650, 200), fit: false);
+        session.View = session.View with { Snap = false };
+        window.SelectTool(Tool.Move);
+        window.Canvas.ShowTransformControls = showTransformControls;
+        window.Canvas.ZoomTo(.75);
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(new SKPoint(650, 200), new SKPoint(550, 200));
+
+        Assert.Equal(layer.Id, session.ActiveLayer!.Id);
+        Assert.Equal(525, layer.Transform.X);
+        Assert.Equal(SKColors.Red, session.Composite().GetPixel(530, 200));
+        Assert.Equal("Move", session.History.UndoName);
+    }
+
     [AvaloniaFact]
     public void Move_ignores_masked_pixels_and_clicking_transparent_canvas_selects_nothing()
     {

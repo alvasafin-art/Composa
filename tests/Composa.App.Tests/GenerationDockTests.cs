@@ -284,7 +284,7 @@ public class GenerationDockTests
     [AvaloniaTheory]
     [InlineData(AiTaskKind.ChangeBackground, "Change Background", "dock")]
     [InlineData(AiTaskKind.Harmonize, "Harmonize", "main")]
-    [InlineData(AiTaskKind.MatchToScene, "Match to Scene", "quick")]
+    [InlineData(AiTaskKind.Harmonize, "Harmonize", "quick")]
     [InlineData(AiTaskKind.ChangeBackground, "Change Background", "hidden")]
     [InlineData(AiTaskKind.Harmonize, "Harmonize", "collapsed")]
     [InlineData(AiTaskKind.Harmonize, "Harmonize", "floating")]
@@ -414,13 +414,10 @@ public class GenerationDockTests
         finally { window.Close(); }
     }
 
-    [AvaloniaTheory]
-    [InlineData(AiTaskKind.Relight, "Relight", "Lighting preset")]
-    [InlineData(AiTaskKind.Upscale, "Upscale", "Scale")]
-    public void Operations_with_extra_controls_keep_their_dialog(AiTaskKind task, string label, string extraControl)
+    [AvaloniaFact]
+    public void Upscale_keeps_its_scale_dialog()
     {
         var window = new MainWindow { Width = 1100, Height = 800 };
-        if (task == AiTaskKind.Relight) window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
         window.Show();
         try
         {
@@ -431,10 +428,10 @@ public class GenerationDockTests
             Pump();
             var operation = Operation(section.Content);
 
-            ClickOperation(AiMenuItems(window), label);
+            ClickOperation(AiMenuItems(window), "Upscale");
             Pump();
             var dialog = Assert.Single(window.OwnedWindows);
-            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == extraControl);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Scale");
             Assert.Equal(operation, Operation(section.Content));
             dialog.Close();
             Pump();
@@ -449,6 +446,72 @@ public class GenerationDockTests
 
     private static IEnumerable<MenuItem> AiMenuItems(MainWindow window) =>
         window.GetVisualDescendants().OfType<MenuItem>().Single(i => i.Header?.ToString()?.Replace("_", "") == "AI").Items.OfType<MenuItem>();
+
+    [AvaloniaFact]
+    public void Ai_choosers_show_only_operations_and_keep_the_run_icon()
+    {
+        var window = new MainWindow { Width = 1280, Height = 800 };
+        window.Show();
+        try
+        {
+            var session = EditorSession.NewCanvas(400, 300, SKColors.White);
+            window.AddSession(session);
+            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
+            session.SelectRect(new(40, 40, 160, 160));
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, false);
+            Pump();
+
+            CheckChooser("AiMore", "Generative Fill", "Image Edit", "Generative Expand");
+            CheckChooser("AiTaskMenu", "Generative Fill", "Image Edit", "Generative Expand");
+            var run = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Name == "AiRun");
+            CheckRunIcon(run);
+            dock.SetVisible(section, true);
+            dock.SetCollapsed(section, false);
+            dock.Activate(section);
+            Pump();
+            CheckChooser("AiDockOperation", "Gen Fill", "Edit Image", "Gen Expand");
+            Assert.Contains(run, section.Content.GetVisualDescendants());
+            CheckRunIcon(run);
+
+            var aiMenu = window.GetVisualDescendants().OfType<MenuItem>()
+                .Single(item => item.Header?.ToString()?.Replace("_", "") == "AI");
+            aiMenu.RaiseEvent(new RoutedEventArgs(MenuItem.SubmenuOpenedEvent));
+            var mainMenu = aiMenu.Items.OfType<MenuItem>().ToArray();
+            Assert.DoesNotContain(mainMenu, item => Equals(item.Header, "Match to Scene"));
+            var relight = Assert.Single(mainMenu, item => Equals(item.Header, "Relight…"));
+            Assert.False(relight.IsEnabled);
+            relight.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Assert.Empty(window.OwnedWindows);
+            Assert.Null(window.AiTasks.Operation);
+            var presets = Assert.Single(mainMenu, item => Equals(item.Header, "Presets"));
+            Assert.False(presets.IsEnabled);
+            Assert.Empty(presets.Items);
+
+            void CheckChooser(string name, string fill, string edit, string expand)
+            {
+                var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => b.Name == name);
+                var menu = Assert.IsType<MenuFlyout>(button.Flyout);
+                menu.ShowAt(button);
+                Pump();
+                var items = menu.Items.Select(Assert.IsType<MenuItem>).ToArray();
+                Assert.Equal(new[] { "Generate Image", edit, fill, "Remove Object", expand, "Change Background",
+                    "Harmonize", "Relight", "Upscale", "Object Selection" }, items.Select(item => item.Header?.ToString()));
+                Assert.False(Assert.Single(items, item => Equals(item.Header, "Relight")).IsEnabled);
+                menu.Hide();
+                Pump();
+            }
+
+            static void CheckRunIcon(Button button)
+            {
+                var glyph = Assert.Single(button.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>());
+                Assert.True(glyph.Data!.Bounds.Width > 0);
+                Assert.Same(Palette.ActionText, glyph.Fill);
+            }
+        }
+        finally { window.Close(); }
+    }
 
     private static void ClickOperation(IEnumerable<MenuItem> items, string name) =>
         items.Single(i => i.Header?.ToString()?.TrimEnd('…') == name).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));

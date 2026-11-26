@@ -7,7 +7,6 @@ using Avalonia.Media;
 using Composa.AI;
 using Composa.App.AI;
 using Composa.App.Controls;
-using Composa.App.Dialogs;
 using Composa.Rendering;
 using Composa.Editing;
 
@@ -144,7 +143,7 @@ public sealed partial class MainWindow
 
     private void PopulateDockOperations(MenuFlyout menu)
     {
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(t => t != AiTaskKind.SelectSubject))
+        foreach (var task in AiGenerationControls.VisibleOperations)
         {
             var item = new MenuItem { Header = DockTaskName(task), ToggleType = MenuItemToggleType.Radio };
             ToolTip.SetShowOnDisabled(item, true);
@@ -159,24 +158,5 @@ public sealed partial class MainWindow
             item.Click += (_, _) => ChooseAiOperation(task);
             menu.Items.Add(item);
         }
-        menu.Items.Add(new Separator());
-        AddGenerationConnectionMenu(menu);
-        var settingsItem = new MenuItem { Header = Locale.T("AI Settings…") };
-        settingsItem.Click += (_, _) => _ = ShowAiSettings();
-        menu.Items.Add(settingsItem);
-        var collapse = new MenuItem { Header = Locale.T("Collapse panel") };
-        collapse.Click += (_, _) => dock.SetCollapsed(generationSection, true);
-        menu.Opening += (_, _) => collapse.IsVisible = !dock.Tabbed;
-        menu.Items.Add(collapse);
-    }
-
-    private void AddGenerationConnectionMenu(MenuFlyout menu)
-    {
-        var configure = new MenuItem { Header = Locale.T("Connection settings…") };
-        configure.Click += (_, _) => _ = ShowAiSettings(AiDialogs.ConnectionPageFor(PanelRoute(EditorTask)));
-        menu.Items.Add(configure);
-        var context = new MenuItem { Header = Locale.T("Selection context settings…") };
-        context.Click += (_, _) => _ = ShowAiSettings(AiDialogs.GenerationsPageIndex);
-        menu.Items.Add(context);
     }
 }

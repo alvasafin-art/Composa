@@ -99,6 +99,47 @@ public class LayerClipboardTests
         _ = pasted;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Pasting_into_a_smaller_document_centers_subjects_with_transparent_padding(bool inPlace)
+    {
+        var source = EditorSession.NewCanvas(800, 600);
+        var pixels = Pixels.NewColor(800, 600);
+        using (var canvas = new SKCanvas(pixels))
+        using (var paint = new SKPaint { Color = SKColors.Red })
+            canvas.DrawRect(700, 520, 50, 30, paint);
+        var layer = source.AddImageLayer("Subject", pixels);
+        Assert.True(source.Copy());
+        var target = EditorSession.NewCanvas(120, 100, SKColors.White);
+
+        var pasted = (inPlace ? target.PasteInPlace() : target.Paste())!;
+
+        Assert.Equal(new SKRect(35, 35, 85, 65), pasted.ControlBounds);
+        Assert.Equal(SKColors.Red, target.Composite().GetPixel(60, 50));
+        Assert.Equal(new SKRect(700, 520, 750, 550), layer.ControlBounds);
+        Assert.Equal(pasted.Id, target.ActiveLayer!.Id);
+        target.Undo();
+        Assert.Single(target.Document.Layers);
+    }
+
+    [Fact]
+    public void Pasting_spaced_layers_on_a_small_canvas_keeps_some_content_visible()
+    {
+        var source = ThreeLayers(out var a, out _, out var c);
+        source.SelectLayer(a.Id);
+        source.SelectLayer(c.Id, extend: true);
+        Assert.True(source.Copy());
+        var target = EditorSession.NewCanvas(10, 10, SKColors.White);
+
+        target.PasteInPlace();
+
+        var layers = target.Document.Layers.Skip(1).ToArray();
+        Assert.Equal(60, layers[1].Transform.X - layers[0].Transform.X);
+        Assert.Equal(60, layers[1].Transform.Y - layers[0].Transform.Y);
+        Assert.NotEqual(SKColors.White, target.Composite().GetPixel(5, 5));
+    }
+
     [Fact]
     public void An_adjustment_layer_copies_whole_and_a_pixel_copy_replaces_it()
     {

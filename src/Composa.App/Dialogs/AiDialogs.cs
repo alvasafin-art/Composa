@@ -1218,7 +1218,7 @@ public static partial class AiDialogs
                 selectedProvider == "direct" ? ConnectionLight(textCatalog.CheckMessage, textCatalog.Connected) : textConnectionCheck.Light(),
                 Chevron(Icons.ChevronRight)),
                 () => openPrompt?.Invoke(null, null)));
-            foreach (var task in DirectImageGenerator.Operations)
+            foreach (var task in AiGenerationControls.VisibleOperations)
             {
                 var current = OperationDefault(task);
                 var expanded = expandedOperation == task;
@@ -1229,7 +1229,7 @@ public static partial class AiDialogs
                     {
                         expandedOperation = expanded ? null : task;
                         RenderOperations();
-                    }, expanded));
+                    }, expanded, AiGenerationControls.IsOperationEnabled(task)));
                 if (!expanded) continue;
 
                 var options = OperationChoices(task, current);
@@ -1260,9 +1260,10 @@ public static partial class AiDialogs
                 operationTable.Children.Add(InsetRow(detail, Palette.PanelRaised, vertical: 12));
             }
 
-            Border OperationRow(Control content, Action open, bool expanded = false)
+            Border OperationRow(Control content, Action open, bool expanded = false, bool enabled = true)
             {
                 var row = RowButton(content, open);
+                row.IsEnabled = enabled;
                 row.Padding = new Thickness(15, 8);
                 row.CornerRadius = new CornerRadius(0);
                 return new Border { Child = row, Background = expanded ? Palette.PanelRaised : null,
@@ -1305,7 +1306,7 @@ public static partial class AiDialogs
                 modelMaster.Children.Add(button);
             }
             if (selected == null) return;
-            var compatible = DirectImageGenerator.Operations.Where(task =>
+            var compatible = AiGenerationControls.VisibleOperations.Where(task =>
                 (selected.Tool is { } tool ? task == tool : !ImageOperationModels.IsUtility(task)) &&
                 ImageOperationModels.Supports(selected.Engine, task)).ToArray();
             var assigned = compatible.Where(task =>
@@ -1313,8 +1314,12 @@ public static partial class AiDialogs
                 OperationDefault(task)?.AssignedWorkflow != true).ToHashSet();
             if (compatible.Length == 0) return;
             modelUsage.Children.Add(Heading("Compatible operations", 13));
-            modelUsage.Children.Add(Ui.Column(3, compatible.Select(task => (Control)Caption(Locale.T(task.DisplayName()) +
-                (assigned.Contains(task) ? " · " + Locale.T("Default model") : ""))).ToArray()));
+            modelUsage.Children.Add(Ui.Column(3, compatible.Select(task =>
+            {
+                var caption = Caption(Locale.T(task.DisplayName()) + (assigned.Contains(task) ? " · " + Locale.T("Default model") : ""));
+                if (!AiGenerationControls.IsOperationEnabled(task)) caption.Opacity = .5;
+                return (Control)caption;
+            }).ToArray()));
         }
         void QueueRefresh()
         {
