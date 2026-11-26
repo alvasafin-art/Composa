@@ -22,6 +22,59 @@ namespace Composa.App.Tests;
 public class GenerationDockTests
 {
     [AvaloniaFact]
+    public void The_last_AI_panel_interaction_routes_paste_and_hides_the_empty_prompt_hint()
+    {
+        var oldClipboard = EditorSession.Clipboard;
+        using var copied = Composa.Rendering.Pixels.NewColor(24, 16);
+        copied.Erase(SKColors.Coral);
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        try
+        {
+            var session = EditorSession.NewCanvas(500, 350, SKColors.White);
+            window.AddSession(session);
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            Pump();
+            EditorSession.Clipboard = new ClipboardImage(copied, default);
+            var prompt = section.Content.GetVisualDescendants().OfType<AiPromptField>().Single();
+            var hint = prompt.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Name == "AiPromptPlaceholder");
+            void Click(Point point)
+            {
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                Pump();
+            }
+            void Paste()
+            {
+                window.KeyPressQwerty(PhysicalKey.V, RawInputModifiers.Control);
+                Pump();
+            }
+
+            Assert.True(hint.IsVisible);
+            Click(prompt.TranslatePoint(new Point(10, 10), window)!.Value);
+            Assert.False(hint.IsVisible);
+            window.KeyTextInput("A long prompt");
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            window.KeyPressQwerty(PhysicalKey.Backspace, RawInputModifiers.None);
+            Pump();
+            Assert.Empty(prompt.Text ?? "");
+            Assert.False(hint.IsVisible);
+            Paste();
+            Assert.Equal(1, window.AiReferenceCount);
+            Assert.Single(session.Document.Layers);
+
+            Click(window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(20, 20)), window)!.Value);
+            Assert.True(hint.IsVisible);
+            Paste();
+            Assert.Equal(1, window.AiReferenceCount);
+            Assert.Equal(2, session.Document.Layers.Count);
+        }
+        finally { EditorSession.Clipboard = oldClipboard; window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Reference_suggestions_overlay_the_dock_without_moving_its_controls()
     {
         var window = new MainWindow { Width = 1280, Height = 800 };

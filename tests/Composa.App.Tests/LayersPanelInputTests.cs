@@ -56,6 +56,38 @@ public class LayersPanelInputTests
     }
 
     [AvaloniaFact]
+    public void Clicking_nested_pixels_expands_their_parents_and_scrolls_the_layer_into_view()
+    {
+        var image = Composa.Rendering.Pixels.NewColor(40, 40);
+        image.Erase(SKColors.Red);
+        var child = Layer.Raster("Nested subject", image, 50, 40);
+        var inner = Layer.Group("Inner");
+        var outer = Layer.Group("Outer");
+        inner.Children.Add(child);
+        outer.Children.Add(inner);
+        outer.Collapsed = inner.Collapsed = true;
+        session.Document.Layers.Insert(1, outer);
+        for (int i = 0; i < 50; i++) session.Document.Layers.Add(Layer.Group("Empty " + i));
+        session.Document.SetActive(session.Document.Layers[^1].Id);
+        session.NotifyLayersChanged();
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(Rows(), row => Equals(row.Tag, child));
+
+        var point = window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(60, 50)), window)!.Value;
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(child.Id, session.Document.ActiveLayerId);
+        Assert.False(outer.Collapsed);
+        Assert.False(inner.Collapsed);
+        var row = Assert.Single(Rows(), row => Equals(row.Tag, child));
+        var viewport = row.FindAncestorOfType<ScrollViewer>()!;
+        var top = row.TranslatePoint(default, viewport)!.Value.Y;
+        Assert.InRange(top + row.Bounds.Height / 2, 0, viewport.Bounds.Height);
+    }
+
+    [AvaloniaFact]
     public void Swiping_down_the_eye_column_hides_each_layer_passed()
     {
         var rows = Rows();

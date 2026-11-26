@@ -18,6 +18,7 @@ public sealed partial class MainWindow
     private readonly List<(Control Editor, Border Floating, Border Docked)> generationSlots = [];
     private readonly TextBlock dockOperationName = Ui.Label("", weight: FontWeight.SemiBold);
     private Button dockOperation = null!;
+    private Control? dockAiEditor;
     private bool editorInDock;
     private AiTaskKind automaticDockTask = AiTaskKind.GenerateImage;
     private AiTaskKind? manualDockTask;
@@ -74,6 +75,7 @@ public sealed partial class MainWindow
         body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        dockAiEditor = view;
         EnableAiReferenceDrop(view);
         aiFloatingPrompt.TextChanging += (_, _) =>
         {

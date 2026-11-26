@@ -8,6 +8,7 @@ public sealed record BezierNode(double X, double Y, double InX, double InY, doub
     public bool StartsContour { get; init; }
     public bool StartsUnion { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool OpensContour { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public double CornerRadius { get; init; }
     public static BezierNode Corner(double x, double y) => new(x, y, x, y, x, y);
 }
 public sealed partial record VectorPath
@@ -18,7 +19,11 @@ public sealed partial record VectorPath
     [JsonIgnore] public bool IsFullyClosed => Closed && !Nodes.Any(node => node.OpensContour);
     public bool Equals(VectorPath? other) => other != null && Closed == other.Closed && EvenOdd == other.EvenOdd && Nodes.SequenceEqual(other.Nodes);
     public override int GetHashCode() { var hash = new HashCode(); hash.Add(Closed); hash.Add(EvenOdd); foreach (var node in Nodes) hash.Add(node); return hash.ToHashCode(); }
-    public VectorPath Normalized() => this with { Nodes = Nodes.Take(4096).Where(n => new[] { n.X, n.Y, n.InX, n.InY, n.OutX, n.OutY }.All(double.IsFinite)).ToArray() };
+    public VectorPath Normalized() => this with
+    {
+        Nodes = Nodes.Take(4096).Where(n => new[] { n.X, n.Y, n.InX, n.InY, n.OutX, n.OutY }.All(double.IsFinite))
+            .Select(n => n.CornerRadius >= 0 && n.CornerRadius <= DocumentLimits.MaxSide ? n : n with { CornerRadius = 0 }).ToArray()
+    };
     public VectorPath SplitSegment(int segment, double t)
     {
         if (Nodes.Length < 2 || Nodes.Length >= 4096 || segment < 0 || !HasSegment(segment)) return this;
@@ -64,21 +69,31 @@ public sealed partial record VectorPath
     private void BuildGroup(SKPath path, int start, int end, float width, float height, bool closedOnly)
     {
         bool skip = false;
+        VectorCorner? fromCorner = null;
         for (int i = start; i < end; i++)
         {
             var from = Nodes[i];
             if (i == start || from.StartsContour)
             {
                 skip = closedOnly && (!Closed || from.OpensContour);
-                if (!skip) path.MoveTo((float)from.X * width, (float)from.Y * height);
+                fromCorner = RoundedCorner(i, width, height);
+                if (!skip) path.MoveTo(fromCorner?.Exit ?? new SKPoint((float)from.X * width, (float)from.Y * height));
             }
             if (skip) continue;
             var next = SegmentEnd(i);
             if (next < 0) continue;
             var to = Nodes[next];
-            path.CubicTo((float)from.OutX * width, (float)from.OutY * height, (float)to.InX * width, (float)to.InY * height,
-                (float)to.X * width, (float)to.Y * height);
+            var toCorner = RoundedCorner(next, width, height);
+            var endpoint = new SKPoint((float)to.X * width, (float)to.Y * height);
+            if (fromCorner != null || toCorner != null) path.LineTo(toCorner?.Entry ?? endpoint);
+            else path.CubicTo((float)from.OutX * width, (float)from.OutY * height, (float)to.InX * width, (float)to.InY * height,
+                endpoint.X, endpoint.Y);
+            if (toCorner is { } round) path.CubicTo(round.EntryControl, round.ExitControl, round.Exit);
+            fromCorner = toCorner;
             if (next <= i) path.Close();
         }
     }
+
+    private VectorCorner? RoundedCorner(int index, float width, float height) =>
+        Nodes[index].CornerRadius > 0 ? CornerAt(index, width, height) : null;
 }

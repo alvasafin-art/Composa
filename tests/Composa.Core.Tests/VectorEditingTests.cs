@@ -7,6 +7,28 @@ namespace Composa.Core.Tests;
 
 public class VectorEditingTests
 {
+    [Fact]
+    public void Rounded_corners_keep_a_live_radius_in_saved_layers()
+    {
+        var editor = EditorSession.NewCanvas(300, 280);
+        var path = new VectorPath
+        {
+            Nodes = [BezierNode.Corner(10, 100), BezierNode.Corner(120, 100) with { CornerRadius = 30 }, BezierNode.Corner(120, 200)]
+        };
+        var layer = editor.AddPath(path);
+        using var project = new MemoryStream();
+        ProjectFile.Write(editor.Document, project);
+        project.Position = 0;
+        var restored = ProjectFile.Read(project).Find(layer.Id)!;
+        var rounded = restored.Shape!.Path!;
+        Assert.Equal(30, rounded.Nodes[1].CornerRadius);
+        var corner = rounded.CornerAt(1, restored.Pixels!.Width, restored.Pixels.Height)!.Value;
+        Assert.Equal(30, corner.Radius);
+        using var ink = rounded.Build(restored.Pixels.Width, restored.Pixels.Height);
+        using var measure = new SKPathMeasure(ink);
+        Assert.InRange(measure.Length, 197, 198); // Straight portions (150 px) and a quarter-circle (~47 px).
+    }
+
     private static readonly BezierNode A = new(.05, .7, .05, .7, .11, -.22);
     private static readonly BezierNode B = new(.94, .19, .84, 1.18, .94, .19);
 

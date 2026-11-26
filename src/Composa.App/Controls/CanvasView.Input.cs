@@ -141,7 +141,7 @@ public sealed partial class CanvasView
             case Drag.TextPathStart: session.TextEdit?.EndPathStartDrag(keep: false); break;
             case Drag.Stroke: session.CancelStroke(); break;
             case Drag.Patch: session.CancelPreview(); break;
-            case Drag.PenNode: if (!penDraftDrag) session.Cancel(); penLayer = null; penOriginal = null; penDraft.Clear(); break;
+            case Drag.PenNode: if (!penDraftDrag) session.Cancel(); penLayer = null; penOriginal = null; penCornerDrag = null; penDraft.Clear(); break;
             case Drag.PenErase: EndPenErase(keep: false); break;
             case Drag.SelectionBrush: session.CancelSelectionBrush(); break;
             case Drag.Transform: session.CancelTransform(); break;
@@ -390,7 +390,7 @@ public sealed partial class CanvasView
             case Drag.ShapeParameter: UpdateShapeParameter(); break;
             case Drag.Pan: PanBy(delta); break;
             case Drag.Patch: session.PreviewPatch(currentDocument - pressDocument); break;
-            case Drag.PenNode: PenMove(alt); break;
+            case Drag.PenNode: PenMove(alt, shift); break;
             case Drag.PenErase: ErasePenTo(currentDocument); break;
             case Drag.Marquee or Drag.Shape or Drag.AiRectangle: snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
             case Drag.MoveSelection: selectionOffset = SnappedSelectionOffset(shift, e.KeyModifiers.HasFlag(KeyModifiers.Control)); break;
@@ -505,7 +505,7 @@ public sealed partial class CanvasView
             currentDocument = ToDocument(cursorScreen);
             if (Distance(pressScreen, cursorScreen) > 2)
             {
-                if (drag == Drag.PenNode) PenMove(alt);
+                if (drag == Drag.PenNode) PenMove(alt, shift);
                 else if (drag == Drag.WarpNode) DragWarpPoint(shift);
                 else DragTextBox(e.KeyModifiers.HasFlag(KeyModifiers.Control));
             }
@@ -545,7 +545,7 @@ public sealed partial class CanvasView
                     if (moved || penConverted) session.CommitPathPreview();
                     else session.Cancel();
                 }
-                penLayer = null; penOriginal = null; break;
+                penLayer = null; penOriginal = null; penCornerDrag = null; break;
             case Drag.PenLasso: EndPenLasso(shift, alt); break;
             case Drag.PenErase: EndPenErase(keep: true); break;
             case Drag.Patch:
@@ -1024,6 +1024,8 @@ public sealed partial class CanvasView
             if (UpdatesTransformModifiers && Distance(pressScreen, cursorScreen) > 2)
                 DragTransform(dragModifiers.HasFlag(KeyModifiers.Shift), dragModifiers.HasFlag(KeyModifiers.Alt),
                     dragModifiers.HasFlag(KeyModifiers.Control));
+            if (drag == Drag.PenNode && flag == KeyModifiers.Shift && Distance(pressScreen, cursorScreen) > 2)
+                PenMove(dragModifiers.HasFlag(KeyModifiers.Alt), dragModifiers.HasFlag(KeyModifiers.Shift));
             InvalidateCanvas();
             return;
         }
@@ -1083,9 +1085,12 @@ public sealed partial class CanvasView
                 session.ClearLayerSelection();
                 return;
             }
-            if (!keepGroup && hit != null && (AutoSelect || control || clicks >= 2)
-                && (!session.Document.SelectedLayerIds.Contains(hit.Id) || dragModifiers.HasFlag(KeyModifiers.Shift)))
-                session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
+            if (!keepGroup && hit != null && (AutoSelect || control || clicks >= 2))
+            {
+                if (!session.Document.SelectedLayerIds.Contains(hit.Id) || dragModifiers.HasFlag(KeyModifiers.Shift))
+                    session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
+                else if (hit.Id == session.Document.ActiveLayerId) session.RevealActiveLayer();
+            }
             if (control && dragModifiers == KeyModifiers.Control && BeginLayoutReorder()) return;
             handle = TransformHandle.Move;
         }

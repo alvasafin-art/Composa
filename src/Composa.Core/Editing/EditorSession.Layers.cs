@@ -62,10 +62,31 @@ public sealed partial class EditorSession
         document.SelectionOrder.RemoveAll(selected => !document.SelectedLayerIds.Contains(selected));
         if (document.SelectionAnchorId is not { } first || !document.SelectedLayerIds.Contains(first))
             document.SelectionAnchorId = document.ActiveLayerId;
+        ExpandActiveLayerParents();
         if (ActiveLayer?.Mask == null) EditingMask = false;
         UpdatingLayerSelection = !wasEffect;
         try { LayersChanged?.Invoke(); }
         finally { UpdatingLayerSelection = false; }
+    }
+
+    public void RevealActiveLayer()
+    {
+        if (!ExpandActiveLayerParents()) return;
+        UpdatingLayerSelection = true;
+        try { LayersChanged?.Invoke(); }
+        finally { UpdatingLayerSelection = false; }
+    }
+
+    private bool ExpandActiveLayerParents()
+    {
+        var changed = false;
+        for (var parent = document.ActiveLayerId is { } active ? document.ParentOf(active) : null;
+            parent != null; parent = document.ParentOf(parent.Id))
+        {
+            changed |= parent.Collapsed;
+            parent.Collapsed = false;
+        }
+        return changed;
     }
 
     /// <summary>Clears the layer selection after a click on empty canvas space.</summary>

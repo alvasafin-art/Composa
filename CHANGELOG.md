@@ -4,6 +4,14 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.16] - 2026-11-26
+
+- Show Windows update failures and retry a previously requested installation once from the local package at the next launch.
+- Route paste to AI references after interacting with the AI panel. Hide the empty prompt hint while the panel is active.
+- Expand parent groups and reveal the selected layer in the Layers panel.
+- Drag circular controls to round straight joins on editable vector paths. Save each corner radius with the project.
+- Hold Shift while dragging vector nodes, segments or Bézier handles to constrain them to a horizontal or vertical axis.
+
 ## [1.3.0-preview.4.studio.17.15] - 2026-11-26
 
 - Keep vector strokes visible while dragging nodes. Fix cap changes, marker alignment and stroke controls. Match hollow markers and open arrow strokes to the line width at the endpoint. Reset the Pen mode when switching tools and update the scissors icon.

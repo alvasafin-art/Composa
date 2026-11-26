@@ -535,7 +535,7 @@ public sealed partial class MainWindow
             }
             e.Handled = true; return;
         }
-        if (!settings.CanvasOnly && (aiFloatingHost.IsVisible || DockEditorVisible && (focused is not TextBox || focused == aiFloatingPrompt)) && e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
+        if (e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control && AiEditorOwnsPaste(focused))
         {
             e.Handled = true;
             _ = PasteAiReferenceOrText(focused as TextBox);

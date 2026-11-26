@@ -98,6 +98,75 @@ public class PenModesUiTests
     }
 
     [AvaloniaFact]
+    public void Holding_shift_during_a_curve_drag_aligns_the_handle_to_its_anchor()
+    {
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        try
+        {
+            var session = EditorSession.NewCanvas(500, 350, SKColors.White);
+            window.AddSession(session);
+            session.AddPath(new VectorPath
+            {
+                Nodes = [BezierNode.Corner(110, 100), new BezierNode(240, 160, 210, 140, 270, 180), BezierNode.Corner(350, 180)]
+            });
+            window.SelectTool(Tool.Pen);
+            Dispatcher.UIThread.RunJobs();
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
+            var target = At(310, 185);
+            window.MouseDown(At(270, 180), MouseButton.Left);
+            window.MouseMove(target, RawInputModifiers.LeftMouseButton);
+            Assert.NotEqual(160, Outgoing().Y);
+            window.KeyPressQwerty(PhysicalKey.ShiftLeft, RawInputModifiers.None);
+            Assert.Equal(160, Outgoing().Y, 2);
+            Assert.Equal(310, Outgoing().X, 2);
+            window.MouseUp(target, MouseButton.Left, RawInputModifiers.Shift);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(160, Outgoing().Y, 2);
+
+            SKPoint Outgoing()
+            {
+                var layer = session.ActiveLayer!;
+                var node = layer.Shape!.Path!.Nodes[1];
+                return layer.Matrix.MapPoint((float)(node.OutX * layer.Pixels!.Width), (float)(node.OutY * layer.Pixels.Height));
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void Dragging_the_round_control_rounds_an_open_path_corner_and_is_undoable()
+    {
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        try
+        {
+            var session = EditorSession.NewCanvas(500, 350, SKColors.White);
+            window.AddSession(session);
+            var layer = session.AddPath(new VectorPath
+            {
+                Nodes = [BezierNode.Corner(100, 100), BezierNode.Corner(220, 100), BezierNode.Corner(220, 240)]
+            });
+            window.SelectTool(Tool.Pen);
+            Dispatcher.UIThread.RunJobs();
+            var anchor = window.Canvas.ToScreen(new SKPoint(220, 100));
+            var handle = window.Canvas.TranslatePoint(anchor + new Vector(-9.9, 9.9), window)!.Value;
+            var target = handle + new Vector(-21, 21);
+            window.MouseDown(handle, MouseButton.Left);
+            window.MouseMove(target, RawInputModifiers.LeftMouseButton);
+            Assert.True(layer.Shape!.Path!.Nodes[1].CornerRadius > 20);
+            Assert.Equal(SKColors.White, session.Composite().GetPixel(219, 101));
+            window.MouseUp(target, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("Edit Path", session.History.UndoName);
+            Assert.True(Screenshots.Save(window, "vector-corner-radius"));
+            session.Undo();
+            Assert.Equal(0, session.ActiveLayer!.Shape!.Path!.Nodes[1].CornerRadius);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void Line_properties_show_dash_controls_and_order_filled_markers_before_hollow_markers()
     {
         var window = new MainWindow { Width = 1280, Height = 900 };

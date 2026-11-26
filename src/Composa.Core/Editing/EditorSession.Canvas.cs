@@ -137,7 +137,12 @@ public sealed partial class EditorSession
                         }
                         else if (layer.Shape is { } shape)
                         {
-                            layer.Shape = shape with { CornerRadius = shape.CornerRadius * Math.Min(sx, sy), Corners = shape.Corners?.Scaled(Math.Min(sx,sy)), LineWidth = shape.LineWidth * Math.Min(sx, sy) };
+                            var shapeScale = Math.Min(sx, sy);
+                            var path = shape.Path;
+                            if (path?.Nodes.Any(node => node.CornerRadius > 0) == true)
+                                path = path with { Nodes = path.Nodes.Select(node => node with { CornerRadius = node.CornerRadius * shapeScale }).ToArray() };
+                            layer.Shape = shape with { CornerRadius = shape.CornerRadius * shapeScale, Corners = shape.Corners?.Scaled(shapeScale),
+                                LineWidth = shape.LineWidth * shapeScale, Path = path };
                             layer.Pixels = RenderWorkingShape(layer.Shape, w, h);
                         }
                         else

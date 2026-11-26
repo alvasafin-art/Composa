@@ -23,6 +23,7 @@ public sealed class UpdateNotice : Border
 
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto") };
         message.VerticalAlignment = VerticalAlignment.Center;
+        message.TextWrapping = TextWrapping.Wrap;
         Add(row, message, 0);
         install = Ui.TextButton("Download changes", () => Install?.Invoke());
         install.IsVisible = false;
@@ -55,8 +56,14 @@ public sealed class UpdateNotice : Border
 
     public void SetAction(string label, bool enabled)
     {
-        install.Content = label;
+        install.Content = Locale.T(label);
         install.IsEnabled = enabled;
+    }
+
+    internal void ShowApplyFailure(ReleaseVersion version)
+    {
+        message.Text = string.Format(Locale.T("Composa could not install {0}. The downloaded update is ready to retry."), version);
+        SetAction("Retry installation", true);
     }
 
     public void Hide() => IsVisible = false;

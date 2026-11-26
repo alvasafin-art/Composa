@@ -225,6 +225,18 @@ public sealed partial class MainWindow : Window
         layers.EditSmartFilterBlendingRequested += (layer, filter) => _ = SmartFilterBlending(layer, filter);
 
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            TrackAiEditorInput(e.Source as Visual);
+            if (lastAiEditor == null && aiFloatingPrompt.IsFocused) canvas.Focus();
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerWheelChangedEvent, (_, e) => TrackAiEditorInput(e.Source as Visual),
+            Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(GotFocusEvent, (_, e) =>
+        {
+            if (e.Source == aiFloatingPrompt || e.NavigationMethod is Avalonia.Input.NavigationMethod.Tab or Avalonia.Input.NavigationMethod.Directional)
+                TrackAiEditorInput(e.Source as Visual);
+        }, handledEventsToo: true);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyUpEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: false), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyUpEvent, (_, e) => { if (!SwallowAlt(e)) canvas.HandleKeyUp(e); }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -410,6 +422,7 @@ public sealed partial class MainWindow : Window
         previewRevision++;
         previewContext = null;
         session = next;
+        TrackAiEditorInput(null);
         floatingBoundsMask = null;
         modelDrafts.Clear();
         manualDockTask = null;
@@ -693,7 +706,7 @@ public sealed partial class MainWindow : Window
         {
             if (applyUpdate && preparedUpdate != null)
             {
-                try { deltaUpdates!.WaitExitThenApplyUpdates(preparedUpdate, silent: true, restart: true); }
+                try { deltaUpdates!.RestartForInstall(preparedUpdate, allowRetry: true); }
                 catch (Exception error) { e.Cancel = true; await Dialogs.Prompts.Alert(this, "Update", error.Message); }
             }
             return;

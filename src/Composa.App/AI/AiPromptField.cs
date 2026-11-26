@@ -24,6 +24,9 @@ internal sealed record AiImageMention(int Number)
 
 internal sealed class AiPromptField : TextBox
 {
+    internal static readonly StyledProperty<bool> EditorActiveProperty = AvaloniaProperty.Register<AiPromptField, bool>(nameof(EditorActive));
+    internal bool EditorActive { get => GetValue(EditorActiveProperty); set => SetValue(EditorActiveProperty, value); }
+
     private static readonly Regex Mention = new(@"(?<![\w@])@image ([1-7])(?!\w)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex Query = new(@"(?<![\w@])@([\p{L}\d]*(?: \d*)?)$", RegexOptions.CultureInvariant);
     private static readonly Regex Missing = new(@"(?<![\w@])@missing-image-[1-7](?!\w)", RegexOptions.CultureInvariant);
@@ -59,22 +62,27 @@ internal sealed class AiPromptField : TextBox
             scope.Register(text.Name, text);
             field.presenter = text;
 
-            var hint = new TextBlock { Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap, IsHitTestVisible = false };
+            var hint = new TextBlock { Name = "AiPromptPlaceholder", Foreground = Palette.Secondary,
+                TextWrapping = TextWrapping.Wrap, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
             hint.Bind(TextBlock.TextProperty, field.GetObservable(PlaceholderTextProperty));
-            void RefreshHint() => hint.IsVisible = string.IsNullOrEmpty(text.Text) && string.IsNullOrEmpty(text.PreeditText);
-            text.PropertyChanged += (_, change) =>
+            void RefreshHint() => hint.IsVisible = !field.EditorActive && !field.IsFocused
+                && string.IsNullOrEmpty(field.Text) && string.IsNullOrEmpty(text.PreeditText);
+            text.PropertyChanged += (_, change) => { if (change.Property == TextPresenter.PreeditTextProperty) RefreshHint(); };
+            void FieldChanged(object? sender, AvaloniaPropertyChangedEventArgs change)
             {
-                if (change.Property == TextPresenter.TextProperty || change.Property == TextPresenter.PreeditTextProperty) RefreshHint();
-            };
+                if (change.Property == TextProperty || change.Property == IsFocusedProperty || change.Property == EditorActiveProperty) RefreshHint();
+            }
+            hint.AttachedToVisualTree += (_, _) => { field.PropertyChanged += FieldChanged; RefreshHint(); };
+            hint.DetachedFromVisualTree += (_, _) => field.PropertyChanged -= FieldChanged;
             RefreshHint();
             var scroll = new ScrollViewer
             {
                 Name = "PART_ScrollViewer", HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new Panel { Children = { hint, text } },
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = text,
                 Cursor = new Cursor(StandardCursorType.Ibeam)
             };
             scope.Register(scroll.Name, scroll);
-            var border = new Border { Name = "PART_BorderElement", Child = scroll };
+            var border = new Border { Name = "PART_BorderElement", Child = new Panel { Children = { scroll, hint } } };
             border.Bind(Border.BackgroundProperty, field.GetObservable(BackgroundProperty));
             border.Bind(Border.BorderBrushProperty, field.GetObservable(BorderBrushProperty));
             border.Bind(Border.BorderThicknessProperty, field.GetObservable(BorderThicknessProperty));

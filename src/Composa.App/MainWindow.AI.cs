@@ -88,6 +88,27 @@ public sealed partial class MainWindow
     private Button aiWorkflowLink = null!;
     private readonly List<AiReferenceItem> aiReferences = [];
     private AiReferenceEditor? aiDialogReferences;
+    private Control? lastAiEditor;
+
+    private Control? AiEditorContaining(Visual? source)
+    {
+        if (!settings.CanvasOnly && source != null)
+        {
+            var visible = DockEditorVisible ? dockAiEditor : aiFloatingHost.IsVisible ? aiFloatingHost : null;
+            if (visible != null && source.GetSelfAndVisualAncestors().Contains(visible)) return visible;
+        }
+        return null;
+    }
+
+    private void TrackAiEditorInput(Visual? source)
+    {
+        lastAiEditor = AiEditorContaining(source);
+        aiFloatingPrompt.EditorActive = lastAiEditor != null;
+    }
+
+    private bool AiEditorOwnsPaste(IInputElement? focused) =>
+        (focused is not TextBox || focused == aiFloatingPrompt)
+        && lastAiEditor != null && AiEditorContaining(lastAiEditor) != null;
     private bool refreshingAiEngine;
     private WrapPanel? aiFloatingTools;
     private Button? aiFloatingCollapse, aiHeaderReference;
@@ -521,6 +542,7 @@ public sealed partial class MainWindow
     {
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
+        if (lastAiEditor != null && AiEditorContaining(lastAiEditor) == null) TrackAiEditorInput(null);
         var expanded = DockEditorVisible || !settings.AiFloatingCollapsed;
         var task = EditorTask;
         var fillEngine = PanelEngine(task);

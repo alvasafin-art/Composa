@@ -28,9 +28,17 @@ public sealed partial class MainWindow
         updateNotice.Install += () => _ = InstallUpdate();
         updateNotice.Skip += () =>
         {
+            deltaUpdates?.CancelOfflineRetry();
             settings.SkippedVersion = pendingUpdateVersion?.ToString();
             settings.Save();
         };
+
+        // A staged package can be installed without contacting GitHub, even inside
+        // the daily automatic check interval or on an offline computer.
+        if (deltaUpdates?.UpdatePendingRestart is { } staged
+            && ReleaseVersion.TryParse(staged.Version.ToString(), out var version)
+            && settings.SkippedVersion != version.ToString())
+            OfferUpdate(new UpdateResult(UpdateOutcome.Available, version, AppInfo.ReleasesUrl + "/tag/v" + version));
 
         if (check.RunsAutomatically) UpdateNotice.RunInBackground(check, result =>
         {
@@ -49,7 +57,11 @@ public sealed partial class MainWindow
         preparedUpdate = deltaUpdates?.UpdatePendingRestart;
         if (preparedUpdate?.Version.ToString() != result.Version.ToString()) preparedUpdate = null;
         updateNotice.Show(result.Version, deltaUpdates != null);
-        if (preparedUpdate != null) updateNotice.SetAction("Restart to update", true);
+        if (preparedUpdate != null)
+        {
+            if (preparedUpdate.Version.ToString() == Program.FailedUpdateVersion) updateNotice.ShowApplyFailure(result.Version);
+            else updateNotice.SetAction("Restart to update", true);
+        }
     }
 
     private async Task InstallUpdate()

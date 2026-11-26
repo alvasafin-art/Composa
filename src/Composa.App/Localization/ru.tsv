@@ -208,6 +208,10 @@ Channels	Каналы
 Characters	По буквам
 Check for Updates Automatically	Автоматически проверять обновления
 Check for Updates…	Проверить обновления…
+Composa could not install {0}. The downloaded update is ready to retry.	Не удалось установить Composa {0}. Скачанное обновление можно установить повторно.
+Restart to update	Перезапустить для обновления
+Retry installation	Повторить установку
+The downloaded update is missing. Check for updates and download the changes again.	Скачанное обновление отсутствует. Проверьте обновления и скачайте изменения повторно.
 Check for updates on startup	Проверять обновления при запуске
 Choose 8-bit output for this frame size.	Для этого размера выберите 8-битный результат.
 Choose AI operation	Выбрать операцию ИИ

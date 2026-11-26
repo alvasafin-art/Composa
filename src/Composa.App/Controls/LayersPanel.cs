@@ -55,6 +55,8 @@ public sealed partial class LayersPanel : UserControl
     private bool? eyeSwipe;
     private bool? thumbnailTarget;
     private bool rebuilding, rebuildAgain;
+    private Guid? observedActiveLayer;
+    private bool revealQueued;
 
     internal Layer? GetDraggedReference(string id, EditorSession? current) =>
         externalReferenceDrag is { } drag && ReferenceEquals(drag.Session, current) &&
@@ -234,8 +236,10 @@ public sealed partial class LayersPanel : UserControl
             renaming = null;
             ForgetRecentRows();
             session = value;
+            observedActiveLayer = session?.Document.ActiveLayerId;
             if (session != null) session.LayersChanged += ModelChanged;
             Rebuild();
+            RevealActiveLayer();
         }
     }
 
@@ -267,8 +271,24 @@ public sealed partial class LayersPanel : UserControl
 
     private void ModelChanged()
     {
+        var active = session?.Document.ActiveLayerId;
+        var reveal = active != observedActiveLayer || session?.UpdatingLayerSelection == true;
+        observedActiveLayer = active;
         ForgetRecentRows();
         Rebuild();
+        if (reveal) RevealActiveLayer();
+    }
+
+    private void RevealActiveLayer()
+    {
+        if (revealQueued || session?.Document.ActiveLayerId == null) return;
+        revealQueued = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            revealQueued = false;
+            if (session?.Document.ActiveLayerId is { } id && entriesById.TryGetValue(id, out var entry))
+                rows.ScrollIntoView(entry);
+        }, Avalonia.Threading.DispatcherPriority.Loaded);
     }
 
     private void Rebuild()

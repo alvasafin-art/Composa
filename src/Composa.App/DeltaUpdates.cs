@@ -48,6 +48,8 @@ internal sealed class DeltaGithubSource(bool preview)
 
 internal sealed class DeltaUpdates(IUpdateSource source) : UpdateManager(source, new UpdateOptions { MaximumDeltasBeforeFallback = int.MaxValue }), IReleaseSource
 {
+    private UpdateRetry Retry => new(Locator.RootAppDir!);
+
     public static DeltaUpdates? ForInstallation()
     {
         if (!OperatingSystem.IsWindows() || UpdateCheck.Channel == UpdateChannel.Managed) return null;
@@ -74,6 +76,44 @@ internal sealed class DeltaUpdates(IUpdateSource source) : UpdateManager(source,
             throw new InvalidOperationException("No incremental package is available for this installation. See the release notes for installation options.");
         await DownloadUpdatesAsync(update, progress, cancelToken: cancel);
         return update.TargetFullRelease;
+    }
+
+    internal void RestartForInstall(VelopackAsset update, bool allowRetry, string[]? args = null)
+    {
+        if (Locator.PackagesDir is not { } packages || !File.Exists(Path.Combine(packages, update.FileName)))
+            throw new InvalidOperationException(Locale.T("The downloaded update is missing. Check for updates and download the changes again."));
+
+        WaitExitThenApplyUpdates(update, silent: false, restart: true, restartArgs: args);
+        if (allowRetry)
+        {
+            try { Retry.Arm(update.Version.ToString()); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { Log.Warn(error, "Could not record the offline update retry."); }
+        }
+    }
+
+    internal bool RetryOnLaunch(VelopackAsset pending, string[] args)
+    {
+        try
+        {
+            if (!Retry.Take(pending.Version.ToString())) return false;
+            RestartForInstall(pending, allowRetry: false, args);
+            return true;
+        }
+        catch (FileNotFoundException) { return false; } // No user-authorized retry.
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException
+            or System.ComponentModel.Win32Exception)
+        {
+            Log.Warn(error, "Could not retry the staged update at launch.");
+            return false;
+        }
+    }
+
+    internal void CancelOfflineRetry()
+    {
+        try { Retry.Cancel(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { Log.Warn(error, "Could not clear the offline update retry."); }
     }
 
     protected override void CleanPackagesExcept(string? assetToKeep)
