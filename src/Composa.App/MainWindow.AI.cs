@@ -132,6 +132,7 @@ public sealed partial class MainWindow
 
     private AiTaskAvailability AiAvailability(AiTaskKind task)
     {
+        if (!AiGenerationControls.IsOperationEnabled(task)) return new(task, false, "Unavailable");
         if (task is AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject && PanelRoute(task) == ImageGenerationRoute.BuiltIn)
             return new(task, session != null && !localSelectionBusy, session == null ? "Open a document first." : null);
         if (DirectImageFor(task) is { } direct)
@@ -139,7 +140,7 @@ public sealed partial class MainWindow
             if (direct.Route == ImageGenerationRoute.DirectApi && task is not (AiTaskKind.GenerateImage or AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject)
                 && ImageOperationModels.GenerationOnly(settings)?.Contains(direct.Model) == true)
                 return new(task, false, "This API model generates images only. Choose an image editing model.");
-            var reason = task == AiTaskKind.MatchToScene ? null : direct.Availability(task, aiReferences.Count);
+            var reason = direct.Availability(task, aiReferences.Count);
             return reason == null ? AiTaskAvailability.Resolve(session, direct.PromptProfile(), task, CropExpands)
                 : new(task, false, reason);
         }
@@ -157,7 +158,7 @@ public sealed partial class MainWindow
     {
         if (!CanRunAi(task)) return;
         bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
-        bool sceneEdit = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
+        bool sceneEdit = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground;
         if (IsPanelEdit(task) && ShowSelectionPanel)
         {
             manualFloatingTask = task;
@@ -183,7 +184,7 @@ public sealed partial class MainWindow
     }
 
     private static bool IsPanelEdit(AiTaskKind task) => task is AiTaskKind.GenerativeFill or AiTaskKind.ImageEdit
-        or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground or AiTaskKind.MatchToScene;
+        or AiTaskKind.Harmonize or AiTaskKind.ChangeBackground;
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SKBitmap, Bitmap> variantPreviews = new();
     private Composa.ColorManagement.RgbProfile? variantDisplay;
@@ -214,11 +215,7 @@ public sealed partial class MainWindow
         if (toolButtons.TryGetValue(Tool.RemoveObject, out var removeTool)) removeTool.IsEnabled = canvas.AiToolsAvailable?.Invoke() == true;
         if (aiContextHost.Child == null) return;
         aiTaskMenuButton.IsVisible = session != null;
-        if (shownConnection != aiTasks.ConnectionState)
-        {
-            shownConnection = aiTasks.ConnectionState;
-            Locale.Tip(aiTaskMenuButton, "AI tasks and settings · ComfyUI " + aiTasks.ConnectionState.ToString().ToLowerInvariant());
-        }
+        shownConnection = aiTasks.ConnectionState;
         var variants = session?.AiVariantGroup;
         if (aiVariantStrip.Children.Count != 0) aiVariantStrip.Children.Clear();
         aiVariantStrip.IsVisible = variants != null;
@@ -342,7 +339,7 @@ public sealed partial class MainWindow
     private Button BuildAiTaskMenu()
     {
         var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(t => t != AiTaskKind.SelectSubject))
+        foreach (var task in AiGenerationControls.VisibleOperations)
         {
             var item = new MenuItem { Header = task.DisplayName() };
             flyout.Opening += (_, _) =>
@@ -353,12 +350,9 @@ public sealed partial class MainWindow
             item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
-        flyout.Items.Add(new Separator());
-        var settingsItem = new MenuItem { Header = Locale.T("AI Settings…") };
-        flyout.Opening += (_, _) => settingsItem.IsEnabled = aiTasks.Operation?.Status is not (AiOperationStatus.Queued or AiOperationStatus.Running);
-        settingsItem.Click += (_, _) => _ = ShowAiSettings();
-        flyout.Items.Add(settingsItem);
-        return new Button { Name = "AiTaskMenu", Content = Locale.T("AI ▾"), Flyout = flyout, MinWidth = 0 };
+        var button = new Button { Name = "AiTaskMenu", Content = Locale.T("AI ▾"), Flyout = flyout, MinWidth = 0 };
+        Locale.Tip(button, "Choose AI operation");
+        return button;
     }
 
     private Control BuildAiFloatingMenu()
@@ -488,7 +482,7 @@ public sealed partial class MainWindow
     private MenuFlyout BuildAiFloatingTaskMenu()
     {
         var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
-        foreach (var task in Enum.GetValues<AiTaskKind>().Where(task => task != AiTaskKind.SelectSubject))
+        foreach (var task in AiGenerationControls.VisibleOperations)
         {
             var item = new MenuItem
             {
@@ -505,11 +499,6 @@ public sealed partial class MainWindow
             item.Click += (_, _) => ChooseAiOperation(task);
             flyout.Items.Add(item);
         }
-        flyout.Items.Add(new Separator());
-        AddGenerationConnectionMenu(flyout);
-        var collapse = new MenuItem { Header = Locale.T("Collapse panel") };
-        collapse.Click += (_, _) => SetFloatingCollapsed(true);
-        flyout.Items.Add(collapse);
         return flyout;
     }
 
@@ -557,8 +546,6 @@ public sealed partial class MainWindow
         aiPixelAlignment.IsEnabled = !busy;
         var direct = DirectImageFor(task);
         var fillProfile = AiOptions(task, fillEngine);
-        var toneOnly = task == AiTaskKind.MatchToScene && fillProfile.Scene.MatchMode == SceneMatchMode.ToneAndColor;
-        aiFloatingPrompt.IsEnabled = !toneOnly;
 
         if (aiEngineCombo != null)
         {
@@ -588,7 +575,7 @@ public sealed partial class MainWindow
         });
         if (aiFloatingGenerate != null) Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
         var directApi = direct is { Route: ImageGenerationRoute.DirectApi };
-        aiPriceBadge.IsVisible = expanded && !toneOnly && (directApi || direct == null &&
+        aiPriceBadge.IsVisible = expanded && (directApi || direct == null &&
             (activeWorkflow == null ? fillEngine?.PaidApi == true : ComfyClient.UsesApiCredits(activeWorkflow.Graph)));
         aiPriceBadge.Children[0].IsVisible = !directApi;
         PartnerPriceEstimate? estimate = null;

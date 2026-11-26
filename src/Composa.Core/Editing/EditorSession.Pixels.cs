@@ -902,9 +902,8 @@ public sealed partial class EditorSession
     public Layer? Paste(ClipboardImage? image = null, string name = "Pasted Layer") => Paste(image, name, inPlace: false);
 
     /// <summary>
-    /// Paste in Place: where it was copied from even when that lies partly outside the canvas, and layers copied
-    /// whole keep their positions in another project too. Only what would land entirely off the canvas, or an image
-    /// from another app, which has no place, is centered.
+    /// Paste in Place: keeps the source position as long as some pasted content lands on the canvas.
+    /// Content entirely outside the canvas, or an image from another app without a position, is centered.
     /// </summary>
     public Layer? PasteInPlace(ClipboardImage? image = null) => Paste(image, "Pasted Layer", inPlace: true);
 
@@ -920,6 +919,10 @@ public sealed partial class EditorSession
         var layer = Layer.Raster(document.UniqueName(name), pixels,
             fits ? placed.Left : Math.Round((document.Width - pixels.Width) / 2.0),
             fits ? placed.Top : Math.Round((document.Height - pixels.Height) / 2.0));
+        var content = layer.ControlBounds;
+        var canvas = (SKRect)document.Bounds;
+        if (!content.IsEmpty && !content.IntersectsWith(canvas))
+            layer.TranslateContent(MathF.Round(canvas.MidX - content.MidX), MathF.Round(canvas.MidY - content.MidY));
         Apply("Paste", () => InsertAndReflow(layer));
         EditingMask = false;
         Invalidate(AffectedArea(layer));
@@ -928,9 +931,8 @@ public sealed partial class EditorSession
     }
 
     /// <summary>
-    /// Layers copied whole, pasted above the active layer as one undo step. In their own project they keep their
-    /// place, like Duplicate Layer; in another they are centered on the canvas together, keeping their positions
-    /// relative to each other. Returns the topmost pasted layer, which becomes active with every copy selected.
+    /// Layers copied whole, pasted above the active layer as one undo step. Layers are placed together,
+    /// preserving their relative positions. The topmost pasted layer becomes active with every copy selected.
     /// </summary>
     private Layer? PasteLayers(ClipboardLayers copied, bool inPlace)
     {
@@ -952,17 +954,24 @@ public sealed partial class EditorSession
             var conversion = new EditorSession(content); conversion.ConvertColorProfile(document.Profile, flatten: false);
             pasted = conversion.Document.Layers;
         }
-        if (copied.Source != this && !inPlace)
+        var nodes = Document.Flatten(pasted).ToArray();
+        var pictured = nodes.Select(layer => layer.ControlBounds).Where(bounds => !bounds.IsEmpty).ToArray();
+        var canvas = (SKRect)document.Bounds;
+        if (copied.Source != this && !inPlace || pictured.Length > 0 && !pictured.Any(bounds => bounds.IntersectsWith(canvas)))
         {
-            // Centered on this canvas: a single layer by its own center, several by the center of what they cover.
-            var pictured = pasted.SelectMany(l => Document.Flatten([l])).Where(l => l.Pixels != null).Select(l => l.Bounds).ToList();
-            var covered = pictured.Count > 0 ? pictured.Aggregate(SKRect.Union) : new SKRect(0, 0, copied.CanvasWidth, copied.CanvasHeight);
-            var dx = Math.Round(document.Width / 2.0 - covered.MidX);
-            var dy = Math.Round(document.Height / 2.0 - covered.MidY);
-            foreach (var layer in pasted.SelectMany(l => Document.Flatten([l])))
+            var covered = pictured.Length > 0 ? pictured.Aggregate(SKRect.Union) : new SKRect(0, 0, copied.CanvasWidth, copied.CanvasHeight);
+            var dx = MathF.Round(canvas.MidX - covered.MidX);
+            var dy = MathF.Round(canvas.MidY - covered.MidY);
+            // Widely spaced layers can leave the canvas in an empty gap after centering.
+            var sourceWindow = canvas;
+            sourceWindow.Offset(-dx, -dy);
+            if (pictured.Length > 0 && !pictured.Any(bounds => bounds.IntersectsWith(sourceWindow)))
             {
-                layer.TranslateContent(dx, dy);
+                var nearest = pictured.MinBy(bounds => new SKPoint(bounds.MidX - covered.MidX, bounds.MidY - covered.MidY).LengthSquared);
+                dx = MathF.Round(canvas.MidX - nearest.MidX);
+                dy = MathF.Round(canvas.MidY - nearest.MidY);
             }
+            foreach (var layer in nodes) layer.TranslateContent(dx, dy);
         }
         Apply(pasted.Count > 1 ? "Paste Layers" : "Paste Layer", () =>
         {

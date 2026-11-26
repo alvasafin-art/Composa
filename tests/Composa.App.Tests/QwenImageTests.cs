@@ -568,7 +568,8 @@ public class QwenImageTests
             Assert.Equal(1, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-08-models-ru"));
             ClickText("FLUX 3 Image Klein");
-            var sceneRows = new[] { AiTaskKind.ChangeBackground, AiTaskKind.Harmonize, AiTaskKind.MatchToScene, AiTaskKind.Relight };
+            Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == Locale.T("Match to Scene"));
+            var sceneRows = new[] { AiTaskKind.ChangeBackground, AiTaskKind.Harmonize, AiTaskKind.Relight };
             foreach (var task in sceneRows)
             {
                 var operation = Assert.Single(dialog.GetVisualDescendants().OfType<TextBlock>(),

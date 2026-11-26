@@ -42,9 +42,9 @@ public sealed partial class CanvasView
     private TransformHandle handle;
     private int distortCorner = -1;
     private bool distortEdge;
-    private bool IsResizeDrag => drag == Drag.Transform && distortCorner < 0 && !distortEdge &&
+    private bool IsResizeDrag => UpdatesTransformModifiers && distortCorner < 0 && !distortEdge;
+    private bool UpdatesTransformModifiers => drag == Drag.Transform &&
         handle is not (TransformHandle.None or TransformHandle.Move or TransformHandle.Rotate);
-    private bool UpdatesTransformModifiers => IsResizeDrag || drag == Drag.Transform && distortEdge;
     private bool spaceDown;
     private double scrubZoom;
     private readonly List<(SKPoint From, SKPoint To)> guides = [];
@@ -944,7 +944,7 @@ public sealed partial class CanvasView
     /// <summary>The topmost visible material under the point, promoted to its layout group unless picking a child.</summary>
     private Layer? MoveLayerAt(SKPoint point, bool pickChild)
     {
-        if (session == null || !session.Document.Bounds.Contains((int)Math.Floor(point.X), (int)Math.Floor(point.Y))) return null;
+        if (session == null) return null;
         return PickLayer(session.Document.Layers, point, (float)zoom, pickChild, []);
     }
 
@@ -1055,14 +1055,15 @@ public sealed partial class CanvasView
         distortCorner = -1;
         distortEdge = false;
         var onHandle = handle is not (TransformHandle.None or TransformHandle.Move);
-        var keepFrame = handle == TransformHandle.Move && transformSelection != null && !control && !dragModifiers.HasFlag(KeyModifiers.Shift);
+        var outsideCanvas = !session.Document.Bounds.Contains((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y));
+        var keepFrame = handle == TransformHandle.Move && (transformSelection != null || outsideCanvas)
+            && !control && !dragModifiers.HasFlag(KeyModifiers.Shift);
         if (!onHandle && !keepFrame && session.IndependentMaskTarget == null && !session.IsEditingChannel)
         {
             var keepGroup = !control && !dragModifiers.HasFlag(KeyModifiers.Shift) && session.ActiveLayer is { IsGroup: true } group
                 && (handle == TransformHandle.Move || group.AutoLayout != null && EditorSession.LayoutBounds(group).Contains(pressDocument));
             var hit = keepGroup ? null : MoveLayerAt(pressDocument, pickChild: control);
-            if (!keepGroup && (!session.Document.Bounds.Contains((int)Math.Floor(pressDocument.X), (int)Math.Floor(pressDocument.Y))
-                || hit == null && (AutoSelect || control || clicks >= 2)))
+            if (!keepGroup && hit == null && (outsideCanvas || AutoSelect || control || clicks >= 2))
             {
                 session.ClearLayerSelection();
                 return;
@@ -1108,7 +1109,12 @@ public sealed partial class CanvasView
                 edit.RotateTo(pressDocument, currentDocument, shift);
                 break;
             default:
-                if (distortCorner >= 0) edit.DistortCorner(distortCorner, SnapLayoutHandle(currentDocument));
+                if (distortCorner >= 0)
+                {
+                    var (x, y) = edit.DistortCorner(distortCorner, currentDocument, perspective: shift && alt,
+                        snapTolerance: (float)(6 / UnitsPerPixel));
+                    DrawSnapLines(x, y);
+                }
                 else if (distortEdge)
                 {
                     var (x, y) = edit.DistortEdge(handle, currentDocument - pressDocument, skew: shift, fromCenter: alt,

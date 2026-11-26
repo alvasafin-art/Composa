@@ -191,14 +191,11 @@ public sealed partial class MainWindow
             Item("Generative Expand", () => ChooseAiOperation(AiTaskKind.GenerativeExpand), enabled: () => CanRunAi(AiTaskKind.GenerativeExpand)),
             Item("Change Background…", () => ChooseAiOperation(AiTaskKind.ChangeBackground), enabled: () => CanRunAi(AiTaskKind.ChangeBackground), viewOnly: true),
             Item("Harmonize…", () => ChooseAiOperation(AiTaskKind.Harmonize), enabled: () => CanRunAi(AiTaskKind.Harmonize), viewOnly: true),
-            Item("Match to Scene", () => ChooseAiOperation(AiTaskKind.MatchToScene), enabled: () => CanRunAi(AiTaskKind.MatchToScene), viewOnly: true),
             Item("Relight…", () => ChooseAiOperation(AiTaskKind.Relight), enabled: () => CanRunAi(AiTaskKind.Relight)),
             Item("Upscale…", () => ChooseAiOperation(AiTaskKind.Upscale), enabled: () => CanRunAi(AiTaskKind.Upscale)),
             Item("Object Selection", () => ChooseAiOperation(AiTaskKind.ObjectSelection), enabled: () => CanRunAi(AiTaskKind.ObjectSelection)),
             Line(),
-            Sub("Presets", (aiTasks.Presets.Count == 0
-                ? [new MenuItem { Header = Locale.T("No presets installed"), IsEnabled = false }]
-                : aiTasks.Presets.Select(preset => (object)Item(preset.Name, () => _ = RunAi(preset.Task, preset.Prompt), enabled: () => CanRunAi(preset.Task), needsDocument: preset.Task != AiTaskKind.GenerateImage)).ToArray())),
+            new MenuItem { Header = Locale.T("Presets"), IsEnabled = false },
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
             Item("Assistant…", ShowAssistant, needsDocument: false));
 

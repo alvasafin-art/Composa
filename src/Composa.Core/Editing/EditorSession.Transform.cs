@@ -195,38 +195,50 @@ public sealed class TransformEdit
         if (movesTop) top = p.Y;
         if (movesBottom) bottom = p.Y;
 
+        if (fromCenter)
+        {
+            // Reflect the dragged sides before applying the aspect ratio to the new dimensions.
+            if (movesLeft) right = 2 * StartFrame.MidX - left;
+            if (movesRight) left = 2 * StartFrame.MidX - right;
+            if (movesTop) bottom = 2 * StartFrame.MidY - top;
+            if (movesBottom) top = 2 * StartFrame.MidY - bottom;
+        }
         if (!free && StartFrame.Width > 0 && StartFrame.Height > 0)
         {
             var aspect = StartFrame.Width / StartFrame.Height;
             float w = right - left, h = bottom - top;
-            var corner = (movesLeft || movesRight) && (movesTop || movesBottom);
-            if (corner)
+            if ((movesLeft || movesRight) && (movesTop || movesBottom))
             {
                 if (Math.Abs(w) / aspect > Math.Abs(h)) h = Math.Abs(w) / aspect * Math.Sign(h == 0 ? 1 : h);
                 else w = Math.Abs(h) * aspect * Math.Sign(w == 0 ? 1 : w);
-                if (movesLeft) left = right - w; else right = left + w;
-                if (movesTop) top = bottom - h; else bottom = top + h;
             }
-            else if (movesLeft || movesRight)
+            else if (movesLeft || movesRight) h = Math.Abs(w) / aspect;
+            else w = Math.Abs(h) * aspect;
+
+            if (fromCenter)
             {
-                h = Math.Abs(w) / aspect;
-                top = StartFrame.MidY - h / 2; bottom = StartFrame.MidY + h / 2;
+                // Keep both dimensions large enough to transform, even as the handle crosses the center.
+                var centeredWidth = MathF.Max(MathF.Abs(w), MathF.Max(1, aspect));
+                w = MathF.CopySign(centeredWidth, w);
+                h = MathF.CopySign(centeredWidth / aspect, h);
             }
-            else
-            {
-                w = Math.Abs(h) * aspect;
-                left = StartFrame.MidX - w / 2; right = StartFrame.MidX + w / 2;
-            }
+            if (!fromCenter && movesLeft) left = right - w;
+            else if (!fromCenter && movesRight) right = left + w;
+            else { left = StartFrame.MidX - w / 2; right = StartFrame.MidX + w / 2; }
+            if (!fromCenter && movesTop) top = bottom - h;
+            else if (!fromCenter && movesBottom) bottom = top + h;
+            else { top = StartFrame.MidY - h / 2; bottom = StartFrame.MidY + h / 2; }
         }
-        if (fromCenter)
+        if (Math.Abs(right - left) < 1)
         {
-            float cx = StartFrame.MidX, cy = StartFrame.MidY;
-            var halfW = movesLeft ? cx - left : movesRight ? right - cx : (right - left) / 2;
-            var halfH = movesTop ? cy - top : movesBottom ? bottom - cy : (bottom - top) / 2;
-            left = cx - halfW; right = cx + halfW; top = cy - halfH; bottom = cy + halfH;
+            if (fromCenter) left = StartFrame.MidX - .5f;
+            right = left + 1;
         }
-        if (Math.Abs(right - left) < 1) right = left + 1;
-        if (Math.Abs(bottom - top) < 1) bottom = top + 1;
+        if (Math.Abs(bottom - top) < 1)
+        {
+            if (fromCenter) top = StartFrame.MidY - .5f;
+            bottom = top + 1;
+        }
 
         // Resizing moves the center; keep the opposite edge fixed on screen by rotating the new center back.
         var rotate = SKMatrix.CreateRotationDegrees((float)StartRotation, StartFrame.MidX, StartFrame.MidY);
@@ -470,13 +482,47 @@ public sealed class TransformEdit
         distort.Select((v, i) => (float)(v * (i % 2 == 0 ? sx : sy))).ToArray();
 
     /// <summary>Moves one corner freely (Ctrl-drag), distorting a single layer.</summary>
-    public void DistortCorner(int corner, SKPoint point)
+    public void DistortCorner(int corner, SKPoint point) => DistortCorner(corner, point, perspective: false, snapTolerance: 0);
+
+    /// <summary>In perspective mode the other end of the dragged edge moves by the opposite offset.</summary>
+    public (float? SnapX, float? SnapY) DistortCorner(int corner, SKPoint point, bool perspective, float snapTolerance)
     {
-        if (layers.Count != 1 || session.Transform != this) return;
+        if (layers.Count != 1 || session.Transform != this) return default;
         var original = DistortionStartCorners();
         var target = (SKPoint[])original.Clone();
-        target[corner] = point;
+        (float? SnapX, float? SnapY) guides;
+        if (perspective)
+        {
+            var start = original[corner];
+            var across = original[corner ^ 1] - start;
+            var down = original[corner ^ 3] - start;
+            var acrossOffset = ProjectOnto(point - start, across);
+            var downOffset = ProjectOnto(point - start, down);
+            var alongWidth = acrossOffset.LengthSquared >= downOffset.LengthSquared;
+            var opposite = corner ^ (alongWidth ? 1 : 3);
+            var edge = alongWidth ? across : down;
+            var offset = alongWidth ? acrossOffset : downOffset;
+            var (snapped, x, y) = session.SnapLayoutPoint(start + offset, snapTolerance, edge);
+            var length = edge.Length;
+            if (length > 0)
+            {
+                // The paired corners must leave an edge for the perspective transform to map.
+                var fraction = ((snapped.X - start.X) * edge.X + (snapped.Y - start.Y) * edge.Y) / edge.LengthSquared;
+                var limit = MathF.Max(0, (length - 1) / (2 * length));
+                if (fraction > limit) (snapped, x, y) = (start + new SKPoint(edge.X * limit, edge.Y * limit), null, null);
+            }
+            target[corner] = snapped;
+            target[opposite] -= snapped - start;
+            guides = (x, y);
+        }
+        else
+        {
+            var (snapped, x, y) = session.SnapLayoutPoint(point, snapTolerance);
+            target[corner] = snapped;
+            guides = (x, y);
+        }
         ApplyDistortion(original, target);
+        return guides;
     }
 
     /// <summary>Moves both corners of an edge by the same document-space offset.</summary>
@@ -492,12 +538,7 @@ public sealed class TransformEdit
         var original = DistortionStartCorners();
         var edge = original[second] - original[first];
         var midpoint = original[first] + new SKPoint(edge.X / 2, edge.Y / 2);
-        if (skew)
-        {
-            var lengthSquared = edge.X * edge.X + edge.Y * edge.Y;
-            var along = lengthSquared > 0 ? (offset.X * edge.X + offset.Y * edge.Y) / lengthSquared : 0;
-            offset = new SKPoint(along * edge.X, along * edge.Y);
-        }
+        if (skew) offset = ProjectOnto(offset, edge);
         var (snapped, x, y) = session.SnapLayoutPoint(midpoint + offset, snapTolerance, skew ? edge : null);
         var target = (SKPoint[])original.Clone();
         offset = snapped - midpoint;
@@ -510,6 +551,12 @@ public sealed class TransformEdit
         }
         ApplyDistortion(original, target);
         return (x, y);
+    }
+
+    private static SKPoint ProjectOnto(SKPoint offset, SKPoint edge)
+    {
+        var along = edge.LengthSquared > 0 ? (offset.X * edge.X + offset.Y * edge.Y) / edge.LengthSquared : 0;
+        return new SKPoint(along * edge.X, along * edge.Y);
     }
 
     private SKPoint[] DistortionStartCorners()

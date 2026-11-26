@@ -11,6 +11,12 @@ namespace Composa.App.AI;
 
 internal static class AiGenerationControls
 {
+    internal static IEnumerable<AiTaskKind> VisibleOperations =>
+        DirectImageGenerator.Operations.Where(task => task != AiTaskKind.MatchToScene);
+
+    internal static bool IsOperationEnabled(AiTaskKind task) =>
+        task is not (AiTaskKind.MatchToScene or AiTaskKind.Relight);
+
     internal static void ShowBusy(Button button, bool busy) => button.Classes.Set("ai-busy", busy);
 
     internal const int EditorSpacing = 8;
@@ -96,7 +102,7 @@ internal static class AiGenerationControls
             run.Resources["AccentButtonForeground" + state] = Palette.ActionText;
         run.BorderThickness = new Thickness(0);
         run.CornerRadius = new CornerRadius(4);
-        run.Content = Ui.Row(5, new PathIcon { Data = Geometry.Parse(Icons.Run.Fill!), Width = 8, Height = 9 },
+        run.Content = Ui.Row(3, Icons.Create(Icons.Run, 14, Palette.ActionText),
             new TextBlock { Text = Locale.T("Run"), FontWeight = FontWeight.SemiBold });
         run.MinHeight = run.Height = 28; run.MinWidth = 64; run.Padding = new Thickness(9, 0);
         run.HorizontalContentAlignment = HorizontalAlignment.Center; run.VerticalContentAlignment = VerticalAlignment.Center;

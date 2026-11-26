@@ -292,6 +292,89 @@ public class ToolInputTests
         Assert.Equal(300, session.Document.Find(layer.Id)!.Transform.X);
     }
 
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Alt_dragging_an_edge_scales_proportionally_about_the_center(bool topEdge)
+    {
+        var pixels = Rendering.Pixels.NewColor(100, 60);
+        pixels.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("box", pixels, new SKPoint(300, 200));
+        session.View = session.View with { Snap = false };
+        window.SelectTool(Tool.Move);
+        Dispatcher.UIThread.RunJobs();
+
+        var start = topEdge ? new SKPoint(300, 170) : new SKPoint(350, 200);
+        var end = topEdge ? new SKPoint(310, 158) : new SKPoint(370, 210);
+        Drag(start, end, RawInputModifiers.Alt);
+
+        AssertNear(new SKPoint(300, 200), layer.Transform.Center);
+        AssertNear(new SKPoint(140, 84), new SKPoint((float)layer.Transform.Width, (float)layer.Transform.Height));
+        Assert.Null(layer.Transform.Distort);
+        Assert.Equal("Scale", session.History.UndoName);
+    }
+
+    [AvaloniaFact]
+    public void Shift_and_alt_during_corner_distortion_mirror_the_other_end_of_the_edge()
+    {
+        var pixels = Rendering.Pixels.NewColor(100, 100);
+        pixels.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("box", pixels, new SKPoint(300, 200));
+        session.View = session.View with { Snap = false };
+        window.SelectTool(Tool.Move);
+        Dispatcher.UIThread.RunJobs();
+
+        const RawInputModifiers control = RawInputModifiers.Control;
+        const RawInputModifiers shifted = control | RawInputModifiers.Shift;
+        const RawInputModifiers perspective = shifted | RawInputModifiers.Alt;
+        var original = layer.ControlTransform.FrameCorners();
+        var end = At(270, 162);
+        window.MouseDown(At(250, 150), MouseButton.Left, control);
+        window.MouseMove(end, control | RawInputModifiers.LeftMouseButton);
+        AssertNear(new SKPoint(270, 162), layer.ControlTransform.FrameCorners()[0]);
+        AssertNear(original[1], layer.ControlTransform.FrameCorners()[1]);
+
+        window.KeyPressQwerty(PhysicalKey.ShiftLeft, control);
+        window.KeyPressQwerty(PhysicalKey.AltLeft, shifted);
+        var mirrored = layer.ControlTransform.FrameCorners();
+        AssertNear(new SKPoint(270, 150), mirrored[0]);
+        AssertNear(new SKPoint(330, 150), mirrored[1]);
+        AssertNear(original[2], mirrored[2]);
+        AssertNear(original[3], mirrored[3]);
+
+        window.KeyReleaseQwerty(PhysicalKey.AltLeft, perspective);
+        AssertNear(new SKPoint(270, 162), layer.ControlTransform.FrameCorners()[0]);
+        AssertNear(original[1], layer.ControlTransform.FrameCorners()[1]);
+        window.KeyPressQwerty(PhysicalKey.AltLeft, shifted);
+        window.MouseUp(end, MouseButton.Left, perspective);
+        Assert.Equal(mirrored, layer.ControlTransform.FrameCorners());
+        Assert.Equal("Distort", session.History.UndoName);
+        session.Undo();
+        Assert.Equal(original, session.ActiveLayer!.ControlTransform.FrameCorners());
+    }
+
+    [AvaloniaFact]
+    public void Shift_alt_on_an_already_distorted_corner_mirrors_a_vertical_drag()
+    {
+        var pixels = Rendering.Pixels.NewColor(100, 100);
+        pixels.Erase(SKColors.Red);
+        var layer = session.AddImageLayer("box", pixels, new SKPoint(300, 200));
+        layer.Transform = layer.Transform with { Distort = [0, 0, 0, 0, 10, 0, 0, 0] };
+        session.View = session.View with { Snap = false };
+        window.SelectTool(Tool.Move);
+        Dispatcher.UIThread.RunJobs();
+        var original = layer.ControlTransform.FrameCorners();
+        var offset = new SKPoint(0, 20);
+
+        Drag(original[0], original[0] + offset, RawInputModifiers.Shift | RawInputModifiers.Alt);
+
+        var corners = layer.ControlTransform.FrameCorners();
+        AssertNear(original[0] + offset, corners[0]);
+        AssertNear(original[1], corners[1]);
+        AssertNear(original[2], corners[2]);
+        AssertNear(original[3] - offset, corners[3]);
+    }
+
     [AvaloniaFact]
     public void Distorting_a_corner_moves_its_handle_with_it_and_the_corner_keeps_distorting_afterwards()
     {
@@ -563,6 +646,35 @@ public class ToolInputTests
         window.MouseMove(At(650, 250), RawInputModifiers.LeftMouseButton);
         window.MouseUp(At(650, 250), MouseButton.Left);
         Assert.Null(session.ActiveLayer);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Move_drags_an_off_canvas_layer_back_into_view(bool showTransformControls)
+    {
+        var pixels = Rendering.Pixels.NewColor(50, 50);
+        pixels.Erase(SKColors.Red);
+        if (showTransformControls)
+        {
+            // The center of the selected frame is draggable even where the layer is transparent.
+            using var canvas = new SKCanvas(pixels);
+            using var paint = new SKPaint { BlendMode = SKBlendMode.Clear };
+            canvas.DrawRect(15, 0, 20, 50, paint);
+        }
+        var layer = session.AddImageLayer("Off canvas", pixels, new SKPoint(650, 200), fit: false);
+        session.View = session.View with { Snap = false };
+        window.SelectTool(Tool.Move);
+        window.Canvas.ShowTransformControls = showTransformControls;
+        window.Canvas.ZoomTo(.75);
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(new SKPoint(650, 200), new SKPoint(550, 200));
+
+        Assert.Equal(layer.Id, session.ActiveLayer!.Id);
+        Assert.Equal(525, layer.Transform.X);
+        Assert.Equal(SKColors.Red, session.Composite().GetPixel(530, 200));
+        Assert.Equal("Move", session.History.UndoName);
     }
 
     [AvaloniaFact]
