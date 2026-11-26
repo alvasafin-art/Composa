@@ -18,10 +18,18 @@ internal sealed class WarpGeometry
 
         public WarpPoint Evaluate(double u, double v)
         {
-            Span<WarpPoint> row = stackalloc WarpPoint[4];
-            for (var y = 0; y < 4; y++) row[y] = Bezier(Controls[y * 4], Controls[y * 4 + 1], Controls[y * 4 + 2], Controls[y * 4 + 3], u);
-            return Bezier(row[0], row[1], row[2], row[3], v);
+            Span<WarpPoint> column = stackalloc WarpPoint[4];
+            EvaluateColumn(u, column);
+            return EvaluateRow(column, v);
         }
+
+        public void EvaluateColumn(double u, Span<WarpPoint> row)
+        {
+            for (var y = 0; y < 4; y++) row[y] = Bezier(Controls[y * 4], Controls[y * 4 + 1], Controls[y * 4 + 2], Controls[y * 4 + 3], u);
+        }
+
+        public static WarpPoint EvaluateRow(ReadOnlySpan<WarpPoint> column, double v) =>
+            Bezier(column[0], column[1], column[2], column[3], v);
 
         private static WarpPoint Bezier(WarpPoint a, WarpPoint b, WarpPoint c, WarpPoint d, double t)
         {

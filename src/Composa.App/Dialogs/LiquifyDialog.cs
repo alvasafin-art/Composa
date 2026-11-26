@@ -32,6 +32,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
     private double strength = .5, hardness = .5;
     private bool showFreeze = true, showOriginal, fullPreview, closed, finalizing;
     private int generation;
+    private bool previewPending;
     public SKBitmap? Result { get; private set; }
     internal MaskRefineView View => view;
     internal LiquifyField Field => current;
@@ -67,7 +68,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
         var old = (StackPanel)Content!; old.Children.Clear(); var layout = new Grid { RowDefinitions = new("*,Auto"), Margin = new Thickness(20) };
         layout.Children.Add(body); Grid.SetRow(Buttons, 1); layout.Children.Add(Buttons); Content = layout;
         CanResize = true; SizeToContent = SizeToContent.Manual; Width = 1150; Height = 800; MinWidth = 850; MinHeight = 560;
-        view.StrokeStarted += () => { previewCancellation?.Cancel(); undo.IsEnabled = redo.IsEnabled = false; };
+        view.StrokeStarted += () => { undo.IsEnabled = redo.IsEnabled = false; };
         view.Stroke += Paint;
         view.StrokeEnded += () => { if (closed || finalizing) return; history.Push(current); Changed(); };
         timer.Tick += (_, _) => { timer.Stop(); Track(Preview()); };
@@ -87,13 +88,16 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
     private void RequestPreview()
     {
         if (closed || finalizing) return;
-        generation++; previewCancellation?.Cancel(); if (!timer.IsEnabled) timer.Start();
+        generation++;
+        previewPending = true;
+        if (previewCancellation == null && !timer.IsEnabled) timer.Start();
     }
     private void Track(Task task) { tasks.Add(task); _ = Forget(task); }
     private async Task Forget(Task task) { try { await task; } finally { tasks.Remove(task); } }
     private async Task Preview()
     {
         if (closed || finalizing) return;
+        previewPending = false;
         var field = current; var marks = showFreeze; var original = showOriginal; var native = fullPreview; var version = generation;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); previewCancellation = cancellation;
         try
@@ -106,13 +110,19 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
                 return Ui.ToAvaloniaBitmap(rendered, Math.Max(rendered.Width, rendered.Height), displayProfile);
             }, cancellation.Token); }
             finally { renderGate.Release(); }
-            if (!closed && !finalizing && version == generation)
+            // A continuously moving pointer must still get frames while a newer one is pending.
+            if (!closed && !finalizing && (version == generation
+                || view.IsPainting && original == showOriginal && marks == showFreeze && native == fullPreview))
             { view.SetBitmap(preview); status.Text = Locale.Message($"{preview.PixelSize.Width}×{preview.PixelSize.Height} · {field.AllocatedBytes / (1024.0 * 1024):0.0} MB deformation · {(native ? "Full-resolution preview" : "Draft preview")}"); }
             else preview.Dispose();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { if (!closed) status.Text = Locale.Message("Preview failed: " + error.Message); }
-        finally { if (ReferenceEquals(previewCancellation, cancellation)) previewCancellation = null; }
+        finally
+        {
+            previewCancellation = null;
+            if (!closed && !finalizing && previewPending) timer.Start();
+        }
     }
     private SKBitmap DrawPreview(LiquifyField appearance, LiquifyField field, bool marks, int maxSide, CancellationToken token)
     {
@@ -121,7 +131,7 @@ internal sealed class LiquifyDialog : DialogWindow, IAsyncDisposable
         try
         {
             using var canvas = new SKCanvas(result); canvas.Clear(new SKColor(65, 65, 65)); canvas.DrawBitmap(rendered, 0, 0);
-            if (marks)
+            if (marks && (selection != null || field.HasFrozenAreas))
             {
                 using var freeze = field.FreezePreview(result.Width, result.Height, selection);
                 using var tint = new SKPaint { Color = new SKColor(235, 35, 70, 115) }; canvas.DrawBitmap(freeze, 0, 0, tint);

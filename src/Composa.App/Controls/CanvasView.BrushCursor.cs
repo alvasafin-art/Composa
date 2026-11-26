@@ -22,6 +22,14 @@ public sealed partial class CanvasView
     private BrushOutlineShape? nativeBrushShape;
     private bool nativeBrushCursorActive;
     private int nativeCursorSideLimit = MaxNativeCursorSide;
+    private readonly Dictionary<StandardCursorType, Cursor> standardCursors = [];
+
+    private void SetCanvasStandardCursor(StandardCursorType type)
+    {
+        if (!standardCursors.TryGetValue(type, out var cursor))
+            standardCursors[type] = cursor = new Cursor(type);
+        if (!ReferenceEquals(Cursor, cursor)) Cursor = cursor;
+    }
 
     private readonly record struct BrushOutlineShape(float Radius, float Roundness, float Angle, float Scaling)
     {
@@ -33,15 +41,17 @@ public sealed partial class CanvasView
     {
         var brush = painting.Brush;
         var radius = (float)(brush.CursorRadius(pressure) * zoom);
-        return new BrushOutlineShape(radius, (float)brush.TipRoundness, (float)brush.TipAngle, (float)Scaling);
+        var shaped = painting.Tool is Tool.Brush or Tool.Eraser;
+        return new BrushOutlineShape(radius, shaped ? (float)brush.TipRoundness : 1,
+            shaped ? (float)brush.TipAngle : 0, (float)Scaling);
     }
 
     private BrushOutlineShape? CurrentNativeBrushShape()
     {
         if (!OperatingSystem.IsWindows() || canvasCursorType != StandardCursorType.None
             || !cursorInside || brushCursorPointer != PointerType.Mouse || spaceDown || controlHover || temporaryMove
-            || session is not { Tool: Tool.Brush or Tool.Eraser } painting
-            || (drag != Drag.None && (drag != Drag.Stroke || painting.Brush.Smoothing > 0))
+            || session is not { Tool: Tool.Brush or Tool.Eraser or Tool.Smear or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp } painting
+            || (drag != Drag.None && (drag != Drag.Stroke || painting.Tool is (Tool.Brush or Tool.Eraser) && painting.Brush.Smoothing > 0))
             || TopLevel.GetTopLevel(this)?.TryGetPlatformHandle()?.HandleDescriptor != "HWND")
             return null;
 
@@ -67,10 +77,10 @@ public sealed partial class CanvasView
         {
             // Guides, text and transform handles can set their own cursor directly.
             if (updateStandard || (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor)))
-                Cursor = new Cursor(canvasCursorType);
+                SetCanvasStandardCursor(canvasCursorType);
             nativeBrushCursorActive = false;
         }
-        if (Child is BrushCursorOverlay overlay) overlay.Refresh();
+        brushCursorOverlay.Refresh();
     }
 
     private bool TryApplyNativeBrushShape(BrushOutlineShape shape)
@@ -98,7 +108,7 @@ public sealed partial class CanvasView
     private void ReleaseNativeBrushCursor()
     {
         if (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor))
-            Cursor = new Cursor(canvasCursorType);
+            SetCanvasStandardCursor(canvasCursorType);
         nativeBrushCursorActive = false;
         nativeBrushCursor?.Dispose();
         nativeBrushCursor = null;
@@ -147,44 +157,77 @@ public sealed partial class CanvasView
 
     private sealed partial class BrushCursorOverlay
     {
+        private CompositionContainerVisual? cursorContainer;
         private CompositionCustomVisual? outlineVisual;
+        private CompositionCustomVisual? sourceVisual;
         private OutlineContent? outlineContent;
+        private OutlineContent? sourceContent;
         private bool drawsLegacy;
 
         public void Refresh()
         {
             var wasLegacy = drawsLegacy;
             var showOutline = false;
-            drawsLegacy = !view.nativeBrushCursorActive && view.IsBrushTool && view.cursorInside;
-            if (drawsLegacy && view.session is { Tool: Tool.Brush or Tool.Eraser } painting
-                && !view.spaceDown && !view.controlHover && !view.temporaryMove
-                && view.drag is Drag.None or Drag.Stroke
+            var showSource = false;
+            drawsLegacy = view.IsBrushTool && view.cursorInside;
+            if (drawsLegacy && view.session is { Tool: not (Tool.SelectionBrush or Tool.RemoveObject) } painting
                 && ElementComposition.GetElementVisual(this) is { } element)
             {
-                var shape = view.BrushOutline(painting, painting.BrushPressure);
-                if (float.IsFinite(shape.Radius) && shape.Radius >= 0)
+                if (!view.nativeBrushCursorActive && !view.spaceDown && !view.controlHover && !view.temporaryMove
+                    && view.drag is Drag.None or Drag.Stroke)
                 {
-                    if (outlineVisual == null)
+                    var shape = view.BrushOutline(painting, painting.BrushPressure);
+                    if (float.IsFinite(shape.Radius) && shape.Radius >= 0)
                     {
-                        outlineVisual = element.Compositor.CreateCustomVisual(new OutlineRenderer());
-                        ElementComposition.SetElementChildVisual(this, outlineVisual);
+                        EnsureVisuals(element.Compositor);
+                        var center = painting.BrushPosition is { } strokeCenter ? view.ToScreen(strokeCenter) : view.cursorScreen;
+                        Position(outlineVisual!, shape, center);
+                        showOutline = true;
+                        var next = new OutlineContent(shape, view.brushCursorPointer == PointerType.Mouse);
+                        if (outlineContent != next)
+                        {
+                            outlineContent = next;
+                            outlineVisual!.SendHandlerMessage(next);
+                        }
                     }
-                    var center = painting.BrushPosition is { } strokeCenter ? view.ToScreen(strokeCenter) : view.cursorScreen;
-                    var half = shape.HalfExtent / (double)shape.Scaling;
-                    outlineVisual.Offset = new((float)(center.X - half), (float)(center.Y - half), 0);
-                    outlineVisual.Size = new(2 * half, 2 * half);
-                    showOutline = true;
-                    var next = new OutlineContent(shape, view.brushCursorPointer == PointerType.Mouse);
-                    if (outlineContent != next)
-                    {
-                        outlineContent = next;
-                        outlineVisual.SendHandlerMessage(next);
-                    }
-                    drawsLegacy = false;
                 }
+                if (painting.Tool is Tool.CloneStamp or Tool.HealingBrush && painting.CloneSamplePoint(view.currentDocument) is { } sample)
+                {
+                    EnsureVisuals(element.Compositor);
+                    var cross = new BrushOutlineShape(0, 1, 0, (float)view.Scaling);
+                    Position(sourceVisual!, cross, view.ToScreen(sample));
+                    var next = new OutlineContent(cross, true);
+                    if (sourceContent != next)
+                    {
+                        sourceContent = next;
+                        sourceVisual!.SendHandlerMessage(next);
+                    }
+                    showSource = true;
+                }
+                drawsLegacy = false;
             }
             if (drawsLegacy || wasLegacy) InvalidateVisual();
+            if (cursorContainer != null) cursorContainer.Size = new(Bounds.Width, Bounds.Height);
             if (outlineVisual != null) outlineVisual.Opacity = showOutline ? 1 : 0;
+            if (sourceVisual != null) sourceVisual.Opacity = showSource ? 1 : 0;
+        }
+
+        private void EnsureVisuals(Compositor compositor)
+        {
+            if (outlineVisual != null) return;
+            cursorContainer = compositor.CreateContainerVisual();
+            outlineVisual = compositor.CreateCustomVisual(new OutlineRenderer());
+            sourceVisual = compositor.CreateCustomVisual(new OutlineRenderer());
+            cursorContainer.Children.InsertAtTop(sourceVisual);
+            cursorContainer.Children.InsertAtTop(outlineVisual);
+            ElementComposition.SetElementChildVisual(this, cursorContainer);
+        }
+
+        private static void Position(CompositionCustomVisual visual, BrushOutlineShape shape, Point center)
+        {
+            var half = shape.HalfExtent / (double)shape.Scaling;
+            visual.Offset = new((float)(center.X - half), (float)(center.Y - half), 0);
+            visual.Size = new(2 * half, 2 * half);
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -193,9 +236,13 @@ public sealed partial class CanvasView
             if (outlineVisual != null)
             {
                 outlineVisual.SendHandlerMessage(default(OutlineContent));
+                sourceVisual!.SendHandlerMessage(default(OutlineContent));
                 ElementComposition.SetElementChildVisual(this, null);
                 outlineVisual = null;
+                sourceVisual = null;
+                cursorContainer = null;
                 outlineContent = null;
+                sourceContent = null;
             }
             base.OnDetachedFromVisualTree(e);
         }

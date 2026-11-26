@@ -194,6 +194,7 @@ public sealed partial class EditorSession
         if (WarpEdit != null) CommitWarp();
         if (TextEdit != null) FinishText();
         else if (stroke != null) EndStroke();
+        else if (IsPaintingSelection) EndSelectionBrush();
         else if (floatLayer != null) EndMovePixels(keep: true);
         else if (previewLayer != null) CommitPreview();
         else if (Transform != null) CommitTransform();
@@ -498,8 +499,12 @@ public sealed partial class EditorSession
 
     public void RenderView(SKBitmap target, SKRectI area, RenderView view) => RenderViewportFrame(target, area, view);
 
+    /// <summary>Renders newly exposed pixels on a stable viewport grid during panning.</summary>
+    public void RenderPanStrip(SKBitmap target, SKRectI area, RenderView view) =>
+        DocumentRenderer.RenderViewport(document, target, area, view, DisplayOptions(), parallelizeLayerStrips: true);
+
     /// <summary>Renders the viewport and reports whether a full frame can be refreshed in CPU bands.</summary>
-    public bool RenderViewportFrame(SKBitmap target, SKRectI area, RenderView view)
+    public bool RenderViewportFrame(SKBitmap target, SKRectI area, RenderView view, bool interactiveWarp = false, SKRectI? bandExtent = null)
     {
         if (IsEditingAlphaChannel || VisibleRgbChannels != RgbChannels.All)
         {
@@ -516,8 +521,16 @@ public sealed partial class EditorSession
             options = new RenderOptions { Overrides = overrides };
         }
         using var patch = options == null ? StrokeEffectPatch(area, view) : null;
-        return DocumentRenderer.RenderViewport(document, target, area, view,
-            patch == null ? options : new RenderOptions { EffectPatch = patch }) && CanRetainVisibilityBands(view);
+        if (WarpEdit is { } warp)
+        {
+            var viewport = SKRect.Create(view.Origin.X, view.Origin.Y, target.Width / view.Scale, target.Height / view.Scale);
+            var margin = (float)DocumentRenderer.SamplingMargin(document) + 4;
+            viewport.Inflate(margin, margin);
+            options = new RenderOptions { Overrides = options?.Overrides, WarpPreview = (warp.Layer.Id, viewport, interactiveWarp) };
+        }
+        else if (patch != null)
+            options = new RenderOptions { EffectPatch = patch };
+        return DocumentRenderer.RenderViewport(document, target, area, view, options, bandExtent) && CanRetainVisibilityBands(view);
     }
 
     public bool TryRenderLayerMove(SKBitmap target, SKRectI viewport, SKRectI area, RenderView view) =>

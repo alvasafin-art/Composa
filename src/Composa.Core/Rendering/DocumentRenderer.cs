@@ -76,6 +76,7 @@ public sealed class RenderOptions
     /// <summary>Layers replaced while rendering (hidden for solo, or swapped for previews).</summary>
     public Dictionary<Guid, Layer>? Overrides { get; init; }
     internal LayerEffectsRenderer.Patch? EffectPatch { get; init; }
+    internal (Guid LayerId, SKRect Viewport, bool Interactive)? WarpPreview { get; init; }
 }
 
 /// <summary>Flattens the layer tree: blend modes, opacity, masks, clipping masks, folders and adjustment layers.</summary>
@@ -101,7 +102,8 @@ public static partial class DocumentRenderer
         => RenderViewport(document, target, area, view, options);
 
     // Reports whether this frame can be incrementally refreshed with the CPU band renderer.
-    internal static bool RenderViewport(Document document, SKBitmap target, SKRectI area, RenderView view, RenderOptions? options)
+    internal static bool RenderViewport(Document document, SKBitmap target, SKRectI area, RenderView view, RenderOptions? options,
+        SKRectI? viewport = null, bool parallelizeLayerStrips = false)
     {
         area = Geometry.Intersect(area, new SKRectI(0, 0, target.Width, target.Height));
         if (area.IsEmpty) return false;
@@ -111,7 +113,10 @@ public static partial class DocumentRenderer
             Pixels.Invalidate(target);
             return false;
         }
-        RenderCpu(document, target, area, area, view, options, SamplingMargin(document, options));
+        // Live viewport patches use the same bands as a full frame so Skia sees
+        // the same raster coordinates and interpolation at fractional zoom.
+        RenderCpu(document, target, viewport ?? area, area, view, options, SamplingMargin(document, options),
+            parallelizeLayerStrips: parallelizeLayerStrips);
         return true;
     }
 
@@ -134,13 +139,16 @@ public static partial class DocumentRenderer
         RenderCpu(document, target, viewport, changed, view, null, 0, layers, backdrop);
 
     private static void RenderCpu(Document document, SKBitmap target, SKRectI area, SKRectI changed, RenderView view,
-        RenderOptions? options, double samplingMargin, IReadOnlyList<Layer>? layers = null, SKBitmap? backdrop = null)
+        RenderOptions? options, double samplingMargin, IReadOnlyList<Layer>? layers = null, SKBitmap? backdrop = null,
+        bool parallelizeLayerStrips = false)
     {
         layers ??= document.Layers;
         // Skia's raster backend draws on one thread, so large areas are split into bands rendered side by side.
         // Every layer operation is per-pixel, which makes the bands independent of each other, except the blur
         // adjustments: their bands are rendered with a halo of the picture around them that is then left out.
-        var bands = (long)area.Width * area.Height < 300_000 ? 1 : Math.Clamp(area.Height / 48, 1, Environment.ProcessorCount);
+        // A tall exposed strip can be cheap in pixels but still composite many layers.
+        var work = (long)area.Width * area.Height * (parallelizeLayerStrips ? Math.Clamp(layers.Count, 1, 4) : 1);
+        var bands = work < 300_000 ? 1 : Math.Clamp(area.Height / 48, 1, Environment.ProcessorCount);
         if (bands > 1) Pixels.PrepareLevels(layers, view.Scale);
         var bandHeight = (area.Height + bands - 1) / bands;
         var margin = (int)Math.Ceiling(samplingMargin * view.Scale);
@@ -230,6 +238,9 @@ public static partial class DocumentRenderer
 
     private static void RenderNodes(IReadOnlyList<Layer> nodes, Tile tile, RenderOptions? options)
     {
+        Layer WarpView(Layer layer) => options?.WarpPreview is { } warp && warp.LayerId == layer.Id
+            ? layer.WarpAppearanceForView(tile.View.Scale, warp.Interactive, warp.Viewport)
+            : layer.WarpAppearanceForView(tile.View.Scale);
         for (var i = 0; i < nodes.Count; i++)
         {
             var layer = Resolve(nodes[i], options);
@@ -246,9 +257,9 @@ public static partial class DocumentRenderer
             {
                 var follower = Resolve(nodes[j], options);
                 if (follower.Visible && follower.Opacity > 0)
-                    (clipped ??= []).Add(follower.WarpAppearanceForView(tile.View.Scale));
+                    (clipped ??= []).Add(WarpView(follower));
             }
-            RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped is null ? [] : clipped, tile, options);
+            RenderUnit(WarpView(layer), clipped is null ? [] : clipped, tile, options);
         }
     }
 

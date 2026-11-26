@@ -63,6 +63,58 @@ public static partial class Icons
     private static double Number(XElement element, string attribute, double fallback = 0) =>
         (double?)element.Attribute(attribute) ?? fallback;
 
+    private static Glyph[] GetGlyphs(string name, IconStyle style)
+    {
+        var key = (name, style);
+        if (!glyphs.TryGetValue(key, out var shapes)) glyphs[key] = shapes = ReadGlyphs(name, style);
+        return shapes;
+    }
+
+    internal static Control CreateRailIcon(Icon icon, double size) => icon.Asset is { } asset
+        ? new Viewbox { Width = size, Height = size, Child = new RailGlyph(asset), IsHitTestVisible = false }
+        : Create(icon, size);
+
+    // Draw a rail icon as one retained visual. Hovering the button need not
+    // revisit a control and its resource bindings for every SVG path.
+    private sealed class RailGlyph : Control
+    {
+        private static readonly StyledProperty<IconStyle> VariantProperty = AvaloniaProperty.Register<RailGlyph, IconStyle>("Variant");
+        private static readonly StyledProperty<IBrush?> BrushProperty = AvaloniaProperty.Register<RailGlyph, IBrush?>("Brush");
+        private readonly string name;
+
+        static RailGlyph() => AffectsRender<RailGlyph>(VariantProperty, BrushProperty);
+
+        public RailGlyph(string name)
+        {
+            this.name = name;
+            Width = Height = 24;
+            ClipToBounds = true;
+            Bind(VariantProperty, this.GetResourceObservable(StyleResource));
+            Bind(BrushProperty, this.GetResourceObservable("ComposaForeground"));
+        }
+
+        public override void Render(DrawingContext context)
+        {
+            var brush = GetValue(BrushProperty);
+            foreach (var glyph in GetGlyphs(name, GetValue(VariantProperty)))
+            {
+                using var transform = context.PushTransform(glyph.Transform);
+                if (glyph.Fill)
+                {
+                    if (glyph.Mask is { } mask)
+                    {
+                        using var opacityMask = context.PushOpacityMask(mask, new Rect(Bounds.Size));
+                        context.DrawGeometry(brush, null, glyph.Geometry);
+                    }
+                    else context.DrawGeometry(brush, null, glyph.Geometry);
+                }
+                if (glyph.Stroke <= 0) continue;
+                using var opacity = context.PushOpacity(glyph.StrokeOpacity);
+                context.DrawGeometry(null, new Pen(brush, glyph.Stroke, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round, miterLimit: 10), glyph.Geometry);
+            }
+        }
+    }
+
     private sealed class PackIcon : Panel
     {
         private static readonly StyledProperty<IconStyle> VariantProperty =
@@ -89,10 +141,8 @@ public static partial class Icons
 
         private void Draw()
         {
-            var key = (Name: name, Style: GetValue(VariantProperty));
-            if (!glyphs.TryGetValue(key, out var shapes)) glyphs[key] = shapes = ReadGlyphs(key.Name, key.Style);
             Children.Clear();
-            foreach (var glyph in shapes)
+            foreach (var glyph in GetGlyphs(name, GetValue(VariantProperty)))
             {
                 if (glyph.Fill)
                 {

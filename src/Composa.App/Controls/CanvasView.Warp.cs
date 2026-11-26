@@ -106,6 +106,7 @@ public sealed partial class CanvasView
         if (session?.WarpEdit is { } edit && warpDragStart is { } before)
         {
             if (keep) RememberWarp(before); else edit.SetMesh(before);
+            session.Invalidate(session.AffectedArea(edit.Layer));
         }
         warpDragStart = null; ToolStateChanged?.Invoke();
     }

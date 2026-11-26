@@ -38,7 +38,7 @@ public sealed class NavigatorPanel : UserControl
         timer.Tick += (_, _) =>
         {
             // Keep the queued refresh until the gesture releases the canvas.
-            if (IsEffectivelyVisible && (canvas.IsDragging || session?.IsStroking == true || session?.Transform != null)) return;
+            if (IsEffectivelyVisible && (canvas.IsDragging || canvas.IsNavigating || session?.IsStroking == true || session?.Transform != null)) return;
             timer.Stop();
             RefreshThumbnail();
         };
@@ -85,6 +85,22 @@ public sealed class NavigatorPanel : UserControl
     {
         private readonly NavigatorPanel panel; private Bitmap? image; private IPointer? pointer; private SKPoint offset; private Size coverage = new(1, 1);
         private static readonly IPen framePen = new Pen(new SolidColorBrush(Color.Parse("#FF6658")), 1.5);
+        private static readonly IBrush checker = new DrawingBrush
+        {
+            TileMode = TileMode.Tile,
+            Stretch = Stretch.None,
+            SourceRect = new RelativeRect(0, 0, 16, 16, RelativeUnit.Absolute),
+            DestinationRect = new RelativeRect(0, 0, 16, 16, RelativeUnit.Absolute),
+            Drawing = new DrawingGroup
+            {
+                Children =
+                {
+                    new GeometryDrawing { Brush = Brushes.White, Geometry = new RectangleGeometry(new Rect(0, 0, 16, 16)) },
+                    new GeometryDrawing { Brush = Brushes.LightGray, Geometry = new RectangleGeometry(new Rect(8, 0, 8, 8)) },
+                    new GeometryDrawing { Brush = Brushes.LightGray, Geometry = new RectangleGeometry(new Rect(0, 8, 8, 8)) }
+                }
+            }
+        };
         public NavigatorPreview(NavigatorPanel panel) { this.panel = panel; Focusable = true; Cursor = new Cursor(StandardCursorType.Hand); Locale.Tip(this, "Click or drag to pan · wheel to zoom · arrows to pan"); }
         public Rect ImageBounds
         {
@@ -111,8 +127,7 @@ public sealed class NavigatorPanel : UserControl
             context.FillRectangle(Palette.Window, new Rect(Bounds.Size)); var box = ImageBounds; if (box.Width <= 0 || box.Height <= 0) return;
             using (context.PushClip(box))
             {
-                for (var y = box.Top; y < box.Bottom; y += 8) for (var x = box.Left; x < box.Right; x += 8)
-                    context.FillRectangle((((int)((x - box.Left) / 8) + (int)((y - box.Top) / 8)) & 1) == 0 ? Brushes.White : Brushes.LightGray, new Rect(x, y, 8, 8));
+                context.FillRectangle(checker, box);
                 if (image != null) context.DrawImage(image, new Rect(0, 0, image.Size.Width * coverage.Width, image.Size.Height * coverage.Height), box);
                 var frame = ViewFrame;
                 if (frame.Width > 0 && frame.Height > 0)

@@ -182,7 +182,7 @@ public sealed class ToolButton : ToggleButton
     {
         if (shownIcon == icon) return;
         shownIcon = icon;
-        var glyph = Icons.Create(icon, 19);
+        var glyph = Icons.CreateRailIcon(icon, 19);
         if (!HasGroup) { Content = glyph; return; }
         var mark = new Path
         {

@@ -67,15 +67,18 @@ public sealed partial class CanvasView
 
     private void UpdateLayoutHover(Point position)
     {
+        var previous = layoutGapIndex;
         if (SelectedLayoutGroup() is not { } group || session == null || layoutProposal != null)
         {
             layoutGapIndex = -1;
+            if (previous != -1) InvalidateCanvas();
             return;
         }
         var elements = session.LayoutElements(group);
         layoutGapIndex = LayoutGapAt(group, elements, position);
         if (layoutGapIndex >= 0 && GapGeometry(group, elements, layoutGapIndex).Label.Contains(position))
-            Cursor = new Cursor(group.AutoLayout!.Direction == LayoutDirection.Row ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth);
+            SetCanvasStandardCursor(group.AutoLayout!.Direction == LayoutDirection.Row ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth);
+        if (layoutGapIndex != previous) InvalidateCanvas();
     }
 
     private bool BeginLayoutGesture(Point position, bool allowReorder)

@@ -194,9 +194,41 @@ public static class LayerEffectsRenderer
         }
     }
 
-    internal sealed record Patch(Guid LayerId, SKBitmap Image, int Inset, SKPointI Offset, SKSize Scale) : IDisposable
+    internal sealed record Patch(Guid LayerId, SKBitmap Image, int Inset, SKPointI Offset, SKSize Scale, bool OwnsImage = true) : IDisposable
     {
-        public void Dispose() => Image.Dispose();
+        public void Dispose() { if (OwnsImage) Image.Dispose(); }
+    }
+
+    // A reduced render needs the full mip grid to retain Skia's exact sampling
+    // phase. Reuse its storage during the stroke and clear only the previous patch.
+    internal sealed class PatchGrid : IDisposable
+    {
+        private SKBitmap? bitmap;
+        private SKRectI previous;
+
+        public SKBitmap ForPatch(SKBitmap source, int width, int height, SKRectI area)
+        {
+            if (bitmap == null || bitmap.Width != width || bitmap.Height != height)
+            {
+                var next = Pixels.NewLike(source, width, height);
+                bitmap?.Dispose();
+                bitmap = next;
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.SurfaceAllocated("effect view sampling grid", bitmap);
+#endif
+            }
+            else
+            {
+                var pixels = bitmap.GetPixelSpan();
+                var bytes = bitmap.BytesPerPixel;
+                for (var y = previous.Top; y < previous.Bottom; y++)
+                    pixels.Slice(y * bitmap.RowBytes + previous.Left * bytes, previous.Width * bytes).Clear();
+            }
+            previous = area;
+            return bitmap;
+        }
+
+        public void Dispose() => bitmap?.Dispose();
     }
 
     internal sealed class StrokeBase(SKBitmap image, int inset, SKPointI origin, LayerEffects effects, double fillOpacity) : IDisposable
@@ -335,7 +367,7 @@ public static class LayerEffectsRenderer
     }
 
     internal static Patch? RenderPatch(Layer layer, SKRectI localTarget, LayerEffects effects, float scale, bool nativeGrid,
-        StrokeBase? stroke = null)
+        StrokeBase? stroke, PatchGrid? grid)
     {
         var pixels = layer.Pixels!;
         var inset = Math.Max(2, effects.Margin());
@@ -389,18 +421,20 @@ public static class LayerEffectsRenderer
             // The scaled draw must have the same origin and dimensions as a full effect draw.
             // Translating a cropped image changes Skia's fractional sampling rounding.
             // Only the part this view can sample has been rendered into this bitmap.
-            var positioned = Pixels.NewLike(image, mipWidth, mipHeight);
+            var area = SKRectI.Create(offset.X, offset.Y, image.Width, image.Height);
+            var positioned = grid?.ForPatch(image, mipWidth, mipHeight, area) ?? Pixels.NewLike(image, mipWidth, mipHeight);
             try
             {
-                DocumentRenderer.CopyRows(image, SKPointI.Empty, positioned,
-                    SKRectI.Create(offset.X, offset.Y, image.Width, image.Height));
+                DocumentRenderer.CopyRows(image, SKPointI.Empty, positioned, area);
+                Pixels.Invalidate(positioned);
 #if CANVAS_PERFORMANCE
-                CanvasPerformanceTrace.SurfaceAllocated("effect view sampling grid", positioned);
+                if (grid == null) CanvasPerformanceTrace.SurfaceAllocated("effect view sampling grid", positioned);
 #endif
             }
-            catch { positioned.Dispose(); throw; }
+            catch { if (grid == null) positioned.Dispose(); throw; }
             image.Dispose();
-            return new(layer.Id, positioned, inset, SKPointI.Empty, new SKSize((float)full.Width / mipWidth, (float)full.Height / mipHeight));
+            return new(layer.Id, positioned, inset, SKPointI.Empty,
+                new SKSize((float)full.Width / mipWidth, (float)full.Height / mipHeight), OwnsImage: grid == null);
         }
         catch { image.Dispose(); throw; }
 #if CANVAS_PERFORMANCE

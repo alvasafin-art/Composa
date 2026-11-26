@@ -81,6 +81,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
     private List<Stamp>? strokeStamps;
     private StampTiles? stampTiles;
     private readonly float hardness;
+    internal bool CanBatchSamples => mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Heal or BrushMode.Healing;
+    private bool BuildsCoverage => mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing;
 
     /// <summary>The bitmap being painted; becomes the layer's new pixels when the stroke commits.</summary>
     public SKBitmap Working { get; }
@@ -161,7 +163,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
     {
         // Small dabs are cheaper to color in the per-segment path. Both
         // paths publish the combined damage once for the input event.
-        var stamps = fullRadius >= StrokeCoverage.TileSize ? strokeStamps ??= new List<Stamp>(StampsPerBatch) : null;
+        var stamps = CanBatchSamples && fullRadius >= StrokeCoverage.TileSize
+            ? strokeStamps ??= new List<Stamp>(StampsPerBatch) : null;
         var dirty = SKRectI.Empty;
         foreach (var (point, pressure) in points)
             dirty = Geometry.Union(dirty, AddPoint(point, pressure, stamps));
@@ -194,12 +197,12 @@ public sealed unsafe partial class BrushStroke : IDisposable
             // Nearby dabs can share one color pass. For long moves, keep the work on the
             // tiles along the stroke so each pixel gets one color pass even on a diagonal.
             var deferColor = collected == null && length <= diameter
-                && mode is (BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Heal or BrushMode.Healing);
+                && CanBatchSamples;
             // Carry a fraction of the current spacing. A change in pressure or direction
             // can shrink the next step but cannot place a dab behind this segment.
             var travelled = spacing * (1 - spacingPhase);
             var batch = collected;
-            if (batch == null && mode is (BrushMode.Paint or BrushMode.Erase)
+            if (batch == null && CanBatchSamples
                 && length - travelled >= (fullRadius >= StrokeCoverage.TileSize ? spacing : 3 * spacing)
                 && (fullRadius >= StrokeCoverage.TileSize || !deferColor))
                 batch = strokeStamps ??= new List<Stamp>(StampsPerBatch);
@@ -259,6 +262,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
         var squared = dx * dx + dy * dy;
         var outer = radius + 0.5f;
         if (squared >= outer * outer) return 0;
+        if (hardness >= .995f && radius > 2 && squared <= (radius - 1) * (radius - 1)) return 1;
         // Subpixel integration only for small stamps or a nearly hard rim. Broad soft
         // brushes keep a single cheap lookup per pixel and allocate no extra images.
         if (radius <= 2 || (radius * (1 - hardness) < 1 && squared > (radius - 1) * (radius - 1)))
@@ -345,7 +349,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
 
     private bool AccumulateCoverage(SKRectI rect, SKPoint center, float flow)
     {
-        var buildsUp = mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Clone or BrushMode.Healing;
+        var buildsUp = BuildsCoverage;
         var bands = BrushBands(rect);
         if (bands == 1) return AccumulateBand(rect, center, radius, flow, buildsUp);
 
@@ -371,6 +375,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
         if (saturated == 0) return false;
         var tip = ellipse;
         var vectorize = tip == null && CanVectorizeCoverage(buildsUp, radius);
+        var hardInterior = tip == null && hardness >= .995f && radius > 2 ? (radius - 1) * (radius - 1) : 0;
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             var dy = y + .5f - center.Y;
@@ -384,6 +389,15 @@ public sealed unsafe partial class BrushStroke : IDisposable
                 if (tip == null && closest * closest + dy * dy >= outer * outer) continue;
 
                 var row = coverage.WritableRowSegment(left, y, end - left);
+                if (hardInterior > 0)
+                {
+                    var farthest = Math.Max(MathF.Abs(left + .5f - center.X), MathF.Abs(end - .5f - center.X));
+                    if (farthest * farthest + dy * dy <= hardInterior)
+                    {
+                        changed |= AccumulateHardInterior(row, flow, buildsUp, saturated);
+                        continue;
+                    }
+                }
                 var offset = 0;
                 if (vectorize && row.Length >= 16)
                     changed |= AccumulateVectors(row, left, center.X, dy, radius, flow, saturated, out offset);
@@ -490,8 +504,9 @@ public sealed unsafe partial class BrushStroke : IDisposable
     private void RenderTile(StampTile tile)
     {
         var dirty = SKRectI.Empty;
+        var buildsUp = BuildsCoverage;
         foreach (var stamp in tile.Stamps)
-            if (AccumulateBand(stamp.Bounds, stamp.Center, stamp.Radius, stamp.Flow, buildsUp: true))
+            if (AccumulateBand(stamp.Bounds, stamp.Center, stamp.Radius, stamp.Flow, buildsUp))
                 dirty = Geometry.Union(dirty, stamp.Bounds);
         if (dirty.IsEmpty) return;
         RecomputeBand(dirty);
@@ -550,7 +565,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
     {
         if (Working.ColorType == SKColorType.RgbaF32) { RecomputeHighPrecision(rect); return; }
         if (Working.ColorType == SKColorType.Rgba8888 && selectionPixels == null && !LockTransparency
-            && mode is BrushMode.Paint or BrushMode.Erase)
+            && mode is BrushMode.Paint or BrushMode.Erase or BrushMode.Heal)
         {
             RecomputePaintBand(rect);
             return;
@@ -649,6 +664,8 @@ public sealed unsafe partial class BrushStroke : IDisposable
         {
             red = premulColor[0]; green = premulColor[1]; blue = premulColor[2]; alpha = premulColor[3];
         }
+        var healing = mode == BrushMode.Heal;
+        if (healing) alpha = 255;
         for (var y = rect.Top; y < rect.Bottom; y++)
         {
             var input = src + (long)y * sourceStride;
@@ -664,6 +681,7 @@ public sealed unsafe partial class BrushStroke : IDisposable
                     if (value != 0)
                     {
                         var a = value / 257f / 255f * opacity;
+                        if (healing) a *= .45f;
                         var keep = 1 - a;
                         output[index] = Blend(input[index], red, a, keep);
                         output[index + 1] = Blend(input[index + 1], green, a, keep);

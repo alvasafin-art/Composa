@@ -257,13 +257,17 @@ public static class SelectionMask
         for (var y = bounds.Top; y < bounds.Bottom; y++)
         {
             current.Clear();
-            var row = pixels + (long)y * mask.RowBytes;
-            for (var x = bounds.Left; x < bounds.Right; x++)
+            var row = new ReadOnlySpan<byte>(pixels + (long)y * mask.RowBytes + bounds.Left, bounds.Width);
+            var x = bounds.Left;
+            while (!row.IsEmpty)
             {
-                if (row[x] < 128) continue;
-                var start = x;
-                while (x < bounds.Right && row[x] >= 128) x++;
-                current.Add((start, x));
+                var start = row.IndexOfAnyInRange((byte)128, byte.MaxValue);
+                if (start < 0) break;
+                var run = row[start..].IndexOfAnyInRange((byte)0, (byte)127);
+                var end = run < 0 ? row.Length : start + run;
+                current.Add((x + start, x + end));
+                row = row[end..];
+                x += end;
             }
             if (!current.SequenceEqual(previous))
             {

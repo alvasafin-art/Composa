@@ -9,6 +9,47 @@ public sealed unsafe partial class BrushStroke
     private bool CanVectorizeCoverage(bool buildsUp, float radius) =>
         Avx2.IsSupported && buildsUp && radius > 2 && radius * (1 - hardness) >= 1 && hardness < .995f;
 
+    private static bool AccumulateHardInterior(Span<ushort> row, float flow, bool buildsUp, int saturated)
+    {
+        if (!buildsUp || flow == 1)
+        {
+            if (!row.ContainsAnyExcept(ushort.MaxValue)) return false;
+            row.Fill(ushort.MaxValue);
+            return true;
+        }
+        var changed = false;
+        var offset = 0;
+        if (Avx2.IsSupported && row.Length >= 8)
+        {
+            var full = Vector256.Create((float)ushort.MaxValue);
+            var flowVector = Vector256.Create(flow);
+            var limit = Vector256.Create(saturated);
+            ref var start = ref MemoryMarshal.GetReference(row);
+            for (; offset + 8 <= row.Length; offset += 8)
+            {
+                var previous = Avx2.ConvertToVector256Int32(Vector128.LoadUnsafe(ref start, (nuint)offset));
+                var acts = Avx2.CompareGreaterThan(limit, previous);
+                if (Avx.MoveMask(acts.AsSingle()) == 0) continue;
+                var old = Avx.ConvertToVector256Single(previous);
+                var next = Avx.ConvertToVector256Int32(Avx.RoundToNearestInteger(old + (full - old) * flowVector));
+                next = Vector256.ConditionalSelect(acts, next, previous);
+                if (Avx.MoveMask(Avx2.CompareEqual(previous, next).AsSingle()) == 255) continue;
+                Sse41.PackUnsignedSaturate(next.GetLower(), next.GetUpper()).StoreUnsafe(ref start, (nuint)offset);
+                changed = true;
+            }
+        }
+        for (; offset < row.Length; offset++)
+        {
+            var old = row[offset];
+            if (old >= saturated) continue;
+            var next = (ushort)MathF.Round(old + (ushort.MaxValue - old) * flow);
+            if (next == old) continue;
+            row[offset] = next;
+            changed = true;
+        }
+        return changed;
+    }
+
     // The wide soft dab has the same lookup, edge coverage and ties-to-even rounding
     // as CoverageAt and AccumulateBand. Thin antialiased rims stay on their scalar path.
     private bool AccumulateVectors(Span<ushort> row, int left, float centerX, float dy, float radius, float flow, int saturated, out int offset)

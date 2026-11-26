@@ -45,8 +45,9 @@ public sealed class WarpEdit
     public void SetMesh(WarpMesh mesh)
     {
         if (session.WarpEdit != this || mesh.Equals(Layer.Warp)) return;
+        var before = session.AffectedArea(Layer);
         EditorSession.ValidateWarp(Layer, mesh);
-        var before = session.AffectedArea(Layer); Layer.Warp = mesh;
+        Layer.Warp = mesh;
         session.Invalidate(Geometry.Union(before, session.AffectedArea(Layer)));
     }
 }
@@ -85,6 +86,7 @@ public sealed partial class EditorSession
     {
         if (WarpEdit is not { } edit) return;
         WarpEdit = null;
+        edit.Layer.ReleaseWarpViewport();
         var mesh = edit.Mesh;
         if (mesh.IsIdentity) edit.Layer.Warp = null;
         if (Equals(edit.Layer.Warp, edit.Original))
@@ -108,6 +110,7 @@ public sealed partial class EditorSession
     {
         if (WarpEdit is not { } edit) return;
         WarpEdit = null;
+        edit.Layer.ReleaseWarpViewport();
         if (transactionDepth > 0) { edit.RestoreSource(); InvalidateAll(); LayersChanged?.Invoke(); }
         else Cancel();
     }

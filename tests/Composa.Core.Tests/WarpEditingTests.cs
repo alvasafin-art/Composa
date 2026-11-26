@@ -11,6 +11,28 @@ namespace Composa.Core.Tests;
 
 public class WarpEditingTests
 {
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void Native_viewport_warp_agrees_with_full_appearance_after_release(ColorDepth depth)
+    {
+        var session = EditorSession.NewCanvas(640, 448, SKColors.AntiqueWhite, depth);
+        var pixels = session.ActiveLayer!.Pixels!;
+        using (var canvas = new SKCanvas(pixels))
+        using (var paint = new SKPaint { Color = new SKColor(80, 170, 209, 200) })
+            for (var x = 0; x < pixels.Width; x += 23) canvas.DrawRect(x, 30, 13, 370, paint);
+        Pixels.Invalidate(pixels);
+        var edit = session.BeginWarp(4, 4);
+        edit.MovePoint(12, new(360, 192));
+        using var clipped = Pixels.NewColor(177, 131);
+        using var full = Pixels.NewColor(177, 131);
+        var view = new RenderView(1, new SKPoint(233, 147));
+        session.RenderView(clipped, clipped.Info.Rect, view);
+        session.CommitWarp();
+        session.RenderView(full, full.Info.Rect, view);
+        Assert.Equal(full.Bytes, clipped.Bytes);
+    }
+
     [Fact]
     public void Pointer_edit_is_one_undo_step_preserves_source_transform_and_cancel_and_reset_restore_exact_references()
     {

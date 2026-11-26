@@ -41,8 +41,11 @@ internal sealed class MaskRefineView(int pixelWidth, int pixelHeight) : Control
         using (context.PushClip(new Rect(Bounds.Size)))
         {
             if (bitmap != null) context.DrawImage(bitmap, new Rect(origin, new Size(pixelWidth * zoom, pixelHeight * zoom)));
-            var strokePen = new Pen(new SolidColorBrush(Color.FromArgb(100, 120, 180, 255)), Math.Max(1, BrushSize * zoom), lineCap: PenLineCap.Round);
-            if (ShowStrokeOverlay) foreach (var segment in liveStroke) context.DrawLine(strokePen, ToView(segment.From), ToView(segment.To));
+            if (ShowStrokeOverlay && liveStroke.Count > 0)
+            {
+                var strokePen = new Pen(new SolidColorBrush(Color.FromArgb(100, 120, 180, 255)), Math.Max(1, BrushSize * zoom), lineCap: PenLineCap.Round);
+                foreach (var segment in liveStroke) context.DrawLine(strokePen, ToView(segment.From), ToView(segment.To));
+            }
             if (IsPointerOver && !panning)
             {
                 var radius = BrushSize * zoom / 2;
@@ -59,7 +62,9 @@ internal sealed class MaskRefineView(int pixelWidth, int pixelHeight) : Control
         else if (props.IsLeftButtonPressed)
         {
             var p = ToPixel(pointer); if (p.X < 0 || p.Y < 0 || p.X >= pixelWidth || p.Y >= pixelHeight) return;
-            painting = true; last = p; liveStroke.Clear(); liveStroke.Add((p, p)); StrokeStarted?.Invoke(); Stroke?.Invoke(p, p, e.KeyModifiers.HasFlag(KeyModifiers.Alt)); e.Pointer.Capture(this); e.Handled = true;
+            painting = true; last = p; liveStroke.Clear();
+            if (ShowStrokeOverlay) liveStroke.Add((p, p));
+            StrokeStarted?.Invoke(); Stroke?.Invoke(p, p, e.KeyModifiers.HasFlag(KeyModifiers.Alt)); e.Pointer.Capture(this); e.Handled = true;
         }
         InvalidateVisual();
     }
@@ -68,7 +73,11 @@ internal sealed class MaskRefineView(int pixelWidth, int pixelHeight) : Control
         base.OnPointerMoved(e); pointer = e.GetPosition(this);
         if (panning) origin = panOrigin + (pointer - panStart);
         if (painting)
-        { var p = ToPixel(pointer); liveStroke.Add((last ?? p, p)); Stroke?.Invoke(last ?? p, p, e.KeyModifiers.HasFlag(KeyModifiers.Alt)); last = p; }
+        {
+            var p = ToPixel(pointer);
+            if (ShowStrokeOverlay) liveStroke.Add((last ?? p, p));
+            Stroke?.Invoke(last ?? p, p, e.KeyModifiers.HasFlag(KeyModifiers.Alt)); last = p;
+        }
         InvalidateVisual();
     }
     protected override void OnPointerReleased(PointerReleasedEventArgs e)

@@ -359,7 +359,8 @@ public sealed partial class CanvasView
         }
         // The outline does not change while it is dragged, so its bounds are found once for snapping.
         if (drag == Drag.MoveSelection && session.Selection is { } outline) selectionBox = (SKRect)SelectionMask.Bounds(outline);
-        InvalidateCanvas();
+        if (drag == Drag.Stroke) InvalidateBrushCursor();
+        else InvalidateCanvas();
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -413,7 +414,8 @@ public sealed partial class CanvasView
                 break;
             case Drag.Eyedropper: PickColor(alt && session.Tool == Tool.Eyedropper); break;
             case Drag.ZoomScrub:
-                if (Math.Abs(position.X - pressScreen.X) > 4) ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen);
+                if (Math.Abs(position.X - pressScreen.X) > 4)
+                    ZoomTo(scrubZoom * Math.Pow(2, (position.X - pressScreen.X) / 120), pressScreen, rescale: true);
                 break;
             case Drag.TextSelect: DragTextSelection(); break;
             case Drag.TextPathStart: DragTextPathStart(currentDocument); break;
@@ -434,8 +436,9 @@ public sealed partial class CanvasView
         // Pixel damage from ContinueStroke already invalidates the canvas. When a
         // sample only moves the cursor, keep the document frame that is on screen.
         if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
-        // The marquee's crosshair is a system cursor. Its overlay starts with a press.
-        else if (drag != Drag.Pan && (drag != Drag.None || session.Tool != Tool.Marquee || polygon.Count > 0))
+        // Idle cursor changes are handled by the cursor itself. The canvas only
+        // needs a new overlay while a gesture or a polygonal outline is changing.
+        else if (drag is not (Drag.None or Drag.Pan) || drag == Drag.None && polygon.Count > 0)
             InvalidateCanvas();
     }
 
@@ -627,13 +630,18 @@ public sealed partial class CanvasView
         brushPreparationRequested = false;
         session?.DiscardPreparedBrushDab();
         PointerAt?.Invoke(null);
-        if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
-        else InvalidateCanvas();
+        if (IsBrushTool) InvalidateBrushCursor();
+        else if (layoutGapIndex >= 0)
+        {
+            layoutGapIndex = -1;
+            InvalidateCanvas();
+        }
     }
 
     private void QueueBrushPreparation()
     {
-        if (!cursorInside || drag != Drag.None || brushPreparationRequested || session?.Tool is not (Tool.Brush or Tool.Eraser)) return;
+        if (!cursorInside || drag != Drag.None || brushPreparationRequested
+            || session?.Tool is not (Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp)) return;
         brushPreparationRequested = true;
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
@@ -646,7 +654,7 @@ public sealed partial class CanvasView
         base.OnPointerWheelChanged(e);
         if (session == null) return;
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Alt))
-            ZoomTo(zoom * Math.Pow(1.2, e.Delta.Y), e.GetPosition(this));
+            ZoomTo(zoom * Math.Pow(1.2, e.Delta.Y), e.GetPosition(this), rescale: true);
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) PanBy(new Vector(e.Delta.Y * 60, 0));
         else PanBy(new Vector(e.Delta.X * 60, e.Delta.Y * 60));
         currentDocument = ToDocument(e.GetPosition(this));
@@ -926,7 +934,7 @@ public sealed partial class CanvasView
                 type = guide.Axis == GuideAxis.Vertical ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth;
             else if (hit == TransformHandle.Move) type = StandardCursorType.SizeAll;
         }
-        Cursor = new Cursor(type);
+        SetCanvasStandardCursor(type);
     }
 
     /// <summary>Whether the one layer being transformed already has a corner pulled out of place.</summary>
@@ -1014,7 +1022,6 @@ public sealed partial class CanvasView
         if (hover == controlHover) return;
         controlHover = hover;
         UpdateCursor();
-        InvalidateCanvas(); // The brush outline comes and goes with the move cursor.
     }
 
     /// <summary>
