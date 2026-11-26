@@ -1,0 +1,71 @@
+{
+  "id": "krea-2-turbo",
+  "modelName": "Krea 2 Turbo",
+  "displayName": "Krea 2 Turbo",
+  "manifestVersion": 1,
+  "minimumComfyVersion": "0.27.0",
+  "requiredNodeTypes": [
+    "CLIPLoader",
+    "CLIPTextEncode",
+    "ConditioningZeroOut",
+    "EmptyLatentImage",
+    "KSampler",
+    "SaveImage",
+    "UNETLoader",
+    "VAEDecode",
+    "VAELoader"
+  ],
+  "requiredAssets": [
+    {
+      "kind": "diffusionModel",
+      "name": "krea2_turbo_int8_convrot.safetensors"
+    },
+    {
+      "kind": "textEncoder",
+      "name": "qwen3vl_4b_fp8_scaled.safetensors"
+    },
+    {
+      "kind": "vae",
+      "name": "qwen_image_vae.safetensors"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "generate",
+      "file": "workflows/generate.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "generateImage",
+      "workflow": "generate",
+      "outputMode": "newLayer",
+      "supportsReferenceImages": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sample",
+          "input": "seed"
+        },
+        "width": {
+          "nodeId": "latent",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "latent",
+          "input": "height"
+        }
+      }
+    }
+  ],
+  "lora": {
+    "supported": true,
+    "maximum": 3
+  }
+}

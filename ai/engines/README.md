@@ -47,9 +47,13 @@ Minimal shape:
 
 ### FLUX 3 Image Klein and Seedream 5.5
 
-FLUX 3 Image Klein runs on the connected ComfyUI server. Its distilled graph uses 16 Euler steps, CFG 1, the simple schedule, a Qwen3-VL 4B encoder in flux3 mode and the FLUX.2 VAE. The edit graph attaches the source and ordered references to both conditioning branches. Selection edits use a local noise mask and retain an editable layer mask. Model files can be selected in ComfyUI Settings. [Official ComfyUI edit graph](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux3_klein_distilled_image_edit.json) · [BFL reference implementation](https://github.com/black-forest-labs/flux-3-image-klein)
+FLUX 3 Image Klein runs on the connected ComfyUI server. Its distilled graph uses 16 Euler steps, CFG 1, the simple schedule, a Qwen3-VL 4B encoder in flux3 mode and the FLUX.2 VAE. Both shift inputs of `ModelSamplingFlux` are set to `ln(16)`, making the reference timestep shift constant across output sizes and shared by generation, editing and scene tasks. The edit graph attaches the source and ordered references to both conditioning branches. Selection edits use a local noise mask and retain an editable layer mask. Model files can be selected in ComfyUI Settings. [BFL reference pipeline](https://github.com/black-forest-labs/flux-3-image-klein/blob/main/src/flux3/pipeline.py) · [ComfyUI shift update](https://github.com/Comfy-Org/ComfyUI/pull/17992)
 
 Seedream 5.5 uses Comfy credits through ByteDanceSeedreamNodeV3. Its API accepts a prompt and ordered images. Composa sends the surrounding image crop for selection edits, restores its placement, and applies an editable local mask. The Generate and Edit prompt instructions can be customized independently in settings. [BytePlus image generation guide](https://docs.byteplus.com/en/docs/modelark/image-generation-tutorial) · [Seedream prompt guide](https://docs.byteplus.com/en/docs/modelark/seedream-4-0-5-0-prompt-guide)
+
+### Local text-to-image models
+
+[Krea 2 Turbo](krea-2-turbo/README.md), [Z-Image](z-image/README.md) and [Z-Image Turbo](z-image-turbo/README.md) are available for Generate Image. Each pack has a separate model-file configuration and declares `supportsReferenceImages: false` on its text-to-image task.
 
 ### Prompt enhancer
 

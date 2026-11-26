@@ -532,12 +532,16 @@ public sealed partial class MainWindow
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
         var expanded = DockEditorVisible || !settings.AiFloatingCollapsed;
+        var task = EditorTask;
+        var fillEngine = PanelEngine(task);
+        var acceptsReferences = aiTasks.SupportsReferenceImages(task, fillEngine, PanelUsesAssignedWorkflow(task));
         if (aiHeaderReference != null)
         {
-            aiHeaderReference.IsVisible = expanded;
-            aiHeaderReference.IsEnabled = aiReferences.Count < AiReferenceEditor.Capacity;
+            aiHeaderReference.IsVisible = expanded && acceptsReferences;
+            aiHeaderReference.IsEnabled = acceptsReferences && aiReferences.Count < AiReferenceEditor.Capacity;
         }
-        aiReferenceHost.IsVisible = expanded && aiReferences.Count > 0;
+        aiReferenceHost.IsVisible = expanded && acceptsReferences && aiReferences.Count > 0;
+        aiFloatingPrompt.SetImages(acceptsReferences ? AiImageMentions(task) : []);
         aiFloatingOperation.IsVisible = visible && expanded;
         aiFloatingPrompt.IsVisible = expanded && EditorTask != AiTaskKind.GenerativeExpand;
         aiPixelAlignment.IsChecked = settings.AiAlignMaskedEdits;
@@ -550,10 +554,8 @@ public sealed partial class MainWindow
         if (aiFloatingCollapse != null) aiFloatingCollapse.IsVisible = settings.AiFloatingCollapsed && !DockEditorVisible;
         if (!visible && !DockEditorVisible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
-        var task = EditorTask;
         aiPixelAlignment.IsEnabled = !busy;
         var direct = DirectImageFor(task);
-        var fillEngine = PanelEngine(task);
         var fillProfile = AiOptions(task, fillEngine);
         var toneOnly = task == AiTaskKind.MatchToScene && fillProfile.Scene.MatchMode == SceneMatchMode.ToneAndColor;
         aiFloatingPrompt.IsEnabled = !toneOnly;
@@ -676,7 +678,6 @@ public sealed partial class MainWindow
     private void RefreshPanelReferences()
     {
         BuildAiReferenceUi(aiReferenceHost, EditorTask);
-        aiFloatingPrompt.SetImages(AiImageMentions(EditorTask));
     }
 
     private void RefreshAiReferenceUi()
@@ -1014,6 +1015,8 @@ public sealed partial class MainWindow
             }
             var targetSession = target!;
             var cropAtStart = ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop ? canvas.CropRect : null;
+            var referenceImages = aiTasks.SupportsReferenceImages(task, engine, useAssigned)
+                ? aiReferences.Select(item => item.Pixels).ToArray() : [];
             var request = new AiTaskRequest
             {
                 Task = task,
@@ -1025,10 +1028,10 @@ public sealed partial class MainWindow
                     ? new Dictionary<string, string> { [slot.Key] = model.Identifier } : null,
                 SelectionRegion = selectionRegion, SelectionOperation = selectionOperation, SelectionPoint = selectionPoint,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand
-                    : AiPromptField.ForModel(options.Prompt, AiImageMention.FirstReference(task), aiReferences.Count),
+                    : AiPromptField.ForModel(options.Prompt, AiImageMention.FirstReference(task), referenceImages.Length),
                 ExpansionMode = profile.ExpansionMode,
                 ExpansionMinimumSide = profile.ExpansionMode == AiExpansionMode.WholeImage ? profile.WholeExpansionMinimumSide : profile.ExpansionMinimumSide,
-                ReferenceImages = aiReferences.Select(item => item.Pixels).ToList(),
+                ReferenceImages = referenceImages,
                 ReferenceMegapixels = profile.ReferenceMegapixels,
                 ExpansionBounds = task == AiTaskKind.GenerativeExpand && cropAtStart is { } crop
                     ? new SKRectI((int)Math.Floor(crop.Left), (int)Math.Floor(crop.Top), (int)Math.Ceiling(crop.Right), (int)Math.Ceiling(crop.Bottom)) : null,

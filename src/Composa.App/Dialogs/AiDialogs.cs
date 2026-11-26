@@ -484,7 +484,8 @@ public static partial class AiDialogs
         {
             if (promptPack == null) return;
             Save(AiTaskKind.GenerateImage, instructions.Text ?? "");
-            Save(AiTaskKind.ImageEdit, otherInstructions.Text ?? "");
+            if (AiTaskService.HasEditingInstructions(promptPack))
+                Save(AiTaskKind.ImageEdit, otherInstructions.Text ?? "");
             void Save(AiTaskKind task, string text)
             {
                 var key = AiTaskService.InstructionKey(AiTaskService.InstructionScope(promptPack), task);
@@ -628,10 +629,16 @@ public static partial class AiDialogs
         var auth = Ui.Column(8, Columns("*,*", SetupField("Saved API key", SetupInput(sessionKey)),
             SetupField("Environment variable", SetupInput(keyEnvironment))), clear);
         var credentials = new Expander { Header = Locale.T("Comfy credits"), Content = Ui.Column(8, auth, keyNote), IsExpanded = focusField == "key" };
-        var instructionFields = SetupColumns(SetupField("Instructions for image generation", instructions),
-            SetupField("Instructions for image editing", otherInstructions));
-        refreshInstructions = () => promptModelTitle.Text = promptPack == null
-            ? Locale.T("Choose a model") : ModelTitle(promptPack, AiTaskKind.GenerateImage);
+        var generateInstructionsField = SetupField("Instructions for image generation", instructions);
+        var editInstructionsField = SetupField("Instructions for image editing", otherInstructions);
+        var instructionFields = SetupColumns(generateInstructionsField, editInstructionsField);
+        refreshInstructions = () =>
+        {
+            promptModelTitle.Text = promptPack == null
+                ? Locale.T("Choose a model") : ModelTitle(promptPack, AiTaskKind.GenerateImage);
+            editInstructionsField.IsVisible = AiTaskService.HasEditingInstructions(promptPack);
+            Grid.SetColumnSpan(generateInstructionsField, editInstructionsField.IsVisible ? 1 : 2);
+        };
         refreshInstructions();
         var restoreInstructions = Ui.TextButton("Reset instructions for this model", () =>
         {
@@ -1938,9 +1945,14 @@ public static partial class AiDialogs
             more.IsVisible = imageSize.IsVisible || qualityHost.IsVisible;
             if (references != null)
             {
-                references.View.IsVisible = references.Count > 0;
-                if (addReference != null) addReference.IsEnabled = references.Count < AiReferenceEditor.Capacity;
-                prompt.SetImages(references.Images);
+                var acceptsReferences = service?.SupportsReferenceImages(task, service.SelectedEngine) != false;
+                references.View.IsVisible = acceptsReferences && references.Count > 0;
+                if (addReference != null)
+                {
+                    addReference.IsVisible = acceptsReferences;
+                    addReference.IsEnabled = acceptsReferences && references.Count < AiReferenceEditor.Capacity;
+                }
+                prompt.SetImages(acceptsReferences ? references.Images : []);
             }
             qualityOptions=nano ? ["1K","2K","4K"] : ["low","medium","high","xhigh","max"];
             if(!qualityOptions.Contains(quality)) quality=qualityOptions[0];

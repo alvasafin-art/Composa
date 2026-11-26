@@ -107,8 +107,13 @@ public sealed partial class AiTaskService
         return id + "-" + Convert.ToHexString(hash);
     }
 
+    internal static bool HasEditingInstructions(EngineProfile? pack) =>
+        pack?.Binding(AiTaskKind.GenerateImage) == null || pack.Tasks.Any(binding =>
+            binding.Task is not (AiTaskKind.GenerateImage or AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject));
+
     internal string InstructionsFor(IReadOnlyDictionary<string, string> overrides, EngineProfile? pack, AiTaskKind task)
     {
+        if (task != AiTaskKind.GenerateImage && !HasEditingInstructions(pack)) return "";
         var id = pack?.Id ?? "";
         var scope = InstructionScope(pack);
         if (overrides.TryGetValue(InstructionKey(scope, task), out var saved)) return saved;

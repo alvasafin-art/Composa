@@ -1,0 +1,75 @@
+{
+  "id": "z-image",
+  "modelName": "Z-Image",
+  "displayName": "Z-Image",
+  "manifestVersion": 1,
+  "minimumComfyVersion": "0.11.0",
+  "requiredNodeTypes": [
+    "CLIPLoader",
+    "CLIPTextEncode",
+    "EmptySD3LatentImage",
+    "KSampler",
+    "ModelSamplingAuraFlow",
+    "SaveImage",
+    "UNETLoader",
+    "VAEDecode",
+    "VAELoader"
+  ],
+  "requiredAssets": [
+    {
+      "kind": "diffusionModel",
+      "name": "z_image_bf16.safetensors"
+    },
+    {
+      "kind": "textEncoder",
+      "name": "qwen_3_4b.safetensors"
+    },
+    {
+      "kind": "vae",
+      "name": "ae.safetensors"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "generate",
+      "file": "workflows/generate.json",
+      "outputNodes": [
+        "save"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task": "generateImage",
+      "workflow": "generate",
+      "outputMode": "newLayer",
+      "supportsReferenceImages": false,
+      "inputs": {
+        "prompt": {
+          "nodeId": "prompt",
+          "input": "text"
+        },
+        "negativePrompt": {
+          "nodeId": "negative",
+          "input": "text"
+        },
+        "seed": {
+          "nodeId": "sample",
+          "input": "seed"
+        },
+        "width": {
+          "nodeId": "latent",
+          "input": "width"
+        },
+        "height": {
+          "nodeId": "latent",
+          "input": "height"
+        }
+      }
+    }
+  ],
+  "lora": {
+    "supported": true,
+    "maximum": 3
+  }
+}

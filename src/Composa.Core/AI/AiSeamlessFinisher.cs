@@ -53,11 +53,13 @@ public static class AiSeamlessFinisher
         for (var y = area.Top; y < area.Bottom; y++) for (var x = area.Left; x < area.Right; x++)
         {
             var index = y * result.RowBytes + x * 4;
-            if (mask[y * coverage.RowBytes + x] == 0)
+            if (!keepGeneratedContext && mask[y * coverage.RowBytes + x] == 0)
             {
-                if (!keepGeneratedContext) original.Slice(y * reference.RowBytes + x * 4, 4).CopyTo(pixels.Slice(index, 4));
+                original.Slice(y * reference.RowBytes + x * 4, 4).CopyTo(pixels.Slice(index, 4));
                 continue;
             }
+            // An editable fill keeps the decoded context. Apply the same continuous residual
+            // on both sides of the mask so revealing those pixels does not expose a color step.
             var alpha = pixels[index + 3];
             if (alpha == 0 || field == null) continue;
             for (var c = 0; c < 3; c++)
