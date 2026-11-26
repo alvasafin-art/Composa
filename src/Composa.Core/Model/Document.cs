@@ -29,6 +29,7 @@ public sealed class Document
     public SKBitmap? Selection { get; set; }
     public Dictionary<string, SKBitmap> AlphaChannels { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>User-placed alignment lines. Saved with the project; undo covers them.</summary>
+    public List<PromptRegion> PromptRegions { get; } = [];
     public List<Guide> Guides { get; init; } = [];
 
     public Document(int width, int height)
@@ -59,6 +60,7 @@ public sealed class Document
         foreach (var id in SelectedLayerIds) copy.SelectedLayerIds.Add(id);
         copy.SelectionOrder.AddRange(SelectionOrder);
         copy.Guides.AddRange(Guides);
+        copy.PromptRegions.AddRange(PromptRegions);
         foreach (var pair in Styles) copy.Styles.Add(pair.Key, pair.Value);
         foreach (var pair in AlphaChannels) copy.AlphaChannels.Add(pair.Key, pair.Value);
         return copy;

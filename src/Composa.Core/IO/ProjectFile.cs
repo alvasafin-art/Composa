@@ -53,6 +53,7 @@ public static class ProjectFile
         public Guid? ActiveLayerId { get; set; }
         public List<LayerRecord> Layers { get; set; } = [];
         public List<LayerStyleDefinition>? Styles { get; set; }
+        public List<PromptRegion>? PromptRegions { get; set; }
         /// <summary>Alignment guides; absent on version 1 files.</summary>
         public List<Guide>? Guides { get; set; }
         public Dictionary<string, string>? AlphaChannels { get; set; }
@@ -226,6 +227,7 @@ public static class ProjectFile
             ColorSpace = value.Profile.Name, ColorProfileFile = StoreProfile(value.Profile),
             ActiveLayerId = value.ActiveLayerId, Layers = value.Layers.Select(Record).ToList(),
             Styles = value.Styles.Count > 0 ? value.Styles.Values.ToList() : null,
+            PromptRegions = value.PromptRegions.Count > 0 ? value.PromptRegions.ToList() : null,
             Guides = value.Guides.Count > 0 ? value.Guides.ToList() : null,
             AlphaChannels = value.AlphaChannels.Count == 0 ? null : value.AlphaChannels.ToDictionary(p => p.Key, p => Store(p.Value, $"{written.Count}.channel.png"))
         };
@@ -424,6 +426,8 @@ public static class ProjectFile
             if (value.AlphaChannels != null)
                 foreach (var pair in value.AlphaChannels.Take(64))
                     if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Key.Length <= 200) result.AlphaChannels[pair.Key] = Fetch(pair.Value, mask: true);
+            if (value.PromptRegions != null)
+                result.PromptRegions.AddRange(value.PromptRegions.Where(r => r is { Valid: true }).DistinctBy(r => r.Number).Take(1000));
             if (value.Guides != null)
                 foreach (var guide in value.Guides.Where(g => g.IsValid).Take(1000))
                     result.Guides.Add(guide.Id == Guid.Empty ? guide with { Id = Guid.NewGuid() } : guide);

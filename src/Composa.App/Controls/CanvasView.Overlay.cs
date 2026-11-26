@@ -23,6 +23,7 @@ public sealed partial class CanvasView
             CaptureWarpOverlay(steps, view, hair);
             return canvas => { foreach (var step in steps) step(canvas); };
         }
+        CaptureRegions(steps, view, hair);
         CapturePenOverlay(steps, view, hair);
         CaptureAutoLayoutOverlay(steps, view, hair);
 

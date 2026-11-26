@@ -21,6 +21,7 @@ public static partial class Icons
     public static readonly Icon LayoutSquares = Packed("layout-squares");
     public static readonly Icon Magnet = Packed("magnet");
     public static readonly Icon Unlink = Packed("unlink");
+    public static readonly Icon PromptRegion = Packed("prompt-region");
     public static readonly Icon Marquee = Packed("marquee");
     public static readonly Icon MarqueeEllipse = Packed("marquee-ellipse");
     public static readonly Icon Lasso = Packed("lasso");

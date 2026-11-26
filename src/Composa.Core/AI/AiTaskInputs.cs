@@ -33,6 +33,8 @@ public sealed record AiLora(string Name, double Strength = 1, bool Enabled = tru
 public enum AiVariantMode { List, Batch }
 public enum AiExpansionMode { MaskedRegion, WholeImage }
 
+public enum RegionDelivery { Coordinates, Overlay }
+
 public sealed record AiTaskRequest
 {
     public bool? UseAssignedWorkflow { get; init; }
@@ -45,6 +47,8 @@ public sealed record AiTaskRequest
     public SKPointI? SelectionPoint { get; init; }
     public SelectionMode SelectionOperation { get; init; } = SelectionMode.Replace;
     public string Prompt { get; init; } = "";
+    public PromptRegion[] Regions { get; init; } = [];
+    public RegionDelivery RegionDelivery { get; init; }
     public string NegativePrompt { get; init; } = "";
     public string AdditionalPrompt { get; init; } = "";
     public bool AlignMaskedEdits { get; init; } = true;
@@ -250,6 +254,8 @@ public static class AiTaskInputPreparer
         using var precise = session.Flatten();
         var flattened = Pixels.DisplayCopy(precise);
         var context = Pixels.Clone(flattened);
+        if (request.RegionDelivery == RegionDelivery.Overlay && request.Regions.Length > 0)
+            RegionPrompt.Draw(flattened, request.Regions);
         var active = RenderActiveLayer(session);
         var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null
             : AutomaticAiMask.AppliesTo(request.Task) ? AutomaticAiMask.Normalize(session.Selection) : Pixels.Clone(session.Selection);

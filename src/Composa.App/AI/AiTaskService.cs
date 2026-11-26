@@ -505,12 +505,35 @@ public sealed partial class AiTaskService : IAiTaskRunner
         finally { foreach (var handle in handles) handle.Dispose(); }
     }
 
-    private AiTaskRequest PrepareRequest(EditorSession session, AiTaskRequest request)
+    private AiTaskRequest PrepareRequest(EditorSession session, AiTaskRequest request, bool direct = false)
     {
+        if (request.Regions.Length > 0)
+        {
+            if (request.Task is not (AiTaskKind.ImageEdit or AiTaskKind.GenerateImage))
+                throw new InvalidOperationException("AI regions require Generate Image or Image Edit. Disable the regions for this operation.");
+            if (request.Regions.Any(r => !r.Valid || string.IsNullOrWhiteSpace(r.Prompt) || !session.Document.Bounds.Contains(r.Bounds)))
+                throw new InvalidOperationException("Each enabled AI region needs a prompt and must fit inside the canvas.");
+            if (request.RegionDelivery == RegionDelivery.Overlay)
+            {
+                if (request.Task != AiTaskKind.ImageEdit) throw new InvalidOperationException("Visual regions need a source image. Choose Image Edit.");
+                if (request.Regions.Select(r => r.Ink.Name).Distinct().Count() != request.Regions.Length)
+                    throw new InvalidOperationException("Enabled visual regions must have distinct colors.");
+                request = request with { Prompt = request.Prompt + "\n" + RegionPrompt.OverlayInstructions(request) };
+            }
+        }
         request = AutomaticAiMask.IgnoreLegacyControls(request) with
         {
             SelectionContextPercent = SelectionContextPercent?.Invoke() ?? request.SelectionContextPercent
         };
+        // Other workflows receive an explicit reference-frame convention for textual coordinates.
+        // The native FLUX/Qwen binders convert the boxes after their final padding is known.
+        if (request.Regions.Length > 0 && request.RegionDelivery == RegionDelivery.Coordinates &&
+            (direct || request.EngineId is not (Flux3Workflow.EngineId or QwenImageWorkflow.EngineId) ||
+             WorkflowSettings().Active(request.Task, request.EngineId, request.UseAssignedWorkflow) != null))
+        {
+            var prompt = RegionPrompt.Coordinates(request.Prompt, request.Regions, session.Document.Bounds, 1, 1, request.Task == AiTaskKind.ImageEdit, fluxCaption: false);
+            request = request with { Prompt = prompt, Regions = [] };
+        }
         // Crop bounds take precedence over a selection on the old canvas.
         if (request.Task != AiTaskKind.GenerativeExpand || request.ExpansionBounds != null || session.Selection == null) return request;
         return request with { Task = AiTaskKind.GenerativeFill, Prompt = AiPromptDefaults.Expand, BlackEditRegion = true, ExpansionMode = AiExpansionMode.MaskedRegion,

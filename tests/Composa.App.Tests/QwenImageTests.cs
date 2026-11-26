@@ -564,7 +564,7 @@ public class QwenImageTests
             Assert.Equal(6, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-01-operations-expanded-ru"));
             Assert.Contains(dialog.GetVisualDescendants().OfType<ComboBox>(), field => field.Name == "DefaultModelImageEdit");
-            ClickText("Model files");
+            ClickText("Models");
             Assert.Equal(1, pages.SelectedIndex);
             Assert.True(Screenshots.Save(dialog, "studio-settings-08-models-ru"));
             ClickText("FLUX 3 Image Klein");

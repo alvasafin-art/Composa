@@ -28,6 +28,7 @@ public sealed partial class EditorSession
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, rect.Width, rect.Height, shift);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], rect.Width, rect.Height, shift) ?? Pixels.NewMask(rect.Width, rect.Height);
+            MapPromptRegions(shift, SKRectI.Create(rect.Width, rect.Height));
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Offset(-rect.Left, -rect.Top);
             document.Width = rect.Width;
             document.Height = rect.Height;
@@ -194,6 +195,7 @@ public sealed partial class EditorSession
             }
             document.Selection = document.Selection == null ? null : SelectionMask.Remap(document.Selection, width, height, scale);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], width, height, scale) ?? Pixels.NewMask(width, height);
+            MapPromptRegions(scale, SKRectI.Create(width,height));
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Scaled(sx, sy);
             document.Width = width;
             document.Height = height;
@@ -239,6 +241,7 @@ public sealed partial class EditorSession
                 else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, document.Width, document.Height, mirror, 255);
                 if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskPlacement.PostConcat(mirror));
             }
+            MapPromptRegions(mirror, document.Bounds);
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, document.Width, document.Height, mirror);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], document.Width, document.Height, mirror) ?? Pixels.NewMask(document.Width, document.Height);
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Mirrored(horizontally, (horizontally ? document.Width : document.Height) / 2.0);
@@ -271,6 +274,7 @@ public sealed partial class EditorSession
                 else if (layer.Mask != null && layer.MaskTransform == null) layer.Mask = RemapDocumentMask(layer.Mask, height, width, turn, 255);
                 if (layer.MaskTransform != null && (!layer.MaskLinked || layer.Pixels == null)) layer.PlaceMask(maskPlacement.PostConcat(turn));
             }
+            MapPromptRegions(turn, SKRectI.Create(height, width));
             if (document.Selection != null) document.Selection = SelectionMask.Remap(document.Selection, height, width, turn);
             foreach (var key in document.AlphaChannels.Keys.ToArray()) document.AlphaChannels[key] = SelectionMask.Remap(document.AlphaChannels[key], height, width, turn) ?? Pixels.NewMask(height, width);
             for (var i = 0; i < document.Guides.Count; i++) document.Guides[i] = document.Guides[i].Turned(clockwise, width, height);

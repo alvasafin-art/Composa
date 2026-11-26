@@ -10,6 +10,10 @@ public enum ObjectSelectionSource { AnySubject, Person, PlainBackdrop, ComfyUI, 
 /// <summary>Preferences remembered between launches, stored in the platform's config directory (<see cref="AppPaths.Config"/>).</summary>
 public sealed class Settings
 {
+    public Dictionary<string, Composa.AI.RegionDelivery> RegionModes { get; set; } = [];
+    public Composa.AI.RegionDelivery RegionMode(string engineId) => RegionModes.GetValueOrDefault(engineId,
+        engineId == "flux3-image-klein" ? Composa.AI.RegionDelivery.Coordinates : Composa.AI.RegionDelivery.Overlay);
+
     public List<string> RecentFiles { get; set; } = [];
     public List<Dialogs.CanvasPreset> RecentCanvasPresets { get; set; } = [];
     public List<Dialogs.CanvasPreset> UserCanvasPresets { get; set; } = [];

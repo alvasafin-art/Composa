@@ -16,7 +16,7 @@ public sealed record AiPromptResult(string Prompt, int Width, int Height, long S
 
 public static partial class AiDialogs
 {
-    private sealed record ModelFileProfile(EngineProfile Engine, AiTaskKind? Tool, string Name, ImageModelChoice? File = null);
+    private sealed record ModelFileProfile(EngineProfile Engine, AiTaskKind? Tool, string Name, ImageModelChoice? File = null, string? DeliveryKey = null);
 
     private static Border Section(string title, params Control[] controls) => new()
     {
@@ -558,10 +558,12 @@ public static partial class AiDialogs
         var defaultEngineId = service.SelectedEngine?.Id;
         var routeDrafts = new Dictionary<string, string>(settings.AiModelRoutes);
         var changedAssignments = new HashSet<string>();
-        var fileProfiles = service.Engines.Profiles.Where(pack => !pack.PaidApi).SelectMany(FileProfiles).ToArray();
+        var regionModes = new Dictionary<string, RegionDelivery>(settings.RegionModes);
+        var fileProfiles = service.Engines.Profiles.SelectMany(FileProfiles).ToArray();
         ModelFileProfile? selectedFileProfile = null;
         IEnumerable<ModelFileProfile> FileProfiles(EngineProfile pack)
         {
+            if (pack.PaidApi) { yield return new(pack, null, pack.ModelName ?? pack.DisplayName); yield break; }
             foreach (AiTaskKind? task in new AiTaskKind?[] { null, AiTaskKind.Upscale, AiTaskKind.ObjectSelection })
             {
                 if (task is { } tool && pack.Binding(tool) == null || task == null &&
@@ -577,7 +579,7 @@ public static partial class AiDialogs
         void SelectFileProfile(ModelFileProfile pack)
         {
             selectedFileProfile = pack;
-            models.ShowFilesFor(pack.Engine, pack.Tool);
+            if (!pack.Engine.PaidApi && pack.DeliveryKey == null) models.ShowFilesFor(pack.Engine, pack.Tool);
             RenderModels();
         }
         var promptPicker = new ComboBox
@@ -827,9 +829,10 @@ public static partial class AiDialogs
         var modelHeading = Heading("", 15);
         var modelList = Card(modelMaster, 6);
         modelList.VerticalAlignment = VerticalAlignment.Top;
-        var modelDetails = Card(Ui.Column(14, modelHeading, models, modelUsage));
+        var regionOptions = Ui.Column(6);
+        var modelDetails = Card(Ui.Column(14, modelHeading, models, regionOptions, modelUsage));
         modelDetails.VerticalAlignment = VerticalAlignment.Top;
-        var modelPage = Page("Model files", MasterDetail(modelList, modelDetails, 260));
+        var modelPage = Page("Models", MasterDetail(modelList, modelDetails, 260));
         var promptTable = Ui.Column(0);
         var operationTable = Ui.Column(1);
         AiTaskKind? expandedOperation = initialOperation;
@@ -1062,7 +1065,7 @@ public static partial class AiDialogs
             ("Comfy credits API key", "ключ токен авторизация", 0, sessionKey, credentials, null),
             ("Operations", "назначение модель default", 6, operationTable, null, null),
             ("Workflows", "graph JSON prompt binding граф привязки импорт", 4, workflows.Content, null, null),
-            ("Model files", "checkpoint vae encoder файлы веса", 1, models, null, null),
+            ("Models", "checkpoint vae encoder файлы веса", 1, models, null, null),
             ("Show AI context bounds", "output selection выделение контекст", 3, showContext, null, null),
             (contextPaddingLabel, "generations margin area выделение контекст отступ генерация", GenerationsPageIndex, contextPercent, null, null),
             ("Prompt provider", "улучшение промт cli api", 2, provider, null, null),
@@ -1285,25 +1288,79 @@ public static partial class AiDialogs
             modelUsage.Children.Clear();
             var files = CurrentFiles();
             var catalog = ServerMatchesDraft() ? service.ServerCapabilities : null;
+            var directProfiles = imageConnection.ModelOptions(AiTaskKind.ImageEdit)
+                .Concat(imageConnection.ModelOptions(AiTaskKind.GenerateImage))
+                .Where(choice => choice.Direct != null).DistinctBy(choice => choice.SelectionKey)
+                .Select(choice => new ModelFileProfile(choice.Engine, null, choice.Name + " · " + Locale.T(choice.ConnectionLabel),
+                    DeliveryKey: choice.SelectionKey)).ToArray();
             var profiles = fileProfiles.SelectMany(pack =>
             {
                 if (pack.Tool is not { } tool || catalog == null || pack.Engine.Id == "seedvr2-native") return [pack];
                 var variants = ImageOperationModels.InstalledUtilityModels(service.Engines, pack.Engine, tool, catalog)
                     .Select(choice => new ModelFileProfile(pack.Engine, tool, choice.Name, choice)).ToArray();
                 return variants.Length > 0 ? variants : [pack];
-            }).ToArray();
+            }).Concat(directProfiles).ToArray();
             var previous = selectedFileProfile;
             var currentPack = previous ?? profiles.FirstOrDefault(profile => profile.Engine.Id == defaultEngineId) ?? profiles.FirstOrDefault();
-            selectedFileProfile = currentPack == null ? null : profiles.FirstOrDefault(profile => profile.Engine == currentPack.Engine &&
+            selectedFileProfile = currentPack == null ? null : profiles.FirstOrDefault(profile => profile.Engine.Id == currentPack.Engine.Id && profile.DeliveryKey == currentPack.DeliveryKey &&
                 profile.Tool == currentPack.Tool && (profile.File is not { FileSlot: { } slot } file ||
                     WorkflowModels.ResolveSlot(slot, files.GetValueOrDefault(slot.Key) ?? slot.Default,
                         catalog!.ModelChoices[slot.LoaderKey]) == file.Identifier))
-                ?? profiles.FirstOrDefault(profile => profile.Engine == currentPack.Engine && profile.Tool == currentPack.Tool);
+                ?? profiles.FirstOrDefault(profile => profile.Engine.Id == currentPack.Engine.Id && profile.DeliveryKey == currentPack.DeliveryKey && profile.Tool == currentPack.Tool);
             var selected = selectedFileProfile;
-            if (previous == null && selected is { } first) models.ShowFilesFor(first.Engine, first.Tool);
-            modelHeading.Text = selected?.Name ?? Locale.T("No configurable model files");
-            foreach (var pack in profiles)
+            models.IsVisible = selected != null && !selected.Engine.PaidApi && selected.DeliveryKey == null;
+            regionOptions.Children.Clear();
+            if (selected is { Tool: null })
             {
+                var id = selected.DeliveryKey ?? selected.Engine.Id;
+                var method = regionModes.GetValueOrDefault(id, settings.RegionMode(id));
+                regionOptions.Children.Add(Heading("AI regions", 13));
+                var buttons = new Grid { ColumnDefinitions = new("*,*"), ColumnSpacing = 2 };
+                foreach (var mode in Enum.GetValues<RegionDelivery>())
+                {
+                    var button = Ui.TextButton(mode == RegionDelivery.Coordinates ? "Coordinates" : "Mark source image",
+                        () => { regionModes[id] = mode; RenderModels(); });
+                    button.Background = mode == method ? Palette.Selected : Palette.PanelRaised;
+                    button.BorderBrush = mode == method ? Palette.SettingsLink : Palette.SettingsFieldLine;
+                    button.BorderThickness = new Thickness(1);
+                    button.HorizontalAlignment = HorizontalAlignment.Stretch;
+                    Grid.SetColumn(button, mode == RegionDelivery.Coordinates ? 0 : 1);
+                    buttons.Children.Add(button);
+                }
+                regionOptions.Children.Add(buttons);
+                regionOptions.Children.Add(Caption("Preview"));
+                var doc = editor?.Session?.Document;
+                if (doc != null && doc.PromptRegions.Any(r => r.Enabled))
+                {
+                    using var original = Composa.Rendering.DocumentRenderer.Flatten(doc);
+                    using var source = Composa.Rendering.Pixels.DisplayCopy(original);
+                    var enabled = doc.PromptRegions.Where(r => r.Enabled).ToArray();
+                    if (method == RegionDelivery.Overlay) RegionPrompt.Draw(source,enabled);
+                    var thumbnail = Ui.ToAvaloniaBitmap(source, 240);
+                    var image = new Image { Source = thumbnail, Width = 140, Height = 88, Stretch = Avalonia.Media.Stretch.Uniform };
+                    image.DetachedFromVisualTree += (_, _) => thumbnail.Dispose();
+                    var descriptions = Ui.Column(3);
+                    foreach (var r in enabled)
+                    {
+                        string prefix = method == RegionDelivery.Overlay ? r.Ink.Name :
+                            $"[{(int)Math.Round(1000d*r.Top/doc.Height)}, {(int)Math.Round(1000d*r.Left/doc.Width)}, {(int)Math.Round(1000d*r.Bottom/doc.Height)}, {(int)Math.Round(1000d*r.Right/doc.Width)}]";
+                        descriptions.Children.Add(Caption($"{r.Number} · {prefix} · {r.Prompt}"));
+                    }
+                    regionOptions.Children.Add(Columns("Auto,*", image, descriptions));
+                }
+                else regionOptions.Children.Add(Caption("Draw an AI region to preview the request."));
+            }
+            if (previous == null && selected is { DeliveryKey: null, Engine.PaidApi: false } first) models.ShowFilesFor(first.Engine, first.Tool);
+            modelHeading.Text = selected?.Name ?? Locale.T("No configurable model files");
+            bool? lastPaid = null;
+            foreach (var pack in profiles.OrderBy(p => p.Engine.PaidApi || p.DeliveryKey != null))
+            {
+                bool paid = pack.Engine.PaidApi || pack.DeliveryKey != null;
+                if (paid != lastPaid)
+                {
+                    modelMaster.Children.Add(Caption(paid ? "API and subscription" : "Local models"));
+                    lastPaid = paid;
+                }
                 var button = RowButton(Heading(pack.Name, 12), () =>
                 {
                     if (pack.File is { FileSlot: { } slot } file) models.UseFile(slot, file.Identifier);
@@ -1322,12 +1379,14 @@ public static partial class AiDialogs
                 OperationDefault(task)?.AssignedWorkflow != true).ToHashSet();
             if (compatible.Length == 0) return;
             modelUsage.Children.Add(Heading("Compatible operations", 13));
-            modelUsage.Children.Add(Ui.Column(3, compatible.Select(task =>
+            var operationGrid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 3 };
+            operationGrid.Children.AddRange(compatible.Select(task =>
             {
                 var caption = Caption(Locale.T(task.DisplayName()) + (assigned.Contains(task) ? " · " + Locale.T("Default model") : ""));
                 if (!AiGenerationControls.IsOperationEnabled(task)) caption.Opacity = .5;
                 return (Control)caption;
-            }).ToArray()));
+            }).ToArray());
+            modelUsage.Children.Add(operationGrid);
         }
         void QueueRefresh()
         {
@@ -1357,7 +1416,7 @@ public static partial class AiDialogs
         var destinations = new (int Page, Button Button)[]
         {
             (6, NavButton("Operations", Icons.Layers, 6)),
-            (1, NavButton("Model files", Icons.Image, 1)),
+            (1, NavButton("Models", Icons.Image, 1)),
             (0, NavButton("Connections", Icons.Link, 0)),
             (GenerationsPageIndex, NavButton("Generations", Icons.Marquee, GenerationsPageIndex)),
             (3, NavButton("Editor", Icons.Sliders, 3, Palette.Secondary)),
@@ -1580,6 +1639,7 @@ public static partial class AiDialogs
                 settings.AiTaskModelKeys[key] = selectedModel.ModelKey;
         }
         settings.AiModelRoutes = routeDrafts;
+        settings.RegionModes = regionModes;
         settings.AiTaskEngineIds = taskDrafts;
         settings.UseSelectionGpu = selectionGpu.IsChecked == true;
         Composa.Vision.ModelRunner.PreferGpu = settings.UseSelectionGpu;

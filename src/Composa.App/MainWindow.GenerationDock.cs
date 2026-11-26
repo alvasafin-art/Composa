@@ -24,7 +24,7 @@ public sealed partial class MainWindow
     private AiTaskKind? manualDockTask;
     private EditorSession? floatingTaskSession;
     private AiTaskKind? manualFloatingTask;
-    private AiTaskKind EditorTask => editorInDock ? manualDockTask ?? automaticDockTask : manualFloatingTask ?? AiTaskKind.GenerativeFill;
+    private AiTaskKind EditorTask => editorInDock ? manualDockTask ?? automaticDockTask : manualFloatingTask ?? (session?.Selection == null && session?.Document.PromptRegions.Count > 0 ? AiTaskKind.ImageEdit : AiTaskKind.GenerativeFill);
     private bool DockEditorVisible => session != null && !settings.CanvasOnly && dock.Presents(generationSection);
     private AiTaskKind? presentedTask;
 
@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiPriceBadge), 1);
         AddAt(actions, DockSlot(aiFloatingActions!), 3);
-        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), actions, DockSlot(aiWorkflowLink),
+        var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), DockSlot(promptRegionList), actions, DockSlot(aiWorkflowLink),
             DockSlot(aiReferenceHost), DockSlot(aiFloatingVariants));
         body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
         var view = new ScrollViewer { Name = "AiGenerationDock", Content = body, Background = Palette.Panel,
