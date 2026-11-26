@@ -919,6 +919,10 @@ public sealed partial class EditorSession
         var layer = Layer.Raster(document.UniqueName(name), pixels,
             fits ? placed.Left : Math.Round((document.Width - pixels.Width) / 2.0),
             fits ? placed.Top : Math.Round((document.Height - pixels.Height) / 2.0));
+        var content = layer.ControlBounds;
+        var canvas = (SKRect)document.Bounds;
+        if (!content.IsEmpty && !content.IntersectsWith(canvas))
+            layer.TranslateContent(MathF.Round(canvas.MidX - content.MidX), MathF.Round(canvas.MidY - content.MidY));
         Apply("Paste", () => InsertAndReflow(layer));
         EditingMask = false;
         Invalidate(AffectedArea(layer));

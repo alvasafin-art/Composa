@@ -123,6 +123,24 @@ public class LayerClipboardTests
         Assert.Single(target.Document.Layers);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Clipboard_pixels_with_off_canvas_content_are_recentered(bool inPlace)
+    {
+        var pixels = Pixels.NewColor(300, 240);
+        using (var canvas = new SKCanvas(pixels))
+        using (var paint = new SKPaint { Color = SKColors.Red })
+            canvas.DrawRect(270, 210, 20, 20, paint);
+        var target = EditorSession.NewCanvas(60, 40, SKColors.White);
+        var image = new ClipboardImage(pixels, new SKPointI(0, 0));
+
+        var pasted = (inPlace ? target.PasteInPlace(image) : target.Paste(image))!;
+
+        Assert.Equal(new SKRect(20, 10, 40, 30), pasted.ControlBounds);
+        Assert.Equal(SKColors.Red, target.Composite().GetPixel(30, 20));
+    }
+
     [Fact]
     public void Pasting_spaced_layers_on_a_small_canvas_keeps_some_content_visible()
     {

@@ -1264,6 +1264,7 @@ public static partial class AiDialogs
             {
                 var row = RowButton(content, open);
                 row.IsEnabled = enabled;
+                if (!enabled) row.Resources["ButtonBackgroundDisabled"] = Avalonia.Media.Brushes.Transparent;
                 row.Padding = new Thickness(15, 8);
                 row.CornerRadius = new CornerRadius(0);
                 return new Border { Child = row, Background = expanded ? Palette.PanelRaised : null,
