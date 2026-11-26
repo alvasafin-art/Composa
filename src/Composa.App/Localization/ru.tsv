@@ -1030,7 +1030,7 @@ Rotation (degrees)	Угол поворота в градусах
 Rulers	Линейки
 Run	Запустить
 Run JavaScript	Запустить JavaScript
-Run Send-to-Composa.js in Photoshop (File > Scripts > Browse). In Composa use Scripts > Run Script File > Send-to-Photoshop.js.	В Photoshop запустите Send-to-Composa.js через Файл → Сценарии → Обзор. В Composa выберите Сценарии → Запустить файл сценария → Send-to-Photoshop.js.
+Run this script in Photoshop (File > Scripts > Browse). In Composa use Scripts > Run Script File > Send-to-Photoshop.js.	Запустите этот сценарий в Photoshop через Файл → Сценарии → Обзор. В Composa выберите Сценарии → Запустить файл сценария → Send-to-Photoshop.js.
 Running script / AI tasks…	Выполняются сценарий или задачи ИИ…
 Running…	Выполнение…
 Sample all layers	Образец со всех слоёв

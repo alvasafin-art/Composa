@@ -10,6 +10,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 - Update FLUX 3 Image Klein and add Krea 2 Turbo, Z-Image and Z-Image Turbo workflows with model-specific prompt enhancement. Preserve source colors around masked AI edits.
 - Make the AI operation menus consistent across panels and update the Run icon. Keep pasted content visible, let layers move outside the canvas, and fix centered scaling and reflected perspective corners in Free Transform.
 - Edit vector stroke width, alignment, dashes, caps and joins in Properties. Use the Pen tool to bend or split segments and edit path nodes.
+- Send a flattened Photoshop image as one layer with `Send-to-Composa.jsx`, or use `Send-layers-to-Composa.jsx` to preserve editable layers.
 
 ## [1.3.0-preview.4.studio.17.13] - 2026-11-25
 

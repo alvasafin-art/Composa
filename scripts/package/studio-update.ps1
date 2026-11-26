@@ -43,7 +43,7 @@ $portable = Join-Path $outputPath "ComposaStudio-$Rid-Portable.zip"
 $archive = [IO.Compression.ZipFile]::Open($portable, [IO.Compression.ZipArchiveMode]::Update)
 $package = [IO.Compression.ZipFile]::OpenRead((Join-Path $outputPath $full[0].FileName))
 try {
-    foreach ($script in 'Send-to-Composa.jsx', 'Send-to-Composa.js', 'Exchange.ps1', 'Send-layers-to-Photoshop.js', 'Send-to-Photoshop.js', 'Send-to-Photoshop.cmd') {
+    foreach ($script in 'Send-to-Composa.jsx', 'Send-to-Composa.js', 'Send-layers-to-Composa.jsx', 'Send-layers-to-Composa.js', 'Exchange.ps1', 'Send-layers-to-Photoshop.js', 'Send-to-Photoshop.js', 'Send-to-Photoshop.cmd') {
         $relativePath = "scripts/photoshop/$script"
         $installed = $package.GetEntry("lib/app/$relativePath")
         $portableScript = $archive.GetEntry("current/$relativePath")

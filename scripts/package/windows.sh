@@ -59,7 +59,7 @@ cp "$ROOT/docs/seedvr2-upscale.md" "$TREE/docs/"
 cp "$ROOT/docs/scene-matching.md" "$ROOT/docs/nano-banana.md" "$ROOT/docs/original-generation-size.md" "$TREE/docs/"
 cp "$ROOT/docs/scene-edit-validation.md" "$TREE/docs/"
 # The app project publishes these files into both Windows packages from the same tree.
-for script in Send-to-Composa.jsx Send-to-Composa.js Exchange.ps1 Send-to-Photoshop.cmd; do
+for script in Send-to-Composa.jsx Send-to-Composa.js Send-layers-to-Composa.jsx Send-layers-to-Composa.js Exchange.ps1 Send-to-Photoshop.cmd; do
   test -s "$TREE/scripts/photoshop/$script"
 done
 

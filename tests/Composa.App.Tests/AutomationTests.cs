@@ -293,6 +293,7 @@ public class AutomationTests
             File.WriteAllText(Path.Combine(installation, "Bundled.JS"), "doc.addLayer('Bundled edit');");
             File.WriteAllText(Path.Combine(photoshop, "Send-to-Photoshop.js"), "doc.addLayer('Photoshop edit');");
             File.WriteAllText(Path.Combine(photoshop, "Send-to-Composa.js"), "#target photoshop");
+            File.WriteAllText(Path.Combine(photoshop, "Send-layers-to-Composa.js"), "#target photoshop");
             File.WriteAllText(Path.Combine(installation, "note.txt"), "Not a script");
 
             await window.DiscoverStartupScripts().WaitAsync(TimeSpan.FromSeconds(5));

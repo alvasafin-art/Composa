@@ -6,6 +6,63 @@ namespace Composa.App.Tests;
 
 public class PhotoshopScriptContractTests
 {
+    [Fact]
+    public void Photoshop_flattened_script_sends_a_merged_png_from_a_duplicate()
+    {
+        var folder = Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop");
+        var script = File.ReadAllText(Path.Combine(folder, "Send-to-Composa.js"));
+        var jsx = File.ReadAllText(Path.Combine(folder, "Send-to-Composa.jsx"));
+        Assert.Equal(script.Replace("Send-to-Composa.js", "Send-to-Composa.jsx"), jsx);
+        var engine = new Engine();
+        engine.Execute("""
+            const files = {}, alerts = [];
+            let merged = false, closed = false, saved = false, command = '';
+            const install = 'C:/App folder/scripts/photoshop';
+            function File(path) {
+                if (files[path]) return files[path];
+                this.fsName = path;
+                this.parent = { fsName: install };
+                this.exists = path.endsWith('Exchange.ps1');
+                this.open = () => true;
+                this.read = () => 'Opened image';
+                this.close = () => {};
+                this.remove = () => { this.exists = false; };
+                files[path] = this;
+            }
+            const Folder = {temp: {fsName: 'C:/Temp folder'}};
+            const $ = {os:'Windows', fileName:install + '/Send-to-Composa.js',
+                sleep: () => { throw new Error('Unexpected polling'); }};
+            const DocumentMode = {RGB:1, CMYK:2}, ChangeMode = {RGB:1}, BitsPerChannelType = {EIGHT:8},
+                SaveOptions = {DONOTSAVECHANGES:0}, Extension = {LOWERCASE:1}, DialogModes = {NO:0};
+            function PNGSaveOptions() {}
+            function alert(text) { alerts.push(text); }
+            const copy = {mode:2, bitsPerChannel:16, changeMode: mode => { copy.mode = mode; },
+                saveAs: (file, options, asCopy) => {
+                    saved = asCopy && options instanceof PNGSaveOptions && options.interlaced === false &&
+                        file.fsName.endsWith('.png') && copy.mode === DocumentMode.RGB && copy.bitsPerChannel === 8;
+                    file.exists = true;
+                },
+                close: mode => { closed = mode === SaveOptions.DONOTSAVECHANGES; }};
+            const original = {mode:2, bitsPerChannel:16, duplicate: (name, merge) => {
+                merged = merge; app.activeDocument = copy; return copy;
+            }};
+            const app = {documents:[original], activeDocument:original, displayDialogs:1,
+                system: value => {
+                    if (!closed || app.activeDocument !== original || app.displayDialogs !== 1)
+                        throw new Error('Source state was not restored before running the helper');
+                    command = value;
+                    Object.keys(files).filter(path => path.endsWith('.png.txt')).forEach(path => files[path].exists = true);
+                }};
+            """);
+        engine.Execute(Regex.Replace(script, @"(?m)^#target.*$", ""));
+        Assert.True(engine.Evaluate("merged && saved && closed").AsBoolean());
+        Assert.True(engine.Evaluate("original.mode === 2 && original.bitsPerChannel === 16").AsBoolean());
+        Assert.Equal(0, engine.Evaluate("alerts.length").AsNumber());
+        var command = engine.Evaluate("command").AsString();
+        Assert.Contains("-Direction ToComposa -ImagePath ", command);
+        Assert.Contains(".png\" -ReportPath ", command);
+    }
+
     [Theory]
     [InlineData("none", 8)]
     [InlineData("none", 16)]
@@ -16,9 +73,9 @@ public class PhotoshopScriptContractTests
     [InlineData("unsupported", 32)]
     public void Photoshop_script_snapshots_layers_and_restores_the_source_before_handoff(string failure, int depth)
     {
-        var script = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Send-to-Composa.js"));
-        var jsx = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Send-to-Composa.jsx"));
-        Assert.Equal(script.Replace("Send-to-Composa.js", "Send-to-Composa.jsx"), jsx);
+        var script = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Send-layers-to-Composa.js"));
+        var jsx = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "scripts", "photoshop", "Send-layers-to-Composa.jsx"));
+        Assert.Equal(script.Replace("Send-layers-to-Composa.js", "Send-layers-to-Composa.jsx"), jsx);
         var engine = new Engine();
         engine.SetValue("failure", failure);
         engine.SetValue("depth", depth);
@@ -53,7 +110,7 @@ public class PhotoshopScriptContractTests
                 this.remove = () => {};
             }
             Folder.temp = { absoluteURI: encodeURI("C:/Временная папка 'тест'") };
-            const $ = {os:'Windows', fileName:encodeURI(install + '/Send-to-Composa.js'),
+            const $ = {os:'Windows', fileName:encodeURI(install + '/Send-layers-to-Composa.js'),
                 sleep: () => { throw new Error('Unexpected polling'); }};
             const DocumentMode = {RGB:1}, BitsPerChannelType = {EIGHT:8, SIXTEEN:16},
                 SaveOptions = {DONOTSAVECHANGES:0}, Extension = {LOWERCASE:1}, DialogModes = {NO:0},

@@ -64,8 +64,9 @@ public sealed partial class AutomationCatalog(string? root, string? installation
             { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false });
             foreach (var file in files.OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase))
             {
-                // This companion ships alongside Composa scripts and is launched from Photoshop.
-                if (photoshop && file.Name.Equals("Send-to-Composa.js", StringComparison.OrdinalIgnoreCase)) continue;
+                // These companions are launched from Photoshop.
+                if (photoshop && (file.Name.Equals("Send-to-Composa.js", StringComparison.OrdinalIgnoreCase) ||
+                                  file.Name.Equals("Send-layers-to-Composa.js", StringComparison.OrdinalIgnoreCase))) continue;
                 try
                 {
                     CheckScriptFile(file);
@@ -237,7 +238,7 @@ public sealed partial class AutomationCatalog(string? root, string? installation
         var text = File.ReadAllText(path);
         if (text.Contains('\0')) throw new InvalidDataException("The script is not a text file.");
         if (text.TrimStart().StartsWith("#target photoshop", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Run Send-to-Composa.js in Photoshop (File > Scripts > Browse). In Composa use Scripts > Run Script File > Send-to-Photoshop.js.");
+            throw new InvalidDataException("Run this script in Photoshop (File > Scripts > Browse). In Composa use Scripts > Run Script File > Send-to-Photoshop.js.");
         return text;
     }
 
