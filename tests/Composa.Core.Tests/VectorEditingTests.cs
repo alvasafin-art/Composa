@@ -51,7 +51,7 @@ public class VectorEditingTests
         Assert.Equal(0, visible.GetPixel(235, 80).Alpha);
         Assert.True(visible.GetPixel(235, 69).Alpha > 200);
         Assert.True(visible.GetPixel(57, 80).Alpha > 200);
-        Assert.Equal(0, visible.GetPixel(66, 80).Alpha);
+        Assert.Equal(0, visible.GetPixel(90, 80).Alpha);
         session.Undo();
         Assert.Same(before, session.ActiveLayer!.Pixels);
         session.Redo();
@@ -59,6 +59,29 @@ public class VectorEditingTests
         using var stream = new MemoryStream();
         ProjectFile.Write(session.Document, stream); stream.Position = 0;
         Assert.Equal(session.ActiveLayer.Shape, ProjectFile.Read(stream).Find(line.Id)!.Shape);
+    }
+
+    [Fact]
+    public void Hollow_marker_stroke_matches_the_line_width_at_its_endpoint()
+    {
+        using var line = new SKPath();
+        line.MoveTo(20, 60);
+        line.LineTo(100, 60);
+        foreach (var (profile, endpointWidth) in new[] { (StrokeProfile.Uniform, 8f), (StrokeProfile.TaperEnd, .96f) })
+        {
+            var style = new ShapeStyle(ShapeKind.Line, 0, 0)
+            {
+                StrokeOptions = new() { End = StrokeMarker.HollowSquare, Cap = StrokeCap.Butt, Profile = profile }
+            };
+            using var ink = Composa.Rendering.VectorStrokeGeometry.Build(line, style, 8);
+            var radius = endpointWidth * 1.35f;
+            var x = 100 + radius;
+            var wall = 60 - radius;
+            Assert.True(ink.Contains(x, wall - endpointWidth * .49f));
+            Assert.True(ink.Contains(x, wall + endpointWidth * .49f));
+            Assert.False(ink.Contains(x, wall - endpointWidth * .51f));
+            Assert.False(ink.Contains(x, wall + endpointWidth * .51f));
+        }
     }
 
     [Fact]

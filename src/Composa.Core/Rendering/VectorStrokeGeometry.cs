@@ -170,7 +170,7 @@ public static class VectorStrokeGeometry
             float length = width * (slim ? 3.8f : 2.8f);
             float half = width * (slim ? 1f : 1.6f);
             path.MoveTo(-length, -half); path.LineTo(0, 0); path.LineTo(-length, half);
-            return Outline(path, width * .78f);
+            return Outline(path);
         }
 
         float radius = width * 1.35f;
@@ -193,7 +193,7 @@ public static class VectorStrokeGeometry
                 path.AddPoly([new(tip, 0), new(tip - radius * 2, radius), new(tip - radius * 2, -radius)]);
                 break;
         }
-        if (hollow) return Outline(path, width * .55f);
+        if (hollow) return Outline(path);
         if (rounded && marker is StrokeMarker.Diamond or StrokeMarker.Triangle)
         {
             using var fillet = new SKPaint { Style = SKPaintStyle.StrokeAndFill, StrokeWidth = width * .38f, StrokeJoin = SKStrokeJoin.Round };
@@ -202,10 +202,10 @@ public static class VectorStrokeGeometry
         }
         return path;
 
-        SKPath Outline(SKPath source, float thickness)
+        SKPath Outline(SKPath source)
         {
             using (source)
-            using (var pencil = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = thickness,
+            using (var pencil = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = width,
                 StrokeJoin = rounded ? SKStrokeJoin.Round : SKStrokeJoin.Miter,
                 StrokeCap = rounded ? SKStrokeCap.Round : cap == StrokeCap.Square ? SKStrokeCap.Square : SKStrokeCap.Butt })
                 return pencil.GetFillPath(source) ?? new SKPath();

@@ -526,7 +526,10 @@ public class AssistantTests
         var ai = Assert.Single(window.GetVisualDescendants().OfType<MenuItem>(), menu => menu.Header?.ToString()?.Replace("_", "") == "AI");
         var item = Assert.Single(ai.Items.OfType<MenuItem>(), menu => menu.Header?.ToString() == "Assistant…");
         Assert.True(item.IsEnabled);
-        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), button => button.Content?.ToString() == "Assistant" && button.IsEnabled);
+        var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
+            button => Avalonia.Automation.AutomationProperties.GetName(button) == "Assistant");
+        Assert.True(button.IsEnabled);
+        Assert.Contains(button.GetVisualDescendants(), child => child is Avalonia.Controls.Shapes.Path);
     }
 
     [AvaloniaFact]

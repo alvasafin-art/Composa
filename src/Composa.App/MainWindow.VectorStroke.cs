@@ -142,7 +142,7 @@ public sealed partial class MainWindow
 
         ComboBox MarkerControl(string name, bool start)
         {
-            var box = new ComboBox { MinWidth = 0, Height = 28, Padding = new Thickness(6, 0, 22, 0),
+            var box = new ComboBox { MinWidth = 0, Height = 28, Padding = new Thickness(6, 0, 2, 0),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 MaxDropDownHeight = 350, ItemsSource = Enum.GetValues<StrokeMarker>(),
                 ItemTemplate = new FuncDataTemplate<StrokeMarker>((item, _) => MarkerPreview(item, start)) };
