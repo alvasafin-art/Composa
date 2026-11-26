@@ -13,6 +13,41 @@ namespace Composa.App.Tests;
 public class AiOperationSettingsTests
 {
     [AvaloniaFact]
+    public async Task Krea_enhancer_shows_only_the_generation_instructions()
+    {
+        var window = new MainWindow(null, _ => new PartnerImageTests.Connection());
+        window.Settings.CheckForUpdates = false;
+        window.Show();
+        try
+        {
+            var pending = window.ShowAiSettings(page: 2);
+            Dispatcher.UIThread.RunJobs();
+            var dialog = Assert.Single(window.OwnedWindows);
+            void SelectModel(string name)
+            {
+                var row = Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), button =>
+                    button.IsEffectivelyVisible && button.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == name));
+                row.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+            }
+            var generate = Assert.Single(dialog.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "EnhancerInstructions");
+            var edit = Assert.Single(dialog.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "EnhancerEditInstructions");
+            SelectModel("Krea 2 Turbo");
+            Assert.True(generate.IsEffectivelyVisible);
+            Assert.Contains("one cohesive natural-language paragraph", generate.Text);
+            Assert.Contains("quotation marks", generate.Text);
+            Assert.False(edit.IsEffectivelyVisible);
+            Assert.Equal("", edit.Text);
+            SelectModel("FLUX 3 Image Klein");
+            Assert.True(edit.IsEffectivelyVisible);
+            Assert.False(string.IsNullOrWhiteSpace(edit.Text));
+            dialog.Close(false);
+            await pending;
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Text_to_image_packs_appear_in_model_files_and_the_generate_picker()
     {
         var window = new MainWindow();
