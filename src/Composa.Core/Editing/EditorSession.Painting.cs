@@ -265,7 +265,10 @@ public sealed partial class EditorSession
 
     private SKBitmap CompositeInStrokeSpace(SKBitmap target, SKPoint documentOffset)
     {
-        using var visible = CompositePixels();
+        // This synchronous draw owns its destination and does not retain the display composite.
+        var useDisplay = document.WorkingDepth == ColorDepth.Eight && document.Profile.Equals(Composa.ColorManagement.RgbProfile.Srgb);
+        using var working = useDisplay ? null : DocumentRenderer.Flatten(document, CurrentOptions());
+        var visible = working ?? Composite();
         var sample = Pixels.NewLike(target);
         using var canvas = new SKCanvas(sample);
         canvas.SetMatrix(strokeToLayer);
@@ -283,7 +286,7 @@ public sealed partial class EditorSession
     public void ContinueStrokeSamples(ReadOnlySpan<(SKPoint Point, float Pressure)> points)
     {
         if (stroke is not { } current || strokeLayer == null) return;
-        if (points.Length < 2 || strokeMode is not (BrushMode.Paint or BrushMode.Erase))
+        if (points.Length < 2 || !current.CanBatchSamples)
         {
             foreach (var (point, pressure) in points) ContinueStroke(point, pressure);
             return;

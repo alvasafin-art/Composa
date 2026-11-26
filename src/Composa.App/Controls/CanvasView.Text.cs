@@ -327,7 +327,7 @@ public sealed partial class CanvasView
             };
         if (session?.TextEdit is { Style.Path: not null } editor && session.TextEditLayer is { } layer &&
             HitTextPathStart(layer, editor.Layout, ToDocument(position)) != null) type = StandardCursorType.SizeAll;
-        Cursor = new Cursor(type);
+        SetCanvasStandardCursor(type);
     }
 
     /// <summary>The box, its handles, the selection and the caret over the text being typed, plus a new box being dragged out.</summary>

@@ -34,7 +34,8 @@ public static class WarpRenderer
     /// <summary>Samples a texture and optional coverage in canonical source coordinates. Separate originals and
     /// filter results can use one geometry/output frame even when the filter adds a differently sized border.</summary>
     internal static WarpedPixels RenderRegion(SKBitmap source, WarpGeometry geometry, SKPoint sourceOrigin, SKBitmap? linkedMask = null,
-        SKMatrix? maskPlacement = null, double scale = 1, SKRectI? outputBounds = null, CancellationToken cancellationToken = default)
+        SKMatrix? maskPlacement = null, double scale = 1, SKRectI? outputBounds = null, CancellationToken cancellationToken = default,
+        bool interactive = false, SKRectI? renderClip = null)
     {
         if (source.ColorType is not (SKColorType.Rgba8888 or SKColorType.RgbaF32)) throw new ArgumentException("Warp requires working RGB pixels.", nameof(source));
         if (linkedMask != null && linkedMask.ColorType != SKColorType.Alpha8) throw new ArgumentException("Warp coverage must be Alpha8.", nameof(linkedMask));
@@ -75,12 +76,16 @@ public static class WarpRenderer
             else
             {
                 // One subdivision count for the whole grid guarantees identical vertices along shared patch edges.
-                var divisions = geometry.Subdivisions(Math.Max((double)width / bounds.Width, (double)height / bounds.Height), Tolerance);
+                var divisions = geometry.Subdivisions(Math.Max((double)width / bounds.Width, (double)height / bounds.Height), interactive ? .5 : Tolerance);
                 foreach (var patch in geometry.Patches)
-                for (var sy = 0; sy < divisions; sy += ChunkDivisions) for (var sx = 0; sx < divisions; sx += ChunkDivisions)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    DrawChunk(canvas, paint, geometry, patch, sx, sy, divisions);
+                    if (renderClip is { } clip && Outside(patch, clip)) continue;
+                    for (var sy = 0; sy < divisions; sy += ChunkDivisions)
+                    for (var sx = 0; sx < divisions; sx += ChunkDivisions)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        DrawChunk(canvas, paint, geometry, patch, sx, sy, divisions, renderClip);
+                    }
                 }
             }
             canvas.Flush(); cancellationToken.ThrowIfCancellationRequested();
@@ -91,15 +96,55 @@ public static class WarpRenderer
         finally { if (covered != null) { Pixels.Invalidate(covered); covered.Dispose(); } }
     }
 
-    private static void DrawChunk(SKCanvas canvas, SKPaint paint, WarpGeometry geometry, WarpGeometry.Patch patch, int startX, int startY, int divisions)
+    private static bool Outside(WarpGeometry.Patch patch, SKRectI clip)
+    {
+        var left = true;
+        var right = true;
+        var above = true;
+        var below = true;
+        foreach (var point in patch.Controls)
+        {
+            left &= point.X < clip.Left - 1d;
+            right &= point.X > clip.Right + 1d;
+            above &= point.Y < clip.Top - 1d;
+            below &= point.Y > clip.Bottom + 1d;
+        }
+        return left || right || above || below;
+    }
+
+    private static void DrawChunk(SKCanvas canvas, SKPaint paint, WarpGeometry geometry, WarpGeometry.Patch patch,
+        int startX, int startY, int divisions, SKRectI? clip)
     {
         var nx = Math.Min(ChunkDivisions, divisions - startX); var ny = Math.Min(ChunkDivisions, divisions - startY);
         var positions = new SKPoint[(nx + 1) * (ny + 1)]; var texture = new SKPoint[positions.Length]; var indices = new ushort[nx * ny * 6];
-        for (var y = 0; y <= ny; y++) for (var x = 0; x <= nx; x++)
+        Span<WarpPoint> columns = stackalloc WarpPoint[(ChunkDivisions + 1) * 4];
+        Span<float> sourceX = stackalloc float[ChunkDivisions + 1];
+        for (var x = 0; x <= nx; x++)
         {
-            var u = (double)(startX + x) / divisions; var v = (double)(startY + y) / divisions;
-            var p = patch.Evaluate(u, v); var s = geometry.SourcePoint(patch, u, v); var index = y * (nx + 1) + x;
-            positions[index] = new((float)p.X, (float)p.Y); texture[index] = new((float)s.X, (float)s.Y);
+            var u = (double)(startX + x) / divisions;
+            patch.EvaluateColumn(u, columns.Slice(x * 4, 4));
+            sourceX[x] = (float)geometry.SourcePoint(patch, u, 0).X;
+        }
+        for (var y = 0; y <= ny; y++)
+        {
+            var v = (double)(startY + y) / divisions;
+            var sourceY = (float)geometry.SourcePoint(patch, 0, v).Y;
+            for (var x = 0; x <= nx; x++)
+            {
+                var point = WarpGeometry.Patch.EvaluateRow(columns.Slice(x * 4, 4), v);
+                var index = y * (nx + 1) + x;
+                positions[index] = new((float)point.X, (float)point.Y);
+                texture[index] = new(sourceX[x], sourceY);
+            }
+        }
+        if (clip is { } bounds)
+        {
+            var extent = new SKRect(bounds.Left - 1f, bounds.Top - 1f, bounds.Right + 1f, bounds.Bottom + 1f);
+            var positionBounds = SKRect.Create(positions[0].X, positions[0].Y, 0, 0);
+            foreach (var point in positions)
+                positionBounds = new(Math.Min(positionBounds.Left, point.X), Math.Min(positionBounds.Top, point.Y),
+                    Math.Max(positionBounds.Right, point.X), Math.Max(positionBounds.Bottom, point.Y));
+            if (!extent.IntersectsWith(positionBounds)) return;
         }
         var at = 0;
         for (var y = 0; y < ny; y++) for (var x = 0; x < nx; x++)

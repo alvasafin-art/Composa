@@ -375,9 +375,13 @@ public sealed partial class MainWindow : Window
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); if (added.IsEditingMask != optionsEditingMask) RebuildOptions(); else refreshOptions?.Invoke(); } };
         added.TextChanged += () => { if (added == session) refreshOptions?.Invoke(); };
+        var wasPaintingSelection = false;
         added.SelectionChanged += () =>
         {
             if (added != session) return;
+            var paintingSelection = added.IsPaintingSelection;
+            if (paintingSelection && wasPaintingSelection) return;
+            wasPaintingSelection = paintingSelection;
             floatingBoundsMask = null;
             if (added.IsMovingPixels)
             {

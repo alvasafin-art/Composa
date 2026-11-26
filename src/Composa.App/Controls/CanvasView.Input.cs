@@ -434,8 +434,9 @@ public sealed partial class CanvasView
         // Pixel damage from ContinueStroke already invalidates the canvas. When a
         // sample only moves the cursor, keep the document frame that is on screen.
         if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
-        // The marquee's crosshair is a system cursor. Its overlay starts with a press.
-        else if (drag != Drag.Pan && (drag != Drag.None || session.Tool != Tool.Marquee || polygon.Count > 0))
+        // Idle cursor changes are handled by the cursor itself. The canvas only
+        // needs a new overlay while a gesture or a polygonal outline is changing.
+        else if (drag is not (Drag.None or Drag.Pan) || drag == Drag.None && polygon.Count > 0)
             InvalidateCanvas();
     }
 
@@ -627,8 +628,12 @@ public sealed partial class CanvasView
         brushPreparationRequested = false;
         session?.DiscardPreparedBrushDab();
         PointerAt?.Invoke(null);
-        if (IsBrushTool && drag is Drag.None or Drag.Stroke) InvalidateBrushCursor();
-        else InvalidateCanvas();
+        if (IsBrushTool) InvalidateBrushCursor();
+        else if (layoutGapIndex >= 0)
+        {
+            layoutGapIndex = -1;
+            InvalidateCanvas();
+        }
     }
 
     private void QueueBrushPreparation()
@@ -926,7 +931,7 @@ public sealed partial class CanvasView
                 type = guide.Axis == GuideAxis.Vertical ? StandardCursorType.SizeWestEast : StandardCursorType.SizeNorthSouth;
             else if (hit == TransformHandle.Move) type = StandardCursorType.SizeAll;
         }
-        Cursor = new Cursor(type);
+        SetCanvasStandardCursor(type);
     }
 
     /// <summary>Whether the one layer being transformed already has a corner pulled out of place.</summary>
@@ -1014,7 +1019,6 @@ public sealed partial class CanvasView
         if (hover == controlHover) return;
         controlHover = hover;
         UpdateCursor();
-        InvalidateCanvas(); // The brush outline comes and goes with the move cursor.
     }
 
     /// <summary>

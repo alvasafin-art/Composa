@@ -669,8 +669,8 @@ public sealed partial class CanvasView : Decorator
             }
             if (!dirty.IsEmpty)
             {
-                var moved = drag == Drag.Transform && handle == TransformHandle.Move && session.TryRenderLayerMove(viewCache, whole, dirty, mapping);
-                viewHasFullBands = !moved && session.RenderViewportFrame(viewCache, dirty, mapping) && dirty == whole;
+                var transformed = drag == Drag.Transform && session.TryRenderLayerMove(viewCache, whole, dirty, mapping);
+                viewHasFullBands = !transformed && session.RenderViewportFrame(viewCache, dirty, mapping, interactiveWarp: drag == Drag.WarpNode) && dirty == whole;
             }
 #if CANVAS_PERFORMANCE
             CanvasPerformanceTrace.StageCompleted("canvas composite", started);

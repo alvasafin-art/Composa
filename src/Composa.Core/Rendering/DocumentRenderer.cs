@@ -76,6 +76,7 @@ public sealed class RenderOptions
     /// <summary>Layers replaced while rendering (hidden for solo, or swapped for previews).</summary>
     public Dictionary<Guid, Layer>? Overrides { get; init; }
     internal LayerEffectsRenderer.Patch? EffectPatch { get; init; }
+    internal (Guid LayerId, SKRect Viewport, bool Interactive)? WarpPreview { get; init; }
 }
 
 /// <summary>Flattens the layer tree: blend modes, opacity, masks, clipping masks, folders and adjustment layers.</summary>
@@ -230,6 +231,9 @@ public static partial class DocumentRenderer
 
     private static void RenderNodes(IReadOnlyList<Layer> nodes, Tile tile, RenderOptions? options)
     {
+        Layer WarpView(Layer layer) => options?.WarpPreview is { } warp && warp.LayerId == layer.Id
+            ? layer.WarpAppearanceForView(tile.View.Scale, warp.Interactive, warp.Viewport)
+            : layer.WarpAppearanceForView(tile.View.Scale);
         for (var i = 0; i < nodes.Count; i++)
         {
             var layer = Resolve(nodes[i], options);
@@ -246,9 +250,9 @@ public static partial class DocumentRenderer
             {
                 var follower = Resolve(nodes[j], options);
                 if (follower.Visible && follower.Opacity > 0)
-                    (clipped ??= []).Add(follower.WarpAppearanceForView(tile.View.Scale));
+                    (clipped ??= []).Add(WarpView(follower));
             }
-            RenderUnit(layer.WarpAppearanceForView(tile.View.Scale), clipped is null ? [] : clipped, tile, options);
+            RenderUnit(WarpView(layer), clipped is null ? [] : clipped, tile, options);
         }
     }
 

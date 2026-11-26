@@ -10,11 +10,17 @@ public sealed partial class Layer
     private sealed class WarpCache
     {
         public readonly Lock Gate = new();
-        public sealed record Entry(WarpMesh Mesh, WarpGeometry Geometry, SKImage Source, SKImage? Original, SKImage? Mask, double Scale, WarpedPixels Appearance, WarpedPixels? Before);
-        public Entry? Native, Preview;
+        public sealed record Entry(WarpMesh Mesh, WarpGeometry Geometry, SKImage Source, SKImage? Original, SKImage? Mask,
+            double Scale, bool Interactive, SKRectI? Crop, WarpedPixels Appearance, WarpedPixels? Before);
+        public Entry? Native, Preview, Viewport;
     }
     private WarpCache warpCache = new();
     private Layer? warpMaskSource;
+
+    internal void ReleaseWarpViewport()
+    {
+        lock (warpCache.Gate) warpCache.Viewport = null;
+    }
 
     public bool HasWarp => Pixels != null && Warp is { IsIdentity: false };
     internal SKRect WarpBounds
@@ -31,7 +37,9 @@ public sealed partial class Layer
 
     /// <summary>Borrowed immutable appearance node for the renderer. Independent masks remain in document space;
     /// linked raster/vector coverage follows the material, and styles are applied to its deformed silhouette.</summary>
-    public Layer WarpAppearance(double scale = 1)
+    public Layer WarpAppearance(double scale = 1) => WarpAppearance(scale, interactive: false, crop: null);
+
+    private Layer WarpAppearance(double scale, bool interactive, SKRectI? crop)
     {
         if (!HasWarp) return this;
         var source = Pixels!;
@@ -55,16 +63,18 @@ public sealed partial class Layer
                 mask = warpMaskSource.RenderMask();
             }
             var maskImage = mask == null ? null : Rendering.Pixels.ImageOf(mask);
-            var cached = scale == 1 ? warpCache.Native : warpCache.Preview;
+            var cached = crop.HasValue ? warpCache.Viewport : scale == 1 ? warpCache.Native : warpCache.Preview;
             if (cached != null && cached.Mesh.Equals(Warp) && ReferenceEquals(cached.Geometry, geometry) && ReferenceEquals(cached.Source, sourceImage)
-                && ReferenceEquals(cached.Original, originalImage) && ReferenceEquals(cached.Mask, maskImage) && cached.Scale == scale)
+                && ReferenceEquals(cached.Original, originalImage) && ReferenceEquals(cached.Mask, maskImage)
+                && cached.Scale == scale && cached.Interactive == interactive && cached.Crop == crop)
             { appearance = cached.Appearance; before = cached.Before; }
             else
             {
                 var origin = FilterSource == null ? SKPoint.Empty : new SKPoint(-FilterPaddingX, -FilterPaddingY);
                 SKMatrix? coverage = mask == null ? null : SKMatrix.CreateScale((float)source.Width / mask.Width, (float)source.Height / mask.Height)
                     .PostConcat(SKMatrix.CreateTranslation(origin.X, origin.Y));
-                appearance = WarpRenderer.RenderRegion(source, geometry, origin, mask, coverage, scale);
+                appearance = WarpRenderer.RenderRegion(source, geometry, origin, mask, coverage, scale,
+                    interactive: interactive, renderClip: crop);
                 before = null;
                 try
                 {
@@ -78,15 +88,16 @@ public sealed partial class Layer
                             // A black filter mask must reproduce the original warp independently of the filter's
                             // growing border/tessellation. Both textures still land in the same output pixel grid.
                             var originalGeometry = new WarpGeometry(Warp!, raw.Width, raw.Height, region);
-                            before = WarpRenderer.RenderRegion(raw, originalGeometry, SKPoint.Empty, mask, coverage, scale, appearance.Bounds);
+                            before = WarpRenderer.RenderRegion(raw, originalGeometry, SKPoint.Empty, mask, coverage, scale, appearance.Bounds, interactive: interactive);
                         }
                     }
                 }
                 catch { appearance.Dispose(); throw; }
                 // Render bands may still read the preceding generation. Its bitmap is collected only after the
                 // last borrowed appearance node releases it, never disposed while another band is drawing.
-                var next = new WarpCache.Entry(Warp!, geometry, sourceImage, originalImage, maskImage, scale, appearance, before);
-                if (scale == 1) warpCache.Native = next;
+                var next = new WarpCache.Entry(Warp!, geometry, sourceImage, originalImage, maskImage, scale, interactive, crop, appearance, before);
+                if (crop.HasValue) warpCache.Viewport = next;
+                else if (scale == 1) warpCache.Native = next;
                 else
                 {
                     warpCache.Preview = next;
@@ -129,18 +140,40 @@ public sealed partial class Layer
         InnerGlow = effects.InnerGlow is { } glow ? glow with { Size = glow.Size * scale } : null
     };
 
-    internal Layer WarpAppearanceForView(float viewScale)
+    internal Layer WarpAppearanceForView(float viewScale, bool interactive = false, SKRect? viewport = null)
     {
         if (!HasWarp) return this;
         var matrix = WarpMatrix;
         // A projective transform can magnify an arbitrarily small region near its horizon. Keep its native cache.
-        if (matrix.Persp0 != 0 || matrix.Persp1 != 0) return WarpAppearance();
         double a = matrix.ScaleX, b = matrix.SkewX, c = matrix.SkewY, d = matrix.ScaleY;
         var sum = a * a + b * b + c * c + d * d; var determinant = a * d - b * c;
-        var magnification = Math.Sqrt((sum + Math.Sqrt(Math.Max(0, sum * sum - 4 * determinant * determinant))) / 2) * viewScale;
+        var magnification = matrix.Persp0 != 0 || matrix.Persp1 != 0 ? 1
+            : Math.Sqrt((sum + Math.Sqrt(Math.Max(0, sum * sum - 4 * determinant * determinant))) / 2) * viewScale;
         var scale = 1.0;
+        if (interactive)
+        {
+            // A zoomed-in drag otherwise rasterizes the full layer for every mesh change.
+            // Keep the normal viewport resolution once the pointer is released.
+            const double pixelBudget = 1_500_000;
+            var bounds = GeometryForWarp(Warp!).Bounds;
+            var area = (double)bounds.Width * bounds.Height;
+            while (area * scale * scale > pixelBudget) scale /= 2;
+        }
         while (scale / 2 >= magnification && scale * Math.Max(Pixels!.Width, Pixels.Height) > 2) scale /= 2;
-        return WarpAppearance(scale);
+        SKRectI? crop = null;
+        if (scale == 1 && viewScale == 1 && viewport is { } window && Effects?.IsEmpty != false
+            && Mask == null && VectorMask == null && !HasSmartFilterMask
+            && matrix == SKMatrix.CreateTranslation(matrix.TransX, matrix.TransY)
+            && matrix.TransX == MathF.Round(matrix.TransX) && matrix.TransY == MathF.Round(matrix.TransY))
+        {
+            // Keep Skia's native raster origin and skip mesh chunks outside the view.
+            // Rebasing the destination would change some interpolated channel values.
+            window.Offset(-matrix.TransX, -matrix.TransY);
+            var bounds = Geometry.RoundOut(GeometryForWarp(Warp!).Bounds);
+            var visible = Geometry.Intersect(bounds, Geometry.RoundOut(window));
+            if (!visible.IsEmpty && visible != bounds) crop = visible;
+        }
+        return WarpAppearance(scale, interactive && scale < 1, crop);
     }
 
     /// <summary>Coverage for picking the actual visible material, excluding styles such as its cast shadow.</summary>

@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using Composa.App.Controls;
 using Composa.ColorManagement;
 using Composa.Editing;
 using Composa.IO;
@@ -53,6 +54,12 @@ public sealed class CanvasPerformanceBench
         memory = sampler;
         var editorGpu = Environment.GetEnvironmentVariable("COMPOSA_PERF_EDITOR_GPU") == "1";
         GpuAcceleration.Configure(filters: false, editor: editorGpu);
+        if (editorGpu)
+        {
+            GpuAcceleration.ProbeOpenCl();
+            for (var i = 0; i < 200 && !GpuAcceleration.OpenCl.Probed; i++)
+                await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
         window = new MainWindow { Width = WindowWidth, Height = WindowHeight };
         window.Show();
         Pump();
@@ -62,6 +69,7 @@ public sealed class CanvasPerformanceBench
             if (scenario == "tabs") await TabCycles(folder);
             else if (scenario == "interaction") ExerciseInteraction();
             else if (scenario == "brush-preview") CheckBrushPreviews();
+            else if (scenario == "tools") ExerciseTools();
             else if (scenario is "brush8" or "brush16")
             {
                 var depth = scenario == "brush16" ? ColorDepth.Sixteen : ColorDepth.Eight;
@@ -85,7 +93,7 @@ public sealed class CanvasPerformanceBench
             }
             else await Exercise(folder, scenario);
             Checkpoint("closed");
-            if (scenario is not ("brush8" or "brush16" or "interaction" or "brush-preview"))
+            if (scenario is not ("brush8" or "brush16" or "interaction" or "brush-preview" or "tools"))
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
                 Checkpoint("closed +30s");
@@ -105,7 +113,7 @@ public sealed class CanvasPerformanceBench
             File.WriteAllText(output, JsonSerializer.Serialize(new
             {
                 scenario, window = new { width = WindowWidth, height = WindowHeight },
-                backend = "Avalonia Headless / Skia raster", phases, checkpoints, checks
+                backend = "Avalonia Headless / Skia raster", editorGpu, openCl = GpuAcceleration.OpenCl, phases, checkpoints, checks
             }, new JsonSerializerOptions { WriteIndented = true }));
             if (Environment.GetEnvironmentVariable("COMPOSA_PERF_INSPECT") == "1")
             {
@@ -252,6 +260,117 @@ public sealed class CanvasPerformanceBench
             checks[$"{phase} last frame"] = Hash(viewport);
             checks[$"{phase} committed layer"] = Hash(layer.Pixels!);
         }
+    }
+
+    private void ExerciseTools()
+    {
+        var session = EditorSession.NewCanvas(4608, 3072, SKColors.Beige);
+        var layer = session.ActiveLayer!;
+        using (var canvas = new SKCanvas(layer.Pixels!))
+        using (var paint = new SKPaint { Color = SKColors.CadetBlue })
+            for (var x = 0; x < 4608; x += 53) canvas.DrawRect(x, 0, 11, 3072, paint);
+        Pixels.Invalidate(layer.Pixels!);
+        window.AddSession(session);
+        window.Canvas.Fit();
+        Pump();
+        var buttons = window.GetLogicalDescendants().OfType<ToolButton>().Where(button => button.IsEffectivelyVisible && button.IsEnabled)
+            .Select(button => (Button: button, Position: button.TranslatePoint(new Rect(button.Bounds.Size).Center, window)))
+            .Where(button => button.Position != null).Take(8).ToArray();
+        Assert.True(buttons.Length >= 2);
+        window.SelectTool(Tool.Move);
+        var center = window.Canvas.TranslatePoint(new Rect(window.Canvas.Bounds.Size).Center, window)!.Value;
+        Pump();
+        StartPhase();
+        var hoverTimes = new List<InputFrame>();
+        for (var i = 0; i < 4; i++)
+        foreach (var (button, position) in buttons)
+        {
+            Measure("canvas hover", () => window.MouseMove(center + new Vector(i + button.Bounds.Y % 5, i)), hoverTimes, measureInput: true);
+            Measure("panel hover", () => window.MouseMove(position!.Value), hoverTimes, measureInput: true);
+            Assert.True(button.IsPointerOver);
+        }
+        EndPhase("Canvas to tool panel hover", hoverTimes);
+
+        var path = Path(new SKPoint(2160, 1430), 300, 118, 18);
+        session.Brush = new BrushSettings { Size = 500, Hardness = .995, Flow = .65, Opacity = .82 };
+        var samples = path.Skip(1).Select(p => (p, 1f)).ToArray();
+        session.SetCloneSource(new SKPoint(2115, 1300));
+        foreach (var mode in new[] { BrushMode.Paint, BrushMode.Erase, BrushMode.Heal, BrushMode.Healing, BrushMode.Clone })
+        {
+            Assert.True(session.BeginStroke(path[0], out _, mode: mode));
+            Pump();
+            StartPhase();
+            var times = new List<InputFrame>();
+            for (var i = 0; i < samples.Length; i += 3)
+            {
+                var from = i;
+                Measure("move", () => session.ContinueStrokeSamples(samples.AsSpan(from, 3)), times, measureInput: true);
+            }
+            EndPhase($"{mode} batched samples", times);
+            checks[$"{mode} live"] = Hash(layer.Pixels!);
+            session.CancelStroke();
+            layer = session.ActiveLayer!;
+            Pump();
+        }
+
+        session.SelectRect(new SKRect(500, 420, 2500, 1820));
+        session.SelectionBrushSize = 90;
+        session.SelectionBrushFeather = 6;
+        window.SelectTool(Tool.SelectionBrush);
+        Pump();
+        StartPhase();
+        var selectionTimes = new List<InputFrame>();
+        Measure("press", () => session.BeginSelectionBrush(path[0]), selectionTimes, measureInput: true);
+        foreach (var point in path.Skip(1))
+            Measure("move", () => session.ContinueSelectionBrush(point), selectionTimes, measureInput: true);
+        session.EndSelectionBrush();
+        EndPhase("Selection brush", selectionTimes);
+        checks["selection"] = Hash(session.Selection!);
+        session.Deselect();
+
+        var source = layer.Pixels!;
+        var field = new LiquifyField(source.Width, source.Height);
+        StartPhase();
+        var fieldTimes = new List<InputFrame>();
+        for (var i = 1; i < path.Length; i++)
+        {
+            var to = i;
+            Measure("move", () => field = field.Stroke(path[to - 1], path[to], LiquifyTool.Push, 590), fieldTimes, measureInput: true);
+        }
+        EndPhase("Liquify field", fieldTimes);
+        StartPhase();
+        var renderTimes = new List<InputFrame>();
+        SKBitmap? rendered = null;
+        for (var i = 0; i < 6; i++)
+        {
+            rendered?.Dispose();
+            Measure("apply", () => rendered = field.Render(source), renderTimes, measureInput: true);
+        }
+        EndPhase("Liquify full resolution", renderTimes);
+        checks["Liquify"] = Hash(rendered!);
+        rendered!.Dispose();
+
+        window.Canvas.ZoomTo(1);
+        window.Canvas.StartWarp();
+        window.Canvas.ChangeWarpGrid(4, 4);
+        var warp = session.WarpEdit!;
+        const int index = 12;
+        Point At(SKPoint p) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(p), window)!.Value;
+        var node = warp.Layer.WarpNodePosition(warp.Mesh.Points[index]);
+        Pump();
+        StartPhase();
+        var warpTimes = new List<InputFrame>();
+        window.MouseDown(At(node), MouseButton.Left, RawInputModifiers.None);
+        foreach (var point in Path(node, 140, 60, 14).Skip(1))
+            Measure("move", () => window.MouseMove(At(point), RawInputModifiers.LeftMouseButton), warpTimes, measureInput: true);
+        Measure("release", () => window.MouseUp(At(node + new SKPoint(140, 60)), MouseButton.Left), warpTimes, measureInput: true);
+        Assert.False(warp.Mesh.IsIdentity);
+        EndPhase("Warp at 100%", warpTimes);
+        using var viewport = Pixels.NewColor(900, 600);
+        session.RenderView(viewport, viewport.Info.Rect, new RenderView(1, new SKPoint(1200, 900)));
+        checks["Warp released"] = Hash(viewport);
+        window.Canvas.FinishWarp(keep: false);
+        session.MarkSaved("tool-replay.cmps", session.History.CurrentId);
     }
 
     private void ExerciseBrush(ColorDepth depth)

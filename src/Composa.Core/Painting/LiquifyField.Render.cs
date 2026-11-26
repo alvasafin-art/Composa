@@ -20,32 +20,33 @@ public sealed partial class LiquifyField
         SKBitmap? reduced = null;
         try
         {
-            if (full && !HasDeformation) return result;
-            var sample = source;
-            if (!full)
+            if (full)
             {
-                var level = Math.Max(0, (int)Math.Floor(Math.Log2(1 / scale)));
+                RenderNative(source, result, token);
+                return result;
+            }
+            var sample = source;
+            var level = Math.Max(0, (int)Math.Floor(Math.Log2(1 / scale)));
+            if (level > 0)
+            {
+                var image = Pixels.Level(source, ref level);
                 if (level > 0)
                 {
-                    var image = Pixels.Level(source, ref level);
-                    if (level > 0)
-                    {
-                        sample = reduced = Pixels.NewLike(source, image.Width, image.Height);
-                        if (!image.ReadPixels(reduced.Info, reduced.GetPixels(), reduced.RowBytes, 0, 0)) throw new InvalidOperationException("The Liquify preview source could not be read.");
-                    }
+                    sample = reduced = Pixels.NewLike(source, image.Width, image.Height);
+                    if (!image.ReadPixels(reduced.Info, reduced.GetPixels(), reduced.RowBytes, 0, 0)) throw new InvalidOperationException("The Liquify preview source could not be read.");
                 }
             }
             var input = new PixelBuffer(sample); var output = new PixelBuffer(result);
             var sx = (double)Width / width; var sy = (double)Height / height;
             var mx = (double)input.Width / Width; var my = (double)input.Height / Height;
+            var deformed = HasDeformation;
             Parallel.For(0, height, new ParallelOptions { CancellationToken = token }, y =>
             {
                 for (var x = 0; x < width; x++)
                 {
                     if ((x & 255) == 0) token.ThrowIfCancellationRequested();
                     var px = (x + .5) * sx - .5; var py = (y + .5) * sy - .5;
-                    var flow = full ? DisplacementAt(x, y) : SampleFlow((float)px, (float)py);
-                    if (full && flow == default) continue;
+                    var flow = deformed ? SampleFlow((float)px, (float)py) : default;
                     var sampleX = (px + .5 + flow.X) * mx - .5; var sampleY = (py + .5 + flow.Y) * my - .5;
                     output.Write(x, y, Sample(input, sampleX, sampleY));
                 }
@@ -54,6 +55,34 @@ public sealed partial class LiquifyField
         }
         catch { result.Dispose(); throw; }
         finally { reduced?.Dispose(); }
+    }
+
+    private void RenderNative(SKBitmap source, SKBitmap result, CancellationToken token)
+    {
+        var active = tiles.Where(pair => pair.Value.Flow != null).ToArray();
+        if (active.Length == 0) return;
+        var input = new PixelBuffer(source);
+        var output = new PixelBuffer(result);
+        Parallel.ForEach(active, new ParallelOptions { CancellationToken = token }, pair =>
+        {
+            var left = pair.Key % columns * TileSide;
+            var top = pair.Key / columns * TileSide;
+            var width = Math.Min(TileSide, Width - left);
+            var height = Math.Min(TileSide, Height - top);
+            var offsets = pair.Value.Flow!;
+            for (var y = 0; y < height; y++)
+            {
+                token.ThrowIfCancellationRequested();
+                for (var x = 0; x < width; x++)
+                {
+                    var flow = offsets[y * TileSide + x];
+                    if (flow == default) continue;
+                    output.Write(left + x, top + y, Sample(input, left + x + (double)flow.X, top + y + (double)flow.Y));
+                }
+            }
+        });
+        Pixels.Invalidate(result);
+        GC.KeepAlive(source);
     }
 
     private static PixelValue Sample(PixelBuffer pixels, double x, double y)

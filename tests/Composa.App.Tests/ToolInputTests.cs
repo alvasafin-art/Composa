@@ -70,11 +70,15 @@ public class ToolInputTests
         window.MouseUp(At(250,150),MouseButton.Left); Assert.False(window.Canvas.IsDragging);
     }
 
-    [AvaloniaFact]
-    public void Large_brush_outline_follows_hover_and_clears_its_previous_position()
+    [AvaloniaTheory]
+    [InlineData(Tool.Brush)]
+    [InlineData(Tool.Eraser)]
+    [InlineData(Tool.HealingBrush)]
+    [InlineData(Tool.SpotHealing)]
+    public void Large_brush_outline_follows_hover_and_clears_its_previous_position(Tool tool)
     {
         session.Brush = session.Brush with { Size = 180, Hardness = .4, FullCursor = false };
-        window.SelectTool(Tool.Brush);
+        window.SelectTool(tool);
         window.Canvas.ZoomTo(1);
         Dispatcher.UIThread.RunJobs();
         var before = At(140, 205);

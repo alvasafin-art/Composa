@@ -198,6 +198,8 @@ public sealed partial class EditorSession
 
     private SKBitmap? selectionBrushShape;
     private SKBitmap? selectionBrushBase;
+    private SKBitmap? selectionBrushPreview;
+    private int selectionBrushWitness;
     private SelectionMode selectionBrushOperation;
     private SKPoint? selectionBrushLast;
     public double SelectionBrushSize { get; set; } = 64;
@@ -213,6 +215,15 @@ public sealed partial class EditorSession
         selectionBrushShape = Pixels.NewMask(document.Width, document.Height);
         selectionBrushOperation = mode ?? SelectionBrushMode;
         if (selectionBrushBase == null && selectionBrushOperation == SelectionMode.Add) selectionBrushOperation = SelectionMode.Replace;
+        selectionBrushPreview = selectionBrushOperation switch
+        {
+            SelectionMode.Replace => selectionBrushShape,
+            SelectionMode.Add or SelectionMode.Subtract when selectionBrushBase != null => Pixels.Clone(selectionBrushBase),
+            SelectionMode.Intersect when selectionBrushBase != null => Pixels.NewLike(selectionBrushShape),
+            _ => null
+        };
+        selectionBrushWitness = selectionBrushOperation is SelectionMode.Add or SelectionMode.Subtract && selectionBrushPreview != null
+            ? selectionBrushPreview.GetPixelSpan().IndexOfAnyExcept((byte)0) : -1;
         selectionBrushLast = point;
         PaintSelectionSegment(point, point);
     }
@@ -227,10 +238,7 @@ public sealed partial class EditorSession
     public void EndSelectionBrush()
     {
         if (selectionBrushShape == null) return;
-        selectionBrushShape.Dispose();
-        selectionBrushShape = null;
-        selectionBrushBase = null;
-        selectionBrushLast = null;
+        CloseSelectionBrush(keep: document.Selection);
         Commit();
         SelectionChanged?.Invoke();
     }
@@ -238,28 +246,43 @@ public sealed partial class EditorSession
     public void CancelSelectionBrush()
     {
         if (selectionBrushShape == null) return;
-        var preview = document.Selection;
-        selectionBrushShape.Dispose();
-        selectionBrushShape = null;
-        selectionBrushBase = null;
-        selectionBrushLast = null;
+        document.Selection = selectionBrushBase;
+        CloseSelectionBrush(keep: null);
         Cancel();
-        if (preview != null && !ReferenceEquals(preview, document.Selection)) preview.Dispose();
         SelectionChanged?.Invoke();
+    }
+
+    private void CloseSelectionBrush(SKBitmap? keep)
+    {
+        if (!ReferenceEquals(selectionBrushShape, keep)) selectionBrushShape?.Dispose();
+        if (!ReferenceEquals(selectionBrushPreview, selectionBrushShape) && !ReferenceEquals(selectionBrushPreview, keep))
+            selectionBrushPreview?.Dispose();
+        selectionBrushShape = selectionBrushBase = selectionBrushPreview = null;
+        selectionBrushLast = null;
     }
 
     private void PaintSelectionSegment(SKPoint from, SKPoint to)
     {
         var shape = selectionBrushShape!;
+        var preview = selectionBrushPreview;
+        if (preview == null)
+        {
+            document.Selection = null;
+            SelectionChanged?.Invoke();
+            return;
+        }
+        var width = (float)Math.Clamp(SelectionBrushSize, 1, 2000);
+        var sigma = (float)SelectionBrushFeather / 2;
         using (var canvas = new SKCanvas(shape))
+        using (var blur = sigma > 0 ? SKImageFilter.CreateBlur(sigma, sigma) : null)
         using (var paint = new SKPaint
         {
             Color = SKColors.Black,
-            StrokeWidth = (float)Math.Clamp(SelectionBrushSize, 1, 2000),
+            StrokeWidth = width,
             StrokeCap = SKStrokeCap.Round,
             Style = SKPaintStyle.Stroke,
             IsAntialias = true,
-            ImageFilter = SelectionBrushFeather > 0 ? SKImageFilter.CreateBlur((float)SelectionBrushFeather / 2, (float)SelectionBrushFeather / 2) : null
+            ImageFilter = blur
         })
         {
             canvas.DrawLine(from, to, paint);
@@ -270,9 +293,45 @@ public sealed partial class EditorSession
             }
         }
         Pixels.Invalidate(shape);
-        var previous = document.Selection;
-        document.Selection = SelectionMask.Combine(selectionBrushBase, Pixels.Clone(shape), selectionBrushOperation);
-        if (previous != null && !ReferenceEquals(previous, selectionBrushBase) && !ReferenceEquals(previous, document.Selection)) previous.Dispose();
+        var padding = width / 2 + 3 * Math.Max(0, sigma) + 2;
+        var bounds = Geometry.Intersect(Geometry.RoundOut(new SKRect(
+            Math.Min(from.X, to.X) - padding, Math.Min(from.Y, to.Y) - padding,
+            Math.Max(from.X, to.X) + padding, Math.Max(from.Y, to.Y) + padding)), shape.Info.Rect);
+        if (!bounds.IsEmpty && !ReferenceEquals(preview, shape))
+        {
+            // Recombine against the original selection, including on repeated passes.
+            // Only this segment can have changed the accumulated brush shape.
+            using var canvas = new SKCanvas(preview);
+            canvas.ClipRect(new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom));
+            using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
+            canvas.DrawBitmap(selectionBrushBase!, 0, 0, paint);
+            paint.BlendMode = selectionBrushOperation switch
+            {
+                SelectionMode.Add => SKBlendMode.SrcOver,
+                SelectionMode.Subtract => SKBlendMode.DstOut,
+                _ => SKBlendMode.DstIn
+            };
+            canvas.DrawBitmap(shape, 0, 0, paint);
+            canvas.Flush();
+            Pixels.Invalidate(preview);
+        }
+        var bytes = preview.GetPixelSpan();
+        if (selectionBrushWitness < 0 || bytes[selectionBrushWitness] == 0)
+        {
+            // Subtraction can erase the last known pixel anywhere in an existing mask.
+            // The other modes only add coverage, so an empty result can change locally.
+            selectionBrushWitness = -1;
+            if (selectionBrushOperation == SelectionMode.Subtract)
+                selectionBrushWitness = bytes.IndexOfAnyExcept((byte)0);
+            else if (!bounds.IsEmpty)
+                for (var y = bounds.Top; y < bounds.Bottom && selectionBrushWitness < 0; y++)
+                {
+                    var start = y * preview.RowBytes + bounds.Left;
+                    var offset = bytes.Slice(start, bounds.Width).IndexOfAnyExcept((byte)0);
+                    if (offset >= 0) selectionBrushWitness = start + offset;
+                }
+        }
+        document.Selection = selectionBrushWitness >= 0 ? preview : null;
         SelectionChanged?.Invoke();
     }
 }
