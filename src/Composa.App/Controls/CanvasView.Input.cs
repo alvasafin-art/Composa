@@ -10,7 +10,7 @@ namespace Composa.App.Controls;
 
 public sealed partial class CanvasView
 {
-    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, TextPathStart, Guide, AiRectangle, Patch, PenNode, PenLasso, PenErase, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
+    private enum Drag { None, Pan, Marquee, MoveSelection, MovePixels, Lasso, SelectionBrush, Crop, Stroke, Gradient, Shape, Transform, Eyedropper, ZoomScrub, TextBox, TextSelect, TextResize, TextPathStart, Guide, AiRectangle, PromptRegion, Patch, PenNode, PenLasso, PenErase, WarpNode, ShapeParameter, LayoutGap, LayoutReorder }
     private bool brushPreparationRequested;
     public Func<bool>? AiToolsAvailable { get; set; }
     public event Action<Composa.AI.AiTaskKind>? AiSelectionCompleted;
@@ -135,6 +135,7 @@ public sealed partial class CanvasView
         if (session == null) { drag = Drag.None; return; }
         switch (drag)
         {
+            case Drag.PromptRegion: break; // Geometry follows currentDocument; commit once on release.
             case Drag.LayoutGap or Drag.LayoutReorder: EndLayoutGesture(keep: false); break;
             case Drag.ShapeParameter: session.Cancel(); adjustingShape = null; break;
             case Drag.WarpNode: EndWarpPoint(keep: false); break;
@@ -169,7 +170,7 @@ public sealed partial class CanvasView
             else type = session.Tool switch
             {
                 Tool.Hand => StandardCursorType.Hand,
-                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
+                Tool.PromptRegion or Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
                 Tool.Text or Tool.TextOnPath or Tool.VerticalText => StandardCursorType.Ibeam,
                 Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
@@ -257,6 +258,9 @@ public sealed partial class CanvasView
                 if (!control && !shift && !alt && BeginLayoutGesture(point.Position, moveHandle is TransformHandle.None or TransformHandle.Move)) break;
                 if ((transformSelection == null || moveHandle == TransformHandle.None) && session.CanMovePixels && InsideSelection(pressDocument) && session.BeginMovePixels(duplicate: alt)) drag = Drag.MovePixels;
                 else BeginMove(control, e.ClickCount, moveHandle);
+                break;
+            case Tool.PromptRegion:
+                BeginRegionDrag(point.Position, e.ClickCount);
                 break;
             case Tool.Marquee:
                 dragMode = ModeFor(e.KeyModifiers & ~KeyModifiers.Control);
@@ -555,6 +559,10 @@ public sealed partial class CanvasView
             case Drag.SelectionBrush:
                 session.EndSelectionBrush();
                 if (session.Tool == Tool.RemoveObject && session.Selection != null) AiSelectionCompleted?.Invoke(Composa.AI.AiTaskKind.RemoveObject);
+                break;
+            case Drag.PromptRegion:
+                currentDocument = ToDocument(e.GetPosition(this));
+                FinishRegionDrag();
                 break;
             case Drag.AiRectangle:
                 if (moved)

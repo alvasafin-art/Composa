@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.17" date="2026-11-26" type="development">
+      <description><p>Draw numbered AI regions, edit their prompts on the canvas or in the generation panel, and choose coordinate or annotated-image input for each model.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.16" date="2026-11-26" type="development">
       <description><p>Offline retry for Windows updates, better AI panel clipboard and prompt behavior, automatic layer reveal, and editable vector corner radii.</p></description>
     </release>

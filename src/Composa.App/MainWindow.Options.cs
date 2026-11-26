@@ -312,6 +312,14 @@ public sealed partial class MainWindow
                 }
                 else Add(Flat("Edit Text", () => BeginTextEdit(s.ActiveLayer!)));
                 break;
+            case Tool.PromptRegion:
+                Add(Title("AI region"), Flat(canvas.ShowPromptRegions ? "Hide regions" : "Show regions", () =>
+                {
+                    canvas.ShowPromptRegions = !canvas.ShowPromptRegions;
+                    canvas.InvalidateCanvas();
+                    RebuildOptions();
+                }));
+                break;
             case Tool.Crop:
                 Add(Title("Crop"));
                 var ratio = Ui.Combo(EditorSession.CropRatios, s.CropRatio, r => r, r => { s.CropRatio = r; canvas.ChangeCropRatio(); }, 100);

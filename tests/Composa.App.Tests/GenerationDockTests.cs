@@ -762,6 +762,87 @@ public class GenerationDockTests
         }
     }
 
+    [AvaloniaFact]
+    public async Task Draw_prompt_region_edit_its_text_and_undo_without_selecting_pixels()
+    {
+        var previousLanguage = Locale.Language;
+        Locale.Language = "ru";
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        var session = EditorSession.NewCanvas(480, 320, SKColors.Bisque);
+        if (Environment.GetEnvironmentVariable("COMPOSA_REGION_IMAGE") is { } path)
+        {
+            using var input = Composa.IO.ImageFiles.Load(path);
+            var pixels = session.Document.Layers[0].Pixels!;
+            using var paint = new SKCanvas(pixels);
+            paint.DrawImage(Composa.Rendering.Pixels.ImageOf(input), SKRect.Create(pixels.Width, pixels.Height),
+                new SKSamplingOptions(SKFilterMode.Linear));
+            Composa.Rendering.Pixels.Invalidate(pixels);
+        }
+        try
+        {
+            window.AddSession(session);
+            window.SelectTool(Tool.PromptRegion);
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            dock.SetVisible(dock.Section("AI Generation"), true);
+            window.Canvas.Fit();
+            Pump();
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new(x,y)), window)!.Value;
+            window.MouseDown(At(19, 85), MouseButton.Left);
+            window.MouseMove(At(249, 234), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(At(249, 234), MouseButton.Left);
+            Pump();
+            Assert.Single(session.Document.PromptRegions);
+            window.KeyTextInput("Покрой чайник синей глазурью");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump();
+            var r = Assert.Single(session.Document.PromptRegions);
+            Assert.Equal("Покрой чайник синей глазурью", r.Prompt);
+            Assert.Null(session.Selection);
+            var text = dock.Section("AI Generation").Content.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Покрой чайник синей глазурью");
+            var pos = text.TranslatePoint(new Point(3,3),window)!.Value;
+            window.MouseDown(pos,MouseButton.Left); window.MouseUp(pos,MouseButton.Left);
+            window.MouseDown(pos,MouseButton.Left); window.MouseUp(pos,MouseButton.Left);
+            Pump();
+            var input = dock.Section("AI Generation").Content.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == "RegionPromptInput");
+            input.Text = "Cobalt";
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump();
+            Assert.Equal("Cobalt", session.Document.PromptRegions.Single().Prompt);
+            session.Undo();
+            Assert.Equal("Покрой чайник синей глазурью", session.Document.PromptRegions.Single().Prompt);
+            window.MouseDown(At(293, 113), MouseButton.Left);
+            window.MouseMove(At(451, 232), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(At(451, 232), MouseButton.Left);
+            Pump();
+            window.KeyTextInput("Добавь на чашку тонкие зелёные полосы");
+            Pump();
+            Assert.True(Screenshots.Save(window, "ai-regions-canvas"));
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump();
+            Assert.Equal("Добавь на чашку тонкие зелёные полосы", session.Document.PromptRegions[1].Prompt);
+            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
+            dock.SetVisible(dock.Section("AI Generation"), false);
+            Pump();
+            Assert.True(window.AiFloatingVisible);
+            Assert.True(Screenshots.Save(window, "ai-regions-floating"));
+
+            window.AiTasks.SelectedEngine = window.AiTasks.Engines.Find(Flux3Workflow.EngineId);
+            var settingsDialog = AiDialogs.SettingsDialog(window, window.Settings, window.AiTasks, page: 1);
+            Pump();
+            var dialog = Assert.Single(window.OwnedWindows);
+            Assert.True(Screenshots.Save(dialog, "ai-regions-settings"));
+            dialog.Close(false);
+            Assert.False(await settingsDialog);
+        }
+        finally
+        {
+            session.MarkSaved("regions.cmps", session.History.CurrentId);
+            window.Close();
+            Locale.Language = previousLanguage;
+        }
+    }
+
     private static void Pump()
     {
         Dispatcher.UIThread.RunJobs();

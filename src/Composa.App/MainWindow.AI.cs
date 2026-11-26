@@ -466,7 +466,7 @@ public sealed partial class MainWindow
         aiFloatingActions = run;
         var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
         aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingOperation, aiFloatingPrompt, bar, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
+        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingOperation, aiFloatingPrompt, promptRegionList, bar, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
     }
 
     private void RefreshEditorModels()
@@ -534,12 +534,13 @@ public sealed partial class MainWindow
         RefreshAiUi();
     }
 
-    private bool ShowSelectionPanel => !settings.CanvasOnly && !DockEditorVisible && previewContext == null && session?.Selection != null && !session.IsPaintingSelection
+    private bool ShowSelectionPanel => !settings.CanvasOnly && !DockEditorVisible && previewContext == null && session != null && (session.Selection != null || session.Document.PromptRegions.Count > 0) && !session.IsPaintingSelection
         && session.Tool != Tool.RemoveObject && !(session.Tool == Tool.Wand && session.WandMode == WandMode.Object && canvas.IsDragging)
         && (DirectImageFor(EditorTask) != null || DirectImageFor(AiTaskKind.GenerativeFill) != null || aiTasks.ConnectionState == ComfyConnectionState.Connected);
 
     private void RefreshAiFloatingUi()
     {
+        RefreshPromptRegions();
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
         if (lastAiEditor != null && AiEditorContaining(lastAiEditor) == null) TrackAiEditorInput(null);
@@ -574,7 +575,7 @@ public sealed partial class MainWindow
         {
             aiEngineCombo.IsEnabled = !busy && aiEngineCombo.ItemCount > 0;
         }
-        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage || !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text));
+        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage || !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text) || listedRegions.Any(r => r.Enabled && r.Prompt.Length > 0));
         if (aiVariantButtons != null)
         {
             aiVariantButtons.IsVisible = AiGenerationControls.SupportsVariants(task);
@@ -636,20 +637,21 @@ public sealed partial class MainWindow
             const int thumbnailsPerRow = 4;
             var rows = (aiReferences.Count + thumbnailsPerRow - 1) / thumbnailsPerRow;
             var referencesHeight = rows * (ReferenceTileSize + AiGenerationControls.EditorSpacing);
-            dock.SetExtraHeight(generationSection, referencesHeight + (aiFloatingVariants.IsVisible ? 34 : 0));
+            dock.SetExtraHeight(generationSection, referencesHeight + Math.Min(180, listedRegions.Length * 32 + (listedRegions.Length > 0 ? 24 : 0)) + (aiFloatingVariants.IsVisible ? 34 : 0));
         }
         if (visible) Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiFloatingPosition);
     }
 
     private void RefreshAiFloatingPosition()
     {
-        if (!aiFloatingHost.IsVisible || session?.Selection is not { } selection) return;
-        if (!ReferenceEquals(selection, floatingBoundsMask))
+        if (!aiFloatingHost.IsVisible || session == null) return;
+        var selection = session.Selection;
+        if (selection != null && !ReferenceEquals(selection, floatingBoundsMask))
         {
             floatingBounds = SelectionMask.Bounds(selection);
             floatingBoundsMask = selection;
         }
-        var bounds = floatingBounds;
+        var bounds = selection != null ? floatingBounds : session.Document.PromptRegions.LastOrDefault(r => r.Enabled)?.Bounds ?? session.Document.Bounds;
         if (bounds.IsEmpty) return;
         var topLeft = canvas.ToScreen(new SKPoint(bounds.Left, bounds.Top));
         var bottomRight = canvas.ToScreen(new SKPoint(bounds.Right, bounds.Bottom));
@@ -1030,6 +1032,8 @@ public sealed partial class MainWindow
             var request = new AiTaskRequest
             {
                 Task = task,
+                Regions = targetSession.Document.PromptRegions.Where(r => r.Enabled).ToArray(),
+                RegionDelivery = settings.RegionMode(direct == null ? engine?.Id ?? "" : ImageOperationModels.DirectChoice(direct).SelectionKey),
                 Scene=profile.Scene.Normalized(),
                 AlignMaskedEdits = settings.AiAlignMaskedEdits,
                 EngineId = engine?.Id,

@@ -6,7 +6,7 @@ using SkiaSharp;
 
 namespace Composa.Editing;
 
-public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen, Eraser, TextOnPath, VerticalText }
+public enum Tool { Move, Marquee, Lasso, Wand, SelectionBrush, Crop, Brush, SpotHealing, CloneStamp, Smear, Gradient, Shape, Text, Eyedropper, Hand, Zoom, ObjectSelectionAi, RemoveObject, Bucket, HealingBrush, Patch, Pen, Eraser, TextOnPath, VerticalText, PromptRegion }
 
 public enum MarqueeKind { Rectangle, Ellipse }
 public enum LassoKind { Freehand, Polygonal }

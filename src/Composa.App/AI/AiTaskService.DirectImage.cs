@@ -36,7 +36,7 @@ public sealed partial class AiTaskService
         if (request.Settings.Variants is < 1 or > 3) throw new ArgumentException("Choose one, two or three variants.");
         var target = editor.Session;
         if (target.IsInteracting) throw new InvalidOperationException("Finish the current interaction before running AI.");
-        request = PrepareRequest(target, request);
+        request = PrepareRequest(target, request, direct: true);
         var initialState = target.History.CurrentId;
         var initialLayer = target.Document.ActiveLayerId;
         var bounds = target.Document.Bounds;

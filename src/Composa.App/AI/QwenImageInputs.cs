@@ -88,6 +88,9 @@ internal sealed class QwenImageInputs : IDisposable
                     if (!string.IsNullOrWhiteSpace(request.AdditionalPrompt))
                     prompt += "\n" + request.AdditionalPrompt.Trim();
             }
+            if (request.Regions.Length > 0 && request.RegionDelivery == RegionDelivery.Coordinates)
+                prompt = RegionPrompt.Coordinates(prompt, request.Regions, Bounds, ContentSize.Width / (double)PaddedSize.Width,
+                    ContentSize.Height / (double)PaddedSize.Height, !generate, request.EngineId == Flux3Workflow.EngineId);
             for (var index = 0; index < inputs.ReferenceImages.Count; index++) Images["referenceImage" + (index + 1)] = inputs.ReferenceImages[index];
         }
         catch { Dispose(); throw; }

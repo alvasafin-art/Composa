@@ -120,7 +120,7 @@ public sealed partial class MainWindow : Window
         aiFloatingHost.SizeChanged += (_, _) => RefreshAiFloatingPosition();
         aiFloatingLayer.Children.Add(aiFloatingHost);
         commandNotice.Child = hintText;
-        var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer, commandNotice } };
+        var canvasHost = new Panel { Children = { canvas, welcome, aiFloatingLayer, regionCardLayer, commandNotice } };
         elementLibrary = new ElementLibrary(libraryFolder ?? AppPaths.Library);
         libraryPanel = BuildResourceLibrary();
         workspaceGrid.ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto,Auto,Auto");
@@ -200,6 +200,7 @@ public sealed partial class MainWindow : Window
             _ => CanRunAi(AiTaskKind.ObjectSelection)
         });
         canvas.AiSelectionCompleted += task => _ = RunAi(task, useInlinePrompt: true);
+        canvas.PromptRegionEditRequested += OpenRegionPrompt;
         canvas.AiObjectSelectionRequested += (region, mode) => _ = RunObjectSelection(region, mode);
         canvas.ObjectSelectionPointRequested += (x, y, mode) => _ = RunObjectSelection(null, mode, new SkiaSharp.SKPointI(x, y));
         // Opening text from the canvas with another tool switches to the Type tool, so the toolbar has to follow.
@@ -384,6 +385,11 @@ public sealed partial class MainWindow : Window
         }
         sessions.Add(added);
         added.HistoryChanged += UpdateTabTitles;
+        added.HistoryChanged += () =>
+        {
+            if (added == session && !listedRegions.SequenceEqual(added.Document.PromptRegions))
+                Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAiUi);
+        };
         added.Problem += message => { if (added == session) ShowProblem(message); };
         added.LayersChanged += () => { if (added == session) OnSessionLayersChanged(); };
         added.ChannelsChanged += () => { if (added == session) { UpdateStatus(); if (added.IsEditingMask != optionsEditingMask) RebuildOptions(); else refreshOptions?.Invoke(); } };
@@ -782,7 +788,7 @@ public sealed partial class MainWindow : Window
     [
         (Tool.Move, Icons.Move, "Move / Transform (V)"), (Tool.Marquee, Icons.Marquee, "Marquee (M)"),
         (Tool.Lasso, Icons.Lasso, "Lasso (L)"), (Tool.Wand, Icons.Wand, "Magic Wand (W)"),
-        (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
+        (Tool.PromptRegion, Icons.PromptRegion, "AI region"), (Tool.Crop, Icons.Crop, "Crop (C)"), (Tool.Brush, Icons.Brush, "Brush (B)"), (Tool.Eraser, Icons.Eraser, "Eraser (E)"),
         (Tool.RemoveObject, Icons.RemoveObject, "Remove Object · paint an area to remove with AI"),
         (Tool.CloneStamp, Icons.Stamp, "Clone Stamp (S) · Alt-click sets the source"),
         (Tool.Smear, Icons.Drop, "Smear (R)"), (Tool.Gradient, Icons.Gradient, "Gradient (G)"), (Tool.Shape, Icons.Shape, "Shape (U)"),

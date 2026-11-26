@@ -2218,3 +2218,21 @@ Miter join	Острый
 Round join	Скругление
 Bevel join	Фаска
 Miter angle	Предел угла
+AI region	AI-область
+AI regions	AI-области
+Region prompt	Промпт области
+Disable region	Исключить область
+Enable region	Включить область
+Delete region	Удалить область
+Regions	Области
+Show regions	Показать рамки
+Hide regions	Скрыть рамки
+Enter to save · Esc to cancel	Enter — готово · Esc — отмена
+Coordinates	Координаты
+Mark source image	Разметка на изображении
+Draw an AI region to preview the request.	Нарисуйте область для предпросмотра запроса.
+API and subscription	API и подписка
+Local models	Локальные модели
+New AI region	Новая AI-область
+Edit AI region	Изменение AI-области
+Delete AI region	Удаление AI-области

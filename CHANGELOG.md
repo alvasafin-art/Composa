@@ -4,6 +4,11 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.17] - 2026-11-26
+
+- Draw numbered AI regions on the canvas and give each one its own prompt. Double-click a prompt in the docked or floating generation panel to edit it. Regions support undo and are saved in CMPS projects.
+- Choose how each model receives regions in Settings → Models. FLUX 3 Image Klein defaults to coordinates. Qwen Image 2.1 Turbo defaults to colored outlines on the source image, leaving reference slots available.
+
 ## [1.3.0-preview.4.studio.17.16] - 2026-11-26
 
 - Show Windows update failures and retry a previously requested installation once from the local package at the next launch.
