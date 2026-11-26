@@ -42,9 +42,9 @@ public sealed partial class CanvasView
     private TransformHandle handle;
     private int distortCorner = -1;
     private bool distortEdge;
-    private bool IsResizeDrag => drag == Drag.Transform && distortCorner < 0 && !distortEdge &&
+    private bool IsResizeDrag => UpdatesTransformModifiers && distortCorner < 0 && !distortEdge;
+    private bool UpdatesTransformModifiers => drag == Drag.Transform &&
         handle is not (TransformHandle.None or TransformHandle.Move or TransformHandle.Rotate);
-    private bool UpdatesTransformModifiers => IsResizeDrag || drag == Drag.Transform && distortEdge;
     private bool spaceDown;
     private double scrubZoom;
     private readonly List<(SKPoint From, SKPoint To)> guides = [];
@@ -1102,7 +1102,12 @@ public sealed partial class CanvasView
                 edit.RotateTo(pressDocument, currentDocument, shift);
                 break;
             default:
-                if (distortCorner >= 0) edit.DistortCorner(distortCorner, SnapLayoutHandle(currentDocument));
+                if (distortCorner >= 0)
+                {
+                    var (x, y) = edit.DistortCorner(distortCorner, currentDocument, perspective: shift && alt,
+                        snapTolerance: (float)(6 / UnitsPerPixel));
+                    DrawSnapLines(x, y);
+                }
                 else if (distortEdge)
                 {
                     var (x, y) = edit.DistortEdge(handle, currentDocument - pressDocument, skew: shift, fromCenter: alt,
