@@ -249,7 +249,12 @@ public sealed partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         DragDrop.SetAllowDrop(this, true);
         Closing += OnClosing;
-        Closed += (_, _) => { automationCancellation?.Cancel(); assistantServer.Dispose(); aiControl?.Dispose(); imageExchange?.Dispose(); };
+        Closed += (_, _) =>
+        {
+            automationCancellation?.Cancel(); assistantServer.Dispose(); aiControl?.Dispose(); imageExchange?.Dispose();
+            foreach (var references in documentAiReferences.Values) DisposeAiReferences(references);
+            documentAiReferences.Clear();
+        };
         if (Settings.Persist)
             Opened += async (_, _) =>
             {
@@ -389,6 +394,7 @@ public sealed partial class MainWindow : Window
             }
         }
         sessions.Add(added);
+        documentAiReferences.TryAdd(added, []);
         added.HistoryChanged += UpdateTabTitles;
         added.HistoryChanged += () =>
         {
@@ -619,6 +625,7 @@ public sealed partial class MainWindow : Window
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        if (documentAiReferences.Remove(item, out var references)) DisposeAiReferences(references);
         foreach (var key in documentAiPrompts.Keys.Where(key => ReferenceEquals(key.Document, item)).ToArray())
             documentAiPrompts.Remove(key);
         fileVersions.Remove(item);

@@ -51,7 +51,10 @@ public sealed partial class MainWindow
         displayDescription = description;
         if (DisplayProfile.Equals(profile)) return;
         DisplayProfile = profile; canvas.DisplayProfile = profile; layers.DisplayProfile = profile; channels.DisplayProfile = profile; navigator.DisplayProfile = profile;
-        foreach (var reference in aiReferences) reference.UpdateDisplay(profile);
+        foreach (var references in documentAiReferences.Values)
+            foreach (var reference in references) reference.UpdateDisplay(profile);
+        if (aiDialogReferenceDocument == null && aiDialogReferenceItems is { } draft)
+            foreach (var reference in draft) reference.UpdateDisplay(profile);
         RefreshAiReferenceUi();
         UpdateColors(); RebuildOptions();
     }

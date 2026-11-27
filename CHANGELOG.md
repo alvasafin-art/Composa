@@ -8,7 +8,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 - Combine numbered AI regions with selections in Generative Fill, including selections with several disconnected areas. Region coordinates follow the input crop and padding used by the model.
 - Press Delete to remove the selected AI region. Click outside a region prompt to save it and continue with the next action.
-- Keep prompt drafts separate for each open document and operation. Keep the selected AI model when switching documents.
+- Keep prompt drafts and attached reference images in their own document. Prompt drafts also stay separate by operation. Keep the selected AI model when switching documents.
 - Drop images on the document tab strip to open them as documents, or drop on a specific tab to add them as layers.
 - Disable Assistant in the toolbar and menu.
 

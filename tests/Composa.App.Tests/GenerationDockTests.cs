@@ -420,6 +420,68 @@ public class GenerationDockTests
     }
 
     [AvaloniaFact]
+    public void Pasted_references_and_image_mentions_stay_with_their_document()
+    {
+        var previousClipboard = EditorSession.Clipboard;
+        using var copied = Composa.Rendering.Pixels.NewColor(24, 16);
+        copied.Erase(SKColors.Coral);
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        try
+        {
+            var first = EditorSession.NewCanvas(160, 120, SKColors.White);
+            var second = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(first);
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            Pump();
+            var prompt = section.Content.GetVisualDescendants().OfType<AiPromptField>().Single();
+            void Click(Control control)
+            {
+                var point = control.TranslatePoint(new Point(8, 8), window)!.Value;
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                Pump();
+            }
+            void Select(EditorSession document) => Click(window.GetVisualDescendants().OfType<Border>()
+                .Single(tab => ReferenceEquals(tab.Tag, document)));
+            void Paste()
+            {
+                Click(prompt);
+                window.KeyPressQwerty(PhysicalKey.V, RawInputModifiers.Control);
+                Pump();
+            }
+            EditorSession.Clipboard = new ClipboardImage(copied, default);
+            Paste();
+            Paste();
+            Assert.Equal(2, window.AiReferenceCount);
+            prompt.Text = "First tab uses @image 3.";
+
+            window.AddSession(second);
+            Pump();
+            Assert.Equal(0, window.AiReferenceCount);
+            Assert.Empty(prompt.Text ?? "");
+            Paste();
+            Assert.Equal(1, window.AiReferenceCount);
+            prompt.Text = "Second tab uses @image 2.";
+
+            Select(first);
+            Assert.Equal(2, window.AiReferenceCount);
+            Assert.Equal("First tab uses @image 3.", prompt.Text);
+            section.Content.GetVisualDescendants().OfType<Button>().First(button => Equals(ToolTip.GetTip(button), "Remove reference"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(1, window.AiReferenceCount);
+            Assert.Equal("First tab uses @image 2.", prompt.Text);
+
+            Select(second);
+            Assert.Equal(1, window.AiReferenceCount);
+            Assert.Equal("Second tab uses @image 2.", prompt.Text);
+        }
+        finally { EditorSession.Clipboard = previousClipboard; window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Prompt_drafts_are_separate_for_each_document_and_operation_and_can_be_turned_off()
     {
         var window = new MainWindow { Width = 1100, Height = 800 };

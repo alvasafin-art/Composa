@@ -2,7 +2,7 @@ using Avalonia.Controls;
 
 namespace Composa.App.AI;
 
-/// <summary>A view over the window's shared reference list, not a second owner of its bitmaps.</summary>
+/// <summary>The dialog view of the document's reference list.</summary>
 public sealed class AiReferenceEditor
 {
     internal const int Capacity = 6;
