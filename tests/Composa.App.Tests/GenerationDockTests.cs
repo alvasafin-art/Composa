@@ -818,6 +818,7 @@ public class GenerationDockTests
             Pump();
 
             var sample = At(135, 50);
+            Assert.Contains(dock.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == Locale.T("Regions"));
             SKColor RegionPixel(string filename)
             {
                 Assert.True(Screenshots.Save(window, filename));

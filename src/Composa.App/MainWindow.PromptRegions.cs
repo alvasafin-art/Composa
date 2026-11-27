@@ -46,9 +46,13 @@ public sealed partial class MainWindow
         UpdatePromptRegionVisibility();
         var deleteAll = RegionAction(Icons.Trash, "Delete all regions", owner.DeleteAllPromptRegions);
         deleteAll.Name = "DeleteAllPromptRegions";
-        var actions = Ui.Row(2, allRegionsVisibility, deleteAll);
-        actions.HorizontalAlignment = HorizontalAlignment.Right;
-        promptRegionList.Children.Add(actions);
+        var header = new Grid { ColumnDefinitions = new("*,Auto") };
+        var title = Ui.Label(Locale.T("Regions"), Palette.Secondary, 12);
+        title.Margin = new Thickness(5, 0, 0, 0);
+        title.VerticalAlignment = VerticalAlignment.Center;
+        header.Children.Add(title);
+        AddAt(header, Ui.Row(2, allRegionsVisibility, deleteAll), 1);
+        promptRegionList.Children.Add(header);
         foreach (var region in listedRegions)
         {
             var row = new Grid { ColumnDefinitions = new("24,Auto,*,24"), ColumnSpacing = 5 };
