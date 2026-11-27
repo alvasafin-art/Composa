@@ -793,6 +793,8 @@ public class GenerationDockTests
             void ClickButton(string name)
             {
                 var button = dock.GetVisualDescendants().OfType<Button>().Single(b => b.Name == name);
+                Assert.IsAssignableFrom<Control>(button.Content);
+                Assert.InRange(button.Bounds.Width, 1, 27);
                 Click(button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value);
                 Pump();
             }

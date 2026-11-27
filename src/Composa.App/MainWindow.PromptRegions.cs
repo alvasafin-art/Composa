@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -40,11 +41,14 @@ public sealed partial class MainWindow
         allRegionsVisibility = null;
         promptRegionList.IsVisible = listedRegions.Length > 0;
         if (session is not { } owner || !promptRegionList.IsVisible) return;
-        allRegionsVisibility = Flat(canvas.ShowPromptRegions ? "Hide all regions" : "Show all regions", TogglePromptRegions);
+        allRegionsVisibility = RegionAction(Icons.Eye, "Hide all regions", TogglePromptRegions);
         allRegionsVisibility.Name = "ToggleAllPromptRegions";
-        var deleteAll = Flat("Delete all regions", owner.DeleteAllPromptRegions);
+        UpdatePromptRegionVisibility();
+        var deleteAll = RegionAction(Icons.Trash, "Delete all regions", owner.DeleteAllPromptRegions);
         deleteAll.Name = "DeleteAllPromptRegions";
-        promptRegionList.Children.Add(Ui.Row(6, allRegionsVisibility, deleteAll));
+        var actions = Ui.Row(2, allRegionsVisibility, deleteAll);
+        actions.HorizontalAlignment = HorizontalAlignment.Right;
+        promptRegionList.Children.Add(actions);
         foreach (var region in listedRegions)
         {
             var row = new Grid { ColumnDefinitions = new("24,Auto,*,24"), ColumnSpacing = 5 };
@@ -96,9 +100,26 @@ public sealed partial class MainWindow
     private void TogglePromptRegions()
     {
         canvas.ShowPromptRegions = !canvas.ShowPromptRegions;
-        if (allRegionsVisibility != null)
-            allRegionsVisibility.Content = Locale.T(canvas.ShowPromptRegions ? "Hide all regions" : "Show all regions");
+        UpdatePromptRegionVisibility();
         if (session?.Tool == Tool.PromptRegion) RebuildOptions();
+    }
+
+    private static Button RegionAction(Icons.Icon icon, string tip, Action click)
+    {
+        var button = Ui.IconButton(icon, tip, click, 14);
+        button.Width = 24;
+        button.Height = 22;
+        button.Padding = new Thickness(4, 0);
+        return button;
+    }
+
+    private void UpdatePromptRegionVisibility()
+    {
+        if (allRegionsVisibility is not { } button) return;
+        button.Content = Icons.Create(canvas.ShowPromptRegions ? Icons.Eye : Icons.EyeOff, 14);
+        var label = Locale.T(canvas.ShowPromptRegions ? "Hide all regions" : "Show all regions");
+        Locale.Tip(button, label);
+        AutomationProperties.SetName(button, label);
     }
 
     private void SaveRegionPrompt(EditorSession owner, PromptRegion original, string? value)

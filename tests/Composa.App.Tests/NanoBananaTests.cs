@@ -35,32 +35,26 @@ public class NanoBananaTests
         {SelectedEngine=Pack(),ApiKey=()=>key ? "test-only-comfy-key" : null};
 
     [Theory]
-    [InlineData(1, true)]
-    [InlineData(13, false)]
-    public void Nano_region_guides_keep_reference_order_and_respect_the_image_limit(int references, bool separateGuide)
+    [InlineData(RegionDelivery.Overlay, "Remove all colored annotation lines and region numbers")]
+    [InlineData(RegionDelivery.Coordinates, "\"bbox\"")]
+    public async Task Region_edits_use_one_source_in_both_delivery_modes(RegionDelivery method, string instruction)
     {
         var session = EditorSession.NewCanvas(120, 80, SKColors.White);
-        using var reference = Pixels.NewColor(20, 20);
+        var connection = new PartnerImageTests.Connection { Server = Capabilities() };
         var request = new AiTaskRequest
         {
-            Task = AiTaskKind.ImageEdit, RegionDelivery = RegionDelivery.Overlay,
-            Regions = [new(1, 20, 20, 60, 60, "Change this area")],
-            ReferenceImages = Enumerable.Repeat(reference, references).ToArray()
+            EngineId = Pack().Id, Task = AiTaskKind.ImageEdit, RegionDelivery = method,
+            Regions = [new(1, 20, 20, 60, 60, "Change this area")]
         };
-        using var inputs = AiTaskInputPreparer.Prepare(session, request, 14);
-        using var api = new PartnerImageInputs(inputs, request, NanoBanana.Model);
-        var pack = Pack();
-        var graph = api.Bind(Catalog().ReadWorkflow(pack, pack.Workflows[0]), pack,
-            api.Images.ToDictionary(item => item.Key, item => item.Key + ".png"), 73);
-        Assert.Equal(separateGuide ? SKColors.White : request.Regions[0].Ink.Color, api.Images["apiSource"].GetPixel(20, 40));
-        Assert.Equal(separateGuide, api.Images.ContainsKey("apiRegionGuide"));
-        Assert.Equal("referenceImage1.png", graph["composa_api_image_2"]!["inputs"]!["image"]!.GetValue<string>());
-        Assert.Contains("temporary annotation", graph["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
-        if (separateGuide)
-        {
-            Assert.Equal(request.Regions[0].Ink.Color, api.Images["apiRegionGuide"].GetPixel(20, 40));
-            Assert.Equal("apiRegionGuide.png", graph["composa_api_image_3"]!["inputs"]!["image"]!.GetValue<string>());
-        }
+
+        await Service(connection).RunAsync(new EditorCommandService(session), request, TestContext.Current.CancellationToken);
+
+        Assert.Equal("apiSource", Assert.Single(connection.Uploads));
+        var node = Assert.Single(connection.Graphs)["gpt"]!["inputs"]!;
+        Assert.Contains(instruction, node["prompt"]!.GetValue<string>());
+        Assert.Contains("Change this area", node["prompt"]!.GetValue<string>());
+        Assert.NotNull(node["model.images.image_1"]);
+        Assert.Null(node["model.images.image_2"]);
     }
 
     [Fact]

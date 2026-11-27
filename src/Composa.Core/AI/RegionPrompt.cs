@@ -40,7 +40,7 @@ public static class RegionPrompt
         string.Join("\n", request.Regions.Select(r => r.Number <= PromptRegion.Palette.Length
             ? $"Inside the {r.Ink.Name} rectangle: {r.Prompt}"
             : $"Inside the rectangle marked {r.Number} ({r.Ink.Name}): {r.Prompt}"))
-        + "\nRemove all annotation lines from the final image.";
+        + "\nRemove all colored annotation lines and region numbers from the final image. Reconstruct the surface under those marks.";
 
     // BFL's final caption (after the upsampler) uses integer YXYX coordinates on a 1000-unit grid.
     public static string Coordinates(string prompt, PromptRegion[] regions, SKRectI frame,

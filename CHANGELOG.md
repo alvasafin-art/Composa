@@ -8,7 +8,7 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 - Draw nested AI regions. Select and move a region by its numbered badge, resize it with its corner handles, and double-click the badge to edit its prompt.
 - Refresh region overlays immediately, use a closed tool icon and rounded badges, and give each region a distinct color. Hide or show all frames without changing the prompts used for generation, and delete all regions in one undoable edit.
-- Give Nano Banana 2 the clean image and a separate annotated guide in visual-region mode when a reference slot is available.
+- Make visual-region prompts explicitly tell models to remove colored lines and region numbers from the output.
 
 ## [1.3.0-preview.4.studio.17.17] - 2026-11-26
 
