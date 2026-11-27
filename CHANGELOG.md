@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.20] - 2026-11-27
+
+- GPT Image 2.5 and 2.6 through ComfyUI receive a crop with surrounding context for Generative Fill, like Nano Banana. Composa applies the selection locally when inserting the result.
+- Holding Alt with the Brush immediately shows the eyedropper cursor, even when the pointer is stationary.
+- Ctrl-click a layer thumbnail to load its opacity as a selection, including the layer transform.
+
 ## [1.3.0-preview.4.studio.17.19] - 2026-11-27
 
 - Combine numbered AI regions with selections in Generative Fill, including selections with several disconnected areas. Region coordinates follow the input crop and padding used by the model.
