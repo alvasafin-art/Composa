@@ -26,8 +26,7 @@ internal sealed class PartnerImageInputs : IDisposable
     internal SKRectI SourceBounds => crop;
     internal (int Width, int Height) DesiredSize { get; }
 
-    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null, bool supportsNativeMask = false,
-        bool planPartnerOutput = true)
+    public PartnerImageInputs(AiTaskInputs inputs, AiTaskRequest request, string? apiModel = null, bool planPartnerOutput = true)
     {
         original = inputs; this.request = request; nano = NanoBanana.IsModel(apiModel);
         var source = request.Task is AiTaskKind.RemoveObject or AiTaskKind.ChangeBackground or AiTaskKind.GenerativeExpand
@@ -96,17 +95,6 @@ internal sealed class PartnerImageInputs : IDisposable
             else if (apiModel == PartnerNodes.Seedream) generationSize = PartnerNodes.SeedreamSize(desired.Width, desired.Height);
             else generationSize = PartnerImageSize.Plan(desired.Width, desired.Height,
                 originalSize ? Composa.Model.DocumentLimits.MinimumGenerationPixels : PartnerImageSize.MinimumPixels);
-
-            // GPT's V2 node accepts a white-is-edit mask only with one input image.
-            if (supportsNativeMask && request.Task == AiTaskKind.GenerativeFill && mask != null && inputs.ReferenceImages.Count == 0)
-            {
-                var input = Images["apiSource"];
-                using var cropped = Crop(mask, crop);
-                var modelMask = Own(Pixels.NewMask(input.Width, input.Height));
-                Images["apiMask"] = modelMask;
-                using var canvas = new SKCanvas(modelMask);
-                canvas.DrawImage(Pixels.ImageOf(cropped), SKRect.Create(input.Width, input.Height), new SKSamplingOptions(SKFilterMode.Nearest));
-            }
         }
         catch { Dispose(); throw; }
     }
@@ -152,25 +140,17 @@ internal sealed class PartnerImageInputs : IDisposable
             var id = "composa_api_image_" + ++number;
             result[id] = Load(filename); node[$"model.images.image_{number}"] = new JsonArray(id, 0);
         }
-        if (files.TryGetValue("apiMask", out var maskFile))
-        {
-            result["composa_api_mask_image"] = Load(maskFile);
-            result["composa_api_mask"] = new JsonObject { ["class_type"] = "ImageToMask",
-                ["inputs"] = new JsonObject { ["image"] = new JsonArray("composa_api_mask_image", 0), ["channel"] = "red" } };
-            node["model.mask"] = new JsonArray("composa_api_mask", 0);
-        }
         node["prompt"] = Prompt();
         return result;
     }
 
     private string Prompt()
     {
-        // Keep operation instructions; only mention a native mask when it is bound.
         var guidance = request.Prompt.Trim();
         var instruction = request.Task switch
         {
             AiTaskKind.GenerativeFill when request.BlackEditRegion => AiPromptDefaults.Expand,
-            AiTaskKind.GenerativeFill => Images.ContainsKey("apiMask") ? $"Edit the masked area. {guidance}" : guidance,
+            AiTaskKind.GenerativeFill => guidance,
             AiTaskKind.Harmonize when blendMask != null => $"Harmonize the object in image 1 with its surrounding scene while preserving identity, silhouette, geometry, pose and important texture. Match scene lighting direction, exposure, white balance, color, contrast, focus and grain. Guidance: {guidance}",
             AiTaskKind.Relight when blendMask != null => $"Relight image 1. Preserve identity, geometry, pose, materials and texture. Apply coherent light direction, shadow softness, exposure and color spill. Lighting request: {guidance}",
             AiTaskKind.GenerativeExpand => AiPromptDefaults.Expand,

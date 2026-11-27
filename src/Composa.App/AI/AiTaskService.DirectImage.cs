@@ -66,7 +66,7 @@ public sealed partial class AiTaskService
             if (expand && request.ExpansionMode == AiExpansionMode.MaskedRegion && SelectionMask.IsEmpty(prepared!.PreprocessedMask!))
                 throw new InvalidOperationException("No empty canvas in the target area. Extend Crop, expose transparent space, or choose Whole image.");
             var modelMask = expand && request.ExpansionMode == AiExpansionMode.MaskedRegion ? prepared!.PreprocessedMask
-                : remove ? prepared!.PreprocessedMask : fill ? prepared!.SelectionMask : null;
+                : remove ? prepared!.PreprocessedMask : selection;
             using var editInputs = edit ? await Task.Run(() => new DirectImageEdit(prepared!, request, generator), linked.Token) : null;
             using var expansionMask = expand ? editInputs!.OutputMask() : null;
             var outputMask = expand ? expansionMask : remove ? prepared!.OutputMask : selection;
@@ -74,11 +74,6 @@ public sealed partial class AiTaskService
             var prompt = prepared?.Prompt ?? request.Prompt;
             if (editInputs != null)
             {
-                if (editInputs.ReachesCanvasEdge)
-                    prompt = string.Join("\n\n", new[] {
-                        "Carry the requested edit all the way to each image edge reached by the mask. Continue the scene naturally through those edges. Preserve the unmasked content.",
-                        request.Prompt.Trim(), request.AdditionalPrompt.Trim()
-                    }.Where(text => text.Length > 0));
                 prompt = editInputs.RegionPromptFor(prompt, request);
                 var nativeMask = modelMask != null && generator.UsesNativeMask;
                 files = await Task.Run(() => editInputs.Encode(prepared!, modelMask, nativeMask, linked.Token), linked.Token);

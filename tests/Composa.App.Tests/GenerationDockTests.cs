@@ -112,20 +112,26 @@ public class GenerationDockTests
         finally { window.Close(); }
     }
 
-    [AvaloniaFact]
-    public async Task Floating_selection_selects_fill_and_submits_a_native_mask_until_image_edit_is_chosen()
+    [AvaloniaTheory]
+    [InlineData("2.5")]
+    [InlineData("2.6")]
+    public async Task Floating_selection_sends_a_context_crop_to_gpt_and_inserts_it_with_a_local_mask(string version)
     {
-        var capabilities = PartnerImageTests.Capabilities();
+        var model = $"gpt-image-{version}-sunburst";
+        var capabilities = PartnerImageTests.Capabilities(model);
+        var sources = new List<(SKSizeI Size, SKColor TopLeft, SKColor BottomRight)>();
         var server = new PartnerImageTests.Connection
         {
-            Server = capabilities with { NodeTypes = capabilities.NodeTypes.Append("ImageToMask").ToHashSet() }
+            Server = capabilities with { NodeTypes = capabilities.NodeTypes.Append("ImageToMask").ToHashSet() },
+            InspectUpload = image => sources.Add(new(new(image.Width, image.Height), image.GetPixel(0, 0), image.GetPixel(image.Width - 1, image.Height - 1)))
         };
         var window = new MainWindow(null, _ => server) { Width = 1120, Height = 760 };
         window.Settings.ComfyServerUrl = server.Address.ToString();
+        window.Settings.ComfyAdditionalPromptEnabled = false;
         window.AiTasks.ApiKey = () => "test-only";
         foreach (var task in new[] { AiTaskKind.GenerativeFill, AiTaskKind.ImageEdit })
-            window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
-        var session = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.Settings.AiTaskEngineIds[task.ToString()] = $"chatgpt-image-{version}";
+        var session = EditorSession.NewCanvas(240, 400, SKColors.White);
         window.Show();
         try
         {
@@ -133,7 +139,7 @@ public class GenerationDockTests
             window.AiTasks.SetConnectedForTests(server.Server);
             Pump();
             Assert.False(window.AiFloatingVisible);
-            var selection = new SKRect(40, 30, 105, 90);
+            var selection = new SKRect(0, 0, 240, 100);
             session.SelectRect(selection);
             Pump();
             var panel = window.AiFloatingPanel;
@@ -155,10 +161,24 @@ public class GenerationDockTests
             Assert.Equal(Locale.T("Generative Fill"), operation.Text);
             await Run();
             var fill = Assert.Single(server.Graphs);
-            Assert.Equal("composa_api_mask", fill["gpt"]!["inputs"]!["model.mask"]![0]!.GetValue<string>());
-            Assert.Equal(new[] { "apiSource", "apiMask" }, server.Uploads);
+            var node = fill["gpt"]!["inputs"]!;
+            Assert.Equal(model, node["model"]!.GetValue<string>());
+            Assert.Equal("Add a blue patch.", node["prompt"]!.GetValue<string>());
+            Assert.NotNull(node["model.images.image_1"]);
+            Assert.Null(node["model.mask"]);
+            Assert.DoesNotContain(fill, entry => entry.Value?["class_type"]?.GetValue<string>() == "ImageToMask");
+            Assert.Equal("apiSource", Assert.Single(server.Uploads));
+            var source = Assert.Single(sources);
+            Assert.True(source.Size.Width > source.Size.Height);
+            Assert.Equal(SKColors.White, source.TopLeft);
+            Assert.Equal(SKColors.White, source.BottomRight);
             Assert.Equal("AI Generative Fill", session.History.UndoName);
             Assert.NotNull(session.ActiveLayer!.Mask);
+            using (var result = session.Flatten())
+            {
+                Assert.Equal(SKColors.CornflowerBlue, result.GetPixel(120, 40));
+                Assert.Equal(SKColors.White, result.GetPixel(120, 320));
+            }
 
             var more = Assert.Single(panel.GetVisualDescendants().OfType<Button>(), b => b.Name == "AiMore");
             var menu = Assert.IsType<MenuFlyout>(more.Flyout);

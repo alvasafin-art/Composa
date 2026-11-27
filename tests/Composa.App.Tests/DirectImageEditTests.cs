@@ -141,56 +141,6 @@ public sealed class DirectImageEditTests
     }
 
     [AvaloniaTheory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Gpt_image_receives_edge_coverage_and_keeps_the_edit_at_the_canvas_edges(bool allEdges)
-    {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(20));
-        using var server = new TcpListener(IPAddress.Loopback, 0);
-        server.Start();
-        var address = $"http://127.0.0.1:{((IPEndPoint)server.LocalEndpoint).Port}/v1";
-        var previous = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
-        Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", "test-image-key");
-        try
-        {
-            var document = EditorSession.NewCanvas(640, 160, SKColors.CornflowerBlue);
-            var shape = Composa.Rendering.Pixels.NewMask(640, 160);
-            using (var canvas = new SKCanvas(shape))
-            using (var paint = new SKPaint { Color = SKColors.White.WithAlpha(180) })
-                canvas.DrawRect(SKRect.Create(640, allEdges ? 160 : 116), paint);
-            document.Select(shape, Composa.Selections.SelectionMode.Replace);
-            var settings = new Settings { ImageGenerationApiUrl = address, ImageGenerationApiModel = "gpt-image-2" };
-            settings.ImageOperationRoutes[AiTaskKind.GenerativeFill] = ImageGenerationRoute.DirectApi;
-            var service = new AiTaskService(() => "http://127.0.0.1:1", Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
-            var reply = ServeMaskedEditAsync(server, deadline.Token, expectedModel: "gpt-image-2", inspect: (source, mask, multipart) =>
-            {
-                Assert.Equal(source.Info.Size, mask.Info.Size);
-                Assert.True(source.Width < 4 * source.Height);
-                Assert.Equal(SKColors.CornflowerBlue, source.GetPixel(source.Width / 2, 0));
-                Assert.Equal((byte)0, mask.GetPixel(mask.Width / 2, 0).Alpha);
-                Assert.Equal((byte)0, mask.GetPixel(0, mask.Height / 2).Alpha);
-                Assert.Equal((byte)0, mask.GetPixel(mask.Width - 1, mask.Height / 2).Alpha);
-                Assert.Equal(allEdges ? (byte)0 : byte.MaxValue, mask.GetPixel(mask.Width / 2, mask.Height - 1).Alpha);
-                Assert.Contains("Carry the requested edit all the way", multipart);
-                Assert.DoesNotContain("with a clear margin", multipart);
-            });
-            var run = service.RunDirectImageAsync(new EditorCommandService(document), DirectImageGenerator.For(settings, AiTaskKind.GenerativeFill),
-                new AiTaskRequest { Task = AiTaskKind.GenerativeFill, Prompt = "Continue the orange field through the crop." },
-                () => true, deadline.Token);
-            await reply;
-            await run;
-            Assert.Equal(AiOperationStatus.Completed, service.Operation?.Status);
-            Assert.Equal((640, 160), (document.Document.Width, document.Document.Height));
-            var result = document.Composite();
-            Assert.True(result.GetPixel(0, 0).Red > 180);
-            Assert.Equal(result.GetPixel(0, 0), result.GetPixel(639, 0));
-            Assert.Equal(allEdges ? result.GetPixel(0, 0) : SKColors.CornflowerBlue, result.GetPixel(320, 159));
-        }
-        finally { Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", previous); }
-    }
-
-    [AvaloniaTheory]
     [InlineData(AiTaskKind.GenerativeExpand, true, false, false)]
     [InlineData(AiTaskKind.GenerativeExpand, true, true, false)]
     [InlineData(AiTaskKind.GenerativeExpand, true, false, true)]
@@ -310,8 +260,7 @@ public sealed class DirectImageEditTests
     }
 
     private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true,
-        Action? beforeReply = null, string? expectedSize = null, string? expectedModel = null, string? expectedPrompt = null,
-        Action<SKBitmap, SKBitmap, string>? inspect = null)
+        Action? beforeReply = null, string? expectedSize = null, string? expectedModel = null, string? expectedPrompt = null)
     {
         using var client = await server.AcceptTcpClientAsync(token);
         await using var stream = client.GetStream();
@@ -339,20 +288,11 @@ public sealed class DirectImageEditTests
         }
         Assert.Contains("filename=image-1.png", multipart.Replace("\"", ""));
         Assert.Contains("filename=mask.png", multipart.Replace("\"", ""));
-        SKBitmap ReadImage(string filename)
-        {
-            var start = multipart.IndexOf("\r\n\r\n", multipart.IndexOf(filename, StringComparison.Ordinal), StringComparison.Ordinal) + 4;
-            var end = multipart.IndexOf("\r\n--", start, StringComparison.Ordinal);
-            return Assert.IsType<SKBitmap>(SKBitmap.Decode(Encoding.Latin1.GetBytes(multipart[start..end])));
-        }
-        using var mask = ReadImage("mask.png");
+        var maskStart = multipart.IndexOf("\r\n\r\n", multipart.IndexOf("mask.png", StringComparison.Ordinal), StringComparison.Ordinal) + 4;
+        var maskEnd = multipart.IndexOf("\r\n--", maskStart, StringComparison.Ordinal);
+        using var mask = SKBitmap.Decode(Encoding.Latin1.GetBytes(multipart[maskStart..maskEnd]));
         Assert.NotNull(mask);
-        if (inspect != null)
-        {
-            using var source = ReadImage("image-1.png");
-            inspect(source, mask, multipart);
-        }
-        else if (assertCentered)
+        if (assertCentered)
         {
             Assert.Equal((byte)0, mask.GetPixel(mask.Width / 2, mask.Height / 2).Alpha);
             Assert.Equal((byte)255, mask.GetPixel(0, 0).Alpha);
