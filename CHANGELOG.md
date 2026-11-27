@@ -4,6 +4,12 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.18] - 2026-11-27
+
+- Draw nested AI regions. Select and move a region by its numbered badge, resize it with its corner handles, and double-click the badge to edit its prompt.
+- Refresh region overlays immediately, use a closed tool icon and rounded badges, and give each region a distinct color. Hide or show all frames without changing the prompts used for generation, and delete all regions in one undoable edit.
+- Give Nano Banana 2 the clean image and a separate annotated guide in visual-region mode when a reference slot is available.
+
 ## [1.3.0-preview.4.studio.17.17] - 2026-11-26
 
 - Draw numbered AI regions on the canvas and give each one its own prompt. Double-click a prompt in the docked or floating generation panel to edit it. Regions support undo and are saved in CMPS projects.

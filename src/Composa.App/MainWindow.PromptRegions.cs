@@ -15,6 +15,7 @@ public sealed partial class MainWindow
     private readonly StackPanel promptRegionList = new() { Spacing = 3, IsVisible = false };
     private EditorSession? regionOwner;
     private PromptRegion[] listedRegions = [];
+    private Button? allRegionsVisibility;
     private readonly Canvas regionCardLayer = new() { ClipToBounds = true };
     private Action<bool>? finishRegionCard;
 
@@ -36,9 +37,14 @@ public sealed partial class MainWindow
         regionOwner = session;
         listedRegions = regions?.ToArray() ?? [];
         promptRegionList.Children.Clear();
+        allRegionsVisibility = null;
         promptRegionList.IsVisible = listedRegions.Length > 0;
         if (session is not { } owner || !promptRegionList.IsVisible) return;
-        promptRegionList.Children.Add(Ui.Label($"{Locale.T("Regions")} · {listedRegions.Length}", size: 12, weight: FontWeight.SemiBold));
+        allRegionsVisibility = Flat(canvas.ShowPromptRegions ? "Hide all regions" : "Show all regions", TogglePromptRegions);
+        allRegionsVisibility.Name = "ToggleAllPromptRegions";
+        var deleteAll = Flat("Delete all regions", owner.DeleteAllPromptRegions);
+        deleteAll.Name = "DeleteAllPromptRegions";
+        promptRegionList.Children.Add(Ui.Row(6, allRegionsVisibility, deleteAll));
         foreach (var region in listedRegions)
         {
             var row = new Grid { ColumnDefinitions = new("24,Auto,*,24"), ColumnSpacing = 5 };
@@ -86,6 +92,14 @@ public sealed partial class MainWindow
         Name = "RegionPromptInput", Text = r.Prompt, PlaceholderText = Locale.T("Region prompt"),
         MaxLength = 8192, TextWrapping = TextWrapping.Wrap, Padding = new Thickness(6, 3)
     };
+
+    private void TogglePromptRegions()
+    {
+        canvas.ShowPromptRegions = !canvas.ShowPromptRegions;
+        if (allRegionsVisibility != null)
+            allRegionsVisibility.Content = Locale.T(canvas.ShowPromptRegions ? "Hide all regions" : "Show all regions");
+        if (session?.Tool == Tool.PromptRegion) RebuildOptions();
+    }
 
     private void SaveRegionPrompt(EditorSession owner, PromptRegion original, string? value)
     {

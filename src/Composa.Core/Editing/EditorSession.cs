@@ -323,6 +323,7 @@ public sealed partial class EditorSession
     {
         var alpha = EditingAlphaChannel is { } name ? document.AlphaChannels[name] : null;
         var resized = state.Width != document.Width || state.Height != document.Height;
+        var regionsChanged = !document.PromptRegions.SequenceEqual(state.PromptRegions);
         document = state;
         channelControls = null;
         if (editingAlphaChannel != null && !document.AlphaChannels.ContainsKey(editingAlphaChannel))
@@ -333,6 +334,7 @@ public sealed partial class EditorSession
         LayersChanged?.Invoke();
         SelectionChanged?.Invoke();
         ChannelsChanged?.Invoke();
+        if (regionsChanged) PromptRegionsChanged?.Invoke();
     }
 
     /// <summary>Marks a document that did not come from a saved file (a recovered copy) as needing a save.</summary>

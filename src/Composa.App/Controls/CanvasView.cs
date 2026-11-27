@@ -154,10 +154,12 @@ public sealed partial class CanvasView : Decorator
                 FinishPen(); ClearPenSelection(); PenMode = PenEditMode.Draw; EditVectorMask = false;
                 session.ViewportInvalidated -= OnCanvasChanged;
                 session.SelectionChanged -= OnSelectionChanged;
+                session.PromptRegionsChanged -= OnPromptRegionsChanged;
                 session.ColorRangeChanged -= OnColorRangeChanged;
                 session.LayersChanged -= OnLayersChanged;
             }
             transformSelection = null;
+            activePromptRegion = null;
             ReleaseViewportImage();
             navigationPreview?.Stop();
             session = value;
@@ -168,6 +170,7 @@ public sealed partial class CanvasView : Decorator
                 EditorSession.WarmBrushInputInBackground();
                 session.ViewportInvalidated += OnCanvasChanged;
                 session.SelectionChanged += OnSelectionChanged;
+                session.PromptRegionsChanged += OnPromptRegionsChanged;
                 session.ColorRangeChanged += OnColorRangeChanged;
                 session.LayersChanged += OnLayersChanged;
             }

@@ -313,12 +313,7 @@ public sealed partial class MainWindow
                 else Add(Flat("Edit Text", () => BeginTextEdit(s.ActiveLayer!)));
                 break;
             case Tool.PromptRegion:
-                Add(Title("AI region"), Flat(canvas.ShowPromptRegions ? "Hide regions" : "Show regions", () =>
-                {
-                    canvas.ShowPromptRegions = !canvas.ShowPromptRegions;
-                    canvas.InvalidateCanvas();
-                    RebuildOptions();
-                }));
+                Add(Title("AI region"), Flat(canvas.ShowPromptRegions ? "Hide regions" : "Show regions", TogglePromptRegions));
                 break;
             case Tool.Crop:
                 Add(Title("Crop"));

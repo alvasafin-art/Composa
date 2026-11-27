@@ -1,4 +1,6 @@
 using Avalonia;
+using Avalonia.Input;
+using Composa.Editing;
 using Composa.Model;
 using SkiaSharp;
 
@@ -7,24 +9,108 @@ namespace Composa.App.Controls;
 public sealed partial class CanvasView
 {
     internal event Action<PromptRegion, Point>? PromptRegionEditRequested;
-    internal bool ShowPromptRegions { get; set; } = true;
+    private bool showPromptRegions = true;
+    private int? activePromptRegion;
     private PromptRegion? draggedRegion;
-    private int regionCorner;
+    private int regionCorner = -1;
+
+    internal bool ShowPromptRegions
+    {
+        get => showPromptRegions;
+        set
+        {
+            if (showPromptRegions == value) return;
+            showPromptRegions = value;
+            if (!value) activePromptRegion = null;
+            UpdateCursor();
+            InvalidateCanvas();
+        }
+    }
+
+    private void OnPromptRegionsChanged()
+    {
+        if (ActiveRegion() == null) activePromptRegion = null;
+        if (drag == Drag.None && session?.Tool == Tool.PromptRegion) UpdateCursor();
+        InvalidateCanvas();
+    }
+
+    private PromptRegion? ActiveRegion() => activePromptRegion is { } id
+        ? session?.Document.PromptRegions.Find(r => r.Number == id && r.Enabled) : null;
+
+    private static SKPoint RegionCorner(SKRect rect, int corner) =>
+        new(corner % 2 == 0 ? rect.Left : rect.Right, corner < 2 ? rect.Top : rect.Bottom);
+
+    private SKRect RegionOnScreen(PromptRegion region)
+    {
+        var start = ToScreen(new(region.Left, region.Top));
+        var end = ToScreen(new(region.Right, region.Bottom));
+        return new((float)start.X, (float)start.Y, (float)end.X, (float)end.Y);
+    }
+
+    private static SKRect RegionTag(SKRect rect, string label, SKFont font, float hair) =>
+        SKRect.Create(rect.Left - hair, rect.Top - 18 * hair, Math.Max(18 * hair, font.MeasureText(label) + 6 * hair), 18 * hair);
+
+    private PromptRegion? HitRegionTag(Point point)
+    {
+        if (!ShowPromptRegions || session == null) return null;
+        var hair = 1f / (float)Scaling;
+        var regions = session.Document.PromptRegions;
+        for (var i = regions.Count - 1; i >= 0; i--)
+        {
+            var region = regions[i];
+            if (!region.Enabled) continue;
+            var rect = RegionOnScreen(region);
+            if (point.Y < rect.Top - 18 * hair || point.Y >= rect.Top || point.X < rect.Left - hair) continue;
+            using var font = new SKFont(SKTypeface.Default, 11 * hair);
+            if (RegionTag(rect, region.Number.ToString(), font, hair).Contains((float)point.X, (float)point.Y))
+                return region;
+        }
+        return null;
+    }
+
+    private int HitActiveRegionCorner(Point point)
+    {
+        if (!ShowPromptRegions || ActiveRegion() is not { } region) return -1;
+        var rect = RegionOnScreen(region);
+        var radius = 4 / Scaling;
+        var nearest = -1;
+        var distance = double.PositiveInfinity;
+        for (var i = 0; i < 4; i++)
+        {
+            var corner = RegionCorner(rect, i);
+            var dx = Math.Abs(point.X - corner.X);
+            var dy = Math.Abs(point.Y - corner.Y);
+            if (dx <= radius && dy <= radius && dx * dx + dy * dy < distance)
+            {
+                nearest = i;
+                distance = dx * dx + dy * dy;
+            }
+        }
+        return nearest;
+    }
+
+    private StandardCursorType PromptRegionCursor()
+    {
+        var corner = drag == Drag.PromptRegion ? regionCorner : cursorInside && !OverRuler(cursorScreen) ? HitActiveRegionCorner(cursorScreen) : -1;
+        if (corner >= 0)
+            return corner is 0 or 3 ? StandardCursorType.TopLeftCorner : StandardCursorType.TopRightCorner;
+        if (drag == Drag.PromptRegion)
+            return draggedRegion == null ? StandardCursorType.Cross : StandardCursorType.SizeAll;
+        return cursorInside && !OverRuler(cursorScreen) && HitRegionTag(cursorScreen) is { } tag
+            ? activePromptRegion == tag.Number ? StandardCursorType.SizeAll : StandardCursorType.Hand
+            : StandardCursorType.Cross;
+    }
 
     private void BeginRegionDrag(Point point, int clicks)
     {
-        draggedRegion = null;
-        regionCorner = -1;
-        if (ShowPromptRegions)
-            foreach (var r in session!.Document.PromptRegions.AsEnumerable().Reverse().Where(r => r.Enabled))
-            {
-                SKPoint[] corners = [new(r.Left,r.Top), new(r.Right,r.Top), new(r.Left,r.Bottom), new(r.Right,r.Bottom)];
-                regionCorner = Array.FindIndex(corners, p => Distance(ToScreen(p), point) < 7);
-                if (regionCorner < 0 && !r.Bounds.Contains((int)pressDocument.X, (int)pressDocument.Y)) continue;
-                draggedRegion = r;
-                if (clicks >= 2) { PromptRegionEditRequested?.Invoke(r, point); return; }
-                break;
-            }
+        regionCorner = HitActiveRegionCorner(point);
+        draggedRegion = regionCorner >= 0 ? ActiveRegion() : HitRegionTag(point);
+        activePromptRegion = draggedRegion?.Number;
+        if (regionCorner < 0 && draggedRegion is { } tagged && clicks >= 2)
+        {
+            PromptRegionEditRequested?.Invoke(tagged, point);
+            return;
+        }
         drag = Drag.PromptRegion;
     }
 
@@ -37,13 +123,19 @@ public sealed partial class CanvasView
         if (region != null && regionCorner < 0)
         {
             var frame = region.Bounds;
-            frame.Offset(Math.Clamp((int)(currentDocument.X - pressDocument.X), -frame.Left, doc.Width - frame.Right),
-                Math.Clamp((int)(currentDocument.Y - pressDocument.Y), -frame.Top, doc.Height - frame.Bottom));
+            frame.Offset(Math.Clamp((int)Math.Round(currentDocument.X - pressDocument.X), -frame.Left, doc.Width - frame.Right),
+                Math.Clamp((int)Math.Round(currentDocument.Y - pressDocument.Y), -frame.Top, doc.Height - frame.Bottom));
             return frame;
+        }
+        if (region != null)
+        {
+            var start = RegionCorner(region.Bounds, regionCorner);
+            x = Math.Clamp((int)Math.Round(start.X + currentDocument.X - pressDocument.X), 0, doc.Width);
+            y = Math.Clamp((int)Math.Round(start.Y + currentDocument.Y - pressDocument.Y), 0, doc.Height);
         }
         int a = region == null ? Math.Clamp((int)pressDocument.X, 0, doc.Width) : regionCorner % 2 == 0 ? region.Right : region.Left;
         int b = region == null ? Math.Clamp((int)pressDocument.Y, 0, doc.Height) : regionCorner < 2 ? region.Bottom : region.Top;
-        return new(Math.Min(a,x),Math.Min(b,y),Math.Max(a,x),Math.Max(b,y));
+        return new(Math.Min(a, x), Math.Min(b, y), Math.Max(a, x), Math.Max(b, y));
     }
 
     private void FinishRegionDrag()
@@ -51,43 +143,64 @@ public sealed partial class CanvasView
         if (Distance(pressScreen, ToScreen(currentDocument)) < 3) return;
         var frame = RegionFrame();
         if (frame.IsEmpty) return;
-        if (draggedRegion is { } r)
-            session!.ChangePromptRegion(r with { Left = frame.Left, Top = frame.Top, Right = frame.Right, Bottom = frame.Bottom });
+        if (draggedRegion is { } existing)
+            session!.ChangePromptRegion(existing with { Left = frame.Left, Top = frame.Top, Right = frame.Right, Bottom = frame.Bottom });
         else if (session!.AddPromptRegion(frame) is { } added)
             PromptRegionEditRequested?.Invoke(added, ToScreen(new SKPoint(frame.Left, frame.Bottom)));
     }
 
     private void CaptureRegions(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
-        if (!ShowPromptRegions) return;
-        var regions = session!.Document.PromptRegions.Where(r => r.Enabled).ToList();
-        if (drag == Drag.PromptRegion)
+        var document = session!.Document;
+        var regions = ShowPromptRegions ? document.PromptRegions.Where(r => r.Enabled).ToList() : [];
+        if (drag == Drag.PromptRegion && Distance(pressScreen, ToScreen(currentDocument)) >= 3)
         {
             var frame = RegionFrame();
             if (draggedRegion is { } old) regions.Remove(old);
-            var number = draggedRegion?.Number ?? Enumerable.Range(1,1001).First(n => session.Document.PromptRegions.All(r => r.Number != n));
-            regions.Add(new(number, frame.Left, frame.Top, frame.Right, frame.Bottom));
+            if (!frame.IsEmpty && (draggedRegion != null || document.PromptRegions.Count < 1000))
+            {
+                var number = draggedRegion?.Number ?? Enumerable.Range(1, 1000).First(n => document.PromptRegions.All(r => r.Number != n));
+                regions.Add(new(number, frame.Left, frame.Top, frame.Right, frame.Bottom));
+            }
         }
-        foreach (var r in regions)
+
+        var selected = session.Tool == Tool.PromptRegion ? activePromptRegion : null;
+        SKRect? selection = null;
+        foreach (var region in regions)
         {
-            var rect = view.MapRect(r.Bounds);
+            var rect = view.MapRect(region.Bounds);
+            if (region.Number == selected) selection = rect;
             steps.Add(c =>
             {
-                using var ink = new SKPaint { Color = r.Ink.Color, StrokeWidth = 2 * hair, Style = SKPaintStyle.Stroke };
+                using var ink = new SKPaint { Color = region.Ink.Color, StrokeWidth = 2 * hair, Style = SKPaintStyle.Stroke, IsAntialias = true };
                 c.DrawRect(rect, ink);
                 ink.Style = SKPaintStyle.Fill;
-                var label = r.Number.ToString();
+                var label = region.Number.ToString();
                 using var font = new SKFont(SKTypeface.Default, 11 * hair);
-                var width = Math.Max(18 * hair, font.MeasureText(label) + 6 * hair);
-                var top = rect.Top - 18 * hair;
-                var tag = SKRect.Create(rect.Left - hair, top, width, 18 * hair);
-                c.DrawRoundRect(tag, 3 * hair, 3 * hair, ink);
-                c.DrawRect(SKRect.Create(tag.Left, tag.Bottom - 4 * hair, width, 4 * hair),ink);
-                ink.Color = r.Ink.Color.Red + r.Ink.Color.Green > 320 ? SKColors.Black : SKColors.White;
-                ink.IsAntialias = true;
+                var tag = RegionTag(rect, label, font, hair);
+                using var badge = new SKRoundRect();
+                var radius = new SKPoint(3 * hair, 3 * hair);
+                badge.SetRectRadii(tag, [radius, radius, SKPoint.Empty, SKPoint.Empty]);
+                c.DrawRoundRect(badge, ink);
+                ink.Color = region.Ink.Color.Red + region.Ink.Color.Green > 320 ? SKColors.Black : SKColors.White;
                 var m = font.Metrics;
                 c.DrawText(label, tag.MidX, tag.MidY - (m.Ascent + m.Descent) / 2, SKTextAlign.Center, font, ink);
             });
         }
+
+        if (selection is { } active)
+            steps.Add(c =>
+            {
+                using var ink = new SKPaint { IsAntialias = true, StrokeWidth = hair };
+                for (var i = 0; i < 4; i++)
+                {
+                    var corner = RegionCorner(active, i);
+                    var handle = SKRect.Create(corner.X - 4 * hair, corner.Y - 4 * hair, 8 * hair, 8 * hair);
+                    ink.Style = SKPaintStyle.Fill; ink.Color = SKColors.White;
+                    c.DrawRect(handle, ink);
+                    ink.Style = SKPaintStyle.Stroke; ink.Color = new SKColor(20, 26, 32);
+                    c.DrawRect(handle, ink);
+                }
+            });
     }
 }

@@ -763,6 +763,82 @@ public class GenerationDockTests
     }
 
     [AvaloniaFact]
+    public void Prompt_regions_draw_inside_existing_boxes_and_update_without_panning()
+    {
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        var session = EditorSession.NewCanvas(480, 320, SKColors.White);
+        var outer = session.AddPromptRegion(new(40, 50, 280, 240))!;
+        try
+        {
+            window.AddSession(session);
+            window.SelectTool(Tool.PromptRegion);
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            dock.SetVisible(dock.Section("AI Generation"), true);
+            window.Canvas.Fit();
+            Pump();
+            Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new(x, y)), window)!.Value;
+            void Click(Point point)
+            {
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+            }
+            void Drag(Point from, Point to)
+            {
+                window.MouseDown(from, MouseButton.Left);
+                window.MouseMove(to, RawInputModifiers.LeftMouseButton);
+                window.MouseUp(to, MouseButton.Left);
+                Pump();
+            }
+            void ClickButton(string name)
+            {
+                var button = dock.GetVisualDescendants().OfType<Button>().Single(b => b.Name == name);
+                Click(button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value);
+                Pump();
+            }
+
+            Click(At(40, 50) + new Vector(8, -9));
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.Name == "RegionPromptInput");
+            Drag(At(90, 90), At(160, 150));
+            Assert.Equal(outer.Bounds, session.Document.PromptRegions[0].Bounds);
+            Assert.Equal(new SKRectI(90, 90, 160, 150), session.Document.PromptRegions[1].Bounds);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump();
+
+            var tag = At(40, 50) + new Vector(8, -9);
+            Click(tag);
+            Drag(At(280, 240), At(300, 255));
+            Assert.Equal(new SKRectI(40, 50, 300, 255), session.Document.PromptRegions[0].Bounds);
+            Click(tag);
+            Click(tag);
+            Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.Name == "RegionPromptInput");
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump();
+
+            var sample = At(135, 50);
+            SKColor RegionPixel(string filename)
+            {
+                Assert.True(Screenshots.Save(window, filename));
+                using var image = SKBitmap.Decode(Path.Combine(Screenshots.Folder, filename + ".png"));
+                return image.GetPixel((int)sample.X, (int)sample.Y);
+            }
+            Assert.Equal(outer.Ink.Color, RegionPixel("ai-region-active"));
+            ClickButton("ToggleAllPromptRegions");
+            Assert.Equal(SKColors.White, RegionPixel("ai-regions-hidden"));
+            Assert.Equal(2, session.Document.PromptRegions.Count);
+            ClickButton("ToggleAllPromptRegions");
+            Assert.Equal(outer.Ink.Color, RegionPixel("ai-regions-visible"));
+            session.ChangePromptRegion(session.Document.PromptRegions[0] with { Enabled = false });
+            Assert.Equal(SKColors.White, RegionPixel("ai-region-disabled"));
+            ClickButton("DeleteAllPromptRegions");
+            Assert.Empty(session.Document.PromptRegions);
+            session.Undo();
+            Assert.Equal(2, session.Document.PromptRegions.Count);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Draw_prompt_region_edit_its_text_and_undo_without_selecting_pixels()
     {
         var previousLanguage = Locale.Language;

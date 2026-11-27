@@ -88,6 +88,7 @@ public sealed partial class CanvasView
     public void ToolChanged()
     {
         transformSelection = null;
+        if (session?.Tool != Tool.PromptRegion) activePromptRegion = null;
         if (session?.Tool != Tool.Pen)
         {
             FinishPen();
@@ -170,7 +171,8 @@ public sealed partial class CanvasView
             else type = session.Tool switch
             {
                 Tool.Hand => StandardCursorType.Hand,
-                Tool.PromptRegion or Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
+                Tool.PromptRegion => PromptRegionCursor(),
+                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
                 Tool.Text or Tool.TextOnPath or Tool.VerticalText => StandardCursorType.Ibeam,
                 Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
@@ -261,6 +263,7 @@ public sealed partial class CanvasView
                 break;
             case Tool.PromptRegion:
                 BeginRegionDrag(point.Position, e.ClickCount);
+                UpdateCursor();
                 break;
             case Tool.Marquee:
                 dragMode = ModeFor(e.KeyModifiers & ~KeyModifiers.Control);
@@ -442,6 +445,7 @@ public sealed partial class CanvasView
         }
         if (session.Tool is Tool.Move or Tool.Shape || hoveredParameter >= 0) UpdateShapeHint(position);
         if (drag == Drag.None) SetControlHover(e.KeyModifiers.HasFlag(KeyModifiers.Control));
+        if (session.Tool == Tool.PromptRegion && drag == Drag.None) UpdateCursor();
         if (drag == Drag.Marquee && !shift) shiftReleased = true;
         dragModifiers = e.KeyModifiers;
         // Pixel damage from ContinueStroke already invalidates the canvas. When a
@@ -487,13 +491,13 @@ public sealed partial class CanvasView
         }
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
-        if (drag is Drag.AiRectangle or Drag.Shape or Drag.ShapeParameter)
+        if (drag is Drag.AiRectangle or Drag.Shape or Drag.ShapeParameter or Drag.PromptRegion)
         {
             // A fast drag can release beyond the last delivered move event.
             cursorScreen = e.GetPosition(this);
             currentDocument = ToDocument(cursorScreen);
             if (drag == Drag.ShapeParameter) UpdateShapeParameter();
-            else snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
+            else if (drag != Drag.PromptRegion) snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
         var releasePosition = e.GetPosition(this);
         if (drag == Drag.Transform && (releasePosition != cursorScreen ||
@@ -561,8 +565,8 @@ public sealed partial class CanvasView
                 if (session.Tool == Tool.RemoveObject && session.Selection != null) AiSelectionCompleted?.Invoke(Composa.AI.AiTaskKind.RemoveObject);
                 break;
             case Drag.PromptRegion:
-                currentDocument = ToDocument(e.GetPosition(this));
                 FinishRegionDrag();
+                UpdateCursor();
                 break;
             case Drag.AiRectangle:
                 if (moved)

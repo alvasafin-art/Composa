@@ -9,6 +9,7 @@ namespace Composa.App.AI;
 /// <summary>API inputs use original canvas coordinates. No latent-size crop, model weights or GPU buffers.</summary>
 internal sealed class PartnerImageInputs : IDisposable
 {
+    private const string RegionGuide = "apiRegionGuide";
     public Dictionary<string, SKBitmap> Images { get; } = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SKBitmap> owned = [];
     private readonly AiTaskInputs original;
@@ -81,6 +82,15 @@ internal sealed class PartnerImageInputs : IDisposable
                 generationSize=desired;
                 if(Images.TryGetValue("apiSource",out var input))
                 {
+                    if (UsesNanoRegionOverlay && inputs.ReferenceImages.Count < 13)
+                    {
+                        // Keep the numbered user references in their original slots. The marked copy is
+                        // the last image and serves only as a guide; image 1 contains the clean pixels.
+                        Images[RegionGuide] = Own(NanoBanana.Pad(input, out _));
+                        var clean = inputs.ContextImage;
+                        input = input.Width == clean.Width && input.Height == clean.Height
+                            ? clean : Own(Resize(clean, input.Width, input.Height));
+                    }
                     var padded=Own(NanoBanana.Pad(input,out nanoContent)); Images["apiSource"]=padded;
                     nanoPadded=new(padded.Width,padded.Height);
                 }
@@ -145,6 +155,7 @@ internal sealed class PartnerImageInputs : IDisposable
             node.Remove(key);
         var semantics = Images.ContainsKey("apiSource") ? new List<string> { "apiSource" } : [];
         semantics.AddRange(Enumerable.Range(1, original.ReferenceImages.Count).Select(index => $"referenceImage{index}"));
+        if (Images.ContainsKey(RegionGuide)) semantics.Add(RegionGuide);
         var number = 0;
         foreach (var semantic in semantics)
         {
@@ -165,6 +176,13 @@ internal sealed class PartnerImageInputs : IDisposable
 
     private string Prompt()
     {
+        if (UsesNanoRegionOverlay)
+        {
+            const string cleanup = "Treat every colored frame and region number as a temporary annotation. Exclude every part of those lines and numbers from the final image. Reconstruct the underlying surface wherever a line crosses an edge.";
+            return Images.ContainsKey(RegionGuide)
+                ? $"Edit the clean scene in image 1. Image {original.ReferenceImages.Count + 2} is a spatial guide for image 1. Use its frames only to locate the edits. {cleanup}\n\n{original.Prompt}"
+                : $"{cleanup}\n\n{original.Prompt}";
+        }
         // Keep operation instructions; only mention a native mask when it is bound.
         var guidance = request.Prompt.Trim();
         var instruction = request.Task switch
@@ -179,6 +197,9 @@ internal sealed class PartnerImageInputs : IDisposable
         return instruction == null ? original.Prompt
             : string.Join("\n\n", new[] { instruction, request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0));
     }
+
+    private bool UsesNanoRegionOverlay => nano && request.Task == AiTaskKind.ImageEdit
+        && request.RegionDelivery == RegionDelivery.Overlay && request.Regions.Length > 0;
 
     public SKBitmap Finish(SKBitmap generated)
     {

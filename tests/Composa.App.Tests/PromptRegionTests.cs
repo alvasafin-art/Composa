@@ -32,6 +32,21 @@ public class PromptRegionTests
         Assert.Equal("", session.Document.PromptRegions.Single().Prompt);
     }
 
+    [Fact]
+    public void Region_colors_do_not_repeat_and_bulk_delete_is_one_undo_step()
+    {
+        var session = EditorSession.NewCanvas(160, 120);
+        var regions = Enumerable.Range(1, 1000).Select(number => new PromptRegion(number, 10, 20, 90, 80)).ToArray();
+        Assert.Equal(regions.Length, regions.Select(region => region.Ink.Color).Distinct().Count());
+        Assert.Equal(regions.Length, regions.Select(region => region.Ink.Name).Distinct().Count());
+        session.AddPromptRegion(new(10, 20, 90, 80));
+        session.AddPromptRegion(new(20, 30, 40, 60));
+        session.DeleteAllPromptRegions();
+        Assert.Empty(session.Document.PromptRegions);
+        session.Undo();
+        Assert.Equal(2, session.Document.PromptRegions.Count);
+    }
+
     public static bool Live => Environment.GetEnvironmentVariable("COMPOSA_REGION_IMAGE") != null;
 
     [Fact(Skip = "Set COMPOSA_REGION_IMAGE, COMPOSA_REGION_URL and COMPOSA_REGION_OUTPUT.", SkipUnless = nameof(Live))]

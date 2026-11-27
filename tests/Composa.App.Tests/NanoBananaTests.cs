@@ -34,6 +34,35 @@ public class NanoBananaTests
     private static AiTaskService Service(PartnerImageTests.Connection connection,bool key=true)=>new(()=>"http://localhost:8188",Catalog().Root,_=>connection,(input,_,_)=>Pixels.Clone(input.ObjectAlpha))
         {SelectedEngine=Pack(),ApiKey=()=>key ? "test-only-comfy-key" : null};
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(13, false)]
+    public void Nano_region_guides_keep_reference_order_and_respect_the_image_limit(int references, bool separateGuide)
+    {
+        var session = EditorSession.NewCanvas(120, 80, SKColors.White);
+        using var reference = Pixels.NewColor(20, 20);
+        var request = new AiTaskRequest
+        {
+            Task = AiTaskKind.ImageEdit, RegionDelivery = RegionDelivery.Overlay,
+            Regions = [new(1, 20, 20, 60, 60, "Change this area")],
+            ReferenceImages = Enumerable.Repeat(reference, references).ToArray()
+        };
+        using var inputs = AiTaskInputPreparer.Prepare(session, request, 14);
+        using var api = new PartnerImageInputs(inputs, request, NanoBanana.Model);
+        var pack = Pack();
+        var graph = api.Bind(Catalog().ReadWorkflow(pack, pack.Workflows[0]), pack,
+            api.Images.ToDictionary(item => item.Key, item => item.Key + ".png"), 73);
+        Assert.Equal(separateGuide ? SKColors.White : request.Regions[0].Ink.Color, api.Images["apiSource"].GetPixel(20, 40));
+        Assert.Equal(separateGuide, api.Images.ContainsKey("apiRegionGuide"));
+        Assert.Equal("referenceImage1.png", graph["composa_api_image_2"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Contains("temporary annotation", graph["gpt"]!["inputs"]!["prompt"]!.GetValue<string>());
+        if (separateGuide)
+        {
+            Assert.Equal(request.Regions[0].Ink.Color, api.Images["apiRegionGuide"].GetPixel(20, 40));
+            Assert.Equal("apiRegionGuide.png", graph["composa_api_image_3"]!["inputs"]!["image"]!.GetValue<string>());
+        }
+    }
+
     [Fact]
     public async Task Live_official_schema_is_checked_without_upload_or_paid_execution_when_requested()
     {
