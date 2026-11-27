@@ -198,6 +198,32 @@ public class AiInteractionTests
     }
 
     [AvaloniaFact]
+    public async Task Canceling_generation_without_a_document_discards_its_references()
+    {
+        var previous = EditorSession.Clipboard;
+        using var copied = Pixels.NewColor(24, 16); copied.Erase(SKColors.Blue);
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        try
+        {
+            EditorSession.Clipboard = new ClipboardImage(copied, default);
+            window.AiTasks.SetConnectedForTests();
+            var pending = window.RunAiForTests(AiTaskKind.GenerateImage);
+            Dispatcher.UIThread.RunJobs();
+            var dialog = Assert.Single(window.OwnedWindows);
+            var host = dialog.GetVisualDescendants().OfType<StackPanel>().Single(p => p.Name == "AiDialogReferences");
+            dialog.KeyPressQwerty(PhysicalKey.V, RawInputModifiers.Control);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("Reference images (1/6)", Avalonia.Automation.AutomationProperties.GetName(host));
+            dialog.Close(false);
+            await pending;
+            window.AddSession(EditorSession.NewCanvas(600, 400));
+            Assert.Equal(0, window.AiReferenceCount);
+        }
+        finally { EditorSession.Clipboard = previous; window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Browsing_model_files_preserves_all_operation_defaults()
     {
         var owner = new MainWindow();

@@ -1066,7 +1066,7 @@ Save preset	Сохранить набор
 Save script…	Сохранить сценарий…
 Save selection as an alpha channel	Сохранить выделение как альфа-канал
 Save settings	Сохранить настройки
-Remember prompts for each AI operation	Запоминать промпт для каждой AI-операции
+Remember prompts per operation in each open document	Запоминать промпты по операциям в каждом открытом документе
 Prompts stay in memory until the editor closes. Turning this off clears the drafts.	Промпты остаются в памяти до закрытия редактора. При отключении черновики очищаются.
 Save these contents as a .cmps project, PSD, PNG, JPEG, WebP or TIFF.	Сохраните содержимое как проект .cmps либо файл PSD, PNG, JPEG, WebP или TIFF.
 Save to Library	Сохранить в библиотеку

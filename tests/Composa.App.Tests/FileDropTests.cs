@@ -17,20 +17,25 @@ namespace Composa.App.Tests;
 public class FileDropTests
 {
     [AvaloniaTheory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Dropping_on_tab_header_or_empty_strip_opens_images_in_order_without_changing_document(bool header)
+    [InlineData("bar")]
+    [InlineData("chrome")]
+    [InlineData("window")]
+    public async Task Dropping_on_empty_strip_or_other_tab_bar_chrome_opens_images_in_order(string route)
     {
         await WithImages(async (window, original, paths) =>
         {
             var bar = window.GetVisualDescendants().OfType<Grid>().Single(control => control.Name == "DocumentTabBar");
-            var target = header ? bar.GetVisualDescendants().OfType<ScrollViewer>().First().GetVisualDescendants().OfType<Button>().First() : (Control)bar;
+            var target = route switch { "chrome" => bar.Children.OfType<Button>().First(), "window" => (Control)window, _ => bar };
             using var data = Files(window, paths);
-            var over = new DragEventArgs(DragDrop.DragOverEvent, data, target, new Point(2, 2), KeyModifiers.None)
-                { DragEffects = DragDropEffects.Copy | DragDropEffects.Move };
-            target.RaiseEvent(over);
-            Assert.True(over.Handled); Assert.Equal(DragDropEffects.Copy, over.DragEffects);
-            var drop = new DragEventArgs(DragDrop.DropEvent, data, target, new Point(2, 2), KeyModifiers.None);
+            var point = route == "window" ? bar.TranslatePoint(new Point(2, 2), window)!.Value : new Point(2, 2);
+            if (route != "window")
+            {
+                var over = new DragEventArgs(DragDrop.DragOverEvent, data, target, point, KeyModifiers.None)
+                    { DragEffects = DragDropEffects.Copy | DragDropEffects.Move };
+                target.RaiseEvent(over);
+                Assert.True(over.Handled); Assert.Equal(DragDropEffects.Copy, over.DragEffects);
+            }
+            var drop = new DragEventArgs(DragDrop.DropEvent, data, target, point, KeyModifiers.None);
             target.RaiseEvent(drop); Dispatcher.UIThread.RunJobs();
             Assert.True(drop.Handled);
             await WaitFor(() => window.Sessions.Count == 3);
@@ -41,6 +46,27 @@ public class FileDropTests
             Assert.Equal(SKColors.Red, window.Sessions[1].ActiveLayer!.Pixels!.GetPixel(0, 0));
             Assert.Equal(SKColors.Blue, window.Sessions[2].ActiveLayer!.Pixels!.GetPixel(0, 0));
             Assert.Same(window.Sessions[2], window.Session);
+        });
+    }
+
+    [AvaloniaFact]
+    public async Task Dropping_on_a_specific_inactive_tab_places_the_image_only_in_that_document()
+    {
+        await WithImages(async (window, original, paths) =>
+        {
+            var active = EditorSession.NewCanvas(130, 110, SKColors.White);
+            window.AddSession(active);
+            Dispatcher.UIThread.RunJobs();
+            var tab = window.GetVisualDescendants().OfType<Border>().Single(b => ReferenceEquals(b.Tag, original));
+            using var data = Files(window, paths.Take(1));
+            var drop = new DragEventArgs(DragDrop.DropEvent, data, tab, new Point(12, 8), KeyModifiers.None);
+            tab.RaiseEvent(drop);
+            Assert.True(drop.Handled);
+            await WaitFor(() => original.Document.Layers.Count == 2);
+            Assert.Equal(2, window.Sessions.Count);
+            Assert.Single(active.Document.Layers);
+            Assert.Same(original, window.Session);
+            Assert.Equal(SKColors.Red, original.ActiveLayer!.Pixels!.GetPixel(0, 0));
         });
     }
 

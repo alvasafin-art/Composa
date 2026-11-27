@@ -723,7 +723,7 @@ public static partial class AiDialogs
         aiPanelPicker.Width = double.NaN;
         aiPanelPicker.Name = "EditorAiPanelPicker";
         Avalonia.Automation.AutomationProperties.SetName(aiPanelPicker, "AI panel placement");
-        const string rememberPromptsLabel = "Remember prompts for each AI operation";
+        const string rememberPromptsLabel = "Remember prompts per operation in each open document";
         var rememberPrompts = new CheckBox { Name = "RememberAiPrompts", Content = Locale.T(rememberPromptsLabel), IsChecked = settings.RememberAiPrompts };
         Locale.Tip(rememberPrompts, "Prompts stay in memory until the editor closes. Turning this off clears the drafts.");
         const string gpuLabel = "Use GPU for local object selection and matting when available";
@@ -1655,7 +1655,6 @@ public static partial class AiDialogs
         settings.AiShowContextBounds = showContext.IsChecked == true;
         settings.AiSelectionContextPercent = (int)(contextPercent.Value ?? AutomaticAiMask.DefaultContextPercent);
         settings.RememberAiPrompts = rememberPrompts.IsChecked == true;
-        if (!settings.RememberAiPrompts) settings.AiPromptDrafts.Clear();
         SavePromptDraft();
         ReadEnhancer(settings);
         settings.EnhancerApiCatalogs = textCatalog.Save();
@@ -1867,7 +1866,7 @@ public static partial class AiDialogs
 
     public static async Task<AiPromptResult?> Prompt(Window owner, AiTaskKind task, Settings settings, int documentWidth, int documentHeight, string initialPrompt = "", AiTaskService? service = null, int referenceCount = 0, bool hasSelection = false, AiReferenceEditor? references = null,
         SKRectI? sourceCanvas = null, SKRectI? selectionBounds = null, string? preferredEngine = null, EngineProfile? directEngine = null,
-        bool showImageSize = true)
+        bool showImageSize = true, Action<string>? rememberPrompt = null)
     {
         var previousEngine = service?.SelectedEngine;
         if (service != null) service.SelectedEngine = directEngine ?? service.EngineFor(task, preferredEngine);
@@ -1876,7 +1875,7 @@ public static partial class AiDialogs
         var lighting=Ui.Combo(Enum.GetValues<RelightPreset>(),scene.Preset,SceneEditSettings.Name,value=>scene=scene with {Preset=value},300);
         var scope=Ui.Combo(Enum.GetValues<RelightScope>(),scene.Scope,value=>value==RelightScope.Subject ? "Subject" : "Whole visible image",value=>scene=scene with {Scope=value},300);
         var profileDrafts = new Dictionary<string, AiOperationSettings>();
-        var startingPrompt = string.IsNullOrEmpty(initialPrompt) ? settings.AiPromptFor(task) : initialPrompt;
+        var startingPrompt = initialPrompt;
         var prompt = AiGenerationControls.PromptField("Describe the result…");
         prompt.Text = startingPrompt;
         var originalSize = profile.OriginalSize; var mp = ClosestMegapixels(profile.Megapixels);
@@ -2102,7 +2101,7 @@ public static partial class AiDialogs
         }
         var finalPrompt = prompt.Text ?? "";
         if (settings.RememberAiPrompts && prompt.IsVisible && prompt.IsEnabled && (accepted || finalPrompt != startingPrompt))
-            settings.RememberAiPrompt(task, finalPrompt);
+            rememberPrompt?.Invoke(finalPrompt);
         if (!accepted) return null;
         settings.SetOperation(chosenEngine?.Id, task, CaptureProfile());
         if (AiGenerationControls.SupportsAlignment(task)) settings.AiAlignMaskedEdits = alignPixels;

@@ -228,11 +228,17 @@ public class GenerationDockTests
             Assert.Equal(2, picker.Items.OfType<ImageModelChoice>().Count(choice => choice.Route == ImageGenerationRoute.DirectApi));
             picker.SelectedItem = Assert.Single(picker.Items.OfType<ImageModelChoice>(), choice =>
                 choice.Route == ImageGenerationRoute.ComfyWorkflow && choice.Engine.Id == pack);
+            var next = EditorSession.NewCanvas(160, 120);
+            window.AddSession(next);
+            Pump();
+            Assert.Equal(pack, Assert.IsType<ImageModelChoice>(picker.SelectedItem).Engine.Id);
             await window.RunAiForTests(task, "A ceramic cube");
             Assert.Equal(AiOperationStatus.Completed, window.AiTasks.Operation?.Status);
             Assert.Single(capture.Prompts);
             Assert.Equal(ImageGenerationRoute.LocalCodex, settings.ImageRouteFor(task));
             picker.SelectedItem = Assert.Single(picker.Items.OfType<ImageModelChoice>(), choice => choice.Direct?.Model == "api-two");
+            window.AddSession(EditorSession.NewCanvas(160, 120, SKColors.White));
+            Pump();
             Assert.Equal("api-two", Assert.IsType<ImageModelChoice>(picker.SelectedItem).Direct?.Model);
             Assert.False(settings.ImageOperationApiModels.ContainsKey(task));
             var reopening = window.ShowAiSettings(operation: task);
@@ -243,6 +249,7 @@ public class GenerationDockTests
             dialog.Close(false);
             await reopening;
             canvas.MarkSaved("route-test.cmps", canvas.History.CurrentId);
+            next.MarkEmbeddedSaved();
         }
         finally
         {
@@ -413,13 +420,76 @@ public class GenerationDockTests
     }
 
     [AvaloniaFact]
-    public async Task Prompt_drafts_follow_their_operations_and_can_be_turned_off_in_settings()
+    public void Pasted_references_and_image_mentions_stay_with_their_document()
+    {
+        var previousClipboard = EditorSession.Clipboard;
+        using var copied = Composa.Rendering.Pixels.NewColor(24, 16);
+        copied.Erase(SKColors.Coral);
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        try
+        {
+            var first = EditorSession.NewCanvas(160, 120, SKColors.White);
+            var second = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(first);
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var section = dock.Section("AI Generation");
+            dock.SetVisible(section, true);
+            Pump();
+            var prompt = section.Content.GetVisualDescendants().OfType<AiPromptField>().Single();
+            void Click(Control control)
+            {
+                var point = control.TranslatePoint(new Point(8, 8), window)!.Value;
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                Pump();
+            }
+            void Select(EditorSession document) => Click(window.GetVisualDescendants().OfType<Border>()
+                .Single(tab => ReferenceEquals(tab.Tag, document)));
+            void Paste()
+            {
+                Click(prompt);
+                window.KeyPressQwerty(PhysicalKey.V, RawInputModifiers.Control);
+                Pump();
+            }
+            EditorSession.Clipboard = new ClipboardImage(copied, default);
+            Paste();
+            Paste();
+            Assert.Equal(2, window.AiReferenceCount);
+            prompt.Text = "First tab uses @image 3.";
+
+            window.AddSession(second);
+            Pump();
+            Assert.Equal(0, window.AiReferenceCount);
+            Assert.Empty(prompt.Text ?? "");
+            Paste();
+            Assert.Equal(1, window.AiReferenceCount);
+            prompt.Text = "Second tab uses @image 2.";
+
+            Select(first);
+            Assert.Equal(2, window.AiReferenceCount);
+            Assert.Equal("First tab uses @image 3.", prompt.Text);
+            section.Content.GetVisualDescendants().OfType<Button>().First(button => Equals(ToolTip.GetTip(button), "Remove reference"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(1, window.AiReferenceCount);
+            Assert.Equal("First tab uses @image 2.", prompt.Text);
+
+            Select(second);
+            Assert.Equal(1, window.AiReferenceCount);
+            Assert.Equal("Second tab uses @image 2.", prompt.Text);
+        }
+        finally { EditorSession.Clipboard = previousClipboard; window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Prompt_drafts_are_separate_for_each_document_and_operation_and_can_be_turned_off()
     {
         var window = new MainWindow { Width = 1100, Height = 800 };
         window.Show();
         try
         {
-            window.AddSession(EditorSession.NewCanvas(160, 120, SKColors.White));
+            var first = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(first);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
             dock.SetVisible(section, true);
@@ -436,13 +506,40 @@ public class GenerationDockTests
             Choose("Generate Image");
             Assert.Equal("A new landscape.", prompt.Text);
             Choose("Image Edit");
+            var second = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(second);
+            Pump();
+            Assert.Equal("", prompt.Text);
+            prompt.Text = "Sharpen the foreground.";
+            Choose("Generate Image");
+            Assert.Equal("", prompt.Text);
+            prompt.Text = "A different landscape.";
+            Choose("Image Edit");
+            Assert.Equal("Sharpen the foreground.", prompt.Text);
+
+            void SelectTab(EditorSession document)
+            {
+                var tab = window.GetVisualDescendants().OfType<Border>().Single(b => ReferenceEquals(b.Tag, document));
+                var point = tab.TranslatePoint(new Point(8, 8), window)!.Value;
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                Pump();
+            }
+            SelectTab(first);
+            Assert.Equal("Soften the shadows.", prompt.Text);
+            Choose("Generate Image");
+            Assert.Equal("A new landscape.", prompt.Text);
+            SelectTab(second);
+            Assert.Equal("Sharpen the foreground.", prompt.Text);
+            Choose("Generate Image");
+            Assert.Equal("A different landscape.", prompt.Text);
+            Choose("Image Edit");
             var serialized = System.Text.Json.JsonSerializer.Serialize(window.Settings);
             Assert.DoesNotContain("AiPromptDrafts", serialized);
             Assert.DoesNotContain("A new landscape.", serialized);
             Assert.DoesNotContain("Soften the shadows.", serialized);
             var reloaded = Settings.FromJson(serialized);
             Assert.True(reloaded.RememberAiPrompts);
-            Assert.Empty(reloaded.AiPromptDrafts);
 
             var settings = AiDialogs.SettingsDialog(window, window.Settings, window.AiTasks, page: 3);
             Pump();
@@ -454,7 +551,6 @@ public class GenerationDockTests
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.True(await settings.WaitAsync(TimeSpan.FromSeconds(5)));
             Assert.False(window.Settings.RememberAiPrompts);
-            Assert.Empty(window.Settings.AiPromptDrafts);
             Choose("Generate Image");
             Assert.Equal("", prompt.Text);
             prompt.Text = "A temporary prompt.";
@@ -462,7 +558,8 @@ public class GenerationDockTests
             Assert.Equal("", prompt.Text);
             Choose("Generate Image");
             Assert.Equal("", prompt.Text);
-            Assert.Empty(window.Settings.AiPromptDrafts);
+            SelectTab(first);
+            Assert.Equal("", prompt.Text);
         }
         finally { window.Close(); }
     }
@@ -837,6 +934,13 @@ public class GenerationDockTests
             Assert.Empty(session.Document.PromptRegions);
             session.Undo();
             Assert.Equal(2, session.Document.PromptRegions.Count);
+            window.Canvas.Focus();
+            Click(At(90, 90) + new Vector(8, -9));
+            window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+            Assert.Equal(outer.Number, Assert.Single(session.Document.PromptRegions).Number);
+            Assert.Single(session.Document.Layers);
+            session.Undo();
+            Assert.Equal(2, session.Document.PromptRegions.Count);
         }
         finally { window.Close(); }
     }
@@ -885,9 +989,15 @@ public class GenerationDockTests
             Pump();
             var input = dock.Section("AI Generation").Content.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == "RegionPromptInput");
             input.Text = "Cobalt";
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            var visibility = dock.Section("AI Generation").Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleAllPromptRegions");
+            pos = visibility.TranslatePoint(new Point(5, 5), window)!.Value;
+            window.MouseDown(pos, MouseButton.Left);
+            Pump(); // The UI may process a render between the down and up.
+            window.MouseUp(pos, MouseButton.Left);
             Pump();
             Assert.Equal("Cobalt", session.Document.PromptRegions.Single().Prompt);
+            Assert.False(window.Canvas.ShowPromptRegions);
+            window.Canvas.ShowPromptRegions = true;
             session.Undo();
             Assert.Equal("Покрой чайник синей глазурью", session.Document.PromptRegions.Single().Prompt);
             window.MouseDown(At(293, 113), MouseButton.Left);

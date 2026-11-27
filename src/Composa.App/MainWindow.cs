@@ -34,6 +34,8 @@ public sealed partial class MainWindow : Window
     private readonly SideDock dock;
     private readonly List<Control> canvasChrome = [];
     private readonly StackPanel tabs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
+    private Grid documentTabBar = null!;
+    private ScrollViewer documentTabScroll = null!;
     private readonly TextBlock documentInfo = new() { Name = "DocumentInfo", FontSize = 11, Foreground = Palette.Secondary,
         VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly Border optionsHost = new() { Height = 40, Background = Palette.Panel, Padding = new Thickness(12, 0) };
@@ -162,7 +164,9 @@ public sealed partial class MainWindow : Window
         BuildAiContextBar();
         combinedOptions.Children.Add(toolOptionsHost);
         var assistantButton = Ui.TextButton("Assistant", ShowAssistant);
-        assistantButton.Content = Ui.Row(5, Icons.Create(Icons.Assistant, 15), Ui.Label(Locale.T("Assistant")));
+        assistantButton.IsEnabled = false;
+        assistantButton.Content = Ui.Row(5, Icons.Create(Icons.Assistant, 15, Palette.Secondary),
+            Ui.Label(Locale.T("Assistant"), Palette.Secondary));
         Avalonia.Automation.AutomationProperties.SetName(assistantButton, Locale.T("Assistant"));
         assistantButton.Classes.Add("flat");
         assistantButton.MinWidth = 0;
@@ -228,6 +232,7 @@ public sealed partial class MainWindow : Window
         AddHandler(KeyDownEvent, OnWindowKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(PointerPressedEvent, (_, e) =>
         {
+            CommitRegionPromptOutside(e.Source as Visual);
             TrackAiEditorInput(e.Source as Visual);
             if (lastAiEditor == null && aiFloatingPrompt.IsFocused) canvas.Focus();
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -244,7 +249,12 @@ public sealed partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         DragDrop.SetAllowDrop(this, true);
         Closing += OnClosing;
-        Closed += (_, _) => { automationCancellation?.Cancel(); assistantServer.Dispose(); aiControl?.Dispose(); imageExchange?.Dispose(); };
+        Closed += (_, _) =>
+        {
+            automationCancellation?.Cancel(); assistantServer.Dispose(); aiControl?.Dispose(); imageExchange?.Dispose();
+            foreach (var references in documentAiReferences.Values) DisposeAiReferences(references);
+            documentAiReferences.Clear();
+        };
         if (Settings.Persist)
             Opened += async (_, _) =>
             {
@@ -384,6 +394,7 @@ public sealed partial class MainWindow : Window
             }
         }
         sessions.Add(added);
+        documentAiReferences.TryAdd(added, []);
         added.HistoryChanged += UpdateTabTitles;
         added.HistoryChanged += () =>
         {
@@ -417,6 +428,7 @@ public sealed partial class MainWindow : Window
     {
         if (session != null && session != next)
         {
+            finishDockRegionEdit?.Invoke(true);
             session.CommitChannelControlEdit();
             if (!CommitWarp(session)) return;
             canvas.CancelInteraction();
@@ -430,7 +442,6 @@ public sealed partial class MainWindow : Window
         session = next;
         TrackAiEditorInput(null);
         floatingBoundsMask = null;
-        modelDrafts.Clear();
         manualDockTask = null;
         aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
@@ -509,6 +520,7 @@ public sealed partial class MainWindow : Window
             close.Click += (_, e) => { _ = CloseSession(item); e.Handled = true; };
             var tab = new Border
             {
+                Tag = item,
                 Child = Ui.Row(5, label, mode, close), Padding = new Thickness(12, 4, 6, 4), CornerRadius = new CornerRadius(6),
                 Background = item == session ? Palette.ActiveTab : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand)
             };
@@ -525,6 +537,7 @@ public sealed partial class MainWindow : Window
                 else if (pressed.IsLeftButtonPressed && item != session) SetSession(item);
             };
             tab.ContextMenu = TabMenu(item, out var folder);
+            DragDrop.SetAllowDrop(tab, true);
             tabTitles.Add((item, label, mode, folder));
             tabs.Children.Add(tab);
             if (item == session)
@@ -612,6 +625,9 @@ public sealed partial class MainWindow : Window
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        if (documentAiReferences.Remove(item, out var references)) DisposeAiReferences(references);
+        foreach (var key in documentAiPrompts.Keys.Where(key => ReferenceEquals(key.Document, item)).ToArray())
+            documentAiPrompts.Remove(key);
         fileVersions.Remove(item);
         foreach (var key in linkedObservations.Keys.Where(key => key.Parent == item).ToArray()) linkedObservations.Remove(key);
         embeddedTabs.Remove(item);
@@ -733,6 +749,7 @@ public sealed partial class MainWindow : Window
     {
         var newButton = Ui.IconButton(Icons.Plus, "New canvas (Ctrl+N)", () => _ = NewCanvas());
         var scroll = new ScrollViewer { Content = tabs, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        documentTabScroll = scroll;
         zoomText.Name = "DocumentZoom";
         zoomText.Margin = new Thickness(6, 0);
         var zoomControls = Ui.Row(2, LayoutViewButtons(), zoomText,
@@ -740,6 +757,7 @@ public sealed partial class MainWindow : Window
             Ui.IconButton(Icons.ZoomOut, "Zoom out (Ctrl+-)", canvas.ZoomOut), Ui.IconButton(Icons.ZoomIn, "Zoom in (Ctrl++)", canvas.ZoomIn));
         foreach (var button in zoomControls.Children.OfType<Button>()) { button.MinWidth = 0; button.Classes.Add("flat"); }
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Background = Palette.Window, Margin = new Thickness(6, 2) };
+        documentTabBar = grid;
         grid.Children.Add(newButton);
         var strip = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(6, 0) };
         Button Arrow(int direction, Icons.Icon icon, string tooltip, string name)
@@ -780,7 +798,7 @@ public sealed partial class MainWindow : Window
             e.DragEffects &= DragDropEffects.Copy;
             e.Handled = true;
         });
-        grid.AddHandler(DragDrop.DropEvent, OnTabDrop);
+        grid.AddHandler(DragDrop.DropEvent, OnTabDrop, handledEventsToo: true);
         return grid;
     }
 

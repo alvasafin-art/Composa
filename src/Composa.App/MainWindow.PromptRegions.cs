@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Composa.Editing;
 using Composa.Model;
 
@@ -16,6 +17,9 @@ public sealed partial class MainWindow
     private readonly StackPanel promptRegionList = new() { Spacing = 3, IsVisible = false };
     private EditorSession? regionOwner;
     private PromptRegion[] listedRegions = [];
+    private readonly Dictionary<int, TextBlock> regionPromptLabels = [];
+    private TextBox? dockRegionInput;
+    private Action<bool>? finishDockRegionEdit;
     private Button? allRegionsVisibility;
     private readonly Canvas regionCardLayer = new() { ClipToBounds = true };
     private Action<bool>? finishRegionCard;
@@ -34,10 +38,20 @@ public sealed partial class MainWindow
     {
         var regions = session?.Document.PromptRegions;
         if (ReferenceEquals(session,regionOwner) && (regions == null || listedRegions.SequenceEqual(regions))) return;
+        if (ReferenceEquals(session, regionOwner) && regions != null && listedRegions.Length == regions.Count &&
+            listedRegions.Zip(regions).All(pair => pair.First.Number == pair.Second.Number && pair.First.Enabled == pair.Second.Enabled))
+        {
+            // Keep other controls under the pointer in place while finishing an inline text edit.
+            foreach (var region in regions) regionPromptLabels[region.Number].Text = RegionPromptLabel(region);
+            listedRegions = regions.ToArray();
+            return;
+        }
+        finishDockRegionEdit?.Invoke(ReferenceEquals(session, regionOwner));
         if (!ReferenceEquals(session, regionOwner)) finishRegionCard?.Invoke(false);
         regionOwner = session;
         listedRegions = regions?.ToArray() ?? [];
         promptRegionList.Children.Clear();
+        regionPromptLabels.Clear();
         allRegionsVisibility = null;
         promptRegionList.IsVisible = listedRegions.Length > 0;
         if (session is not { } owner || !promptRegionList.IsVisible) return;
@@ -56,34 +70,42 @@ public sealed partial class MainWindow
         foreach (var region in listedRegions)
         {
             var row = new Grid { ColumnDefinitions = new("24,Auto,*,24"), ColumnSpacing = 5 };
+            PromptRegion? Current() => owner.Document.PromptRegions.Find(r => r.Number == region.Number);
             var eye = Ui.IconButton(region.Enabled ? Icons.Eye : Icons.EyeOff, region.Enabled ? "Disable region" : "Enable region",
-                () => owner.ChangePromptRegion(region with { Enabled = !region.Enabled }), 14);
+                () => { if (Current() is { } current) owner.ChangePromptRegion(current with { Enabled = !current.Enabled }); }, 14);
             row.Children.Add(eye);
             AddAt(row, RegionNumber(region), 1);
-            var label = Ui.Label(region.Prompt.Length > 0 ? region.Prompt : Locale.T("Region prompt"), size: 12);
+            var label = Ui.Label(RegionPromptLabel(region), size: 12);
+            regionPromptLabels.Add(region.Number, label);
             label.TextWrapping = TextWrapping.Wrap;
             label.VerticalAlignment = VerticalAlignment.Center;
             label.Opacity = region.Enabled ? 1 : .6;
             var cell = new Border { Child = label, Background = Brushes.Transparent };
             cell.DoubleTapped += (_, e) =>
             {
-                if (cell.Child != label) return;
+                if (cell.Child != label || Current() is not { } current) return;
                 e.Handled = true;
-                var input = RegionTextBox(region);
+                finishDockRegionEdit?.Invoke(true);
+                var input = RegionTextBox(current);
                 cell.Child = input;
+                dockRegionInput = input;
                 bool settled = false;
                 void Finish(bool save)
                 {
                     if (settled) return;
                     settled = true;
+                    dockRegionInput = null;
+                    finishDockRegionEdit = null;
                     cell.Child = label;
-                    if (save) SaveRegionPrompt(owner, region, input.Text);
+                    if (save) SaveRegionPrompt(owner, current, input.Text);
                 }
+                finishDockRegionEdit = Finish;
                 input.KeyDown += (_, key) =>
                 {
                     if (key.Key is not (Key.Enter or Key.Escape)) return;
                     key.Handled = true;
                     Finish(key.Key == Key.Enter);
+                    canvas.Focus();
                 };
                 input.LostFocus += (_, _) => Finish(true);
                 input.Focus();
@@ -93,6 +115,15 @@ public sealed partial class MainWindow
             AddAt(row, Ui.IconButton(Icons.Trash, "Delete region", () => owner.DeletePromptRegion(region.Number), 14), 3);
             promptRegionList.Children.Add(row);
         }
+    }
+
+    private static string RegionPromptLabel(PromptRegion region) =>
+        region.Prompt.Length > 0 ? region.Prompt : Locale.T("Region prompt");
+
+    private void CommitRegionPromptOutside(Visual? source)
+    {
+        if (dockRegionInput is { } input && source?.GetSelfAndVisualAncestors().Contains(input) != true)
+            finishDockRegionEdit?.Invoke(true);
     }
 
     private static TextBox RegionTextBox(PromptRegion r) => new()

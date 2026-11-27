@@ -1189,6 +1189,12 @@ public sealed partial class CanvasView
     /// <summary>Tool keys that depend on what the canvas is doing. Returns true when the key was used.</summary>
     public bool HandleKeyDown(KeyEventArgs e)
     {
+        if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && drag == Drag.None
+            && session?.Tool == Tool.PromptRegion && ActiveRegion() is { } region)
+        {
+            session.DeletePromptRegion(region.Number);
+            return true;
+        }
         if (session == null) return false;
         if (session.WarpEdit != null)
         {

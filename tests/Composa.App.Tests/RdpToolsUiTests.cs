@@ -28,31 +28,34 @@ public class RdpToolsUiTests
             {"GenerateImagePrompt":"old landscape","ImageEditPrompt":"old edit","AiPromptDrafts":{"GenerateImage":"previous landscape"}}
             """);
         settings.RememberAiPrompts = remember;
-        Assert.Empty(settings.AiPromptDrafts);
         var owner = new Window(); owner.Show();
-        var pending = AiDialogs.Prompt(owner, AiTaskKind.GenerateImage, settings, 640, 480);
+        string? savedDraft = null;
+        var pending = AiDialogs.Prompt(owner, AiTaskKind.GenerateImage, settings, 640, 480, rememberPrompt: value => savedDraft = value);
         var dialog = owner.OwnedWindows.Single(); Dispatcher.UIThread.RunJobs();
         var prompt = dialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.AcceptsReturn);
         Assert.Equal("", prompt.Text);
         prompt.Text = "новый пейзаж";
         dialog.Close(false);
         Assert.Null(await pending);
-        Assert.Equal(remember ? "новый пейзаж" : "", settings.AiPromptFor(AiTaskKind.GenerateImage));
+        Assert.Equal(remember ? "новый пейзаж" : null, savedDraft);
         var loaded = Settings.FromJson(JsonSerializer.Serialize(settings));
         Assert.Equal(remember, loaded.RememberAiPrompts);
-        Assert.Empty(loaded.AiPromptDrafts);
         owner.Close();
     }
     [AvaloniaFact]
-    public async Task Image_edit_and_generate_keep_separate_drafts_across_dialogs_in_the_same_session()
+    public async Task Prompt_dialog_reads_and_writes_the_callers_draft()
     {
         var settings = new Settings();
-        settings.RememberAiPrompt(AiTaskKind.ImageEdit, "previous edit");
-        settings.RememberAiPrompt(AiTaskKind.GenerateImage, "previous generation");
+        var drafts = new Dictionary<AiTaskKind, string>
+        {
+            [AiTaskKind.ImageEdit] = "previous edit",
+            [AiTaskKind.GenerateImage] = "previous generation"
+        };
         var owner=new Window();owner.Show();
         async Task Draft(AiTaskKind task,string expected,string next,string initial="")
         {
-            var pending=AiDialogs.Prompt(owner,task,settings,640,480,initial);
+            var pending=AiDialogs.Prompt(owner,task,settings,640,480,initial.Length == 0 ? drafts[task] : initial,
+                rememberPrompt: draft => drafts[task] = draft);
             var dialog=owner.OwnedWindows.Single();Dispatcher.UIThread.RunJobs();
             var prompt=dialog.GetVisualDescendants().OfType<TextBox>().Single(box=>box.AcceptsReturn);
             Assert.Equal(expected,prompt.Text);prompt.Text=next;dialog.Close(false);Assert.Null(await pending);
@@ -61,7 +64,7 @@ public class RdpToolsUiTests
         await Draft(AiTaskKind.ImageEdit,"новая правка","исправить свет");
         await Draft(AiTaskKind.GenerateImage,"previous generation","новая генерация");
         await Draft(AiTaskKind.ImageEdit,"explicit instruction","final edit","explicit instruction");
-        Assert.Equal("новая генерация",settings.AiPromptFor(AiTaskKind.GenerateImage));Assert.Equal("final edit",settings.AiPromptFor(AiTaskKind.ImageEdit));owner.Close();
+        Assert.Equal("новая генерация",drafts[AiTaskKind.GenerateImage]);Assert.Equal("final edit",drafts[AiTaskKind.ImageEdit]);owner.Close();
     }
 
     [AvaloniaFact]

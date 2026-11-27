@@ -86,8 +86,13 @@ public sealed partial class MainWindow
     private readonly AiPromptField aiFloatingPrompt = AiGenerationControls.PromptField("Describe the edit…");
     private readonly StackPanel aiReferenceHost = new() { Spacing = 5 };
     private Button aiWorkflowLink = null!;
-    private readonly List<AiReferenceItem> aiReferences = [];
+    private readonly Dictionary<EditorSession, List<AiReferenceItem>> documentAiReferences = [];
+    private List<AiReferenceItem>? ReferencesFor(EditorSession? owner) =>
+        owner == null ? null : documentAiReferences.GetValueOrDefault(owner);
+    private IReadOnlyList<AiReferenceItem> aiReferences => ReferencesFor(session) is { } list ? list : [];
     private AiReferenceEditor? aiDialogReferences;
+    private EditorSession? aiDialogReferenceDocument;
+    private List<AiReferenceItem>? aiDialogReferenceItems;
     private Control? lastAiEditor;
 
     private Control? AiEditorContaining(Visual? source)
@@ -554,7 +559,7 @@ public sealed partial class MainWindow
             aiHeaderReference.IsEnabled = acceptsReferences && aiReferences.Count < AiReferenceEditor.Capacity;
         }
         aiReferenceHost.IsVisible = expanded && acceptsReferences && aiReferences.Count > 0;
-        aiFloatingPrompt.SetImages(acceptsReferences ? AiImageMentions(task) : []);
+        aiFloatingPrompt.SetImages(acceptsReferences ? AiImageMentions(task, aiReferences.Count) : []);
         aiFloatingOperation.IsVisible = visible && expanded;
         aiFloatingPrompt.IsVisible = expanded && EditorTask != AiTaskKind.GenerativeExpand;
         aiPixelAlignment.IsChecked = settings.AiAlignMaskedEdits;
@@ -670,64 +675,72 @@ public sealed partial class MainWindow
         Avalonia.Controls.Canvas.SetTop(aiFloatingHost, top);
     }
 
-    private async Task PickAiReferences()
+    private Task PickAiReferences() => PickAiReferences(ReferencesFor(session), this);
+
+    private async Task PickAiReferences(List<AiReferenceItem>? references, Window owner)
     {
-        var files = await (aiDialogReferences?.Owner ?? this).StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        if (references == null) return;
+        var files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = Locale.T("Choose Reference Images"), AllowMultiple = true, FileTypeFilter = [ImageType]
         });
-        AddAiReferencePaths(files.Select(file => file.TryGetLocalPath()).OfType<string>());
+        AddAiReferencePaths(references, files.Select(file => file.TryGetLocalPath()).OfType<string>());
     }
 
     private const double ReferenceTileSize = 60;
 
-    private AiImageMention[] AiImageMentions(AiTaskKind task)
+    private static AiImageMention[] AiImageMentions(AiTaskKind task, int count)
     {
         var first = AiImageMention.FirstReference(task);
-        return Enumerable.Range(first, aiReferences.Count).Select(number => new AiImageMention(number)).ToArray();
+        return Enumerable.Range(first, count).Select(number => new AiImageMention(number)).ToArray();
     }
 
     private void RefreshPanelReferences()
     {
-        BuildAiReferenceUi(aiReferenceHost, EditorTask);
+        BuildAiReferenceUi(aiReferenceHost, EditorTask, session, aiReferences);
     }
 
     private void RefreshAiReferenceUi()
     {
         RefreshPanelReferences();
-        if (aiDialogReferences?.View is StackPanel dialogHost)
-            BuildAiReferenceUi(dialogHost, aiDialogReferenceTask);
+        if (aiDialogReferences?.View is StackPanel dialogHost && aiDialogReferenceItems is { } items)
+            BuildAiReferenceUi(dialogHost, aiDialogReferenceTask, aiDialogReferenceDocument, items);
         aiDialogReferences?.NotifyChanged();
         RefreshAiFloatingUi();
 
     }
 
-    private void RemoveAiReference(AiReferenceItem item)
+    private void RemoveAiReference(EditorSession? owner, AiReferenceItem item)
     {
-        var index = aiReferences.IndexOf(item);
+        var references = owner == null ? aiDialogReferenceItems : ReferencesFor(owner);
+        if (references == null) return;
+        var index = references.IndexOf(item);
         if (index < 0) return;
-        aiReferences.RemoveAt(index);
+        references.RemoveAt(index);
         item.Dispose();
-        foreach (var (task, text) in settings.AiPromptDrafts.ToArray())
-            settings.RememberAiPrompt(task, AiPromptField.AfterRemoval(text, AiImageMention.FirstReference(task) + index));
-        var current = aiFloatingPrompt.Text ?? "";
-        var updated = AiPromptField.AfterRemoval(current, AiImageMention.FirstReference(EditorTask) + index);
-        if (updated != current) aiFloatingPrompt.Text = updated;
-        aiDialogReferences?.NotifyRemoved(index);
+        foreach (var (key, text) in documentAiPrompts.Where(pair => pair.Key.Document == owner).ToArray())
+            RememberDocumentAiPrompt(key.Document, key.Task, AiPromptField.AfterRemoval(text, AiImageMention.FirstReference(key.Task) + index));
+        if (owner != null && ReferenceEquals(presentedPromptDocument, owner) && presentedTask is { } task)
+        {
+            var current = aiFloatingPrompt.Text ?? "";
+            var updated = AiPromptField.AfterRemoval(current, AiImageMention.FirstReference(task) + index);
+            if (updated != current) aiFloatingPrompt.Text = updated;
+        }
+        if (ReferenceEquals(references, aiDialogReferenceItems)) aiDialogReferences?.NotifyRemoved(index);
         RefreshAiReferenceUi();
     }
 
-    private void BuildAiReferenceUi(StackPanel host, AiTaskKind task)
+    private void BuildAiReferenceUi(StackPanel host, AiTaskKind task, EditorSession? owner, IReadOnlyList<AiReferenceItem> references)
     {
         host.Children.Clear();
-        Avalonia.Automation.AutomationProperties.SetName(host, $"Reference images ({aiReferences.Count}/{AiReferenceEditor.Capacity})");
+        Avalonia.Automation.AutomationProperties.SetName(host, $"Reference images ({references.Count}/{AiReferenceEditor.Capacity})");
         var items = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
             ItemSpacing = AiGenerationControls.EditorSpacing, LineSpacing = AiGenerationControls.EditorSpacing,
-            IsVisible = aiReferences.Count > 0 };
-        var mentions = AiImageMentions(task);
-        for (var index = 0; index < aiReferences.Count; index++)
+            IsVisible = references.Count > 0 };
+        var mentions = AiImageMentions(task, references.Count);
+        for (var index = 0; index < references.Count; index++)
         {
-            var item = aiReferences[index];
+            var item = references[index];
             var mention = mentions[index];
             const double side = ReferenceTileSize, radius = 6;
             var preview = new Image { Source = item.Preview, Width = side, Height = side, Stretch = Stretch.UniformToFill };
@@ -741,7 +754,7 @@ public sealed partial class MainWindow
                 Background = new SolidColorBrush(Color.Parse("#D9222326")), Foreground = Brushes.White
             };
             Avalonia.Automation.AutomationProperties.SetName(remove, "Remove reference: " + item.Name);
-            remove.Click += (_, e) => { e.Handled = true; RemoveAiReference(item); };
+            remove.Click += (_, e) => { e.Handled = true; RemoveAiReference(owner, item); };
             remove.ZIndex = 1;
             Locale.Tip(remove, "Remove reference");
             var caption = Ui.Label(mention.Label, Palette.Window, 11, weight: FontWeight.SemiBold);
@@ -792,38 +805,44 @@ public sealed partial class MainWindow
         await dialog.ShowDialog(target);
     }
 
-    private void AddAiReferencePaths(IEnumerable<string> paths)
+    private bool IsOpenAiReferenceList(List<AiReferenceItem> references) =>
+        ReferenceEquals(references, aiDialogReferenceItems) || documentAiReferences.ContainsValue(references);
+
+    private void AddAiReferencePaths(List<AiReferenceItem>? references, IEnumerable<string> paths)
     {
+        if (references == null || !IsOpenAiReferenceList(references)) return;
         foreach (var path in paths)
         {
-            if (aiReferences.Count >= AiReferenceEditor.Capacity) break;
-            try { AddAiReference(ImageFiles.Load(path), Path.GetFileName(path)); }
+            if (references.Count >= AiReferenceEditor.Capacity) break;
+            try { AddAiReference(references, ImageFiles.Load(path), Path.GetFileName(path)); }
             catch (Exception error) { ShowProblem($"Couldn't add {Path.GetFileName(path)}: {error.Message}"); }
         }
         RefreshAiReferenceUi();
     }
 
-    private void AddAiReference(SKBitmap pixels, string name)
+    private bool AddAiReference(List<AiReferenceItem>? references, SKBitmap pixels, string name)
     {
-        if (aiReferences.Count >= AiReferenceEditor.Capacity) { pixels.Dispose(); return; }
+        if (references == null || !IsOpenAiReferenceList(references) || references.Count >= AiReferenceEditor.Capacity)
+        { pixels.Dispose(); return false; }
         try
         {
-            aiReferences.Add(new AiReferenceItem(pixels, Ui.ToAvaloniaBitmap(pixels, 512, DisplayProfile), name));
+            references.Add(new AiReferenceItem(pixels, Ui.ToAvaloniaBitmap(pixels, 512, DisplayProfile), name));
+            return true;
         }
         catch { pixels.Dispose(); throw; }
     }
 
     internal void AddAiReferenceForTests(SKBitmap pixels)
     {
-        AddAiReference(pixels, "Test reference");
-        RefreshAiReferenceUi();
+        if (AddAiReference(ReferencesFor(session), pixels, "Test reference")) RefreshAiReferenceUi();
     }
 
-    private async Task<bool> PasteAiReference()
+    private async Task PasteAiReference(List<AiReferenceItem>? references)
     {
-        if (aiReferences.Count >= AiReferenceEditor.Capacity) return false;
+        if (references == null || references.Count >= AiReferenceEditor.Capacity) return;
         try
         {
+            bool added;
             if (await ExternalClipboardBitmap() is { } bitmap)
             {
                 using (bitmap)
@@ -831,24 +850,27 @@ public sealed partial class MainWindow
                     using var stream = new MemoryStream();
                     bitmap.Save(stream, PngBitmapEncoderOptions.Default);
                     stream.Position = 0;
-                    AddAiReference(ImageFiles.Load(stream, "clipboard"), "Clipboard image");
+                    added = AddAiReference(references, ImageFiles.Load(stream, "clipboard"), "Clipboard image");
                 }
             }
-            else if (EditorSession.Clipboard is { } internalImage) AddAiReference(Pixels.Clone(internalImage.Pixels), "Clipboard image");
-            else return false;
-            RefreshAiReferenceUi();
-            return true;
+            else if (EditorSession.Clipboard is { } internalImage)
+                added = AddAiReference(references, Pixels.Clone(internalImage.Pixels), "Clipboard image");
+            else return;
+            if (added) RefreshAiReferenceUi();
         }
-        catch (Exception error) { ShowProblem("Couldn't paste the reference: " + error.Message); return false; }
+        catch (Exception error) { ShowProblem("Couldn't paste the reference: " + error.Message); }
     }
 
-    private async Task PasteAiReferenceOrText(TextBox? textBox)
+    private Task PasteAiReferenceOrText(TextBox? textBox) => PasteAiReferenceOrText(textBox, ReferencesFor(session));
+
+    private async Task PasteAiReferenceOrText(TextBox? textBox, List<AiReferenceItem>? references)
     {
-        if (textBox == null || Clipboard == null) { await PasteAiReference(); return; }
+        if (textBox == null || Clipboard == null) { await PasteAiReference(references); return; }
         try
         {
             var text = await Clipboard.TryGetTextAsync();
-            if (string.IsNullOrEmpty(text)) { await PasteAiReference(); return; }
+            if (string.IsNullOrEmpty(text)) { await PasteAiReference(references); return; }
+            if (ReferenceEquals(textBox, aiFloatingPrompt) && !ReferenceEquals(references, ReferencesFor(session))) return;
             var current = textBox.Text ?? "";
             var start = Math.Min(textBox.SelectionStart, textBox.SelectionEnd);
             var end = Math.Max(textBox.SelectionStart, textBox.SelectionEnd);
@@ -862,31 +884,35 @@ public sealed partial class MainWindow
     {
         DragDrop.SetAllowDrop(host, true);
         host.AddHandler(DragDrop.DropEvent, OnAiReferenceDrop);
-        host.AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        host.AddHandler(DragDrop.DragOverEvent, (sender, e) =>
         {
             var supported = e.DataTransfer.TryGetValue(LayersPanel.ReferenceDragFormat) != null || e.DataTransfer.TryGetFiles()?.Any() == true;
             if (!supported) return;
-            e.DragEffects = aiReferences.Count < AiReferenceEditor.Capacity ? e.DragEffects & DragDropEffects.Copy : DragDropEffects.None;
+            var references = sender == aiDialogReferences?.Owner ? aiDialogReferenceItems : ReferencesFor(session);
+            e.DragEffects = references is { Count: < AiReferenceEditor.Capacity } ? e.DragEffects & DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
         });
     }
 
     private void OnAiReferenceDrop(object? sender, DragEventArgs e)
     {
+        var inDialog = sender == aiDialogReferences?.Owner;
+        var owner = inDialog ? aiDialogReferenceDocument : session;
+        var references = inDialog ? aiDialogReferenceItems : ReferencesFor(owner);
         if (e.DataTransfer.TryGetValue(LayersPanel.ReferenceDragFormat) is { } id)
         {
             e.Handled = true;
-            if (layers.GetDraggedReference(id, session) is { } layer && session is { } source && !IsDragging &&
-                !source.IsStroking && aiReferences.Count < AiReferenceEditor.Capacity)
-                _ = AddAiLayerReference(source.Document, layer);
+            if (owner is { } source && layers.GetDraggedReference(id, source) is { } layer && !IsDragging &&
+                !source.IsStroking && references is { Count: < AiReferenceEditor.Capacity })
+                _ = AddAiLayerReference(source.Document, layer, references);
             return;
         }
         if (e.DataTransfer.TryGetFiles() is not { } files || !files.Any()) return;
-        AddAiReferencePaths(files.Select(file => file.TryGetLocalPath()).OfType<string>());
+        AddAiReferencePaths(references, files.Select(file => file.TryGetLocalPath()).OfType<string>());
         e.Handled = true;
     }
 
-    private async Task AddAiLayerReference(Document document, Layer layer)
+    private async Task AddAiLayerReference(Document document, Layer layer, List<AiReferenceItem>? references)
     {
         try
         {
@@ -904,13 +930,16 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException("The layer is too large to use as a reference.");
             var renderDocument = new Document(document.Width, document.Height) { Depth = document.Depth, Profile = document.Profile };
             var name = snapshot.Name;
-            var owner = aiDialogReferences;
             var pixels = await Task.Run(() => DocumentRenderer.RenderLayers(renderDocument, [snapshot], bounds));
-            if (aiDialogReferences != owner || session?.Document != document) { pixels.Dispose(); return; }
-            AddAiReference(pixels, name);
-            RefreshAiReferenceUi();
+            if (AddAiReference(references, pixels, name)) RefreshAiReferenceUi();
         }
         catch (Exception ex) { ShowProblem(ex.Message); }
+    }
+
+    private static void DisposeAiReferences(List<AiReferenceItem> references)
+    {
+        foreach (var reference in references) reference.Dispose();
+        references.Clear();
     }
 
     internal async Task ShowAiSettings(int page = 6, string? field = null, AiTaskKind? operation = null,
@@ -962,6 +991,11 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
         var target = session;
+        var references = ReferencesFor(target) ?? [];
+        var modelTask = ImageOperationModels.ModelTask(task);
+        var chosenModel = modelDrafts.GetValueOrDefault(modelTask);
+        var panelEngine = PanelEngine(task);
+        var useAssigned = PanelUsesAssignedWorkflow(task);
         var direct = DirectImageFor(task);
         var availability = AiAvailability(task);
         if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
@@ -970,29 +1004,43 @@ public sealed partial class MainWindow
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
             if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null,
-                PanelEngine(task), direct == null ? aiTasks : null, PanelChoice(task)?.Name ?? direct?.Label)) return;
+                panelEngine, direct == null ? aiTasks : null, PanelChoice(task)?.Name ?? direct?.Label)) return;
         }
         var aspect = AiAspect(task);
-        var profile = AiOptions(task);
+        var profile = AiOptions(task, panelEngine);
         var fallback = profile.OriginalSize
             ? task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject ? aspect : AiDimensions.OriginalGenerationSize(aspect.Width, aspect.Height)
             : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
-        AiPromptResult? options;
+        AiPromptResult? options = null;
         if (useInlinePrompt || task == AiTaskKind.RemoveObject && session?.Selection != null || task is AiTaskKind.GenerativeExpand or AiTaskKind.SelectSubject or AiTaskKind.ObjectSelection or AiTaskKind.Upscale)
             options = new(initialPrompt, fallback.Width, fallback.Height, profile.Seed, Variants: runCount);
         else
         {
             var host = new StackPanel { Name = "AiDialogReferences" };
             aiDialogReferenceTask = task;
-            aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText, PickAiReferences, () => AiImageMentions(task));
-            BuildAiReferenceUi(host, task);
-            try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
+            aiDialogReferenceDocument = target;
+            aiDialogReferenceItems = references;
+            aiDialogReferences = new AiReferenceEditor(host, () => references.Count,
+                text => PasteAiReferenceOrText(text, references),
+                () => PickAiReferences(references, TopLevel.GetTopLevel(host) as Window ?? this),
+                () => AiImageMentions(task, references.Count));
+            BuildAiReferenceUi(host, task, target, references);
+            var startingPrompt = initialPrompt.Length == 0 ? DocumentAiPrompt(target, task) : initialPrompt;
+            try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, startingPrompt, aiTasks, references.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
                 session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null,
-                modelDrafts.GetValueOrDefault(task)?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true); }
-            finally { aiDialogReferences = null; }
-            if (presentedTask == task && settings.RememberAiPrompts && settings.AiPromptFor(task) != (aiFloatingPrompt.Text ?? ""))
-                aiFloatingPrompt.Text = settings.AiPromptFor(task);
+                chosenModel?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true,
+                rememberPrompt: draft => RememberDocumentAiPrompt(target, task, draft)); }
+            finally
+            {
+                aiDialogReferences = null;
+                aiDialogReferenceDocument = null;
+                aiDialogReferenceItems = null;
+                if (target == null && options == null) DisposeAiReferences(references);
+            }
+            if (presentedTask == task && ReferenceEquals(presentedPromptDocument, target)
+                && settings.RememberAiPrompts && DocumentAiPrompt(target, task) != (aiFloatingPrompt.Text ?? ""))
+                aiFloatingPrompt.Text = DocumentAiPrompt(target, task);
         }
         RefreshAiUi();
         if (options == null) return;
@@ -1000,15 +1048,19 @@ public sealed partial class MainWindow
         if (target == null)
         {
             if (task != AiTaskKind.GenerateImage) return;
-            AddSession(EditorSession.NewCanvas(options.Width, options.Height));
-            target = session;
+            target = EditorSession.NewCanvas(options.Width, options.Height);
+            documentAiReferences.Add(target, references);
+            AddSession(target);
+            RememberDocumentAiPrompt(target, task, options.Prompt);
+            if (presentedTask == task && ReferenceEquals(presentedPromptDocument, target))
+                aiFloatingPrompt.Text = DocumentAiPrompt(target, task);
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
-        var engine = direct?.PromptProfile() ?? (options.EngineId == null ? PanelEngine(task) : aiTasks.EngineFor(task, options.EngineId));
-        var useAssigned = PanelUsesAssignedWorkflow(task);
-        if (direct == null && options.EngineId != null && engine != null && engine.Id != PanelEngine(task)?.Id)
+        var engine = direct?.PromptProfile() ?? (options.EngineId == null ? panelEngine : aiTasks.EngineFor(task, options.EngineId));
+        if (direct == null && options.EngineId != null && engine != null && engine.Id != panelEngine?.Id)
         {
-            modelDrafts[task] = aiTasks.Engines.ModelFor(engine, task, settings.ComfyModelsFor(settings.ComfyServerUrl));
+            chosenModel = aiTasks.Engines.ModelFor(engine, task, settings.ComfyModelsFor(settings.ComfyServerUrl));
+            modelDrafts[modelTask] = chosenModel;
             useAssigned = false;
             RefreshEditorModels();
         }
@@ -1028,17 +1080,17 @@ public sealed partial class MainWindow
             var targetSession = target!;
             var cropAtStart = ReferenceEquals(session, targetSession) && targetSession.Tool == Tool.Crop ? canvas.CropRect : null;
             var referenceImages = aiTasks.SupportsReferenceImages(task, engine, useAssigned)
-                ? aiReferences.Select(item => item.Pixels).ToArray() : [];
+                ? references.Select(item => item.Pixels).ToArray() : [];
             var request = new AiTaskRequest
             {
                 Task = task,
-                Regions = targetSession.Document.PromptRegions.Where(r => r.Enabled).ToArray(),
+                Regions = RegionPrompt.Supports(task) ? targetSession.Document.PromptRegions.Where(r => r.Enabled).ToArray() : [],
                 RegionDelivery = settings.RegionMode(direct == null ? engine?.Id ?? "" : ImageOperationModels.DirectChoice(direct).SelectionKey),
                 Scene=profile.Scene.Normalized(),
                 AlignMaskedEdits = settings.AiAlignMaskedEdits,
                 EngineId = engine?.Id,
                 UseAssignedWorkflow = useAssigned,
-                ModelFileOverrides = modelDrafts.GetValueOrDefault(ImageOperationModels.ModelTask(task)) is { FileSlot: { } slot } model
+                ModelFileOverrides = chosenModel is { FileSlot: { } slot } model
                     ? new Dictionary<string, string> { [slot.Key] = model.Identifier } : null,
                 SelectionRegion = selectionRegion, SelectionOperation = selectionOperation, SelectionPoint = selectionPoint,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand

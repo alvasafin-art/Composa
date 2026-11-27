@@ -4,6 +4,7 @@ using Composa.Editing;
 using Composa.IO;
 using Composa.Model;
 using Composa.Rendering;
+using Composa.Selections;
 using SkiaSharp;
 
 namespace Composa.App.Tests;
@@ -16,6 +17,67 @@ public class PromptRegionTests
         var prompt = RegionPrompt.Coordinates("Edit", [new(1, 60, 20, 100, 50, "Blue")], new(10, 10, 110, 60), 0.8, 0.5, true);
         Assert.Contains("\"src_bbox\":[100,400,400,720]", prompt);
         Assert.Contains("<object_1>", prompt);
+    }
+
+    [Fact]
+    public void Masked_regions_clip_to_the_crop_and_include_letterbox_offsets()
+    {
+        var request = new AiTaskRequest
+        {
+            Task = AiTaskKind.GenerativeFill,
+            RegionDelivery = RegionDelivery.Coordinates,
+            Regions = [new(1, 90, 50, 160, 80, "Edit this"), new(2, 10, 10, 20, 20, "Outside crop")]
+        };
+        var prompt = RegionPrompt.MaskedPrompt("Fill", request, new SKRectI(100, 40, 300, 140),
+            SKRectI.Create(20, 10, 160, 80), new SKSizeI(200, 100));
+        Assert.Contains("\"bbox\":[180,100,420,340]", prompt);
+        Assert.DoesNotContain("Outside crop", prompt);
+    }
+
+    [Theory]
+    [InlineData("flux3-image-klein", RegionDelivery.Coordinates)]
+    [InlineData("qwen-image-2.1-turbo", RegionDelivery.Coordinates)]
+    [InlineData("qwen-image-2.1-turbo", RegionDelivery.Overlay)]
+    public void Native_masked_region_workflows_keep_both_selected_islands(string engine, RegionDelivery method)
+    {
+        var session = EditorSession.NewCanvas(480, 320, SKColors.White);
+        session.SelectRect(new SKRect(124, 109, 154, 139));
+        session.SelectRect(new SKRect(231, 157, 261, 187), SelectionMode.Add);
+        var request = new AiTaskRequest
+        {
+            EngineId = engine, Task = AiTaskKind.GenerativeFill, Prompt = "Fill the two objects",
+            RegionDelivery = method,
+            Regions = [new(1, 124, 109, 154, 139, "First island"), new(2, 231, 157, 261, 187, "Second island"),
+                       new(3, 445, 270, 465, 290, "Outside crop")],
+            SelectionContextPercent = 30, Settings = new() { Width = 384, Height = 288 }
+        };
+        using var prepared = AiTaskInputPreparer.Prepare(session, request);
+        using var native = new QwenImageInputs(prepared, request);
+        var catalog = new EngineCatalog(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
+        var pack = catalog.Find(engine)!;
+        var flux = engine == Flux3Workflow.EngineId;
+        var graph = native.Bind(catalog.ReadWorkflow(pack, pack.Workflow(pack.Binding(request.Task)!.Workflow)),
+            native.Images.Keys.ToDictionary(key => key, key => key + ".png"), 73, flux);
+        var prompt = graph[flux ? "prompt" : "conditioning"]!["inputs"]![flux ? "text" : "prompt"]!.GetValue<string>();
+        Assert.NotEqual(session.Document.Bounds, native.Bounds);
+        Assert.Contains("First island", prompt);
+        Assert.Contains("Second island", prompt);
+        Assert.DoesNotContain("Outside crop", prompt);
+        if (method == RegionDelivery.Overlay)
+        {
+            Assert.Contains("blue rectangle", prompt);
+            Assert.Contains("Remove all colored annotation lines", prompt);
+            Assert.Equal(SKColors.White, prepared.ContextImage.GetPixel(124, 124));
+            Assert.Equal(request.Regions[0].Ink.Color, prepared.SourceImage.GetPixel(124, 124));
+        }
+        else Assert.Contains(flux ? "\"src_bbox\"" : "\"bbox\"", prompt);
+        var noise = native.Images["noiseMask"];
+        byte At(int x, int y) => noise.GetPixel((x - native.Bounds.Left) * native.ContentSize.Width / native.Bounds.Width,
+            (y - native.Bounds.Top) * native.ContentSize.Height / native.Bounds.Height).Alpha;
+        Assert.Equal(255, At(138, 121));
+        Assert.Equal(255, At(244, 172));
+        Assert.Equal(0, At(190, 144));
+        Assert.Equal("masked", graph["sample"]!["inputs"]!["latent_image"]![0]!.GetValue<string>());
     }
 
     [Fact]

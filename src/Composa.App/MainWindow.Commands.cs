@@ -183,6 +183,8 @@ public sealed partial class MainWindow
         Top("F_ilter", new object[] { Item("Liquify…", () => _ = Liquify(), enabled: () => session!.CanLiquify), Line(), Sub("Add Smart Filter", Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = SmartFilter(kind), enabled: () => session!.CanSmartFilter, id: "Smart Filter: " + kind)).ToArray()), Line() }
             .Concat(Enum.GetValues<FilterKind>().Select(kind => (object)Item(FilterSettings.DisplayName(kind) + "…", () => _ = Filter(kind), enabled: () => session!.CanEditPixels, unavailableReason: "Select an unlocked pixel layer or mask."))).ToArray());
 
+        var assistantItem = Item("Assistant…", ShowAssistant, enabled: () => false, needsDocument: false);
+        assistantItem.IsEnabled = false;
         Top("_AI",
             Item("Generate Image…", () => ChooseAiOperation(AiTaskKind.GenerateImage), enabled: () => CanRunAi(AiTaskKind.GenerateImage), needsDocument: false),
             Item("Generative Fill…", () => ChooseAiOperation(AiTaskKind.GenerativeFill), enabled: () => CanRunAi(AiTaskKind.GenerativeFill)),
@@ -197,7 +199,7 @@ public sealed partial class MainWindow
             Line(),
             new MenuItem { Header = Locale.T("Presets"), IsEnabled = false },
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
-            Item("Assistant…", ShowAssistant, needsDocument: false));
+            assistantItem);
 
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
         clipItem = Item("Create Clipping Mask", () => session!.ToggleClippingMask(session.ActiveLayer!), Key.G, ctrl | alt, () => session!.ActiveLayer is { } l && session.CanClip(l));
@@ -805,9 +807,25 @@ public sealed partial class MainWindow
     {
         var paths = DroppedPaths(e);
         if (paths.Count == 0) return;
-        e.Handled = true; // Do not also place the files in the active document as this event bubbles.
-        _ = OpenPaths(paths);
+        e.Handled = true;
+        DropOnTabBar(e, paths);
     }
+
+    private void DropOnTabBar(DragEventArgs e, List<string> paths)
+    {
+        // ScrollViewer may be the routed drop target even when a document tab
+        // is under the cursor. Test the visible viewport and the tab rectangles.
+        var viewport = new Avalonia.Rect(documentTabScroll.Bounds.Size);
+        var tab = !paths.Any(IsProjectPath) && viewport.Contains(e.GetPosition(documentTabScroll))
+            ? tabs.Children.OfType<Border>().FirstOrDefault(item =>
+                new Avalonia.Rect(item.Bounds.Size).Contains(e.GetPosition(item))) : null;
+        if (tab?.Tag is not EditorSession target) { _ = OpenPaths(paths); return; }
+        if (!ReferenceEquals(session, target)) SetSession(target);
+        if (ReferenceEquals(session, target)) _ = PlacePaths(paths, null);
+    }
+
+    private static bool IsProjectPath(string path) =>
+        Path.GetExtension(path).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase);
 
     private void OnDrop(object? sender, DragEventArgs e)
     {
@@ -815,14 +833,18 @@ public sealed partial class MainWindow
         var paths = DroppedPaths(e);
         if (paths.Count == 0) return;
         e.Handled = true;
-        if (session == null || paths.Any(p => Path.GetExtension(p).Equals(ProjectFile.Extension, StringComparison.OrdinalIgnoreCase)))
+        if (documentTabBar.IsEffectivelyVisible && new Avalonia.Rect(documentTabBar.Bounds.Size)
+                .Inflate(documentTabBar.Margin).Contains(e.GetPosition(documentTabBar)))
+        {
+            DropOnTabBar(e, paths);
+            return;
+        }
+        var position = e.GetPosition(canvas);
+        var inside = new Avalonia.Rect(canvas.Bounds.Size).Contains(position);
+        if (session == null || paths.Any(IsProjectPath))
             _ = OpenPaths(paths);
         else
-        {
-            var position = e.GetPosition(canvas);
-            var inside = position.X >= 0 && position.Y >= 0 && position.X <= canvas.Bounds.Width && position.Y <= canvas.Bounds.Height;
             _ = PlacePaths(paths, inside ? canvas.ToDocument(position) : null);
-        }
     }
 
     private async Task<bool> Save(EditorSession target, bool saveAs, bool photoshop = false)
