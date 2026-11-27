@@ -35,6 +35,8 @@ public sealed partial class CanvasView
     private bool temporaryMove;
     /// <summary>Ctrl is held over the canvas with another tool, so the cursor promises a move.</summary>
     private bool controlHover;
+    private bool altHover;
+    private bool useEyedropperCursor;
     private readonly List<SKPoint> polygon = [];
     private SKRect? cropRect;
     private bool cropFramePristine;
@@ -162,17 +164,20 @@ public sealed partial class CanvasView
     private void UpdateCursor()
     {
         var type = StandardCursorType.Arrow;
+        useEyedropperCursor = false;
         if (session != null)
         {
             if (spaceDown || drag == Drag.Pan) type = StandardCursorType.Hand;
             else if (session.WarpEdit != null) type = StandardCursorType.Cross;
             else if (temporaryMove || (controlHover && drag == Drag.None && session.Tool != Tool.Pen)) type = StandardCursorType.SizeAll; // The four-way move arrow says what Ctrl will do.
             else if (session.ColorRange != null) type = StandardCursorType.Cross; // Every click picks a color while the panel is open.
+            else if (session.Tool == Tool.Eyedropper || session.Tool == Tool.Brush && (drag == Drag.Eyedropper || drag == Drag.None && altHover))
+            { useEyedropperCursor = true; type = StandardCursorType.Cross; }
             else type = session.Tool switch
             {
                 Tool.Hand => StandardCursorType.Hand,
                 Tool.PromptRegion => PromptRegionCursor(),
-                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Eyedropper or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
+                Tool.Marquee or Tool.Lasso or Tool.Wand or Tool.Crop or Tool.Gradient or Tool.Shape or Tool.Bucket or Tool.Pen or Tool.Patch => StandardCursorType.Cross,
                 Tool.Text or Tool.TextOnPath or Tool.VerticalText => StandardCursorType.Ibeam,
                 Tool.Brush or Tool.Eraser or Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp or Tool.Smear or Tool.SelectionBrush or Tool.RemoveObject => StandardCursorType.None,
                 Tool.Zoom => StandardCursorType.Cross,
@@ -371,7 +376,8 @@ public sealed partial class CanvasView
         }
         // The outline does not change while it is dragged, so its bounds are found once for snapping.
         if (drag == Drag.MoveSelection && session.Selection is { } outline) selectionBox = (SKRect)SelectionMask.Bounds(outline);
-        if (drag == Drag.Stroke) InvalidateBrushCursor();
+        if (drag == Drag.Eyedropper) UpdateCursor();
+        else if (drag == Drag.Stroke) InvalidateBrushCursor();
         else InvalidateCanvas();
     }
 
@@ -444,7 +450,7 @@ public sealed partial class CanvasView
                 break;
         }
         if (session.Tool is Tool.Move or Tool.Shape || hoveredParameter >= 0) UpdateShapeHint(position);
-        if (drag == Drag.None) SetControlHover(e.KeyModifiers.HasFlag(KeyModifiers.Control));
+        if (drag == Drag.None) SetModifierHover(e.KeyModifiers.HasFlag(KeyModifiers.Control), alt);
         if (session.Tool == Tool.PromptRegion && drag == Drag.None) UpdateCursor();
         if (drag == Drag.Marquee && !shift) shiftReleased = true;
         dragModifiers = e.KeyModifiers;
@@ -633,7 +639,8 @@ public sealed partial class CanvasView
             case Drag.TextResize: guides.Clear(); break;
             case Drag.Guide: FinishGuideDrag(e.GetPosition(this)); break;
         }
-        if (wasTemporaryMove) { controlHover = e.KeyModifiers.HasFlag(KeyModifiers.Control); UpdateCursor(); }
+        if (drag == Drag.None) SetModifierHover(e.KeyModifiers.HasFlag(KeyModifiers.Control), alt);
+        if (wasTemporaryMove || finished == Drag.Eyedropper) UpdateCursor();
         InvalidateCanvas();
     }
 
@@ -654,6 +661,7 @@ public sealed partial class CanvasView
     {
         base.OnPointerExited(e);
         cursorInside = false;
+        SetModifierHover(control: false, alt: false);
         brushPreparationRequested = false;
         session?.DiscardPreparedBrushDab();
         PointerAt?.Invoke(null);
@@ -1014,8 +1022,8 @@ public sealed partial class CanvasView
     }
 
     /// <summary>
-    /// The window reports every key press and release, so the cursor changes the moment Ctrl goes down or up rather
-    /// than waiting for the pointer to move. The Ctrl key's own events carry the modifier state from before the key
+    /// The window reports key presses and releases so the cursor can change while the pointer is stationary.
+    /// A modifier key's own events carry the modifier state from before the key
     /// changed, so the key itself decides.
     /// </summary>
     public void ModifierKeyChanged(Key key, KeyModifiers modifiers, bool down)
@@ -1042,14 +1050,17 @@ public sealed partial class CanvasView
             return;
         }
         var control = key is Key.LeftCtrl or Key.RightCtrl ? down : modifiers.HasFlag(KeyModifiers.Control);
-        SetControlHover(control);
+        var alt = key is Key.LeftAlt or Key.RightAlt ? down : modifiers.HasFlag(KeyModifiers.Alt);
+        SetModifierHover(control, alt);
     }
 
-    private void SetControlHover(bool control)
+    private void SetModifierHover(bool control, bool alt)
     {
-        var hover = control && cursorInside && session != null && session.Tool != Tool.Move;
-        if (hover == controlHover) return;
-        controlHover = hover;
+        var move = control && cursorInside && session != null && session.Tool != Tool.Move;
+        var sample = alt && cursorInside && session?.Tool == Tool.Brush;
+        if (move == controlHover && sample == altHover) return;
+        controlHover = move;
+        altHover = sample;
         UpdateCursor();
     }
 

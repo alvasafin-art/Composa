@@ -80,11 +80,12 @@ public class PartnerImageTests
     }
     private static EngineCatalog Catalog() => new(Path.Combine(AppContext.BaseDirectory, "ai", "engines"));
     private static EngineProfile Pack() => Catalog().Find("chatgpt-image-2.5")!;
-    internal static ComfyServerCapabilities Capabilities()
+    internal static ComfyServerCapabilities Capabilities(string apiModel = "gpt-image-2.5-sunburst")
     {
         var definitions = JsonNode.Parse("""
         {"input":{"required":{"model":["COMFY_DYNAMICCOMBO_V3",{"options":[{"key":"gpt-image-2.5-sunburst","inputs":{"required":{"quality":["COMBO",{"options":["low","medium","high","xhigh","max"]}],"size":["COMBO",{"options":["auto","1024x1024","1024x1536","Custom"]}]}}}]}]}}}
         """)!.AsObject();
+        definitions["input"]!["required"]!["model"]![1]!["options"]![0]!["key"] = apiModel;
         definitions["price_badge"] = new JsonObject { ["expr"] = """
             ($ranges := {"gpt-image-2.5-sunburst":{"low":[0.0023,0.0283]}};
              $perImage := {"gpt-image-2.5-sunburst":[0.0117,0.0176]};
@@ -508,11 +509,12 @@ public class PartnerImageTests
         public List<JsonObject> Graphs { get; } = []; public List<string> Uploads { get; } = [];
         public int FailAt { get; init; }
         public Func<CancellationToken, Task>? BeforeResult { get; init; }
+        public Action<SKBitmap>? InspectUpload { get; init; }
         public Action<SKBitmap>? DrawResult { get; init; }
         public Task<(ComfyServerInfo, ComfyServerCapabilities)> TestConnectionAsync(CancellationToken cancellationToken = default)
             => Task.FromResult((new ComfyServerInfo("1.0", "test", "test", []), Server));
         public Task<string> UploadPngAsync(string semantic, SKBitmap image, CancellationToken cancellationToken = default)
-        { Uploads.Add(semantic); return Task.FromResult(semantic + ".png"); }
+        { Uploads.Add(semantic); InspectUpload?.Invoke(image); return Task.FromResult(semantic + ".png"); }
         public async Task<ComfyExecutionResult> ExecuteAsync(JsonObject graph, IProgress<AiOperationState>? progress = null, CancellationToken cancellationToken = default)
         {
             Graphs.Add((JsonObject)graph.DeepClone()); if (Graphs.Count == FailAt) throw new InvalidOperationException("API unavailable");

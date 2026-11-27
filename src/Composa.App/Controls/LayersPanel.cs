@@ -367,6 +367,13 @@ public sealed partial class LayersPanel : UserControl
             var pixelThumb = Thumb(new Image { Source = state.Pixels, Stretch = Stretch.Uniform }, state.ActivePixels);
             // The row's own press handler (which bubbles next) selects the layer and then applies this target.
             pixelThumb.PointerPressed += (_, _) => thumbnailTarget = false;
+            pixelThumb.AddHandler(PointerPressedEvent, (_, e) =>
+            {
+                if (!e.GetCurrentPoint(pixelThumb).Properties.IsLeftButtonPressed || !e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
+                current.SelectLayerPixels(layer);
+                e.Handled = true;
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            Locale.Tip(pixelThumb, "Ctrl-click to load layer pixels as a selection");
             content.Children.Add(pixelThumb);
             if (layer.IsSmartObject)
             {

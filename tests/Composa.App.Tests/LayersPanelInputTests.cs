@@ -56,6 +56,24 @@ public class LayersPanelInputTests
     }
 
     [AvaloniaFact]
+    public void Ctrl_click_on_the_pixel_thumbnail_loads_transformed_alpha()
+    {
+        var pixels = Composa.Rendering.Pixels.NewColor(20, 20);
+        pixels.SetPixel(5, 4, SKColors.Red);
+        var maskSource = session.AddImageLayer("Subject", pixels, new SKPoint(90, 65));
+        var active = session.AddBlankLayer();
+        Dispatcher.UIThread.RunJobs();
+        var row = Assert.Single(Rows(), row => ReferenceEquals(row.Tag, maskSource));
+        var thumb = Assert.Single(row.GetVisualDescendants().OfType<Image>());
+        var point = thumb.TranslatePoint(new Rect(thumb.Bounds.Size).Center, window)!.Value;
+        window.MouseDown(point, MouseButton.Left, RawInputModifiers.Control);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.Control);
+        Assert.Equal(active.Id, session.Document.ActiveLayerId);
+        var selection = Assert.IsType<SKBitmap>(session.Selection);
+        Assert.Equal(new SKRectI(85, 59, 86, 60), Composa.Selections.SelectionMask.Bounds(selection));
+    }
+
+    [AvaloniaFact]
     public void Clicking_nested_pixels_expands_their_parents_and_scrolls_the_layer_into_view()
     {
         var image = Composa.Rendering.Pixels.NewColor(40, 40);

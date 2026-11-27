@@ -297,9 +297,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 if (paid && engine.ApiModel != PartnerNodes.Seedream && !PartnerPricing.Choices(capabilities, engine.ApiModel!, NanoBanana.IsModel(engine.ApiModel) ? "resolution" : "quality").Contains(quality))
                     throw new InvalidOperationException("The connected server does not support this image quality or resolution. Choose an available value in Advanced.");
             }
-            var nativeMask = graph["gpt"]?["class_type"]?.GetValue<string>() == "OpenAIGPTImageNodeV2"
-                && capabilities.NodeTypes.Contains("ImageToMask");
-            using var apiInputs = paid ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel, nativeMask), linked.Token) : null;
+            using var apiInputs = paid ? await Task.Run(() => new PartnerImageInputs(inputs, preparedRequest, engine.ApiModel), linked.Token) : null;
             using var localOutputMask = apiInputs?.OutputMask() ?? (qwenInputs?.Mask is { } qwenMask ? Pixels.Clone(qwenMask) : editable == null ? null : Pixels.Clone(editable.Mask));
             var modelFiles = ModelSelections(client.Address.ToString());
             if (request.ModelFileOverrides is { Count: > 0 } overrides)
