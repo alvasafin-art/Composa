@@ -19,6 +19,8 @@ public sealed partial class CanvasView
     private PointerType brushCursorPointer;
     private StandardCursorType canvasCursorType = StandardCursorType.Arrow;
     private Cursor? nativeBrushCursor;
+    private Cursor? eyedropperCursor;
+    private bool eyedropperCursorUnavailable;
     private BrushOutlineShape? nativeBrushShape;
     private bool nativeBrushCursorActive;
     private int nativeCursorSideLimit = MaxNativeCursorSide;
@@ -69,7 +71,11 @@ public sealed partial class CanvasView
 
     private void ApplyCanvasCursor(bool updateStandard = false)
     {
-        if (CurrentNativeBrushShape() is { } shape && TryApplyNativeBrushShape(shape))
+        if (useEyedropperCursor && TryApplyEyedropperCursor())
+        {
+            nativeBrushCursorActive = false;
+        }
+        else if (CurrentNativeBrushShape() is { } shape && TryApplyNativeBrushShape(shape))
         {
             nativeBrushCursorActive = true;
         }
@@ -81,6 +87,37 @@ public sealed partial class CanvasView
             nativeBrushCursorActive = false;
         }
         brushCursorOverlay.Refresh();
+    }
+
+    private bool TryApplyEyedropperCursor()
+    {
+        if (eyedropperCursorUnavailable) return false;
+        try { eyedropperCursor ??= CreateEyedropperCursor(); }
+        catch (Exception e) when (e is Win32Exception or NotSupportedException)
+        { eyedropperCursorUnavailable = true; return false; }
+        if (!ReferenceEquals(Cursor, eyedropperCursor)) Cursor = eyedropperCursor;
+        return true;
+    }
+
+    private static Cursor CreateEyedropperCursor()
+    {
+        const int side = 24;
+        using var pixels = new SKBitmap(new SKImageInfo(side, side, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(pixels))
+        using (var path = SKPath.ParseSvgPathData("M11 7.5l5.5 5.5m-4.3-4.3 4.5-4.5a2.2 2.2 0 0 1 3.1 3.1l-4.5 4.5m-.5-.5-7.5 7.5-4 1.7 1.7-4 7.5-7.5"))
+        using (var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round })
+        {
+            canvas.Clear(SKColors.Transparent);
+            stroke.Color = SKColors.Black;
+            stroke.StrokeWidth = 3.6f;
+            canvas.DrawPath(path, stroke);
+            stroke.Color = SKColors.White;
+            stroke.StrokeWidth = 1.6f;
+            canvas.DrawPath(path, stroke);
+        }
+        using var bitmap = new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, pixels.GetPixels(),
+            new PixelSize(side, side), new Vector(96, 96), pixels.RowBytes);
+        return new Cursor(bitmap, new PixelPoint(3, 21));
     }
 
     private bool TryApplyNativeBrushShape(BrushOutlineShape shape)
@@ -107,12 +144,14 @@ public sealed partial class CanvasView
 
     private void ReleaseNativeBrushCursor()
     {
-        if (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor))
+        if (nativeBrushCursorActive && ReferenceEquals(Cursor, nativeBrushCursor) || ReferenceEquals(Cursor, eyedropperCursor) && eyedropperCursor != null)
             SetCanvasStandardCursor(canvasCursorType);
         nativeBrushCursorActive = false;
         nativeBrushCursor?.Dispose();
         nativeBrushCursor = null;
         nativeBrushShape = null;
+        eyedropperCursor?.Dispose();
+        eyedropperCursor = null;
         nativeCursorSideLimit = MaxNativeCursorSide;
         cursorInside = false;
     }
@@ -169,7 +208,7 @@ public sealed partial class CanvasView
             var wasLegacy = drawsLegacy;
             var showOutline = false;
             var showSource = false;
-            drawsLegacy = view.IsBrushTool && view.cursorInside;
+            drawsLegacy = view.IsBrushTool && view.cursorInside && !view.useEyedropperCursor;
             if (drawsLegacy && view.session is { Tool: not (Tool.SelectionBrush or Tool.RemoveObject) } painting
                 && ElementComposition.GetElementVisual(this) is { } element)
             {

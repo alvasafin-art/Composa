@@ -28,6 +28,24 @@ public class ToolInputTests
 
     private Point At(float x, float y) => window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(x, y)), window)!.Value;
 
+    [AvaloniaFact]
+    public void Alt_switches_the_brush_to_an_eyedropper_without_moving_the_pointer()
+    {
+        window.SelectTool(Tool.Brush);
+        window.MouseMove(At(300, 200));
+        var brushCursor = window.Canvas.Cursor;
+        window.KeyPressQwerty(PhysicalKey.AltLeft, RawInputModifiers.None);
+        var eyedropper = window.Canvas.Cursor;
+        Assert.NotSame(brushCursor, eyedropper);
+        Assert.NotEqual("Cross", eyedropper?.ToString());
+        Click(300, 200, RawInputModifiers.Alt);
+        Assert.Same(eyedropper, window.Canvas.Cursor);
+        Assert.Equal(SKColors.White, (SKColor)session.Foreground);
+        window.KeyReleaseQwerty(PhysicalKey.AltLeft, RawInputModifiers.Alt);
+        Assert.Same(brushCursor, window.Canvas.Cursor);
+        Assert.Equal(Tool.Brush, session.Tool);
+    }
+
     private void Drag(SKPoint from, SKPoint to, RawInputModifiers modifiers = RawInputModifiers.None, int steps = 6)
     {
         window.MouseDown(At(from.X, from.Y), MouseButton.Left, modifiers);

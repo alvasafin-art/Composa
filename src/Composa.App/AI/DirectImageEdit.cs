@@ -15,6 +15,7 @@ internal sealed class DirectImageEdit : IDisposable
 
     internal int Width => frame.Width;
     internal int Height => frame.Height;
+    internal bool ReachesCanvasEdge { get; }
 
     internal SKBitmap? OutputMask() => inputs.OutputMask();
 
@@ -32,6 +33,10 @@ internal sealed class DirectImageEdit : IDisposable
         var w = Math.Max(1, (int)Math.Round(source.Width * scale));
         var h = Math.Max(1, (int)Math.Round(source.Height * scale));
         content = SKRectI.Create((width - w) / 2, (height - h) / 2, w, h);
+        var canvas = prepared.ContextImage.Info.Rect;
+        var selection = prepared.TargetBounds;
+        ReachesCanvasEdge = request.Task == AiTaskKind.GenerativeFill && !selection.IsEmpty &&
+            (selection.Left == canvas.Left || selection.Top == canvas.Top || selection.Right == canvas.Right || selection.Bottom == canvas.Bottom);
     }
 
     internal DirectImageFiles Encode(AiTaskInputs prepared, SKBitmap? selection, bool nativeMask, CancellationToken token)
@@ -42,7 +47,7 @@ internal sealed class DirectImageEdit : IDisposable
         using (var canvas = new SKCanvas(source))
         {
             canvas.Clear(SKColors.Transparent);
-            canvas.DrawImage(Pixels.ImageOf(inputs.Images["apiSource"]), content, sampling);
+            DrawModelFrame(canvas, Pixels.ImageOf(inputs.Images["apiSource"]), sampling);
         }
         var images = new List<byte[]> { EncodePng(source) };
         foreach (var reference in prepared.ReferenceImages)
@@ -56,7 +61,13 @@ internal sealed class DirectImageEdit : IDisposable
         using (var canvas = new SKCanvas(coverage))
         {
             canvas.Clear(SKColors.Transparent);
-            canvas.DrawImage(Pixels.ImageOf(selection), inputs.SourceBounds, content, new SKSamplingOptions(SKFilterMode.Nearest));
+            var maskSampling = new SKSamplingOptions(SKFilterMode.Nearest);
+            if (ReachesCanvasEdge && content != frame)
+            {
+                using var cropped = Pixels.ImageOf(selection).Subset(inputs.SourceBounds);
+                DrawModelFrame(canvas, cropped, maskSampling);
+            }
+            else canvas.DrawImage(Pixels.ImageOf(selection), inputs.SourceBounds, content, maskSampling);
         }
         using var mask = Pixels.NewColor(Width, Height);
         using (var canvas = new SKCanvas(mask))
@@ -69,6 +80,23 @@ internal sealed class DirectImageEdit : IDisposable
         if (nativeMask) return new(images, encoded);
         images.Add(encoded);
         return new(images);
+    }
+
+    private void DrawModelFrame(SKCanvas canvas, SKImage image, SKSamplingOptions sampling)
+    {
+        if (!ReachesCanvasEdge || content == frame)
+        {
+            canvas.DrawImage(image, content, sampling);
+            return;
+        }
+        // Technical padding should continue the edge pixels and their edit coverage.
+        // A protected empty band otherwise looks like an in-image boundary to GPT Image.
+        var matrix = SKMatrix.CreateScale((float)content.Width / image.Width, (float)content.Height / image.Height);
+        matrix.TransX = content.Left;
+        matrix.TransY = content.Top;
+        using var shader = image.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, sampling, matrix);
+        using var paint = new SKPaint { Shader = shader, BlendMode = SKBlendMode.Src };
+        canvas.DrawRect(frame, paint);
     }
 
     internal SKBitmap Finish(SKBitmap generated)

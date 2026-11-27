@@ -701,6 +701,7 @@ Layer dimensions exceed the {0} px limit.	Размеры слоя превыша
 Layer effects: stroke, drop shadow, color overlay, inner shadow, outer glow, inner glow	Эффекты слоя: обводка, тень, наложение цвета, внутренняя тень, внешнее и внутреннее свечение
 Layer mask	Маска слоя
 Layer mask: click to paint on it, Shift-click to disable, Ctrl-click to load as selection	Щелчок выбирает маску для рисования, Shift + щелчок отключает её, Ctrl + щелчок загружает как выделение
+Ctrl-click to load layer pixels as a selection	Ctrl + щелчок по миниатюре загружает пиксели слоя как выделение
 Layer {0} no longer exists.	Слой {0} больше не существует.
 Layer's Mask	Маска слоя
 Layer's Pixels	Пиксели слоя
