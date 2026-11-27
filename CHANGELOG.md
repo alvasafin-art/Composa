@@ -4,6 +4,14 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.19] - 2026-11-27
+
+- Combine numbered AI regions with selections in Generative Fill, including selections with several disconnected areas. Region coordinates follow the input crop and padding used by the model.
+- Press Delete to remove the selected AI region. Click outside a region prompt to save it and continue with the next action.
+- Keep prompt drafts separate for each open document and operation. Keep the selected AI model when switching documents.
+- Drop images on the document tab strip to open them as documents, or drop on a specific tab to add them as layers.
+- Disable Assistant in the toolbar and menu.
+
 ## [1.3.0-preview.4.studio.17.18] - 2026-11-27
 
 - Draw nested AI regions. Select and move a region by its numbered badge, resize it with its corner handles, and double-click the badge to edit its prompt.
