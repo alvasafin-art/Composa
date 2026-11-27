@@ -519,17 +519,24 @@ public class AssistantTests
     }
 
     [AvaloniaFact]
-    public void Assistant_is_a_real_enabled_AI_menu_command()
+    public void Assistant_menu_item_and_toolbar_button_are_visible_and_disabled()
     {
         var window = new MainWindow();
+        window.AddSession(EditorSession.NewCanvas(80, 60, SKColors.White));
         window.Show();
-        var ai = Assert.Single(window.GetVisualDescendants().OfType<MenuItem>(), menu => menu.Header?.ToString()?.Replace("_", "") == "AI");
-        var item = Assert.Single(ai.Items.OfType<MenuItem>(), menu => menu.Header?.ToString() == "Assistant…");
-        Assert.True(item.IsEnabled);
-        var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
-            button => Avalonia.Automation.AutomationProperties.GetName(button) == "Assistant");
-        Assert.True(button.IsEnabled);
-        Assert.Contains(button.GetVisualDescendants(), child => child is Avalonia.Controls.Shapes.Path);
+        try
+        {
+            var ai = Assert.Single(window.GetVisualDescendants().OfType<MenuItem>(), menu => menu.Header?.ToString()?.Replace("_", "") == "AI");
+            var item = Assert.Single(ai.Items.OfType<MenuItem>(), menu => menu.Header?.ToString() == "Assistant…");
+            Assert.True(item.IsVisible);
+            Assert.False(item.IsEnabled);
+            var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
+                button => Avalonia.Automation.AutomationProperties.GetName(button) == "Assistant");
+            Assert.True(button.IsEffectivelyVisible);
+            Assert.False(button.IsEnabled);
+            Assert.Contains(button.GetVisualDescendants(), child => child is Avalonia.Controls.Shapes.Path);
+        }
+        finally { window.Close(); }
     }
 
     [AvaloniaFact]
