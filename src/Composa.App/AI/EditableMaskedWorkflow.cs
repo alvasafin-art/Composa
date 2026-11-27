@@ -47,6 +47,9 @@ internal sealed class EditableMaskedWorkflow : IDisposable
             nativePixels, request.Task == AiTaskKind.GenerativeExpand ? request.ExpansionMinimumSide : null);
         nativePixels = nativePixels && ContentSize == (Bounds.Width, Bounds.Height);
         var (width,height) = GenerationSize;
+        if (request.Task == AiTaskKind.GenerativeFill && request.Regions.Length > 0)
+            graph["prompt"]!["inputs"]!["text"] = RegionPrompt.MaskedPrompt(inputs.Prompt, request, Bounds,
+                SKRectI.Create(ContentSize.Width, ContentSize.Height), new SKSizeI(width, height));
         var grow = plan.ConditioningGrow(Math.Min((double)ContentSize.Width / Bounds.Width, (double)ContentSize.Height / Bounds.Height));
         const int blur = AiMaskPlan.ModelBlur;
         JsonObject Node(string type, JsonObject values) => new() { ["class_type"] = type, ["inputs"] = values };

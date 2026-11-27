@@ -176,8 +176,12 @@ internal sealed class PartnerImageInputs : IDisposable
             AiTaskKind.GenerativeExpand => AiPromptDefaults.Expand,
             _ => null
         };
-        return instruction == null ? original.Prompt
+        var prompt = instruction == null ? original.Prompt
             : string.Join("\n\n", new[] { instruction, request.AdditionalPrompt.Trim() }.Where(value => value.Length > 0));
+        if (request.Task != AiTaskKind.GenerativeFill || request.Regions.Length == 0) return prompt;
+        var source = Images["apiSource"];
+        return RegionPrompt.MaskedPrompt(prompt, request, crop, nano ? nanoContent : source.Info.Rect,
+            new SKSizeI(source.Width, source.Height));
     }
 
     public SKBitmap Finish(SKBitmap generated)

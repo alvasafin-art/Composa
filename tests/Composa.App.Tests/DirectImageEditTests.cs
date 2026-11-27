@@ -4,9 +4,11 @@ using System.Text;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Composa.AI;
 using Composa.App.AI;
+using Composa.App.Controls;
 using Composa.Editing;
 using SkiaSharp;
 
@@ -91,20 +93,39 @@ public sealed class DirectImageEditTests
         using var server = new TcpListener(IPAddress.Loopback, 0);
         server.Start();
         var endpoint = $"http://127.0.0.1:{((IPEndPoint)server.LocalEndpoint).Port}/v1";
-        var reply = ServeMaskedEditAsync(server, deadline.Token, expectedSize: "2000x2000");
+        var reply = ServeMaskedEditAsync(server, deadline.Token, expectedSize: "2000x2000",
+            expectedModel: "gpt-image-2", expectedPrompt: "Recolor this island");
         var previous = Environment.GetEnvironmentVariable("COMPOSA_IMAGE_API_KEY");
         Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", "test-image-key");
         var window = new MainWindow();
         try
         {
             window.Show();
-            var document = EditorSession.NewCanvas(256, 256, SKColors.CornflowerBlue);
-            document.SelectRect(new(96, 96, 160, 160));
-            window.AddSession(document);
             window.Settings.ImageGenerationRoute = ImageGenerationRoute.DirectApi;
             window.Settings.ImageGenerationApiUrl = endpoint;
-            window.Settings.ImageGenerationApiModel = "gpt-image-2";
+            window.Settings.ImageGenerationApiModel = "different-default";
+            var scope = DirectImageGenerator.Endpoint(endpoint).AbsoluteUri;
+            window.Settings.ImageApiCatalogs[scope] = new() { ["gpt-image-2"] = "GPT Image 2" };
             window.Settings.SetOperation("direct-api-image", AiTaskKind.GenerativeFill, new() { OriginalSize = false, Megapixels = 4 });
+            var previousTab = EditorSession.NewCanvas(256, 256, SKColors.CornflowerBlue);
+            previousTab.SelectRect(new(96, 96, 160, 160));
+            window.AddSession(previousTab);
+            var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
+            var generation = dock.Section("AI Generation");
+            dock.SetVisible(generation, true);
+            Dispatcher.UIThread.RunJobs();
+            var picker = generation.Content.GetVisualDescendants().OfType<ComboBox>().Single(box => box.IsEffectivelyVisible);
+            var chosen = Assert.Single(picker.Items.OfType<ImageModelChoice>(),
+                choice => choice.Route == ImageGenerationRoute.DirectApi && choice.Direct?.Model == "gpt-image-2");
+            window.Settings.RegionModes[chosen.SelectionKey] = RegionDelivery.Coordinates;
+            picker.SelectedItem = chosen;
+
+            var document = EditorSession.NewCanvas(256, 256, SKColors.CornflowerBlue);
+            document.SelectRect(new(96, 96, 160, 160));
+            var region = document.AddPromptRegion(new(100, 100, 156, 156))!;
+            document.ChangePromptRegion(region with { Prompt = "Recolor this island" });
+            window.AddSession(document);
+            Assert.Equal("gpt-image-2", Assert.IsType<ImageModelChoice>(picker.SelectedItem).Direct?.Model);
             var before = document.History.CurrentId;
             await window.RunAiForTests(AiTaskKind.GenerativeFill, "Recolor the selected area orange.").WaitAsync(deadline.Token);
             await reply;
@@ -113,6 +134,7 @@ public sealed class DirectImageEditTests
         }
         finally
         {
+            foreach (var open in window.Sessions) open.MarkEmbeddedSaved();
             Environment.SetEnvironmentVariable("COMPOSA_IMAGE_API_KEY", previous);
             window.Close();
         }
@@ -238,7 +260,7 @@ public sealed class DirectImageEditTests
     }
 
     private static async Task ServeMaskedEditAsync(TcpListener server, CancellationToken token, bool assertCentered = true,
-        Action? beforeReply = null, string? expectedSize = null)
+        Action? beforeReply = null, string? expectedSize = null, string? expectedModel = null, string? expectedPrompt = null)
     {
         using var client = await server.AcceptTcpClientAsync(token);
         await using var stream = client.GetStream();
@@ -258,6 +280,12 @@ public sealed class DirectImageEditTests
         Assert.Equal(length, await reader.ReadBlockAsync(body.AsMemory(), token));
         var multipart = new string(body);
         if (expectedSize != null) Assert.Contains($"name=size\r\n\r\n{expectedSize}\r\n", multipart.Replace("\"", ""));
+        if (expectedModel != null) Assert.Contains($"name=model\r\n\r\n{expectedModel}\r\n", multipart.Replace("\"", ""));
+        if (expectedPrompt != null)
+        {
+            Assert.Contains(expectedPrompt, multipart);
+            Assert.Contains("\"bbox\":[", multipart);
+        }
         Assert.Contains("filename=image-1.png", multipart.Replace("\"", ""));
         Assert.Contains("filename=mask.png", multipart.Replace("\"", ""));
         var maskStart = multipart.IndexOf("\r\n\r\n", multipart.IndexOf("mask.png", StringComparison.Ordinal), StringComparison.Ordinal) + 4;

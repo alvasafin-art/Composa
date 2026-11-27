@@ -228,11 +228,17 @@ public class GenerationDockTests
             Assert.Equal(2, picker.Items.OfType<ImageModelChoice>().Count(choice => choice.Route == ImageGenerationRoute.DirectApi));
             picker.SelectedItem = Assert.Single(picker.Items.OfType<ImageModelChoice>(), choice =>
                 choice.Route == ImageGenerationRoute.ComfyWorkflow && choice.Engine.Id == pack);
+            var next = EditorSession.NewCanvas(160, 120);
+            window.AddSession(next);
+            Pump();
+            Assert.Equal(pack, Assert.IsType<ImageModelChoice>(picker.SelectedItem).Engine.Id);
             await window.RunAiForTests(task, "A ceramic cube");
             Assert.Equal(AiOperationStatus.Completed, window.AiTasks.Operation?.Status);
             Assert.Single(capture.Prompts);
             Assert.Equal(ImageGenerationRoute.LocalCodex, settings.ImageRouteFor(task));
             picker.SelectedItem = Assert.Single(picker.Items.OfType<ImageModelChoice>(), choice => choice.Direct?.Model == "api-two");
+            window.AddSession(EditorSession.NewCanvas(160, 120, SKColors.White));
+            Pump();
             Assert.Equal("api-two", Assert.IsType<ImageModelChoice>(picker.SelectedItem).Direct?.Model);
             Assert.False(settings.ImageOperationApiModels.ContainsKey(task));
             var reopening = window.ShowAiSettings(operation: task);
@@ -243,6 +249,7 @@ public class GenerationDockTests
             dialog.Close(false);
             await reopening;
             canvas.MarkSaved("route-test.cmps", canvas.History.CurrentId);
+            next.MarkEmbeddedSaved();
         }
         finally
         {
@@ -837,6 +844,13 @@ public class GenerationDockTests
             Assert.Empty(session.Document.PromptRegions);
             session.Undo();
             Assert.Equal(2, session.Document.PromptRegions.Count);
+            window.Canvas.Focus();
+            Click(At(90, 90) + new Vector(8, -9));
+            window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+            Assert.Equal(outer.Number, Assert.Single(session.Document.PromptRegions).Number);
+            Assert.Single(session.Document.Layers);
+            session.Undo();
+            Assert.Equal(2, session.Document.PromptRegions.Count);
         }
         finally { window.Close(); }
     }
@@ -885,9 +899,15 @@ public class GenerationDockTests
             Pump();
             var input = dock.Section("AI Generation").Content.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == "RegionPromptInput");
             input.Text = "Cobalt";
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            var visibility = dock.Section("AI Generation").Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleAllPromptRegions");
+            pos = visibility.TranslatePoint(new Point(5, 5), window)!.Value;
+            window.MouseDown(pos, MouseButton.Left);
+            Pump(); // The UI may process a render between the down and up.
+            window.MouseUp(pos, MouseButton.Left);
             Pump();
             Assert.Equal("Cobalt", session.Document.PromptRegions.Single().Prompt);
+            Assert.False(window.Canvas.ShowPromptRegions);
+            window.Canvas.ShowPromptRegions = true;
             session.Undo();
             Assert.Equal("Покрой чайник синей глазурью", session.Document.PromptRegions.Single().Prompt);
             window.MouseDown(At(293, 113), MouseButton.Left);

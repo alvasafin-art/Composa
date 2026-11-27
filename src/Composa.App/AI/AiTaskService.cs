@@ -509,16 +509,18 @@ public sealed partial class AiTaskService : IAiTaskRunner
     {
         if (request.Regions.Length > 0)
         {
-            if (request.Task is not (AiTaskKind.ImageEdit or AiTaskKind.GenerateImage))
-                throw new InvalidOperationException("AI regions require Generate Image or Image Edit. Disable the regions for this operation.");
+            if (!RegionPrompt.Supports(request.Task))
+                throw new InvalidOperationException("AI regions require Generate Image, Image Edit or Generative Fill.");
             if (request.Regions.Any(r => !r.Valid || string.IsNullOrWhiteSpace(r.Prompt) || !session.Document.Bounds.Contains(r.Bounds)))
                 throw new InvalidOperationException("Each enabled AI region needs a prompt and must fit inside the canvas.");
             if (request.RegionDelivery == RegionDelivery.Overlay)
             {
-                if (request.Task != AiTaskKind.ImageEdit) throw new InvalidOperationException("Visual regions need a source image. Choose Image Edit.");
+                if (request.Task == AiTaskKind.GenerateImage)
+                    throw new InvalidOperationException("Visual regions need a source image. Choose Image Edit or Generative Fill.");
                 if (request.Regions.Select(r => r.Ink.Name).Distinct().Count() != request.Regions.Length)
                     throw new InvalidOperationException("Enabled visual regions must have distinct colors.");
-                request = request with { Prompt = request.Prompt + "\n" + RegionPrompt.OverlayInstructions(request) };
+                if (request.Task != AiTaskKind.GenerativeFill)
+                    request = request with { Prompt = request.Prompt + "\n" + RegionPrompt.OverlayInstructions(request) };
             }
         }
         request = AutomaticAiMask.IgnoreLegacyControls(request) with
@@ -527,7 +529,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
         };
         // Other workflows receive an explicit reference-frame convention for textual coordinates.
         // The native FLUX/Qwen binders convert the boxes after their final padding is known.
-        if (request.Regions.Length > 0 && request.RegionDelivery == RegionDelivery.Coordinates &&
+        if (request.Task != AiTaskKind.GenerativeFill && request.Regions.Length > 0 && request.RegionDelivery == RegionDelivery.Coordinates &&
             (direct || request.EngineId is not (Flux3Workflow.EngineId or QwenImageWorkflow.EngineId) ||
              WorkflowSettings().Active(request.Task, request.EngineId, request.UseAssignedWorkflow) != null))
         {
@@ -546,6 +548,12 @@ public sealed partial class AiTaskService : IAiTaskRunner
     {
         var qwen = engine.Id == QwenImageWorkflow.EngineId;
         var values = inputs.Values(files);
+        if (qwenInputs == null && apiInputs == null && editable == null)
+        {
+            var frame = inputs.SourceImage.Info.Rect;
+            values["prompt"] = RegionPrompt.MaskedPrompt(inputs.Prompt, request, frame, frame,
+                new SKSizeI(frame.Width, frame.Height), annotationBounds: inputs.MaskPlan?.Bounds);
+        }
         foreach (var setting in request.Settings.Values) values[setting.Key] = setting.Value;
         if (apiInputs == null)
         {

@@ -254,8 +254,6 @@ public static class AiTaskInputPreparer
         using var precise = session.Flatten();
         var flattened = Pixels.DisplayCopy(precise);
         var context = Pixels.Clone(flattened);
-        if (request.RegionDelivery == RegionDelivery.Overlay && request.Regions.Length > 0)
-            RegionPrompt.Draw(flattened, request.Regions);
         var active = RenderActiveLayer(session);
         var selection = session.Selection == null || request.Task is AiTaskKind.ImageEdit or AiTaskKind.GenerateImage ? null
             : AutomaticAiMask.AppliesTo(request.Task) ? AutomaticAiMask.Normalize(session.Selection) : Pixels.Clone(session.Selection);
@@ -323,6 +321,12 @@ public static class AiTaskInputPreparer
             expansionEmpty = preprocessedMask;
             var overlap = maskPlan?.SeamWidth ?? 0;
             preprocessedMask = SelectionMask.Expand(expansionEmpty, overlap);
+        }
+        if (request.RegionDelivery == RegionDelivery.Overlay && request.Regions.Length > 0)
+        {
+            var regions = maskPlan != null && request.Task == AiTaskKind.GenerativeFill
+                ? RegionPrompt.InFrame(request.Regions, maskPlan.Bounds) : request.Regions;
+            if (regions.Length > 0) RegionPrompt.Draw(source, regions);
         }
         var requestedReferences = request.ReferenceImages.Count > 0 ? request.ReferenceImages.Take(maximumReferences).ToList()
             : request.ReferenceImage == null ? [] : [request.ReferenceImage];

@@ -962,6 +962,10 @@ public sealed partial class MainWindow
         if (task == AiTaskKind.GenerativeExpand) initialPrompt = "";
         aiLastError = null;
         var target = session;
+        var modelTask = ImageOperationModels.ModelTask(task);
+        var chosenModel = modelDrafts.GetValueOrDefault(modelTask);
+        var panelEngine = PanelEngine(task);
+        var useAssigned = PanelUsesAssignedWorkflow(task);
         var direct = DirectImageFor(task);
         var availability = AiAvailability(task);
         if (!availability.Available) { AiFailed(availability.Reason ?? "This AI task is unavailable."); return; }
@@ -970,10 +974,10 @@ public sealed partial class MainWindow
         {
             var area = upscaleSession.Selection == null ? upscaleSession.Document.Bounds : SelectionMask.Bounds(upscaleSession.Selection);
             if (!await AiDialogs.Upscale(this, settings, area.Width, area.Height, upscaleSession.Selection != null,
-                PanelEngine(task), direct == null ? aiTasks : null, PanelChoice(task)?.Name ?? direct?.Label)) return;
+                panelEngine, direct == null ? aiTasks : null, PanelChoice(task)?.Name ?? direct?.Label)) return;
         }
         var aspect = AiAspect(task);
-        var profile = AiOptions(task);
+        var profile = AiOptions(task, panelEngine);
         var fallback = profile.OriginalSize
             ? task is AiTaskKind.Upscale or AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject ? aspect : AiDimensions.OriginalGenerationSize(aspect.Width, aspect.Height)
             : AiDimensions.FromMegapixels(profile.Megapixels, aspect.Width, aspect.Height);
@@ -989,7 +993,7 @@ public sealed partial class MainWindow
             try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
                 session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null,
-                modelDrafts.GetValueOrDefault(task)?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true); }
+                chosenModel?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true); }
             finally { aiDialogReferences = null; }
             if (presentedTask == task && settings.RememberAiPrompts && settings.AiPromptFor(task) != (aiFloatingPrompt.Text ?? ""))
                 aiFloatingPrompt.Text = settings.AiPromptFor(task);
@@ -1004,11 +1008,11 @@ public sealed partial class MainWindow
             target = session;
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
-        var engine = direct?.PromptProfile() ?? (options.EngineId == null ? PanelEngine(task) : aiTasks.EngineFor(task, options.EngineId));
-        var useAssigned = PanelUsesAssignedWorkflow(task);
-        if (direct == null && options.EngineId != null && engine != null && engine.Id != PanelEngine(task)?.Id)
+        var engine = direct?.PromptProfile() ?? (options.EngineId == null ? panelEngine : aiTasks.EngineFor(task, options.EngineId));
+        if (direct == null && options.EngineId != null && engine != null && engine.Id != panelEngine?.Id)
         {
-            modelDrafts[task] = aiTasks.Engines.ModelFor(engine, task, settings.ComfyModelsFor(settings.ComfyServerUrl));
+            chosenModel = aiTasks.Engines.ModelFor(engine, task, settings.ComfyModelsFor(settings.ComfyServerUrl));
+            modelDrafts[modelTask] = chosenModel;
             useAssigned = false;
             RefreshEditorModels();
         }
@@ -1032,13 +1036,13 @@ public sealed partial class MainWindow
             var request = new AiTaskRequest
             {
                 Task = task,
-                Regions = targetSession.Document.PromptRegions.Where(r => r.Enabled).ToArray(),
+                Regions = RegionPrompt.Supports(task) ? targetSession.Document.PromptRegions.Where(r => r.Enabled).ToArray() : [],
                 RegionDelivery = settings.RegionMode(direct == null ? engine?.Id ?? "" : ImageOperationModels.DirectChoice(direct).SelectionKey),
                 Scene=profile.Scene.Normalized(),
                 AlignMaskedEdits = settings.AiAlignMaskedEdits,
                 EngineId = engine?.Id,
                 UseAssignedWorkflow = useAssigned,
-                ModelFileOverrides = modelDrafts.GetValueOrDefault(ImageOperationModels.ModelTask(task)) is { FileSlot: { } slot } model
+                ModelFileOverrides = chosenModel is { FileSlot: { } slot } model
                     ? new Dictionary<string, string> { [slot.Key] = model.Identifier } : null,
                 SelectionRegion = selectionRegion, SelectionOperation = selectionOperation, SelectionPoint = selectionPoint,
                 Prompt = task == AiTaskKind.GenerativeExpand ? AiPromptDefaults.Expand

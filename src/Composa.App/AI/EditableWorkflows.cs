@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Composa.AI;
+using SkiaSharp;
 
 namespace Composa.App.AI;
 
@@ -156,6 +157,9 @@ internal static class EditableWorkflows
         AiTaskRequest request, IReadOnlyDictionary<string, string> files, long seed)
     {
         var values = inputs.Values(files);
+        var frame = inputs.SourceImage.Info.Rect;
+        values["prompt"] = RegionPrompt.MaskedPrompt(inputs.Prompt, request, frame, frame,
+            new SKSizeI(frame.Width, frame.Height), annotationBounds: inputs.MaskPlan?.Bounds);
         values["seed"] = seed;
         foreach (var key in new[] { "steps", "sampler" })
             if (request.Settings.Values.TryGetValue(key, out var value) && value != null) values[key] = value;

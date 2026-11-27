@@ -18,6 +18,9 @@ internal sealed class DirectImageEdit : IDisposable
 
     internal SKBitmap? OutputMask() => inputs.OutputMask();
 
+    internal string RegionPromptFor(string prompt, AiTaskRequest request) =>
+        RegionPrompt.MaskedPrompt(prompt, request, inputs.SourceBounds, content, new SKSizeI(Width, Height));
+
     internal DirectImageEdit(AiTaskInputs prepared, AiTaskRequest request, DirectImageGenerator? generator = null)
     {
         inputs = new PartnerImageInputs(prepared, request, planPartnerOutput: false);

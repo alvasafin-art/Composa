@@ -74,6 +74,7 @@ public sealed partial class AiTaskService
             var prompt = prepared?.Prompt ?? request.Prompt;
             if (editInputs != null)
             {
+                prompt = editInputs.RegionPromptFor(prompt, request);
                 var nativeMask = modelMask != null && generator.UsesNativeMask;
                 files = await Task.Run(() => editInputs.Encode(prepared!, modelMask, nativeMask, linked.Token), linked.Token);
                 prompt = "Edit the first image. Preserve its framing, proportions and unchanged details. "
