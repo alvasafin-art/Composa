@@ -420,13 +420,14 @@ public class GenerationDockTests
     }
 
     [AvaloniaFact]
-    public async Task Prompt_drafts_follow_their_operations_and_can_be_turned_off_in_settings()
+    public async Task Prompt_drafts_are_separate_for_each_document_and_operation_and_can_be_turned_off()
     {
         var window = new MainWindow { Width = 1100, Height = 800 };
         window.Show();
         try
         {
-            window.AddSession(EditorSession.NewCanvas(160, 120, SKColors.White));
+            var first = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(first);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
             dock.SetVisible(section, true);
@@ -443,13 +444,40 @@ public class GenerationDockTests
             Choose("Generate Image");
             Assert.Equal("A new landscape.", prompt.Text);
             Choose("Image Edit");
+            var second = EditorSession.NewCanvas(160, 120, SKColors.White);
+            window.AddSession(second);
+            Pump();
+            Assert.Equal("", prompt.Text);
+            prompt.Text = "Sharpen the foreground.";
+            Choose("Generate Image");
+            Assert.Equal("", prompt.Text);
+            prompt.Text = "A different landscape.";
+            Choose("Image Edit");
+            Assert.Equal("Sharpen the foreground.", prompt.Text);
+
+            void SelectTab(EditorSession document)
+            {
+                var tab = window.GetVisualDescendants().OfType<Border>().Single(b => ReferenceEquals(b.Tag, document));
+                var point = tab.TranslatePoint(new Point(8, 8), window)!.Value;
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                Pump();
+            }
+            SelectTab(first);
+            Assert.Equal("Soften the shadows.", prompt.Text);
+            Choose("Generate Image");
+            Assert.Equal("A new landscape.", prompt.Text);
+            SelectTab(second);
+            Assert.Equal("Sharpen the foreground.", prompt.Text);
+            Choose("Generate Image");
+            Assert.Equal("A different landscape.", prompt.Text);
+            Choose("Image Edit");
             var serialized = System.Text.Json.JsonSerializer.Serialize(window.Settings);
             Assert.DoesNotContain("AiPromptDrafts", serialized);
             Assert.DoesNotContain("A new landscape.", serialized);
             Assert.DoesNotContain("Soften the shadows.", serialized);
             var reloaded = Settings.FromJson(serialized);
             Assert.True(reloaded.RememberAiPrompts);
-            Assert.Empty(reloaded.AiPromptDrafts);
 
             var settings = AiDialogs.SettingsDialog(window, window.Settings, window.AiTasks, page: 3);
             Pump();
@@ -461,7 +489,6 @@ public class GenerationDockTests
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.True(await settings.WaitAsync(TimeSpan.FromSeconds(5)));
             Assert.False(window.Settings.RememberAiPrompts);
-            Assert.Empty(window.Settings.AiPromptDrafts);
             Choose("Generate Image");
             Assert.Equal("", prompt.Text);
             prompt.Text = "A temporary prompt.";
@@ -469,7 +496,8 @@ public class GenerationDockTests
             Assert.Equal("", prompt.Text);
             Choose("Generate Image");
             Assert.Equal("", prompt.Text);
-            Assert.Empty(window.Settings.AiPromptDrafts);
+            SelectTab(first);
+            Assert.Equal("", prompt.Text);
         }
         finally { window.Close(); }
     }

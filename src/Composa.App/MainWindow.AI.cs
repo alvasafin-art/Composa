@@ -708,8 +708,8 @@ public sealed partial class MainWindow
         if (index < 0) return;
         aiReferences.RemoveAt(index);
         item.Dispose();
-        foreach (var (task, text) in settings.AiPromptDrafts.ToArray())
-            settings.RememberAiPrompt(task, AiPromptField.AfterRemoval(text, AiImageMention.FirstReference(task) + index));
+        foreach (var (key, text) in documentAiPrompts.ToArray())
+            RememberDocumentAiPrompt(key.Document, key.Task, AiPromptField.AfterRemoval(text, AiImageMention.FirstReference(key.Task) + index));
         var current = aiFloatingPrompt.Text ?? "";
         var updated = AiPromptField.AfterRemoval(current, AiImageMention.FirstReference(EditorTask) + index);
         if (updated != current) aiFloatingPrompt.Text = updated;
@@ -990,13 +990,16 @@ public sealed partial class MainWindow
             aiDialogReferenceTask = task;
             aiDialogReferences = new AiReferenceEditor(host, () => aiReferences.Count, PasteAiReferenceOrText, PickAiReferences, () => AiImageMentions(task));
             BuildAiReferenceUi(host, task);
-            try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, initialPrompt, aiTasks, aiReferences.Count,
+            var startingPrompt = initialPrompt.Length == 0 ? DocumentAiPrompt(target, task) : initialPrompt;
+            try { options = await AiDialogs.Prompt(this, task, settings, aspect.Width, aspect.Height, startingPrompt, aiTasks, aiReferences.Count,
                 session?.Selection != null && !(task == AiTaskKind.GenerativeExpand && session.Tool == Tool.Crop), aiDialogReferences,
                 session?.Document.Bounds, session?.Selection is { } selected ? AutomaticAiMask.ContourBounds(selected) : null,
-                chosenModel?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true); }
+                chosenModel?.Engine.Id, direct?.PromptProfile(), direct?.SupportsCustomSize ?? true,
+                rememberPrompt: draft => RememberDocumentAiPrompt(target, task, draft)); }
             finally { aiDialogReferences = null; }
-            if (presentedTask == task && settings.RememberAiPrompts && settings.AiPromptFor(task) != (aiFloatingPrompt.Text ?? ""))
-                aiFloatingPrompt.Text = settings.AiPromptFor(task);
+            if (presentedTask == task && ReferenceEquals(presentedPromptDocument, target)
+                && settings.RememberAiPrompts && DocumentAiPrompt(target, task) != (aiFloatingPrompt.Text ?? ""))
+                aiFloatingPrompt.Text = DocumentAiPrompt(target, task);
         }
         RefreshAiUi();
         if (options == null) return;
@@ -1006,6 +1009,7 @@ public sealed partial class MainWindow
             if (task != AiTaskKind.GenerateImage) return;
             AddSession(EditorSession.NewCanvas(options.Width, options.Height));
             target = session;
+            RememberDocumentAiPrompt(target, task, options.Prompt);
         }
         var seed = options.Seed < 0 ? Random.Shared.NextInt64(long.MaxValue) : options.Seed;
         var engine = direct?.PromptProfile() ?? (options.EngineId == null ? panelEngine : aiTasks.EngineFor(task, options.EngineId));

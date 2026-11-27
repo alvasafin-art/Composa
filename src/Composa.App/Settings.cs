@@ -19,17 +19,6 @@ public sealed class Settings
     public List<Dialogs.CanvasPreset> UserCanvasPresets { get; set; } = [];
     public AI.WorkflowPreferences Workflows { get; set; } = new();
     public bool RememberAiPrompts { get; set; } = true;
-    [System.Text.Json.Serialization.JsonIgnore]
-    internal Dictionary<AiTaskKind, string> AiPromptDrafts { get; } = [];
-
-    internal string AiPromptFor(AiTaskKind task) => RememberAiPrompts ? AiPromptDrafts.GetValueOrDefault(task) ?? "" : "";
-
-    internal void RememberAiPrompt(AiTaskKind task, string prompt)
-    {
-        if (!RememberAiPrompts) return;
-        if (prompt.Length == 0) AiPromptDrafts.Remove(task);
-        else AiPromptDrafts[task] = prompt;
-    }
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 820;
     public bool Maximized { get; set; }

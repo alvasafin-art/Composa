@@ -26,7 +26,19 @@ public sealed partial class MainWindow
     private AiTaskKind? manualFloatingTask;
     private AiTaskKind EditorTask => editorInDock ? manualDockTask ?? automaticDockTask : manualFloatingTask ?? (session?.Selection == null && session?.Document.PromptRegions.Count > 0 ? AiTaskKind.ImageEdit : AiTaskKind.GenerativeFill);
     private bool DockEditorVisible => session != null && !settings.CanvasOnly && dock.Presents(generationSection);
+    private readonly Dictionary<(EditorSession Document, AiTaskKind Task), string> documentAiPrompts = [];
+    private EditorSession? presentedPromptDocument;
     private AiTaskKind? presentedTask;
+
+    private string DocumentAiPrompt(EditorSession? owner, AiTaskKind task) =>
+        settings.RememberAiPrompts && owner != null ? documentAiPrompts.GetValueOrDefault((owner, task)) ?? "" : "";
+
+    private void RememberDocumentAiPrompt(EditorSession? owner, AiTaskKind task, string prompt)
+    {
+        if (!settings.RememberAiPrompts || owner == null || !sessions.Contains(owner)) return;
+        if (prompt.Length == 0) documentAiPrompts.Remove((owner, task));
+        else documentAiPrompts[(owner, task)] = prompt;
+    }
 
     private static string DockTaskName(AiTaskKind task) => task switch
     {
@@ -79,7 +91,7 @@ public sealed partial class MainWindow
         EnableAiReferenceDrop(view);
         aiFloatingPrompt.TextChanging += (_, _) =>
         {
-            if (presentedTask is { } task) settings.RememberAiPrompt(task, aiFloatingPrompt.Text ?? "");
+            if (presentedTask is { } task) RememberDocumentAiPrompt(presentedPromptDocument, task, aiFloatingPrompt.Text ?? "");
         };
         aiFloatingPrompt.TextChanged += (_, _) =>
         {
@@ -90,6 +102,7 @@ public sealed partial class MainWindow
 
     private void RefreshGenerationDock()
     {
+        if (!settings.RememberAiPrompts) documentAiPrompts.Clear();
         var useDock = DockEditorVisible;
         var placementChanged = useDock != editorInDock;
         if (placementChanged)
@@ -123,14 +136,15 @@ public sealed partial class MainWindow
             floatingTaskSession = session?.Selection == null ? null : session;
         }
         var task = EditorTask;
-        if (presentedTask == task)
+        if (presentedTask == task && ReferenceEquals(presentedPromptDocument, session))
         {
             if (placementChanged) RefreshEditorModels();
             return;
         }
         presentedTask = task;
+        presentedPromptDocument = session;
         RefreshPanelReferences();
-        aiFloatingPrompt.Text = settings.AiPromptFor(task);
+        aiFloatingPrompt.Text = DocumentAiPrompt(session, task);
         dockOperationName.Text = DockTaskName(task);
         aiFloatingOperation.Text = Locale.T(task.DisplayName());
         AutomationProperties.SetName(dockOperation, "Choose AI operation · " + dockOperationName.Text);

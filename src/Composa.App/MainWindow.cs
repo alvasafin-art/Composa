@@ -619,6 +619,8 @@ public sealed partial class MainWindow : Window
         }
         var index = sessions.IndexOf(item);
         sessions.Remove(item);
+        foreach (var key in documentAiPrompts.Keys.Where(key => ReferenceEquals(key.Document, item)).ToArray())
+            documentAiPrompts.Remove(key);
         fileVersions.Remove(item);
         foreach (var key in linkedObservations.Keys.Where(key => key.Parent == item).ToArray()) linkedObservations.Remove(key);
         embeddedTabs.Remove(item);
