@@ -284,12 +284,18 @@ public sealed partial class AiTaskService : IAiTaskRunner
         StateChanged?.Invoke();
         try
         {
+#if CANVAS_PERFORMANCE
+            var prepareStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             // The bundled stitched removal workflow handles mask growth and its black patch itself.
             // Feeding an already grown/feathered mask into it would grow and blur the selection twice.
             var preparedRequest = request.Task == AiTaskKind.RemoveObject && (binding.Preprocess == "remove-object-in-workflow" || engine.PaidApi)
                 ? request with { RemoveObject = request.RemoveObject with { Dilation = 0, Feather = 0 } } : request;
             preparedRequest = preparedRequest with { AdditionalPrompt = AdditionalPromptForPack?.Invoke(engine.Id) ?? AdditionalPrompt() };
             using var inputs = await PrepareInputsAsync(editor.Session, preparedRequest, referenceLimit, linked.Token);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("AI prepare inputs", prepareStart);
+#endif
             using var qwenInputs = saved == null && (qwen || engine.Id == Flux3Workflow.EngineId) ? await Task.Run(() => new QwenImageInputs(inputs, preparedRequest), linked.Token) : null;
             using var editable = saved == null && engine.Id == "flux2-klein-intel-xpu" && graph["crop"]?["class_type"]?.GetValue<string>() == "InpaintCropImproved"
                 && (inputs.SelectionMask != null || request.Task == AiTaskKind.GenerativeExpand && !fullEdit || inputs.BackgroundMask != null)
@@ -373,7 +379,13 @@ public sealed partial class AiTaskService : IAiTaskRunner
             }
             foreach (var (semantic, bitmap) in imagesToUpload)
             {
+#if CANVAS_PERFORMANCE
+                var uploadStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 uploaded[semantic] = await client.UploadPngAsync(semantic, bitmap, linked.Token);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("AI upload call", uploadStart);
+#endif
             }
             var images = new List<SKBitmap>();
             var applied = false;
@@ -399,7 +411,18 @@ public sealed partial class AiTaskService : IAiTaskRunner
                         if (initialRasterPixels + (long)inputs.SourceImage.Width * inputs.SourceImage.Height * request.Settings.UpscaleFactor * request.Settings.UpscaleFactor > DocumentLimits.DocumentPixelBudget)
                             throw new InvalidOperationException($"Upscale exceeds the document's {DocumentLimits.DocumentBudgetMegapixels} MP budget.");
                     }
-                    var result = await client.ExecuteAsync(Bind(uploaded, index), progress, linked.Token);
+#if CANVAS_PERFORMANCE
+                    var bindStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+                    var bound = Bind(uploaded, index);
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("AI bind workflow", bindStart);
+                    var executeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+                    var result = await client.ExecuteAsync(bound, progress, linked.Token);
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("AI provider execute and queue", executeStart);
+#endif
                     using (result.History)
                     {
                         if (result.CreditsUsed is { } cost) reportedCredits = (reportedCredits ?? 0) + cost;
@@ -409,7 +432,13 @@ public sealed partial class AiTaskService : IAiTaskRunner
                             throw new InvalidDataException($"ComfyUI returned {references.Count} images; expected {expected}. No result was applied. Try List mode if this workflow does not support Batch.");
                         foreach (var reference in references)
                         {
+#if CANVAS_PERFORMANCE
+                            var decodeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                             var image = await client.DownloadAsync(reference, linked.Token);
+#if CANVAS_PERFORMANCE
+                            CanvasPerformanceTrace.StageCompleted("AI download and decode call", decodeStart);
+#endif
                             // CPU finishing reads immutable snapshots; keep the editor responsive.
                             if (apiInputs != null) image = await Task.Run(() => apiInputs.FinishUnmasked(image));
                             else if (qwenInputs != null) image = await Task.Run(() => qwenInputs.Finish(image));
@@ -445,13 +474,23 @@ public sealed partial class AiTaskService : IAiTaskRunner
                     }
                 Operation = Operation! with { Stage = "Applying result", Value = null, Maximum = null };
                 StateChanged?.Invoke();
+#if CANVAS_PERFORMANCE
+                var waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 await WaitForResultTargetAsync(editor.Session, targetAvailable, linked.Token);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("AI wait to apply", waitStart);
+                var applyStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 var layerOnly = ResultNeedsSeparateLayer(editor.Session, initialState, initialLayer, binding.OutputMode);
                 var hasExpansionFrame = request.Task == AiTaskKind.GenerativeExpand && inputs.ExpansionBounds != null;
                 layerOnly |= hasExpansionFrame && expansionFrameUnchanged?.Invoke() == false;
                 Insert(editor, request.Task, binding.OutputMode, images, inputs.TargetBounds, inputs, binding.OutputIsComposited,
                     variants: variants > 1, localOutputMask: localOutputMask, preserveBiRefNetMatte: preserveBiRefNetMatte,
                     layerOnly: layerOnly);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("AI apply document", applyStart);
+#endif
                 applied = true;
                 Operation = Operation! with { Status = AiOperationStatus.Completed, Stage = "Completed", CreditsUsed = reportedCredits };
                 StateChanged?.Invoke();

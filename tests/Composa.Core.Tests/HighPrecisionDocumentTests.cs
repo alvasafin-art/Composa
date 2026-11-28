@@ -1,4 +1,5 @@
 using Composa.Editing;
+using Composa.ColorManagement;
 using Composa.Filters;
 using Composa.IO;
 using Composa.Model;
@@ -9,6 +10,28 @@ namespace Composa.Core.Tests;
 
 public class HighPrecisionDocumentTests
 {
+    [Theory]
+    [InlineData(ColorDepth.Eight, 254)]
+    [InlineData(ColorDepth.Sixteen, double.NaN)]
+    public void Saving_png_matches_encoded_bytes_and_cancellation_preserves_the_target(ColorDepth depth, double resolution)
+    {
+        using var bitmap = Pixels.NewWorkingColor(43, 29, depth, RgbProfile.DisplayP3);
+        using (var canvas = new SKCanvas(bitmap)) canvas.Clear(new SKColor(138, 63, 211, 179));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".png");
+        try
+        {
+            ImageFiles.Save(bitmap, path, ExportFormat.Png, 100, resolution);
+            var expected = ImageFiles.Encode(bitmap, ExportFormat.Png, 100, resolution: resolution);
+            Assert.Equal(expected, File.ReadAllBytes(path));
+            bitmap.Erase(SKColors.Yellow);
+            Assert.Throws<OperationCanceledException>(() => ImageFiles.Save(bitmap, path, ExportFormat.Png,
+                cancellationToken: new CancellationToken(canceled: true)));
+            Assert.Equal(expected, File.ReadAllBytes(path));
+            Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".tmp-*"));
+        }
+        finally { TempFiles.Delete(path); }
+    }
+
     [Fact]
     public void Gaussian_blur_keeps_the_low_bits_of_a_smooth_gradient()
     {

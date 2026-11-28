@@ -253,7 +253,14 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
     /// <summary>The composite, or a region of it, scaled to fit <paramref name="maxSide"/> as a PNG, with a line saying what it shows.</summary>
     private static (byte[] Png, string Description) Png(EditorSession s, int maxSide, SKRectI? region = null, int grid = 0)
     {
+#if CANVAS_PERFORMANCE
+        var composition = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var composite = s.Composite();                                      // Owned by the session: never disposed here.
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Preview full Composite", composition);
+        var reduce = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var whole = new SKRectI(0, 0, composite.Width, composite.Height);
         var area = region is { } r ? SKRectI.Intersect(r, whole) : whole;
         if (area.IsEmpty) throw new McpException($"That region lies outside the {composite.Width}×{composite.Height} px canvas.");
@@ -269,8 +276,15 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
                              new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear), paint);
             if (grid > 0) DrawGrid(canvas, area, (float)scale, grid);
         }
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Preview resize", reduce);
+        var encode = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         using var encoded = SKImage.FromBitmap(picture);
         using var data = encoded.Encode(SKEncodedImageFormat.Png, 100);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Preview PNG encode", encode);
+#endif
         var description = $"{picture.Width}×{picture.Height} px view of the {composite.Width}×{composite.Height} px canvas";
         if (region != null) description += $", region at {area.Left},{area.Top} size {area.Width}×{area.Height}";
         if (grid > 0) description += $", grid every {grid} px labelled in canvas coordinates";
@@ -312,7 +326,19 @@ public sealed partial class ComposaTools(MainWindow window, EditorSession? autom
 
     // ---- Plumbing -----------------------------------------------------------------------------------------------
 
-    private static async Task<T> OnUi<T>(Func<T> work) => await Dispatcher.UIThread.InvokeAsync(work);
+    private static async Task<T> OnUi<T>(Func<T> work)
+    {
+#if CANVAS_PERFORMANCE
+        var queued = System.Diagnostics.Stopwatch.GetTimestamp();
+        return await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            CanvasPerformanceTrace.StageCompleted("Native UI dispatch", queued);
+            return work();
+        });
+#else
+        return await Dispatcher.UIThread.InvokeAsync(work);
+#endif
+    }
 
     /// <summary>For work that awaits on the UI thread, such as a save that writes in the background.</summary>
     private static async Task<T> OnUi<T>(Func<Task<T>> work) => await Dispatcher.UIThread.InvokeAsync(work);
