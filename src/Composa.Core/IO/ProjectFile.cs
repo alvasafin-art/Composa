@@ -30,6 +30,10 @@ public static class ProjectFile
     /// </summary>
     public const int Version = 18;
 
+    // CMPS is written during interactive saves and crash recovery. All PNG filters stay available,
+    // while level 1 spends less time searching for matches in already filtered lossless raster data.
+    private static readonly SKPngEncoderOptions RasterPng = new(SKPngEncoderFilterFlags.AllFilters, 1);
+
     private static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
@@ -177,13 +181,38 @@ public static class ProjectFile
             if (written.TryGetValue(bitmap, out var existing)) return existing;
             var entry = zip.CreateEntry("images/" + name, CompressionLevel.NoCompression);
             using var output = entry.Open();
-            if (bitmap.ColorType == SKColorType.Alpha8) output.Write(EncodeMask(bitmap));
+            if (bitmap.ColorType == SKColorType.Alpha8)
+            {
+#if CANVAS_PERFORMANCE
+                var encode = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+                var bytes = EncodeMask(bitmap);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("CMPS encode raster PNG", encode);
+                var write = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+                output.Write(bytes);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("CMPS write raster entry", write);
+#endif
+            }
             else
             {
                 // The encoder already owns the compressed PNG. Stream its chunks and profile
                 // to the archive without building further copies on the large object heap.
-                using var encoded = bitmap.Encode(SKEncodedImageFormat.Png, 90) ?? throw new IOException("The image could not be encoded.");
+#if CANVAS_PERFORMANCE
+                var encode = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+                using var pixels = bitmap.PeekPixels();
+                using var encoded = pixels?.Encode(RasterPng) ?? throw new IOException("The image could not be encoded.");
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("CMPS encode raster PNG", encode);
+                var write = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 ImageProfiles.WritePng(output, encoded.AsSpan(), Pixels.ProfileOf(bitmap).IccBytes(), 72);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("CMPS write raster entry", write);
+#endif
             }
             return written[bitmap] = name;
         }
@@ -245,17 +274,29 @@ public static class ProjectFile
 
     public static Document Read(Stream stream)
     {
+#if CANVAS_PERFORMANCE
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("CMPS open ZIP", started);
+#endif
         return Read(zip, stream);
     }
 
     internal static Document Read(ZipArchive zip, Stream stream)
     {
+#if CANVAS_PERFORMANCE
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var entry = zip.GetEntry("manifest.json") ?? throw new InvalidDataException("This is not a Composa project: it has no manifest.");
         if (entry.Length > 4 * 1024 * 1024) throw new InvalidDataException("The project's manifest is too large.");
         Manifest manifest;
         using (var manifestStream = entry.Open())
             manifest = JsonSerializer.Deserialize<Manifest>(manifestStream, Json) ?? throw new InvalidDataException("The project's manifest is empty.");
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("CMPS load manifest", started);
+#endif
         if (manifest.Format != Format) throw new InvalidDataException("This is not a Composa project.");
         if (manifest.Version > Version) throw new InvalidDataException($"This project uses format version {manifest.Version}; this app supports up to version {Version}.");
         if (manifest.Width < 1 || manifest.Height < 1 || manifest.Width > Document.MaxSide || manifest.Height > Document.MaxSide)
@@ -313,7 +354,13 @@ public static class ProjectFile
             if (manifest.SmartObjects == null || !manifest.SmartObjects.TryGetValue(key, out var record))
                 throw new InvalidDataException("Embedded smart object content is missing.");
             var value = BuildDocument(record.Content);
+#if CANVAS_PERFORMANCE
+            var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             var source = SmartObjectSource.Create(value, record.Id == Guid.Empty ? null : record.Id, record.Link);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("CMPS materialize embedded preview", previewStart);
+#endif
             sources.Add(key, source); visiting.Remove(key);
             allocatedPixels += ((long)source.Preview.ByteCount + 3) / 4;
             if (allocatedPixels > DocumentLimits.DocumentPixelBudget) throw new InvalidDataException("The project exceeds the document raster budget.");
@@ -445,8 +492,22 @@ public static class ProjectFile
 
     private static unsafe SKBitmap ReadRaster(ZipArchiveEntry entry, string name, bool mask, bool useNativeBuffer)
     {
-        SKBitmap Decode(Stream encoded) => mask ? DecodeMask(encoded)
-            : Png16Codec.TryDecode(encoded, name, preserveProfile: true) ?? ImageFiles.Load(encoded, name, preserveProfile: true);
+#if CANVAS_PERFORMANCE
+        var extractStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+        SKBitmap Decode(Stream encoded)
+        {
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("CMPS extract raster entry", extractStart);
+            var decodeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+            var decoded = mask ? DecodeMask(encoded)
+                : Png16Codec.TryDecode(encoded, name, preserveProfile: true) ?? ImageFiles.Load(encoded, name, preserveProfile: true);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("CMPS decode raster PNG", decodeStart);
+#endif
+            return decoded;
+        }
 
         using var input = entry.Open();
         if (!useNativeBuffer)

@@ -28,6 +28,10 @@ internal static partial class BrushLatency
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args is ["project-fixtures", var fixtureFolder, var photo])
+            return ProjectLifecycle.MakeFixtures(fixtureFolder, photo);
+        if (args is ["projects", var projectsFolder, var projectsOutput, var firstProject])
+            return ProjectLifecycle.Run(projectsFolder, projectsOutput, firstProject);
         if (args is ["interaction", var interactionOutput])
             return RunInteraction(interactionOutput);
         var size = 150;

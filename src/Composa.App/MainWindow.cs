@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.VisualTree;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using System.Diagnostics;
 using Composa.App.AI;
 using Composa.App.Assistant;
 using Composa.App.Automation;
@@ -437,6 +438,9 @@ public sealed partial class MainWindow : Window
 
     private void SetSession(EditorSession? next)
     {
+#if CANVAS_PERFORMANCE
+        var sessionStart = Stopwatch.GetTimestamp();
+#endif
         if (session != null && session != next)
         {
             finishDockRegionEdit?.Invoke(true);
@@ -459,11 +463,17 @@ public sealed partial class MainWindow : Window
         if (session != null) CarryToolState(session, tool);
         else foreach (var (key, button) in toolButtons) button.IsChecked = key == Tool.Move;
         canvas.Session = session;
+#if CANVAS_PERFORMANCE
+        var panelsStart = Stopwatch.GetTimestamp();
+#endif
         layers.Session = session;
         RefreshLibraryActions();
         history.Session = session;
         channels.Session = session;
         navigator.Session = session;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Switch tab panels", panelsStart);
+#endif
         welcome.IsVisible = session == null;
         dock.LeftHost.IsVisible = dock.IsVisible = session != null;
         RebuildTabs();
@@ -473,6 +483,9 @@ public sealed partial class MainWindow : Window
         UpdateStatus();
         RefreshAiUi();
         if (session != null) canvas.Focus();
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Set session", sessionStart);
+#endif
     }
 
     private EditorSession? lastToolSource;
