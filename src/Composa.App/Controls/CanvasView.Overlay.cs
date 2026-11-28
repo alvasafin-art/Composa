@@ -1,4 +1,5 @@
 using Composa.Editing;
+using Composa.Model;
 using SkiaSharp;
 
 namespace Composa.App.Controls;
@@ -6,6 +7,34 @@ namespace Composa.App.Controls;
 public sealed partial class CanvasView
 {
     private static readonly SKColor Accent = new(0x3D, 0x9B, 0xFF);
+
+    private void CaptureMoveTargets(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
+    {
+        void Frame(Layer layer, SKColor color, float width)
+        {
+            var bounds = EditorSession.AlignmentBounds(layer);
+            if (bounds.IsEmpty) return;
+            var points = (layer.Pixels != null ? layer.ControlTransform.FrameCorners() : Corners(bounds))
+                .Select(point => view.MapPoint(point)).ToArray();
+            steps.Add(canvas =>
+            {
+                using var path = new SKPath();
+                path.MoveTo(points[0]);
+                for (var index = 1; index < points.Length; index++) path.LineTo(points[index]);
+                path.Close();
+                using var paint = new SKPaint { Color = color, StrokeWidth = width * hair,
+                    Style = SKPaintStyle.Stroke, IsAntialias = true };
+                canvas.DrawPath(path, paint);
+            });
+        }
+
+        var anchor = session!.AlignmentAnchor;
+        if (cursorInside && moveHover is { } id && session.Document.Find(id) is { } hover && hover.Id != anchor?.Id &&
+            (!ShowTransformControls || session.Document.SelectedLayerIds.Count != 1 || hover.Id != session.Document.ActiveLayerId))
+            Frame(hover, Accent, 1.5f);
+        if (anchor != null) Frame(anchor, new SKColor(20, 117, 227), 3);
+    }
+
 
     /// <summary>Captures the tool overlay as a drawing closure over immutable values, safe to run on the render thread.</summary>
     private Action<SKCanvas>? CaptureOverlay(SKMatrix view)
@@ -26,6 +55,21 @@ public sealed partial class CanvasView
         CaptureRegions(steps, view, hair);
         CapturePenOverlay(steps, view, hair);
         CaptureAutoLayoutOverlay(steps, view, hair);
+        if (libraryDropPoint is { } drop)
+        {
+            var point = view.MapPoint(drop);
+            steps.Add(canvas =>
+            {
+                using var pen = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 3 * hair, IsAntialias = true };
+                canvas.DrawCircle(point, 8 * hair, pen);
+                pen.Color = Accent;
+                pen.StrokeWidth = hair;
+                canvas.DrawCircle(point, 8 * hair, pen);
+                canvas.DrawLine(point.X - 5 * hair, point.Y, point.X + 5 * hair, point.Y, pen);
+                canvas.DrawLine(point.X, point.Y - 5 * hair, point.X, point.Y + 5 * hair, pen);
+            });
+        }
+        if (tool == Tool.Move && drag == Drag.None) CaptureMoveTargets(steps, view, hair);
 
         if (aiContextBounds is { } aiBounds && session.Selection != null && !session.IsPaintingSelection && drag == Drag.None)
         {

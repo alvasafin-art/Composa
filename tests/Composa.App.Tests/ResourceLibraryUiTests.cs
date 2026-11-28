@@ -225,7 +225,15 @@ public sealed class ResourceLibraryUiTests
                     Frame();
                     var firstShelfMs = Elapsed(start);
                     var openedPrivate = PrivateMiB();
-                    Assert.InRange(Tiles(window).Count(HasPreview), 1, 10);
+                    CheckRealizedPreviews();
+                    void CheckRealizedPreviews()
+                    {
+                        var tiles = Tiles(window).Where(HasPreview).ToArray();
+                        var tile = tiles.First();
+                        var viewport = tile.FindAncestorOfType<ScrollViewer>()!;
+                        var rowHeight = tile.Bounds.Height + tile.Margin.Top + tile.Margin.Bottom;
+                        Assert.InRange(tiles.Length, 1, (int)Math.Ceiling(viewport.Viewport.Height / rowHeight) + 2);
+                    }
                     var endToEnd = new List<double>();
                     var frameUpdates = new List<double>();
                     var scrollPrivate = new List<double> { openedPrivate };
@@ -241,7 +249,7 @@ public sealed class ResourceLibraryUiTests
                         frameUpdates.Add(Screenshots.RenderAndReadback(window));
                         endToEnd.Add(Elapsed(start));
                         scrollPrivate.Add(PrivateMiB());
-                        Assert.InRange(Tiles(window).Count(HasPreview), 1, 10);
+                        CheckRealizedPreviews();
                     }
                     var tile = Tiles(window).First(HasPreview);
                     tile.Focus();

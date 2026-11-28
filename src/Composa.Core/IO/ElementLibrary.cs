@@ -25,6 +25,43 @@ public sealed class ElementLibrary(string folder)
     private sealed record Catalog(string Format, int Version, LibraryEntry Entry);
 
     public string Folder { get; } = Path.GetFullPath(folder);
+    private string OrganizationPath => Path.Combine(Folder, "library-layout.json");
+
+    public LibraryOrganization ReadOrganization()
+    {
+        lock (Mutations)
+        {
+            if (!File.Exists(OrganizationPath)) return LibraryOrganization.Empty;
+            using var stream = OpenArchiveFile(OrganizationPath);
+            if (stream.Length > 2 * 1024 * 1024) throw new InvalidDataException("The library layout is too large.");
+            return JsonSerializer.Deserialize<LibraryOrganization>(stream) is { Order: not null, Groups: not null } layout
+                ? layout : throw new InvalidDataException("The library layout is invalid.");
+        }
+    }
+
+    public LibraryOrganization Organize(Func<LibraryOrganization, LibraryOrganization> change)
+    {
+        lock (Mutations)
+        {
+            var entries = List().Entries;
+            var next = change(ReadOrganization().WithEntries(entries)).WithEntries(entries);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(next);
+            if (bytes.Length > 2 * 1024 * 1024) throw new InvalidDataException("The library layout is too large.");
+            Directory.CreateDirectory(Folder);
+            var temp = OrganizationPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write))
+                {
+                    stream.Write(bytes);
+                    stream.Flush(flushToDisk: true);
+                }
+                File.Move(temp, OrganizationPath, overwrite: true);
+            }
+            finally { if (File.Exists(temp)) File.Delete(temp); }
+            return next;
+        }
+    }
 
     public (LibraryEntry[] Entries, int Unreadable) List()
     {

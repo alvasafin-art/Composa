@@ -234,14 +234,21 @@ public sealed partial class MainWindow : Window
         {
             CommitRegionPromptOutside(e.Source as Visual);
             TrackAiEditorInput(e.Source as Visual);
+            libraryPanel.TrackInput(e.Source as Visual);
             if (lastAiEditor == null && aiFloatingPrompt.IsFocused) canvas.Focus();
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
-        AddHandler(PointerWheelChangedEvent, (_, e) => TrackAiEditorInput(e.Source as Visual),
+        AddHandler(PointerWheelChangedEvent, (_, e) =>
+        {
+            TrackAiEditorInput(e.Source as Visual);
+            libraryPanel.TrackInput(e.Source as Visual);
+        },
             Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(GotFocusEvent, (_, e) =>
         {
             if (e.Source == aiFloatingPrompt || e.NavigationMethod is Avalonia.Input.NavigationMethod.Tab or Avalonia.Input.NavigationMethod.Directional)
                 TrackAiEditorInput(e.Source as Visual);
+            if (e.NavigationMethod is Avalonia.Input.NavigationMethod.Tab or Avalonia.Input.NavigationMethod.Directional)
+                libraryPanel.TrackInput(e.Source as Visual);
         }, handledEventsToo: true);
         AddHandler(KeyDownEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyUpEvent, (_, e) => canvas.ModifierKeyChanged(e.Key, e.KeyModifiers, down: false), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -371,10 +378,13 @@ public sealed partial class MainWindow : Window
         // The first document starts from the remembered view options; later ones inherit them from the current tab.
         if (lastToolSource == null)
         {
-            added.View = settings.View; added.PaintBrush = settings.Brush; added.EraserBrush = settings.EraserBrush ?? settings.Brush;
+            added.View = settings.View; added.PaintBrush = settings.Brush.ForEditor();
+            added.EraserBrush = (settings.EraserBrush ?? settings.Brush).ForEditor();
+            added.HealingBrushHardness = settings.HealingBrushHardness;
+            added.SampleAllLayers = settings.SelectionSampleAllLayers;
+            added.RetouchSampleAllLayers = settings.RetouchSampleAllLayers;
             if (settings.ToolPalette is { } palette)
             {
-                added.Tool = Enum.IsDefined(palette.Active) ? palette.Active : Tool.Move;
                 if (Enum.IsDefined(palette.Marquee)) added.MarqueeKind = palette.Marquee;
                 if (Enum.IsDefined(palette.Lasso)) added.LassoKind = palette.Lasso;
                 if (Enum.IsDefined(palette.Wand)) added.WandMode = palette.Wand;
@@ -387,11 +397,12 @@ public sealed partial class MainWindow : Window
                     _ => Tool.Wand
                 };
                 if (palette.ObjectAi || palette.Active == Tool.ObjectSelectionAi) added.WandMode = WandMode.Object;
-                if (added.Tool == Tool.Brush && palette.Eraser) added.Tool = Tool.Eraser;
+                added.EraserMode = palette.Eraser || palette.Active == Tool.Eraser;
                 stampUsesPatch = palette.Patch;
                 stampGroupTool = SavedStampTool(palette);
                 gradientShowsBucket = palette.Bucket;
             }
+            added.Tool = Tool.Move;
         }
         sessions.Add(added);
         documentAiReferences.TryAdd(added, []);
@@ -441,10 +452,12 @@ public sealed partial class MainWindow : Window
         previewContext = null;
         session = next;
         TrackAiEditorInput(null);
+        libraryPanel.TrackInput(null);
         floatingBoundsMask = null;
         manualDockTask = null;
         aiFloatingPinnedPosition = null;
         if (session != null) CarryToolState(session, tool);
+        else foreach (var (key, button) in toolButtons) button.IsChecked = key == Tool.Move;
         canvas.Session = session;
         layers.Session = session;
         RefreshLibraryActions();
@@ -471,10 +484,12 @@ public sealed partial class MainWindow : Window
         if (lastToolSource is { } from && from != target)
         {
             target.Foreground = from.Foreground; target.Background = from.Background; target.PaintBrush = from.PaintBrush; target.EraserBrush = from.EraserBrush;
+            target.HealingBrushHardness = from.HealingBrushHardness;
             target.GradientRamp = from.GradientRamp;
             target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
             target.Feather = from.Feather; target.WandTolerance = from.WandTolerance; target.WandContiguous = from.WandContiguous;
-            target.SampleAllLayers = from.SampleAllLayers; target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
+            target.SampleAllLayers = from.SampleAllLayers; target.RetouchSampleAllLayers = from.RetouchSampleAllLayers;
+            target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
             target.ShapePoints=from.ShapePoints; target.StarInnerRatio=from.StarInnerRatio; target.ShapeCornerRadius = from.ShapeCornerRadius; target.GradientRadial = from.GradientRadial; target.GradientToTransparent = from.GradientToTransparent; target.TextDefaults = from.TextDefaults;
             target.ShapeLineWidth = from.ShapeLineWidth; target.WandMode = from.WandMode; target.ObjectEdgeOffset = from.ObjectEdgeOffset; target.View = from.View;
             target.SelectionExpandAmount = from.SelectionExpandAmount; target.SelectionContractAmount = from.SelectionContractAmount; target.SelectionFeatherAmount = from.SelectionFeatherAmount;
@@ -666,7 +681,14 @@ public sealed partial class MainWindow : Window
         settings.ShowPixelGrid = canvas.ShowPixelGrid;
         settings.ShowTransformControls = canvas.ShowTransformControls;
         settings.AutoSelect = canvas.AutoSelect;
-        if (session != null) { settings.View = session.View; settings.Brush = session.PaintBrush; settings.EraserBrush = session.EraserBrush; RememberToolPalette(); }
+        if (session != null)
+        {
+            settings.View = session.View; settings.Brush = session.PaintBrush; settings.EraserBrush = session.EraserBrush;
+            settings.HealingBrushHardness = session.HealingBrushHardness;
+            settings.SelectionSampleAllLayers = session.SampleAllLayers;
+            settings.RetouchSampleAllLayers = session.RetouchSampleAllLayers;
+            RememberToolPalette();
+        }
         settings.Save();
     }
 
@@ -1030,7 +1052,7 @@ public sealed partial class MainWindow : Window
 
     public void SelectTool(Tool tool)
     {
-        if (session == null) { foreach (var button in toolButtons.Values) button.IsChecked = false; return; }
+        if (session == null) return;
         session.Tool = tool;
         problem = note = null;
         ShowTool(session.Tool);

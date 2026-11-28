@@ -45,15 +45,52 @@ public class ToolPalettePersistenceTests
     [InlineData(Tool.ObjectSelectionAi, Tool.Wand)]
     [InlineData(Tool.Patch, Tool.Patch)]
     [InlineData(Tool.HealingBrush, Tool.HealingBrush)]
-    public void Legacy_tool_preferences_restore_the_corresponding_rail_button(Tool saved, Tool expected)
+    public void Startup_selects_move_and_keeps_the_legacy_tool_folder_choices(Tool saved, Tool expected)
     {
         var window = new MainWindow();
         window.Settings.ToolPalette = new ToolPaletteSettings { Active = saved, Eraser = saved == Tool.Brush };
         window.Show(); window.AddSession(EditorSession.NewCanvas(120, 80));
-        Assert.Equal(expected, window.Session!.Tool);
-        Assert.True(window.RailButton(expected).IsChecked);
+        Assert.Equal(Tool.Move, window.Session!.Tool);
+        Assert.True(window.RailButton(Tool.Move).IsChecked);
+        window.SelectTool(expected);
+        Assert.Equal(expected, window.Session.Tool);
         if (expected == Tool.Wand) Assert.Equal("Object Selection", window.RailButton(expected).Current!.Name);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Healing_hardness_starts_at_one_hundred_and_survives_tabs_and_a_relaunch()
+    {
+        var window = new MainWindow();
+        window.Settings.Brush = new() { Hardness = 0.36 };
+        window.Show();
+        window.AddSession(EditorSession.NewCanvas(120, 80));
+        window.SelectTool(Tool.HealingBrush);
+        Assert.Equal(1, window.Session!.Brush.Hardness);
+        var hardness = window.GetVisualDescendants().OfType<Composa.App.Controls.SliderField>()
+            .Single(field => field.Label == "Hardness" && field.IsEffectivelyVisible);
+        Assert.True(hardness.Focus());
+        window.KeyPressQwerty(PhysicalKey.ArrowLeft, RawInputModifiers.None);
+        Assert.Equal(0.99, window.Session.Brush.Hardness, 2);
+        window.AddSession(EditorSession.NewCanvas(120, 80));
+        Assert.Equal(0.99, window.Session.Brush.Hardness, 2);
+        window.SelectTool(Tool.Brush);
+        Assert.Equal(0.36, window.Session.Brush.Hardness, 2);
+        var saved = Settings.FromJson(JsonSerializer.Serialize(window.Settings));
+        window.Close();
+
+        var reopened = new MainWindow();
+        reopened.Settings.ToolPalette = saved.ToolPalette;
+        reopened.Settings.HealingBrushHardness = saved.HealingBrushHardness;
+        reopened.Show();
+        reopened.AddSession(EditorSession.NewCanvas(120, 80));
+        try
+        {
+            Assert.Equal(Tool.Move, reopened.Session!.Tool);
+            reopened.SelectTool(Tool.HealingBrush);
+            Assert.Equal(0.99, reopened.Session.Brush.Hardness, 2);
+        }
+        finally { reopened.Close(); }
     }
 
     [AvaloniaTheory]

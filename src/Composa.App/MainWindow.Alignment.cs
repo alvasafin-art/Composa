@@ -6,16 +6,16 @@ namespace Composa.App;
 
 public sealed partial class MainWindow
 {
-    private AlignmentReference alignmentReference = AlignmentReference.Canvas;
+    private AlignmentReference alignmentReference = AlignmentReference.Selection;
 
     private void BuildAlignmentFields(StackPanel row)
     {
         var s = session!;
         var group = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 1, Margin = new Avalonia.Thickness(10, 0, 0, 0) };
-        var reference = Ui.Combo(Enum.GetValues<AlignmentReference>(), alignmentReference,
-            v => v == AlignmentReference.Canvas ? "Canvas" : "2nd object", v => { alignmentReference = v; refreshOptions?.Invoke(); }, 100);
+        var reference = Ui.Combo(new[] { AlignmentReference.Selection, AlignmentReference.Canvas }, alignmentReference,
+            v => v == AlignmentReference.Canvas ? "Align to Canvas" : "Selection", v => { alignmentReference = v; refreshOptions?.Invoke(); }, 127);
         reference.Name = "AlignmentReference";
-        Locale.Tip(reference, "Align to the canvas or to the second object selected; that object stays in place. Shift-click adds objects.");
+        Locale.Tip(reference, "Align to the selection bounds. Click a selected object again to keep it in place as the key object.");
         row.Children.Add(reference);
         var alignButtons = new List<Button>();
         var distributeButtons = new List<Button>();
@@ -43,7 +43,7 @@ public sealed partial class MainWindow
         refreshOptions += () =>
         {
             var count = s.AlignableObjectCount;
-            foreach (var button in alignButtons) button.IsEnabled = count >= (alignmentReference == AlignmentReference.Canvas ? 1 : 2);
+            foreach (var button in alignButtons) button.IsEnabled = count >= 1;
             foreach (var button in distributeButtons) button.IsEnabled = count >= 3;
         };
         row.Children.Add(group);

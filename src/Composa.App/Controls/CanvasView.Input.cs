@@ -1,4 +1,5 @@
 using Avalonia;
+using TopLevel = Avalonia.Controls.TopLevel;
 using Avalonia.Input;
 using Composa.Editing;
 using Composa.Model;
@@ -35,6 +36,11 @@ public sealed partial class CanvasView
     private bool temporaryMove;
     /// <summary>Ctrl is held over the canvas with another tool, so the cursor promises a move.</summary>
     private bool controlHover;
+    private Guid? moveGroupScope;
+    private Guid? moveHover;
+    private Guid? pendingAlignmentAnchor;
+    private bool pendingMoveDoubleClick;
+    private Point pressTopLevel;
     private bool altHover;
     private bool useEyedropperCursor;
     private readonly List<SKPoint> polygon = [];
@@ -217,6 +223,8 @@ public sealed partial class CanvasView
         var point = e.GetCurrentPoint(this);
         brushCursorPointer = e.Pointer.Type;
         pressScreen = cursorScreen = point.Position;
+        pressTopLevel = e.GetPosition(TopLevel.GetTopLevel(this));
+        pendingMoveDoubleClick = false;
         pressDocument = currentDocument = ToDocument(point.Position);
         dragButton = point.Properties.IsMiddleButtonPressed ? MouseButton.Middle : point.Properties.IsRightButtonPressed ? MouseButton.Right : MouseButton.Left;
         dragModifiers = e.KeyModifiers;
@@ -259,7 +267,7 @@ public sealed partial class CanvasView
             case Tool.Move:
                 if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
-                if (e.ClickCount >= 2 && BeginLiveTextEdit(shift)) break;
+                pendingMoveDoubleClick = e.ClickCount >= 2 && !shift;
                 var moveHandle = ShowTransformControls && CurrentFrame() is { } moveFrame
                     ? HitFrame(moveFrame, pressScreen, allowRotate: true) : TransformHandle.None;
                 if (!control && !shift && !alt && BeginLayoutGesture(point.Position, moveHandle is TransformHandle.None or TransformHandle.Move)) break;
@@ -444,6 +452,7 @@ public sealed partial class CanvasView
             case Drag.None when session.Tool == Tool.Move:
                 UpdateMoveCursor(position);
                 UpdateLayoutHover(position);
+                UpdateMoveHover(position, e.KeyModifiers);
                 break;
             case Drag.None when session.Tool is Tool.Text or Tool.TextOnPath or Tool.VerticalText:
                 UpdateTextCursor(position);
@@ -506,7 +515,8 @@ public sealed partial class CanvasView
             else if (drag != Drag.PromptRegion) snapTo = SnapCorner(currentDocument, e.KeyModifiers.HasFlag(KeyModifiers.Control));
         }
         var releasePosition = e.GetPosition(this);
-        if (drag == Drag.Transform && (releasePosition != cursorScreen ||
+        var moved = Distance(pressTopLevel, e.GetPosition(TopLevel.GetTopLevel(this))) > 2;
+        if (drag == Drag.Transform && moved && (releasePosition != cursorScreen ||
             UpdatesTransformModifiers && e.KeyModifiers != dragModifiers && Distance(pressScreen, releasePosition) > 2))
         {
             cursorScreen = releasePosition;
@@ -536,7 +546,6 @@ public sealed partial class CanvasView
         if (drag is Drag.LayoutGap or Drag.LayoutReorder) UpdateLayoutGesture(e.GetPosition(this));
         if (drag == Drag.PenErase) ErasePenTo(ToDocument(releasePosition));
         if (drag == Drag.PenLasso) polygon.Add(ToDocument(releasePosition));
-        var moved = Distance(pressScreen, cursorScreen) > 2;
         var finished = drag;
         if (!(drag == Drag.Lasso && session.LassoKind == LassoKind.Polygonal)) drag = Drag.None;
         var wasTemporaryMove = temporaryMove;
@@ -614,6 +623,7 @@ public sealed partial class CanvasView
             case Drag.Transform:
                 guides.Clear();
                 if (moved) session.CommitTransform(); else session.CancelTransform();
+                if (!moved && pendingAlignmentAnchor is { } anchor) session.SetAlignmentAnchor(anchor);
                 break;
             case Drag.Gradient:
                 // Released: the gradient stays open for adjustment. A click that drew nothing is dropped.
@@ -639,7 +649,21 @@ public sealed partial class CanvasView
             case Drag.TextResize: guides.Clear(); break;
             case Drag.Guide: FinishGuideDrag(e.GetPosition(this)); break;
         }
-        if (drag == Drag.None) SetModifierHover(e.KeyModifiers.HasFlag(KeyModifiers.Control), alt);
+        if (pendingMoveDoubleClick && !moved && (finished is Drag.None or Drag.Transform or Drag.LayoutReorder) && session.Tool == Tool.Move)
+        {
+            if (BeginDoubleMove(e.KeyModifiers.HasFlag(KeyModifiers.Control), shift))
+            {
+                drag = Drag.None;
+                UpdateCursor();
+            }
+        }
+        pendingMoveDoubleClick = false;
+        pendingAlignmentAnchor = null;
+        if (drag == Drag.None)
+        {
+            SetModifierHover(e.KeyModifiers.HasFlag(KeyModifiers.Control), alt);
+            if (session.Tool == Tool.Move) UpdateMoveHover(releasePosition, e.KeyModifiers);
+        }
         if (wasTemporaryMove || finished == Drag.Eyedropper) UpdateCursor();
         InvalidateCanvas();
     }
@@ -661,6 +685,7 @@ public sealed partial class CanvasView
     {
         base.OnPointerExited(e);
         cursorInside = false;
+        if (moveHover != null) { moveHover = null; InvalidateCanvas(); }
         SetModifierHover(control: false, alt: false);
         brushPreparationRequested = false;
         session?.DiscardPreparedBrushDab();
@@ -976,14 +1001,26 @@ public sealed partial class CanvasView
     private bool IsDistorted() => session?.IndependentMaskTarget is { MaskTransform.Distort: not null }
         || session?.TransformTargets() is [{ Pixels: not null, Transform.Distort: not null }];
 
-    /// <summary>The topmost visible material under the point, promoted to its layout group unless picking a child.</summary>
+    private Layer? MoveGroupScope => moveGroupScope is { } id ? session?.Document.Find(id) : null;
+
+    /// <summary>Promotes the top visible hit to the immediate child of the current group scope.</summary>
     private Layer? MoveLayerAt(SKPoint point, bool pickChild)
     {
         if (session == null) return null;
-        return PickLayer(session.Document.Layers, point, (float)zoom, pickChild, []);
+        var scope = pickChild ? null : MoveGroupScope;
+        if (scope != null && !EditorSession.LayoutBounds(scope).Contains(point)) scope = null;
+        if (scope == null) return PickLayer(session.Document.Layers, point, (float)zoom, pickChild, [], 0);
+        var parents = new List<Layer>();
+        for (var group = scope; group != null; group = session.Document.ParentOf(group.Id))
+        {
+            if (!group.Visible) return null;
+            parents.Add(group);
+        }
+        parents.Reverse();
+        return PickLayer(scope.Children, point, (float)zoom, false, parents, parents.Count);
     }
 
-    private static Layer? PickLayer(List<Layer> layers, SKPoint point, float scale, bool pickChild, List<Layer> parents)
+    private static Layer? PickLayer(List<Layer> layers, SKPoint point, float scale, bool pickChild, List<Layer> parents, int scopeDepth)
     {
         for (var i = layers.Count - 1; i >= 0; i--)
         {
@@ -991,15 +1028,71 @@ public sealed partial class CanvasView
             if (!layer.Visible) continue;
             // Live text is picked by its editable box, including spaces and thin glyphs. Keep stack order:
             // an opaque layer above the text still wins, and layer/group masks still constrain the hit.
-            if (layer.Pixels != null && PickCoverage(layer, point, scale, parents) > 12)
-                return pickChild ? layer : parents.FirstOrDefault(parent => parent.AutoLayout != null) ?? layer;
+            if (layer.Pixels != null && layer.Bounds.Contains(point) && PickCoverage(layer, point, scale, parents) > 12)
+                return pickChild || parents.Count == scopeDepth ? layer : parents[scopeDepth];
+            if (!pickChild && layer.AutoLayout != null && layer.Opacity > 0 &&
+                EditorSession.LayoutBounds(layer).Contains(point))
+                return parents.Count == scopeDepth ? layer : parents[scopeDepth];
             if (layer.Children.Count == 0) continue;
             parents.Add(layer);
-            var child = PickLayer(layer.Children, point, scale, pickChild, parents);
+            var child = PickLayer(layer.Children, point, scale, pickChild, parents, scopeDepth);
             parents.RemoveAt(parents.Count - 1);
             if (child != null) return child;
         }
         return null;
+    }
+
+    private bool BeginDoubleMove(bool control, bool shift)
+    {
+        if (session == null || shift || session.Document.SelectedLayerIds.Count > 1) return false;
+        var hit = MoveLayerAt(pressDocument, control);
+        if (!control && hit?.IsGroup == true)
+        {
+            var direct = MoveLayerAt(pressDocument, true);
+            if (direct != null && direct.Id == session.Document.ActiveLayerId && direct.Text != null)
+                return BeginLiveTextEdit(direct, shift);
+            moveGroupScope = hit.Id;
+            session.SelectLayer(MoveLayerAt(pressDocument, false)?.Id ?? hit.Id);
+            moveHover = null;
+            return true;
+        }
+        return hit?.Text != null && BeginLiveTextEdit(hit, shift);
+    }
+
+    private Layer? MoveTarget(SKPoint point, TransformHandle handle, bool direct, bool extend)
+    {
+        if (session == null) return null;
+        if (!direct && !extend && session.Document.SelectedLayerIds.Count == 1 &&
+            session.ActiveLayer is { IsGroup: true } group && group != MoveGroupScope &&
+            (handle == TransformHandle.Move || group.AutoLayout != null && EditorSession.LayoutBounds(group).Contains(point)))
+            return group;
+        return MoveLayerAt(point, direct);
+    }
+
+    private bool SelectionInsideMoveGroup(Guid group)
+    {
+        if (session?.ActiveLayer is not { } active) return false;
+        if (active.Id == group) return true;
+        for (var parent = session.Document.ParentOf(active.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
+            if (parent.Id == group) return true;
+        return false;
+    }
+
+    private void UpdateMoveHover(Point position, KeyModifiers modifiers)
+    {
+        if (session == null) return;
+        var frame = ShowTransformControls && CurrentFrame() is { } current
+            ? HitFrame(current, position, allowRotate: true) : TransformHandle.None;
+        bool direct = modifiers.HasFlag(KeyModifiers.Control), extend = modifiers.HasFlag(KeyModifiers.Shift);
+        var target = !spaceDown && !OverRuler(position) && frame is TransformHandle.None or TransformHandle.Move &&
+            session.IndependentMaskTarget == null && !session.IsEditingChannel &&
+            !(frame == TransformHandle.Move && transformSelection != null && !direct && !extend) &&
+            !(session.CanMovePixels && InsideSelection(currentDocument))
+            ? (AutoSelect || direct ? MoveTarget(ToDocument(position), frame, direct, extend) : session.ActiveLayer) : null;
+        var id = target?.Id;
+        if (id == moveHover) return;
+        moveHover = id;
+        InvalidateCanvas();
     }
 
     private static double PickCoverage(Layer layer, SKPoint point, float scale, List<Layer> parents)
@@ -1051,6 +1144,11 @@ public sealed partial class CanvasView
         }
         var control = key is Key.LeftCtrl or Key.RightCtrl ? down : modifiers.HasFlag(KeyModifiers.Control);
         var alt = key is Key.LeftAlt or Key.RightAlt ? down : modifiers.HasFlag(KeyModifiers.Alt);
+        if (cursorInside && session?.Tool == Tool.Move && key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift)
+        {
+            var flag = key is Key.LeftCtrl or Key.RightCtrl ? KeyModifiers.Control : KeyModifiers.Shift;
+            UpdateMoveHover(cursorScreen, down ? modifiers | flag : modifiers & ~flag);
+        }
         SetModifierHover(control, alt);
     }
 
@@ -1091,6 +1189,7 @@ public sealed partial class CanvasView
     private void BeginMove(bool control, int clicks, TransformHandle moveHandle)
     {
         if (session == null) return;
+        pendingAlignmentAnchor = null;
         handle = moveHandle;
         distortCorner = -1;
         distortEdge = false;
@@ -1100,18 +1199,19 @@ public sealed partial class CanvasView
             && !control && !dragModifiers.HasFlag(KeyModifiers.Shift);
         if (!onHandle && !keepFrame && session.IndependentMaskTarget == null && !session.IsEditingChannel)
         {
-            var keepGroup = !control && !dragModifiers.HasFlag(KeyModifiers.Shift) && session.ActiveLayer is { IsGroup: true } group
-                && (handle == TransformHandle.Move || group.AutoLayout != null && EditorSession.LayoutBounds(group).Contains(pressDocument));
-            var hit = keepGroup ? null : MoveLayerAt(pressDocument, pickChild: control);
-            if (!keepGroup && hit == null && (outsideCanvas || AutoSelect || control || clicks >= 2))
+            bool extend = dragModifiers.HasFlag(KeyModifiers.Shift);
+            var hit = MoveTarget(pressDocument, handle, control, extend);
+            if (hit == null && (outsideCanvas || AutoSelect || control || clicks >= 2))
             {
                 session.ClearLayerSelection();
                 return;
             }
-            if (!keepGroup && hit != null && (AutoSelect || control || clicks >= 2))
+            if (hit != null && (AutoSelect || control || clicks >= 2))
             {
-                if (!session.Document.SelectedLayerIds.Contains(hit.Id) || dragModifiers.HasFlag(KeyModifiers.Shift))
-                    session.SelectLayer(hit.Id, extend: dragModifiers.HasFlag(KeyModifiers.Shift));
+                if (!session.Document.SelectedLayerIds.Contains(hit.Id) || extend)
+                    session.SelectLayer(hit.Id, extend: extend);
+                else if (!control && clicks == 1 && !dragModifiers.HasFlag(KeyModifiers.Alt) && session.AlignableObjectCount > 1)
+                    pendingAlignmentAnchor = hit.Id;
                 else if (hit.Id == session.Document.ActiveLayerId) session.RevealActiveLayer();
             }
             if (control && dragModifiers == KeyModifiers.Control && BeginLayoutReorder()) return;
@@ -1141,7 +1241,12 @@ public sealed partial class CanvasView
         switch (handle)
         {
             case TransformHandle.Move:
-                float dx = currentDocument.X - pressDocument.X, dy = currentDocument.Y - pressDocument.Y;
+                // Selecting a group can reflow the toolbar, moving the canvas under a
+                // stationary pointer. Measure a translation in stable window coordinates.
+                var root = TopLevel.GetTopLevel(this);
+                var screen = root != null ? this.TranslatePoint(cursorScreen, root) ?? cursorScreen : cursorScreen;
+                float dx = (float)((screen.X - pressTopLevel.X) / UnitsPerPixel);
+                float dy = (float)((screen.Y - pressTopLevel.Y) / UnitsPerPixel);
                 if (shift) { if (Math.Abs(dx) > Math.Abs(dy)) dy = 0; else dx = 0; }
                 dx = MathF.Round(dx); dy = MathF.Round(dy);
                 // Ctrl is what started a temporary move, so it cannot also mean "no snapping" there.
@@ -1258,6 +1363,13 @@ public sealed partial class CanvasView
             case Key.Escape:
                 if (drag != Drag.None || polygon.Count > 0) { CancelInteraction(); return true; }
                 if (cropRect != null) { CancelCrop(); return true; }
+                if (session.Tool == Tool.Move && MoveGroupScope is { } scope)
+                {
+                    moveGroupScope = session.Document.ParentOf(scope.Id)?.Id;
+                    moveHover = null;
+                    session.SelectLayer(scope.Id);
+                    return true;
+                }
                 return false;
             case Key.Enter:
                 if (polygon.Count > 0) { FinishPolygon(); InvalidateCanvas(); return true; }
@@ -1272,7 +1384,7 @@ public sealed partial class CanvasView
                 var grow = e.Key == Key.OemCloseBrackets;
                 if (session.Tool is Tool.SelectionBrush or Tool.RemoveObject) session.SelectionBrushSize = NextBrushSize(session.SelectionBrushSize, grow);
                 else if (shift) session.Brush = session.Brush with { Hardness = Math.Clamp(session.Brush.Hardness + (grow ? 0.25 : -0.25), 0, 1) };
-                else session.Brush = session.Brush with { Size = NextBrushSize(session.Brush.Size, grow) };
+                else session.Brush = session.Brush with { Size = Math.Min(Composa.Painting.BrushSettings.MaxEditorDiameter, NextBrushSize(session.Brush.Size, grow)) };
                 ToolStateChanged?.Invoke();
                 InvalidateBrushCursor();
                 return true;

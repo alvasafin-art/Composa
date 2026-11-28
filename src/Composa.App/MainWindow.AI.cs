@@ -35,6 +35,7 @@ public sealed partial class MainWindow
     private Point? aiFloatingDragStart;
     private Point aiFloatingDragPosition;
     private readonly Dictionary<AiTaskKind, ImageModelChoice> modelDrafts = [];
+    private readonly HashSet<AiTaskKind> automaticModelDrafts = [];
     private Button aiEnhance = null!, aiAdvanced = null!;
     private ToggleButton aiPixelAlignment = null!;
     private readonly TextBlock aiFloatingOperation = new() { Name = "AiFloatingOperation", FontWeight = FontWeight.SemiBold };
@@ -70,6 +71,7 @@ public sealed partial class MainWindow
     private Button aiTaskMenuButton = null!;
     private ComfyConnectionState? shownConnection;
     private ComfyServerCapabilities? modelListCapabilities;
+    private RemoteCodexImage.Catalog? modelListRemote;
     private AiOperationState? shownProgress;
     private readonly StackPanel aiActionHost = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly StackPanel aiVariantStrip = new() { Orientation = Orientation.Horizontal, Spacing = 4, IsVisible = false };
@@ -115,12 +117,14 @@ public sealed partial class MainWindow
         (focused is not TextBox || focused == aiFloatingPrompt)
         && lastAiEditor != null && AiEditorContaining(lastAiEditor) != null;
     private bool refreshingAiEngine;
+    private AiInlineRun? aiInlineRun;
+    private Button aiConnectModels = null!;
+    private readonly Dictionary<AiTaskKind, ImageModelChoice[]> panelModelChoices = [];
     private WrapPanel? aiFloatingTools;
     private Button? aiFloatingCollapse, aiHeaderReference;
     private AiTaskKind aiDialogReferenceTask;
     private string? aiLastError;
     private Button? aiFloatingGenerate, aiFloatingMore;
-    private StackPanel? aiVariantButtons;
     private ComboBox? aiEngineCombo;
     private StackPanel? aiFloatingActions;
     private static readonly IBrush CreditColor = new SolidColorBrush(Color.Parse("#D6C08C"));
@@ -180,9 +184,10 @@ public sealed partial class MainWindow
         return AiTaskAvailability.Resolve(session, engine, task, CropExpands);
     }
 
-    private void ChooseAiOperation(AiTaskKind task)
+    private void ChooseAiOperation(AiTaskKind task, bool fromModelPanel = false)
     {
-        if (!CanRunAi(task)) return;
+        if (!(DockEditorVisible || ShowSelectionPanel ? CanChooseAiOperation(task) : CanRunAi(task)) ||
+            fromModelPanel && !HasPanelModels(task)) return;
         bool immediate = task is AiTaskKind.RemoveObject or AiTaskKind.GenerativeExpand;
         bool sceneEdit = task is AiTaskKind.Harmonize or AiTaskKind.ChangeBackground;
         if (IsPanelEdit(task) && ShowSelectionPanel)
@@ -282,7 +287,8 @@ public sealed partial class MainWindow
 
     private void RefreshAiState()
     {
-        if (shownConnection != aiTasks.ConnectionState || !ReferenceEquals(modelListCapabilities, aiTasks.ServerCapabilities))
+        if (shownConnection != aiTasks.ConnectionState || !ReferenceEquals(modelListCapabilities, aiTasks.ServerCapabilities) ||
+            !ReferenceEquals(modelListRemote, aiTasks.RemoteImageCatalog))
             RefreshEditorModels();
         if (shownProgress?.Status is AiOperationStatus.Queued or AiOperationStatus.Running &&
             aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running &&
@@ -294,7 +300,10 @@ public sealed partial class MainWindow
     private void RefreshAiProgress()
     {
         var operation = aiTasks.Operation;
+        aiInlineRun?.Update(operation, operation?.DirectCharge);
         var active = operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
+        var panelOwnsProgress = DockEditorVisible || aiFloatingHost.IsVisible;
+        aiProgressHost.IsVisible = !panelOwnsProgress;
         if (shownProgress != operation)
         {
             shownProgress = operation;
@@ -412,6 +421,8 @@ public sealed partial class MainWindow
             settings.AiAlignMaskedEdits = align;
             settings.Save();
         });
+        foreach (var control in new Button[] { aiHeaderReference, aiEnhance, aiPixelAlignment, aiAdvanced })
+            control.Classes.Add("ai-panel-control");
         var workflowName = Ui.Label("", Palette.Secondary, 11);
         workflowName.TextTrimming = TextTrimming.CharacterEllipsis;
         aiWorkflowLink = Ui.TextButton("Workflows", () =>
@@ -423,6 +434,7 @@ public sealed partial class MainWindow
         aiWorkflowLink.Content = workflowName;
         aiWorkflowLink.Name = "AiActiveWorkflow";
         aiWorkflowLink.Classes.Add("flat");
+        aiWorkflowLink.Classes.Add("ai-panel-control");
         aiWorkflowLink.HorizontalAlignment = HorizontalAlignment.Stretch;
         aiWorkflowLink.IsVisible = false;
         void ToggleCollapsed() => SetFloatingCollapsed(!settings.AiFloatingCollapsed);
@@ -439,20 +451,42 @@ public sealed partial class MainWindow
         };
         grip.DoubleTapped += (_, e) => { ToggleCollapsed(); e.Handled = true; };
 
-        aiFloatingGenerate = Ui.TextButton("Run", () => _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true), accent: true);
+        void Launch(int count)
+        {
+            if (aiInlineRun?.Holding != false || !HasPanelModels(EditorTask)) return;
+            _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true, runCount: count);
+        }
+        aiFloatingGenerate = Ui.TextButton(AiInlineRun.RunLabel, () => Launch(1), accent: true);
         ToolTip.SetShowOnDisabled(aiFloatingGenerate, true);
         aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", () => { });
         aiFloatingMore.Flyout = BuildAiFloatingTaskMenu();
-        aiVariantButtons = AiGenerationControls.QuickRuns(count =>
-            _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true, runCount: count));
-        var run = AiGenerationControls.RunGroup(aiFloatingGenerate, aiVariantButtons);
+        aiInlineRun = new AiInlineRun(aiFloatingGenerate, Launch, aiTasks.Cancel, RefreshAiFloatingUi);
+        var run = aiInlineRun.View;
+        aiConnectModels = Ui.TextButton("Connect models", () => _ = ShowAiSettings(0, operation: EditorTask), accent: true);
+        aiConnectModels.Name = "ConnectAiModels";
+        aiConnectModels.HorizontalAlignment = HorizontalAlignment.Stretch;
+        aiConnectModels.Height = 28;
+        aiConnectModels.IsVisible = false;
         aiEngineCombo = new ComboBox { Width = AiGenerationControls.ModelPickerWidth };
+        aiEngineCombo.Classes.Add("ai-panel-control");
+        aiEngineCombo.Resources["ComboBoxBackgroundDisabled"] = Brushes.Transparent;
+        aiEngineCombo.Resources["ComboBoxBorderBrushDisabled"] = Brushes.Transparent;
+        aiEngineCombo.Resources["ComboBoxForegroundDisabled"] = Palette.Secondary;
+        aiEngineCombo.Resources["ComboBoxDropDownGlyphForegroundDisabled"] = Palette.Secondary;
+        aiEngineCombo.TemplateApplied += (_, e) =>
+        {
+            if (e.NameScope.Find<Popup>("PART_Popup") is not { } popup) return;
+            popup.Placement = PlacementMode.BottomEdgeAlignedLeft;
+            popup.PlacementTarget = aiEngineCombo;
+        };
         RefreshEditorModels();
         aiEngineCombo.SelectionChanged += (_, _) =>
         {
             if (refreshingAiEngine || aiEngineCombo.SelectedItem is not ImageModelChoice model) return;
             if (!model.Available) { RefreshEditorModels(); return; }
-            modelDrafts[ImageOperationModels.ModelTask(EditorTask)] = model;
+            var task = ImageOperationModels.ModelTask(EditorTask);
+            automaticModelDrafts.Remove(task);
+            modelDrafts[task] = model;
             RefreshAiUi();
         };
         Locale.Tip(aiEngineCombo, "Image model for this operation");
@@ -471,14 +505,41 @@ public sealed partial class MainWindow
         aiFloatingActions = run;
         var bar = new AiPromptToolbar(leading, Ui.Row(3, aiFloatingMore, close, run));
         aiFloatingPrompt.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingOperation, aiFloatingPrompt, promptRegionList, bar, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
+        return Ui.Column(AiGenerationControls.EditorSpacing, aiFloatingOperation, aiFloatingPrompt, promptRegionList, bar, aiConnectModels, aiWorkflowLink, aiReferenceHost, aiFloatingVariants);
     }
 
     private void RefreshEditorModels()
     {
         if (aiEngineCombo == null) return;
+        panelModelChoices.Clear();
         modelListCapabilities = aiTasks.ServerCapabilities;
+        modelListRemote = aiTasks.RemoteImageCatalog;
         var task = ImageOperationModels.ModelTask(EditorTask);
+        if (automaticModelDrafts.Remove(task)) modelDrafts.Remove(task);
+        var selected = PanelChoice(task);
+        var choices = PanelModels(task);
+        var choice = choices.FirstOrDefault(candidate => candidate.SelectionKey == selected?.SelectionKey) ?? choices.FirstOrDefault();
+        if (choice != null)
+        {
+            if (choice.SelectionKey != selected?.SelectionKey) automaticModelDrafts.Add(task);
+            modelDrafts[task] = choice;
+        }
+        else modelDrafts.Remove(task);
+        refreshingAiEngine = true;
+        try
+        {
+            AiGenerationControls.PresentImageModels(aiEngineCombo, choices);
+            aiEngineCombo.SelectedItem = choice;
+        }
+        finally { refreshingAiEngine = false; }
+    }
+
+    private bool HasPanelModels(AiTaskKind task) => PanelModels(ImageOperationModels.ModelTask(task)).Length != 0;
+
+    private ImageModelChoice[] PanelModels(AiTaskKind task)
+    {
+        if (panelModelChoices.TryGetValue(task, out var cached)) return cached;
+        if (!AiGenerationControls.IsOperationEnabled(task)) return panelModelChoices[task] = [];
         var selected = PanelChoice(task);
         var direct = DirectImageGenerator.For(settings, task) with { Route = ImageGenerationRoute.DirectApi };
         bool comfyConfigured, credits, apiEnabled;
@@ -493,17 +554,20 @@ public sealed partial class MainWindow
         }
         catch (Exception error) when (error is FormatException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         { apiEnabled = false; }
+        var connected = comfyConfigured && aiTasks.ConnectionState == ComfyConnectionState.Connected && aiTasks.ServerCapabilities != null;
         var choices = ImageOperationModels.Choices(aiTasks, task, aiTasks.EngineFor(task), settings.ComfyModelsFor(settings.ComfyServerUrl),
-            settings.Workflows, settings, comfyConfigured, aiTasks.ConnectionState == ComfyConnectionState.Connected, credits,
+            settings.Workflows, settings, connected, connected, credits,
             ImageOperationModels.DirectChoices(direct, ImageOperationModels.ApiCatalog(settings).Select(pair => (pair.Key, pair.Value)),
                 settings.ImageApiDisplayName, apiEnabled, ImageOperationModels.GenerationOnly(settings), ImageOperationModels.ApiUpscalers(settings)), selected);
-        refreshingAiEngine = true;
-        try
-        {
-            AiGenerationControls.PresentImageModels(aiEngineCombo, choices);
-            aiEngineCombo.SelectedItem = choices.FirstOrDefault(choice => choice.SelectionKey == selected?.SelectionKey);
-        }
-        finally { refreshingAiEngine = false; }
+        return panelModelChoices[task] = choices.Where(choice => choice.Available &&
+            (choice.Route != ImageGenerationRoute.LocalCodex || ImageOperationModels.IsUtility(task) ||
+                !string.IsNullOrWhiteSpace(direct.CodexPath) || settings.ImageRouteFor(task) == ImageGenerationRoute.LocalCodex) &&
+            (choice.Route != ImageGenerationRoute.RemoteCodex || connected && aiTasks.RemoteImageCatalog is { } catalog &&
+                catalog.Models.Any(model => (string.IsNullOrWhiteSpace(direct.RemoteLanguageModel)
+                    ? model.IsDefault : model.Id == direct.RemoteLanguageModel) &&
+                    (direct.RemoteReasoningEffort == "default" || model.Reasoning.Contains(direct.RemoteReasoningEffort)))) &&
+            (choice.Route != ImageGenerationRoute.ComfyWorkflow || credits ||
+                !choice.Engine.PaidApi && choice.ConnectionLabel != "Comfy credits")).ToArray();
     }
 
     private MenuFlyout BuildAiFloatingTaskMenu()
@@ -519,14 +583,21 @@ public sealed partial class MainWindow
             flyout.Opening += (_, _) =>
             {
                 item.IsChecked = EditorTask == task;
-                item.IsEnabled = CanRunAi(task);
+                item.IsEnabled = HasPanelModels(task) && CanChooseAiOperation(task);
                 Locale.Tip(item, AiAvailability(task).Reason);
             };
             ToolTip.SetShowOnDisabled(item, true);
-            item.Click += (_, _) => ChooseAiOperation(task);
+            item.Click += (_, _) => ChooseAiOperation(task, fromModelPanel: true);
             flyout.Items.Add(item);
         }
         return flyout;
+    }
+
+    private bool CanChooseAiOperation(AiTaskKind task)
+    {
+        if (aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running) return false;
+        // Selectable editor modes can be chosen before the user supplies a selection or prompt.
+        return session != null && (IsPanelEdit(task) || task == AiTaskKind.GenerateImage) || CanRunAi(task);
     }
 
     private void SetFloatingCollapsed(bool collapsed)
@@ -548,15 +619,17 @@ public sealed partial class MainWindow
         RefreshPromptRegions();
         var visible = ShowSelectionPanel;
         aiFloatingHost.IsVisible = visible;
+        aiProgressHost.IsVisible = !visible && !DockEditorVisible;
         if (lastAiEditor != null && AiEditorContaining(lastAiEditor) == null) TrackAiEditorInput(null);
         var expanded = DockEditorVisible || !settings.AiFloatingCollapsed;
         var task = EditorTask;
+        var hasModels = aiEngineCombo?.SelectedItem is ImageModelChoice;
         var fillEngine = PanelEngine(task);
         var acceptsReferences = aiTasks.SupportsReferenceImages(task, fillEngine, PanelUsesAssignedWorkflow(task));
         if (aiHeaderReference != null)
         {
             aiHeaderReference.IsVisible = expanded && acceptsReferences;
-            aiHeaderReference.IsEnabled = acceptsReferences && aiReferences.Count < AiReferenceEditor.Capacity;
+            aiHeaderReference.IsEnabled = hasModels && acceptsReferences && aiReferences.Count < AiReferenceEditor.Capacity;
         }
         aiReferenceHost.IsVisible = expanded && acceptsReferences && aiReferences.Count > 0;
         aiFloatingPrompt.SetImages(acceptsReferences ? AiImageMentions(task, aiReferences.Count) : []);
@@ -565,14 +638,28 @@ public sealed partial class MainWindow
         aiPixelAlignment.IsChecked = settings.AiAlignMaskedEdits;
         aiPixelAlignment.IsVisible = expanded && AiGenerationControls.SupportsAlignment(EditorTask);
         if (aiEnhance != null) aiEnhance.IsVisible = EditorTask != AiTaskKind.GenerativeExpand;
-        if (aiFloatingActions != null) aiFloatingActions.IsVisible = expanded;
+        if (aiFloatingActions != null) aiFloatingActions.IsVisible = expanded && (hasModels || aiInlineRun?.Holding == true);
+        if (aiConnectModels != null) aiConnectModels.IsVisible = expanded && !hasModels && aiInlineRun?.Holding != true;
+        if (aiEngineCombo != null) aiEngineCombo.IsVisible = expanded && hasModels;
 
         if (aiFloatingTools != null) aiFloatingTools.IsVisible = !settings.AiFloatingCollapsed;
         if (aiFloatingMore != null) aiFloatingMore.IsVisible = !settings.AiFloatingCollapsed;
         if (aiFloatingCollapse != null) aiFloatingCollapse.IsVisible = settings.AiFloatingCollapsed && !DockEditorVisible;
         if (!visible && !DockEditorVisible) return;
         var busy = aiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running;
-        aiPixelAlignment.IsEnabled = !busy;
+        aiPixelAlignment.IsEnabled = hasModels && !busy;
+        aiFloatingPrompt.IsEnabled = hasModels && !busy;
+        if (aiEnhance != null) aiEnhance.IsEnabled = hasModels && !busy;
+        aiAdvanced.IsEnabled = hasModels && !busy;
+        aiWorkflowLink.IsEnabled = hasModels && !busy;
+        aiReferenceHost.IsEnabled = hasModels && !busy;
+        promptRegionList.IsEnabled = hasModels && !busy;
+        foreach (var region in listedRegions)
+            regionPromptLabels[region.Number].Opacity = promptRegionList.IsEnabled ? (region.Enabled ? 1 : .6) : .48;
+        if (aiHeaderReference != null) aiHeaderReference.IsEnabled &= !busy;
+        if (dockOperation != null) dockOperation.IsEnabled = !busy &&
+            (hasModels || AiGenerationControls.VisibleOperations.Any(taskKind =>
+                taskKind is not (AiTaskKind.ObjectSelection or AiTaskKind.SelectSubject) && HasPanelModels(taskKind)));
         var direct = DirectImageFor(task);
         var fillProfile = AiOptions(task, fillEngine);
 
@@ -580,14 +667,10 @@ public sealed partial class MainWindow
         {
             aiEngineCombo.IsEnabled = !busy && aiEngineCombo.ItemCount > 0;
         }
-        if (aiFloatingGenerate != null) aiFloatingGenerate.IsEnabled = !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage || !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text) || listedRegions.Any(r => r.Enabled && r.Prompt.Length > 0));
-        if (aiVariantButtons != null)
-        {
-            aiVariantButtons.IsVisible = AiGenerationControls.SupportsVariants(task);
-            aiVariantButtons.IsEnabled = aiFloatingGenerate?.IsEnabled == true;
-        }
-        if (aiFloatingGenerate != null) AiGenerationControls.ShowBusy(aiFloatingGenerate, busy);
-        if (aiFloatingMore != null) aiFloatingMore.IsEnabled = !busy;
+        var canStart = hasModels && !busy && AiAvailability(task).Available && (!DockEditorVisible || task != AiTaskKind.GenerateImage ||
+            !string.IsNullOrWhiteSpace(aiFloatingPrompt.Text) || listedRegions.Any(r => r.Enabled && r.Prompt.Length > 0));
+        aiInlineRun?.Configure(canStart, AiGenerationControls.SupportsVariants(task));
+        if (aiFloatingMore != null) aiFloatingMore.IsEnabled = hasModels && !busy;
         var workflowId = settings.Workflows.ActiveId(task, fillEngine?.Id, PanelUsesAssignedWorkflow(task));
         var activeWorkflow = workflowId == null ? null : settings.Workflows.Workflows.GetValueOrDefault(workflowId);
         aiWorkflowLink.IsVisible = expanded && direct == null && activeWorkflow != null;
@@ -602,9 +685,10 @@ public sealed partial class MainWindow
             AiOperationStatus.Failed => operation.Error ?? "AI operation failed",
             _ => ""
         });
-        if (aiFloatingGenerate != null) Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
+        if (aiFloatingGenerate != null && aiInlineRun?.Holding != true)
+            Locale.Tip(aiFloatingGenerate, string.IsNullOrEmpty(status) ? "Run one variant" : status);
         var directApi = direct is { Route: ImageGenerationRoute.DirectApi };
-        aiPriceBadge.IsVisible = expanded && (directApi || direct == null &&
+        aiPriceBadge.IsVisible = expanded && hasModels && !busy && aiInlineRun?.Holding != true && (directApi || direct == null &&
             (activeWorkflow == null ? fillEngine?.PaidApi == true : ComfyClient.UsesApiCredits(activeWorkflow.Graph)));
         aiPriceBadge.Children[0].IsVisible = !directApi;
         PartnerPriceEstimate? estimate = null;
@@ -630,13 +714,7 @@ public sealed partial class MainWindow
             Locale.Tip(aiPriceBadge, tip);
             Avalonia.Automation.AutomationProperties.SetName(aiPriceBadge, tip);
         }
-        if (aiVariantButtons != null)
-            foreach (var button in aiVariantButtons.Children.OfType<Button>())
-            {
-                var variants = button.Name == "AiVariants2" ? 2 : 3;
-                var label = $"Run {variants} variants";
-                Locale.Tip(button, estimate == null ? label : $"{label} · {estimate.RoundedCredits(variants)} ComfyUI credits total");
-            }
+        aiInlineRun?.SetVariantEstimates(estimate);
         if (DockEditorVisible)
         {
             const int thumbnailsPerRow = 4;
@@ -947,14 +1025,22 @@ public sealed partial class MainWindow
     {
         try
         {
+            var previousServer = settings.ComfyServerUrl;
             if (!await AiDialogs.SettingsDialog(this, settings, aiTasks, page, field, operation, firstRun, firstRunBack)) return;
             dock.SetTabbed(settings.TabbedPanels);
             aiTasks.ConnectionTimeoutSeconds = settings.ComfyConnectionTimeoutSeconds;
             aiTasks.SelectedEngine = aiTasks.Engines.Find(settings.AiEngineId);
             modelDrafts.Clear();
+            automaticModelDrafts.Clear();
             RefreshEditorModels();
             RefreshAiUi();
             RefreshObjectModelChoices();
+            if (Settings.Persist && previousServer != settings.ComfyServerUrl &&
+                aiTasks.ConnectionState == ComfyConnectionState.Disconnected)
+            {
+                try { await aiTasks.TestConnectionAsync(); }
+                catch (Exception error) when (error is InvalidOperationException or FormatException) { }
+            }
         }
         catch (Exception error) { ShowProblem(error.Message); }
     }
@@ -1060,6 +1146,7 @@ public sealed partial class MainWindow
         if (direct == null && options.EngineId != null && engine != null && engine.Id != panelEngine?.Id)
         {
             chosenModel = aiTasks.Engines.ModelFor(engine, task, settings.ComfyModelsFor(settings.ComfyServerUrl));
+            automaticModelDrafts.Remove(modelTask);
             modelDrafts[modelTask] = chosenModel;
             useAssigned = false;
             RefreshEditorModels();

@@ -43,6 +43,7 @@ public class AiAdvancedTests
         {
             ModelChoices = new() { ["LoraLoaderModelOnly.lora_name"] = ["portrait.safetensors", "shared/style.safetensors"] }
         };
+        window.AiTasks.ApiKey = () => "test-only";
         window.AiTasks.SetConnectedForTests(capabilities);
         var pending = AiDialogs.Advanced(window, settings, window.AiTasks); Dispatcher.UIThread.RunJobs();
         var local = Assert.Single(window.OwnedWindows);
@@ -65,7 +66,8 @@ public class AiAdvancedTests
         Assert.True(badge.IsEffectivelyVisible);
         Assert.Contains(badge.Children.OfType<TextBlock>(), block => block.Text == "≈32");
         Assert.Contains(" cr / $", ToolTip.GetTip(badge)?.ToString());
-        var three = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiVariants3");
+        var alternatives = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRunVariants");
+        var three = Assert.IsAssignableFrom<MenuFlyout>(alternatives.Flyout).Items.OfType<MenuItem>().Single(item => item.Name == "AiVariants3");
         Assert.Contains("≈96", ToolTip.GetTip(three)?.ToString());
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "＋");

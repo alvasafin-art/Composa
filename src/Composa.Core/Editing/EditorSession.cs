@@ -88,13 +88,42 @@ public sealed partial class EditorSession
     }
     public SKColor Foreground { get; set; } = SKColors.Black;
     public SKColor Background { get; set; } = SKColors.White;
-    public BrushSettings PaintBrush { get; set; } = new();
+    private BrushSettings paintBrush = new();
     private BrushSettings? eraserBrush;
+    private BrushSettings? healingBrush;
+    public BrushSettings PaintBrush
+    {
+        get => paintBrush;
+        set
+        {
+            paintBrush = value;
+            if (healingBrush != null) healingBrush = value with { Hardness = healingBrush.Hardness };
+        }
+    }
     public BrushSettings EraserBrush { get => eraserBrush ?? PaintBrush; set => eraserBrush = value; }
+    public double HealingBrushHardness
+    {
+        get => healingBrush?.Hardness ?? 1;
+        set => healingBrush = paintBrush with { Hardness = double.IsFinite(value) ? Math.Clamp(value, 0, 1) : 1 };
+    }
     public BrushSettings Brush
     {
-        get => Tool == Tool.Eraser ? EraserBrush : PaintBrush;
-        set { if (Tool == Tool.Eraser) EraserBrush = value; else PaintBrush = value; }
+        get => Tool switch
+        {
+            Tool.Eraser => EraserBrush,
+            Tool.HealingBrush => healingBrush ??= paintBrush with { Hardness = 1 },
+            _ => PaintBrush
+        };
+        set
+        {
+            if (Tool == Tool.Eraser) EraserBrush = value;
+            else if (Tool == Tool.HealingBrush)
+            {
+                paintBrush = value with { Hardness = paintBrush.Hardness };
+                healingBrush = value;
+            }
+            else PaintBrush = value;
+        }
     }
     private bool eraserMode;
     public bool EraserMode
@@ -116,6 +145,9 @@ public sealed partial class EditorSession
     /// <summary>Object mode: positive values tighten the detected outline inward, negative ones loosen it, in pixels.</summary>
     public int ObjectEdgeOffset { get; set; }
     public bool SampleAllLayers { get; set; }
+    public bool RetouchSampleAllLayers { get; set; }
+    public bool PromptRegionsVisible { get; set; } = true;
+    public int? RevealedPromptRegion { get; set; }
     public bool CloneAligned { get; set; } = true;
     /// <summary>Pixels the selection bar's Expand, Contract and Feather buttons work by.</summary>
     public int SelectionExpandAmount { get; set; } = 1;
@@ -665,7 +697,9 @@ public sealed partial class EditorSession
             case Tool.Brush: Tool = Tool.Eraser; break;
             case Tool.Eraser: Tool = Tool.Brush; break;
             case Tool.Smear: SmearMode = Next(SmearMode); break;
-            case Tool.SpotHealing or Tool.CloneStamp: SampleAllLayers = !SampleAllLayers; break;
+            case Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp:
+                RetouchSampleAllLayers = !RetouchSampleAllLayers;
+                break;
             case Tool.Gradient: GradientRadial = !GradientRadial; break;
         }
     }

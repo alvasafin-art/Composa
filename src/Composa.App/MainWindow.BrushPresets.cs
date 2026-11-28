@@ -151,7 +151,7 @@ public sealed partial class MainWindow
                     HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 4) };
                 entry.Click += (_, _) =>
                 {
-                    target.Brush = preset.Settings;
+                    target.Brush = preset.Settings.ForEditor();
                     BuildTipFields();
                     refreshOptions?.Invoke();
                     RememberToolSettings();

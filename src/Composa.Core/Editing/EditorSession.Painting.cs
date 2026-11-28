@@ -71,7 +71,7 @@ public sealed partial class EditorSession
     }
     private Layer? strokeLayer;
     private SKBitmap? strokeOriginal;
-    private (Document Document, RenderOptions? Options)? spotHealingDonor;
+    private (Document Document, RenderOptions? Options)? retouchDonor;
     private LayerEffectsRenderer.StrokeBase? strokeEffectBase;
     private LayerEffectsRenderer.PatchGrid? strokeEffectGrid;
     private Guid? finishingStrokeEffect;
@@ -218,12 +218,12 @@ public sealed partial class EditorSession
         {
             if (!CloneAligned || cloneOffset == null) cloneOffset = new SKPoint(cloneSource!.Value.X - point.X, cloneSource.Value.Y - point.Y);
             var o = cloneOffset.Value;
-            if (SampleAllLayers && !IsEditingMask && matrix.ScaleX == 1 && matrix.ScaleY == 1 && matrix.SkewX == 0 && matrix.SkewY == 0)
+            if (RetouchSampleAllLayers && !IsEditingMask && matrix.ScaleX == 1 && matrix.ScaleY == 1 && matrix.SkewX == 0 && matrix.SkewY == 0)
             {
                 source = CompositePixels();
                 SetOffset(new SKPoint(o.X + matrix.TransX, o.Y + matrix.TransY));
             }
-            else if (SampleAllLayers && !IsEditingMask)
+            else if (RetouchSampleAllLayers && !IsEditingMask)
             {
                 // Sample doc = ToDocument(target pixel) + source offset. Baking the translation
                 // here also allows a donor outside the active layer's transformed bounds.
@@ -252,11 +252,10 @@ public sealed partial class EditorSession
         strokeLayer = layer;
         strokeOriginal = target;
         strokeEffectBase = effectBase;
-        if (mode == BrushMode.Heal && SampleAllLayers)
+        if (mode is BrushMode.Heal or BrushMode.Healing && RetouchSampleAllLayers && !IsEditingMask)
         {
-            // The drag veil needs no donor pixels. Retain the pre-stroke scene now
-            // and composite it on release, after the first visible dab has landed.
-            spotHealingDonor = (document.Clone(), CurrentOptions());
+            // Retain the pre-stroke scene for the repair boundary and composite it after the first dab.
+            retouchDonor = (document.Clone(), CurrentOptions());
         }
         strokeMode = mode.Value;
         SetTarget(layer, stroke.Working, constrainChannels: false);
@@ -471,8 +470,7 @@ public sealed partial class EditorSession
             // A single translated donor serves a dab. A long stroke may cross several different materials.
             bool singleDab = Math.Max(touched.Width, touched.Height) <= Brush.Size * 2;
             SKBitmap repair;
-            if (strokeMode == BrushMode.Healing) repair = PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset);
-            else if (spotHealingDonor is { } donor)
+            if (retouchDonor is { } donor)
             {
                 using var visible = DocumentRenderer.Flatten(donor.Document, donor.Options);
                 using var sample = MapStrokeSample(visible, strokeOriginal!, SKPoint.Empty);
@@ -485,11 +483,14 @@ public sealed partial class EditorSession
                     for (var x = 0; x < row.Length; x++) if (row[x] > 0) row[x] = 255;
                 }
                 Pixels.Invalidate(hard);
-                repair = Inpaint.Fill(sample, hard, donorExclusion, coherentSpot: singleDab);
+                repair = strokeMode == BrushMode.Healing
+                    ? PatchBlend.Blend(sample, stroke.CloneSource!, hard, stroke.CloneOffset)
+                    : Inpaint.Fill(sample, hard, donorExclusion, coherentSpot: singleDab);
                 // Write only the stroke onto the retouch layer. Coverage is applied once,
                 // not first to the composite and then again when transferring its pixels.
                 repair = MixBySelection(strokeOriginal!, repair, mask);
             }
+            else if (strokeMode == BrushMode.Healing) repair = PatchBlend.Blend(strokeOriginal!, stroke.CloneSource!, mask, stroke.CloneOffset);
             else repair = Inpaint.Fill(strokeOriginal!, mask, donorExclusion, coherentSpot: singleDab);
             var healed = MixBySelection(strokeOriginal!, repair, selection);
             if (EffectiveLocks(layer).HasFlag(LayerLocks.Transparency))
@@ -530,7 +531,7 @@ public sealed partial class EditorSession
         strokeEffectBase = null;
         strokeEffectGrid?.Dispose();
         strokeEffectGrid = null;
-        spotHealingDonor = null;
+        retouchDonor = null;
         smoothingAnchor = smoothingPointer = null;
     }
 }

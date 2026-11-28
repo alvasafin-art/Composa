@@ -59,6 +59,8 @@ public sealed partial class EditorSession
             if (document.SelectedLayerIds.Contains(id) && !document.SelectionOrder.Contains(id)) document.SelectionOrder.Add(id);
         }
         else document.SetActive(id);
+        if (!extend && !range || alignmentAnchor is { } anchorId && !document.SelectedLayerIds.Contains(anchorId))
+            alignmentAnchor = null;
         document.SelectionOrder.RemoveAll(selected => !document.SelectedLayerIds.Contains(selected));
         if (document.SelectionAnchorId is not { } first || !document.SelectedLayerIds.Contains(first))
             document.SelectionAnchorId = document.ActiveLayerId;
@@ -96,6 +98,7 @@ public sealed partial class EditorSession
         if (channelTransform != null) CommitTransform();
         FinishText();
         document.SetActive(null);
+        alignmentAnchor = null;
         SelectedEffect = null;
         EditingMask = false;
         LayersChanged?.Invoke();

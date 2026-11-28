@@ -1,4 +1,5 @@
 using Composa.Filters;
+using Composa.Text;
 using SkiaSharp;
 
 namespace Composa.Model;
@@ -545,7 +546,7 @@ public sealed partial class Layer
     /// <summary>Document-space bounds of the layer's pixels; empty for groups and adjustments.</summary>
     public SKRect Bounds => Pixels == null ? SKRect.Empty : HasWarp ? Matrix.MapRect(WarpBounds) : Transform.Bounds(Pixels.Width, Pixels.Height);
 
-    /// <summary>Raster controls enclose content, while live text and shapes retain their editable boxes. The source grid and masks stay intact.</summary>
+    /// <summary>Controls use the visual frame without changing the source grid, text layout or masks.</summary>
     public LayerTransform ControlTransform
     {
         get
@@ -555,7 +556,7 @@ public sealed partial class Layer
                 var warpBounds = Geometry.RoundOut(WarpBounds);
                 return LayerTransform.FromMatrix(SKMatrix.CreateTranslation(warpBounds.Left, warpBounds.Top).PostConcat(Matrix), warpBounds.Width, warpBounds.Height);
             }
-            if (Pixels == null || IsLive || IsSmartObject) return Transform;
+            if (Pixels == null || IsSmartObject) return Transform;
             var bounds = ControlSourceBounds;
             if (bounds == new SKRectI(0, 0, Pixels.Width, Pixels.Height)) return Transform;
             double midX = (bounds.Left + bounds.Right) / 2.0, midY = (bounds.Top + bounds.Bottom) / 2.0;
@@ -585,8 +586,14 @@ public sealed partial class Layer
         {
             if (Pixels == null) return SKRectI.Empty;
             if (HasWarp) return Geometry.RoundOut(WarpBounds);
+            var source = new SKRectI(0, 0, Pixels.Width, Pixels.Height);
+            if (Text is { IsVertical: false, Path: null } text && (!text.IsBox || text.AutoBoxHeight))
+            {
+                var frame = SKRectI.Intersect(TextLayout.SelectionFrameFor(text), source);
+                return frame.IsEmpty ? source : frame;
+            }
             var bounds = IsLive || IsSmartObject ? SKRectI.Empty : Rendering.Pixels.ContentBounds(Pixels);
-            return bounds.IsEmpty ? new(0, 0, Pixels.Width, Pixels.Height) : bounds;
+            return bounds.IsEmpty ? source : bounds;
         }
     }
 

@@ -71,15 +71,14 @@ public sealed partial class MainWindow
         {
             var row = new Grid { ColumnDefinitions = new("24,Auto,*,24"), ColumnSpacing = 5 };
             PromptRegion? Current() => owner.Document.PromptRegions.Find(r => r.Number == region.Number);
-            var eye = Ui.IconButton(region.Enabled ? Icons.Eye : Icons.EyeOff, region.Enabled ? "Disable region" : "Enable region",
-                () => { if (Current() is { } current) owner.ChangePromptRegion(current with { Enabled = !current.Enabled }); }, 14);
+            var eye = RegionAction(region.Enabled ? Icons.Eye : Icons.EyeOff, region.Enabled ? "Disable region" : "Enable region",
+                () => { if (Current() is { } current) owner.ChangePromptRegion(current with { Enabled = !current.Enabled }); });
             row.Children.Add(eye);
             AddAt(row, RegionNumber(region), 1);
             var label = Ui.Label(RegionPromptLabel(region), size: 12);
             regionPromptLabels.Add(region.Number, label);
             label.TextWrapping = TextWrapping.Wrap;
             label.VerticalAlignment = VerticalAlignment.Center;
-            label.Opacity = region.Enabled ? 1 : .6;
             var cell = new Border { Child = label, Background = Brushes.Transparent };
             cell.DoubleTapped += (_, e) =>
             {
@@ -112,7 +111,7 @@ public sealed partial class MainWindow
                 input.SelectAll();
             };
             AddAt(row, cell, 2);
-            AddAt(row, Ui.IconButton(Icons.Trash, "Delete region", () => owner.DeletePromptRegion(region.Number), 14), 3);
+            AddAt(row, RegionAction(Icons.Trash, "Delete region", () => owner.DeletePromptRegion(region.Number)), 3);
             promptRegionList.Children.Add(row);
         }
     }
@@ -142,6 +141,7 @@ public sealed partial class MainWindow
     private static Button RegionAction(Icons.Icon icon, string tip, Action click)
     {
         var button = Ui.IconButton(icon, tip, click, 14);
+        button.Classes.Add("ai-panel-control");
         button.Width = 24;
         button.Height = 22;
         button.Padding = new Thickness(4, 0);

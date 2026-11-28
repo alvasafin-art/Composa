@@ -43,7 +43,12 @@ public sealed partial class AiTaskService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         running = linked;
         LastDirectImageCharge = null;
-        void ReportCharge(ImageApiRate charge) => LastDirectImageCharge = (generator, charge);
+        var charges = new List<ImageApiRate>();
+        void ReportCharge(ImageApiRate charge)
+        {
+            charges.Add(charge);
+            LastDirectImageCharge = (generator, charge);
+        }
         var remaining = new List<SKBitmap>();
         try
         {
@@ -137,6 +142,8 @@ public sealed partial class AiTaskService
             }
             var mode = selectionTask ? AiOutputMode.Selection : outputMask != null ? AiOutputMode.NewLayerWithMask : AiOutputMode.NewLayer;
             var placement = upscale ? prepared!.TargetBounds : edit || selectionTask ? bounds : Fit(remaining[0], bounds);
+            Operation = Operation! with { Stage = "Applying result" };
+            StateChanged?.Invoke();
             await WaitForResultTargetAsync(target, targetAvailable, linked.Token);
             var depthScale = target.Document.Depth == ColorDepth.Sixteen ? 4 : 1;
             if (!utility && target.Document.RasterPixels() + outputPixels * depthScale + maskPixels * variants > DocumentLimits.DocumentPixelBudget)
@@ -147,7 +154,9 @@ public sealed partial class AiTaskService
             Insert(editor, request.Task, mode, remaining, placement, inputs: prepared, variants: variants > 1,
                 localOutputMask: outputMask, layerOnly: layerOnly);
             remaining.Clear(); // The document and Undo now own these pixels.
-            Operation = new() { Status = AiOperationStatus.Completed, Stage = "Completed" };
+            var total = charges.Count == variants && charges.All(rate => rate.Currency == charges[0].Currency)
+                ? new ImageApiRate(charges.Sum(rate => rate.Minimum), charges.Sum(rate => rate.Maximum), charges[0].Currency).Label : null;
+            Operation = new() { Status = AiOperationStatus.Completed, Stage = "Completed", DirectCharge = total };
             StateChanged?.Invoke();
             return hasExpansionFrame && !layerOnly;
         }

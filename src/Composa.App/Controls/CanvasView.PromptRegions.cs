@@ -9,27 +9,32 @@ namespace Composa.App.Controls;
 public sealed partial class CanvasView
 {
     internal event Action<PromptRegion, Point>? PromptRegionEditRequested;
-    private bool showPromptRegions = true;
     private int? activePromptRegion;
     private PromptRegion? draggedRegion;
     private int regionCorner = -1;
 
     internal bool ShowPromptRegions
     {
-        get => showPromptRegions;
+        get => session?.PromptRegionsVisible ?? true;
         set
         {
-            if (showPromptRegions == value) return;
-            showPromptRegions = value;
+            if (session == null || ShowPromptRegions == value && session.RevealedPromptRegion == null) return;
+            session.PromptRegionsVisible = value;
+            session.RevealedPromptRegion = null;
             if (!value) activePromptRegion = null;
             UpdateCursor();
             InvalidateCanvas();
         }
     }
 
+    private bool RegionVisible(PromptRegion region) =>
+        region.Enabled && (ShowPromptRegions || session?.RevealedPromptRegion == region.Number);
+
     private void OnPromptRegionsChanged()
     {
         if (ActiveRegion() == null) activePromptRegion = null;
+        if (session?.RevealedPromptRegion is { } id && !session.Document.PromptRegions.Any(region => region.Number == id))
+            session.RevealedPromptRegion = null;
         if (drag == Drag.None && session?.Tool == Tool.PromptRegion) UpdateCursor();
         InvalidateCanvas();
     }
@@ -52,13 +57,13 @@ public sealed partial class CanvasView
 
     private PromptRegion? HitRegionTag(Point point)
     {
-        if (!ShowPromptRegions || session == null) return null;
+        if (session == null) return null;
         var hair = 1f / (float)Scaling;
         var regions = session.Document.PromptRegions;
         for (var i = regions.Count - 1; i >= 0; i--)
         {
             var region = regions[i];
-            if (!region.Enabled) continue;
+            if (!RegionVisible(region)) continue;
             var rect = RegionOnScreen(region);
             if (point.Y < rect.Top - 18 * hair || point.Y >= rect.Top || point.X < rect.Left - hair) continue;
             using var font = new SKFont(SKTypeface.Default, 11 * hair);
@@ -70,7 +75,7 @@ public sealed partial class CanvasView
 
     private int HitActiveRegionCorner(Point point)
     {
-        if (!ShowPromptRegions || ActiveRegion() is not { } region) return -1;
+        if (ActiveRegion() is not { } region || !RegionVisible(region)) return -1;
         var rect = RegionOnScreen(region);
         var radius = 4 / Scaling;
         var nearest = -1;
@@ -145,14 +150,20 @@ public sealed partial class CanvasView
         if (frame.IsEmpty) return;
         if (draggedRegion is { } existing)
             session!.ChangePromptRegion(existing with { Left = frame.Left, Top = frame.Top, Right = frame.Right, Bottom = frame.Bottom });
-        else if (session!.AddPromptRegion(frame) is { } added)
+        else
+        {
+            var owner = session!;
+            if (owner.AddPromptRegion(frame) is not { } added) return;
+            activePromptRegion = added.Number;
+            if (!ShowPromptRegions) owner.RevealedPromptRegion = added.Number;
             PromptRegionEditRequested?.Invoke(added, ToScreen(new SKPoint(frame.Left, frame.Bottom)));
+        }
     }
 
     private void CaptureRegions(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
         var document = session!.Document;
-        var regions = ShowPromptRegions ? document.PromptRegions.Where(r => r.Enabled).ToList() : [];
+        var regions = document.PromptRegions.Where(RegionVisible).ToList();
         if (drag == Drag.PromptRegion && Distance(pressScreen, ToScreen(currentDocument)) >= 3)
         {
             var frame = RegionFrame();

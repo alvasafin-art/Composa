@@ -30,6 +30,7 @@ public sealed record AiOperationState
     public int? Maximum { get; init; }
     public string? Error { get; init; }
     public double? CreditsUsed { get; init; }
+    internal string? DirectCharge { get; init; }
     public bool IsIndeterminate => Status == AiOperationStatus.Running && (Value == null || Maximum is null or <= 0);
 }
 

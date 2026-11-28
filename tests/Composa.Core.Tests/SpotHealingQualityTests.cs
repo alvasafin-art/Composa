@@ -53,7 +53,7 @@ public class SpotHealingQualityTests
             for (int x = 30; x < 160; x += 17) canvas.DrawRect(new SKRect(x, 30, x + 4, 49), paint);
         session.AddImageLayer("Label", Pixels.Clone(label), fit: false);
         session.Tool = Tool.SpotHealing;
-        session.SampleAllLayers = false;
+        session.RetouchSampleAllLayers = false;
         session.Brush = new BrushSettings { Size = 32, Hardness = 1 };
         Assert.True(session.BeginStroke(new SKPoint(27, 40), out _));
         session.ContinueStroke(new SKPoint(169, 40));
@@ -71,7 +71,7 @@ public class SpotHealingQualityTests
         session.SelectRect(new SKRect(10, 10, 26, 26)); session.Fill(SKColors.Orange); session.Deselect();
         var layer = session.AddBlankLayer();
         layer.Transform = layer.Transform with { Rotation = 30 };
-        session.Tool = Tool.CloneStamp; session.SampleAllLayers = true; session.CloneAligned = false;
+        session.Tool = Tool.CloneStamp; session.RetouchSampleAllLayers = true; session.CloneAligned = false;
         session.Brush = new BrushSettings { Size = 8, Hardness = 1 };
         session.SetCloneSource(new SKPoint(18, 18));
         Assert.True(session.BeginStroke(new SKPoint(48, 40), out _));
@@ -118,7 +118,7 @@ public class SpotHealingQualityTests
         session.SelectRect(new SKRect(44, 34, 56, 46)); session.Fill(SKColors.Black); session.Deselect();
         var sourcePixels = source.Pixels!.GetPixelSpan().ToArray();
         var retouch = session.AddBlankLayer(); var original = retouch.Pixels!;
-        session.Tool = Tool.SpotHealing; session.SampleAllLayers = true; session.Brush = new BrushSettings { Size = 26, Hardness = 1 };
+        session.Tool = Tool.SpotHealing; session.RetouchSampleAllLayers = true; session.Brush = new BrushSettings { Size = 26, Hardness = 1 };
         Assert.True(session.BeginStroke(new SKPoint(50, 40), out var problem)); Assert.Null(problem); session.EndStroke();
         Assert.Equal(new SKColor(130, 150, 175), retouch.Pixels!.GetPixel(50, 40));
         Assert.Equal((byte)0, retouch.Pixels.GetPixel(5, 5).Alpha);

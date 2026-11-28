@@ -141,6 +141,13 @@ public sealed partial class CanvasView : Decorator
         set { if (aiContextBounds == value) return; aiContextBounds = value; InvalidateCanvas(); }
     }
 
+    private SKPoint? libraryDropPoint;
+    internal SKPoint? LibraryDropPoint
+    {
+        get => libraryDropPoint;
+        set { if (libraryDropPoint != value) { libraryDropPoint = value; InvalidateCanvas(); } }
+    }
+
     public EditorSession? Session
     {
         get => session;
@@ -159,6 +166,8 @@ public sealed partial class CanvasView : Decorator
                 session.LayersChanged -= OnLayersChanged;
             }
             transformSelection = null;
+            moveGroupScope = moveHover = pendingAlignmentAnchor = null;
+            libraryDropPoint = null;
             activePromptRegion = null;
             ReleaseViewportImage();
             navigationPreview?.Stop();
@@ -261,6 +270,8 @@ public sealed partial class CanvasView : Decorator
     private void OnLayersChanged()
     {
         brushPreparationRequested = false;
+        if (moveGroupScope is { } group && !SelectionInsideMoveGroup(group)) moveGroupScope = null;
+        moveHover = null;
         if (transformSelection != null && session != null && !transformSelection.SetEquals(session.Document.SelectedLayerIds))
             transformSelection = null;
         InvalidateCanvas();

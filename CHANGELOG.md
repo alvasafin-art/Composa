@@ -4,6 +4,15 @@ All notable changes to Composa are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.3.0-preview.4.studio.17.21] - 2026-11-28
+
+- Move starts as the default tool. Hover shows what the next click or drag will pick up. Double-click to enter groups and Auto Layout containers, press Esc to step out, and use Ctrl or Shift for direct or multiple selection.
+- Align selected layers to their shared bounds by default. Click an already selected layer to make it the reference, indicated by an outline. Canvas alignment remains available.
+- Horizontal text selection frames follow font and line metrics. Existing text stays in place and keeps its line breaks. Unselected text and groups no longer show guide frames.
+- Retouching remembers its own visible-layer sampling setting separately from selection tools. Healing Brush starts at 100% hardness, and brush size now goes up to 1000 px.
+- The AI panel lists configured models for the selected operation and links to model settings when none are available. The Run button shows progress and the result in place, and its adjacent menu starts two or three variants.
+- Drag layers into the resource library to save them, and drag resources onto the canvas to place them at the pointer. Reorder, group, ungroup and collapse resources in the library. The folder button sits next to search.
+
 ## [1.3.0-preview.4.studio.17.20] - 2026-11-27
 
 - GPT Image 2.5 and 2.6 through ComfyUI receive a crop with surrounding context for Generative Fill, like Nano Banana. Composa applies the selection locally when inserting the result.

@@ -9,6 +9,10 @@ public enum BrushMode { Paint, Erase, Clone, Heal, Blur, Smudge, Dodge, Burn, Li
 
 public sealed record BrushSettings
 {
+    public const int MaxEditorDiameter = 1000;
+    public BrushSettings ForEditor() => Size is >= 1 and <= MaxEditorDiameter ? this :
+        this with { Size = double.IsFinite(Size) ? Math.Clamp(Size, 1, MaxEditorDiameter) : 40 };
+
     /// <summary>Diameter in document pixels.</summary>
     public double Size { get; init; } = 40;
     /// <summary>0 (fully soft) … 1 (hard edge).</summary>
