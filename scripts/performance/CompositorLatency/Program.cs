@@ -8,9 +8,15 @@ using SkiaSharp;
 Console.WriteLine($"Logical processors: {Environment.ProcessorCount}");
 GpuAcceleration.Configure(filters: false, editor: false);
 
-if (args is ["heavy-edits"])
+if (args is ["final-io", var fixtures, var output])
 {
-    HeavyEdits.Run();
+    FinalIo.Run(fixtures, output);
+    return;
+}
+
+if (args is ["heavy-edits"] || args is ["heavy-edits", "short"])
+{
+    HeavyEdits.Run(shortRun: args.Length == 2);
     return;
 }
 

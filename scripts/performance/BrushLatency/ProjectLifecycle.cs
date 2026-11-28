@@ -107,12 +107,13 @@ internal static class ProjectLifecycle
             .Select(name => Path.GetFullPath(Path.Combine(folder, name + ".cmps"))).ToArray();
         var closed = new List<WeakReference<EditorSession>>();
         var frames = new List<object>();
+        var shortRun = Environment.GetEnvironmentVariable("COMPOSA_PROJECT_SHORT") == "1";
         var ready = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         long? startupDocument = null;
 
         foreach (var path in paths)
             await Open(path, "cold in process " + Path.GetFileName(path));
-        for (var pass = 0; pass < 7; pass++)
+        for (var pass = 0; pass < (shortRun ? 3 : 7); pass++)
             foreach (var path in paths)
                 await Open(path, "switch " + Path.GetFileName(path), waitForPreview: false);
 
@@ -123,7 +124,7 @@ internal static class ProjectLifecycle
             var recoveredFolder = Path.Combine(profile, "test-recovery-" + name);
             var recovery = new Recovery(recoveredFolder);
             var destination = Path.Combine(work, name + ".cmps");
-            for (var pass = 0; pass < 4; pass++)
+            for (var pass = 0; pass < (shortRun ? 3 : 4); pass++)
             {
                 session.Rename(session.ActiveLayer!, "Feature " + pass);
                 await Measure($"{name} save {(pass == 0 ? "first" : "metadata")}", async () =>
@@ -133,7 +134,7 @@ internal static class ProjectLifecycle
                 await WaitForPreview(destination);
             }
             // Change the revision each time while keeping the source rasters shared.
-            for (var pass = 0; pass < 3; pass++)
+            for (var pass = 0; pass < (shortRun ? 1 : 3); pass++)
             {
                 session.Rename(session.ActiveLayer!, "Recovery " + pass);
                 await Measure(name + " autosave", () => recovery.Save([session]));
@@ -159,7 +160,7 @@ internal static class ProjectLifecycle
             await Close(session);
         }
 
-        for (var pass = 0; pass < 3; pass++)
+        for (var pass = 0; pass < (shortRun ? 1 : 3); pass++)
         {
             foreach (var path in paths)
                 await Open(path, "reopen " + Path.GetFileName(path));

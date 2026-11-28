@@ -13,8 +13,14 @@ internal static class HeavyEdits
 {
     private const int Width = 3840, Height = 2160, Repeats = 7;
 
-    public static void Run()
+    public static void Run(bool shortRun)
     {
+        if (shortRun)
+        {
+            MeasureDeformation(ColorDepth.Sixteen, RgbProfile.DisplayP3);
+            MeasureComposite(ColorDepth.Sixteen, RgbProfile.DisplayP3);
+            return;
+        }
         MeasureDeformation(ColorDepth.Eight, RgbProfile.Srgb);
         MeasureDeformation(ColorDepth.Sixteen, RgbProfile.DisplayP3);
         MeasureComposite(ColorDepth.Eight, RgbProfile.Srgb);
