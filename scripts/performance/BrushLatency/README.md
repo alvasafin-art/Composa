@@ -21,3 +21,17 @@ Set `COMPOSA_PERF_OPAQUE_LAYER=1` to compare an opaque active layer with outside
 - A remote session measures the Windows desktop and system cursor on the RDP host. Measuring the transport, decoder, client compositor and panel requires a client-side capture with synchronized timestamps or an external camera.
 
 Pool each phase and document separately across processes. For each metric, report the number of observed values and the nearest-rank percentiles at indexes `ceil(0.50*N)-1` and `ceil(0.95*N)-1` in the sorted observations.
+
+## Interaction in a normal Windows window
+
+```powershell
+dotnet build scripts/performance/BrushLatency -c Release -p:CanvasPerformance=true
+$env:COMPOSA_PERF_EDITOR_GPU = '0'
+$env:COMPOSA_PERF_SOFTWARE_PRESENTATION = '0'
+$env:COMPOSA_PERF_LOW_LATENCY_COMPOSITION = '0'
+dotnet scripts/performance/BrushLatency/bin/Release/net10.0/Composa.App.Tests.dll interaction C:/bench/interaction-default-off.json
+```
+
+Use a fresh process for each configuration. Set `COMPOSA_PERF_EDITOR_GPU=1` to request editor OpenCL, independently of the presentation mode. Set `COMPOSA_PERF_SOFTWARE_PRESENTATION=1` to force Avalonia's Win32 software renderer in the replay. Set `COMPOSA_PERF_LOW_LATENCY_COMPOSITION=1` to request LowLatencyDxgiSwapChain first with the normal fallback list. Repeat in reverse configuration order and keep the window visible. The replay creates disposable synthetic documents and keeps editor preferences in memory.
+
+Wheel zoom enters at Avalonia's routed input boundary with Ctrl set explicitly. Pan, drags, panel hover and the brush control use Win32 messages sent to the replay window. The native stack uses explicit invalidation to isolate composition. Its warm samples intentionally reproduce the same pixels. The returned `events` and `draws` count routed events and canvas draw callbacks. `canvasDrawMs` ends at the first canvas draw callback after input arrives. `desktopPixelMs` detects a color change at a GDI probe point and can be absent if the point shows the same color. It represents observation of the Windows desktop, including the host desktop when the session runs over RDP. Set `COMPOSA_PERF_SKIP_DESKTOP_PROBE=1` to check whether GDI polling affects the callback timing.

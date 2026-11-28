@@ -16,13 +16,23 @@ public sealed partial class LiquifyField
         var scale = maxSide == 0 ? 1 : Math.Min(1, (double)maxSide / Math.Max(Width, Height));
         var width = Math.Max(1, (int)Math.Round(Width * scale)); var height = Math.Max(1, (int)Math.Round(Height * scale));
         var full = width == Width && height == Height;
+#if CANVAS_PERFORMANCE
+        var prepareStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var result = full ? Pixels.Clone(source) : Pixels.NewLike(source, width, height);
         SKBitmap? reduced = null;
         try
         {
             if (full)
             {
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("Liquify source copy", prepareStart);
+                var nativeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 RenderNative(source, result, token);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("Liquify remap kernel", nativeStart);
+#endif
                 return result;
             }
             var sample = source;
@@ -40,6 +50,10 @@ public sealed partial class LiquifyField
             var sx = (double)Width / width; var sy = (double)Height / height;
             var mx = (double)input.Width / Width; var my = (double)input.Height / Height;
             var deformed = HasDeformation;
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Liquify preview raster preparation", prepareStart);
+            var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             Parallel.For(0, height, new ParallelOptions { CancellationToken = token }, y =>
             {
                 for (var x = 0; x < width; x++)
@@ -51,6 +65,9 @@ public sealed partial class LiquifyField
                     output.Write(x, y, Sample(input, sampleX, sampleY));
                 }
             });
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Liquify remap kernel", previewStart);
+#endif
             Pixels.Invalidate(result); GC.KeepAlive(source); GC.KeepAlive(sample); return result;
         }
         catch { result.Dispose(); throw; }

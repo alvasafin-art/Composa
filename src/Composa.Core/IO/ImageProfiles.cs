@@ -113,6 +113,7 @@ internal static class ImageProfiles
 
     internal static void WritePng(Stream output, ReadOnlySpan<byte> encoded, byte[] profile, double resolution)
     {
+        resolution = double.IsFinite(resolution) ? Math.Clamp(resolution, 1, 9600) : 72;
         output.Write(encoded[..8]);
         for (var offset = 8; offset + 12 <= encoded.Length;)
         {

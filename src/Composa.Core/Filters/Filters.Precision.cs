@@ -37,17 +37,19 @@ public static unsafe partial class ImageFilters
         var result = Pixels.NewLike(source, source.Width + padX * 2, source.Height + padY * 2);
         var input = new PixelBuffer(source); var output = new PixelBuffer(result);
         var samples = Math.Min(length, 96);
-        Parallel.For(0, result.Height, y =>
+        int sourceWidth = input.Width, sourceHeight = input.Height;
+        int width = output.Width;
+        Parallel.For(0, output.Height, y =>
         {
-            for (var x = 0; x < result.Width; x++)
+            for (var x = 0; x < width; x++)
             {
                 double r = 0, g = 0, b = 0, a = 0;
                 for (var i = 0; i < samples; i++)
                 {
                     var t = samples == 1 ? 0 : (i / (double)(samples - 1) - .5) * length;
                     int sx = (int)Math.Round(x - padX + dx * t), sy = (int)Math.Round(y - padY + dy * t);
-                    if (clamp) { sx = Math.Clamp(sx, 0, source.Width - 1); sy = Math.Clamp(sy, 0, source.Height - 1); }
-                    else if (sx < 0 || sy < 0 || sx >= source.Width || sy >= source.Height) continue;
+                    if (clamp) { sx = Math.Clamp(sx, 0, sourceWidth - 1); sy = Math.Clamp(sy, 0, sourceHeight - 1); }
+                    else if (sx < 0 || sy < 0 || sx >= sourceWidth || sy >= sourceHeight) continue;
                     var p = input.Read(sx, sy);
                     r += p.R; g += p.G; b += p.B; a += p.A;
                 }

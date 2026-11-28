@@ -251,6 +251,25 @@ public class AutomationTests
         Assert.Single(session.Document.Layers); Assert.Equal(before, session.History.Count); Assert.False(session.IsInteracting);
     }
 
+    [Fact]
+    public async Task Cancellation_after_a_provider_returns_leaves_the_target_and_document_untouched()
+    {
+        using var files = new AutomationFiles();
+        Directory.CreateDirectory(files.Root);
+        var target = Path.Combine(files.Root, "existing.png");
+        File.WriteAllText(target, "Original file");
+        var session = EditorSession.NewCanvas(80, 60);
+        var before = session.History.CurrentId;
+        using var cancellation = new CancellationTokenSource();
+        var code = "doc.addLayer('Temporary'); ai.upscale(); doc.export(" + JsonSerializer.Serialize(target) + ");";
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new JavaScriptRuntime().ExecuteAsync(session, code,
+            new CancelOnReturnAi(cancellation), new Settings(), cancellationToken: cancellation.Token));
+        Assert.Single(session.Document.Layers);
+        Assert.Equal(before, session.History.CurrentId);
+        Assert.False(session.IsInteracting);
+        Assert.Equal("Original file", File.ReadAllText(target));
+    }
+
     [AvaloniaFact]
     public void Installed_plugin_command_appears_in_menu_and_edits_the_document()
     {
@@ -326,6 +345,15 @@ public class AutomationTests
         public TaskCompletionSource Started { get; } = new();
         public async Task RunAsync(Composa.AI.IEditorCommandService editor, Composa.AI.AiTaskRequest request, CancellationToken cancellationToken = default)
         { Started.SetResult(); await Task.Delay(Timeout.Infinite, cancellationToken); }
+    }
+
+    private sealed class CancelOnReturnAi(CancellationTokenSource source) : Composa.AI.IAiTaskRunner
+    {
+        public Task RunAsync(Composa.AI.IEditorCommandService editor, Composa.AI.AiTaskRequest request, CancellationToken cancellationToken = default)
+        {
+            source.Cancel();
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class AutomationFiles : IDisposable

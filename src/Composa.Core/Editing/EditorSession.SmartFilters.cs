@@ -79,7 +79,13 @@ public sealed partial class EditorSession
                 result = source = Pixels.ConvertWorking(source, working.WorkingDepth, working.Profile);
             foreach (var filter in layer.SmartFilters.Where(f => f.Enabled))
             {
+#if CANVAS_PERFORMANCE
+                var runStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 var next = ImageFilters.Run(result, filter.Settings);
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("Smart Filter kernel and output", runStart);
+#endif
                 if (!DocumentLimits.FitsSurface(next.Result.Width, next.Result.Height)) { next.Result.Dispose(); throw new InvalidOperationException("The smart filter exceeds the surface size limit."); }
                 try { FilterBlending.Apply(result, next.Result, next.GrowX, next.GrowY, filter.Opacity, filter.Blend); }
                 catch { next.Result.Dispose(); throw; }

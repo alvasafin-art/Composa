@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ComposaSourceRoot Condition="'$(ComposaSourceRoot)' == ''">../../..</ComposaSourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(ComposaSourceRoot)/src/Composa.Core/Composa.Core.csproj" />
+  </ItemGroup>
+</Project>

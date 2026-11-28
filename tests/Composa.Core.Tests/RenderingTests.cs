@@ -300,6 +300,92 @@ public class ViewRenderingTests
         }
         Assert.Equal(before, source.Bytes);
     }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight, Painting.BrushMode.Paint)]
+    [InlineData(ColorDepth.Sixteen, Painting.BrushMode.Erase)]
+    public void Committed_stroke_reduction_matches_a_fresh_pyramid(ColorDepth depth, Painting.BrushMode mode)
+    {
+        var session = Editing.EditorSession.NewCanvas(269, 259, SKColors.SteelBlue, depth);
+        var layer = session.ActiveLayer!;
+        var original = layer.Pixels!;
+        var level = 2;
+        var originalPreview = Pixels.Level(original, ref level);
+        Assert.Equal(2, level);
+        session.ViewZoom = .25;
+        session.Foreground = SKColors.Coral;
+        session.Brush = new Painting.BrushSettings { Size = 27, Hardness = .3 };
+        Assert.True(session.BeginStroke(new(242, 231), out var problem, mode: mode), problem);
+        session.ContinueStroke(new(267, 257));
+        session.EndStroke();
+
+        using var rebuilt = Pixels.Clone(layer.Pixels!);
+        var updated = Pixels.Level(layer.Pixels!, ref level);
+        var expected = Pixels.Level(rebuilt, ref level);
+        using var actualPixels = Pixels.NewLike(original, updated.Width, updated.Height);
+        using var expectedPixels = Pixels.NewLike(actualPixels);
+        Assert.True(expected.ReadPixels(expectedPixels.Info, expectedPixels.GetPixels(), expectedPixels.RowBytes, 0, 0));
+        Assert.True(updated.ReadPixels(actualPixels.Info, actualPixels.GetPixels(), actualPixels.RowBytes, 0, 0));
+        Assert.Equal(expectedPixels.Bytes, actualPixels.Bytes);
+        session.Undo();
+        Assert.Same(original, session.ActiveLayer!.Pixels);
+        Assert.Same(originalPreview, Pixels.Level(original, ref level));
+        session.Redo();
+        Assert.Same(updated, Pixels.Level(session.ActiveLayer!.Pixels!, ref level));
+    }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight, 1f)]
+    [InlineData(ColorDepth.Sixteen, 1f)]
+    [InlineData(ColorDepth.Eight, .625f)]
+    [InlineData(ColorDepth.Sixteen, .33f)]
+    public void Stroke_band_matches_full_frame_inside_the_damage(ColorDepth depth, float zoom)
+    {
+        var session = Editing.EditorSession.NewCanvas(960, 712, SKColors.White, depth);
+        using var overlay = Pixels.NewColor(710, 604, depth);
+        overlay.Erase(new SKColor(60, 100, 155, 170));
+        var layer = Layer.Raster("Overlay", overlay, 37, 23);
+        layer.Blend = BlendMode.Multiply;
+        layer.Mask = Pixels.NewMask(overlay.Width, overlay.Height, 184);
+        session.Document.Layers.Add(layer);
+        session.Document.SetActive(layer.Id);
+        session.Brush = new Painting.BrushSettings { Size = 120, Hardness = .35 };
+        Assert.True(session.BeginStroke(new(421, 352), out var problem, mode: Painting.BrushMode.Erase), problem);
+        using var whole = Pixels.NewColor(840, 640);
+        using var region = Pixels.NewColor(840, 640);
+        region.Erase(SKColors.Lime);
+        var damage = SKRectI.Create((int)(301 * zoom), (int)(243 * zoom), (int)(177 * zoom), (int)(171 * zoom));
+        var view = new RenderView(zoom, new SKPoint(34, 27));
+        session.RenderView(whole, whole.Info.Rect, view);
+        session.RenderViewportFrame(region, damage, view, bandExtent: region.Info.Rect);
+        using var expected = Pixels.Subset(whole, damage);
+        using var actual = Pixels.Subset(region, damage);
+        using var packedExpected = Pixels.Clone(expected);
+        using var packedActual = Pixels.Clone(actual);
+        Assert.Equal(packedExpected.Bytes, packedActual.Bytes);
+        Assert.Equal(SKColors.Lime, region.GetPixel(damage.Left - 1, damage.Top));
+        session.CancelStroke();
+    }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight)]
+    [InlineData(ColorDepth.Sixteen)]
+    public void Native_copy_of_a_single_layer_matches_compositing_semitransparent_pixels(ColorDepth depth)
+    {
+        var profile = depth == ColorDepth.Sixteen ? ColorManagement.RgbProfile.DisplayP3 : ColorManagement.RgbProfile.Srgb;
+        var document = new Document(300, 280) { Depth = depth, Profile = profile };
+        using var source = Pixels.NewWorkingColor(300, 280, depth, profile);
+        using (var canvas = new SKCanvas(source))
+        using (var paint = new SKPaint { Color = new SKColor(199, 72, 55, 157), IsAntialias = true })
+            canvas.DrawOval(115, 93, 79, 86, paint);
+        document.Layers.Add(Layer.Raster("Paint", source, 6, 17));
+        using var copied = Pixels.NewColor(200, 180);
+        using var composite = Pixels.NewColor(200, 180);
+        var view = new RenderView(1, new SKPoint(9, 23));
+        DocumentRenderer.Render(document, copied, copied.Info.Rect, view);
+        DocumentRenderer.Render(document, composite, composite.Info.Rect, view, new RenderOptions());
+        Assert.Equal(composite.Bytes, copied.Bytes);
+    }
 }
 
 public class CompositingQaTests

@@ -113,7 +113,13 @@ public sealed partial class CanvasView
         {
             OutputOffset = new SKPoint((float)(x - left), (float)(y - top))
         };
+#if CANVAS_PERFORMANCE
+        var capture = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var scene = session.CaptureGpuViewport(new SKSizeI(width, height), mapping, movingLayer);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted(scene == null ? "Skia scene fallback" : "Skia scene capture", capture);
+#endif
         if (scene == null) return null;
 
         var target = new SKRect((float)(left / scaling), (float)(top / scaling), (float)(right / scaling), (float)(bottom / scaling));
@@ -124,11 +130,15 @@ public sealed partial class CanvasView
     {
         public bool Draw(SKCanvas destination, GRContext? graphics, SKRect page)
         {
+#if CANVAS_PERFORMANCE
+            var allocating = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             using var texture = graphics is { IsAbandoned: false } ? SKSurface.Create(graphics, true, info) : null;
             // The rendering backend can change between recording and playing back an operation.
             using var raster = texture == null ? SKSurface.Create(info) : null;
             if ((texture ?? raster) is not { } surface) return false;
 #if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted(texture == null ? "Skia raster viewport surface" : "Skia texture viewport surface", allocating);
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
             surface.Canvas.Clear(SKColors.Transparent);

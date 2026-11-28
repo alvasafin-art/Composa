@@ -91,7 +91,7 @@ public sealed partial class CanvasView : Decorator
             antsRedrawPending = false;
             ReleaseNativeBrushCursor();
             ReleaseViewportImage();
-            strokePreviewFrame = null;
+            ResetStrokePreview();
             strokePreviewScratch?.Dispose();
             strokePreviewScratch = null;
             session?.DiscardPreparedBrushDab();
@@ -109,6 +109,7 @@ public sealed partial class CanvasView : Decorator
     internal void InvalidateCanvas()
     {
         strokePreviewFrame = null;
+        pendingStrokePreview = SKRectI.Empty;
         InvalidateVisual();
         InvalidateBrushCursor();
     }
@@ -236,7 +237,7 @@ public sealed partial class CanvasView : Decorator
             var inexpensiveFirstDab = drag == Drag.None && session is { Tool: Tool.Brush or Tool.Eraser,
                 ActiveLayer: { Effects: null, FillOpacity: 1, Mask: null, FilterSource: null, Warp: null } }
                 && session.Document.Layers.Count == 1;
-            if (!inexpensiveFirstDab && TryPresentStroke(mapped))
+            if (!inexpensiveFirstDab && QueueStrokePreview(mapped))
             {
                 InvalidateBrushCursor();
                 return;
@@ -476,6 +477,9 @@ public sealed partial class CanvasView : Decorator
 
     public override void Render(DrawingContext context)
     {
+#if CANVAS_PERFORMANCE
+        var preparing = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         ResetStrokePreview();
         var backdrop = Palette.Pasteboard.Color.ToSkia();
         antsRedrawPending = false;
@@ -525,6 +529,9 @@ public sealed partial class CanvasView : Decorator
         if (cache != null && !rescaledViewportVisible && overlay == null && rulers == null && outline == null && !grid)
             PrepareStrokePreview(size, view.MapRect(documentRect), cacheSource, cacheTarget, scaling, nearest);
 
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("canvas prepare", preparing);
+#endif
         context.Custom(new DrawOperation(new Rect(size), (canvas, graphics) =>
         {
             var canDrawTexture = DetectViewportGraphics(graphics);

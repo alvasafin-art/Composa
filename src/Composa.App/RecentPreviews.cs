@@ -35,17 +35,29 @@ internal static class RecentPreviews
         try
         {
             var modified = File.GetLastWriteTimeUtc(path);
+#if CANVAS_PERFORMANCE
+            var queued = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             await writer.WaitAsync();
             try
             {
                 await Task.Run(() =>
                 {
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("Recent preview queue", queued);
+#endif
                     var cache = CachePath(path);
                     if (!File.Exists(path) || File.GetLastWriteTimeUtc(path) != modified ||
                         File.Exists(cache) && File.GetLastWriteTimeUtc(cache) == modified) return;
                     var scale = Math.Min(1, 96d / Math.Max(snapshot.Width, snapshot.Height));
+#if CANVAS_PERFORMANCE
+                    var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                     using var sample = Pixels.NewColor(Math.Max(1, (int)Math.Ceiling(snapshot.Width * scale)), Math.Max(1, (int)Math.Ceiling(snapshot.Height * scale)));
                     DocumentRenderer.Render(snapshot, sample, new SKRectI(0, 0, sample.Width, sample.Height), new RenderView((float)scale, SKPoint.Empty));
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("Recent preview render", renderStart);
+#endif
                     using var encoded = sample.Encode(SKEncodedImageFormat.Png, 90);
                     Directory.CreateDirectory(Folder);
                     var temp = cache + "." + Guid.NewGuid().ToString("N") + ".tmp";

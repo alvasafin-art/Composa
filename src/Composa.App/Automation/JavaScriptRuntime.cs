@@ -89,7 +89,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         var calls = new List<QueuedAiTask>();
         ScriptResult result = new();
         session.RunTransaction(transactionName, editor =>
-        { result = ExecuteScriptAsync(editor, script, calls, allowAi: false, cancellationToken, asynchronous: false).GetAwaiter().GetResult(); SaveExport(session, result); });
+        { result = ExecuteScriptAsync(editor, script, calls, allowAi: false, cancellationToken, asynchronous: false).GetAwaiter().GetResult(); SaveExport(session, result, cancellationToken); });
         return result;
     }
 
@@ -103,7 +103,7 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
             result = await ExecuteScriptAsync(editor, script, calls, allowAi: true, cancellationToken, attachedImages, allowExport, dialogs: dialogs, fileAccess: new Assistant.AssistantFiles(settings));
             foreach (var call in calls)
                 await aiRunner.RunAsync(new EditorCommandService(editor), Request(editor, call, settings), cancellationToken);
-            SaveExport(session, result);
+            SaveExport(session, result, cancellationToken);
         });
         return result;
     }
@@ -112,6 +112,9 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         IReadOnlyList<string?>? attachedImages = null, bool allowExport = true, bool asynchronous = true, IScriptDialogs? dialogs = null, Assistant.AssistantFiles? fileAccess = null)
     {
         if (string.IsNullOrWhiteSpace(script)) throw new ArgumentException("The script is empty.", nameof(script));
+#if CANVAS_PERFORMANCE
+        var prepare = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         string? exportPath = null;
         var sendToPhotoshop = false;
         var sendLayersToPhotoshop = false;
@@ -246,8 +249,15 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         try
         {
             raw.Execute(Bootstrap).Execute(EditorBootstrap);
+#if CANVAS_PERFORMANCE
+            Composa.Rendering.CanvasPerformanceTrace.StageCompleted("Script engine setup", prepare);
+            var execute = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             if (asynchronous) await raw.EvaluateAsync("(async () => {\n" + script + "\n})()", cancellationToken: inputCancellation.Token);
             else raw.Execute(script);
+#if CANVAS_PERFORMANCE
+            Composa.Rendering.CanvasPerformanceTrace.StageCompleted("Script evaluate and apply", execute);
+#endif
             if (pendingInputs != 0) throw new InvalidOperationException("A script returned before its input dialog. Use await ui.form(...) or await prompt(...).");
             cancellationToken.ThrowIfCancellationRequested();
             return new ScriptResult(exportPath, exportQuality, output.ToString(), sendToPhotoshop, sendLayersToPhotoshop);
@@ -255,13 +265,25 @@ public sealed partial class JavaScriptRuntime : IScriptRuntime
         finally { inputCancellation.Cancel(); }
     }
 
-    private static void SaveExport(EditorSession session, ScriptResult result)
+    private static void SaveExport(EditorSession session, ScriptResult result, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (result.ExportedPath != null)
         {
             var format = ImageFiles.FormatFor(result.ExportedPath);
+#if CANVAS_PERFORMANCE
+            var flatten = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             using var flat = session.Flatten();
-            ImageFiles.Save(flat, result.ExportedPath, format, format == ExportFormat.Png ? 100 : result.ExportQuality);
+#if CANVAS_PERFORMANCE
+            Composa.Rendering.CanvasPerformanceTrace.StageCompleted("Export flatten", flatten);
+            var encode = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+            ImageFiles.Save(flat, result.ExportedPath, format, format == ExportFormat.Png ? 100 : result.ExportQuality,
+                cancellationToken: cancellationToken);
+#if CANVAS_PERFORMANCE
+            Composa.Rendering.CanvasPerformanceTrace.StageCompleted("Export PNG/file write", encode);
+#endif
         }
     }
 

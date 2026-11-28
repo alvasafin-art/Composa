@@ -101,9 +101,19 @@ public static unsafe partial class ImageFilters
             var sigma = Math.Max(.1, settings.Radius);
             var clamp = settings.ClampEdges && HasOpaqueBorder(source);
             var pad = clamp ? 0 : (int)Math.Ceiling(sigma * 3);
+#if CANVAS_PERFORMANCE
+            var prepareStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             var result = Pixels.NewLike(source, source.Width + pad * 2, source.Height + pad * 2);
             using (var canvas = new SKCanvas(result)) canvas.DrawBitmap(source, pad, pad);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Float Gaussian raster preparation", prepareStart);
+            var blurStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             FloatGaussian.ApplyInPlace(result, sigma, clamp);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Float Gaussian kernel", blurStart);
+#endif
             return (result, pad, pad);
         }
         if (source.ColorType == SKColorType.RgbaF32) return RunHighPrecision(source, settings);
@@ -157,7 +167,13 @@ public static unsafe partial class ImageFilters
 
     private static SKBitmap Draw(SKBitmap source, int padX, int padY, SKImageFilter filter)
     {
+#if CANVAS_PERFORMANCE
+        var allocationStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var result = Pixels.NewLike(source, source.Width + padX * 2, source.Height + padY * 2);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Skia filter output allocation", allocationStart);
+#endif
         using var canvas = new SKCanvas(result);
         using var paint = new SKPaint { ImageFilter = filter };
         canvas.DrawBitmap(source, padX, padY, paint);

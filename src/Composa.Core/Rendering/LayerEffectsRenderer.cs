@@ -28,6 +28,7 @@ public static class LayerEffectsRenderer
     {
         public Key Key { get; } = key;
         public (SKBitmap Image, int Inset) Result { get; } = (image, inset);
+        public long Bytes { get; } = (long)image.RowBytes * image.Height;
         public LinkedListNode<WeakReference<Entry>>? Order { get; set; }
     }
 
@@ -42,7 +43,9 @@ public static class LayerEffectsRenderer
     private static readonly ConditionalWeakTable<SKBitmap, List<Entry>> Cache = new();
     private static readonly LinkedList<WeakReference<Entry>> Lru = new();
     private static readonly Dictionary<Key, Pending> InFlight = [];
-    private const int MaxEntries = 12;
+    // Cache by bytes first. A small count cap causes stacks with many small styled
+    // layers to evict each other and rebuild in draw order on every repaint.
+    private const int MaxEntries = 128;
     private const long Budget = 384L * 1024 * 1024;
 
     static LayerEffectsRenderer() => Pixels.Invalidated += bitmap =>
@@ -151,7 +154,7 @@ public static class LayerEffectsRenderer
         {
             if (first.Value.TryGetTarget(out var entry))
             {
-                bytes -= entry.Result.Image.ByteCount;
+                bytes -= entry.Bytes;
                 Remove(entry);
             }
             else Lru.Remove(first);
@@ -164,7 +167,7 @@ public static class LayerEffectsRenderer
         for (var node = Lru.First; node != null;)
         {
             var next = node.Next;
-            if (node.Value.TryGetTarget(out var entry)) bytes += entry.Result.Image.ByteCount;
+            if (node.Value.TryGetTarget(out var entry)) bytes += entry.Bytes;
             else Lru.Remove(node);
             node = next;
         }
@@ -235,6 +238,7 @@ public static class LayerEffectsRenderer
     {
         private SKBitmap? firstPatch;
         private SKRectI firstDestination;
+        private SKRectI damage;
         public LayerEffects Effects { get; } = effects;
         internal SKBitmap? Updated { get; set; }
         internal SKRectI Pending { get; set; }
@@ -247,6 +251,16 @@ public static class LayerEffectsRenderer
             var halo = PatchHalo(Effects);
             changed.Inflate(halo, halo);
             Pending = Geometry.Union(Pending, changed);
+            damage = Geometry.Union(damage, changed);
+        }
+
+        internal void SeedLevels(Layer layer, SKBitmap result)
+        {
+            var matrix = layer.Matrix;
+            if (origin.X != matrix.TransX || origin.Y != matrix.TransY || damage.IsEmpty) return;
+            var changed = damage;
+            changed.Offset(inset, inset);
+            Pixels.SeedStrokeLevels(image, result, Geometry.Intersect(changed, result.Info.Rect));
         }
 
         internal SKBitmap? Prepare(Layer layer, SKRectI full)
@@ -342,6 +356,7 @@ public static class LayerEffectsRenderer
             CanvasPerformanceTrace.SurfaceAllocated("effect retained after stroke", result);
 #endif
             Remember(key, result, inset);
+            basis.SeedLevels(layer, result);
             basis.Updated = null;
             return true;
         }
@@ -362,7 +377,7 @@ public static class LayerEffectsRenderer
         if (m.ScaleX != 1 || m.ScaleY != 1 || m.SkewX != 0 || m.SkewY != 0 || m.Persp0 != 0 || m.Persp1 != 0 || m.Persp2 != 1
             || m.TransX != MathF.Round(m.TransX) || m.TransY != MathF.Round(m.TransY)) return null;
         var effects = layer.Effects?.Visible();
-        return effects is { IsEmpty: false, GradientOverlay: null, ColorOverlay: null, InnerShadow: null, InnerGlow: null }
+        return effects is { IsEmpty: false, GradientOverlay: null, InnerShadow: null, InnerGlow: null }
             ? effects : null;
     }
 
@@ -457,7 +472,7 @@ public static class LayerEffectsRenderer
     {
         // Outside effects are entirely behind opaque paint. Once the whole padded patch
         // is opaque, copying its color pixels produces the same image as rendering the styles.
-        if (mask == null && fillOpacity == 1 && effects.Stroke?.Inside != true && IsOpaquePatch(pixels, area))
+        if (mask == null && fillOpacity == 1 && effects.Stroke?.Inside != true && effects.ColorOverlay == null && IsOpaquePatch(pixels, area))
         {
             var opaque = Pixels.NewLike(pixels, area.Width, area.Height);
             DocumentRenderer.CopyRows(pixels, new SKPointI(area.Left, area.Top), opaque, opaque.Info.Rect);
@@ -640,8 +655,8 @@ public static class LayerEffectsRenderer
         if (image.ColorType == SKColorType.RgbaF32)
         {
             var pixels = new PixelBuffer(image);
-            for (var y = 0; y < image.Height; y++)
-            for (var x = 0; x < image.Width; x++)
+            for (var y = 0; y < pixels.Height; y++)
+            for (var x = 0; x < pixels.Width; x++)
             {
                 var p = pixels.Read(x, y);
                 pixels.Write(x, y, new(p.R * keep + color.Red / 255f * p.A * amount,
@@ -649,13 +664,18 @@ public static class LayerEffectsRenderer
             }
             return;
         }
-        for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++)
+        int width = image.Width, height = image.Height, stride = image.RowBytes;
+        for (var y = 0; y < height; y++)
         {
-            var p = data + (long)y * image.RowBytes + x * 4; var alpha = p[3];
-            p[0] = (byte)Math.Clamp(p[0] * keep + color.Red * alpha / 255f * amount + .5f, 0, 255);
-            p[1] = (byte)Math.Clamp(p[1] * keep + color.Green * alpha / 255f * amount + .5f, 0, 255);
-            p[2] = (byte)Math.Clamp(p[2] * keep + color.Blue * alpha / 255f * amount + .5f, 0, 255);
-            p[3] = (byte)Math.Clamp(alpha * (keep + amount) + .5f, 0, 255);
+            var p = data + (long)y * stride;
+            for (var x = 0; x < width; x++, p += 4)
+            {
+                var alpha = p[3];
+                p[0] = (byte)Math.Clamp(p[0] * keep + color.Red * alpha / 255f * amount + .5f, 0, 255);
+                p[1] = (byte)Math.Clamp(p[1] * keep + color.Green * alpha / 255f * amount + .5f, 0, 255);
+                p[2] = (byte)Math.Clamp(p[2] * keep + color.Blue * alpha / 255f * amount + .5f, 0, 255);
+                p[3] = (byte)Math.Clamp(alpha * (keep + amount) + .5f, 0, 255);
+            }
         }
     }
 

@@ -9,6 +9,23 @@ namespace Composa.Core.Tests;
 public sealed class LayerEffectsPerformanceTests
 {
     [Fact]
+    public void Many_small_styled_layers_reuse_their_effect_images_on_the_next_frame()
+    {
+        var effects = new LayerEffects { Shadow = new() { Blur = 4 }, Stroke = new() { Size = 2 } };
+        var sources = Enumerable.Range(0, 24).Select(_ => Pixels.NewColor(64, 48)).ToArray();
+        try
+        {
+            var firstFrame = sources.Select(source => LayerEffectsRenderer.Cached(source, null, effects)!.Value.Image).ToArray();
+            for (var i = 0; i < sources.Length; i++)
+                Assert.Same(firstFrame[i], LayerEffectsRenderer.Cached(sources[i], null, effects, 1, existingOnly: true)?.Image);
+        }
+        finally
+        {
+            foreach (var source in sources) source.Dispose();
+        }
+    }
+
+    [Fact]
     public void Opaque_brush_patch_matches_rendering_outside_effects_in_a_wide_gamut_layer()
     {
         var profile = Composa.ColorManagement.RgbProfile.DisplayP3;
@@ -47,17 +64,20 @@ public sealed class LayerEffectsPerformanceTests
     }
 
     [Theory]
-    [InlineData(false, false, 1f, 76)]
-    [InlineData(true, false, 1f, 76)]
-    [InlineData(false, true, 1f, 76)]
-    [InlineData(true, true, 1f, 76)]
-    [InlineData(false, false, .5f, 76)]
-    [InlineData(false, false, .71f, 76)]
-    [InlineData(true, false, .33f, 76)]
-    [InlineData(false, false, .19f, 76)]
-    [InlineData(true, true, .19f, 76)]
-    [InlineData(false, false, .19f, 500)]
-    public void View_shows_the_current_mask_or_paint_with_exact_effect_pixels(bool editMask, bool cancel, float zoom, int brushSize)
+    [InlineData(false, false, 1f, 76, false)]
+    [InlineData(true, false, 1f, 76, false)]
+    [InlineData(false, true, 1f, 76, false)]
+    [InlineData(true, true, 1f, 76, false)]
+    [InlineData(false, false, .5f, 76, false)]
+    [InlineData(false, false, .71f, 76, false)]
+    [InlineData(true, false, .33f, 76, false)]
+    [InlineData(false, false, .19f, 76, false)]
+    [InlineData(true, true, .19f, 76, false)]
+    [InlineData(false, false, .19f, 500, false)]
+    [InlineData(false, false, 1f, 500, true)]
+    [InlineData(false, false, .19f, 500, true)]
+    public void View_shows_the_current_mask_or_paint_with_exact_effect_pixels(bool editMask, bool cancel, float zoom, int brushSize,
+        bool colorOverlay)
     {
         var session = EditorSession.NewCanvas(2000, 1300, SKColors.White);
         var pixels = Pixels.NewLayerColor(1989, 1297, ColorDepth.Eight, Composa.ColorManagement.RgbProfile.Srgb);
@@ -75,7 +95,8 @@ public sealed class LayerEffectsPerformanceTests
         {
             Shadow = new() { Distance = 37, Blur = 67, Angle = 37 },
             OuterGlow = new() { Size = 24 },
-            Stroke = new() { Size = 3 }
+            Stroke = new() { Size = 3 },
+            ColorOverlay = colorOverlay ? new() { Color = 0xffee4f2f, Opacity = .46 } : null
         };
         session.Document.Layers.Add(layer);
         session.SelectLayer(layer.Id);

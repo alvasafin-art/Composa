@@ -35,8 +35,12 @@ internal sealed class Tile : IDisposable
         DocumentBounds = new(view.Origin.X + (area.Left - SamplingFringe) / view.Scale, view.Origin.Y + (area.Top - SamplingFringe) / view.Scale,
             view.Origin.X + (area.Right + SamplingFringe) / view.Scale, view.Origin.Y + (area.Bottom + SamplingFringe) / view.Scale);
         this.profile = profile ?? RgbProfile.Srgb;
+#if CANVAS_PERFORMANCE
+        var allocationStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
 #if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Composition tile allocation", allocationStart);
         CanvasPerformanceTrace.SurfaceAllocated(mask ? "render mask tile" : "render color tile", Bitmap);
 #endif
         Canvas = new SKCanvas(Bitmap);
@@ -107,6 +111,11 @@ public static partial class DocumentRenderer
     {
         area = Geometry.Intersect(area, new SKRectI(0, 0, target.Width, target.Height));
         if (area.IsEmpty) return false;
+        if (TryCopyRasterViewport(document, target, area, view, options))
+        {
+            Pixels.Invalidate(target);
+            return true;
+        }
         if (TryRenderGpu(document, target, area, view, options))
         {
             Pixels.ClampColor(target, area);
@@ -115,8 +124,56 @@ public static partial class DocumentRenderer
         }
         // Live viewport patches use the same bands as a full frame so Skia sees
         // the same raster coordinates and interpolation at fractional zoom.
-        RenderCpu(document, target, viewport ?? area, area, view, options, SamplingMargin(document, options),
-            parallelizeLayerStrips: parallelizeLayerStrips);
+        var margin = SamplingMargin(document, options);
+        var clipBandWidth = viewport.HasValue && margin == 0;
+        var cropBandWidth = clipBandWidth && view.Scale == 1 && view.OutputOffset == null
+            && view.Origin.X == MathF.Round(view.Origin.X) && view.Origin.Y == MathF.Round(view.Origin.Y)
+            && options?.Overrides == null && IsIntegralRasterStack(document.Layers);
+        RenderCpu(document, target, viewport ?? area, area, view, options, margin,
+            parallelizeLayerStrips: parallelizeLayerStrips, clipBandWidth: clipBandWidth, cropBandWidth: cropBandWidth);
+        return true;
+    }
+
+    private static bool TryCopyRasterViewport(Document document, SKBitmap target, SKRectI area, RenderView view, RenderOptions? options)
+    {
+        if (options != null || view.Scale != 1 || view.OutputOffset != null || document.Layers.Count != 1
+            || target.ColorType != SKColorType.Rgba8888 || target.AlphaType != SKAlphaType.Premul) return false;
+        var workingType = document.WorkingDepth == ColorDepth.Sixteen ? SKColorType.RgbaF32 : SKColorType.Rgba8888;
+        var layer = document.Layers[0];
+        if (layer is not { Kind: LayerKind.Raster, Visible: true, Opacity: 1, FillOpacity: 1, Blend: BlendMode.Normal,
+                Clipped: false, Effects: null, Mask: null, VectorMask: null, LayoutFrame: null, HasWarp: false, HasSmartFilterMask: false }
+            || !layer.BlendIf.IsIdentity || layer.Pixels is not { AlphaType: SKAlphaType.Premul } pixels
+            || pixels.ColorType != workingType || ReferenceEquals(pixels, target)
+            || !RgbProfile.SameSpace(pixels.ColorSpace, document.Profile.Space)) return false;
+        var matrix = layer.Matrix;
+        if (matrix != SKMatrix.CreateTranslation(matrix.TransX, matrix.TransY)
+            || !Whole(matrix.TransX) || !Whole(matrix.TransY) || !Whole(view.Origin.X) || !Whole(view.Origin.Y))
+            return false;
+        // At native zoom a single premultiplied layer over clear pixels is already
+        // the composite. Only handle regions entirely inside that layer's grid.
+        var x = area.Left + view.Origin.X - matrix.TransX;
+        var y = area.Top + view.Origin.Y - matrix.TransY;
+        if (x < 0 || y < 0 || x + area.Width > pixels.Width || y + area.Height > pixels.Height)
+            return false;
+        CopyRows(pixels, new((int)x, (int)y), target, area);
+        return true;
+    }
+
+    // Native, pixel-aligned layers retain the same sample coordinates when the
+    // band starts at the damage's left edge. Scaled and projective draws keep
+    // the full band so Skia's interpolation phase stays identical.
+    private static bool IsIntegralRasterStack(IReadOnlyList<Layer> layers)
+    {
+        foreach (var layer in layers)
+        {
+            if (!layer.Visible || layer.Opacity <= 0) continue;
+            if (layer.IsGroup && layer.Mask == null && layer.VectorMask == null && IsIntegralRasterStack(layer.Children)) continue;
+            if (layer.Kind != LayerKind.Raster || layer.HasWarp || layer.HasSmartFilterMask || layer.Pixels == null) return false;
+            var matrix = layer.Matrix;
+            if (matrix != SKMatrix.CreateTranslation(matrix.TransX, matrix.TransY)
+                || matrix.TransX != MathF.Round(matrix.TransX) || matrix.TransY != MathF.Round(matrix.TransY))
+                return false;
+        }
         return true;
     }
 
@@ -140,8 +197,11 @@ public static partial class DocumentRenderer
 
     private static void RenderCpu(Document document, SKBitmap target, SKRectI area, SKRectI changed, RenderView view,
         RenderOptions? options, double samplingMargin, IReadOnlyList<Layer>? layers = null, SKBitmap? backdrop = null,
-        bool parallelizeLayerStrips = false)
+        bool parallelizeLayerStrips = false, bool clipBandWidth = false, bool cropBandWidth = false)
     {
+#if CANVAS_PERFORMANCE
+        var cpuStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         layers ??= document.Layers;
         // Skia's raster backend draws on one thread, so large areas are split into bands rendered side by side.
         // Every layer operation is per-pixel, which makes the bands independent of each other, except the blur
@@ -155,6 +215,10 @@ public static partial class DocumentRenderer
         var canvas = Geometry.RoundOut(new SKRect(-view.Origin.X * view.Scale, -view.Origin.Y * view.Scale,
             (document.Width - view.Origin.X) * view.Scale, (document.Height - view.Origin.Y) * view.Scale));
         var depth = document.WorkingDepth;
+        var left = cropBandWidth ? changed.Left : area.Left;
+        var right = cropBandWidth ? changed.Right : area.Right;
+        var copyLeft = clipBandWidth ? changed.Left : left;
+        var copyRight = clipBandWidth ? changed.Right : right;
         var firstBand = (changed.Top - area.Top) / bandHeight;
         var lastBand = (changed.Bottom - 1 - area.Top) / bandHeight;
         if (firstBand == lastBand) RenderBand(firstBand);
@@ -163,7 +227,7 @@ public static partial class DocumentRenderer
         void RenderBand(int band)
         {
             var top = area.Top + band * bandHeight;
-            var part = new SKRectI(area.Left, top, area.Right, Math.Min(area.Bottom, top + bandHeight));
+            var part = new SKRectI(left, top, right, Math.Min(area.Bottom, top + bandHeight));
             if (part.Height <= 0) return;
             var padded = part;
             if (margin > 0)
@@ -173,20 +237,39 @@ public static partial class DocumentRenderer
                 padded = Geometry.Union(part, Geometry.Intersect(padded, canvas));
             }
             using var tile = new Tile(padded, view, depth: depth, profile: document.Profile);
+            if (clipBandWidth && !cropBandWidth && (copyLeft != left || copyRight != right))
+            {
+                // Clip on the existing device grid. Rebasing a scaled band can
+                // change Skia's rounding at the edges of an otherwise identical draw.
+                var matrix = tile.Canvas.TotalMatrix;
+                tile.Canvas.ResetMatrix();
+                tile.Canvas.ClipRect(new SKRect(copyLeft - padded.Left, 0, copyRight - padded.Left, padded.Height));
+                tile.Canvas.SetMatrix(in matrix);
+            }
             if (backdrop != null)
                 CopyRows(backdrop, new SKPointI(padded.Left, padded.Top), tile.Bitmap, tile.Bitmap.Info.Rect);
             RenderNodes(layers, tile, options);
             tile.Canvas.Flush();
-            CopyRows(tile.Bitmap, new SKPointI(part.Left - padded.Left, part.Top - padded.Top), target, part);
+            var copied = new SKRectI(copyLeft, part.Top, copyRight, part.Bottom);
+#if CANVAS_PERFORMANCE
+            var copyStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+            CopyRows(tile.Bitmap, new SKPointI(copyLeft - padded.Left, part.Top - padded.Top), target, copied);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Composition tile output copy", copyStart);
+#endif
         }
         if (target.ColorType == SKColorType.RgbaF32)
         {
             // These are the complete bands just copied into the destination.
-            var copied = new SKRectI(area.Left, area.Top + firstBand * bandHeight, area.Right,
+            var copied = new SKRectI(copyLeft, area.Top + firstBand * bandHeight, copyRight,
                 Math.Min(area.Bottom, area.Top + (lastBand + 1) * bandHeight));
             Pixels.ClampColor(target, copied);
         }
         Pixels.Invalidate(target);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("CPU composition bands", cpuStart);
+#endif
     }
 
     /// <summary>The widest halo any visible adjustment layer needs around an area rendered on its own, in document pixels.</summary>
@@ -610,10 +693,24 @@ public static partial class DocumentRenderer
     {
         if (layer.Adjustment == null || layer.Adjustment.IsIdentity) return;
         tile.Canvas.Flush();
+#if CANVAS_PERFORMANCE
+        var copyStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         using var adjusted = Pixels.Clone(tile.Bitmap);
         var (originX, originY, step) = tile.DocumentGrid;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Adjustment raster copy", copyStart);
+        var adjustmentStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         // Bands already run side by side, so the adjustment itself stays on this thread.
         layer.Adjustment.Apply(adjusted, new SKRectI(0, 0, adjusted.Width, adjusted.Height), originX, originY, step, parallel: tile.Area.Height * (long)tile.Area.Width > 2_000_000);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Adjustment kernel", adjustmentStart);
+        var mixStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         Mix(tile, adjusted, layer, layer.RenderMask() != null);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Adjustment mix", mixStart);
+#endif
     }
 }

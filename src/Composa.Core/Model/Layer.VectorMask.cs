@@ -23,13 +23,21 @@ public sealed partial class Layer
             using (var canvas = new SKCanvas(result))
             using (var filter = MaskFeather > 0 ? SKImageFilter.CreateBlur((float)MaskFeather / 2, (float)MaskFeather / 2, SKShaderTileMode.Clamp) : null)
             using (var paint = new SKPaint { ImageFilter = filter, BlendMode = SKBlendMode.Src }) canvas.DrawBitmap(mask, 0, 0, paint);
-            var data = result.GetPixelSpan();
             var density = Math.Clamp(MaskDensity, 0, 1);
-            for (var y = 0; y < result.Height; y++)
-            for (var x = 0; x < result.Width; x++)
+            if (density != 1)
             {
-                var at = y * result.RowBytes + x;
-                data[at] = (byte)Math.Clamp(Math.Round(255 - (255 - data[at]) * density), 0, 255);
+                // Every row uses the same 256 alpha values, with the same rounding as the mask preview.
+                Span<byte> lookup = stackalloc byte[256];
+                for (var alpha = 0; alpha < lookup.Length; alpha++)
+                    lookup[alpha] = (byte)Math.Clamp(Math.Round(255 - (255 - alpha) * density), 0, 255);
+                var data = result.GetPixelSpan();
+                int width = result.Width, height = result.Height, stride = result.RowBytes;
+                for (var y = 0; y < height; y++)
+                {
+                    var row = data.Slice(y * stride, width);
+                    for (var x = 0; x < row.Length; x++)
+                        row[x] = lookup[row[x]];
+                }
             }
             Rendering.Pixels.Invalidate(result);
             adjustedRasterMask = (mask, generation, MaskDensity, MaskFeather, result);

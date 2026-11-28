@@ -123,7 +123,16 @@ public static class ImageFiles
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
-            if (format == ExportFormat.Tiff)
+            if (format == ExportFormat.Png)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using var data = bitmap.Encode(SKEncodedImageFormat.Png, Math.Clamp(quality, 1, 100))
+                    ?? throw new IOException("The image could not be encoded.");
+                using var output = File.Create(temp);
+                // Insert the same metadata as Encode, without copying the whole PNG into managed arrays.
+                ImageProfiles.WritePng(output, data.AsSpan(), Pixels.ProfileOf(bitmap).IccBytes(), resolution);
+            }
+            else if (format == ExportFormat.Tiff)
             {
                 using var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
                 TiffCodec.Write(bitmap, output, resolution, cmyk: colorMode == CanvasColorMode.CMYK);
