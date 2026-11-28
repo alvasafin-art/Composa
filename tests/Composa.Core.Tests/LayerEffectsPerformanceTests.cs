@@ -9,6 +9,23 @@ namespace Composa.Core.Tests;
 public sealed class LayerEffectsPerformanceTests
 {
     [Fact]
+    public void Many_small_styled_layers_reuse_their_effect_images_on_the_next_frame()
+    {
+        var effects = new LayerEffects { Shadow = new() { Blur = 4 }, Stroke = new() { Size = 2 } };
+        var sources = Enumerable.Range(0, 24).Select(_ => Pixels.NewColor(64, 48)).ToArray();
+        try
+        {
+            var firstFrame = sources.Select(source => LayerEffectsRenderer.Cached(source, null, effects)!.Value.Image).ToArray();
+            for (var i = 0; i < sources.Length; i++)
+                Assert.Same(firstFrame[i], LayerEffectsRenderer.Cached(sources[i], null, effects, 1, existingOnly: true)?.Image);
+        }
+        finally
+        {
+            foreach (var source in sources) source.Dispose();
+        }
+    }
+
+    [Fact]
     public void Opaque_brush_patch_matches_rendering_outside_effects_in_a_wide_gamut_layer()
     {
         var profile = Composa.ColorManagement.RgbProfile.DisplayP3;

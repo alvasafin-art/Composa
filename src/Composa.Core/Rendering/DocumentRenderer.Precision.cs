@@ -16,13 +16,20 @@ public static partial class DocumentRenderer
         }
         var source = new PixelBuffer(replacement); var target = new PixelBuffer(tile.Bitmap);
         ReadOnlySpan<byte> maskPixels = mask == null ? ReadOnlySpan<byte>.Empty : mask.Bitmap.GetPixelSpan();
-        for (var y = 0; y < tile.Bitmap.Height; y++)
-        for (var x = 0; x < tile.Bitmap.Width; x++)
+        var maskStride = mask?.Bitmap.RowBytes ?? 0;
+        var opacity = (float)layer.Opacity;
+        var blendIf = layer.BlendIf;
+        for (var y = 0; y < target.Height; y++)
         {
-            var before = target.Read(x, y); var after = source.Read(x, y);
-            var amount = (float)layer.Opacity * (mask == null ? 1 : maskPixels[y * mask.Bitmap.RowBytes + x] / 255f);
-            amount *= BlendIfPixels.Coverage(after, before, layer.BlendIf);
-            target.Write(x, y, before * (1 - amount) + after * amount);
+            var maskRow = mask == null ? ReadOnlySpan<byte>.Empty : maskPixels.Slice(y * maskStride, target.Width);
+            for (var x = 0; x < target.Width; x++)
+            {
+                var before = target.Read(x, y);
+                var after = source.Read(x, y);
+                var amount = opacity * (maskRow.IsEmpty ? 1 : maskRow[x] / 255f);
+                amount *= BlendIfPixels.Coverage(after, before, blendIf);
+                target.Write(x, y, before * (1 - amount) + after * amount);
+            }
         }
     }
 }

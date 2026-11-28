@@ -28,6 +28,7 @@ public static class LayerEffectsRenderer
     {
         public Key Key { get; } = key;
         public (SKBitmap Image, int Inset) Result { get; } = (image, inset);
+        public long Bytes { get; } = (long)image.RowBytes * image.Height;
         public LinkedListNode<WeakReference<Entry>>? Order { get; set; }
     }
 
@@ -42,7 +43,9 @@ public static class LayerEffectsRenderer
     private static readonly ConditionalWeakTable<SKBitmap, List<Entry>> Cache = new();
     private static readonly LinkedList<WeakReference<Entry>> Lru = new();
     private static readonly Dictionary<Key, Pending> InFlight = [];
-    private const int MaxEntries = 12;
+    // Cache by bytes first. A small count cap causes stacks with many small styled
+    // layers to evict each other and rebuild in draw order on every repaint.
+    private const int MaxEntries = 128;
     private const long Budget = 384L * 1024 * 1024;
 
     static LayerEffectsRenderer() => Pixels.Invalidated += bitmap =>
@@ -151,7 +154,7 @@ public static class LayerEffectsRenderer
         {
             if (first.Value.TryGetTarget(out var entry))
             {
-                bytes -= entry.Result.Image.ByteCount;
+                bytes -= entry.Bytes;
                 Remove(entry);
             }
             else Lru.Remove(first);
@@ -164,7 +167,7 @@ public static class LayerEffectsRenderer
         for (var node = Lru.First; node != null;)
         {
             var next = node.Next;
-            if (node.Value.TryGetTarget(out var entry)) bytes += entry.Result.Image.ByteCount;
+            if (node.Value.TryGetTarget(out var entry)) bytes += entry.Bytes;
             else Lru.Remove(node);
             node = next;
         }
@@ -640,8 +643,8 @@ public static class LayerEffectsRenderer
         if (image.ColorType == SKColorType.RgbaF32)
         {
             var pixels = new PixelBuffer(image);
-            for (var y = 0; y < image.Height; y++)
-            for (var x = 0; x < image.Width; x++)
+            for (var y = 0; y < pixels.Height; y++)
+            for (var x = 0; x < pixels.Width; x++)
             {
                 var p = pixels.Read(x, y);
                 pixels.Write(x, y, new(p.R * keep + color.Red / 255f * p.A * amount,
@@ -649,13 +652,18 @@ public static class LayerEffectsRenderer
             }
             return;
         }
-        for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++)
+        int width = image.Width, height = image.Height, stride = image.RowBytes;
+        for (var y = 0; y < height; y++)
         {
-            var p = data + (long)y * image.RowBytes + x * 4; var alpha = p[3];
-            p[0] = (byte)Math.Clamp(p[0] * keep + color.Red * alpha / 255f * amount + .5f, 0, 255);
-            p[1] = (byte)Math.Clamp(p[1] * keep + color.Green * alpha / 255f * amount + .5f, 0, 255);
-            p[2] = (byte)Math.Clamp(p[2] * keep + color.Blue * alpha / 255f * amount + .5f, 0, 255);
-            p[3] = (byte)Math.Clamp(alpha * (keep + amount) + .5f, 0, 255);
+            var p = data + (long)y * stride;
+            for (var x = 0; x < width; x++, p += 4)
+            {
+                var alpha = p[3];
+                p[0] = (byte)Math.Clamp(p[0] * keep + color.Red * alpha / 255f * amount + .5f, 0, 255);
+                p[1] = (byte)Math.Clamp(p[1] * keep + color.Green * alpha / 255f * amount + .5f, 0, 255);
+                p[2] = (byte)Math.Clamp(p[2] * keep + color.Blue * alpha / 255f * amount + .5f, 0, 255);
+                p[3] = (byte)Math.Clamp(alpha * (keep + amount) + .5f, 0, 255);
+            }
         }
     }
 
