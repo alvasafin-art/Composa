@@ -8,6 +8,12 @@ using SkiaSharp;
 Console.WriteLine($"Logical processors: {Environment.ProcessorCount}");
 GpuAcceleration.Configure(filters: false, editor: false);
 
+if (args is ["heavy-edits"])
+{
+    HeavyEdits.Run();
+    return;
+}
+
 using var mask = Pixels.NewMask(3840, 2160, 161);
 var maskLayer = new Layer { Mask = mask, MaskFeather = 14 };
 foreach (var density in new[] { 1.0, .72 })

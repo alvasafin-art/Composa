@@ -474,7 +474,13 @@ public sealed partial class EditorSession
     {
         if (composite == null || composite.Width != document.Width || composite.Height != document.Height)
         {
+#if CANVAS_PERFORMANCE
+            var allocationStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             composite = Pixels.NewColor(document.Width, document.Height);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Display composite allocation", allocationStart);
+#endif
             dirty = document.Bounds;
         }
         if (!dirty.IsEmpty)

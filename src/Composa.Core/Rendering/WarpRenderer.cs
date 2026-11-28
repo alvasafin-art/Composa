@@ -47,6 +47,9 @@ public static class WarpRenderer
         if (!DocumentLimits.FitsSurface(bounds.Width, bounds.Height, source.BytesPerPixel))
             throw new InvalidOperationException($"The deformed surface exceeds the {DocumentLimits.MaxSide}-pixel side or supported surface memory limit.");
         var width = Math.Max(1, (int)Math.Ceiling(bounds.Width * scale)); var height = Math.Max(1, (int)Math.Ceiling(bounds.Height * scale));
+#if CANVAS_PERFORMANCE
+        var prepareStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var result = Pixels.NewWorkingColor(width, height, Pixels.DepthOf(source), Pixels.ProfileOf(source));
         SKBitmap? covered = null;
         try
@@ -61,6 +64,10 @@ public static class WarpRenderer
                 using var keep = new SKPaint { Shader = coverage, BlendMode = SKBlendMode.DstIn };
                 maskCanvas.DrawRect(0, 0, covered.Width, covered.Height, keep); maskCanvas.Flush(); Pixels.Invalidate(covered);
             }
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Warp raster preparation", prepareStart);
+            var warpStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             using var canvas = new SKCanvas(result);
             canvas.Scale((float)width / bounds.Width, (float)height / bounds.Height); canvas.Translate(-bounds.Left, -bounds.Top);
             var sampling = geometry.Mesh.IsIdentity && width == bounds.Width && height == bounds.Height
@@ -89,6 +96,9 @@ public static class WarpRenderer
                 }
             }
             canvas.Flush(); cancellationToken.ThrowIfCancellationRequested();
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Warp tessellation and rasterization", warpStart);
+#endif
             GC.KeepAlive(source); GC.KeepAlive(linkedMask);
             return new(result, bounds);
         }

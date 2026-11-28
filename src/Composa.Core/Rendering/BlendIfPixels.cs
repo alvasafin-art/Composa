@@ -19,31 +19,44 @@ internal static class BlendIfPixels
     internal static unsafe void Apply(SKBitmap target, SKBitmap source, SKBitmap backdrop, BlendIfSettings settings)
     {
         if (settings.IsIdentity) return;
+#if CANVAS_PERFORMANCE
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+        // Each SKBitmap metadata lookup crosses into Skia. Read it outside the pixel loops.
+        var width = target.Width;
+        var height = target.Height;
+        var targetStride = target.RowBytes;
+        var mask = target.ColorType == SKColorType.Alpha8;
         if (target.ColorType == SKColorType.RgbaF32 || source.ColorType == SKColorType.RgbaF32 || backdrop.ColorType == SKColorType.RgbaF32)
         {
             var colors = new PixelBuffer(source); var below = new PixelBuffer(backdrop);
-            if (target.ColorType == SKColorType.Alpha8)
+            if (mask)
             {
                 var data = target.GetPixelSpan();
-                for (var y = 0; y < target.Height; y++)
-                for (var x = 0; x < target.Width; x++)
+                for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
                 {
-                    var at = y * target.RowBytes + x;
+                    var at = y * targetStride + x;
                     data[at] = (byte)MathF.Round(data[at] * Coverage(colors.Read(x, y), below.Read(x, y), settings));
                 }
             }
             else
             {
                 var output = new PixelBuffer(target);
-                for (var y = 0; y < target.Height; y++)
-                for (var x = 0; x < target.Width; x++)
+                for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
                     output.Write(x, y, output.Read(x, y) * Coverage(colors.Read(x, y), below.Read(x, y), settings));
             }
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Blend If kernel", started);
+#endif
             return;
         }
         var active = new[] { settings.Gray, settings.Red, settings.Green, settings.Blue }
             .Select((range, index) => (Range: range, Channel: index)).Where(x => !x.Range.IsIdentity).ToArray();
-        var mask = target.ColorType == SKColorType.Alpha8;
+        var components = mask ? 1 : 4;
+        var sourceStride = source.RowBytes;
+        var backdropStride = backdrop.RowBytes;
         var targetData = (byte*)target.GetPixels();
         var sourceData = (byte*)source.GetPixels();
         var backdropData = (byte*)backdrop.GetPixels();
@@ -53,12 +66,12 @@ internal static class BlendIfPixels
             var scale = 255.0 / p[3];
             return channel == 0 ? (.3 * p[0] + .59 * p[1] + .11 * p[2]) * scale : p[channel - 1] * scale;
         }
-        for (var y = 0; y < target.Height; y++)
+        for (var y = 0; y < height; y++)
         {
-            var t = targetData + (long)y * target.RowBytes;
-            var s = sourceData + (long)y * source.RowBytes;
-            var d = backdropData + (long)y * backdrop.RowBytes;
-            for (var x = 0; x < target.Width; x++, t += mask ? 1 : 4, s += 4, d += 4)
+            var t = targetData + (long)y * targetStride;
+            var s = sourceData + (long)y * sourceStride;
+            var d = backdropData + (long)y * backdropStride;
+            for (var x = 0; x < width; x++, t += components, s += 4, d += 4)
             {
                 double coverage = 1;
                 foreach (var (range, channel) in active)
@@ -67,8 +80,11 @@ internal static class BlendIfPixels
                     // A missing backdrop cannot knock out a source: fade its restriction by backdrop alpha.
                     coverage = Math.Min(coverage, 1 - d[3] / 255.0 * (1 - range.Underlying.Coverage(Value(d, channel))));
                 }
-                for (var c = 0; c < (mask ? 1 : 4); c++) t[c] = (byte)Math.Clamp(Math.Round(t[c] * coverage), 0, 255);
+                for (var c = 0; c < components; c++) t[c] = (byte)Math.Clamp(Math.Round(t[c] * coverage), 0, 255);
             }
         }
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Blend If kernel", started);
+#endif
     }
 }

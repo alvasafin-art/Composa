@@ -35,8 +35,12 @@ internal sealed class Tile : IDisposable
         DocumentBounds = new(view.Origin.X + (area.Left - SamplingFringe) / view.Scale, view.Origin.Y + (area.Top - SamplingFringe) / view.Scale,
             view.Origin.X + (area.Right + SamplingFringe) / view.Scale, view.Origin.Y + (area.Bottom + SamplingFringe) / view.Scale);
         this.profile = profile ?? RgbProfile.Srgb;
+#if CANVAS_PERFORMANCE
+        var allocationStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         Bitmap = mask ? Pixels.NewMask(area.Width, area.Height) : Pixels.NewWorkingColor(area.Width, area.Height, depth, this.profile);
 #if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Composition tile allocation", allocationStart);
         CanvasPerformanceTrace.SurfaceAllocated(mask ? "render mask tile" : "render color tile", Bitmap);
 #endif
         Canvas = new SKCanvas(Bitmap);
@@ -195,6 +199,9 @@ public static partial class DocumentRenderer
         RenderOptions? options, double samplingMargin, IReadOnlyList<Layer>? layers = null, SKBitmap? backdrop = null,
         bool parallelizeLayerStrips = false, bool clipBandWidth = false, bool cropBandWidth = false)
     {
+#if CANVAS_PERFORMANCE
+        var cpuStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         layers ??= document.Layers;
         // Skia's raster backend draws on one thread, so large areas are split into bands rendered side by side.
         // Every layer operation is per-pixel, which makes the bands independent of each other, except the blur
@@ -244,7 +251,13 @@ public static partial class DocumentRenderer
             RenderNodes(layers, tile, options);
             tile.Canvas.Flush();
             var copied = new SKRectI(copyLeft, part.Top, copyRight, part.Bottom);
+#if CANVAS_PERFORMANCE
+            var copyStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
             CopyRows(tile.Bitmap, new SKPointI(copyLeft - padded.Left, part.Top - padded.Top), target, copied);
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("Composition tile output copy", copyStart);
+#endif
         }
         if (target.ColorType == SKColorType.RgbaF32)
         {
@@ -254,6 +267,9 @@ public static partial class DocumentRenderer
             Pixels.ClampColor(target, copied);
         }
         Pixels.Invalidate(target);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("CPU composition bands", cpuStart);
+#endif
     }
 
     /// <summary>The widest halo any visible adjustment layer needs around an area rendered on its own, in document pixels.</summary>
@@ -677,10 +693,24 @@ public static partial class DocumentRenderer
     {
         if (layer.Adjustment == null || layer.Adjustment.IsIdentity) return;
         tile.Canvas.Flush();
+#if CANVAS_PERFORMANCE
+        var copyStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         using var adjusted = Pixels.Clone(tile.Bitmap);
         var (originX, originY, step) = tile.DocumentGrid;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Adjustment raster copy", copyStart);
+        var adjustmentStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         // Bands already run side by side, so the adjustment itself stays on this thread.
         layer.Adjustment.Apply(adjusted, new SKRectI(0, 0, adjusted.Width, adjusted.Height), originX, originY, step, parallel: tile.Area.Height * (long)tile.Area.Width > 2_000_000);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Adjustment kernel", adjustmentStart);
+        var mixStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         Mix(tile, adjusted, layer, layer.RenderMask() != null);
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("Adjustment mix", mixStart);
+#endif
     }
 }

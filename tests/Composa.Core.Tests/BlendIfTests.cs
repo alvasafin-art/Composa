@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json.Nodes;
+using Composa.ColorManagement;
 using Composa.Editing;
 using Composa.Filters;
 using Composa.IO;
@@ -90,6 +91,54 @@ public class BlendIfTests
         using var composite = DocumentRenderer.Flatten(document);
         AssertColor(new SKColor(223, 223, 223), composite.GetPixel(32, 4));
         AssertColor(new SKColor(200, 200, 200), composite.GetPixel(200, 4));
+    }
+
+    [Theory]
+    [InlineData(ColorDepth.Eight, false)]
+    [InlineData(ColorDepth.Eight, true)]
+    [InlineData(ColorDepth.Sixteen, true)]
+    public void Masked_group_damage_matches_the_full_appearance_through_history(ColorDepth depth, bool wideGamut)
+    {
+        var profile = wideGamut ? RgbProfile.DisplayP3 : RgbProfile.Srgb;
+        var document = new Document(763, 527) { Depth = depth, Profile = profile };
+        var backdrop = Pixels.NewWorkingColor(document.Width, document.Height, depth, profile);
+        var accent = Pixels.NewWorkingColor(513, 229, depth, profile);
+        var accentMask = Pixels.NewMask(513, 229, 181);
+        var groupMask = Pixels.NewMask(document.Width, document.Height, 197);
+        using (var canvas = new SKCanvas(backdrop)) canvas.Clear(new SKColor(114, 181, 148));
+        using (var canvas = new SKCanvas(accent))
+        using (var paint = new SKPaint { Color = new SKColor(196, 34, 112, 197), IsAntialias = true })
+            canvas.DrawOval(244, 113, 236, 95, paint);
+
+        document.Layers.Add(Layer.Raster("Background", backdrop));
+        var group = Layer.Group("Masked adjustments");
+        group.Mask = groupMask;
+        group.BlendIf = new() { Gray = new() { Underlying = new(39, 109, 198, 237) } };
+        var layer = Layer.Raster("Accent", accent, 63, 139);
+        layer.Mask = accentMask;
+        group.Children.Add(layer);
+        group.Children.Add(Layer.ForAdjustment(new GaussianBlurAdjustment { Radius = 3 }));
+        document.Layers.Add(group);
+        var session = new EditorSession(document);
+
+        using var before = DocumentRenderer.Flatten(document);
+        using var updated = Pixels.Clone(before);
+        session.SetBlending(layer, .73, new() { Red = new() { ThisLayer = new(20, 111, 153, 232) } });
+        var damaged = Geometry.RoundOut(layer.VisibleBounds);
+        damaged.Inflate(16, 16);
+        session.RenderViewportFrame(updated, damaged, RenderView.Identity, bandExtent: document.Bounds);
+
+        using var full = DocumentRenderer.Flatten(document);
+        Assert.Equal(depth == ColorDepth.Sixteen ? SKColorType.RgbaF32 : SKColorType.Rgba8888, full.ColorType);
+        Assert.True(RgbProfile.SameSpace(full.ColorSpace, profile.Space));
+        Assert.False(before.GetPixelSpan().SequenceEqual(full.GetPixelSpan()));
+        Assert.True(updated.GetPixelSpan().SequenceEqual(full.GetPixelSpan()));
+        session.Undo();
+        using var undone = DocumentRenderer.Flatten(session.Document);
+        Assert.True(before.GetPixelSpan().SequenceEqual(undone.GetPixelSpan()));
+        session.Redo();
+        using var redone = DocumentRenderer.Flatten(session.Document);
+        Assert.True(full.GetPixelSpan().SequenceEqual(redone.GetPixelSpan()));
     }
 
     [Fact]
