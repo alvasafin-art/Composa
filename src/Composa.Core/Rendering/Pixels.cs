@@ -195,13 +195,26 @@ public static partial class Pixels
         }
     }
 
+    private sealed record PyramidSeed(WeakReference<SKBitmap> Source, SKRectI Damage);
     private static readonly ConditionalWeakTable<SKBitmap, Pyramid> Pyramids = new();
+    private static readonly ConditionalWeakTable<SKBitmap, PyramidSeed> PyramidSeeds = new();
     private static readonly HashSet<SKBitmap> Live = new(ReferenceEqualityComparer.Instance);
 
     internal static void ForgetDisplayLevels(SKBitmap bitmap)
     {
         // An image already borrowed by another renderer remains valid for that reader.
-        lock (bitmap) Pyramids.Remove(bitmap);
+        lock (bitmap)
+        {
+            PyramidSeeds.Remove(bitmap);
+            Pyramids.Remove(bitmap);
+        }
+    }
+
+    /// <summary>Allows a committed stroke to reuse the original's reduced pixels outside its damage.</summary>
+    internal static void SeedStrokeLevels(SKBitmap original, SKBitmap edited, SKRectI damage)
+    {
+        if (damage.IsEmpty || original.Info != edited.Info || !Pyramids.TryGetValue(original, out _)) return;
+        PyramidSeeds.AddOrUpdate(edited, new(new(original), damage));
     }
 
     /// <summary>A no-copy image over the bitmap's pixels. Call <see cref="Invalidate"/> after changing them.</summary>
@@ -231,16 +244,39 @@ public static partial class Pixels
 #if CANVAS_PERFORMANCE
                 var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-                var half = Halve(previous);
+                var patched = TryPatchLevel(bitmap, previous, pyramid.Bitmaps.Count);
+                var half = patched ?? Halve(previous);
                 pyramid.Bitmaps.Add(half);
                 pyramid.Images.Add(SKImage.FromPixels(half.PeekPixels()));
 #if CANVAS_PERFORMANCE
-                CanvasPerformanceTrace.StageCompleted("raster pyramid level", started);
+                CanvasPerformanceTrace.StageCompleted(patched == null ? "raster pyramid level" : "patched raster pyramid level", started);
 #endif
             }
             level = Math.Min(level, pyramid.Images.Count - 1);
             return pyramid.Images[level];
         }
+    }
+
+    private static SKBitmap? TryPatchLevel(SKBitmap bitmap, SKBitmap previous, int level)
+    {
+        if (!PyramidSeeds.TryGetValue(bitmap, out var seed) || !seed.Source.TryGetTarget(out var source)) return null;
+        var scale = 1 << level;
+        var area = new SKRectI(seed.Damage.Left / scale, seed.Damage.Top / scale,
+            (seed.Damage.Right + scale - 1) / scale, (seed.Damage.Bottom + scale - 1) / scale);
+        SKBitmap half;
+        // Keep the original level alive while copying it. A stroke only derives
+        // levels from an earlier bitmap, so two painters cannot lock in reverse order.
+        lock (source)
+        {
+            if (!Pyramids.TryGetValue(source, out var old) || old.Bitmaps.Count <= level) return null;
+            var cached = old.Bitmaps[level];
+            var clipped = Geometry.Intersect(area, cached.Info.Rect);
+            if ((long)clipped.Width * clipped.Height * 2 > (long)cached.Width * cached.Height) return null;
+            area = clipped;
+            half = Clone(cached);
+        }
+        if (!area.IsEmpty) HalveInto(previous, half, area);
+        return half;
     }
 
     /// <summary>Raised when a bitmap's pixels changed in place, so other caches keyed on it (thumbnails) can drop it too.</summary>
@@ -263,6 +299,7 @@ public static partial class Pixels
         Invalidated?.Invoke(bitmap);
         lock (bitmap)
         {
+            PyramidSeeds.Remove(bitmap);
             if (!Pyramids.TryGetValue(bitmap, out var pyramid)) return;
             Pyramids.Remove(bitmap);
             pyramid.Dispose();
@@ -318,33 +355,48 @@ public static partial class Pixels
     internal static unsafe SKBitmap Halve(SKBitmap source)
     {
         var info = source.Info;
-        int width = Math.Max(1, info.Width / 2), height = Math.Max(1, info.Height / 2), bpp = info.BytesPerPixel;
+        int width = Math.Max(1, info.Width / 2), height = Math.Max(1, info.Height / 2);
         var half = new SKBitmap(info.WithSize(width, height));
+        HalveInto(source, half, new(0, 0, width, height));
+        return half;
+    }
+
+    private static unsafe void HalveInto(SKBitmap source, SKBitmap half, SKRectI area)
+    {
+        var info = source.Info;
+        int bpp = info.BytesPerPixel;
+        void RunRows(Action<int> row)
+        {
+            if ((long)area.Width * area.Height >= 32_768) Parallel.For(area.Top, area.Bottom, row);
+            else for (int y = area.Top; y < area.Bottom; y++) row(y);
+        }
         if (info.ColorType == SKColorType.RgbaF32)
         {
             var input = new PixelBuffer(source); var output = new PixelBuffer(half);
             int highLastX = info.Width - 1, highLastY = info.Height - 1;
-            Parallel.For(0, height, y =>
+            RunRows(y =>
             {
                 int y0 = Math.Min(y * 2, highLastY), y1 = Math.Min(y * 2 + 1, highLastY);
-                for (var x = 0; x < width; x++)
+                for (var x = area.Left; x < area.Right; x++)
                 {
                     int x0 = Math.Min(x * 2, highLastX), x1 = Math.Min(x * 2 + 1, highLastX);
                     output.Write(x, y, (input.Read(x0, y0) + input.Read(x1, y0) + input.Read(x0, y1) + input.Read(x1, y1)) * .25f);
                 }
             });
-            return half;
+            return;
         }
         byte* from = (byte*)source.GetPixels(), to = (byte*)half.GetPixels();
         int fromStride = source.RowBytes, toStride = half.RowBytes;
         int lastX = info.Width - 1, lastY = info.Height - 1;
-        Parallel.For(0, height, y =>
+        RunRows(y =>
         {
             byte* top = from + (long)Math.Min(y * 2, lastY) * fromStride, bottom = from + (long)Math.Min(y * 2 + 1, lastY) * fromStride;
-            var row = to + (long)y * toStride;
+            var row = to + (long)y * toStride + area.Left * bpp;
             if (bpp == 4 && lastX > 0)
             {
-                for (var x = 0; x < width; x++, top += 8, bottom += 8, row += 4)
+                top += area.Left * 8;
+                bottom += area.Left * 8;
+                for (var x = area.Left; x < area.Right; x++, top += 8, bottom += 8, row += 4)
                 {
                     var a = Unsafe.ReadUnaligned<uint>(top);
                     var b = Unsafe.ReadUnaligned<uint>(top + 4);
@@ -354,13 +406,12 @@ public static partial class Pixels
                 }
                 return;
             }
-            for (var x = 0; x < width; x++)
+            for (var x = area.Left; x < area.Right; x++, row += bpp)
             {
                 int a = Math.Min(x * 2, lastX) * bpp, b = Math.Min(x * 2 + 1, lastX) * bpp;
-                for (var c = 0; c < bpp; c++) row[x * bpp + c] = (byte)((top[a + c] + top[b + c] + bottom[a + c] + bottom[b + c] + 2) >> 2);
+                for (var c = 0; c < bpp; c++) row[c] = (byte)((top[a + c] + top[b + c] + bottom[a + c] + bottom[b + c] + 2) >> 2);
             }
         });
-        return half;
     }
 
     private static uint AverageFourBytes(uint a, uint b, uint c, uint d)

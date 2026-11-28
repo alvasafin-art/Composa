@@ -238,6 +238,7 @@ public static class LayerEffectsRenderer
     {
         private SKBitmap? firstPatch;
         private SKRectI firstDestination;
+        private SKRectI damage;
         public LayerEffects Effects { get; } = effects;
         internal SKBitmap? Updated { get; set; }
         internal SKRectI Pending { get; set; }
@@ -250,6 +251,16 @@ public static class LayerEffectsRenderer
             var halo = PatchHalo(Effects);
             changed.Inflate(halo, halo);
             Pending = Geometry.Union(Pending, changed);
+            damage = Geometry.Union(damage, changed);
+        }
+
+        internal void SeedLevels(Layer layer, SKBitmap result)
+        {
+            var matrix = layer.Matrix;
+            if (origin.X != matrix.TransX || origin.Y != matrix.TransY || damage.IsEmpty) return;
+            var changed = damage;
+            changed.Offset(inset, inset);
+            Pixels.SeedStrokeLevels(image, result, Geometry.Intersect(changed, result.Info.Rect));
         }
 
         internal SKBitmap? Prepare(Layer layer, SKRectI full)
@@ -345,6 +356,7 @@ public static class LayerEffectsRenderer
             CanvasPerformanceTrace.SurfaceAllocated("effect retained after stroke", result);
 #endif
             Remember(key, result, inset);
+            basis.SeedLevels(layer, result);
             basis.Updated = null;
             return true;
         }
@@ -365,7 +377,7 @@ public static class LayerEffectsRenderer
         if (m.ScaleX != 1 || m.ScaleY != 1 || m.SkewX != 0 || m.SkewY != 0 || m.Persp0 != 0 || m.Persp1 != 0 || m.Persp2 != 1
             || m.TransX != MathF.Round(m.TransX) || m.TransY != MathF.Round(m.TransY)) return null;
         var effects = layer.Effects?.Visible();
-        return effects is { IsEmpty: false, GradientOverlay: null, ColorOverlay: null, InnerShadow: null, InnerGlow: null }
+        return effects is { IsEmpty: false, GradientOverlay: null, InnerShadow: null, InnerGlow: null }
             ? effects : null;
     }
 
@@ -460,7 +472,7 @@ public static class LayerEffectsRenderer
     {
         // Outside effects are entirely behind opaque paint. Once the whole padded patch
         // is opaque, copying its color pixels produces the same image as rendering the styles.
-        if (mask == null && fillOpacity == 1 && effects.Stroke?.Inside != true && IsOpaquePatch(pixels, area))
+        if (mask == null && fillOpacity == 1 && effects.Stroke?.Inside != true && effects.ColorOverlay == null && IsOpaquePatch(pixels, area))
         {
             var opaque = Pixels.NewLike(pixels, area.Width, area.Height);
             DocumentRenderer.CopyRows(pixels, new SKPointI(area.Left, area.Top), opaque, opaque.Info.Rect);

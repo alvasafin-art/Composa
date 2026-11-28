@@ -503,7 +503,7 @@ public sealed partial class EditorSession
         }
         using var effectBase = strokeEffectBase;
         strokeEffectBase = null;
-        CloseStroke();
+        CloseStroke(reuseLevels: strokeMode is not (BrushMode.Heal or BrushMode.Healing));
         if (strokeMode != BrushMode.Heal && document.WorkingDepth == ColorDepth.Eight && StrokeCanUsePatch(layer) != null
             && (effectBase == null || !LayerEffectsRenderer.CacheStroke(layer, effectBase)))
             finishingStrokeEffect = layer.Id;
@@ -519,9 +519,15 @@ public sealed partial class EditorSession
         Cancel();
     }
 
-    private void CloseStroke()
+    private void CloseStroke(bool reuseLevels = false)
     {
-        if (stroke != null) { Pixels.SetLive(stroke.Working, false); Pixels.InvalidateCaches(stroke.Working); }
+        if (stroke != null)
+        {
+            Pixels.SetLive(stroke.Working, false);
+            Pixels.InvalidateCaches(stroke.Working);
+            if (reuseLevels && strokeOriginal != null)
+                Pixels.SeedStrokeLevels(strokeOriginal, stroke.Working, stroke.Touched);
+        }
         if (stroke?.CloneSource != null && !ReferenceEquals(stroke.CloneSource, strokeOriginal)) stroke.CloneSource.Dispose();
         stroke?.Dispose();
         stroke = null;

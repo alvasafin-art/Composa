@@ -332,6 +332,12 @@ public sealed class CanvasPerformanceBench
         }
         EndPhase("Tool panel hover", hoverTimes);
 
+        if (Environment.GetEnvironmentVariable("COMPOSA_PERF_TOOL_ZOOM") == "200")
+        {
+            window.Canvas.ZoomTo(2);
+            window.Canvas.CenterOn(new(2310, 1489));
+            Pump();
+        }
         var path = Path(new SKPoint(2160, 1430), 300, 118, 18);
         Point StrokeStart() => window.Canvas.TranslatePoint(window.Canvas.ToScreen(path[0]), window)!.Value;
         session.Brush = new BrushSettings { Size = 500, Hardness = .995, Flow = .65, Opacity = .82 };
@@ -401,6 +407,8 @@ public sealed class CanvasPerformanceBench
         session.InvalidateAll();
         Pump();
 
+        window.Canvas.Fit();
+        Pump();
         session.SelectRect(new SKRect(500, 420, 2500, 1820));
         session.SelectionBrushSize = 90;
         session.SelectionBrushFeather = 6;
