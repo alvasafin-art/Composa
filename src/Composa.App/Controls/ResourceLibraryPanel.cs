@@ -4,7 +4,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -109,7 +108,6 @@ internal sealed partial class ResourceLibraryPanel : UserControl
         Grid.SetRow(contents, 1); layout.Children.Add(contents);
         Content = layout;
         SetupLibraryDrop(contents);
-        AddHandler(KeyDownEvent, OnLibraryKey, RoutingStrategies.Tunnel);
         AttachedToVisualTree += (_, _) => _ = Refresh();
         DetachedFromVisualTree += (_, _) => { ++refreshGeneration; itemsReady = false; };
     }
@@ -308,28 +306,36 @@ internal sealed partial class ResourceLibraryPanel : UserControl
         }
     }
 
-    internal bool OwnsLibraryKey(object? focused, KeyEventArgs e) =>
-        e.KeyModifiers == KeyModifiers.None && ReferenceEquals(focused, search) && e.Key is Key.Enter or Key.Escape or Key.Down ||
-        focused is Control control && (ReferenceEquals(control, this) || control.FindAncestorOfType<ResourceLibraryPanel>() == this) &&
-        (control.Tag is LibraryEntry or LibraryGroup || ReferenceEquals(control, this)) &&
-        (e.KeyModifiers == KeyModifiers.None && e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space or Key.Delete ||
-            e.Key == Key.G && e.KeyModifiers is KeyModifiers.Control or (KeyModifiers.Control | KeyModifiers.Shift));
+    private bool lastInputHere;
 
-    private void OnLibraryKey(object? sender, KeyEventArgs e)
+    private bool ContainsInput(Visual? source) => source?.GetSelfAndVisualAncestors().Contains(this) == true;
+
+    internal void TrackInput(Visual? source) => lastInputHere = ContainsInput(source);
+
+    internal bool HandleLibraryKey(object? focused, KeyEventArgs e)
     {
-        if (!OwnsLibraryKey(TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement(), e)) return;
-        e.Handled = true;
-        if (e.Key == Key.G)
+        if (!IsEffectivelyVisible || TopLevel.GetTopLevel(this) == null) return false;
+        var inPanel = ContainsInput(focused as Visual);
+        if ((inPanel || lastInputHere) && e.Key == Key.G &&
+            e.KeyModifiers is KeyModifiers.Control or (KeyModifiers.Control | KeyModifiers.Shift))
         {
+            e.Handled = true;
             if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) _ = UngroupResources();
             else _ = GroupResources();
-            return;
+            return true;
         }
-        if (search.IsFocused && e.Key == Key.Escape) { search.Text = ""; return; }
-        if (filtered.Length == 0) return;
+        if (e.KeyModifiers != KeyModifiers.None) return false;
+        bool searchKey = ReferenceEquals(focused, search) && e.Key is Key.Enter or Key.Escape or Key.Down;
+        bool rowKey = inPanel && focused is Control { Tag: LibraryEntry or LibraryGroup } &&
+            e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space or Key.Delete;
+        bool delete = lastInputHere && focused is not TextBox && selected != null && e.Key == Key.Delete;
+        if (!searchKey && !rowKey && !delete) return false;
+        e.Handled = true;
+        if (searchKey && e.Key == Key.Escape) { search.Text = ""; return true; }
+        if (filtered.Length == 0) return true;
         var index = Array.FindIndex(filtered, entry => entry.Id == selected);
-        if (search.IsFocused) { FocusEntry(Math.Max(0, index)); return; }
-        if (index < 0) return;
+        if (searchKey) { FocusEntry(Math.Max(0, index)); return true; }
+        if (index < 0) return true;
         var row = filtered[index];
         if (e.Key is Key.Enter or Key.Space)
         {
@@ -342,6 +348,7 @@ internal sealed partial class ResourceLibraryPanel : UserControl
             Key.Left or Key.Up => index - 1, Key.Right or Key.Down => index + 1,
             Key.Home => 0, Key.End => filtered.Length - 1, _ => index
         }, 0, filtered.Length - 1));
+        return true;
     }
 
     private void FocusEntry(int index)

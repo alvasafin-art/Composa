@@ -164,6 +164,11 @@ public sealed partial class MainWindow
                 var hardness = Ui.SliderField("Hardness", s.Brush.Hardness * 100, 0, 100, v =>
                 {
                     s.Brush = s.Brush with { Hardness = v / 100 };
+                    if (s.Tool == Tool.HealingBrush)
+                    {
+                        settings.HealingBrushHardness = s.HealingBrushHardness;
+                        settings.SaveInBackground();
+                    }
                     refreshTip?.Invoke();
                     canvas.InvalidateBrushCursor();
                 });

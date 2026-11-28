@@ -267,7 +267,7 @@ public sealed partial class CanvasView
             case Tool.Move:
                 if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
-                pendingMoveDoubleClick = e.ClickCount >= 2 && !shift;
+                pendingMoveDoubleClick = e.ClickCount == 2 && !shift;
                 var moveHandle = ShowTransformControls && CurrentFrame() is { } moveFrame
                     ? HitFrame(moveFrame, pressScreen, allowRotate: true) : TransformHandle.None;
                 if (!control && !shift && !alt && BeginLayoutGesture(point.Position, moveHandle is TransformHandle.None or TransformHandle.Move)) break;
@@ -1008,6 +1008,7 @@ public sealed partial class CanvasView
     {
         if (session == null) return null;
         var scope = pickChild ? null : MoveGroupScope;
+        if (scope != null && !EditorSession.LayoutBounds(scope).Contains(point)) scope = null;
         if (scope == null) return PickLayer(session.Document.Layers, point, (float)zoom, pickChild, [], 0);
         var parents = new List<Layer>();
         for (var group = scope; group != null; group = session.Document.ParentOf(group.Id))
@@ -1066,6 +1067,15 @@ public sealed partial class CanvasView
             (handle == TransformHandle.Move || group.AutoLayout != null && EditorSession.LayoutBounds(group).Contains(point)))
             return group;
         return MoveLayerAt(point, direct);
+    }
+
+    private bool SelectionInsideMoveGroup(Guid group)
+    {
+        if (session?.ActiveLayer is not { } active) return false;
+        if (active.Id == group) return true;
+        for (var parent = session.Document.ParentOf(active.Id); parent != null; parent = session.Document.ParentOf(parent.Id))
+            if (parent.Id == group) return true;
+        return false;
     }
 
     private void UpdateMoveHover(Point position, KeyModifiers modifiers)

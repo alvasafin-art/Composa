@@ -148,6 +148,71 @@ public sealed class EditorWorkflowUiTests
         finally { Close(w); }
     }
 
+    [AvaloniaFact]
+    public async Task Deselecting_clears_group_guides_and_move_can_drag_another_group_from_its_pixels()
+    {
+        var s = EditorSession.NewCanvas(470, 300, SKColors.White);
+        var title = s.AddText(new(48, 55), new TextStyle { Text = "Первая\nгруппа", FontFamily = "Arial", Size = 26 });
+        s.GroupSelectedLayers();
+        var firstGroup = s.ActiveLayer!;
+        Layer Swatch(string name, SKColor color, SKPoint center)
+        {
+            var pixels = Pixels.NewColor(54, 44);
+            pixels.Erase(color);
+            return s.AddImageLayer(name, pixels, center, fit: false);
+        }
+        var first = Swatch("Синий", SKColors.SteelBlue, new(290, 125));
+        var second = Swatch("Жёлтый", SKColors.Goldenrod, new(374, 167));
+        s.SelectLayer(firstGroup.Id);
+        var w = Open(s);
+        try
+        {
+            s.View = s.View with { Snap = false };
+            w.Canvas.ShowTransformControls = false;
+            w.Canvas.ZoomTo(1);
+            s.ClearLayerSelection();
+            w.MouseMove(new(2, 2));
+            Save(w, "workflow-group-before-entry");
+            var titlePoint = At(w, title.ControlBounds.MidX, title.ControlBounds.MidY);
+            Click(w, titlePoint); Click(w, titlePoint);
+            Assert.Equal(title.Id, s.ActiveLayer?.Id);
+            s.ClearLayerSelection();
+            w.MouseMove(new(2, 2));
+            Save(w, "workflow-group-unselected");
+            using var before = SKBitmap.Decode(Path.Combine(Screenshots.Folder, "workflow-group-before-entry.png"));
+            using var after = SKBitmap.Decode(Path.Combine(Screenshots.Folder, "workflow-group-unselected.png"));
+            var topLeft = At(w, 5, 5);
+            var bottomRight = At(w, 460, 290);
+            for (int y = (int)topLeft.Y; y < (int)bottomRight.Y; y++)
+                for (int x = (int)topLeft.X; x < (int)bottomRight.X; x++)
+                    Assert.Equal(before.GetPixel(x, y), after.GetPixel(x, y));
+
+            await Task.Delay(550, TestContext.Current.CancellationToken);
+            Click(w, titlePoint); Click(w, titlePoint);
+            Assert.Equal(title.Id, s.ActiveLayer?.Id);
+            s.SelectLayer(first.Id);
+            s.SelectLayer(second.Id, extend: true);
+            w.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump();
+            var group = s.ActiveLayer!;
+            Assert.True(group.IsGroup);
+            Assert.Equal(new[] { first.Id, second.Id }, group.Children.Select(child => child.Id));
+            var firstPosition = s.Document.Find(first.Id)!.ControlBounds;
+            var secondPosition = s.Document.Find(second.Id)!.ControlBounds;
+            var at = At(w, firstPosition.MidX, firstPosition.MidY);
+            var destination = at + new Vector(24, 18);
+            w.MouseDown(at, MouseButton.Left);
+            w.MouseMove(destination, RawInputModifiers.LeftMouseButton);
+            w.MouseUp(destination, MouseButton.Left);
+            Pump();
+            Assert.True(s.ActiveLayer?.Id == group.Id, $"Active: {s.ActiveLayer?.Name}, tool: {s.Tool}, history: {s.History.UndoName}");
+            Assert.Equal(firstPosition.Left + 24, s.Document.Find(first.Id)!.ControlBounds.Left, 1);
+            Assert.Equal(secondPosition.Top + 18, s.Document.Find(second.Id)!.ControlBounds.Top, 1);
+            Save(w, "workflow-group-moved");
+        }
+        finally { Close(w); }
+    }
+
     [AvaloniaTheory]
     [InlineData(Tool.CloneStamp)]
     [InlineData(Tool.HealingBrush)]
@@ -248,10 +313,13 @@ public sealed class EditorWorkflowUiTests
         finally { Close(w); }
     }
 
-    [AvaloniaFact]
-    public async Task Models_and_inline_progress_render_at_narrow_width()
+    [AvaloniaTheory]
+    [InlineData("ru")]
+    [InlineData("en")]
+    public async Task Models_and_inline_progress_render_at_narrow_width(string currentLanguage)
     {
-        var language = Locale.Language; Locale.Language = "ru";
+        var language = Locale.Language; Locale.Language = currentLanguage;
+        var suffix = currentLanguage == "ru" ? "" : "-en";
         var s = EditorSession.NewCanvas(540, 360, SKColors.White);
         var w = new MainWindow { Width = 900, Height = 760 };
         w.Settings.CheckForUpdates = false;
@@ -273,7 +341,7 @@ public sealed class EditorWorkflowUiTests
             var connect = Find<Button>(section.Content,"ConnectAiModels");
             Assert.True(connect.IsEffectivelyVisible);
             Assert.False(Find<Button>(section.Content,"AiAdvanced").IsEffectivelyEnabled);
-            Save(w,"workflow-ai-no-models");
+            Save(w,"workflow-ai-no-models" + suffix);
             w.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
             Pump();
             var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().Single();
@@ -283,7 +351,7 @@ public sealed class EditorWorkflowUiTests
             var popup = Assert.Single(picker.GetVisualDescendants().OfType<Popup>());
             popup.ShouldUseOverlayLayer = true;
             picker.IsDropDownOpen = true;
-            Save(w,"workflow-ai-models");
+            Save(w,"workflow-ai-models" + suffix);
             Assert.InRange(Math.Abs(popup.Child!.TranslatePoint(default,w)!.Value.X - picker.TranslatePoint(default,w)!.Value.X), 0, 1);
             picker.IsDropDownOpen = false;
             var operation = Find<Button>(section.Content,"AiDockOperation");
@@ -291,40 +359,62 @@ public sealed class EditorWorkflowUiTests
             operations.ShowAt(operation); Pump();
             Assert.Contains(operations.Items.OfType<MenuItem>(),item => !item.IsEnabled);
             Assert.Contains(operations.Items.OfType<MenuItem>(),item => item.IsEnabled);
-            Save(w,"workflow-ai-operations");
+            Save(w,"workflow-ai-operations" + suffix);
             operations.Hide();
             var prompt = section.Content.GetVisualDescendants().OfType<TextBox>().Single(item => item.AcceptsReturn);
             prompt.Text = "Поставь рядом керамическую чашку.";
             var tail = Find<Button>(section.Content,"AiRunVariants");
+            var run = Find<Button>(section.Content,"AiRun");
             var flyout = Assert.IsAssignableFrom<MenuFlyout>(tail.Flyout);
-            flyout.ShowAt(tail); Save(w,"workflow-ai-variants");
-            Assert.Equal(new[] { "2", "3" }, flyout.Items.OfType<MenuItem>().Select(item => item.Header));
+            flyout.ShowAt(tail); Save(w,"workflow-ai-variants" + suffix);
+            Assert.Equal(new[] { Locale.T("2 variants"), Locale.T("3 variants") }, flyout.Items.OfType<MenuItem>().Select(item => item.Header));
             var variants = Assert.Single(w.GetVisualDescendants().OfType<MenuFlyoutPresenter>());
             var tailOrigin = tail.TranslatePoint(default,w)!.Value;
             var menuOrigin = variants.TranslatePoint(default,w)!.Value;
-            Assert.InRange(Math.Abs(tail.Bounds.Width - variants.Bounds.Width), 0, 1);
-            Assert.InRange(Math.Abs(tailOrigin.X - menuOrigin.X), 0, 1);
+            Assert.InRange(Math.Abs(tailOrigin.X + tail.Bounds.Width - menuOrigin.X - variants.Bounds.Width), 0, 1);
             Assert.InRange(Math.Abs(tailOrigin.Y + tail.Bounds.Height - menuOrigin.Y), 0, 1);
             flyout.Hide();
-            Save(w,"workflow-ai-ready");
+            Save(w,"workflow-ai-ready" + suffix);
+            AssertCaption(currentLanguage == "ru" ? "Старт" : "Run");
+            void AssertCaption(string expected)
+            {
+                var caption = run.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == expected);
+                var origin = caption.TranslatePoint(default, run)!.Value;
+                Assert.InRange(origin.X, 0, run.Bounds.Width);
+                Assert.InRange(origin.X + caption.Bounds.Width, 0, run.Bounds.Width);
+            }
             async Task State(string filename, AiOperationState state)
             {
                 typeof(AiTaskService).GetProperty(nameof(AiTaskService.Operation))!.SetValue(w.AiTasks,state);
                 typeof(MainWindow).GetMethod("RefreshAiUi", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(w,null);
                 await Task.Delay(300, TestContext.Current.CancellationToken);
-                Save(w, filename);
+                Save(w, filename + suffix);
             }
             await State("workflow-ai-queue",new() { Status = AiOperationStatus.Queued });
+            AssertCaption(Locale.T("Queued"));
             await State("workflow-ai-waiting",new() { Status = AiOperationStatus.Running, Stage = "Waiting for the model", ElapsedSeconds = 17 });
+            AssertCaption("0:17");
             await State("workflow-ai-progress",new() { Status = AiOperationStatus.Running, Value = 13, Maximum = 24, ElapsedSeconds = 17 });
+            AssertCaption("0:17 · 54%");
+            s.AddPromptRegion(new(20,30,100,100));
+            s.AddPromptRegion(new(120,30,200,100));
+            s.AddPromptRegion(new(220,30,300,100));
+            await State("workflow-ai-progress-long",new() { Status = AiOperationStatus.Running, Value = 13, Maximum = 24, ElapsedSeconds = 48297 });
+            AssertCaption("13:24:57 · 54%");
+            var regionButton = Find<Button>(section.Content, "DeleteAllPromptRegions");
+            Assert.False(regionButton.IsEffectivelyEnabled);
+            var surface = Assert.Single(regionButton.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>());
+            Assert.Equal(Avalonia.Media.Colors.Transparent, Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surface.Background).Color);
             Assert.Null(tail.Flyout);
             Assert.False(picker.IsEffectivelyEnabled);
             Assert.InRange(picker.Opacity, 0.5, 0.7);
             await State("workflow-ai-applying",new() { Status = AiOperationStatus.Running, Stage = "Applying result", ElapsedSeconds = 30 });
+            AssertCaption(Locale.T("Inserting"));
             await State("workflow-ai-done",new() { Status = AiOperationStatus.Completed, CreditsUsed = 10.86, ElapsedSeconds = 31 });
+            AssertCaption($"{Locale.T("Done")} · 0:31");
             Assert.False(tail.IsEffectivelyEnabled);
             await Task.Delay(890, TestContext.Current.CancellationToken);
-            Save(w,"workflow-ai-charge");
+            Save(w,"workflow-ai-charge" + suffix);
             await State("workflow-ai-error",new() { Status = AiOperationStatus.Failed, Error = "Сервер не ответил" });
             await State("workflow-ai-cancel",new() { Status = AiOperationStatus.Cancelled });
             w.AiTasks.AcceptSettingsPreview(w.AiTasks.SettingsPreview(),"http://127.0.0.1:8");
@@ -404,7 +494,12 @@ public sealed class EditorWorkflowUiTests
             Button[] Tiles() => panel.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "LibraryResource").ToArray();
             Point Center(Button button) => button.TranslatePoint(new Rect(button.Bounds.Size).Center,w)!.Value;
             Click(w,Center(Tiles()[0]));
+            w.Canvas.Focus(); // A panel rebuild can return keyboard focus to the canvas.
+            w.KeyPressQwerty(PhysicalKey.G,RawInputModifiers.Control);
+            Assert.Equal(text.Id, s.ActiveLayer?.Id);
+            Assert.Empty(library.ReadOrganization().Groups);
             Click(w,Center(Tiles()[1]),RawInputModifiers.Control);
+            w.Canvas.Focus();
             w.KeyPressQwerty(PhysicalKey.G,RawInputModifiers.Control);
             await Wait(() => library.ReadOrganization().Groups.Length == 1);
             await Wait(() => panel.GetVisualDescendants().OfType<Button>().Any(b => b.Name == "LibraryGroup"));
@@ -414,8 +509,7 @@ public sealed class EditorWorkflowUiTests
             await Wait(() => library.ReadOrganization().Groups[0].Collapsed);
             await Wait(() => Tiles().Length == 0);
             Save(w,"workflow-library-collapsed");
-            group = Find<Button>(panel,"LibraryGroup");
-            group.Focus();
+            w.Canvas.Focus();
             w.KeyPressQwerty(PhysicalKey.G,RawInputModifiers.Control | RawInputModifiers.Shift);
             await Wait(() => library.ReadOrganization().Groups.Length == 0 && Tiles().Length == 2);
             var before = library.ReadOrganization().Order;

@@ -2251,6 +2251,11 @@ Generation start	Старт
 Number of variants	Количество вариантов
 2 variants	2 варианта
 3 variants	3 варианта
+Queued	Очередь
+Inserting	Вставка
+Stopping	Отмена…
+Failed	Ошибка
+Canceled	Отменено
 In queue	В очереди
 Applying result	Применение
 Waiting for the model	Ожидание ответа модели

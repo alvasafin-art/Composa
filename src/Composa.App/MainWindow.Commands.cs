@@ -525,7 +525,7 @@ public sealed partial class MainWindow
         if (focused is Button { Tag: Controls.DockSection } && e.KeyModifiers == KeyModifiers.None
             && e.Key is Key.Left or Key.Right or Key.Home or Key.End or Key.Enter or Key.Space)
             return;
-        if (libraryPanel.OwnsLibraryKey(focused, e)) return;
+        if (libraryPanel.HandleLibraryKey(focused, e)) return;
         if (openFontPicker?.IsDropDownOpen == true) return;
         if (SwallowAlt(e)) return;
         if (channelInspectorDragging)

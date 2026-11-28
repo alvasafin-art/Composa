@@ -270,6 +270,8 @@ public sealed partial class CanvasView : Decorator
     private void OnLayersChanged()
     {
         brushPreparationRequested = false;
+        if (moveGroupScope is { } group && !SelectionInsideMoveGroup(group)) moveGroupScope = null;
+        moveHover = null;
         if (transformSelection != null && session != null && !transformSelection.SetEquals(session.Document.SelectedLayerIds))
             transformSelection = null;
         InvalidateCanvas();

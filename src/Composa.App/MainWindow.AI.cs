@@ -456,7 +456,7 @@ public sealed partial class MainWindow
             if (aiInlineRun?.Holding != false || !HasPanelModels(EditorTask)) return;
             _ = RunAi(EditorTask, aiFloatingPrompt.Text ?? "", useInlinePrompt: true, runCount: count);
         }
-        aiFloatingGenerate = Ui.TextButton("Generation start", () => Launch(1), accent: true);
+        aiFloatingGenerate = Ui.TextButton(AiInlineRun.RunLabel, () => Launch(1), accent: true);
         ToolTip.SetShowOnDisabled(aiFloatingGenerate, true);
         aiFloatingMore = AiGenerationControls.IconAction(Icons.MoreActions, "AiMore", "More AI operations", () => { });
         aiFloatingMore.Flyout = BuildAiFloatingTaskMenu();

@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -20,25 +19,14 @@ internal sealed class AiInlineRun
     private const double Width = 100;
     private const double VariantWidth = 24;
 
-    private sealed class VariantMenu : MenuFlyout
-    {
-        protected override Control CreatePresenter()
-        {
-            var presenter = (MenuFlyoutPresenter)base.CreatePresenter();
-            presenter.MinWidth = presenter.MaxWidth = presenter.Width = VariantWidth;
-            presenter.Padding = default;
-            return presenter;
-        }
-    }
-
     private readonly Button run;
     private readonly Button more;
     private readonly MenuFlyout variantMenu;
     private readonly Grid face = new() { ClipToBounds = true };
-    private readonly Border progress = new() { Background = Gradient("#2B67B8", "#4598F1"),
+    private readonly Border progress = new() { Background = Gradient("#2863AE", "#574AAF", "#9E477F"),
         Width = Width, HorizontalAlignment = HorizontalAlignment.Left, RenderTransformOrigin = RelativePoint.TopLeft };
     private readonly Border shimmer = new() { Width = Width, HorizontalAlignment = HorizontalAlignment.Left,
-        Background = Gradient("#00558BC9", "#668BCAFF", "#00558BC9") };
+        Background = Gradient("#004381DD", "#8056AEFF", "#807D68E9", "#80DE76B5", "#00DE76B5") };
     private readonly ScaleTransform progressScale = new(0, 1);
     private readonly TranslateTransform sweep = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
@@ -59,7 +47,9 @@ internal sealed class AiInlineRun
     private int seconds;
     private bool supportsVariants;
     private bool canStart;
+    private double captionWidth;
     private int shownSecond = -1;
+    internal static string RunLabel => Locale.Language == "ru" ? Locale.T("Generation start") : "Run";
 
     internal AiInlineRun(Button run, Action<int> launch, Action stop, Action ready)
     {
@@ -91,6 +81,7 @@ internal sealed class AiInlineRun
         }, 11);
         more.Name = "AiRunVariants";
         more.Classes.Remove("flat");
+        more.Classes.Add("ai-panel-control");
         more.Width = VariantWidth;
         more.MinWidth = 0;
         more.Height = more.MinHeight = 28;
@@ -98,17 +89,10 @@ internal sealed class AiInlineRun
         more.CornerRadius = new CornerRadius(0, 4, 4, 0);
         more.HorizontalContentAlignment = HorizontalAlignment.Center;
         more.VerticalContentAlignment = VerticalAlignment.Center;
-        variantMenu = new VariantMenu { Placement = PlacementMode.BottomEdgeAlignedLeft };
+        variantMenu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
         foreach (var count in new[] { 2, 3 })
         {
-            var item = new MenuItem { Header = count.ToString(CultureInfo.InvariantCulture), Name = $"AiVariants{count}", Tag = count,
-                Height = 24, MinWidth = 0, Classes = { "ai-variant-option" } };
-            AutomationProperties.SetName(item, Locale.T(count == 2 ? "2 variants" : "3 variants"));
-            item.Template = new FuncControlTemplate<MenuItem>((variant, _) => new Border
-            {
-                Child = new TextBlock { Text = variant.Header?.ToString(), Foreground = Palette.Foreground,
-                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-            });
+            var item = new MenuItem { Header = Locale.T(count == 2 ? "2 variants" : "3 variants"), Name = $"AiVariants{count}", Tag = count };
             item.Click += (_, _) => { if (phase == Phase.Ready && canStart) this.launch(count); };
             variantMenu.Items.Add(item);
         }
@@ -206,20 +190,18 @@ internal sealed class AiInlineRun
         {
             Phase.Ready => Palette.Active,
             Phase.Wait or Phase.Progress => Brush("#315883"),
-            Phase.Done or Phase.Charge => Brush("#30675C"),
             Phase.Failed => Brush("#713C36"),
             Phase.Cancelled => Brush("#454A53"),
             _ => Brush("#35485D")
         };
         caption.Foreground = phase == Phase.Ready ? Palette.ActionText : Brushes.White;
-        caption.MaxWidth = phase == Phase.Charge ? 82 : Width;
-        caption.TextTrimming = TextTrimming.CharacterEllipsis;
         Icons.Icon? glyph = phase switch
         {
             Phase.Ready => Icons.Run, Phase.Queue or Phase.Wait or Phase.Progress or Phase.Apply => Clock,
             Phase.Done => Check, Phase.Charge when operation?.CreditsUsed != null => Icons.Coin, _ => null
         };
         label = glyph is { } icon ? Ui.Row(4, Icons.Create(icon, 13, caption.Foreground), caption) : Ui.Row(0, caption);
+        captionWidth = Width - 8 - (glyph != null ? 17 : 0);
         label.HorizontalAlignment = HorizontalAlignment.Center;
         label.IsHitTestVisible = false;
         enter = new TranslateTransform(0, outgoing == null ? 0 : 3);
@@ -227,7 +209,9 @@ internal sealed class AiInlineRun
         label.Opacity = outgoing == null ? 1 : 0;
         face.Children.Add(label);
         progress.IsVisible = phase == Phase.Progress;
-        shimmer.IsVisible = phase == Phase.Wait;
+        shimmer.IsVisible = phase is Phase.Wait or Phase.Done;
+        shimmer.Opacity = 1;
+        sweep.X = -Width;
         if (phase == Phase.Queue) progressScale.ScaleX = 0;
         ConfigureButtons();
         UpdateCaption();
@@ -237,21 +221,28 @@ internal sealed class AiInlineRun
     {
         var passed = Math.Max(clock.Elapsed.TotalSeconds, operation?.ElapsedSeconds ?? 0);
         shownSecond = (int)passed;
-        var time = $"{(int)(passed / 60)}:{(int)passed % 60:00}";
+        var time = FormatTime((int)passed);
         var text = phase switch
         {
-            Phase.Queue => Locale.T("In queue"),
+            Phase.Queue => Locale.T("Queued"),
             Phase.Wait => time,
             Phase.Progress => $"{time} · {Math.Round(nextProgress * 100)}%",
-            Phase.Apply => Locale.T("Applying result"),
-            Phase.Cancel => Locale.T("Cancelling…"),
-            Phase.Done => $"{Locale.T("Generation done")} · {seconds} {Locale.T("Short seconds")}",
+            Phase.Apply => Locale.T("Inserting"),
+            Phase.Cancel => Locale.T("Stopping"),
+            Phase.Done => $"{Locale.T("Done")} · {FormatTime(seconds)}",
             Phase.Charge => charge ?? "",
-            Phase.Failed => Locale.T("Generation error"),
-            Phase.Cancelled => Locale.T("Generation cancelled"),
-            _ => Locale.T("Generation start")
+            Phase.Failed => Locale.T("Failed"),
+            Phase.Cancelled => Locale.T("Canceled"),
+            _ => RunLabel
         };
-        if (caption.Text != text) caption.Text = text;
+        if (caption.Text != text)
+        {
+            const double fontSize = 11.5;
+            var typeface = new Typeface(caption.FontFamily, caption.FontStyle, caption.FontWeight);
+            var measured = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, caption.Foreground);
+            caption.FontSize = fontSize * Math.Min(1, captionWidth / Math.Max(1, measured.Width));
+            caption.Text = text;
+        }
         var hint = phase switch
         {
             Phase.Wait => operation?.Stage == null ? Locale.T("Waiting for the model") : Locale.T(operation.Stage),
@@ -275,6 +266,11 @@ internal sealed class AiInlineRun
             if (blend >= 1) { face.Children.Remove(outgoing); outgoing = null; }
         }
         if (phase == Phase.Wait) sweep.X = age % 2400 / 2400 * Width * 2 - Width;
+        else if (phase == Phase.Done)
+        {
+            sweep.X = (Math.Clamp(age / 710, 0, 1) * 2 - 1) * Width;
+            shimmer.Opacity = Math.Min(1, Math.Max(0, (710 - age) / 220));
+        }
         else if (phase == Phase.Progress)
         {
             var fraction = Math.Clamp(Stopwatch.GetElapsedTime(progressChanged).TotalMilliseconds / 180, 0, 1);
@@ -294,13 +290,15 @@ internal sealed class AiInlineRun
         if (!View.IsEffectivelyVisible || phase == Phase.Ready && outgoing == null) timer.Stop();
         else
         {
-            var animating = outgoing != null || phase == Phase.Wait ||
+            var animating = outgoing != null || phase == Phase.Wait || phase == Phase.Done && age < 710 ||
                 phase == Phase.Progress && Stopwatch.GetElapsedTime(progressChanged).TotalMilliseconds < 180;
             timer.Interval = TimeSpan.FromMilliseconds(animating ? 33 : 100);
         }
     }
 
     private bool readyNotified = true;
+    private static string FormatTime(int seconds) => seconds < 3600 ? $"{seconds / 60}:{seconds % 60:00}" :
+        $"{seconds / 3600}:{seconds / 60 % 60:00}:{seconds % 60:00}";
     private static IBrush Brush(string value) => new SolidColorBrush(Color.Parse(value));
     private static LinearGradientBrush Gradient(params string[] colors)
     {

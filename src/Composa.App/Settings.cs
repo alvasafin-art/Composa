@@ -47,6 +47,7 @@ public sealed class Settings
     public bool SelectionSampleAllLayers { get; set; }
     public bool RetouchSampleAllLayers { get; set; }
     public Composa.Painting.BrushSettings? EraserBrush { get; set; }
+    public double HealingBrushHardness { get; set; } = 1;
     public Dictionary<string, Composa.Painting.BrushSettings> EraserPresets { get; set; } = [];
     public Dictionary<string, Composa.Painting.BrushSettings> BrushPresets { get; set; } = [];
     /// <summary>The panels under the Layers panel by title: whether each is shown, collapsed to its header, and how tall it is.</summary>

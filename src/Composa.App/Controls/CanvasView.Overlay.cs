@@ -10,7 +10,7 @@ public sealed partial class CanvasView
 
     private void CaptureMoveTargets(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
-        void Frame(Layer layer, SKColor color, float width, bool dashed = false)
+        void Frame(Layer layer, SKColor color, float width)
         {
             var bounds = EditorSession.AlignmentBounds(layer);
             if (bounds.IsEmpty) return;
@@ -22,17 +22,14 @@ public sealed partial class CanvasView
                 path.MoveTo(points[0]);
                 for (var index = 1; index < points.Length; index++) path.LineTo(points[index]);
                 path.Close();
-                using var dash = dashed ? SKPathEffect.CreateDash([4 * hair, 4 * hair], 0) : null;
                 using var paint = new SKPaint { Color = color, StrokeWidth = width * hair,
-                    Style = SKPaintStyle.Stroke, PathEffect = dash, IsAntialias = true };
+                    Style = SKPaintStyle.Stroke, IsAntialias = true };
                 canvas.DrawPath(path, paint);
             });
         }
 
         var anchor = session!.AlignmentAnchor;
-        if (MoveGroupScope is { } scope)
-            Frame(scope, new SKColor(85, 104, 132), 1, dashed: true);
-        if (moveHover is { } id && session.Document.Find(id) is { } hover && hover.Id != anchor?.Id &&
+        if (cursorInside && moveHover is { } id && session.Document.Find(id) is { } hover && hover.Id != anchor?.Id &&
             (!ShowTransformControls || session.Document.SelectedLayerIds.Count != 1 || hover.Id != session.Document.ActiveLayerId))
             Frame(hover, Accent, 1.5f);
         if (anchor != null) Frame(anchor, new SKColor(20, 117, 227), 3);
