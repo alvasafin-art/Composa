@@ -12,7 +12,7 @@ using Composa.Painting;
 using Composa.Rendering;
 using SkiaSharp;
 
-internal static class BrushLatency
+internal static partial class BrushLatency
 {
     private const uint Move = 0x0200, Down = 0x0201, Up = 0x0202;
     private static Sample? pending;
@@ -28,6 +28,8 @@ internal static class BrushLatency
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args is ["interaction", var interactionOutput])
+            return RunInteraction(interactionOutput);
         var size = 150;
         if (!OperatingSystem.IsWindows() || args.Length is < 2 or > 4 || args[0] is not ("simple" or "layered")
             || (args.Length >= 3 && (!int.TryParse(args[2], out size) || size is < 1 or > 1500))
@@ -38,12 +40,7 @@ internal static class BrushLatency
         }
         Settings.Persist = false;
         var builder = Program.BuildAvaloniaApp();
-        if (Environment.GetEnvironmentVariable("COMPOSA_PERF_LOW_LATENCY_COMPOSITION") == "1")
-            builder.With(new Win32PlatformOptions
-            {
-                CompositionMode = [Win32CompositionMode.LowLatencyDxgiSwapChain, Win32CompositionMode.WinUIComposition,
-                    Win32CompositionMode.DirectComposition, Win32CompositionMode.RedirectionSurface]
-            });
+        ConfigurePresentation(builder);
         builder.SetupWithoutStarting();
         var editorGpu = Environment.GetEnvironmentVariable("COMPOSA_PERF_EDITOR_GPU") == "1";
         GpuAcceleration.Configure(filters: false, editor: editorGpu);

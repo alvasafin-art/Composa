@@ -36,7 +36,13 @@ public static class CanvasPerformanceTrace
     }
 
     public static long FrameAt => Interlocked.Read(ref frameAt);
-    public static void FrameCompleted() => Interlocked.Exchange(ref frameAt, Stopwatch.GetTimestamp());
+    public static event Action<long>? CanvasDrawCompleted;
+    public static void FrameCompleted()
+    {
+        var now = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref frameAt, now);
+        CanvasDrawCompleted?.Invoke(now);
+    }
     internal static void EffectHit() { lock (Sync) hits++; }
     internal static void EffectPatch() { lock (Sync) patches++; }
 

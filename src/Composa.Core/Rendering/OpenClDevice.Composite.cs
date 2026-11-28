@@ -48,6 +48,9 @@ internal sealed unsafe partial class OpenClDevice
                 uploads = FindCompositeInputs(layers);
                 if (uploads == null)
                 {
+#if CANVAS_PERFORMANCE
+                    CanvasPerformanceTrace.StageCompleted("OpenCL input cache miss", Stopwatch.GetTimestamp());
+#endif
                     WarmCompositeInputs(layers);
                     return false;
                 }
@@ -172,8 +175,14 @@ internal sealed unsafe partial class OpenClDevice
         while (compositeInputs.Count >= 8 || compositeInputBytes + bytes > CompositeInputLimit) RemoveUpload(0);
         var generation = Pixels.ImageOf(pixels);
         var buffer = Buffer((nuint)bytes, 0);
+#if CANVAS_PERFORMANCE
+        var uploading = Stopwatch.GetTimestamp();
+#endif
         try { WriteRows(buffer, pixels, rect); }
         catch { Release("clReleaseMemObject", buffer); throw; }
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("OpenCL input upload", uploading);
+#endif
         compositeInputs.Add(new(new(generation), rect, buffer, bytes));
         compositeInputBytes += bytes;
     }
@@ -212,6 +221,9 @@ internal sealed unsafe partial class OpenClDevice
 
     private void ReadComposite(nint buffer, SKBitmap destination, SKRectI area, nuint bytes)
     {
+#if CANVAS_PERFORMANCE
+        var reading = Stopwatch.GetTimestamp();
+#endif
         var pixelBytes = destination.BytesPerPixel;
         var rowBytes = (nuint)(area.Width * pixelBytes);
         if (rowBytes == (nuint)destination.RowBytes)
@@ -230,6 +242,9 @@ internal sealed unsafe partial class OpenClDevice
                 System.Buffer.MemoryCopy((byte*)compositeReadback + (long)y * (long)rowBytes,
                     output + (long)y * destination.RowBytes, (long)rowBytes, (long)rowBytes);
         }
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted("OpenCL blocking readback and copy", reading);
+#endif
         GC.KeepAlive(destination);
     }
 

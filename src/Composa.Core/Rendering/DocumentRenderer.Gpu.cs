@@ -20,10 +20,23 @@ public static partial class DocumentRenderer
         var documentX = (int)view.Origin.X + area.Left;
         var documentY = (int)view.Origin.Y + area.Top;
         var viewport = SKRectI.Create(documentX, documentY, area.Width, area.Height);
-        if (!Collect(document.Layers) || layers.Count < 2) return false;
+#if CANVAS_PERFORMANCE
+        var collecting = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+        var eligible = Collect(document.Layers) && layers.Count >= 2;
+#if CANVAS_PERFORMANCE
+        CanvasPerformanceTrace.StageCompleted(eligible ? "OpenCL scene capture" : "OpenCL scene fallback", collecting);
+#endif
+        if (!eligible) return false;
         // A small two-layer update is cheaper in Skia when the readback also needs a row copy.
         if (layers.Count == 2 && pixelCount < 1_000_000 && target.RowBytes != area.Width * target.BytesPerPixel) return false;
-        if (!GpuAcceleration.CanCompositeGpu) return false;
+        if (!GpuAcceleration.CanCompositeGpu)
+        {
+#if CANVAS_PERFORMANCE
+            CanvasPerformanceTrace.StageCompleted("OpenCL device fallback", collecting);
+#endif
+            return false;
+        }
 #if CANVAS_PERFORMANCE
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
