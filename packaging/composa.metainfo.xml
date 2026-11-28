@@ -50,6 +50,9 @@
     added along with the CHANGELOG.md section when a release is cut; see RELEASING.md.
   -->
   <releases>
+    <release version="1.3.0-preview.4.studio.17.21" date="2026-11-28" type="development">
+      <description><p>Move and align layers within groups, use tighter text selection frames, keep retouch sampling separate, and organize resources by dragging and grouping them. The AI panel filters configured models by operation and shows progress on the Run button.</p></description>
+    </release>
     <release version="1.3.0-preview.4.studio.17.20" date="2026-11-27" type="development">
       <description><p>Use local selection masks with GPT Image through ComfyUI, show the eyedropper immediately with Alt, and Ctrl-click a layer thumbnail to select its visible pixels.</p></description>
     </release>
