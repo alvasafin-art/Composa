@@ -228,9 +228,15 @@ public static partial class Pixels
             {
                 var previous = pyramid.Bitmaps[^1];
                 if (previous.Width <= 64 || previous.Height <= 64) break;
+#if CANVAS_PERFORMANCE
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
                 var half = Halve(previous);
                 pyramid.Bitmaps.Add(half);
                 pyramid.Images.Add(SKImage.FromPixels(half.PeekPixels()));
+#if CANVAS_PERFORMANCE
+                CanvasPerformanceTrace.StageCompleted("raster pyramid level", started);
+#endif
             }
             level = Math.Min(level, pyramid.Images.Count - 1);
             return pyramid.Images[level];
