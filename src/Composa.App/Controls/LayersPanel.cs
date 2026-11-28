@@ -50,6 +50,8 @@ public sealed partial class LayersPanel : UserControl
     private (EditorSession Session, Guid Layer)? externalReferenceDrag;
     internal Func<Layer, bool>? CanDragReference { get; set; }
     internal static readonly DataFormat<string> ReferenceDragFormat = DataFormat.CreateStringApplicationFormat("composa-layer-reference");
+    internal static readonly DataFormat<string> LibrarySelectionDragFormat = DataFormat.CreateStringApplicationFormat("composa-library-selection");
+    internal Func<bool>? CanDragLibrarySelection { get; set; }
     private bool dragging;
     private (Layer Target, LayerDrop Drop)? dropTarget;
     private bool? eyeSwipe;
@@ -62,6 +64,10 @@ public sealed partial class LayersPanel : UserControl
         externalReferenceDrag is { } drag && ReferenceEquals(drag.Session, current) &&
         Guid.TryParseExact(id, "N", out var layerId) && layerId == drag.Layer
             ? drag.Session.Document.Find(layerId) : null;
+
+    internal bool IsLibrarySelectionDrag(IDataTransfer data, EditorSession? current) =>
+        data.TryGetValue(LibrarySelectionDragFormat) is { } id && GetDraggedReference(id, current) != null &&
+        CanDragLibrarySelection?.Invoke() == true;
 
     public event Action<Layer>? EditAdjustmentRequested;
     public event Action<Layer>? EditTextRequested;
@@ -808,13 +814,16 @@ public sealed partial class LayersPanel : UserControl
         if (!e.GetCurrentPoint(rows).Properties.IsLeftButtonPressed) { EndRowDrag(); return; }
         var position = e.GetPosition(rows);
         if (dragPress is { } start && !new Rect(Bounds.Size).Contains(e.GetPosition(this)) &&
-            Math.Abs(position.X - pressPoint.X) + Math.Abs(position.Y - pressPoint.Y) >= 7 &&
-            CanDragReference?.Invoke(layer) == true)
+            Math.Abs(position.X - pressPoint.X) + Math.Abs(position.Y - pressPoint.Y) >= 7)
         {
+            bool reference = CanDragReference?.Invoke(layer) == true;
+            bool library = CanDragLibrarySelection?.Invoke() == true;
+            if (!reference && !library) return;
             EndRowDrag();
             e.Pointer.Capture(null);
             var data = new DataTransfer();
-            data.Add(DataTransferItem.Create(ReferenceDragFormat, layer.Id.ToString("N")));
+            if (reference) data.Add(DataTransferItem.Create(ReferenceDragFormat, layer.Id.ToString("N")));
+            if (library) data.Add(DataTransferItem.Create(LibrarySelectionDragFormat, layer.Id.ToString("N")));
             externalReferenceDrag = (session, layer.Id);
             try { await DragDrop.DoDragDropAsync(start, data, DragDropEffects.Copy); }
             finally { externalReferenceDrag = null; }

@@ -371,7 +371,10 @@ public sealed partial class MainWindow : Window
         // The first document starts from the remembered view options; later ones inherit them from the current tab.
         if (lastToolSource == null)
         {
-            added.View = settings.View; added.PaintBrush = settings.Brush; added.EraserBrush = settings.EraserBrush ?? settings.Brush;
+            added.View = settings.View; added.PaintBrush = settings.Brush.ForEditor();
+            added.EraserBrush = (settings.EraserBrush ?? settings.Brush).ForEditor();
+            added.SampleAllLayers = settings.SelectionSampleAllLayers;
+            added.RetouchSampleAllLayers = settings.RetouchSampleAllLayers;
             if (settings.ToolPalette is { } palette)
             {
                 added.Tool = Enum.IsDefined(palette.Active) ? palette.Active : Tool.Move;
@@ -474,7 +477,8 @@ public sealed partial class MainWindow : Window
             target.GradientRamp = from.GradientRamp;
             target.SmearMode = from.SmearMode; target.MarqueeKind = from.MarqueeKind; target.LassoKind = from.LassoKind;
             target.Feather = from.Feather; target.WandTolerance = from.WandTolerance; target.WandContiguous = from.WandContiguous;
-            target.SampleAllLayers = from.SampleAllLayers; target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
+            target.SampleAllLayers = from.SampleAllLayers; target.RetouchSampleAllLayers = from.RetouchSampleAllLayers;
+            target.CloneAligned = from.CloneAligned; target.ShapeKind = from.ShapeKind;
             target.ShapePoints=from.ShapePoints; target.StarInnerRatio=from.StarInnerRatio; target.ShapeCornerRadius = from.ShapeCornerRadius; target.GradientRadial = from.GradientRadial; target.GradientToTransparent = from.GradientToTransparent; target.TextDefaults = from.TextDefaults;
             target.ShapeLineWidth = from.ShapeLineWidth; target.WandMode = from.WandMode; target.ObjectEdgeOffset = from.ObjectEdgeOffset; target.View = from.View;
             target.SelectionExpandAmount = from.SelectionExpandAmount; target.SelectionContractAmount = from.SelectionContractAmount; target.SelectionFeatherAmount = from.SelectionFeatherAmount;
@@ -666,7 +670,13 @@ public sealed partial class MainWindow : Window
         settings.ShowPixelGrid = canvas.ShowPixelGrid;
         settings.ShowTransformControls = canvas.ShowTransformControls;
         settings.AutoSelect = canvas.AutoSelect;
-        if (session != null) { settings.View = session.View; settings.Brush = session.PaintBrush; settings.EraserBrush = session.EraserBrush; RememberToolPalette(); }
+        if (session != null)
+        {
+            settings.View = session.View; settings.Brush = session.PaintBrush; settings.EraserBrush = session.EraserBrush;
+            settings.SelectionSampleAllLayers = session.SampleAllLayers;
+            settings.RetouchSampleAllLayers = session.RetouchSampleAllLayers;
+            RememberToolPalette();
+        }
         settings.Save();
     }
 

@@ -15,9 +15,8 @@ using Composa.IO;
 
 namespace Composa.App.Controls;
 
-internal sealed class ResourceLibraryPanel : UserControl
+internal sealed partial class ResourceLibraryPanel : UserControl
 {
-    private const int ColumnCount = 2;
     internal static readonly IBrush ThumbnailMatte = new SolidColorBrush(Color.FromRgb(206, 204, 198));
     private static readonly DataFormat<string> DragFormat = DataFormat.CreateStringApplicationFormat("composa-library-element");
     private static readonly Lazy<HashSet<string>> InstalledFonts = new(() => EditorSession.FontFamilies.ToHashSet(StringComparer.OrdinalIgnoreCase));
@@ -30,11 +29,13 @@ internal sealed class ResourceLibraryPanel : UserControl
     };
     private readonly ItemsControl cards = new() { Name = "LibraryCards" };
     private readonly TextBlock empty = Ui.Label("", Palette.Secondary, 12);
-    private readonly Button save;
     private readonly SemaphoreSlim thumbnails = new(2);
     private readonly Dictionary<Guid, Button> realized = [];
     private LibraryEntry[] entries = [];
-    private LibraryEntry[] filtered = [];
+    private LibraryRow[] filtered = [];
+    private LibraryOrganization organization = LibraryOrganization.Empty;
+    private readonly HashSet<Guid> selectedIds = [];
+    private sealed record LibraryRow(Guid Id, LibraryEntry? Entry, LibraryGroup? Group, bool Nested);
     private Guid? selected;
     private int refreshGeneration, unreadable;
     private bool loaded, itemsReady;
@@ -42,7 +43,9 @@ internal sealed class ResourceLibraryPanel : UserControl
 
     internal event Action<LibraryEntry>? InsertRequested, RenameRequested, ReplaceRequested, DeleteRequested;
     internal event Action? SaveRequested, FolderRequested;
-    internal bool CanSave { get => save.IsEnabled; set => save.IsEnabled = value; }
+    internal event Action<string>? Problem;
+    internal bool CanSave { get; set; }
+    internal Func<IDataTransfer, bool>? AcceptLayerDrop { get; set; }
     internal LibraryEntry? DraggedEntry(IDataTransfer data) =>
         Guid.TryParseExact(data.TryGetValue(DragFormat), "N", out var id) ? entries.FirstOrDefault(entry => entry.Id == id) : null;
     internal static string[] MissingFonts(IEnumerable<string> fonts) => fonts.Where(font => !InstalledFonts.Value.Contains(font)).ToArray();
@@ -58,7 +61,7 @@ internal sealed class ResourceLibraryPanel : UserControl
     {
         this.library = library;
         Name = "ResourceLibrary";
-        var query = new Grid { Margin = new Thickness(10, 4, 10, 7), Children = { search } };
+        var query = new Grid { Children = { search } };
         var clear = Ui.IconButton(Icons.Close, "Clear resource search", () => search.Text = "", 11);
         clear.IsVisible = false;
         clear.Width = 24;
@@ -75,64 +78,45 @@ internal sealed class ResourceLibraryPanel : UserControl
         };
 
         cards.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel { CacheLength = 0 });
-        cards.ItemTemplate = new FuncDataTemplate<LibraryEntry[]>((row, _) =>
+        cards.ItemTemplate = new FuncDataTemplate<LibraryRow>((row, _) =>
         {
             if (row == null) return null;
-            var grid = new Grid
-            {
-                ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8,
-                Margin = new Thickness(10, 0, 10, 6)
-            };
-            for (int i = 0; i < row.Length; i++)
-            {
-                var tile = Tile(row[i]);
-                Grid.SetColumn(tile, i);
-                grid.Children.Add(tile);
-            }
-            return grid;
+            var button = row.Entry is { } entry ? Tile(entry) : GroupRow(row.Group!);
+            button.Margin = new Thickness(row.Nested ? 26 : 10, 0, 10, 2);
+            return button;
         });
         var scroll = new ScrollViewer
         {
             Content = cards, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
-        empty.Margin = new Thickness(10, 8, 10, 0);
+        empty.Margin = new Thickness(10, 2, 10, 0);
+        empty.VerticalAlignment = VerticalAlignment.Top;
         empty.TextWrapping = TextWrapping.Wrap;
         var contents = new Panel { Children = { scroll, empty } };
 
-        save = FooterButton("Save to Library…", "SaveLibraryElement", () => SaveRequested?.Invoke());
-        var folder = FooterButton("Open Library Folder", "OpenLibraryFolder", () => FolderRequested?.Invoke());
-        folder.Classes.Add("flat");
-        folder.Foreground = Palette.Accent;
-        folder.HorizontalContentAlignment = HorizontalAlignment.Left;
-        folder.Padding = new Thickness(0, 3);
-        var footer = Ui.Column(3, save, folder);
-        footer.Margin = new Thickness(10, 5, 10, 5);
-        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Children = { query } };
+        var folder = Ui.IconButton(Icons.Folder, "Open Library Folder", () => FolderRequested?.Invoke(), 15);
+        folder.Name = "OpenLibraryFolder";
+        folder.Classes.Remove("flat");
+        folder.Width = folder.MinWidth = 30;
+        folder.Height = 28;
+        folder.Padding = default;
+        folder.HorizontalContentAlignment = HorizontalAlignment.Center;
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 6,
+            Margin = new Thickness(10, 4, 10, 7), Children = { query, folder } };
+        Grid.SetColumn(folder, 1);
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), Children = { header } };
         Grid.SetRow(contents, 1); layout.Children.Add(contents);
-        Grid.SetRow(footer, 2); layout.Children.Add(footer);
         Content = layout;
+        SetupLibraryDrop(contents);
         AddHandler(KeyDownEvent, OnLibraryKey, RoutingStrategies.Tunnel);
         AttachedToVisualTree += (_, _) => _ = Refresh();
         DetachedFromVisualTree += (_, _) => { ++refreshGeneration; itemsReady = false; };
     }
 
-    private static Button FooterButton(string label, string name, Action action)
-    {
-        var button = Ui.TextButton(label, action);
-        button.Name = name;
-        button.MinWidth = 0;
-        button.MinHeight = 27;
-        button.FontSize = 12;
-        button.Padding = new Thickness(5, 3);
-        button.HorizontalAlignment = HorizontalAlignment.Stretch;
-        button.CornerRadius = new CornerRadius(5);
-        return button;
-    }
-
     internal async Task Refresh(Guid? select = null)
     {
-        if (select != null) selected = select;
+        if (select is { } id) Select(id);
         if (!this.IsAttachedToVisualTree()) return;
         if (!itemsReady)
         {
@@ -142,13 +126,14 @@ internal sealed class ResourceLibraryPanel : UserControl
         int generation = ++refreshGeneration;
         try
         {
-            var result = await Task.Run(library.List);
+            var result = await Task.Run(() => (Catalog: library.List(), Order: library.ReadOrganization()));
             if (generation != refreshGeneration) return;
             catalogError = null;
-            entries = result.Entries;
-            unreadable = result.Unreadable;
+            entries = result.Catalog.Entries;
+            unreadable = result.Catalog.Unreadable;
+            organization = result.Order.WithEntries(entries);
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
             if (generation != refreshGeneration) return;
             catalogError = Locale.Message($"Could not read the library: {error.Message}");
@@ -162,13 +147,35 @@ internal sealed class ResourceLibraryPanel : UserControl
     private void Filter()
     {
         var query = search.Text?.Trim() ?? "";
-        var matches = entries.Where(entry => query.Length == 0 || entry.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToArray();
-        if (!matches.Select(entry => entry.Revision).SequenceEqual(filtered.Select(entry => entry.Revision)))
+        bool Matches(string value) => value.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+        var index = entries.ToDictionary(entry => entry.Id);
+        var groups = organization.Groups.ToDictionary(group => group.Id);
+        var matches = new List<LibraryRow>();
+        foreach (var id in organization.Order)
         {
-            filtered = matches;
-            cards.ItemsSource = filtered.Chunk(ColumnCount).ToArray();
+            if (index.TryGetValue(id, out var entry) && Matches(entry.Name))
+                matches.Add(new(id, entry, null, false));
+            else if (groups.TryGetValue(id, out var group))
+            {
+                var children = group.Resources.Where(index.ContainsKey).Select(child => index[child])
+                    .Where(child => Matches(group.Name) || Matches(child.Name)).ToArray();
+                if (children.Length == 0 && !Matches(group.Name)) continue;
+                matches.Add(new(id, null, group, false));
+                if (!group.Collapsed || query.Length > 0)
+                    matches.AddRange(children.Select(child => new LibraryRow(child.Id, child, null, true)));
+            }
         }
-        if (!filtered.Any(entry => entry.Id == selected)) selected = filtered.FirstOrDefault()?.Id;
+        if (!matches.SequenceEqual(filtered))
+        {
+            filtered = matches.ToArray();
+            cards.ItemsSource = filtered;
+        }
+        selectedIds.RemoveWhere(id => !index.ContainsKey(id) && !groups.ContainsKey(id));
+        if (!filtered.Any(row => row.Id == selected))
+        {
+            selected = filtered.FirstOrDefault(row => selectedIds.Contains(row.Id))?.Id ?? filtered.FirstOrDefault()?.Id;
+            if (selectedIds.Count == 0 && selected is { } first) selectedIds.Add(first);
+        }
         RefreshSelection();
         empty.IsVisible = filtered.Length == 0;
         empty.Text = catalogError ?? Locale.T(!loaded ? "Loading resources…" :
@@ -190,14 +197,14 @@ internal sealed class ResourceLibraryPanel : UserControl
         var image = new Image { Stretch = Stretch.Uniform, IsHitTestVisible = false };
         var preview = new Border
         {
-            Height = 80, Background = ThumbnailMatte, CornerRadius = new CornerRadius(4), ClipToBounds = true,
+            Width = 38, Height = 29, Background = ThumbnailMatte, CornerRadius = new CornerRadius(3), ClipToBounds = true,
             Child = new Panel { Children = { fallback, image } }
         };
         var title = Ui.Label(entry.Name, size: 12);
         title.TextTrimming = TextTrimming.CharacterEllipsis;
         var tile = new Button
         {
-            Name = "LibraryResource", Tag = entry, Content = Ui.Column(4, preview, title),
+            Name = "LibraryResource", Tag = entry, Content = Ui.Row(8, preview, title),
             MinWidth = 0, Padding = new Thickness(5), CornerRadius = new CornerRadius(5),
             BorderBrush = Palette.Edge, BorderThickness = new Thickness(1),
             HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch
@@ -235,28 +242,9 @@ internal sealed class ResourceLibraryPanel : UserControl
         tile.ContextMenu.Opened += (_, _) => update.IsEnabled = CanSave;
         tile.ContextMenu.Items.Add(new Separator());
         Add("Delete", () => DeleteRequested?.Invoke(entry));
-
-        PointerPressedEventArgs? press = null;
-        Point origin = default;
-        tile.AddHandler(PointerPressedEvent, (_, e) =>
-        {
-            Select(entry.Id);
-            if (!e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed) return;
-            press = e;
-            origin = e.GetPosition(tile);
-        }, RoutingStrategies.Tunnel);
-        tile.PointerMoved += async (_, e) =>
-        {
-            if (press is not { } start || !e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed) return;
-            var point = e.GetPosition(tile);
-            if (Math.Abs(point.X - origin.X) + Math.Abs(point.Y - origin.Y) < 7) return;
-            press = null;
-            await DragDrop.DoDragDropAsync(start, DragData(entry.Id), DragDropEffects.Copy);
-        };
-        tile.AddHandler(PointerReleasedEvent, (_, _) => press = null, RoutingStrategies.Tunnel, handledEventsToo: true);
-        tile.PointerCaptureLost += (_, _) => press = null;
+        AddOrganizationMenu(tile);
+        EnableResourceDrag(tile, entry.Id, DragDropEffects.Copy | DragDropEffects.Move);
         tile.DoubleTapped += (_, e) => { InsertRequested?.Invoke(entry); e.Handled = true; };
-        tile.GotFocus += (_, _) => Select(entry.Id);
 
         CancellationTokenSource? pending = null;
         bool attempted = false;
@@ -305,8 +293,9 @@ internal sealed class ResourceLibraryPanel : UserControl
 
     private void Select(Guid id)
     {
-        if (selected == id) return;
         selected = id;
+        selectedIds.Clear();
+        selectedIds.Add(id);
         RefreshSelection();
     }
 
@@ -314,30 +303,43 @@ internal sealed class ResourceLibraryPanel : UserControl
     {
         foreach (var (id, tile) in realized)
         {
-            tile.Background = id == selected ? Palette.Selected : Palette.PanelRaised;
-            tile.BorderBrush = id == selected ? Palette.Accent : Palette.Edge;
+            tile.Background = selectedIds.Contains(id) ? Palette.Selected : Brushes.Transparent;
+            tile.BorderBrush = selectedIds.Contains(id) ? Palette.Accent : Brushes.Transparent;
         }
     }
 
     internal bool OwnsLibraryKey(object? focused, KeyEventArgs e) =>
-        e.KeyModifiers == KeyModifiers.None && (ReferenceEquals(focused, search) && e.Key is Key.Enter or Key.Escape or Key.Down ||
-            focused is Control control && control.FindAncestorOfType<ResourceLibraryPanel>() == this && control.Tag is LibraryEntry &&
-            e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space or Key.Delete);
+        e.KeyModifiers == KeyModifiers.None && ReferenceEquals(focused, search) && e.Key is Key.Enter or Key.Escape or Key.Down ||
+        focused is Control control && (ReferenceEquals(control, this) || control.FindAncestorOfType<ResourceLibraryPanel>() == this) &&
+        (control.Tag is LibraryEntry or LibraryGroup || ReferenceEquals(control, this)) &&
+        (e.KeyModifiers == KeyModifiers.None && e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space or Key.Delete ||
+            e.Key == Key.G && e.KeyModifiers is KeyModifiers.Control or (KeyModifiers.Control | KeyModifiers.Shift));
 
     private void OnLibraryKey(object? sender, KeyEventArgs e)
     {
         if (!OwnsLibraryKey(TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement(), e)) return;
         e.Handled = true;
+        if (e.Key == Key.G)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) _ = UngroupResources();
+            else _ = GroupResources();
+            return;
+        }
         if (search.IsFocused && e.Key == Key.Escape) { search.Text = ""; return; }
         if (filtered.Length == 0) return;
         var index = Array.FindIndex(filtered, entry => entry.Id == selected);
         if (search.IsFocused) { FocusEntry(Math.Max(0, index)); return; }
         if (index < 0) return;
-        if (e.Key is Key.Enter or Key.Space) InsertRequested?.Invoke(filtered[index]);
-        else if (e.Key == Key.Delete) DeleteRequested?.Invoke(filtered[index]);
+        var row = filtered[index];
+        if (e.Key is Key.Enter or Key.Space)
+        {
+            if (row.Entry is { } entry) InsertRequested?.Invoke(entry);
+            else if (row.Group is { } group) _ = ToggleGroup(group.Id);
+        }
+        else if (e.Key == Key.Delete && row.Entry is { } entry) DeleteRequested?.Invoke(entry);
         else FocusEntry(Math.Clamp(e.Key switch
         {
-            Key.Left => index - 1, Key.Right => index + 1, Key.Up => index - ColumnCount, Key.Down => index + ColumnCount,
+            Key.Left or Key.Up => index - 1, Key.Right or Key.Down => index + 1,
             Key.Home => 0, Key.End => filtered.Length - 1, _ => index
         }, 0, filtered.Length - 1));
     }
@@ -346,7 +348,7 @@ internal sealed class ResourceLibraryPanel : UserControl
     {
         var id = filtered[index].Id;
         Select(id);
-        cards.ScrollIntoView(index / ColumnCount);
+        cards.ScrollIntoView(index);
         Dispatcher.UIThread.Post(() => realized.GetValueOrDefault(id)?.Focus(), DispatcherPriority.Loaded);
     }
 }

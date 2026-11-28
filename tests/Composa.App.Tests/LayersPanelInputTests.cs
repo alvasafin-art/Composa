@@ -74,7 +74,7 @@ public class LayersPanelInputTests
     }
 
     [AvaloniaFact]
-    public void Clicking_nested_pixels_expands_their_parents_and_scrolls_the_layer_into_view()
+    public void Control_clicking_nested_pixels_expands_their_parents_and_scrolls_the_layer_into_view()
     {
         var image = Composa.Rendering.Pixels.NewColor(40, 40);
         image.Erase(SKColors.Red);
@@ -92,8 +92,10 @@ public class LayersPanelInputTests
         Assert.DoesNotContain(Rows(), row => Equals(row.Tag, child));
 
         var point = window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(60, 50)), window)!.Value;
-        window.MouseDown(point, MouseButton.Left);
-        window.MouseUp(point, MouseButton.Left);
+        window.MouseDown(point, MouseButton.Left, RawInputModifiers.Control);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(child.Id, session.Document.ActiveLayerId);

@@ -2241,3 +2241,35 @@ Hide all regions	Скрыть все рамки
 Show all regions	Показать все рамки
 Delete all regions	Удалить все рамки
 Delete all AI regions	Удаление всех AI-областей
+AI Generation	Генерация ИИ
+Gen Fill	Генеративная заливка
+Gen Expand	Генеративное расширение
+Edit Image	Редактировать изображение
+Generate Image	Создать изображение
+Connect models	Подключить модели
+Generation start	Старт
+Number of variants	Количество вариантов
+2 variants	2 варианта
+3 variants	3 варианта
+In queue	В очереди
+Applying result	Применение
+Waiting for the model	Ожидание ответа модели
+Generation done	Готово
+Generation error	Ошибка
+Generation cancelled	Отменено
+Cancelling…	Отмена…
+Credits spent	Списано кредитов
+Short seconds	с
+Align to Canvas	По холсту
+Key object	Опорный
+Inside current group	внутри
+Align to the selection bounds. Click a selected object again to keep it in place as the key object.	Выровнять по границе выделения. Повторный щелчок назначает опорный объект и оставляет его на месте.
+Group resources	Сгруппировать
+Ungroup resources	Разгруппировать
+Move resource up	Переместить выше
+Move resource down	Переместить ниже
+Resource group	Группа ресурсов
+Resource	Ресурс
+Expanded	Раскрыта
+Collapsed	Свёрнута
+Drop to save to the library	Отпустите, чтобы сохранить ресурс

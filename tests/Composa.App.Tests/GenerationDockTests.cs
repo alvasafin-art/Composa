@@ -33,6 +33,7 @@ public class GenerationDockTests
         {
             var session = EditorSession.NewCanvas(500, 350, SKColors.White);
             window.AddSession(session);
+            ConnectFixture(window);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
             dock.SetVisible(section, true);
@@ -83,6 +84,7 @@ public class GenerationDockTests
         try
         {
             window.AddSession(EditorSession.NewCanvas(400, 300));
+            ConnectFixture(window);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var generation = dock.Section("AI Generation");
             dock.SetVisible(generation, true);
@@ -150,7 +152,10 @@ public class GenerationDockTests
             async Task Run()
             {
                 prompt.Text = "Add a blue patch.";
-                Assert.True(run.IsEffectivelyEnabled);
+                var readyBy = DateTime.UtcNow.AddSeconds(5);
+                while (!run.IsHitTestVisible && DateTime.UtcNow < readyBy)
+                { await Task.Delay(15, TestContext.Current.CancellationToken); Pump(); }
+                Assert.True(run.IsEffectivelyEnabled && run.IsHitTestVisible);
                 run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var cutoff = DateTime.UtcNow.AddSeconds(15);
                 while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < cutoff)
@@ -333,6 +338,7 @@ public class GenerationDockTests
         async Task Run(Settings state)
         {
             var window = new MainWindow(null, _ => server) { Width = 1100, Height = 800 };
+            window.Settings.ComfyServerUrl = server.Address.ToString();
             window.Settings.Workflows = state.Workflows;
             window.Settings.AiTaskEngineIds = state.AiTaskEngineIds;
             window.Settings.AiTaskModelKeys.Clear();
@@ -342,6 +348,7 @@ public class GenerationDockTests
             try
             {
                 window.AddSession(session);
+                await window.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken);
                 var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
                 var section = dock.Section("AI Generation");
                 dock.SetVisible(section, true);
@@ -372,6 +379,7 @@ public class GenerationDockTests
     {
         var window = new MainWindow { Width = 1100, Height = 800 };
         window.Settings.AiTaskEngineIds[task.ToString()] = "chatgpt-image-2.5";
+        window.AiTasks.ApiKey = () => "test-only";
         window.Show();
         try
         {
@@ -452,6 +460,7 @@ public class GenerationDockTests
             var first = EditorSession.NewCanvas(160, 120, SKColors.White);
             var second = EditorSession.NewCanvas(160, 120, SKColors.White);
             window.AddSession(first);
+            ConnectFixture(window);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
             dock.SetVisible(section, true);
@@ -626,7 +635,7 @@ public class GenerationDockTests
         {
             var session = EditorSession.NewCanvas(400, 300, SKColors.White);
             window.AddSession(session);
-            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
+            ConnectFixture(window);
             session.SelectRect(new(40, 40, 160, 160));
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
@@ -708,7 +717,9 @@ public class GenerationDockTests
         try
         {
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
-            var section = dock.Section("AI Generation"); dock.SetVisible(section, true); Pump();
+            var section = dock.Section("AI Generation"); dock.SetVisible(section, true);
+            await window.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken);
+            Pump();
             MenuItem item; MenuFlyout? menu = null;
             if (entry == "main")
             {
@@ -758,15 +769,25 @@ public class GenerationDockTests
         {
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation"); dock.SetVisible(section, true);
+            await window.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken);
+            Pump();
             var reference = new SKBitmap(60, 40); reference.Erase(SKColors.Coral); window.AddAiReferenceForTests(reference); Pump();
             var prompt = section.Content.GetVisualDescendants().OfType<TextBox>().Single(b => b.AcceptsReturn);
             var picker = section.Content.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible);
             picker.SelectedItem = picker.Items.OfType<ImageModelChoice>().Single(model => model.Engine.Id == "chatgpt-image-2.5");
             prompt.Text = "Keep the ceramic texture."; Pump();
             var before = session.History.CurrentId;
-            var run = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == (count == 1 ? "AiRun" : $"AiVariants{count}"));
+            var run = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == (count == 1 ? "AiRun" : "AiRunVariants"));
             Assert.True(run.IsEffectivelyEnabled);
-            run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (count == 1) run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            else
+            {
+                var menu = Assert.IsType<MenuFlyout>(run.Flyout);
+                menu.ShowAt(run); Pump();
+                var item = menu.Items.OfType<MenuItem>().Single(choice => choice.Name == $"AiVariants{count}");
+                item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                menu.Hide();
+            }
             var timeout = DateTime.UtcNow.AddSeconds(15);
             while (window.AiTasks.Operation?.Status is AiOperationStatus.Queued or AiOperationStatus.Running && DateTime.UtcNow < timeout)
             { await Task.Delay(10, TestContext.Current.CancellationToken); Pump(); }
@@ -816,6 +837,7 @@ public class GenerationDockTests
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
             dock.SetVisible(section, true);
+            await window.AiTasks.TestConnectionAsync(TestContext.Current.CancellationToken);
             window.SelectTool(Tool.Crop);
             ExpandCrop(source, 23, 17);
             var chooser = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation");
@@ -838,8 +860,8 @@ public class GenerationDockTests
             var pendingCrop = window.Canvas.CropRect;
 
             if (cancel)
-                window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, Locale.T("Cancel"))
-                    && b.Parent is StackPanel panel && panel.Children.OfType<ProgressBar>().Any())
+                window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRunVariants"
+                    && Equals(AutomationProperties.GetName(b), Locale.T("Cancel")))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             else release.SetResult();
 
@@ -889,6 +911,7 @@ public class GenerationDockTests
         try
         {
             window.AddSession(session);
+            ConnectFixture(window);
             window.SelectTool(Tool.PromptRegion);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             dock.SetVisible(dock.Section("AI Generation"), true);
@@ -985,6 +1008,7 @@ public class GenerationDockTests
         try
         {
             window.AddSession(session);
+            ConnectFixture(window);
             window.SelectTool(Tool.PromptRegion);
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             dock.SetVisible(dock.Section("AI Generation"), true);
@@ -1073,6 +1097,7 @@ public class GenerationDockTests
             window.AddSession(session);
             var paid = PartnerImageTests.Capabilities();
             var (_, local) = await new AiVariantsTests.Connection().TestConnectionAsync(TestContext.Current.CancellationToken);
+            window.AiTasks.ApiKey = () => "test-only";
             window.AiTasks.SetConnectedForTests(paid with { NodeTypes = paid.NodeTypes.Concat(local.NodeTypes).ToHashSet() });
             session.SelectRect(new(40, 40, 160, 160));
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
@@ -1106,8 +1131,10 @@ public class GenerationDockTests
         var thumbnails = host.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible &&
             ToolTip.GetTip(b)?.ToString()?.StartsWith("image ", StringComparison.Ordinal) == true).ToArray();
         var first = thumbnails.First().TranslatePoint(default, window)!.Value;
-        var modelBottom = model.TranslatePoint(new Point(0, model.Bounds.Height), window)!.Value;
-        Assert.Equal(8, first.Y - modelBottom.Y, 2);
+        var controlsBottom = model.TranslatePoint(new Point(0, model.Bounds.Height), window)!.Value.Y;
+        if (model.FindAncestorOfType<AiPromptToolbar>() is { } toolbar)
+            controlsBottom = toolbar.TranslatePoint(new Point(0, toolbar.Bounds.Height), window)!.Value.Y;
+        Assert.Equal(8, first.Y - controlsBottom, 2);
         for (int i = 1; i < thumbnails.Length; i++)
         {
             var previous = thumbnails[i - 1];
@@ -1128,6 +1155,7 @@ public class GenerationDockTests
         var window = new MainWindow { Width = 1120, Height = 760 }; window.Show();
         var session = EditorSession.NewCanvas(480, 320, null, ColorDepth.Sixteen);
         window.AddSession(session);
+        ConnectFixture(window);
         var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
         var section = dock.Section("AI Generation");
         Assert.False(section.State.Visible);
@@ -1162,7 +1190,8 @@ public class GenerationDockTests
     {
         var window = new MainWindow { Width = 1120, Height = 760 }; window.Show();
         var session = EditorSession.NewCanvas(600, 400, SKColors.LightSlateGray);
-        window.AddSession(session); window.AiTasks.SetConnectedForTests();
+        window.AddSession(session);
+        ConnectFixture(window);
         session.SelectRect(new(130, 85, 270, 260)); Pump();
         var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
         var section = dock.Section("AI Generation");
@@ -1224,5 +1253,11 @@ public class GenerationDockTests
             Assert.True(window.AiFloatingVisible); Assert.Equal("Keep the green reference.", Prompt(window.AiFloatingPanel).Text);
         }
         finally { session.MarkSaved("handoff.cmps", session.History.CurrentId); window.Close(); }
+    }
+
+    private static void ConnectFixture(MainWindow window)
+    {
+        window.AiTasks.ApiKey = () => "test-only";
+        window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
     }
 }

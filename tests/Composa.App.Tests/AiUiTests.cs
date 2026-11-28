@@ -24,6 +24,7 @@ public class AiUiTests
         var nodeTypes = catalog.Profiles.SelectMany(pack => pack.Workflows.SelectMany(workflow => catalog.ReadWorkflow(pack, workflow)))
             .Select(pair => pair.Value?["class_type"]?.GetValue<string>()).OfType<string>().ToHashSet();
         nodeTypes.UnionWith(catalog.Profiles.SelectMany(pack => pack.RequiredNodeTypes));
+        window.AiTasks.ApiKey = () => "test-only";
         window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities() with { NodeTypes = nodeTypes });
         var session = EditorSession.NewCanvas(640, 420, SKColors.White); window.AddSession(session); session.SelectRect(new SKRect(100, 50, 250, 120));
         var align = Assert.Single(window.AiFloatingPanel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(),
@@ -32,8 +33,9 @@ public class AiUiTests
         Assert.True(window.Settings.AiAlignMaskedEdits);
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
         var panel = window.AiFloatingPanel;
+        var variants = Assert.IsType<MenuFlyout>(panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRunVariants").Flyout);
         foreach (var count in new[] { 2, 3 })
-            Assert.IsType<Button>(panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == $"AiVariants{count}"));
+            Assert.Single(variants.Items.OfType<MenuItem>(), item => item.Name == $"AiVariants{count}");
         var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");
         var advanced = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiAdvanced");
         Assert.True(enhance.IsEnabled);
@@ -41,8 +43,7 @@ public class AiUiTests
         Assert.True(enhance.TranslatePoint(new Point(enhance.Bounds.Width, 0), panel)!.Value.X
             <= advanced.TranslatePoint(new Point(0, 0), panel)!.Value.X);
         var engines = Assert.Single(combos, combo => combo.Items.OfType<ImageModelChoice>().Any());
-        Assert.Contains(engines.Items.OfType<ComboBoxItem>(), item => !item.IsEnabled &&
-            item.Content is TextBlock { Text: "ComfyUI server" });
+        Assert.All(engines.Items.OfType<ImageModelChoice>(), model => Assert.True(model.Available));
         var defaultEngine = window.AiTasks.SelectedEngine;
         var defaultFill = window.AiTasks.EngineFor(AiTaskKind.GenerativeFill);
         engines.SelectedItem = engines.Items.OfType<ImageModelChoice>().Single(m => m.Engine.Id == "qwen-image-2.1-turbo"); Assert.Equal("qwen-image-2.1-turbo", Assert.IsType<ImageModelChoice>(engines.SelectedItem).Engine.Id);
@@ -93,7 +94,10 @@ public class AiUiTests
     [AvaloniaFact]
     public void Reference_image_icon_is_centered_and_clicking_a_thumbnail_opens_a_preview()
     {
-        var window = new MainWindow { Width = 1280, Height = 900 }; window.Show(); window.AiTasks.SetConnectedForTests();
+        var window = new MainWindow { Width = 1280, Height = 900 };
+        window.Show();
+        window.AiTasks.ApiKey = () => "test-only";
+        window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
         var session = EditorSession.NewCanvas(640, 420); window.AddSession(session); session.SelectRect(new SKRect(100, 60, 200, 130));
         var reference = new SKBitmap(80, 40); reference.Erase(SKColors.CornflowerBlue); window.AddAiReferenceForTests(reference);
         Assert.True(Screenshots.Save(window, "ai-reference-thumbnails"));

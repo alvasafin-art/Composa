@@ -225,7 +225,8 @@ public sealed class ResourceLibraryUiTests
                     Frame();
                     var firstShelfMs = Elapsed(start);
                     var openedPrivate = PrivateMiB();
-                    Assert.InRange(Tiles(window).Count(HasPreview), 1, 10);
+                    // The compact rows give the viewport room to realize up to 12 thumbnails.
+                    Assert.InRange(Tiles(window).Count(HasPreview), 1, 12);
                     var endToEnd = new List<double>();
                     var frameUpdates = new List<double>();
                     var scrollPrivate = new List<double> { openedPrivate };
@@ -241,7 +242,7 @@ public sealed class ResourceLibraryUiTests
                         frameUpdates.Add(Screenshots.RenderAndReadback(window));
                         endToEnd.Add(Elapsed(start));
                         scrollPrivate.Add(PrivateMiB());
-                        Assert.InRange(Tiles(window).Count(HasPreview), 1, 10);
+                        Assert.InRange(Tiles(window).Count(HasPreview), 1, 12);
                     }
                     var tile = Tiles(window).First(HasPreview);
                     tile.Focus();

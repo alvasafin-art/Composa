@@ -4,13 +4,26 @@ using SkiaSharp;
 namespace Composa.Editing;
 
 public enum ObjectAlignment { Left, Center, Right, Top, Middle, Bottom }
-public enum AlignmentReference { Canvas, SecondSelected }
+public enum AlignmentReference { Canvas, SecondSelected, Selection }
 
 public sealed partial class EditorSession
 {
     public int AlignableObjectCount => SelectedRoots().Count(l => !AlignmentBounds(l).IsEmpty);
-    private static SKRect AlignmentBounds(Layer root)
+    private Guid? alignmentAnchor;
+
+    public Layer? AlignmentAnchor => AlignableObjectCount > 1 && alignmentAnchor is { } id
+        ? SelectedRoots().FirstOrDefault(layer => layer.Id == id) : null;
+
+    public void SetAlignmentAnchor(Guid id)
     {
+        if (AlignableObjectCount < 2 || !SelectedRoots().Any(layer => layer.Id == id)) return;
+        alignmentAnchor = id;
+        InvalidateAll();
+    }
+
+    public static SKRect AlignmentBounds(Layer root)
+    {
+        if (root.AutoLayout != null) return LayoutBounds(root);
         var bounds = SKRect.Empty;
         foreach (var layer in Document.Flatten([root]).Where(l => l.Pixels != null))
             bounds = bounds.IsEmpty ? layer.ControlBounds : SKRect.Union(bounds, layer.ControlBounds);
@@ -30,14 +43,19 @@ public sealed partial class EditorSession
         }
         var roots = SelectedRoots().Where(l => !AlignmentBounds(l).IsEmpty).ToList();
         if (roots.Count == 0 || reference == AlignmentReference.SecondSelected && roots.Count < 2) return;
-        var orderedRoots = document.SelectionOrder.Select(id => roots.FirstOrDefault(l => Document.Flatten([l]).Any(c => c.Id == id)))
-            .OfType<Layer>().Distinct().ToList();
-        var anchor = orderedRoots.Count >= 2 ? orderedRoots[1] : roots.FirstOrDefault(l => l.Id == document.ActiveLayerId) ?? roots[0];
-        var target = reference == AlignmentReference.Canvas ? new SKRect(0, 0, document.Width, document.Height) : AlignmentBounds(anchor);
+        var anchor = reference == AlignmentReference.Selection ? AlignmentAnchor : null;
+        if (reference == AlignmentReference.SecondSelected)
+        {
+            var orderedRoots = document.SelectionOrder.Select(id => roots.FirstOrDefault(l => Document.Flatten([l]).Any(c => c.Id == id)))
+                .OfType<Layer>().Distinct().ToList();
+            anchor = orderedRoots.Count >= 2 ? orderedRoots[1] : roots.FirstOrDefault(l => l.Id == document.ActiveLayerId) ?? roots[0];
+        }
+        var target = reference == AlignmentReference.Canvas || roots.Count == 1 ? (SKRect)document.Bounds :
+            anchor != null ? AlignmentBounds(anchor) : roots.Select(AlignmentBounds).Aggregate(SKRect.Union);
         var moves = new List<(Layer, float, float)>();
         foreach (var root in roots)
         {
-            if (reference == AlignmentReference.SecondSelected && root == anchor) continue;
+            if (root == anchor) continue;
             var b = AlignmentBounds(root);
             float dx = alignment switch { ObjectAlignment.Left => target.Left - b.Left, ObjectAlignment.Center => target.MidX - b.MidX, ObjectAlignment.Right => target.Right - b.Right, _ => 0 };
             float dy = alignment switch { ObjectAlignment.Top => target.Top - b.Top, ObjectAlignment.Middle => target.MidY - b.MidY, ObjectAlignment.Bottom => target.Bottom - b.Bottom, _ => 0 };

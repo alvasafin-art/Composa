@@ -44,6 +44,8 @@ public sealed class Settings
     public string? ObjectSelectionComfyModel { get; set; }
     public Composa.Editing.ViewOptions View { get; set; } = new();
     public Composa.Painting.BrushSettings Brush { get; set; } = new();
+    public bool SelectionSampleAllLayers { get; set; }
+    public bool RetouchSampleAllLayers { get; set; }
     public Composa.Painting.BrushSettings? EraserBrush { get; set; }
     public Dictionary<string, Composa.Painting.BrushSettings> EraserPresets { get; set; } = [];
     public Dictionary<string, Composa.Painting.BrushSettings> BrushPresets { get; set; } = [];

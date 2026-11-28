@@ -545,7 +545,7 @@ public sealed partial class Layer
     /// <summary>Document-space bounds of the layer's pixels; empty for groups and adjustments.</summary>
     public SKRect Bounds => Pixels == null ? SKRect.Empty : HasWarp ? Matrix.MapRect(WarpBounds) : Transform.Bounds(Pixels.Width, Pixels.Height);
 
-    /// <summary>Raster controls enclose content, while live text and shapes retain their editable boxes. The source grid and masks stay intact.</summary>
+    /// <summary>Controls use the visual frame without changing the source grid, text layout or masks.</summary>
     public LayerTransform ControlTransform
     {
         get
@@ -555,7 +555,7 @@ public sealed partial class Layer
                 var warpBounds = Geometry.RoundOut(WarpBounds);
                 return LayerTransform.FromMatrix(SKMatrix.CreateTranslation(warpBounds.Left, warpBounds.Top).PostConcat(Matrix), warpBounds.Width, warpBounds.Height);
             }
-            if (Pixels == null || IsLive || IsSmartObject) return Transform;
+            if (Pixels == null || IsSmartObject) return Transform;
             var bounds = ControlSourceBounds;
             if (bounds == new SKRectI(0, 0, Pixels.Width, Pixels.Height)) return Transform;
             double midX = (bounds.Left + bounds.Right) / 2.0, midY = (bounds.Top + bounds.Bottom) / 2.0;
@@ -585,6 +585,22 @@ public sealed partial class Layer
         {
             if (Pixels == null) return SKRectI.Empty;
             if (HasWarp) return Geometry.RoundOut(WarpBounds);
+            if (Text is { IsBox: false, IsVertical: false, Path: null })
+            {
+                var ink = Rendering.Pixels.ContentBounds(Pixels);
+                if (!ink.IsEmpty)
+                {
+                    ink.Inflate(2, 2);
+                    return SKRectI.Intersect(ink, new SKRectI(0, 0, Pixels.Width, Pixels.Height));
+                }
+            }
+            if (Text is { IsBox: true, IsVertical: false, Path: null, AutoBoxHeight: true } && Pixels.Height > 16)
+            {
+                var ink = Rendering.Pixels.ContentBounds(Pixels);
+                if (!ink.IsEmpty)
+                    return new SKRectI(0, Math.Clamp(ink.Top - 2, 0, 8), Pixels.Width,
+                        Pixels.Height - Math.Clamp(Pixels.Height - ink.Bottom - 2, 0, 8));
+            }
             var bounds = IsLive || IsSmartObject ? SKRectI.Empty : Rendering.Pixels.ContentBounds(Pixels);
             return bounds.IsEmpty ? new(0, 0, Pixels.Width, Pixels.Height) : bounds;
         }

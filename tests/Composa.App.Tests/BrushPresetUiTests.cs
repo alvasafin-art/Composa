@@ -78,7 +78,7 @@ public class BrushPresetUiTests
             for (var i = 0; i < 90; i++) Press(angle, Key.Right);
             Assert.Equal(.25, session.Brush.Roundness);
             Assert.Equal(90, session.Brush.Angle);
-            var saved = session.Brush with { Size = 75, Flow = .4, Opacity = .7 };
+            var saved = session.Brush with { Size = tool == Tool.Brush ? 1000 : 75, Flow = .4, Opacity = .7 };
             session.Brush = saved;
             Click(library.Children.OfType<Button>().Single());
             Dispatcher.UIThread.RunJobs();
@@ -138,6 +138,7 @@ public class BrushPresetUiTests
                 Assert.Equal(saved, fresh.Brush);
                 restoredFlyout.Hide();
 
+                fresh.Brush = fresh.Brush with { Size = 75 };
                 Assert.True(fresh.BeginStroke(new(160.5f, 120.5f), out var reason), reason);
                 fresh.EndStroke();
                 var pixels = fresh.ActiveLayer!.Pixels!;

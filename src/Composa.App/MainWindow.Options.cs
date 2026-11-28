@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Composa.Editing;
 using Composa.AI;
 using Composa.Model;
+using Composa.Painting;
 using Composa.Selections;
 using SkiaSharp;
 using TextAlignment = Composa.Model.TextAlignment;
@@ -154,7 +155,7 @@ public sealed partial class MainWindow
                     refreshTip = updateTip;
                     refreshOptions += updateTip;
                 }
-                var size = Ui.SliderField("Size", s.Brush.Size, 1, 500, v =>
+                var size = Ui.SliderField("Size", s.Brush.Size, 1, BrushSettings.MaxEditorDiameter, v =>
                 {
                     s.Brush = s.Brush with { Size = v };
                     refreshTip?.Invoke();
@@ -193,8 +194,9 @@ public sealed partial class MainWindow
                     refreshOptions += () => { spacing.Value = s.Brush.Spacing * 100; smoothing.Value = s.Brush.Smoothing; };
                 }
                 if (s.Tool is Tool.CloneStamp or Tool.HealingBrush)
-                    Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v), Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
-                if (s.Tool == Tool.SpotHealing) Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
+                    Add(Ui.Check("Aligned", s.CloneAligned, v => s.CloneAligned = v));
+                if (s.Tool is Tool.CloneStamp or Tool.HealingBrush or Tool.SpotHealing)
+                    Add(Ui.Check("Sample all layers", s.RetouchSampleAllLayers, v => { s.RetouchSampleAllLayers = v; RememberToolSettings(); }));
                 if (s.Tool == Tool.Smear && s.SmearMode == SmearMode.Liquify)
                 {
                     var workspace = Ui.TextButton("Freeze / Reconstruct…", () => _ = Liquify()); workspace.Name = "LiquifyWorkspace";
@@ -202,7 +204,7 @@ public sealed partial class MainWindow
                 }
                 refreshOptions += () =>
                 {
-                    size.Value = Math.Min(500, s.Brush.Size);
+                    size.Value = Math.Min(BrushSettings.MaxEditorDiameter, s.Brush.Size);
                     hardness.Value = s.Brush.Hardness * 100;
                     setOpacity?.Invoke(s.Brush.Opacity * 100);
                 };
@@ -237,7 +239,7 @@ public sealed partial class MainWindow
                         Locale.Tip(edge, "Positive values tighten the detected outline inward; negative values loosen it outward");
                         Add(Ui.Row(5, Ui.Scrub(Ui.Label(Locale.T("Edge"), Palette.Secondary), edge), edge, Ui.Label("px", Palette.Secondary)));
                     }
-                    Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => s.SampleAllLayers = v));
+                    Add(Ui.Check("Sample all layers", s.SampleAllLayers, v => { s.SampleAllLayers = v; RememberToolSettings(); }));
                     if (s.WandMode == WandMode.Object)
                     {
                         Add(SelectionModifyMenu(), Flat("Deselect", s.Deselect), Ui.Label(Locale.T("Click or draw a rectangle"), Palette.Secondary));

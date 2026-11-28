@@ -95,10 +95,10 @@ public sealed class AutoLayoutUiTests
             var drag = At(last.MidX, last.MidY);
             var drop = At(first.MidX, first.Top + 5);
             s.SelectLayer(price.Id);
-            window.MouseDown(drag, MouseButton.Left);
-            window.MouseMove(drop, RawInputModifiers.LeftMouseButton);
+            window.MouseDown(drag, MouseButton.Left, RawInputModifiers.Control);
+            window.MouseMove(drop, RawInputModifiers.LeftMouseButton | RawInputModifiers.Control);
             Assert.True(Screenshots.Save(window, "auto-layout-insertion-line"));
-            window.MouseUp(drop, MouseButton.Left);
+            window.MouseUp(drop, MouseButton.Left, RawInputModifiers.Control);
             Assert.Equal(price.Id, s.LayoutElements(group)[0].Layer.Id);
             s.SelectLayer(photo.Id);
             Pump();

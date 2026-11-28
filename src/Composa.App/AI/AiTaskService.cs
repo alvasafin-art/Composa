@@ -56,6 +56,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
     public ComfyServerInfo? ServerInfo { get; private set; }
     public ComfyServerCapabilities? ServerCapabilities { get; private set; }
     public string? ConnectedServerUrl { get; private set; }
+    internal RemoteCodexImage.Catalog? RemoteImageCatalog { get; private set; }
     public Func<string, IReadOnlyDictionary<string, string>> ModelSelections { get; set; } = _ => new Dictionary<string, string>();
     public Func<string> AdditionalPrompt { get; set; } = () => AiPromptDefaults.PreserveAppearance;
     public Func<string, string>? AdditionalPromptForPack { get; set; }
@@ -93,7 +94,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
     {
         SelectedEngine = SelectedEngine, ConnectionTimeoutSeconds = ConnectionTimeoutSeconds,
         ModelSelections = ModelSelections, WorkflowSettings = WorkflowSettings, ServerInfo = ServerInfo, ServerCapabilities = ServerCapabilities,
-        ConnectedServerUrl = ConnectedServerUrl, ConnectionState = ConnectionState
+        ConnectedServerUrl = ConnectedServerUrl, ConnectionState = ConnectionState, RemoteImageCatalog = RemoteImageCatalog
     };
 
     internal void AcceptSettingsPreview(AiTaskService preview, string address)
@@ -105,6 +106,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
         ConnectedServerUrl = matches ? address : null;
         ServerInfo = matches ? preview.ServerInfo : null;
         ServerCapabilities = matches ? preview.ServerCapabilities : null;
+        RemoteImageCatalog = matches ? preview.RemoteImageCatalog : null;
         ConnectionState = matches ? preview.ConnectionState : ComfyConnectionState.Disconnected;
         StateChanged?.Invoke();
     }
@@ -115,6 +117,7 @@ public sealed partial class AiTaskService : IAiTaskRunner
         ConnectionState = ComfyConnectionState.Connecting;
         ServerInfo = null;
         ServerCapabilities = null;
+        RemoteImageCatalog = null;
         ConnectedServerUrl = null;
         StateChanged?.Invoke();
         try
@@ -126,6 +129,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
             ConnectedServerUrl = client.Address.ToString();
             ConnectionState = ComfyConnectionState.Connected;
             StateChanged?.Invoke();
+            if (capabilities.NodeTypes.Contains(RemoteCodexImage.Node))
+                await ProbeRemoteImageCatalog(ConnectedServerUrl, revision, cancellationToken);
             try { return SelectedEngine == null ? null : Compatibility(SelectedEngine, ModelSelections(ConnectedServerUrl)); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or KeyNotFoundException)
             {
@@ -150,6 +155,24 @@ public sealed partial class AiTaskService : IAiTaskRunner
                 StateChanged?.Invoke();
             }
             throw;
+        }
+    }
+
+    private async Task ProbeRemoteImageCatalog(string address, long revision, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(4));
+        try
+        {
+            var catalog = await RemoteCodexImage.DiscoverAsync(address, deadline.Token);
+            if (revision != Volatile.Read(ref connectionRevision)) return;
+            RemoteImageCatalog = catalog;
+            StateChanged?.Invoke();
+        }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException or
+            OperationCanceledException or System.Text.Json.JsonException)
+        {
+            // The optional CLI route can be unavailable while ordinary workflows still work.
         }
     }
 
@@ -420,6 +443,8 @@ public sealed partial class AiTaskService : IAiTaskRunner
                         images[index].Dispose();
                         images[index] = matched;
                     }
+                Operation = Operation! with { Stage = "Applying result", Value = null, Maximum = null };
+                StateChanged?.Invoke();
                 await WaitForResultTargetAsync(editor.Session, targetAvailable, linked.Token);
                 var layerOnly = ResultNeedsSeparateLayer(editor.Session, initialState, initialLayer, binding.OutputMode);
                 var hasExpansionFrame = request.Task == AiTaskKind.GenerativeExpand && inputs.ExpansionBounds != null;

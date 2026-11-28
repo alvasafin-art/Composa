@@ -116,6 +116,9 @@ public sealed partial class EditorSession
     /// <summary>Object mode: positive values tighten the detected outline inward, negative ones loosen it, in pixels.</summary>
     public int ObjectEdgeOffset { get; set; }
     public bool SampleAllLayers { get; set; }
+    public bool RetouchSampleAllLayers { get; set; }
+    public bool PromptRegionsVisible { get; set; } = true;
+    public int? RevealedPromptRegion { get; set; }
     public bool CloneAligned { get; set; } = true;
     /// <summary>Pixels the selection bar's Expand, Contract and Feather buttons work by.</summary>
     public int SelectionExpandAmount { get; set; } = 1;
@@ -665,7 +668,9 @@ public sealed partial class EditorSession
             case Tool.Brush: Tool = Tool.Eraser; break;
             case Tool.Eraser: Tool = Tool.Brush; break;
             case Tool.Smear: SmearMode = Next(SmearMode); break;
-            case Tool.SpotHealing or Tool.CloneStamp: SampleAllLayers = !SampleAllLayers; break;
+            case Tool.SpotHealing or Tool.HealingBrush or Tool.CloneStamp:
+                RetouchSampleAllLayers = !RetouchSampleAllLayers;
+                break;
             case Tool.Gradient: GradientRadial = !GradientRadial; break;
         }
     }

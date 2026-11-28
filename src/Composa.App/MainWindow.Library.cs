@@ -22,23 +22,29 @@ public sealed partial class MainWindow
     private ResourceLibraryPanel BuildResourceLibrary()
     {
         var panel = new ResourceLibraryPanel(elementLibrary);
+        layers.CanDragLibrarySelection = () => !settings.CanvasOnly && panel.IsEffectivelyVisible && panel.CanSave;
+        panel.AcceptLayerDrop = data => layers.IsLibrarySelectionDrag(data, session);
         layers.SaveLibraryElementRequested += () => _ = SaveLibrarySelection();
-        panel.SaveRequested += () => _ = SaveLibrarySelection();
+        panel.SaveRequested += () => _ = SaveLibrarySelection(fromDrop: true);
         panel.ReplaceRequested += entry => _ = SaveLibrarySelection(entry);
         panel.InsertRequested += entry => _ = InsertLibraryEntry(entry);
         panel.RenameRequested += entry => _ = RenameLibraryEntry(entry);
         panel.DeleteRequested += entry => _ = DeleteLibraryEntry(entry);
         panel.FolderRequested += () => _ = OpenLibraryFolder();
+        panel.Problem += ShowProblem;
 
         DragDrop.SetAllowDrop(canvas, true);
         canvas.AddHandler(DragDrop.DragOverEvent, (_, e) =>
         {
             if (panel.DraggedEntry(e.DataTransfer) == null) return;
             e.DragEffects = session == null || IsDragging ? DragDropEffects.None : DragDropEffects.Copy;
+            canvas.LibraryDropPoint = e.DragEffects == DragDropEffects.Copy ? canvas.ToDocument(e.GetPosition(canvas)) : null;
             e.Handled = true;
         });
+        canvas.AddHandler(DragDrop.DragLeaveEvent, (_, _) => canvas.LibraryDropPoint = null);
         canvas.AddHandler(DragDrop.DropEvent, (_, e) =>
         {
+            canvas.LibraryDropPoint = null;
             if (panel.DraggedEntry(e.DataTransfer) is not { } entry) return;
             e.Handled = true;
             _ = InsertLibraryEntry(entry, canvas.ToDocument(e.GetPosition(canvas)));
@@ -49,7 +55,7 @@ public sealed partial class MainWindow
     private void RefreshLibraryActions() =>
         libraryPanel.CanSave = !capturingLibraryElement && session is { CanSaveLibraryElement: true, IsInTransaction: false };
 
-    private async Task SaveLibrarySelection(LibraryEntry? replace = null)
+    private async Task SaveLibrarySelection(LibraryEntry? replace = null, bool fromDrop = false)
     {
         if (session is not { CanSaveLibraryElement: true, IsInTransaction: false } target || IsDragging || capturingLibraryElement) return;
         capturingLibraryElement = true;
@@ -64,7 +70,8 @@ public sealed partial class MainWindow
             using var stream = new MemoryStream(thumbnail, writable: false);
             using var preview = new Bitmap(stream);
             var missing = ResourceLibraryPanel.MissingFonts(fonts);
-            var name = await LibraryNameDialog(replace?.Name ?? snapshot.Layers[0].Name,
+            var name = fromDrop ? await Task.Run(() => NextResourceName(snapshot.Layers[0].Name)) :
+                await LibraryNameDialog(replace?.Name ?? snapshot.Layers[0].Name,
                 replace == null ? "Save to Library" : "Update Library Resource", replace == null ? "Save" : "Update",
                 preview, missing, embedded, rename: replace == null);
             if (name == null || !sessions.Contains(target)) return;
@@ -88,6 +95,19 @@ public sealed partial class MainWindow
             capturingLibraryElement = false;
             RefreshLibraryActions();
         }
+    }
+
+    private string NextResourceName(string source)
+    {
+        var proposed = ElementLibrary.NormalizeName(source[..Math.Min(source.Length, ElementLibrary.MaxNameLength)]) ?? Locale.T("Resource");
+        var used = elementLibrary.List().Entries.Select(entry => entry.Name).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+        var name = proposed;
+        for (int number = 2; used.Contains(name); number++)
+        {
+            var suffix = $" {number}";
+            name = proposed[..Math.Min(proposed.Length, ElementLibrary.MaxNameLength - suffix.Length)].TrimEnd() + suffix;
+        }
+        return name;
     }
 
     private async Task InsertLibraryEntry(LibraryEntry entry, SKPoint? center = null)

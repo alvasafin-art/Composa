@@ -82,6 +82,9 @@ public sealed partial class MainWindow
         actions.Children.Add(DockSlot(aiEngineCombo!));
         AddAt(actions, DockSlot(aiPriceBadge), 1);
         AddAt(actions, DockSlot(aiFloatingActions!), 3);
+        var connect = DockSlot(aiConnectModels);
+        Grid.SetColumnSpan(connect, 4);
+        actions.Children.Add(connect);
         var body = Ui.Column(AiGenerationControls.EditorSpacing, header, DockSlot(aiFloatingPrompt), DockSlot(promptRegionList), actions, DockSlot(aiWorkflowLink),
             DockSlot(aiReferenceHost), DockSlot(aiFloatingVariants));
         body.Margin = new Thickness(AiGenerationControls.EditorSpacing);
@@ -117,7 +120,6 @@ public sealed partial class MainWindow
             }
             aiEngineCombo!.Width = useDock ? double.NaN : AiGenerationControls.ModelPickerWidth;
             aiEngineCombo.HorizontalAlignment = useDock ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
-            aiFloatingGenerate!.MinWidth = useDock ? 56 : 64;
         }
         if (useDock && !session!.IsStroking && !session.IsPaintingSelection)
         {
@@ -145,7 +147,7 @@ public sealed partial class MainWindow
         presentedPromptDocument = session;
         RefreshPanelReferences();
         aiFloatingPrompt.Text = DocumentAiPrompt(session, task);
-        dockOperationName.Text = DockTaskName(task);
+        dockOperationName.Text = Locale.T(DockTaskName(task));
         aiFloatingOperation.Text = Locale.T(task.DisplayName());
         AutomationProperties.SetName(dockOperation, "Choose AI operation · " + dockOperationName.Text);
         aiFloatingPrompt.PlaceholderText = Locale.T(task switch
@@ -161,17 +163,17 @@ public sealed partial class MainWindow
     {
         foreach (var task in AiGenerationControls.VisibleOperations)
         {
-            var item = new MenuItem { Header = DockTaskName(task), ToggleType = MenuItemToggleType.Radio };
+            var item = new MenuItem { Header = Locale.T(DockTaskName(task)), ToggleType = MenuItemToggleType.Radio };
             ToolTip.SetShowOnDisabled(item, true);
             // Avalonia's presenter snapshots the items before Opening. Only update their state here.
             menu.Opening += (_, _) =>
             {
                 var availability = AiAvailability(task);
-                item.IsEnabled = CanRunAi(task);
+                item.IsEnabled = HasPanelModels(task) && CanRunAi(task);
                 item.IsChecked = EditorTask == task;
                 Locale.Tip(item, availability.Reason);
             };
-            item.Click += (_, _) => ChooseAiOperation(task);
+            item.Click += (_, _) => ChooseAiOperation(task, fromModelPanel: true);
             menu.Items.Add(item);
         }
     }

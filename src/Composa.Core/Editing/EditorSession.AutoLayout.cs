@@ -262,7 +262,7 @@ public sealed partial class EditorSession
     public static SKRect LayoutBounds(Layer layer)
     {
         if (layer.LayoutFrame is { } frame) return frame.Bounds;
-        if (!layer.IsGroup) return layer.ControlBounds;
+        if (!layer.IsGroup) return layer.Text != null && !layer.HasWarp ? layer.Bounds : layer.ControlBounds;
         var bounds = SKRect.Empty;
         foreach (var unit in LayoutUnits(layer.Children))
             if (!unit.Bounds.IsEmpty) bounds = UnionLayout(bounds, unit.Bounds);
