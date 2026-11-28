@@ -292,8 +292,11 @@ public sealed partial class LayersPanel : UserControl
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             revealQueued = false;
-            if (session?.Document.ActiveLayerId is { } id && entriesById.TryGetValue(id, out var entry))
-                rows.ScrollIntoView(entry);
+            if (session?.Document.ActiveLayerId is not { } id || !entriesById.TryGetValue(id, out var entry)) return;
+            // Newly expanded ancestors may have added the active row outside the realized viewport.
+            // Flush their pending measure before asking the virtualizing panel to bring it into view.
+            rows.UpdateLayout();
+            rows.ScrollIntoView(entry);
         }, Avalonia.Threading.DispatcherPriority.Loaded);
     }
 

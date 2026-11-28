@@ -1134,6 +1134,11 @@ public sealed partial class CanvasView
         }
         var control = key is Key.LeftCtrl or Key.RightCtrl ? down : modifiers.HasFlag(KeyModifiers.Control);
         var alt = key is Key.LeftAlt or Key.RightAlt ? down : modifiers.HasFlag(KeyModifiers.Alt);
+        if (cursorInside && session?.Tool == Tool.Move && key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift)
+        {
+            var flag = key is Key.LeftCtrl or Key.RightCtrl ? KeyModifiers.Control : KeyModifiers.Shift;
+            UpdateMoveHover(cursorScreen, down ? modifiers | flag : modifiers & ~flag);
+        }
         SetModifierHover(control, alt);
     }
 

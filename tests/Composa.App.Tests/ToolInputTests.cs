@@ -732,6 +732,8 @@ public class ToolInputTests
         Dispatcher.UIThread.RunJobs();
 
         Click(200, 180);
+        Assert.Equal(outer.Id, nested.ActiveLayer!.Id);
+        Click(200, 180, RawInputModifiers.Control);
         Assert.Equal(child.Id, nested.ActiveLayer!.Id);
         Click(410, 180);
         Assert.Equal(lower.Id, nested.ActiveLayer!.Id);

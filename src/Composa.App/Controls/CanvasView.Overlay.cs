@@ -10,13 +10,12 @@ public sealed partial class CanvasView
 
     private void CaptureMoveTargets(List<Action<SKCanvas>> steps, SKMatrix view, float hair)
     {
-        void Frame(Layer layer, SKColor color, float width, string? caption = null, bool dashed = false)
+        void Frame(Layer layer, SKColor color, float width, bool dashed = false)
         {
             var bounds = EditorSession.AlignmentBounds(layer);
             if (bounds.IsEmpty) return;
             var points = (layer.Pixels != null ? layer.ControlTransform.FrameCorners() : Corners(bounds))
                 .Select(point => view.MapPoint(point)).ToArray();
-            var tag = view.MapRect(bounds);
             steps.Add(canvas =>
             {
                 using var path = new SKPath();
@@ -27,24 +26,16 @@ public sealed partial class CanvasView
                 using var paint = new SKPaint { Color = color, StrokeWidth = width * hair,
                     Style = SKPaintStyle.Stroke, PathEffect = dash, IsAntialias = true };
                 canvas.DrawPath(path, paint);
-                if (caption == null) return;
-                using var font = new SKFont(SKTypeface.Default, 11 * hair);
-                paint.Style = SKPaintStyle.Fill;
-                paint.PathEffect = null;
-                var top = dashed ? Math.Max(0, tag.Top - 19 * hair) : tag.Top + 2 * hair;
-                canvas.DrawRoundRect(SKRect.Create(tag.Left, top, font.MeasureText(caption) + 10 * hair, 17 * hair), 2 * hair, 2 * hair, paint);
-                paint.Color = SKColors.White;
-                canvas.DrawText(caption, tag.Left + 5 * hair, top + 12 * hair, font, paint);
             });
         }
 
         var anchor = session!.AlignmentAnchor;
         if (MoveGroupScope is { } scope)
-            Frame(scope, new SKColor(85, 104, 132), 1, scope.Name + " · " + Locale.T("Inside current group"), dashed: true);
+            Frame(scope, new SKColor(85, 104, 132), 1, dashed: true);
         if (moveHover is { } id && session.Document.Find(id) is { } hover && hover.Id != anchor?.Id &&
             (!ShowTransformControls || session.Document.SelectedLayerIds.Count != 1 || hover.Id != session.Document.ActiveLayerId))
             Frame(hover, Accent, 1.5f);
-        if (anchor != null) Frame(anchor, new SKColor(20, 117, 227), 3, Locale.T("Key object"));
+        if (anchor != null) Frame(anchor, new SKColor(20, 117, 227), 3);
     }
 
 

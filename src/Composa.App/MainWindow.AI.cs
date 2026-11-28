@@ -421,6 +421,8 @@ public sealed partial class MainWindow
             settings.AiAlignMaskedEdits = align;
             settings.Save();
         });
+        foreach (var control in new Button[] { aiHeaderReference, aiEnhance, aiPixelAlignment, aiAdvanced })
+            control.Classes.Add("ai-panel-control");
         var workflowName = Ui.Label("", Palette.Secondary, 11);
         workflowName.TextTrimming = TextTrimming.CharacterEllipsis;
         aiWorkflowLink = Ui.TextButton("Workflows", () =>
@@ -432,6 +434,7 @@ public sealed partial class MainWindow
         aiWorkflowLink.Content = workflowName;
         aiWorkflowLink.Name = "AiActiveWorkflow";
         aiWorkflowLink.Classes.Add("flat");
+        aiWorkflowLink.Classes.Add("ai-panel-control");
         aiWorkflowLink.HorizontalAlignment = HorizontalAlignment.Stretch;
         aiWorkflowLink.IsVisible = false;
         void ToggleCollapsed() => SetFloatingCollapsed(!settings.AiFloatingCollapsed);
@@ -465,6 +468,10 @@ public sealed partial class MainWindow
         aiConnectModels.Height = 28;
         aiConnectModels.IsVisible = false;
         aiEngineCombo = new ComboBox { Width = AiGenerationControls.ModelPickerWidth };
+        aiEngineCombo.Resources["ComboBoxBackgroundDisabled"] = Brushes.Transparent;
+        aiEngineCombo.Resources["ComboBoxBorderBrushDisabled"] = Brushes.Transparent;
+        aiEngineCombo.Resources["ComboBoxForegroundDisabled"] = Palette.Secondary;
+        aiEngineCombo.Resources["ComboBoxDropDownGlyphForegroundDisabled"] = Palette.Secondary;
         RefreshEditorModels();
         aiEngineCombo.SelectionChanged += (_, _) =>
         {

@@ -113,7 +113,7 @@ internal sealed class AiInlineRun
     internal void SetVariantEstimates(PartnerPriceEstimate? estimate)
     {
         foreach (var item in variantMenu.Items.OfType<MenuItem>())
-            ToolTip.SetTip(item, estimate == null ? null : $"{estimate.RoundedCredits((int)item.Tag!)} · {Locale.T("Credits spent")}");
+            ToolTip.SetTip(item, estimate == null ? null : $"{Locale.T("Estimated credits")} · {estimate.RoundedCredits((int)item.Tag!)}");
     }
 
     internal void Update(AiOperationState? value, string? directCharge)

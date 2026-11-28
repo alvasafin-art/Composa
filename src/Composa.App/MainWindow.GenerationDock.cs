@@ -71,6 +71,7 @@ public sealed partial class MainWindow
         dockOperation.Name = "AiDockOperation";
         dockOperation.Content = Ui.Row(5, dockOperationName, Icons.Create(Icons.ChevronDown, 13, Palette.Secondary));
         dockOperation.Classes.Add("flat");
+        dockOperation.Classes.Add("ai-panel-control");
         dockOperation.MinWidth = 0;
         dockOperation.Padding = new Thickness(2, 0);
         dockOperation.HorizontalAlignment = HorizontalAlignment.Left;

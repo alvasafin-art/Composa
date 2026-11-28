@@ -90,11 +90,12 @@ public sealed class AutoLayoutUiTests
             group = s.Document.Find(group.Id)!;
             Assert.Equal(12, group.AutoLayout!.Gap);
 
+            s.SelectLayer(price.Id);
+            Pump();
             var last = s.LayoutElements(group)[^1].Bounds;
             var first = s.LayoutElements(group)[0].Bounds;
             var drag = At(last.MidX, last.MidY);
             var drop = At(first.MidX, first.Top + 5);
-            s.SelectLayer(price.Id);
             window.MouseDown(drag, MouseButton.Left, RawInputModifiers.Control);
             window.MouseMove(drop, RawInputModifiers.LeftMouseButton | RawInputModifiers.Control);
             Assert.True(Screenshots.Save(window, "auto-layout-insertion-line"));
