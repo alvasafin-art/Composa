@@ -32,7 +32,8 @@ public class GenerationMenuPointerTests
         try
         {
             window.AddSession(session);
-            window.AiTasks.SetConnectedForTests();
+            window.AiTasks.ApiKey = () => "test-only";
+            window.AiTasks.SetConnectedForTests(PartnerImageTests.Capabilities());
             session.SelectRect(new SKRect(40, 40, 160, 160));
             var dock = window.GetVisualDescendants().OfType<SideDock>().Single();
             var section = dock.Section("AI Generation");
@@ -46,6 +47,7 @@ public class GenerationMenuPointerTests
                 Pump();
             }
             var chooser = section.Content.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiDockOperation");
+            Assert.True(chooser.IsEffectivelyEnabled);
             var text = chooser.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Gen Fill");
             var menu = Assert.IsType<MenuFlyout>(chooser.Flyout);
             var content = Assert.IsAssignableFrom<Panel>(chooser.Content);
@@ -60,6 +62,7 @@ public class GenerationMenuPointerTests
             Pump();
             Assert.True(menu.IsOpen, $"The flyout stayed closed after clicking {target} at {at}");
             var edit = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Edit Image"));
+            Assert.True(edit.IsEffectivelyEnabled);
             for (var frame = 0; frame < 30 && edit.Bounds.Height == 0; frame++)
             {
                 await Task.Delay(20, TestContext.Current.CancellationToken);
