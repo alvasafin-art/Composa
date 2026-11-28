@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Diagnostics;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -376,6 +378,17 @@ public sealed class EditorWorkflowUiTests
             flyout.Hide();
             Save(w,"workflow-ai-ready" + suffix);
             AssertCaption(currentLanguage == "ru" ? "Старт" : "Run");
+            void SetState(AiOperationState? state)
+            {
+                typeof(AiTaskService).GetProperty(nameof(AiTaskService.Operation))!.SetValue(w.AiTasks,state);
+                typeof(MainWindow).GetMethod("RefreshAiUi", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(w,null);
+            }
+            if (currentLanguage == "ru" && Environment.GetEnvironmentVariable("COMPOSA_RECORD_RUN_ANIMATION") == "1")
+            {
+                await RecordRunAnimation(w, run, SetState);
+                SetState(null);
+                await Task.Delay(350, TestContext.Current.CancellationToken);
+            }
             void AssertCaption(string expected)
             {
                 var caption = run.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == expected);
@@ -389,8 +402,7 @@ public sealed class EditorWorkflowUiTests
             }
             async Task State(string filename, AiOperationState state)
             {
-                typeof(AiTaskService).GetProperty(nameof(AiTaskService.Operation))!.SetValue(w.AiTasks,state);
-                typeof(MainWindow).GetMethod("RefreshAiUi", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(w,null);
+                SetState(state);
                 await Task.Delay(300, TestContext.Current.CancellationToken);
                 Save(w, filename + suffix);
             }
@@ -400,6 +412,17 @@ public sealed class EditorWorkflowUiTests
             AssertCaption("0:17");
             await State("workflow-ai-progress",new() { Status = AiOperationStatus.Running, Value = 13, Maximum = 24, ElapsedSeconds = 17 });
             AssertCaption("0:17 · 54%");
+            var face = Assert.IsType<Grid>(run.Content);
+            var line = Assert.Single(face.Children.OfType<Border>());
+            Assert.InRange(Assert.IsType<Avalonia.Media.ScaleTransform>(line.RenderTransform).ScaleX, .53, .55);
+            var colorField = Assert.Single(face.Children.OfType<Canvas>());
+            var colorSurface = Assert.Single(colorField.Children.OfType<Border>());
+            var colorMotion = Assert.IsType<Avalonia.Media.TransformGroup>(colorSurface.RenderTransform)
+                .Children.OfType<Avalonia.Media.TranslateTransform>().Single();
+            var startX = colorMotion.X;
+            await Task.Delay(120, TestContext.Current.CancellationToken);
+            Pump();
+            Assert.True(Math.Abs(colorMotion.X - startX) > 1);
             s.AddPromptRegion(new(20,30,100,100));
             s.AddPromptRegion(new(120,30,200,100));
             s.AddPromptRegion(new(220,30,300,100));
@@ -431,6 +454,42 @@ public sealed class EditorWorkflowUiTests
             Assert.Null(picker.SelectedItem);
         }
         finally { Close(w); Locale.Language = language; }
+    }
+
+    private static async Task RecordRunAnimation(MainWindow window, Button run, Action<AiOperationState?> setState)
+    {
+        const string folder = "workflow-ai-motion";
+        var destination = Path.Combine(Screenshots.Folder, folder);
+        Directory.CreateDirectory(destination);
+        var clock = Stopwatch.StartNew();
+        var origin = run.TranslatePoint(default, window)!.Value;
+        var changes = new (int Milliseconds, AiOperationState State)[]
+        {
+            (360, new() { Status = AiOperationStatus.Queued }),
+            (650, new() { Status = AiOperationStatus.Running, Stage = "Waiting for the model" }),
+            (2000, new() { Status = AiOperationStatus.Running, Value = 38, Maximum = 100 }),
+            (3300, new() { Status = AiOperationStatus.Running, Value = 62, Maximum = 100 }),
+            (4700, new() { Status = AiOperationStatus.Running, Value = 84, Maximum = 100 }),
+            (6150, new() { Status = AiOperationStatus.Running, Value = 100, Maximum = 100 }),
+            (7300, new() { Status = AiOperationStatus.Completed, CreditsUsed = 10.86 })
+        };
+        var frames = new List<int>();
+        var change = 0;
+        while (clock.ElapsedMilliseconds < 9700)
+        {
+            var time = (int)clock.ElapsedMilliseconds;
+            if (change < changes.Length && time >= changes[change].Milliseconds)
+                setState(changes[change++].State);
+            frames.Add(time);
+            Assert.True(Screenshots.Save(window, $"{folder}/frame-{frames.Count:D4}", recording: true));
+            var delay = time + 33 - (int)clock.ElapsedMilliseconds;
+            if (delay > 0) await Task.Delay(delay, TestContext.Current.CancellationToken);
+            else await Task.Yield();
+        }
+        File.WriteAllText(Path.Combine(destination, "frames.json"), JsonSerializer.Serialize(new
+        {
+            X = origin.X, Y = origin.Y, Times = frames
+        }));
     }
 
     [AvaloniaFact]

@@ -10,7 +10,7 @@ using Avalonia.Threading;
 
 namespace Composa.App.AI;
 
-/// <summary>Renders operation feedback in the run button. Only its two small overlay layers animate.</summary>
+/// <summary>Renders operation feedback in the run button without changing the surrounding layout.</summary>
 internal sealed class AiInlineRun
 {
     private enum Phase { Ready, Queue, Wait, Progress, Apply, Cancel, Done, Charge, Failed, Cancelled }
@@ -20,6 +20,10 @@ internal sealed class AiInlineRun
     private const double Height = 28;
     private const double Radius = 6;
     private const double VariantWidth = 24;
+    private const double ColorPeriod = 420;
+    private const double ColorTravelTime = 6600;
+    private const double ColorOverscan = 16;
+    private const double DoneTime = 900;
     private static readonly Geometry SplitFace = CreateFaceClip(split: true);
     private static readonly Geometry StandaloneFace = CreateFaceClip(split: false);
 
@@ -27,21 +31,16 @@ internal sealed class AiInlineRun
     private readonly Button more;
     private readonly MenuFlyout variantMenu;
     private readonly Grid face = new() { ClipToBounds = true };
-    private readonly Grid progress = new()
+    private readonly Canvas colors = new() { Opacity = 0, IsHitTestVisible = false };
+    private readonly TranslateTransform colorOffset = new();
+    private readonly Border progress = new()
     {
-        Width = Width, HorizontalAlignment = HorizontalAlignment.Left, RenderTransformOrigin = RelativePoint.TopLeft,
-        Children =
-        {
-            new Border { Background = Gradient("#2C4D6A", "#434D77", "#594A77", "#684759", "#665846", "#355C5B") },
-            new Border { Height = 2, VerticalAlignment = VerticalAlignment.Bottom,
-                Background = Gradient("#73D8FF", "#9A9AFF", "#D19EFF", "#FF9EC9", "#FFD493", "#99E7CD") }
-        }
+        Width = Width, Height = 2, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom,
+        Background = new SolidColorBrush(Color.FromArgb(212, 255, 255, 255)), RenderTransformOrigin = RelativePoint.TopLeft
     };
-    private readonly Border shimmer = new() { Width = Width, HorizontalAlignment = HorizontalAlignment.Left,
-        Background = Gradient("#0073D8FF", "#6873D8FF", "#729B92FF", "#72E698FF", "#70FF9FC0", "#65FFD493", "#5099E7CD", "#0099E7CD") };
     private readonly ScaleTransform progressScale = new(0, 1);
-    private readonly TranslateTransform sweep = new();
-    private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
+    private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(80) };
+    private readonly Action<TimeSpan> onFrame;
     private readonly Stopwatch clock = new();
     private readonly Action stop;
     private readonly Action ready;
@@ -52,6 +51,9 @@ internal sealed class AiInlineRun
     private TranslateTransform? enter;
     private Phase phase;
     private long entered;
+    private long colorStarted;
+    private double previousColorOpacity;
+    private bool framePending;
     private double oldProgress, nextProgress;
     private long progressChanged;
     private AiOperationState? operation;
@@ -79,9 +81,15 @@ internal sealed class AiInlineRun
         run.VerticalContentAlignment = VerticalAlignment.Stretch;
         run.Content = face;
         progress.RenderTransform = progressScale;
-        shimmer.RenderTransform = sweep;
-        progress.IsHitTestVisible = shimmer.IsHitTestVisible = false;
-        face.Children.Add(progress); face.Children.Add(shimmer);
+        progress.IsHitTestVisible = false;
+        colors.Children.Add(new Border
+        {
+            Width = ColorPeriod + Width + 2 * ColorOverscan, Height = Height,
+            Background = Spectrum(), RenderTransformOrigin = RelativePoint.TopLeft,
+            RenderTransform = new TransformGroup { Children = { new SkewTransform(-24, 0), colorOffset } }
+        });
+        face.Children.Add(colors);
+        face.Children.Add(progress);
         more = Ui.IconButton(Icons.ChevronDown, "Number of variants", () =>
         {
             if (Busy && phase != Phase.Cancel)
@@ -108,7 +116,9 @@ internal sealed class AiInlineRun
             variantMenu.Items.Add(item);
         }
         View = Ui.Row(0, run, more);
+        onFrame = _ => { framePending = false; Tick(); };
         timer.Tick += (_, _) => Tick();
+        View.AttachedToVisualTree += (_, _) => ScheduleTick();
         View.DetachedFromVisualTree += (_, _) => timer.Stop();
         SetPhase(Phase.Ready, force: true);
     }
@@ -122,7 +132,7 @@ internal sealed class AiInlineRun
         this.canStart = canStart;
         supportsVariants = variants;
         ConfigureButtons();
-        if (Holding && View.IsEffectivelyVisible) timer.Start();
+        ScheduleTick();
     }
 
     internal void SetVariantEstimates(PartnerPriceEstimate? estimate)
@@ -136,7 +146,7 @@ internal sealed class AiInlineRun
         if (ReferenceEquals(operation, value)) return;
         var previous = operation?.Status;
         operation = value;
-        if (value == null) { clock.Reset(); SetPhase(Phase.Ready); return; }
+        if (value == null) { clock.Reset(); SetPhase(Phase.Ready); ScheduleTick(); return; }
         if (value.Status is AiOperationStatus.Queued or AiOperationStatus.Running &&
             previous is not (AiOperationStatus.Queued or AiOperationStatus.Running)) clock.Restart();
         if (value.Status is AiOperationStatus.Completed or AiOperationStatus.Failed or AiOperationStatus.Cancelled)
@@ -165,7 +175,7 @@ internal sealed class AiInlineRun
         }
         SetPhase(phaseForResult);
         UpdateCaption();
-        if (Holding && View.IsEffectivelyVisible) timer.Start();
+        ScheduleTick();
     }
 
     private void ConfigureButtons()
@@ -196,6 +206,9 @@ internal sealed class AiInlineRun
             label.Children.Add(Ui.Label(caption.Text ?? "", caption.Foreground, caption.FontSize, FontWeight.SemiBold));
         }
         entered = Stopwatch.GetTimestamp();
+        if (ColorsMoving(next) && !ColorsMoving(phase) && colors.Opacity < .001)
+            colorStarted = entered;
+        previousColorOpacity = colors.Opacity;
         phase = next;
         run.Background = phase switch
         {
@@ -220,9 +233,6 @@ internal sealed class AiInlineRun
         label.Opacity = outgoing == null ? 1 : 0;
         face.Children.Add(label);
         progress.IsVisible = phase == Phase.Progress;
-        shimmer.IsVisible = phase is Phase.Wait or Phase.Done;
-        shimmer.Opacity = 1;
-        sweep.X = -Width;
         if (phase == Phase.Queue) progressScale.ScaleX = 0;
         ConfigureButtons();
         UpdateCaption();
@@ -267,29 +277,32 @@ internal sealed class AiInlineRun
 
     private void Tick()
     {
+        if (!View.IsEffectivelyVisible || TopLevel.GetTopLevel(View) == null) { timer.Stop(); return; }
         var age = Stopwatch.GetElapsedTime(entered).TotalMilliseconds;
         if (outgoing != null)
         {
-            var blend = Math.Clamp(age / 165, 0, 1);
+            var blend = SmoothStep(age / 180);
             outgoing.Opacity = 1 - blend;
             label!.Opacity = blend;
             enter!.Y = 3 * (1 - blend);
             if (blend >= 1) { face.Children.Remove(outgoing); outgoing = null; }
         }
-        if (phase == Phase.Wait) sweep.X = age % 2400 / 2400 * Width * 2 - Width;
-        else if (phase == Phase.Done)
+        if (ColorsMoving(phase))
+            colorOffset.X = -ColorOverscan - Stopwatch.GetElapsedTime(colorStarted).TotalMilliseconds % ColorTravelTime * ColorPeriod / ColorTravelTime;
+        colors.Opacity = phase switch
         {
-            sweep.X = (Math.Clamp(age / 710, 0, 1) * 2 - 1) * Width;
-            shimmer.Opacity = Math.Min(1, Math.Max(0, (710 - age) / 220));
-        }
-        else if (phase == Phase.Progress)
+            Phase.Wait or Phase.Progress => previousColorOpacity + (1 - previousColorOpacity) * SmoothStep(age / 260),
+            Phase.Done => Math.Max(previousColorOpacity, SmoothStep(age / 145)) * (1 - SmoothStep((age - 190) / (DoneTime - 190))),
+            _ => previousColorOpacity * (1 - SmoothStep(age / 220))
+        };
+        if (phase == Phase.Progress)
         {
-            var fraction = Math.Clamp(Stopwatch.GetElapsedTime(progressChanged).TotalMilliseconds / 180, 0, 1);
+            var fraction = SmoothStep(Stopwatch.GetElapsedTime(progressChanged).TotalMilliseconds / 240);
             progressScale.ScaleX = oldProgress + (nextProgress - oldProgress) * fraction;
         }
         if (Busy && (int)Math.Max(clock.Elapsed.TotalSeconds, operation?.ElapsedSeconds ?? 0) != shownSecond)
             UpdateCaption();
-        if (phase == Phase.Done && age >= 850) SetPhase(charge != null ? Phase.Charge : Phase.Ready);
+        if (phase == Phase.Done && age >= DoneTime) SetPhase(charge != null ? Phase.Charge : Phase.Ready);
         else if (phase == Phase.Charge && age >= 1000 || phase == Phase.Cancelled && age >= 1200 || phase == Phase.Failed && age >= 2100)
             SetPhase(Phase.Ready);
         if (phase == Phase.Ready && !readyNotified)
@@ -298,13 +311,29 @@ internal sealed class AiInlineRun
             ready();
         }
         else if (phase != Phase.Ready) readyNotified = false;
-        if (!View.IsEffectivelyVisible || phase == Phase.Ready && outgoing == null) timer.Stop();
-        else
+        ScheduleTick();
+    }
+
+    private void ScheduleTick()
+    {
+        if (!View.IsEffectivelyVisible || TopLevel.GetTopLevel(View) is not { } root) { timer.Stop(); return; }
+        if (outgoing != null || ColorsMoving(phase) || colors.Opacity > 0)
         {
-            var animating = outgoing != null || phase == Phase.Wait || phase == Phase.Done && age < 710 ||
-                phase == Phase.Progress && Stopwatch.GetElapsedTime(progressChanged).TotalMilliseconds < 180;
-            timer.Interval = TimeSpan.FromMilliseconds(animating ? 33 : 100);
+            timer.Stop();
+            if (framePending) return;
+            framePending = true;
+            root.RequestAnimationFrame(onFrame);
         }
+        else if (Holding) timer.Start();
+        else timer.Stop();
+    }
+
+    private static bool ColorsMoving(Phase current) => current is Phase.Wait or Phase.Progress or Phase.Done;
+
+    private static double SmoothStep(double value)
+    {
+        var t = Math.Clamp(value, 0, 1);
+        return t * t * (3 - 2 * t);
     }
 
     private bool readyNotified = true;
@@ -331,11 +360,18 @@ internal sealed class AiInlineRun
         void Arc(double x, double y) => outline.ArcTo(new Point(x, y), new Size(Radius, Radius), 0, false, SweepDirection.Clockwise);
     }
 
-    private static LinearGradientBrush Gradient(params string[] colors)
+    private static LinearGradientBrush Spectrum()
     {
+        string[] hues = ["#0879AB", "#1C67EC", "#5942ED", "#953ED2", "#CC328C", "#CA426B", "#6649CA", "#0879AB"];
         var stops = new GradientStops();
-        for (int i = 0; i < colors.Length; i++) stops.Add(new GradientStop(Color.Parse(colors[i]), (double)i / (colors.Length - 1)));
-        return new LinearGradientBrush { StartPoint = new RelativePoint(0, .75, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(1, .25, RelativeUnit.Relative), GradientStops = stops };
+        for (var index = 0; index < hues.Length; index++)
+            stops.Add(new GradientStop(Color.Parse(hues[index]), index / (double)(hues.Length - 1)));
+        return new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Absolute),
+            EndPoint = new RelativePoint(ColorPeriod, 0, RelativeUnit.Absolute),
+            SpreadMethod = GradientSpreadMethod.Repeat,
+            GradientStops = stops
+        };
     }
 }
