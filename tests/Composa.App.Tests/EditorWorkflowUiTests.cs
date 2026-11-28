@@ -452,10 +452,16 @@ public sealed class EditorWorkflowUiTests
             Assert.InRange(picker.Opacity, 0.5, 0.7);
             await State("workflow-ai-applying",new() { Status = AiOperationStatus.Running, Stage = "Applying result", ElapsedSeconds = 30 });
             AssertCaption(Locale.T("Inserting"));
-            await State("workflow-ai-done",new() { Status = AiOperationStatus.Completed, CreditsUsed = 10.86, ElapsedSeconds = 31 });
-            AssertCaption($"{Locale.T("Done")} · 0:31");
+            SetState(new() { Status = AiOperationStatus.Completed, CreditsUsed = 10.86, ElapsedSeconds = 31 });
+            // Check the announcement before capturing the frame: a slow render can advance to the charge.
+            var doneLabel = Assert.IsType<StackPanel>(face.Children.Last());
+            Assert.Equal($"{Locale.T("Done")} · 0:31", Assert.Single(doneLabel.Children.OfType<TextBlock>()).Text);
+            doneLabel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Assert.InRange(doneLabel.DesiredSize.Width, 1, run.Bounds.Width);
             Assert.All(regionCaptions, text => Assert.Equal(1, text.Opacity));
             Assert.False(tail.IsEffectivelyEnabled);
+            await Task.Delay(300, TestContext.Current.CancellationToken);
+            Save(w,"workflow-ai-done" + suffix);
             await Task.Delay(890, TestContext.Current.CancellationToken);
             Save(w,"workflow-ai-charge" + suffix);
             await State("workflow-ai-error",new() { Status = AiOperationStatus.Failed, Error = "Сервер не ответил" });
