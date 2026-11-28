@@ -89,7 +89,7 @@ public class LayersPanelInputTests
         session.Document.SetActive(session.Document.Layers[^1].Id);
         session.NotifyLayersChanged();
         Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(Rows(), row => Equals(row.Tag, child));
+        Assert.DoesNotContain(Rows(), row => row.Tag is Layer layer && layer.Id == child.Id);
 
         var point = window.Canvas.TranslatePoint(window.Canvas.ToScreen(new SKPoint(60, 50)), window)!.Value;
         window.MouseDown(point, MouseButton.Left, RawInputModifiers.Control);
@@ -99,9 +99,9 @@ public class LayersPanelInputTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(child.Id, session.Document.ActiveLayerId);
-        Assert.False(outer.Collapsed);
-        Assert.False(inner.Collapsed);
-        var row = Assert.Single(Rows(), row => Equals(row.Tag, child));
+        Assert.False(session.Document.Find(outer.Id)!.Collapsed);
+        Assert.False(session.Document.Find(inner.Id)!.Collapsed);
+        var row = Assert.Single(Rows(), row => row.Tag is Layer layer && layer.Id == child.Id);
         var viewport = row.FindAncestorOfType<ScrollViewer>()!;
         var top = row.TranslatePoint(default, viewport)!.Value.Y;
         Assert.InRange(top + row.Bounds.Height / 2, 0, viewport.Bounds.Height);

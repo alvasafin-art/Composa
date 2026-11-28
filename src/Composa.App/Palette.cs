@@ -193,6 +193,18 @@ public static class Palette
                 new Setter(Visual.OpacityProperty, 0.48)
             }
         });
+        styles.Add(new Style(x => x.OfType<ComboBox>().Class("ai-panel-control").Class(":disabled"))
+        {
+            Setters = { new Setter(Visual.OpacityProperty, 0.58) }
+        });
+        styles.Add(new Style(x => x.OfType<MenuItem>().Class("ai-variant-option").Template().OfType<Border>())
+        {
+            Setters = { new Setter(Border.BackgroundProperty, Brushes.Transparent) }
+        });
+        styles.Add(new Style(x => x.OfType<MenuItem>().Class("ai-variant-option").Class(":selected").Template().OfType<Border>())
+        {
+            Setters = { new Setter(Border.BackgroundProperty, Hover) }
+        });
         styles.Add(new Style(x => x.OfType<ComboBoxItem>().Class("font-preview").Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
         {
             Setters = { new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, Selected) }

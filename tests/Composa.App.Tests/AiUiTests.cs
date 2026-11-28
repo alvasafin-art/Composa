@@ -33,7 +33,7 @@ public class AiUiTests
         Assert.True(window.Settings.AiAlignMaskedEdits);
         var combos = window.AiFloatingPanel.GetVisualDescendants().OfType<ComboBox>().ToArray();
         var panel = window.AiFloatingPanel;
-        var variants = Assert.IsType<MenuFlyout>(panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRunVariants").Flyout);
+        var variants = Assert.IsAssignableFrom<MenuFlyout>(panel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRunVariants").Flyout);
         foreach (var count in new[] { 2, 3 })
             Assert.Single(variants.Items.OfType<MenuItem>(), item => item.Name == $"AiVariants{count}");
         var enhance = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AiEnhancePrompt");

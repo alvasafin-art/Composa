@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -17,6 +18,18 @@ internal sealed class AiInlineRun
     private static readonly Icons.Icon Clock = new("M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0 -18Z M12 7v5l3 2");
     private static readonly Icons.Icon Check = new("M5 12l4 4L19 6");
     private const double Width = 100;
+    private const double VariantWidth = 24;
+
+    private sealed class VariantMenu : MenuFlyout
+    {
+        protected override Control CreatePresenter()
+        {
+            var presenter = (MenuFlyoutPresenter)base.CreatePresenter();
+            presenter.MinWidth = presenter.MaxWidth = presenter.Width = VariantWidth;
+            presenter.Padding = default;
+            return presenter;
+        }
+    }
 
     private readonly Button run;
     private readonly Button more;
@@ -78,17 +91,24 @@ internal sealed class AiInlineRun
         }, 11);
         more.Name = "AiRunVariants";
         more.Classes.Remove("flat");
-        more.Width = 24;
+        more.Width = VariantWidth;
         more.MinWidth = 0;
         more.Height = more.MinHeight = 28;
         more.Padding = default;
         more.CornerRadius = new CornerRadius(0, 4, 4, 0);
         more.HorizontalContentAlignment = HorizontalAlignment.Center;
         more.VerticalContentAlignment = VerticalAlignment.Center;
-        variantMenu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
+        variantMenu = new VariantMenu { Placement = PlacementMode.BottomEdgeAlignedLeft };
         foreach (var count in new[] { 2, 3 })
         {
-            var item = new MenuItem { Header = Locale.T(count == 2 ? "2 variants" : "3 variants"), Name = $"AiVariants{count}", Tag = count };
+            var item = new MenuItem { Header = count.ToString(CultureInfo.InvariantCulture), Name = $"AiVariants{count}", Tag = count,
+                Height = 24, MinWidth = 0, Classes = { "ai-variant-option" } };
+            AutomationProperties.SetName(item, Locale.T(count == 2 ? "2 variants" : "3 variants"));
+            item.Template = new FuncControlTemplate<MenuItem>((variant, _) => new Border
+            {
+                Child = new TextBlock { Text = variant.Header?.ToString(), Foreground = Palette.Foreground,
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            });
             item.Click += (_, _) => { if (phase == Phase.Ready && canStart) this.launch(count); };
             variantMenu.Items.Add(item);
         }

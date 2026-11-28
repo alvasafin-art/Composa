@@ -280,10 +280,11 @@ public sealed class EditorWorkflowUiTests
             Assert.All(picker.Items.OfType<ImageModelChoice>(), item => Assert.True(item.Available));
             Assert.Equal("chatgpt-image-2.5", Assert.IsType<ImageModelChoice>(picker.SelectedItem).Engine.Id);
             Assert.False(connect.IsEffectivelyVisible);
-            var popup = picker.GetVisualDescendants().OfType<Popup>().FirstOrDefault();
-            if (popup != null) popup.ShouldUseOverlayLayer = true;
+            var popup = Assert.Single(picker.GetVisualDescendants().OfType<Popup>());
+            popup.ShouldUseOverlayLayer = true;
             picker.IsDropDownOpen = true;
             Save(w,"workflow-ai-models");
+            Assert.InRange(Math.Abs(popup.Child!.TranslatePoint(default,w)!.Value.X - picker.TranslatePoint(default,w)!.Value.X), 0, 1);
             picker.IsDropDownOpen = false;
             var operation = Find<Button>(section.Content,"AiDockOperation");
             var operations = Assert.IsType<MenuFlyout>(operation.Flyout);
@@ -295,8 +296,16 @@ public sealed class EditorWorkflowUiTests
             var prompt = section.Content.GetVisualDescendants().OfType<TextBox>().Single(item => item.AcceptsReturn);
             prompt.Text = "Поставь рядом керамическую чашку.";
             var tail = Find<Button>(section.Content,"AiRunVariants");
-            var flyout = Assert.IsType<MenuFlyout>(tail.Flyout);
-            flyout.ShowAt(tail); Save(w,"workflow-ai-variants"); flyout.Hide();
+            var flyout = Assert.IsAssignableFrom<MenuFlyout>(tail.Flyout);
+            flyout.ShowAt(tail); Save(w,"workflow-ai-variants");
+            Assert.Equal(new[] { "2", "3" }, flyout.Items.OfType<MenuItem>().Select(item => item.Header));
+            var variants = Assert.Single(w.GetVisualDescendants().OfType<MenuFlyoutPresenter>());
+            var tailOrigin = tail.TranslatePoint(default,w)!.Value;
+            var menuOrigin = variants.TranslatePoint(default,w)!.Value;
+            Assert.InRange(Math.Abs(tail.Bounds.Width - variants.Bounds.Width), 0, 1);
+            Assert.InRange(Math.Abs(tailOrigin.X - menuOrigin.X), 0, 1);
+            Assert.InRange(Math.Abs(tailOrigin.Y + tail.Bounds.Height - menuOrigin.Y), 0, 1);
+            flyout.Hide();
             Save(w,"workflow-ai-ready");
             async Task State(string filename, AiOperationState state)
             {
@@ -309,6 +318,8 @@ public sealed class EditorWorkflowUiTests
             await State("workflow-ai-waiting",new() { Status = AiOperationStatus.Running, Stage = "Waiting for the model", ElapsedSeconds = 17 });
             await State("workflow-ai-progress",new() { Status = AiOperationStatus.Running, Value = 13, Maximum = 24, ElapsedSeconds = 17 });
             Assert.Null(tail.Flyout);
+            Assert.False(picker.IsEffectivelyEnabled);
+            Assert.InRange(picker.Opacity, 0.5, 0.7);
             await State("workflow-ai-applying",new() { Status = AiOperationStatus.Running, Stage = "Applying result", ElapsedSeconds = 30 });
             await State("workflow-ai-done",new() { Status = AiOperationStatus.Completed, CreditsUsed = 10.86, ElapsedSeconds = 31 });
             Assert.False(tail.IsEffectivelyEnabled);

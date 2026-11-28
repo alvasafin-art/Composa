@@ -468,10 +468,17 @@ public sealed partial class MainWindow
         aiConnectModels.Height = 28;
         aiConnectModels.IsVisible = false;
         aiEngineCombo = new ComboBox { Width = AiGenerationControls.ModelPickerWidth };
+        aiEngineCombo.Classes.Add("ai-panel-control");
         aiEngineCombo.Resources["ComboBoxBackgroundDisabled"] = Brushes.Transparent;
         aiEngineCombo.Resources["ComboBoxBorderBrushDisabled"] = Brushes.Transparent;
         aiEngineCombo.Resources["ComboBoxForegroundDisabled"] = Palette.Secondary;
         aiEngineCombo.Resources["ComboBoxDropDownGlyphForegroundDisabled"] = Palette.Secondary;
+        aiEngineCombo.TemplateApplied += (_, e) =>
+        {
+            if (e.NameScope.Find<Popup>("PART_Popup") is not { } popup) return;
+            popup.Placement = PlacementMode.BottomEdgeAlignedLeft;
+            popup.PlacementTarget = aiEngineCombo;
+        };
         RefreshEditorModels();
         aiEngineCombo.SelectionChanged += (_, _) =>
         {

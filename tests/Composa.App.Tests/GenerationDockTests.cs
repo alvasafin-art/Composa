@@ -782,7 +782,7 @@ public class GenerationDockTests
             if (count == 1) run.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             else
             {
-                var menu = Assert.IsType<MenuFlyout>(run.Flyout);
+                var menu = Assert.IsAssignableFrom<MenuFlyout>(run.Flyout);
                 menu.ShowAt(run); Pump();
                 var item = menu.Items.OfType<MenuItem>().Single(choice => choice.Name == $"AiVariants{count}");
                 item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));

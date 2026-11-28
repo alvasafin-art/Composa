@@ -67,7 +67,7 @@ public class AiAdvancedTests
         Assert.Contains(badge.Children.OfType<TextBlock>(), block => block.Text == "≈32");
         Assert.Contains(" cr / $", ToolTip.GetTip(badge)?.ToString());
         var alternatives = window.AiFloatingPanel.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AiRunVariants");
-        var three = Assert.IsType<MenuFlyout>(alternatives.Flyout).Items.OfType<MenuItem>().Single(item => item.Name == "AiVariants3");
+        var three = Assert.IsAssignableFrom<MenuFlyout>(alternatives.Flyout).Items.OfType<MenuItem>().Single(item => item.Name == "AiVariants3");
         Assert.Contains("≈96", ToolTip.GetTip(three)?.ToString());
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains(" cr / $") == true);
         Assert.DoesNotContain(window.AiFloatingPanel.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "＋");
