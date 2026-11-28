@@ -30,10 +30,6 @@ public static class ProjectFile
     /// </summary>
     public const int Version = 18;
 
-    // CMPS is written during interactive saves and crash recovery. All PNG filters stay available,
-    // while level 1 spends less time searching for matches in already filtered lossless raster data.
-    private static readonly SKPngEncoderOptions RasterPng = new(SKPngEncoderFilterFlags.AllFilters, 1);
-
     private static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
@@ -203,8 +199,7 @@ public static class ProjectFile
 #if CANVAS_PERFORMANCE
                 var encode = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
-                using var pixels = bitmap.PeekPixels();
-                using var encoded = pixels?.Encode(RasterPng) ?? throw new IOException("The image could not be encoded.");
+                using var encoded = bitmap.Encode(SKEncodedImageFormat.Png, 90) ?? throw new IOException("The image could not be encoded.");
 #if CANVAS_PERFORMANCE
                 CanvasPerformanceTrace.StageCompleted("CMPS encode raster PNG", encode);
                 var write = System.Diagnostics.Stopwatch.GetTimestamp();
