@@ -654,6 +654,8 @@ public sealed partial class MainWindow
         aiWorkflowLink.IsEnabled = hasModels && !busy;
         aiReferenceHost.IsEnabled = hasModels && !busy;
         promptRegionList.IsEnabled = hasModels && !busy;
+        foreach (var region in listedRegions)
+            regionPromptLabels[region.Number].Opacity = promptRegionList.IsEnabled ? (region.Enabled ? 1 : .6) : .48;
         if (aiHeaderReference != null) aiHeaderReference.IsEnabled &= !busy;
         if (dockOperation != null) dockOperation.IsEnabled = !busy &&
             (hasModels || AiGenerationControls.VisibleOperations.Any(taskKind =>

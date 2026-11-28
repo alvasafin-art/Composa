@@ -79,7 +79,6 @@ public sealed partial class MainWindow
             regionPromptLabels.Add(region.Number, label);
             label.TextWrapping = TextWrapping.Wrap;
             label.VerticalAlignment = VerticalAlignment.Center;
-            label.Opacity = region.Enabled ? 1 : .6;
             var cell = new Border { Child = label, Background = Brushes.Transparent };
             cell.DoubleTapped += (_, e) =>
             {

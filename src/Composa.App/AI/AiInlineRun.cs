@@ -17,16 +17,28 @@ internal sealed class AiInlineRun
     private static readonly Icons.Icon Clock = new("M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0 -18Z M12 7v5l3 2");
     private static readonly Icons.Icon Check = new("M5 12l4 4L19 6");
     private const double Width = 100;
+    private const double Height = 28;
+    private const double Radius = 6;
     private const double VariantWidth = 24;
+    private static readonly Geometry SplitFace = CreateFaceClip(split: true);
+    private static readonly Geometry StandaloneFace = CreateFaceClip(split: false);
 
     private readonly Button run;
     private readonly Button more;
     private readonly MenuFlyout variantMenu;
     private readonly Grid face = new() { ClipToBounds = true };
-    private readonly Border progress = new() { Background = Gradient("#2863AE", "#574AAF", "#9E477F"),
-        Width = Width, HorizontalAlignment = HorizontalAlignment.Left, RenderTransformOrigin = RelativePoint.TopLeft };
+    private readonly Grid progress = new()
+    {
+        Width = Width, HorizontalAlignment = HorizontalAlignment.Left, RenderTransformOrigin = RelativePoint.TopLeft,
+        Children =
+        {
+            new Border { Background = Gradient("#2C4D6A", "#434D77", "#594A77", "#684759", "#665846", "#355C5B") },
+            new Border { Height = 2, VerticalAlignment = VerticalAlignment.Bottom,
+                Background = Gradient("#73D8FF", "#9A9AFF", "#D19EFF", "#FF9EC9", "#FFD493", "#99E7CD") }
+        }
+    };
     private readonly Border shimmer = new() { Width = Width, HorizontalAlignment = HorizontalAlignment.Left,
-        Background = Gradient("#004381DD", "#8056AEFF", "#807D68E9", "#80DE76B5", "#00DE76B5") };
+        Background = Gradient("#0073D8FF", "#6873D8FF", "#729B92FF", "#72E698FF", "#70FF9FC0", "#65FFD493", "#5099E7CD", "#0099E7CD") };
     private readonly ScaleTransform progressScale = new(0, 1);
     private readonly TranslateTransform sweep = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
@@ -60,10 +72,9 @@ internal sealed class AiInlineRun
         run.Name = "AiRun";
         run.Classes.Remove("accent");
         run.Width = run.MinWidth = Width;
-        run.Height = run.MinHeight = 28;
+        run.Height = run.MinHeight = Height;
         run.Padding = default;
         run.BorderThickness = default;
-        run.CornerRadius = new CornerRadius(4, 0, 0, 4);
         run.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         run.VerticalContentAlignment = VerticalAlignment.Stretch;
         run.Content = face;
@@ -84,9 +95,9 @@ internal sealed class AiInlineRun
         more.Classes.Add("ai-panel-control");
         more.Width = VariantWidth;
         more.MinWidth = 0;
-        more.Height = more.MinHeight = 28;
+        more.Height = more.MinHeight = Height;
         more.Padding = default;
-        more.CornerRadius = new CornerRadius(0, 4, 4, 0);
+        more.CornerRadius = new CornerRadius(0, Radius, Radius, 0);
         more.HorizontalContentAlignment = HorizontalAlignment.Center;
         more.VerticalContentAlignment = VerticalAlignment.Center;
         variantMenu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
@@ -163,8 +174,8 @@ internal sealed class AiInlineRun
         run.IsHitTestVisible = run.Focusable = phase == Phase.Ready;
         more.IsVisible = supportsVariants || Busy;
         more.IsEnabled = phase == Phase.Ready && canStart || Busy && phase != Phase.Cancel;
-        more.CornerRadius = more.IsVisible ? new CornerRadius(0, 4, 4, 0) : new CornerRadius(4);
-        run.CornerRadius = more.IsVisible ? new CornerRadius(4, 0, 0, 4) : new CornerRadius(4);
+        run.CornerRadius = more.IsVisible ? new CornerRadius(Radius, 0, 0, Radius) : new CornerRadius(Radius);
+        face.Clip = more.IsVisible ? SplitFace : StandaloneFace;
         var variants = phase == Phase.Ready;
         more.Flyout = variants ? variantMenu : null;
         more.Content = Icons.Create(Busy ? Icons.Close : Icons.ChevronDown, 11);
@@ -189,7 +200,7 @@ internal sealed class AiInlineRun
         run.Background = phase switch
         {
             Phase.Ready => Palette.Active,
-            Phase.Wait or Phase.Progress => Brush("#315883"),
+            Phase.Wait or Phase.Progress => Brush("#293950"),
             Phase.Failed => Brush("#713C36"),
             Phase.Cancelled => Brush("#454A53"),
             _ => Brush("#35485D")
@@ -300,10 +311,31 @@ internal sealed class AiInlineRun
     private static string FormatTime(int seconds) => seconds < 3600 ? $"{seconds / 60}:{seconds % 60:00}" :
         $"{seconds / 3600}:{seconds / 60 % 60:00}:{seconds % 60:00}";
     private static IBrush Brush(string value) => new SolidColorBrush(Color.Parse(value));
+    private static Geometry CreateFaceClip(bool split)
+    {
+        var rightRadius = split ? 0 : Radius;
+        var geometry = new StreamGeometry();
+        using var outline = geometry.Open();
+        outline.BeginFigure(new Point(Radius, 0), isFilled: true);
+        outline.LineTo(new Point(Width - rightRadius, 0));
+        if (!split) Arc(Width, Radius);
+        outline.LineTo(new Point(Width, Height - rightRadius));
+        if (!split) Arc(Width - Radius, Height);
+        outline.LineTo(new Point(Radius, Height));
+        Arc(0, Height - Radius);
+        outline.LineTo(new Point(0, Radius));
+        Arc(Radius, 0);
+        outline.EndFigure(isClosed: true);
+        return geometry;
+
+        void Arc(double x, double y) => outline.ArcTo(new Point(x, y), new Size(Radius, Radius), 0, false, SweepDirection.Clockwise);
+    }
+
     private static LinearGradientBrush Gradient(params string[] colors)
     {
         var stops = new GradientStops();
         for (int i = 0; i < colors.Length; i++) stops.Add(new GradientStop(Color.Parse(colors[i]), (double)i / (colors.Length - 1)));
-        return new LinearGradientBrush { StartPoint = RelativePoint.TopLeft, EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative), GradientStops = stops };
+        return new LinearGradientBrush { StartPoint = new RelativePoint(0, .75, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, .25, RelativeUnit.Relative), GradientStops = stops };
     }
 }

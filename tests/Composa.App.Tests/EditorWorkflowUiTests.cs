@@ -382,6 +382,10 @@ public sealed class EditorWorkflowUiTests
                 var origin = caption.TranslatePoint(default, run)!.Value;
                 Assert.InRange(origin.X, 0, run.Bounds.Width);
                 Assert.InRange(origin.X + caption.Bounds.Width, 0, run.Bounds.Width);
+                var clip = Assert.IsType<Grid>(run.Content).Clip!;
+                Assert.False(clip.FillContains(new Point(.25, .25)));
+                Assert.False(clip.FillContains(new Point(.25, run.Bounds.Height - .25)));
+                Assert.True(clip.FillContains(new Point(run.Bounds.Width - .25, .25)));
             }
             async Task State(string filename, AiOperationState state)
             {
@@ -403,6 +407,10 @@ public sealed class EditorWorkflowUiTests
             AssertCaption("13:24:57 · 54%");
             var regionButton = Find<Button>(section.Content, "DeleteAllPromptRegions");
             Assert.False(regionButton.IsEffectivelyEnabled);
+            var regionCaptions = section.Content.GetVisualDescendants().OfType<TextBlock>()
+                .Where(text => text.Text == Locale.T("Region prompt")).ToArray();
+            Assert.Equal(3, regionCaptions.Length);
+            Assert.All(regionCaptions, text => Assert.Equal(.48, text.Opacity));
             var surface = Assert.Single(regionButton.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>());
             Assert.Equal(Avalonia.Media.Colors.Transparent, Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surface.Background).Color);
             Assert.Null(tail.Flyout);
@@ -412,6 +420,7 @@ public sealed class EditorWorkflowUiTests
             AssertCaption(Locale.T("Inserting"));
             await State("workflow-ai-done",new() { Status = AiOperationStatus.Completed, CreditsUsed = 10.86, ElapsedSeconds = 31 });
             AssertCaption($"{Locale.T("Done")} · 0:31");
+            Assert.All(regionCaptions, text => Assert.Equal(1, text.Opacity));
             Assert.False(tail.IsEffectivelyEnabled);
             await Task.Delay(890, TestContext.Current.CancellationToken);
             Save(w,"workflow-ai-charge" + suffix);
