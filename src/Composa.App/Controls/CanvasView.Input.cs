@@ -267,7 +267,7 @@ public sealed partial class CanvasView
             case Tool.Move:
                 if (!control && BeginShapeParameter(point.Position, alt)) break;
                 // A double-click on live text opens it for typing, without switching to the Type tool first.
-                pendingMoveDoubleClick = e.ClickCount == 2 && !shift;
+                pendingMoveDoubleClick = e.ClickCount >= 2 && !shift;
                 var moveHandle = ShowTransformControls && CurrentFrame() is { } moveFrame
                     ? HitFrame(moveFrame, pressScreen, allowRotate: true) : TransformHandle.None;
                 if (!control && !shift && !alt && BeginLayoutGesture(point.Position, moveHandle is TransformHandle.None or TransformHandle.Move)) break;

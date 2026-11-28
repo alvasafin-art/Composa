@@ -496,6 +496,9 @@ public sealed class EditorWorkflowUiTests
             Click(w,Center(Tiles()[0]));
             w.Canvas.Focus(); // A panel rebuild can return keyboard focus to the canvas.
             w.KeyPressQwerty(PhysicalKey.G,RawInputModifiers.Control);
+            var layerCount = s.Document.Layers.Count;
+            w.KeyPressQwerty(PhysicalKey.J,RawInputModifiers.Control);
+            Assert.Equal(layerCount, s.Document.Layers.Count);
             Assert.Equal(text.Id, s.ActiveLayer?.Id);
             Assert.Empty(library.ReadOrganization().Groups);
             Click(w,Center(Tiles()[1]),RawInputModifiers.Control);

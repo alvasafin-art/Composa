@@ -312,6 +312,9 @@ internal sealed partial class ResourceLibraryPanel : UserControl
 
     internal void TrackInput(Visual? source) => lastInputHere = ContainsInput(source);
 
+    internal bool HasResourceInput(object? focused) => selectedIds.Count > 0 && IsEffectivelyVisible &&
+        TopLevel.GetTopLevel(this) != null && (lastInputHere || ContainsInput(focused as Visual));
+
     internal bool HandleLibraryKey(object? focused, KeyEventArgs e)
     {
         if (!IsEffectivelyVisible || TopLevel.GetTopLevel(this) == null) return false;
@@ -326,10 +329,10 @@ internal sealed partial class ResourceLibraryPanel : UserControl
         }
         if (e.KeyModifiers != KeyModifiers.None) return false;
         bool searchKey = ReferenceEquals(focused, search) && e.Key is Key.Enter or Key.Escape or Key.Down;
-        bool rowKey = inPanel && focused is Control { Tag: LibraryEntry or LibraryGroup } &&
+        bool rowKey = focused is not TextBox && (inPanel && focused is Control { Tag: LibraryEntry or LibraryGroup } ||
+            lastInputHere && selected != null) &&
             e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space or Key.Delete;
-        bool delete = lastInputHere && focused is not TextBox && selected != null && e.Key == Key.Delete;
-        if (!searchKey && !rowKey && !delete) return false;
+        if (!searchKey && !rowKey) return false;
         e.Handled = true;
         if (searchKey && e.Key == Key.Escape) { search.Text = ""; return true; }
         if (filtered.Length == 0) return true;

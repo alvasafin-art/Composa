@@ -21,6 +21,7 @@ namespace Composa.App;
 public sealed partial class MainWindow
 {
     private readonly List<Shortcut> commands = [];
+    private Shortcut[] layerCommands = [];
     /// <summary>Keys that pick tools or act on the canvas without a menu entry; letters also work with Shift held.</summary>
     private readonly List<Shortcut> toolKeys = [];
     private readonly List<(MenuItem Item, Shortcut Command)> menuItems = [];
@@ -201,6 +202,7 @@ public sealed partial class MainWindow
             Item("ComfyUI Settings…", () => _ = ShowAiSettings(), needsDocument: false),
             assistantItem);
 
+        var layerCommandStart = commands.Count;
         mergeItem = Item("Merge Down", () => session!.MergeLayers(), Key.E, ctrl, () => session!.CanMerge);
         clipItem = Item("Create Clipping Mask", () => session!.ToggleClippingMask(session.ActiveLayer!), Key.G, ctrl | alt, () => session!.ActiveLayer is { } l && session.CanClip(l));
         Top("_Layer",
@@ -247,6 +249,7 @@ public sealed partial class MainWindow
             Item("Rotate Layer 180°", () => session!.RotateLayers(180)),
             Item("Flip Layer Horizontal", () => session!.FlipLayers(true)),
             Item("Flip Layer Vertical", () => session!.FlipLayers(false)));
+        layerCommands = commands.Skip(layerCommandStart).ToArray();
 
         var grid = new MenuItem { Header = Locale.T("Pixel Grid (800% and above)"), ToggleType = MenuItemToggleType.CheckBox, IsChecked = canvas.ShowPixelGrid };
         grid.Click += (_, _) => { canvas.ShowPixelGrid = !canvas.ShowPixelGrid; grid.IsChecked = canvas.ShowPixelGrid; canvas.InvalidateCanvas(); RememberToolSettings(); };
@@ -526,6 +529,8 @@ public sealed partial class MainWindow
             && e.Key is Key.Left or Key.Right or Key.Home or Key.End or Key.Enter or Key.Space)
             return;
         if (libraryPanel.HandleLibraryKey(focused, e)) return;
+        if (libraryPanel.HasResourceInput(focused) && layerCommands.Any(command => command.Matches(e)))
+        { e.Handled = true; return; }
         if (openFontPicker?.IsDropDownOpen == true) return;
         if (SwallowAlt(e)) return;
         if (channelInspectorDragging)
