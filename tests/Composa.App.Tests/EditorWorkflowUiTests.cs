@@ -287,7 +287,7 @@ public sealed class EditorWorkflowUiTests
     }
 
     [AvaloniaFact]
-    public void Text_frame_tightens_without_mutating_placement_or_hit_coverage()
+    public void Text_frame_uses_typographic_metrics_without_moving_glyphs_or_mouse_targets()
     {
         var s = EditorSession.NewCanvas(520, 280, new SKColor(248,244,234));
         var point = s.AddText(new(100,55), new TextStyle { Text = "Й Ё р у", FontFamily = "Arial", Size = 32 });
@@ -297,10 +297,16 @@ public sealed class EditorWorkflowUiTests
         try
         {
             w.SelectTool(Tool.Move); w.Canvas.ZoomTo(1);
-            Assert.InRange(point.Bounds.Width - point.ControlBounds.Width, 15, 50);
+            var pointLayout = new TextLayout(point.Text!);
+            Assert.Equal(point.Bounds.Left + TextLayout.Padding, point.ControlBounds.Left, 3);
+            Assert.Equal(point.Bounds.Top + TextLayout.Padding, point.ControlBounds.Top, 3);
+            Assert.Equal(MathF.Ceiling(pointLayout.Lines[0].VisibleWidth), point.ControlBounds.Width, 3);
+            Assert.Equal(pointLayout.Height - 2 * TextLayout.Padding, point.ControlBounds.Height, 3);
             Assert.Equal(paragraph.Bounds.Width, paragraph.ControlBounds.Width);
             var layout = new TextLayout(paragraph.Text!);
             Assert.Equal(3, layout.Lines.Count);
+            Assert.Equal(paragraph.Bounds.Top + TextLayout.Padding, paragraph.ControlBounds.Top, 3);
+            Assert.Equal(layout.Height - 2 * TextLayout.Padding, paragraph.ControlBounds.Height, 3);
             var baseline = layout.Lines[0].Baseline;
             s.SelectLayer(paragraph.Id); Save(w, "workflow-text-paragraph");
             s.ClearLayerSelection();
@@ -311,6 +317,11 @@ public sealed class EditorWorkflowUiTests
             Assert.Equal(original, s.Document.Find(point.Id)!.Transform);
             Assert.Equal(baseline, new TextLayout(paragraph.Text!).Lines[0].Baseline);
             Save(w, "workflow-text-point");
+
+            var fixedBox = s.AddText(new(250, 48), paragraph.Text! with { AutoBoxHeight = false });
+            Assert.Equal(fixedBox.Bounds, fixedBox.ControlBounds);
+            var plain = s.AddText(new(82, 48), point.Text! with { Text = "И Е п и" });
+            Assert.Equal(point.ControlBounds.Height, plain.ControlBounds.Height);
         }
         finally { Close(w); }
     }

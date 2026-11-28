@@ -1,4 +1,5 @@
 using System.Text;
+using System.Runtime.CompilerServices;
 using Composa.Model;
 using Composa.Rendering;
 using SkiaSharp;
@@ -46,6 +47,14 @@ public sealed partial class TextLayout
     public IReadOnlyList<Line> Lines { get; }
     /// <summary>Paragraph text that does not fit its box; the lines beyond it are laid out but clipped.</summary>
     public bool Overflows { get; }
+
+    private sealed record Frame(SKRectI Bounds);
+    private static readonly ConditionalWeakTable<TextStyle, Frame> frames = new();
+    private readonly SKRectI selectionFrame;
+
+    /// <summary>The typographic frame in source pixels, independent of the rendered glyph outline.</summary>
+    internal static SKRectI SelectionFrameFor(TextStyle style) =>
+        frames.GetValue(style, static value => new Frame(new TextLayout(value).selectionFrame)).Bounds;
 
     /// <summary>Faces looked up once per process: matching a family through the font manager is slow, and a layout asks for every stretch it draws.</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<TextFace, SKTypeface> typefaces = new();
@@ -191,6 +200,13 @@ public sealed partial class TextLayout
         }
         Width = Math.Min(Width, Document.MaxSide);
         Height = Math.Min(Height, Document.MaxSide);
+
+        // The raster keeps its safety margins for antialiasing, overhangs and existing document placement.
+        // The editor frame follows the text's advance and layout height within that raster.
+        selectionFrame = style.IsBox && !style.AutoBoxHeight
+            ? new(0, 0, Width, Height)
+            : Geometry.RoundOut(SKRect.Create(style.IsBox ? 0 : Padding, Padding,
+                style.IsBox ? Width : Math.Max(1, contentWidth), contentHeight));
 
         var lines = new List<Line>(ranges.Count);
         var free = style.IsBox ? Math.Max(0, BlockSize - 2 * Padding - blockHeight) : 0;

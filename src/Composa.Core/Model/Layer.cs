@@ -1,4 +1,5 @@
 using Composa.Filters;
+using Composa.Text;
 using SkiaSharp;
 
 namespace Composa.Model;
@@ -585,24 +586,14 @@ public sealed partial class Layer
         {
             if (Pixels == null) return SKRectI.Empty;
             if (HasWarp) return Geometry.RoundOut(WarpBounds);
-            if (Text is { IsBox: false, IsVertical: false, Path: null })
+            var source = new SKRectI(0, 0, Pixels.Width, Pixels.Height);
+            if (Text is { IsVertical: false, Path: null } text && (!text.IsBox || text.AutoBoxHeight))
             {
-                var ink = Rendering.Pixels.ContentBounds(Pixels);
-                if (!ink.IsEmpty)
-                {
-                    ink.Inflate(2, 2);
-                    return SKRectI.Intersect(ink, new SKRectI(0, 0, Pixels.Width, Pixels.Height));
-                }
-            }
-            if (Text is { IsBox: true, IsVertical: false, Path: null, AutoBoxHeight: true } && Pixels.Height > 16)
-            {
-                var ink = Rendering.Pixels.ContentBounds(Pixels);
-                if (!ink.IsEmpty)
-                    return new SKRectI(0, Math.Clamp(ink.Top - 2, 0, 8), Pixels.Width,
-                        Pixels.Height - Math.Clamp(Pixels.Height - ink.Bottom - 2, 0, 8));
+                var frame = SKRectI.Intersect(TextLayout.SelectionFrameFor(text), source);
+                return frame.IsEmpty ? source : frame;
             }
             var bounds = IsLive || IsSmartObject ? SKRectI.Empty : Rendering.Pixels.ContentBounds(Pixels);
-            return bounds.IsEmpty ? new(0, 0, Pixels.Width, Pixels.Height) : bounds;
+            return bounds.IsEmpty ? source : bounds;
         }
     }
 
